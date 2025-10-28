@@ -26,7 +26,7 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md bg-surface border-border/50">
+      <DialogContent className="sm:max-w-md bg-surface/98 backdrop-blur-xl border-border/30 shadow-2xl">
         <DialogHeader>
           <DialogTitle className="text-center text-2xl">Welcome back</DialogTitle>
         </DialogHeader>
