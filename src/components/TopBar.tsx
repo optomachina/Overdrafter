@@ -1,32 +1,40 @@
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import { SignInDialog } from "./SignInDialog";
 
 interface TopBarProps {
   onMenuClick: () => void;
 }
 
 export function TopBar({ onMenuClick }: TopBarProps) {
-  return (
-    <header className="fixed top-0 left-0 right-0 h-16 z-50 glass-header border-b border-border/50">
-      <div className="h-full px-4 flex items-center justify-between max-w-[1920px] mx-auto">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onMenuClick}
-          className="hover:bg-secondary"
-          aria-label="Open menu"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
+  const [showSignIn, setShowSignIn] = useState(false);
 
-        <Button
-          variant="ghost"
-          className="hover:bg-secondary hover:text-primary transition-colors"
-          onClick={() => window.location.href = '/signin'}
-        >
-          Sign in
-        </Button>
-      </div>
-    </header>
+  return (
+    <>
+      <header className="fixed top-0 left-0 right-0 h-16 z-50 glass-header border-b border-border/50">
+        <div className="h-full px-4 flex items-center justify-between max-w-[1920px] mx-auto">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onMenuClick}
+            className="hover:bg-secondary"
+            aria-label="Open menu"
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            className="hover:bg-secondary hover:text-primary transition-colors"
+            onClick={() => setShowSignIn(true)}
+          >
+            Sign in
+          </Button>
+        </div>
+      </header>
+
+      <SignInDialog open={showSignIn} onOpenChange={setShowSignIn} />
+    </>
   );
 }
