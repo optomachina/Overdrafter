@@ -9,6 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import logo from "@/assets/logo.png";
 
 interface LeftDrawerProps {
   isOpen: boolean;
@@ -54,8 +55,8 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
           {/* Header */}
           <div className="h-16 flex items-center justify-between px-4 border-b border-border">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                <span className="text-primary font-bold text-sm">OD</span>
+              <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center">
+                <img src={logo} alt="OverDrafter" className="w-full h-full object-contain" />
               </div>
               <span className="font-semibold text-foreground">OverDrafter</span>
             </div>
