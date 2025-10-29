@@ -1,7 +1,13 @@
-import { X, FolderOpen, FileText, Plus, Upload, MoreHorizontal, Search, Library } from "lucide-react";
+import { X, FolderOpen, FileText, Plus, Upload, MoreHorizontal, Search, Library, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,6 +36,9 @@ const sampleFiles = [
 ];
 
 export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
+  const [isProjectsOpen, setIsProjectsOpen] = useState(true);
+  const [isFilesOpen, setIsFilesOpen] = useState(true);
+
   return (
     <>
       {/* Overlay */}
@@ -102,13 +111,17 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
               </div>
 
               {/* Projects Section */}
-              <section>
-                <div className="flex items-center gap-2 mb-3">
-                  <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                  <h2 className="text-sm font-semibold text-foreground">Projects</h2>
-                </div>
+              <Collapsible open={isProjectsOpen} onOpenChange={setIsProjectsOpen}>
+                <CollapsibleTrigger className="w-full">
+                  <div className="flex items-center gap-2 mb-3">
+                    <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isProjectsOpen ? 'rotate-90' : ''}`} />
+                    <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                    <h2 className="text-sm font-semibold text-foreground">Projects</h2>
+                  </div>
+                </CollapsibleTrigger>
                 
-                {sampleProjects.length > 0 ? (
+                <CollapsibleContent>
+                  {sampleProjects.length > 0 ? (
                   <div className="space-y-1">
                     {sampleProjects.map((project) => (
                       <button
@@ -148,21 +161,26 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
                       </button>
                     ))}
                   </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground py-4 text-center">
-                    No projects yet. Start by creating one.
-                  </p>
-                )}
-              </section>
+                  ) : (
+                    <p className="text-sm text-muted-foreground py-4 text-center">
+                      No projects yet. Start by creating one.
+                    </p>
+                  )}
+                </CollapsibleContent>
+              </Collapsible>
 
               {/* Files Section */}
-              <section>
-                <div className="flex items-center gap-2 mb-3">
-                  <FileText className="h-4 w-4 text-muted-foreground" />
-                  <h2 className="text-sm font-semibold text-foreground">Files</h2>
-                </div>
+              <Collapsible open={isFilesOpen} onOpenChange={setIsFilesOpen}>
+                <CollapsibleTrigger className="w-full">
+                  <div className="flex items-center gap-2 mb-3">
+                    <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isFilesOpen ? 'rotate-90' : ''}`} />
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <h2 className="text-sm font-semibold text-foreground">Files</h2>
+                  </div>
+                </CollapsibleTrigger>
                 
-                {sampleFiles.length > 0 ? (
+                <CollapsibleContent>
+                  {sampleFiles.length > 0 ? (
                   <div className="space-y-1">
                     {sampleFiles.map((file) => (
                       <button
@@ -210,12 +228,13 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
                       </button>
                     ))}
                   </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground py-4 text-center">
-                    No files yet. Drag & drop or use the + button.
-                  </p>
-                )}
-              </section>
+                  ) : (
+                    <p className="text-sm text-muted-foreground py-4 text-center">
+                      No files yet. Drag & drop or use the + button.
+                    </p>
+                  )}
+                </CollapsibleContent>
+              </Collapsible>
             </div>
           </ScrollArea>
 
