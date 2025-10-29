@@ -27,14 +27,14 @@ export function TopBar({ onMenuClick }: TopBarProps) {
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
-              className="hover:bg-secondary hover:text-primary transition-colors"
+              className="rounded-full hover:bg-secondary hover:text-primary transition-colors"
               onClick={() => setShowSignIn(true)}
             >
               Sign in
             </Button>
             <Button
               variant="default"
-              className="bg-foreground text-background hover:bg-foreground/90 transition-colors"
+              className="rounded-full bg-foreground text-background hover:bg-foreground/90 transition-colors"
               onClick={() => setShowSignIn(true)}
             >
               Sign up
