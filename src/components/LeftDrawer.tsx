@@ -113,10 +113,12 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
               {/* Projects Section */}
               <Collapsible open={isProjectsOpen} onOpenChange={setIsProjectsOpen}>
                 <CollapsibleTrigger className="w-full">
-                  <div className="flex items-center gap-2 mb-3">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                      <h2 className="text-sm font-semibold text-foreground">Projects</h2>
+                    </div>
                     <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isProjectsOpen ? 'rotate-90' : ''}`} />
-                    <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                    <h2 className="text-sm font-semibold text-foreground">Projects</h2>
                   </div>
                 </CollapsibleTrigger>
                 
@@ -172,10 +174,12 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
               {/* Files Section */}
               <Collapsible open={isFilesOpen} onOpenChange={setIsFilesOpen}>
                 <CollapsibleTrigger className="w-full">
-                  <div className="flex items-center gap-2 mb-3">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                      <h2 className="text-sm font-semibold text-foreground">Files</h2>
+                    </div>
                     <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isFilesOpen ? 'rotate-90' : ''}`} />
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    <h2 className="text-sm font-semibold text-foreground">Files</h2>
                   </div>
                 </CollapsibleTrigger>
                 
