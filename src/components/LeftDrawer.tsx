@@ -58,6 +58,7 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
               <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center">
                 <img src={logo} alt="OverDrafter" className="w-full h-full object-contain" />
               </div>
+              <span className="font-semibold text-foreground">OverDrafter</span>
             </div>
             <Button
               variant="ghost"

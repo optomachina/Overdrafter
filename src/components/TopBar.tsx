@@ -5,10 +5,9 @@ import logo from "@/assets/logo.png";
 
 interface TopBarProps {
   onMenuClick: () => void;
-  isDrawerOpen: boolean;
 }
 
-export function TopBar({ onMenuClick, isDrawerOpen }: TopBarProps) {
+export function TopBar({ onMenuClick }: TopBarProps) {
   const [showSignIn, setShowSignIn] = useState(false);
 
   return (
@@ -22,7 +21,7 @@ export function TopBar({ onMenuClick, isDrawerOpen }: TopBarProps) {
             className="hover:bg-secondary"
             aria-label="Open menu"
           >
-            {!isDrawerOpen && <img src={logo} alt="OverDrafter Logo" className="h-6 w-6" />}
+            <img src={logo} alt="OverDrafter Logo" className="h-6 w-6" />
           </Button>
 
           <div className="flex items-center gap-2">
