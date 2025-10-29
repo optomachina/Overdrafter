@@ -1,7 +1,8 @@
-import { PanelLeftClose, FolderOpen, FileText, Plus, Upload, MoreHorizontal, Search, Library, ChevronRight } from "lucide-react";
+import { PanelLeftClose, PanelLeft, FolderOpen, FileText, Plus, Upload, MoreHorizontal, Search, Library, ChevronRight, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Collapsible,
   CollapsibleContent,
@@ -15,11 +16,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import logo from "@/assets/logo.png";
 
 interface LeftDrawerProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isCollapsed: boolean;
+  onToggle: () => void;
 }
 
 const sampleProjects = [
@@ -35,230 +42,364 @@ const sampleFiles = [
   { id: 4, name: "dimensions.DXF", type: "DXF", timestamp: "2 days ago" },
 ];
 
-export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
+export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
   const [isProjectsOpen, setIsProjectsOpen] = useState(true);
   const [isFilesOpen, setIsFilesOpen] = useState(true);
 
   return (
-    <>
-      {/* Overlay */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-black/60 z-40 animate-fade-in"
-          onClick={onClose}
-          aria-hidden="true"
-        />
-      )}
-
-      {/* Drawer */}
-      <aside
-        className={`
-          fixed top-0 left-0 bottom-0 w-80 z-50 
-          bg-card border-r border-border shadow-2xl
-          transform transition-transform duration-300 ease-out
-          ${isOpen ? "translate-x-0" : "-translate-x-full"}
-        `}
-        aria-label="Navigation drawer"
-      >
-        <div className="h-full flex flex-col">
-          {/* Header */}
-          <div className="h-16 flex items-center justify-between px-4 border-b border-border">
+    <aside
+      className={`
+        fixed top-0 left-0 bottom-0 z-50 
+        bg-card border-r border-border shadow-2xl
+        transition-all duration-300 ease-out
+        ${isCollapsed ? "w-16" : "w-80"}
+      `}
+      aria-label="Navigation drawer"
+    >
+      <div className="h-full flex flex-col">
+        {/* Header */}
+        <div className="h-16 flex items-center justify-between px-4 border-b border-border">
+          {!isCollapsed && (
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center">
                 <img src={logo} alt="OverDrafter" className="w-full h-full object-contain" />
               </div>
               <span className="font-semibold text-foreground">OverDrafter</span>
             </div>
+          )}
+          {isCollapsed && (
+            <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center mx-auto">
+              <img src={logo} alt="OverDrafter" className="w-full h-full object-contain" />
+            </div>
+          )}
+          {!isCollapsed && (
             <Button
               variant="ghost"
               size="icon"
-              onClick={onClose}
+              onClick={onToggle}
               className="hover:bg-secondary"
-              aria-label="Close menu"
+              aria-label="Collapse sidebar"
             >
               <PanelLeftClose className="h-5 w-5" />
             </Button>
-          </div>
-
-          <ScrollArea className="flex-1">
-            <div className="p-4 space-y-6">
-              {/* Action Buttons */}
-              <div className="flex flex-col gap-2">
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start px-0 hover:bg-transparent"
-                  onClick={() => console.log('New chat')}
-                >
-                  <Plus className="h-4 w-4 mr-2 text-muted-foreground" />
-                  <span className="text-sm font-semibold text-foreground">New</span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start px-0 hover:bg-transparent"
-                  onClick={() => console.log('Search')}
-                >
-                  <Search className="h-4 w-4 mr-2 text-muted-foreground" />
-                  <span className="text-sm font-semibold text-foreground">Search</span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start px-0 hover:bg-transparent"
-                  onClick={() => console.log('Library')}
-                >
-                  <Library className="h-4 w-4 mr-2 text-muted-foreground" />
-                  <span className="text-sm font-semibold text-foreground">Library</span>
-                </Button>
-              </div>
-
-              {/* Projects Section */}
-              <Collapsible open={isProjectsOpen} onOpenChange={setIsProjectsOpen}>
-                <CollapsibleTrigger className="w-full">
-                  <div className="flex items-center gap-2 mb-3">
-                    <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                    <h2 className="text-sm font-semibold text-foreground">Projects</h2>
-                    <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isProjectsOpen ? 'rotate-90' : ''}`} />
-                  </div>
-                </CollapsibleTrigger>
-                
-                <CollapsibleContent>
-                  {sampleProjects.length > 0 ? (
-                  <div className="space-y-1">
-                    {sampleProjects.map((project) => (
-                      <button
-                        key={project.id}
-                        className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-secondary hover-lift group transition-all text-left"
-                      >
-                  <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate">
-                            {project.name}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {project.timestamp}
-                          </p>
-                        </div>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 flex-shrink-0 ml-2"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" side="top">
-                            <DropdownMenuItem>Draft</DropdownMenuItem>
-                            <DropdownMenuItem>Design</DropdownMenuItem>
-                            <DropdownMenuItem>Deliver</DropdownMenuItem>
-                            <DropdownMenuItem>Share</DropdownMenuItem>
-                            <DropdownMenuItem>Rename</DropdownMenuItem>
-                            <DropdownMenuSeparator className="my-1 mx-2 h-[2px]" />
-                            <DropdownMenuItem>Archive</DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </button>
-                    ))}
-                  </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground py-4 text-center">
-                      No projects yet. Start by creating one.
-                    </p>
-                  )}
-                </CollapsibleContent>
-              </Collapsible>
-
-              {/* Files Section */}
-              <Collapsible open={isFilesOpen} onOpenChange={setIsFilesOpen}>
-                <CollapsibleTrigger className="w-full">
-                  <div className="flex items-center gap-2 mb-3">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    <h2 className="text-sm font-semibold text-foreground">Files</h2>
-                    <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isFilesOpen ? 'rotate-90' : ''}`} />
-                  </div>
-                </CollapsibleTrigger>
-                
-                <CollapsibleContent>
-                  {sampleFiles.length > 0 ? (
-                  <div className="space-y-1">
-                    {sampleFiles.map((file) => (
-                      <button
-                        key={file.id}
-                        className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-secondary hover-lift group transition-all text-left"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium text-foreground truncate">
-                              {file.name}
-                            </p>
-                            <Badge
-                              variant="secondary"
-                              className="text-xs px-1.5 py-0 flex-shrink-0"
-                            >
-                              {file.type}
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {file.timestamp}
-                          </p>
-                        </div>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 flex-shrink-0 ml-2"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" side="top">
-                            <DropdownMenuItem>Draft</DropdownMenuItem>
-                            <DropdownMenuItem>Design</DropdownMenuItem>
-                            <DropdownMenuItem>Deliver</DropdownMenuItem>
-                            <DropdownMenuItem>Share</DropdownMenuItem>
-                            <DropdownMenuItem>Rename</DropdownMenuItem>
-                            <DropdownMenuSeparator className="my-1 mx-2 h-[2px]" />
-                            <DropdownMenuItem>Archive</DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </button>
-                    ))}
-                  </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground py-4 text-center">
-                      No files yet. Drag & drop or use the + button.
-                    </p>
-                  )}
-                </CollapsibleContent>
-              </Collapsible>
-            </div>
-          </ScrollArea>
-
-          {/* Footer Actions */}
-          <div className="p-4 border-t border-border space-y-2">
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              onClick={() => console.log('New project')}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              New Project
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              onClick={() => console.log('Upload files')}
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              Upload Files
-            </Button>
-          </div>
+          )}
         </div>
-      </aside>
-    </>
+
+        {isCollapsed ? (
+          // Collapsed view - icons only
+          <TooltipProvider>
+            <div className="flex-1 flex flex-col items-center py-4 gap-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={onToggle}
+                    className="hover:bg-secondary"
+                  >
+                    <PanelLeft className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Expand sidebar</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="hover:bg-secondary"
+                    onClick={() => console.log('New')}
+                  >
+                    <Plus className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">New</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="hover:bg-secondary"
+                    onClick={() => console.log('Search')}
+                  >
+                    <Search className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Search</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="hover:bg-secondary"
+                    onClick={() => console.log('Library')}
+                  >
+                    <Library className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Library</TooltipContent>
+              </Tooltip>
+
+              <div className="my-2 w-8 h-px bg-border" />
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="hover:bg-secondary"
+                    onClick={() => console.log('Projects')}
+                  >
+                    <FolderOpen className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Projects</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="hover:bg-secondary"
+                    onClick={() => console.log('Files')}
+                  >
+                    <FileText className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Files</TooltipContent>
+              </Tooltip>
+            </div>
+
+            {/* User Profile - Collapsed */}
+            <div className="p-2 border-t border-border">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="w-full hover:bg-secondary"
+                    onClick={() => console.log('User profile')}
+                  >
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src="" alt="User" />
+                      <AvatarFallback className="bg-primary text-primary-foreground">
+                        <User className="h-4 w-4" />
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">User Profile</TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
+        ) : (
+          // Expanded view - full content
+          <>
+            <ScrollArea className="flex-1">
+              <div className="p-4 space-y-6">
+                {/* Action Buttons */}
+                <div className="flex flex-col gap-2">
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start px-0 hover:bg-transparent"
+                    onClick={() => console.log('New chat')}
+                  >
+                    <Plus className="h-4 w-4 mr-2 text-muted-foreground" />
+                    <span className="text-sm font-semibold text-foreground">New</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start px-0 hover:bg-transparent"
+                    onClick={() => console.log('Search')}
+                  >
+                    <Search className="h-4 w-4 mr-2 text-muted-foreground" />
+                    <span className="text-sm font-semibold text-foreground">Search</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start px-0 hover:bg-transparent"
+                    onClick={() => console.log('Library')}
+                  >
+                    <Library className="h-4 w-4 mr-2 text-muted-foreground" />
+                    <span className="text-sm font-semibold text-foreground">Library</span>
+                  </Button>
+                </div>
+
+                {/* Projects Section */}
+                <Collapsible open={isProjectsOpen} onOpenChange={setIsProjectsOpen}>
+                  <CollapsibleTrigger className="w-full">
+                    <div className="flex items-center gap-2 mb-3">
+                      <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                      <h2 className="text-sm font-semibold text-foreground">Projects</h2>
+                      <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isProjectsOpen ? 'rotate-90' : ''}`} />
+                    </div>
+                  </CollapsibleTrigger>
+                  
+                  <CollapsibleContent>
+                    {sampleProjects.length > 0 ? (
+                    <div className="space-y-1">
+                      {sampleProjects.map((project) => (
+                        <button
+                          key={project.id}
+                          className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-secondary hover-lift group transition-all text-left"
+                        >
+                    <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate">
+                              {project.name}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {project.timestamp}
+                            </p>
+                          </div>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 flex-shrink-0 ml-2"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" side="top">
+                              <DropdownMenuItem>Draft</DropdownMenuItem>
+                              <DropdownMenuItem>Design</DropdownMenuItem>
+                              <DropdownMenuItem>Deliver</DropdownMenuItem>
+                              <DropdownMenuItem>Share</DropdownMenuItem>
+                              <DropdownMenuItem>Rename</DropdownMenuItem>
+                              <DropdownMenuSeparator className="my-1 mx-2 h-[2px]" />
+                              <DropdownMenuItem>Archive</DropdownMenuItem>
+                              <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </button>
+                      ))}
+                    </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground py-4 text-center">
+                        No projects yet. Start by creating one.
+                      </p>
+                    )}
+                  </CollapsibleContent>
+                </Collapsible>
+
+                {/* Files Section */}
+                <Collapsible open={isFilesOpen} onOpenChange={setIsFilesOpen}>
+                  <CollapsibleTrigger className="w-full">
+                    <div className="flex items-center gap-2 mb-3">
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                      <h2 className="text-sm font-semibold text-foreground">Files</h2>
+                      <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isFilesOpen ? 'rotate-90' : ''}`} />
+                    </div>
+                  </CollapsibleTrigger>
+                  
+                  <CollapsibleContent>
+                    {sampleFiles.length > 0 ? (
+                    <div className="space-y-1">
+                      {sampleFiles.map((file) => (
+                        <button
+                          key={file.id}
+                          className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-secondary hover-lift group transition-all text-left"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium text-foreground truncate">
+                                {file.name}
+                              </p>
+                              <Badge
+                                variant="secondary"
+                                className="text-xs px-1.5 py-0 flex-shrink-0"
+                              >
+                                {file.type}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {file.timestamp}
+                            </p>
+                          </div>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 flex-shrink-0 ml-2"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" side="top">
+                              <DropdownMenuItem>Draft</DropdownMenuItem>
+                              <DropdownMenuItem>Design</DropdownMenuItem>
+                              <DropdownMenuItem>Deliver</DropdownMenuItem>
+                              <DropdownMenuItem>Share</DropdownMenuItem>
+                              <DropdownMenuItem>Rename</DropdownMenuItem>
+                              <DropdownMenuSeparator className="my-1 mx-2 h-[2px]" />
+                              <DropdownMenuItem>Archive</DropdownMenuItem>
+                              <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </button>
+                      ))}
+                    </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground py-4 text-center">
+                        No files yet. Drag & drop or use the + button.
+                      </p>
+                    )}
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+            </ScrollArea>
+
+            {/* Footer Actions */}
+            <div className="p-4 border-t border-border space-y-2">
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => console.log('New project')}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                New Project
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => console.log('Upload files')}
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Upload Files
+              </Button>
+            </div>
+
+            {/* User Profile - Expanded */}
+            <div className="p-4 border-t border-border">
+              <button
+                className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-secondary transition-colors"
+                onClick={() => console.log('User profile')}
+              >
+                <Avatar className="h-9 w-9">
+                  <AvatarImage src="" alt="User" />
+                  <AvatarFallback className="bg-primary text-primary-foreground">
+                    <User className="h-5 w-5" />
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 text-left">
+                  <p className="text-sm font-medium text-foreground">User Name</p>
+                  <p className="text-xs text-muted-foreground">user@example.com</p>
+                </div>
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </aside>
   );
 }
