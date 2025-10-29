@@ -24,13 +24,22 @@ export function TopBar({ onMenuClick }: TopBarProps) {
             <Menu className="h-5 w-5" />
           </Button>
 
-          <Button
-            variant="ghost"
-            className="hover:bg-secondary hover:text-primary transition-colors"
-            onClick={() => setShowSignIn(true)}
-          >
-            Sign in
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              className="hover:bg-secondary hover:text-primary transition-colors"
+              onClick={() => setShowSignIn(true)}
+            >
+              Sign in
+            </Button>
+            <Button
+              variant="default"
+              className="bg-foreground text-background hover:bg-foreground/90 transition-colors"
+              onClick={() => setShowSignIn(true)}
+            >
+              Sign up
+            </Button>
+          </div>
         </div>
       </header>
 
