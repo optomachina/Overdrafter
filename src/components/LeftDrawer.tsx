@@ -1,7 +1,13 @@
-import { X, FolderOpen, FileText, Plus, Upload, ChevronRight } from "lucide-react";
+import { X, FolderOpen, FileText, Plus, Upload, MoreVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface LeftDrawerProps {
   isOpen: boolean;
@@ -79,7 +85,7 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
                         key={project.id}
                         className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-secondary hover-lift group transition-all text-left"
                       >
-                        <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-foreground truncate">
                             {project.name}
                           </p>
@@ -87,7 +93,27 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
                             {project.timestamp}
                           </p>
                         </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors flex-shrink-0 ml-2" />
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 flex-shrink-0 ml-2"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem>Draft</DropdownMenuItem>
+                            <DropdownMenuItem>Design</DropdownMenuItem>
+                            <DropdownMenuItem>Quote</DropdownMenuItem>
+                            <DropdownMenuItem>Share</DropdownMenuItem>
+                            <DropdownMenuItem>Rename</DropdownMenuItem>
+                            <DropdownMenuItem>Archive</DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </button>
                     ))}
                   </div>
@@ -128,7 +154,27 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
                             {file.timestamp}
                           </p>
                         </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors flex-shrink-0 ml-2" />
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 flex-shrink-0 ml-2"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem>Draft</DropdownMenuItem>
+                            <DropdownMenuItem>Design</DropdownMenuItem>
+                            <DropdownMenuItem>Quote</DropdownMenuItem>
+                            <DropdownMenuItem>Share</DropdownMenuItem>
+                            <DropdownMenuItem>Rename</DropdownMenuItem>
+                            <DropdownMenuItem>Archive</DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </button>
                     ))}
                   </div>
