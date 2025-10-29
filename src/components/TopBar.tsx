@@ -21,7 +21,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
             className="hover:bg-secondary"
             aria-label="Open menu"
           >
-            <img src={logo} alt="OverDrafter Logo" className="h-6 w-6" />
+            <img src={logo} alt="OverDrafter Logo" className="h-8 w-8 brightness-0 invert" />
           </Button>
 
           <div className="flex items-center gap-2">
