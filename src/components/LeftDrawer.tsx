@@ -76,28 +76,28 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
               {/* Action Buttons */}
               <div className="flex flex-col gap-2">
                 <Button
-                  variant="outline"
-                  className="w-full justify-start"
+                  variant="ghost"
+                  className="w-full justify-start px-0 hover:bg-transparent"
                   onClick={() => console.log('New chat')}
                 >
-                  <Plus className="h-4 w-4 mr-2" />
-                  <span>New</span>
+                  <Plus className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <span className="text-sm font-semibold text-foreground">New</span>
                 </Button>
                 <Button
-                  variant="outline"
-                  className="w-full justify-start"
+                  variant="ghost"
+                  className="w-full justify-start px-0 hover:bg-transparent"
                   onClick={() => console.log('Search')}
                 >
-                  <Search className="h-4 w-4 mr-2" />
-                  <span>Search</span>
+                  <Search className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <span className="text-sm font-semibold text-foreground">Search</span>
                 </Button>
                 <Button
-                  variant="outline"
-                  className="w-full justify-start"
+                  variant="ghost"
+                  className="w-full justify-start px-0 hover:bg-transparent"
                   onClick={() => console.log('Library')}
                 >
-                  <Library className="h-4 w-4 mr-2" />
-                  <span>Library</span>
+                  <Library className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <span className="text-sm font-semibold text-foreground">Library</span>
                 </Button>
               </div>
 
