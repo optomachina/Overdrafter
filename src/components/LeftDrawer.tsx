@@ -1,4 +1,4 @@
-import { X, FolderOpen, FileText, Plus, Upload, MoreVertical } from "lucide-react";
+import { X, FolderOpen, FileText, Plus, Upload, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -6,6 +6,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -101,7 +102,7 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
                               className="h-8 w-8 flex-shrink-0 ml-2"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <MoreVertical className="h-4 w-4" />
+                              <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
@@ -110,6 +111,7 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
                             <DropdownMenuItem>Quote</DropdownMenuItem>
                             <DropdownMenuItem>Share</DropdownMenuItem>
                             <DropdownMenuItem>Rename</DropdownMenuItem>
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem>Archive</DropdownMenuItem>
                             <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
                           </DropdownMenuContent>
@@ -162,7 +164,7 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
                               className="h-8 w-8 flex-shrink-0 ml-2"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <MoreVertical className="h-4 w-4" />
+                              <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
@@ -171,6 +173,7 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
                             <DropdownMenuItem>Quote</DropdownMenuItem>
                             <DropdownMenuItem>Share</DropdownMenuItem>
                             <DropdownMenuItem>Rename</DropdownMenuItem>
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem>Archive</DropdownMenuItem>
                             <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
                           </DropdownMenuContent>
