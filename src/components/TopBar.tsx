@@ -1,7 +1,7 @@
-import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { SignInDialog } from "./SignInDialog";
+import logo from "@/assets/logo.png";
 
 interface TopBarProps {
   onMenuClick: () => void;
@@ -21,7 +21,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
             className="hover:bg-secondary"
             aria-label="Open menu"
           >
-            <Menu className="h-5 w-5" />
+            <img src={logo} alt="OverDrafter Logo" className="h-6 w-6" />
           </Button>
 
           <div className="flex items-center gap-2">
