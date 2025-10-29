@@ -108,7 +108,7 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
                           <DropdownMenuContent align="end" side="top">
                             <DropdownMenuItem>Draft</DropdownMenuItem>
                             <DropdownMenuItem>Design</DropdownMenuItem>
-                            <DropdownMenuItem>Quote</DropdownMenuItem>
+                            <DropdownMenuItem>Deliver</DropdownMenuItem>
                             <DropdownMenuItem>Share</DropdownMenuItem>
                             <DropdownMenuItem>Rename</DropdownMenuItem>
                             <DropdownMenuSeparator className="my-1 mx-2 h-[2px]" />
@@ -170,7 +170,7 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
                           <DropdownMenuContent align="end" side="top">
                             <DropdownMenuItem>Draft</DropdownMenuItem>
                             <DropdownMenuItem>Design</DropdownMenuItem>
-                            <DropdownMenuItem>Quote</DropdownMenuItem>
+                            <DropdownMenuItem>Deliver</DropdownMenuItem>
                             <DropdownMenuItem>Share</DropdownMenuItem>
                             <DropdownMenuItem>Rename</DropdownMenuItem>
                             <DropdownMenuSeparator className="my-1 mx-2 h-[2px]" />
