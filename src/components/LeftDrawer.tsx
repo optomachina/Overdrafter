@@ -105,7 +105,7 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
+                          <DropdownMenuContent align="end" side="top">
                             <DropdownMenuItem>Draft</DropdownMenuItem>
                             <DropdownMenuItem>Design</DropdownMenuItem>
                             <DropdownMenuItem>Quote</DropdownMenuItem>
@@ -167,7 +167,7 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
+                          <DropdownMenuContent align="end" side="top">
                             <DropdownMenuItem>Draft</DropdownMenuItem>
                             <DropdownMenuItem>Design</DropdownMenuItem>
                             <DropdownMenuItem>Quote</DropdownMenuItem>
