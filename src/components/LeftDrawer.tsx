@@ -1,4 +1,4 @@
-import { X, FolderOpen, FileText, Plus, Upload, MoreHorizontal } from "lucide-react";
+import { X, FolderOpen, FileText, Plus, Upload, MoreHorizontal, Search, Library } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -73,6 +73,34 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
 
           <ScrollArea className="flex-1">
             <div className="p-4 space-y-6">
+              {/* Action Buttons */}
+              <div className="grid grid-cols-3 gap-2">
+                <Button
+                  variant="outline"
+                  className="w-full flex-col h-auto py-3"
+                  onClick={() => console.log('New chat')}
+                >
+                  <Plus className="h-5 w-5 mb-1" />
+                  <span className="text-xs">New</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full flex-col h-auto py-3"
+                  onClick={() => console.log('Search')}
+                >
+                  <Search className="h-5 w-5 mb-1" />
+                  <span className="text-xs">Search</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full flex-col h-auto py-3"
+                  onClick={() => console.log('Library')}
+                >
+                  <Library className="h-5 w-5 mb-1" />
+                  <span className="text-xs">Library</span>
+                </Button>
+              </div>
+
               {/* Projects Section */}
               <section>
                 <div className="flex items-center gap-2 mb-3">
