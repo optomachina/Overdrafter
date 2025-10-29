@@ -105,17 +105,6 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
             Continue with Apple
           </Button>
         </div>
-
-        <p className="text-center text-xs text-muted-foreground mt-4">
-          Don't have an account?{" "}
-          <button
-            type="button"
-            className="text-primary hover:underline"
-            onClick={() => toast.info("Coming soon: Sign up flow")}
-          >
-            Sign up
-          </button>
-        </p>
       </DialogContent>
     </Dialog>
   );
