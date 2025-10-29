@@ -1,4 +1,4 @@
-import { X, FolderOpen, FileText, Plus, Upload, MoreHorizontal, Search, Library, ChevronRight } from "lucide-react";
+import { PanelLeftClose, FolderOpen, FileText, Plus, Upload, MoreHorizontal, Search, Library, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -76,7 +76,7 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
               className="hover:bg-secondary"
               aria-label="Close menu"
             >
-              <X className="h-5 w-5" />
+              <PanelLeftClose className="h-5 w-5" />
             </Button>
           </div>
 
