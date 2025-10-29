@@ -74,30 +74,30 @@ export function LeftDrawer({ isOpen, onClose }: LeftDrawerProps) {
           <ScrollArea className="flex-1">
             <div className="p-4 space-y-6">
               {/* Action Buttons */}
-              <div className="grid grid-cols-3 gap-2">
+              <div className="flex flex-col gap-2">
                 <Button
                   variant="outline"
-                  className="w-full flex-col h-auto py-3"
+                  className="w-full justify-start"
                   onClick={() => console.log('New chat')}
                 >
-                  <Plus className="h-5 w-5 mb-1" />
-                  <span className="text-xs">New</span>
+                  <Plus className="h-4 w-4 mr-2" />
+                  <span>New</span>
                 </Button>
                 <Button
                   variant="outline"
-                  className="w-full flex-col h-auto py-3"
+                  className="w-full justify-start"
                   onClick={() => console.log('Search')}
                 >
-                  <Search className="h-5 w-5 mb-1" />
-                  <span className="text-xs">Search</span>
+                  <Search className="h-4 w-4 mr-2" />
+                  <span>Search</span>
                 </Button>
                 <Button
                   variant="outline"
-                  className="w-full flex-col h-auto py-3"
+                  className="w-full justify-start"
                   onClick={() => console.log('Library')}
                 >
-                  <Library className="h-5 w-5 mb-1" />
-                  <span className="text-xs">Library</span>
+                  <Library className="h-4 w-4 mr-2" />
+                  <span>Library</span>
                 </Button>
               </div>
 
