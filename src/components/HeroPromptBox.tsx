@@ -151,10 +151,6 @@ export function HeroPromptBox() {
           </div>
         </div>
 
-        {/* Help text */}
-        <p className="text-center text-xs text-muted-foreground px-4">
-          You can attach STEP, IGES, SLDPRT, SLDASM, DXF, DWG, PDF, JPG/PNG. Max 200 MB per file.
-        </p>
       </div>
     </section>
   );
