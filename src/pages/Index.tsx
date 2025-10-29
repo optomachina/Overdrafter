@@ -32,7 +32,7 @@ const Index = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <TopBar onMenuClick={() => setIsDrawerOpen(true)} />
+      <TopBar onMenuClick={() => setIsDrawerOpen(true)} isDrawerOpen={isDrawerOpen} />
       <LeftDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
 
       <main className="flex-1 flex items-center justify-center pt-16 pb-20 px-4">
