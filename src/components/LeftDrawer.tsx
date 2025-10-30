@@ -45,8 +45,24 @@ const sampleFiles = [
 ];
 
 export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
-  const [isProjectsOpen, setIsProjectsOpen] = useState(true);
-  const [isFilesOpen, setIsFilesOpen] = useState(true);
+  const [isProjectsOpen, setIsProjectsOpen] = useState<boolean>(() => {
+    try {
+      if (typeof window === "undefined") return true;
+      const stored = window.localStorage.getItem("leftDrawer.projectsOpen");
+      return stored === null ? true : stored === "1";
+    } catch {
+      return true;
+    }
+  });
+  const [isFilesOpen, setIsFilesOpen] = useState<boolean>(() => {
+    try {
+      if (typeof window === "undefined") return true;
+      const stored = window.localStorage.getItem("leftDrawer.filesOpen");
+      return stored === null ? true : stored === "1";
+    } catch {
+      return true;
+    }
+  });
   const [isMobile, setIsMobile] = useState<boolean>(() => {
     try {
       if (typeof window === "undefined") return false;
@@ -64,6 +80,18 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
   }, []);
+
+  // Persist accordion open states
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("leftDrawer.projectsOpen", isProjectsOpen ? "1" : "0");
+    } catch {}
+  }, [isProjectsOpen]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("leftDrawer.filesOpen", isFilesOpen ? "1" : "0");
+    } catch {}
+  }, [isFilesOpen]);
 
   // Mobile: show as off-canvas sheet
   if (isMobile) {
@@ -255,7 +283,7 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
     <aside
       className={`
         fixed top-0 left-0 bottom-0 z-[60] 
-        bg-background border-r border-border shadow-none
+        bg-background border-r border-border shadow-none relative group
         transition-all duration-300 ease-out
         ${isCollapsed ? "w-12" : "w-80"}
       `}
@@ -306,7 +334,7 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                     variant="ghost"
                     size="icon"
                     className="hover:bg-secondary"
-                    onClick={() => console.log('New')}
+                    onClick={(e) => { e.stopPropagation(); console.log('New'); }}
                   >
                     <Plus className="h-5 w-5" />
                   </Button>
@@ -320,7 +348,7 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                     variant="ghost"
                     size="icon"
                     className="hover:bg-secondary"
-                    onClick={() => console.log('Search')}
+                    onClick={(e) => { e.stopPropagation(); console.log('Search'); }}
                   >
                     <Search className="h-5 w-5" />
                   </Button>
@@ -334,7 +362,7 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                     variant="ghost"
                     size="icon"
                     className="hover:bg-secondary"
-                    onClick={() => console.log('Library')}
+                    onClick={(e) => { e.stopPropagation(); console.log('Library'); }}
                   >
                     <Library className="h-5 w-5" />
                   </Button>
@@ -350,7 +378,7 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                     variant="ghost"
                     size="icon"
                     className="hover:bg-secondary"
-                    onClick={() => console.log('Projects')}
+                    onClick={(e) => { e.stopPropagation(); console.log('Projects'); }}
                   >
                     <FolderOpen className="h-5 w-5" />
                   </Button>
@@ -364,7 +392,7 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                     variant="ghost"
                     size="icon"
                     className="hover:bg-secondary"
-                    onClick={() => console.log('Files')}
+                    onClick={(e) => { e.stopPropagation(); console.log('Files'); }}
                   >
                     <FileText className="h-5 w-5" />
                   </Button>
@@ -381,7 +409,7 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                     variant="ghost"
                     size="icon"
                     className="w-full hover:bg-secondary"
-                    onClick={() => console.log('User profile')}
+                    onClick={(e) => { e.stopPropagation(); console.log('User profile'); }}
                   >
                     <Avatar className="h-8 w-8">
                       <AvatarImage src="" alt="User" />
@@ -393,6 +421,14 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                 </TooltipTrigger>
                 <TooltipContent side="right">User Profile</TooltipContent>
               </Tooltip>
+            </div>
+            {/* Hover open affordance */}
+            <div
+              className="absolute inset-y-14 right-0 flex items-center justify-center pointer-events-none"
+            >
+              <div className="w-5 h-10 -mr-2 rounded-l-full bg-muted/70 text-muted-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <ChevronRight className="h-4 w-4" />
+              </div>
             </div>
           </TooltipProvider>
         ) : (
