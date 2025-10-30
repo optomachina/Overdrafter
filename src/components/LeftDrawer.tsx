@@ -1,4 +1,4 @@
-import { PanelLeftClose, PanelLeft, FolderOpen, FileText, Plus, Upload, MoreHorizontal, Search, Library, ChevronRight, User } from "lucide-react";
+import { PanelLeftClose, PanelLeft, FolderOpen, FileText, Plus, MoreHorizontal, Search, Library, ChevronRight, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -49,16 +49,17 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
   return (
     <aside
       className={`
-        fixed top-0 left-0 bottom-0 z-50 
-        bg-card border-r border-border shadow-2xl
+        fixed top-0 left-0 bottom-0 z-[60] 
+        bg-card shadow-2xl
         transition-all duration-300 ease-out
         ${isCollapsed ? "w-16" : "w-80"}
       `}
+      onClick={isCollapsed ? onToggle : undefined}
       aria-label="Navigation drawer"
     >
       <div className="h-full flex flex-col">
         {/* Header */}
-        <div className="h-16 flex items-center justify-between px-4 border-b border-border">
+        <div className="h-16 flex items-center justify-between px-4">
           {!isCollapsed && (
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center">
@@ -89,19 +90,7 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
           // Collapsed view - icons only
           <TooltipProvider>
             <div className="flex-1 flex flex-col items-center py-4 gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={onToggle}
-                    className="hover:bg-secondary"
-                  >
-                    <PanelLeft className="h-5 w-5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">Expand sidebar</TooltipContent>
-              </Tooltip>
+              
 
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -177,7 +166,7 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
             </div>
 
             {/* User Profile - Collapsed */}
-            <div className="p-2 border-t border-border">
+            <div className="p-2">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -230,6 +219,8 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                     <span className="text-sm font-semibold text-foreground">Library</span>
                   </Button>
                 </div>
+
+                <div className="my-2 h-px bg-border w-full" />
 
                 {/* Projects Section */}
                 <Collapsible open={isProjectsOpen} onOpenChange={setIsProjectsOpen}>
@@ -359,28 +350,10 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
               </div>
             </ScrollArea>
 
-            {/* Footer Actions */}
-            <div className="p-4 border-t border-border space-y-2">
-              <Button
-                variant="outline"
-                className="w-full justify-start"
-                onClick={() => console.log('New project')}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                New Project
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full justify-start"
-                onClick={() => console.log('Upload files')}
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                Upload Files
-              </Button>
-            </div>
+            
 
             {/* User Profile - Expanded */}
-            <div className="p-4 border-t border-border">
+            <div className="p-4">
               <button
                 className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-secondary transition-colors"
                 onClick={() => console.log('User profile')}
