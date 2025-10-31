@@ -26,7 +26,9 @@ const Index = () => {
         <TopBar onMenuClick={() => setIsCollapsed(!isCollapsed)} showMenuButton={false} />
 
         <main className={`flex-1 flex items-center justify-center pt-16 pb-20 px-4 transition-all duration-300 ease-out ${isCollapsed ? 'pl-14' : 'pl-80'}`}>
-          <HeroPromptBox />
+          <div className={`w-full max-w-4xl transition-all duration-300 ease-out ${isCollapsed ? 'ml-0' : '-ml-40'}`}>
+            <HeroPromptBox />
+          </div>
         </main>
 
       </div>

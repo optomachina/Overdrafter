@@ -285,7 +285,7 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
         fixed top-0 left-0 bottom-0 z-[60] 
         bg-background border-r border-border shadow-none relative group
         transition-all duration-300 ease-out
-        ${isCollapsed ? "w-12" : "w-80"}
+        ${isCollapsed ? "w-12" : "w-64"}
       `}
       onClick={isCollapsed ? onToggle : undefined}
       aria-label="Navigation drawer"
