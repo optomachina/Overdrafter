@@ -1,4 +1,4 @@
-import { PanelLeftClose, FolderOpen, FileText, Plus, MoreHorizontal, Search, Library, ChevronRight, User, Crown, ShoppingBag, Settings, HelpCircle } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, FolderOpen, FileText, Plus, MoreHorizontal, Search, Library, ChevronRight, User, Crown, ShoppingBag, Settings, HelpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -54,6 +54,12 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
       return true;
     }
   });
+  const [isCollapsedHeaderHovered, setIsCollapsedHeaderHovered] = useState<boolean>(false);
+  
+  // Ensure hover state doesn't persist across open/close transitions
+  useEffect(() => {
+    setIsCollapsedHeaderHovered(false);
+  }, [isCollapsed]);
   const [isFilesOpen, setIsFilesOpen] = useState<boolean>(() => {
     try {
       if (typeof window === "undefined") return true;
@@ -287,7 +293,6 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
         transition-all duration-300 ease-out
         ${isCollapsed ? "w-12" : "w-64"}
       `}
-      onClick={isCollapsed ? onToggle : undefined}
       aria-label="Navigation drawer"
       id="stage-slideover-sidebar"
     >
@@ -303,9 +308,19 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
             </div>
           )}
           {isCollapsed && (
-            <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center mx-auto">
-              <img src={logo} alt="OverDrafter" className="w-full h-full object-contain" />
-            </div>
+            <button
+              className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center mx-auto hover:bg-secondary transition-colors"
+              onClick={(e) => { e.stopPropagation(); onToggle(); }}
+              onMouseEnter={() => setIsCollapsedHeaderHovered(true)}
+              onMouseLeave={() => setIsCollapsedHeaderHovered(false)}
+              aria-label="Expand sidebar"
+            >
+              {isCollapsedHeaderHovered ? (
+                <PanelLeftOpen className="h-5 w-5 text-foreground" />
+              ) : (
+                <img src={logo} alt="OverDrafter" className="w-full h-full object-contain" />
+              )}
+            </button>
           )}
           {!isCollapsed && (
             <Button
