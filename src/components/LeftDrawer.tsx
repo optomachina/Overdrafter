@@ -322,284 +322,255 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
           )}
         </div>
 
-        {isCollapsed ? (
-          // Collapsed view - icons only
-          <TooltipProvider>
-            <div className="flex-1 flex flex-col items-center py-4 gap-2">
-              
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="hover:bg-secondary"
-                    onClick={(e) => { e.stopPropagation(); console.log('New'); }}
-                  >
-                    <Plus className="h-5 w-5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">New</TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="hover:bg-secondary"
-                    onClick={(e) => { e.stopPropagation(); console.log('Search'); }}
-                  >
-                    <Search className="h-5 w-5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">Search</TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="hover:bg-secondary"
-                    onClick={(e) => { e.stopPropagation(); console.log('Library'); }}
-                  >
-                    <Library className="h-5 w-5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">Library</TooltipContent>
-              </Tooltip>
-
-              <div className="my-2 w-8 h-px bg-border" />
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="hover:bg-secondary"
-                    onClick={(e) => { e.stopPropagation(); console.log('Projects'); }}
-                  >
-                    <FolderOpen className="h-5 w-5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">Projects</TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="hover:bg-secondary"
-                    onClick={(e) => { e.stopPropagation(); console.log('Files'); }}
-                  >
-                    <FileText className="h-5 w-5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">Files</TooltipContent>
-              </Tooltip>
-            </div>
-
-            {/* User Profile - Collapsed */}
-            <div className="p-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="w-full hover:bg-secondary"
-                    onClick={(e) => { e.stopPropagation(); console.log('User profile'); }}
-                  >
-                    <Avatar className="h-8 w-8">
-                      <AvatarImage src="" alt="User" />
-                      <AvatarFallback className="bg-primary text-primary-foreground">
-                        <User className="h-4 w-4" />
-                      </AvatarFallback>
-                    </Avatar>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">User Profile</TooltipContent>
-              </Tooltip>
-            </div>
-            {/* Hover open affordance */}
-            <div
-              className="absolute inset-y-14 right-0 flex items-center justify-center pointer-events-none"
-            >
-              <div className="w-5 h-10 -mr-2 rounded-l-full bg-muted/70 text-muted-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                <ChevronRight className="h-4 w-4" />
+        <TooltipProvider>
+          <ScrollArea className="flex-1">
+            <div className="pt-0 px-3 pb-3 space-y-2">
+              {/* Action Buttons */}
+              <div className="flex flex-col gap-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start px-0 hover:bg-transparent h-8 py-1 relative"
+                      onClick={(e) => { e.stopPropagation(); console.log('New chat'); }}
+                    >
+                      <Plus className="h-4 w-4 text-muted-foreground mr-2 flex-shrink-0" />
+                      <span className={`text-sm font-semibold text-foreground transition-all duration-300 ${
+                        isCollapsed 
+                          ? 'opacity-0 w-0 overflow-hidden' 
+                          : 'opacity-100'
+                      }`}>
+                        New
+                      </span>
+                    </Button>
+                  </TooltipTrigger>
+                  {isCollapsed && <TooltipContent side="right">New</TooltipContent>}
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start px-0 hover:bg-transparent h-8 py-1 relative"
+                      onClick={(e) => { e.stopPropagation(); console.log('Search'); }}
+                    >
+                      <Search className="h-4 w-4 text-muted-foreground mr-2 flex-shrink-0" />
+                      <span className={`text-sm font-semibold text-foreground transition-all duration-300 ${
+                        isCollapsed 
+                          ? 'opacity-0 w-0 overflow-hidden' 
+                          : 'opacity-100'
+                      }`}>
+                        Search
+                      </span>
+                    </Button>
+                  </TooltipTrigger>
+                  {isCollapsed && <TooltipContent side="right">Search</TooltipContent>}
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start px-0 hover:bg-transparent h-8 py-1 relative"
+                      onClick={(e) => { e.stopPropagation(); console.log('Library'); }}
+                    >
+                      <Library className="h-4 w-4 text-muted-foreground mr-2 flex-shrink-0" />
+                      <span className={`text-sm font-semibold text-foreground transition-all duration-300 ${
+                        isCollapsed 
+                          ? 'opacity-0 w-0 overflow-hidden' 
+                          : 'opacity-100'
+                      }`}>
+                        Library
+                      </span>
+                    </Button>
+                  </TooltipTrigger>
+                  {isCollapsed && <TooltipContent side="right">Library</TooltipContent>}
+                </Tooltip>
               </div>
-            </div>
-          </TooltipProvider>
-        ) : (
-          // Expanded view - full content
-          <>
-            <ScrollArea className="flex-1">
-              <div className="pt-0 px-3 pb-3 space-y-2">
-                {/* Action Buttons */}
-                <div className="flex flex-col gap-1">
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-start px-0 hover:bg-transparent h-8 py-1"
-                    onClick={() => console.log('New chat')}
-                  >
-                    <Plus className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <span className="text-sm font-semibold text-foreground">New</span>
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-start px-0 hover:bg-transparent h-8 py-1"
-                    onClick={() => console.log('Search')}
-                  >
-                    <Search className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <span className="text-sm font-semibold text-foreground">Search</span>
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-start px-0 hover:bg-transparent h-8 py-1"
-                    onClick={() => console.log('Library')}
-                  >
-                    <Library className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <span className="text-sm font-semibold text-foreground">Library</span>
-                  </Button>
-                </div>
 
-                <div className="my-1 h-px bg-border w-full" />
+              <div className={`my-1 h-px bg-border ${isCollapsed ? 'w-8 mx-auto' : 'w-full'}`} />
 
-                {/* Projects Section */}
-                <Collapsible open={isProjectsOpen} onOpenChange={setIsProjectsOpen}>
-                  <CollapsibleTrigger className="w-full">
-                    <div className="flex items-center gap-2 mb-2">
-                      <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                      <h2 className="text-sm font-semibold text-foreground">Projects</h2>
-                      <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isProjectsOpen ? 'rotate-90' : ''}`} />
-                    </div>
-                  </CollapsibleTrigger>
-                  
-                  <CollapsibleContent>
-                    {sampleProjects.length > 0 ? (
-                    <div className="space-y-0.5">
-                      {sampleProjects.map((project) => (
-                        <button
-                          key={project.id}
-                          className="w-full flex items-center justify-between p-2.5 rounded-lg hover:bg-secondary hover-lift group transition-all text-left"
-                        >
-                    <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-foreground truncate">
-                              {project.name}
+              {/* Projects Section */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start px-0 hover:bg-transparent h-8 py-1 relative mb-2"
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        if (!isCollapsed) {
+                          setIsProjectsOpen(!isProjectsOpen);
+                        }
+                      }}
+                    >
+                      <FolderOpen className="h-4 w-4 text-muted-foreground mr-2 flex-shrink-0" />
+                      <span className={`text-sm font-semibold text-foreground transition-all duration-300 ${
+                        isCollapsed 
+                          ? 'opacity-0 w-0 overflow-hidden' 
+                          : 'opacity-100'
+                      }`}>
+                        Projects
+                      </span>
+                      <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform flex-shrink-0 ${
+                        isCollapsed 
+                          ? 'opacity-0 w-0 overflow-hidden' 
+                          : isProjectsOpen ? 'rotate-90' : ''
+                      }`} />
+                    </Button>
+                    {!isCollapsed && (
+                      <Collapsible open={isProjectsOpen} onOpenChange={setIsProjectsOpen}>
+                        <CollapsibleContent>
+                          {sampleProjects.length > 0 ? (
+                          <div className="space-y-0.5">
+                            {sampleProjects.map((project) => (
+                              <button
+                                key={project.id}
+                                className="w-full flex items-center justify-between p-2.5 rounded-lg hover:bg-secondary hover-lift group transition-all text-left"
+                              >
+                        <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-foreground truncate">
+                                  {project.name}
+                                </p>
+                                {/* timestamp retained in data but intentionally not rendered */}
+                              </div>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 flex-shrink-0 ml-2"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" side="top" className="z-[70]">
+                                  <DropdownMenuItem>Draft</DropdownMenuItem>
+                                  <DropdownMenuItem>Design</DropdownMenuItem>
+                                  <DropdownMenuItem>Deliver</DropdownMenuItem>
+                                  <DropdownMenuItem>Share</DropdownMenuItem>
+                                  <DropdownMenuItem>Rename</DropdownMenuItem>
+                                  <DropdownMenuSeparator className="my-1 mx-2 h-[2px]" />
+                                  <DropdownMenuItem>Archive</DropdownMenuItem>
+                                  <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </button>
+                          ))}
+                        </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground py-4 text-center">
+                            No projects yet. Start by creating one.
+                          </p>
+                        )}
+                      </CollapsibleContent>
+                    </Collapsible>
+                    )}
+                  </div>
+                </TooltipTrigger>
+                {isCollapsed && <TooltipContent side="right">Projects</TooltipContent>}
+              </Tooltip>
+
+              {/* Files Section */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start px-0 hover:bg-transparent h-8 py-1 relative mb-2"
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        if (!isCollapsed) {
+                          setIsFilesOpen(!isFilesOpen);
+                        }
+                      }}
+                    >
+                      <FileText className="h-4 w-4 text-muted-foreground mr-2 flex-shrink-0" />
+                      <span className={`text-sm font-semibold text-foreground transition-all duration-300 ${
+                        isCollapsed 
+                          ? 'opacity-0 w-0 overflow-hidden' 
+                          : 'opacity-100'
+                      }`}>
+                        Files
+                      </span>
+                      <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform flex-shrink-0 ${
+                        isCollapsed 
+                          ? 'opacity-0 w-0 overflow-hidden' 
+                          : isFilesOpen ? 'rotate-90' : ''
+                      }`} />
+                    </Button>
+                    {!isCollapsed && (
+                      <Collapsible open={isFilesOpen} onOpenChange={setIsFilesOpen}>
+                        <CollapsibleContent>
+                          {sampleFiles.length > 0 ? (
+                          <div className="space-y-0.5">
+                            {sampleFiles.map((file) => (
+                              <button
+                                key={file.id}
+                                className="w-full flex items-center justify-between p-2.5 rounded-lg hover:bg-secondary hover-lift group transition-all text-left"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-sm font-medium text-foreground truncate">
+                                      {file.name}
+                                    </p>
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-xs px-1.5 py-0 flex-shrink-0"
+                                    >
+                                      {file.type}
+                                    </Badge>
+                                  </div>
+                                  {/* timestamp retained in data but intentionally not rendered */}
+                                </div>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 flex-shrink-0 ml-2"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" side="top" className="z-[70]">
+                                    <DropdownMenuItem>Draft</DropdownMenuItem>
+                                    <DropdownMenuItem>Design</DropdownMenuItem>
+                                    <DropdownMenuItem>Deliver</DropdownMenuItem>
+                                    <DropdownMenuItem>Share</DropdownMenuItem>
+                                    <DropdownMenuItem>Rename</DropdownMenuItem>
+                                    <DropdownMenuSeparator className="my-1 mx-2 h-[2px]" />
+                                    <DropdownMenuItem>Archive</DropdownMenuItem>
+                                    <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </button>
+                            ))}
+                          </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground py-4 text-center">
+                              No files yet. Drag & drop or use the + button.
                             </p>
-                            {/* timestamp retained in data but intentionally not rendered */}
-                          </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 flex-shrink-0 ml-2"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" side="top" className="z-[70]">
-                              <DropdownMenuItem>Draft</DropdownMenuItem>
-                              <DropdownMenuItem>Design</DropdownMenuItem>
-                              <DropdownMenuItem>Deliver</DropdownMenuItem>
-                              <DropdownMenuItem>Share</DropdownMenuItem>
-                              <DropdownMenuItem>Rename</DropdownMenuItem>
-                              <DropdownMenuSeparator className="my-1 mx-2 h-[2px]" />
-                              <DropdownMenuItem>Archive</DropdownMenuItem>
-                              <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </button>
-                      ))}
-                    </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground py-4 text-center">
-                        No projects yet. Start by creating one.
-                      </p>
+                          )}
+                        </CollapsibleContent>
+                      </Collapsible>
                     )}
-                  </CollapsibleContent>
-                </Collapsible>
+                  </div>
+                </TooltipTrigger>
+                {isCollapsed && <TooltipContent side="right">Files</TooltipContent>}
+              </Tooltip>
+            </div>
+          </ScrollArea>
 
-                {/* Files Section */}
-                <Collapsible open={isFilesOpen} onOpenChange={setIsFilesOpen}>
-                  <CollapsibleTrigger className="w-full">
-                    <div className="flex items-center gap-2 mb-2">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                      <h2 className="text-sm font-semibold text-foreground">Files</h2>
-                      <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isFilesOpen ? 'rotate-90' : ''}`} />
-                    </div>
-                  </CollapsibleTrigger>
-                  
-                  <CollapsibleContent>
-                    {sampleFiles.length > 0 ? (
-                    <div className="space-y-0.5">
-                      {sampleFiles.map((file) => (
-                        <button
-                          key={file.id}
-                          className="w-full flex items-center justify-between p-2.5 rounded-lg hover:bg-secondary hover-lift group transition-all text-left"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-medium text-foreground truncate">
-                                {file.name}
-                              </p>
-                              <Badge
-                                variant="secondary"
-                                className="text-xs px-1.5 py-0 flex-shrink-0"
-                              >
-                                {file.type}
-                              </Badge>
-                            </div>
-                            {/* timestamp retained in data but intentionally not rendered */}
-                          </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 flex-shrink-0 ml-2"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" side="top" className="z-[70]">
-                              <DropdownMenuItem>Draft</DropdownMenuItem>
-                              <DropdownMenuItem>Design</DropdownMenuItem>
-                              <DropdownMenuItem>Deliver</DropdownMenuItem>
-                              <DropdownMenuItem>Share</DropdownMenuItem>
-                              <DropdownMenuItem>Rename</DropdownMenuItem>
-                              <DropdownMenuSeparator className="my-1 mx-2 h-[2px]" />
-                              <DropdownMenuItem>Archive</DropdownMenuItem>
-                              <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </button>
-                      ))}
-                    </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground py-4 text-center">
-                        No files yet. Drag & drop or use the + button.
-                      </p>
-                    )}
-                  </CollapsibleContent>
-                </Collapsible>
-              </div>
-            </ScrollArea>
-
-            
-
-            {/* User Profile - Expanded */}
-            <div className="p-4">
+          {/* User Profile */}
+          <div className={isCollapsed ? "p-2" : "p-4"}>
+            {!isCollapsed ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
                     className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-secondary transition-colors"
                   >
-                    <Avatar className="h-9 w-9">
+                    <Avatar className="h-9 w-9 flex-shrink-0">
                       <AvatarImage src="" alt="User" />
                       <AvatarFallback className="bg-primary text-primary-foreground">
                         <User className="h-5 w-5" />
@@ -637,9 +608,36 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start px-0 hover:bg-transparent h-8 py-1"
+                    onClick={(e) => { e.stopPropagation(); console.log('User profile'); }}
+                  >
+                    <Avatar className="h-8 w-8 flex-shrink-0">
+                      <AvatarImage src="" alt="User" />
+                      <AvatarFallback className="bg-primary text-primary-foreground">
+                        <User className="h-4 w-4" />
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">User Profile</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+          
+          {/* Hover open affordance */}
+          {isCollapsed && (
+            <div className="absolute inset-y-14 right-0 flex items-center justify-center pointer-events-none">
+              <div className="w-5 h-10 -mr-2 rounded-l-full bg-muted/70 text-muted-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <ChevronRight className="h-4 w-4" />
+              </div>
             </div>
-          </>
-        )}
+          )}
+        </TooltipProvider>
       </div>
     </aside>
   );
