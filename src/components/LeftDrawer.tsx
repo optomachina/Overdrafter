@@ -222,14 +222,14 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                         {files.map((file) => {
                           const displayName = file.name.split('-').slice(1).join('-') || file.name;
                           return (
-                            <Tooltip key={file.name}>
-                              <TooltipTrigger asChild>
-                                <button className="w-full relative flex items-center justify-between p-2.5 pr-14 rounded-lg hover:bg-secondary hover-lift group transition-all text-left">
-                                  <div className="flex-1 min-w-0 flex items-center gap-2">
-                                    <p className="text-sm font-medium text-foreground truncate">{displayName}</p>
-                                    <Badge variant="secondary" className="text-xs px-1.5 py-0 flex-shrink-0">{getFileExtension(file.name)}</Badge>
-                                  </div>
-                                  <DropdownMenu>
+                            <button key={file.name} className="w-full relative flex items-center justify-between p-2.5 pr-12 rounded-lg hover:bg-secondary hover-lift group transition-all text-left">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-medium text-foreground truncate">{displayName}</p>
+                                  <Badge variant="secondary" className="text-xs px-1.5 py-0 flex-shrink-0">{getFileExtension(file.name)}</Badge>
+                                </div>
+                              </div>
+                              <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                   <div className="absolute right-3 top-1/2 -translate-y-1/2 h-8 w-8 flex-shrink-0">
                                     <Button
@@ -256,13 +256,8 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                                     Delete
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
-                                </DropdownMenu>
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent side="right" className="max-w-xs break-words">
-                              {displayName}
-                            </TooltipContent>
-                          </Tooltip>
+                              </DropdownMenu>
+                            </button>
                           );
                         })}
                       </div>
@@ -459,23 +454,24 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                               {files.map((file) => {
                                 const displayName = file.name.split('-').slice(1).join('-') || file.name;
                                 return (
-                                  <Tooltip key={file.name}>
-                                    <TooltipTrigger asChild>
-                                      <button
-                                        className="w-full relative flex items-center justify-between p-2.5 pr-12 rounded-lg hover:bg-secondary hover-lift group transition-all text-left"
-                                      >
-                                        <div className="flex-1 min-w-0 flex items-center gap-2">
-                                          <p className="text-sm font-medium text-foreground truncate">
-                                            {displayName}
-                                          </p>
-                                          <Badge
-                                            variant="secondary"
-                                            className="text-xs px-1.5 py-0 flex-shrink-0"
-                                          >
-                                            {getFileExtension(file.name)}
-                                          </Badge>
-                                        </div>
-                                        <DropdownMenu>
+                                  <button
+                                    key={file.name}
+                                    className="w-full relative flex items-center justify-between p-2.5 pr-10 rounded-lg hover:bg-secondary hover-lift group transition-all text-left"
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <p className="text-sm font-medium text-foreground truncate">
+                                          {displayName}
+                                        </p>
+                                        <Badge
+                                          variant="secondary"
+                                          className="text-xs px-1.5 py-0 flex-shrink-0"
+                                        >
+                                          {getFileExtension(file.name)}
+                                        </Badge>
+                                      </div>
+                                    </div>
+                                    <DropdownMenu>
                                       <DropdownMenuTrigger asChild>
                                         <div className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8">
                                           <Button
@@ -502,13 +498,8 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                                           Delete
                                         </DropdownMenuItem>
                                       </DropdownMenuContent>
-                                        </DropdownMenu>
-                                      </button>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="right" className="max-w-xs break-words">
-                                      {displayName}
-                                    </TooltipContent>
-                                  </Tooltip>
+                                    </DropdownMenu>
+                                  </button>
                                 );
                               })}
                             </div>
