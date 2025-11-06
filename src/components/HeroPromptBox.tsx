@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { toast } from "sonner";
 import { FileChip } from "./FileChip";
 import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
 
 export function HeroPromptBox() {
   const [prompt, setPrompt] = useState("");
@@ -12,6 +13,7 @@ export function HeroPromptBox() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const queryClient = useQueryClient();
 
   const allowedExtensions = [
     '.pdf', '.jpg', '.png', '.sldprt', '.asm', '.sldasm',
@@ -87,6 +89,9 @@ export function HeroPromptBox() {
       toast.success("Files uploaded successfully!", {
         description: "Your files have been stored securely."
       });
+      
+      // Invalidate queries to refresh the file list in drawer
+      queryClient.invalidateQueries({ queryKey: ['user-files'] });
       
       setPrompt("");
       setFiles([]);
