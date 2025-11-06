@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useState } from "react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 interface SignInDialogProps {
   open: boolean;
@@ -14,10 +15,46 @@ interface SignInDialogProps {
 export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
 
-  const handleEmailSignIn = (e: React.FormEvent) => {
+  const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast.info("Coming soon: Email authentication");
+    setIsLoading(true);
+
+    try {
+      if (isSignUp) {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/`
+          }
+        });
+
+        if (error) throw error;
+
+        toast.success("Account created successfully!");
+        onOpenChange(false);
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (error) throw error;
+
+        toast.success("Signed in successfully!");
+        onOpenChange(false);
+      }
+
+      setEmail("");
+      setPassword("");
+    } catch (error: any) {
+      toast.error(error.message || "Authentication failed");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSocialSignIn = (provider: string) => {
@@ -28,7 +65,9 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md bg-surface/98 backdrop-blur-xl border-border/30 shadow-2xl">
         <DialogHeader>
-          <DialogTitle className="text-center text-2xl">Welcome back</DialogTitle>
+          <DialogTitle className="text-center text-2xl">
+            {isSignUp ? "Create an account" : "Welcome back"}
+          </DialogTitle>
         </DialogHeader>
         
         <form onSubmit={handleEmailSignIn} className="space-y-4 mt-4">
@@ -56,8 +95,8 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
             />
           </div>
 
-          <Button type="submit" className="w-full">
-            Continue
+          <Button type="submit" className="w-full" disabled={isLoading}>
+            {isLoading ? "Loading..." : (isSignUp ? "Sign up" : "Sign in")}
           </Button>
         </form>
 
@@ -107,13 +146,13 @@ export function SignInDialog({ open, onOpenChange }: SignInDialogProps) {
         </div>
 
         <p className="text-center text-xs text-muted-foreground mt-4">
-          Don't have an account?{" "}
+          {isSignUp ? "Already have an account?" : "Don't have an account?"}{" "}
           <button
             type="button"
             className="text-primary hover:underline"
-            onClick={() => toast.info("Coming soon: Sign up flow")}
+            onClick={() => setIsSignUp(!isSignUp)}
           >
-            Sign up
+            {isSignUp ? "Sign in" : "Sign up"}
           </button>
         </p>
       </DialogContent>

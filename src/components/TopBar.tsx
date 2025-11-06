@@ -1,7 +1,10 @@
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { SignInDialog } from "./SignInDialog";
-import { PanelLeft } from "lucide-react";
+import { PanelLeft, LogOut } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { User } from "@supabase/supabase-js";
+import { toast } from "sonner";
 
 interface TopBarProps {
   onMenuClick: () => void;
@@ -10,6 +13,30 @@ interface TopBarProps {
 
 export function TopBar({ onMenuClick, showMenuButton = true }: TopBarProps) {
   const [showSignIn, setShowSignIn] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleSignOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      toast.error("Failed to sign out");
+    } else {
+      toast.success("Signed out successfully");
+    }
+  };
 
   return (
     <>
@@ -28,20 +55,37 @@ export function TopBar({ onMenuClick, showMenuButton = true }: TopBarProps) {
           )}
 
           <div className="ml-auto flex items-center gap-2">
-            <Button
-              variant="ghost"
-              className="rounded-full hover:bg-secondary hover:text-primary transition-colors"
-              onClick={() => setShowSignIn(true)}
-            >
-              Sign in
-            </Button>
-            <Button
-              variant="default"
-              className="rounded-full bg-foreground text-background hover:bg-foreground/90 transition-colors"
-              onClick={() => setShowSignIn(true)}
-            >
-              Sign up
-            </Button>
+            {user ? (
+              <>
+                <span className="text-sm text-muted-foreground">{user.email}</span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full hover:bg-secondary"
+                  onClick={handleSignOut}
+                  aria-label="Sign out"
+                >
+                  <LogOut className="h-5 w-5" />
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  className="rounded-full hover:bg-secondary hover:text-primary transition-colors"
+                  onClick={() => setShowSignIn(true)}
+                >
+                  Sign in
+                </Button>
+                <Button
+                  variant="default"
+                  className="rounded-full bg-foreground text-background hover:bg-foreground/90 transition-colors"
+                  onClick={() => setShowSignIn(true)}
+                >
+                  Sign up
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </header>
