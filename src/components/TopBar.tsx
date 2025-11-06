@@ -55,20 +55,7 @@ export function TopBar({ onMenuClick, showMenuButton = true }: TopBarProps) {
           )}
 
           <div className="ml-auto flex items-center gap-2">
-            {user ? (
-              <>
-                <span className="text-sm text-muted-foreground">{user.email}</span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="rounded-full hover:bg-secondary"
-                  onClick={handleSignOut}
-                  aria-label="Sign out"
-                >
-                  <LogOut className="h-5 w-5" />
-                </Button>
-              </>
-            ) : (
+            {!user && (
               <>
                 <Button
                   variant="ghost"
