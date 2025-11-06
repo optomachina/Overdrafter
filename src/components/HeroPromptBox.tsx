@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { FileChip } from "./FileChip";
+import { supabase } from "@/integrations/supabase/client";
 
 export function HeroPromptBox() {
   const [prompt, setPrompt] = useState("");
@@ -12,14 +13,28 @@ export function HeroPromptBox() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const allowedExtensions = [
+    '.pdf', '.jpg', '.png', '.sldprt', '.asm', '.sldasm',
+    '.prt', '.drw', '.slddrw', '.stp', '.igs', '.iges', '.step'
+  ];
+
   const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(e.target.files || []);
     const validFiles = selectedFiles.filter(file => {
+      // Check file size
       const maxSize = 200 * 1024 * 1024; // 200MB
       if (file.size > maxSize) {
         toast.error(`${file.name} exceeds 200MB limit`);
         return false;
       }
+
+      // Check file type
+      const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
+      if (!allowedExtensions.includes(fileExtension)) {
+        toast.error(`${file.name} has an unsupported file type`);
+        return false;
+      }
+
       return true;
     });
 
@@ -41,16 +56,46 @@ export function HeroPromptBox() {
 
     setIsSubmitting(true);
     
-    // Simulate submission
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    toast.success("Coming soon: Mechanical Codex brain!", {
-      description: "We're processing your design inquiry..."
-    });
-    
-    setIsSubmitting(false);
-    setPrompt("");
-    setFiles([]);
+    try {
+      // Check if user is authenticated
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        toast.error("Please sign in to upload files");
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Upload files to storage
+      const uploadPromises = files.map(async (file) => {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${user.id}/${Date.now()}-${file.name}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('uploads')
+          .upload(fileName, file);
+
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        return fileName;
+      });
+
+      await Promise.all(uploadPromises);
+      
+      toast.success("Files uploaded successfully!", {
+        description: "Your files have been stored securely."
+      });
+      
+      setPrompt("");
+      setFiles([]);
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast.error("Failed to upload files. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -113,10 +158,10 @@ export function HeroPromptBox() {
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".step,.stp,.iges,.igs,.sldprt,.sldasm,.dxf,.dwg,.pdf,.jpg,.jpeg,.png"
+              accept=".pdf,.jpg,.png,.sldprt,.asm,.sldasm,.prt,.drw,.slddrw,.stp,.igs,.iges,.step"
               onChange={handleFileUpload}
               className="hidden"
-              aria-label="Upload CAD files"
+              aria-label="Upload files"
             />
 
             {/* Text input */}
