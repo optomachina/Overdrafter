@@ -161,15 +161,22 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                     {sampleProjects.length > 0 ? (
                       <div className="space-y-0.5">
                         {sampleProjects.map((project) => (
-                          <button key={project.id} className="w-full flex items-center justify-between p-2.5 rounded-lg hover:bg-secondary hover-lift group transition-all text-left">
+                          <button key={project.id} className="w-full relative flex items-center justify-between p-2.5 pr-12 rounded-lg hover:bg-secondary hover-lift group transition-all text-left">
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-foreground truncate">{project.name}</p>
                             </div>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0 ml-2" onClick={(e) => e.stopPropagation()}>
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2 h-8 w-8 flex-shrink-0">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="absolute inset-0 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </div>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end" side="top" className="z-[70]">
                                 <DropdownMenuItem>Draft</DropdownMenuItem>
@@ -202,7 +209,7 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                     {sampleFiles.length > 0 ? (
                       <div className="space-y-0.5">
                         {sampleFiles.map((file) => (
-                          <button key={file.id} className="w-full flex items-center justify-between p-2.5 rounded-lg hover:bg-secondary hover-lift group transition-all text-left">
+                          <button key={file.id} className="w-full relative flex items-center justify-between p-2.5 pr-12 rounded-lg hover:bg-secondary hover-lift group transition-all text-left">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
                                 <p className="text-sm font-medium text-foreground truncate">{file.name}</p>
@@ -211,9 +218,16 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                             </div>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0 ml-2" onClick={(e) => e.stopPropagation()}>
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2 h-8 w-8 flex-shrink-0">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="absolute inset-0 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </div>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end" side="top" className="z-[70]">
                                 <DropdownMenuItem>Draft</DropdownMenuItem>
@@ -439,7 +453,7 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                             {sampleProjects.map((project) => (
                               <button
                                 key={project.id}
-                                className="w-full flex items-center justify-between p-2.5 rounded-lg hover:bg-secondary hover-lift group transition-all text-left"
+                                className="w-full relative flex items-center justify-between p-2.5 pr-10 rounded-lg hover:bg-secondary hover-lift group transition-all text-left"
                               >
                         <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium text-foreground truncate">
@@ -449,14 +463,16 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                               </div>
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 flex-shrink-0 ml-2"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <MoreHorizontal className="h-4 w-4" />
-                                  </Button>
+                                  <div className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity focus-visible:ring-0 focus-visible:ring-offset-0"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </div>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" side="top" className="z-[70]">
                                   <DropdownMenuItem>Draft</DropdownMenuItem>
@@ -521,7 +537,7 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                             {sampleFiles.map((file) => (
                               <button
                                 key={file.id}
-                                className="w-full flex items-center justify-between p-2.5 rounded-lg hover:bg-secondary hover-lift group transition-all text-left"
+                                className="w-full relative flex items-center justify-between p-2.5 pr-10 rounded-lg hover:bg-secondary hover-lift group transition-all text-left"
                               >
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2">
@@ -539,14 +555,16 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                                 </div>
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 flex-shrink-0 ml-2"
-                                      onClick={(e) => e.stopPropagation()}
-                                    >
-                                      <MoreHorizontal className="h-4 w-4" />
-                                    </Button>
+                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8">
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity focus-visible:ring-0 focus-visible:ring-offset-0"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <MoreHorizontal className="h-4 w-4" />
+                                      </Button>
+                                    </div>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end" side="top" className="z-[70]">
                                     <DropdownMenuItem>Draft</DropdownMenuItem>
