@@ -28,6 +28,7 @@ import logo from "@/assets/logo.png";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { User as SupabaseUser } from "@supabase/supabase-js";
 
 interface LeftDrawerProps {
   isCollapsed: boolean;
@@ -45,6 +46,7 @@ interface StorageFile {
 
 export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
   const queryClient = useQueryClient();
+  const [user, setUser] = useState<SupabaseUser | null>(null);
   const [isCollapsedHeaderHovered, setIsCollapsedHeaderHovered] = useState<boolean>(false);
   const [isFilesOpen, setIsFilesOpen] = useState<boolean>(() => {
     try {
@@ -83,6 +85,19 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
     },
     refetchInterval: 5000, // Refetch every 5 seconds
   });
+
+  // Fetch current user
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   // Ensure hover state doesn't persist across open/close transitions
   useEffect(() => {
@@ -157,6 +172,16 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
   const getFileExtension = (fileName: string) => {
     const parts = fileName.split('.');
     return parts.length > 1 ? parts[parts.length - 1].toUpperCase() : 'FILE';
+  };
+
+  const getUserInitials = () => {
+    if (!user?.email) return 'U';
+    return user.email.charAt(0).toUpperCase();
+  };
+
+  const getUserDisplayName = () => {
+    if (!user?.email) return 'User';
+    return user.email.split('@')[0];
   };
 
   // Mobile: show as off-canvas sheet
@@ -277,17 +302,17 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                     <Avatar className="h-9 w-9">
                       <AvatarImage src="" alt="User" />
                       <AvatarFallback className="bg-primary text-primary-foreground">
-                        <User className="h-5 w-5" />
+                        {getUserInitials()}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 text-left">
-                      <p className="text-sm font-medium text-foreground">User Name</p>
-                      <p className="text-xs text-muted-foreground">user@example.com</p>
+                      <p className="text-sm font-medium text-foreground">{getUserDisplayName()}</p>
+                      <p className="text-xs text-muted-foreground">{user?.email || 'Not signed in'}</p>
                     </div>
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="top" align="center" sideOffset={8} className="z-[70] w-56 p-1">
-                  <DropdownMenuLabel className="text-sm font-normal text-muted-foreground">user@example.com</DropdownMenuLabel>
+                  <DropdownMenuLabel className="text-sm font-normal text-muted-foreground">{user?.email || 'Not signed in'}</DropdownMenuLabel>
                   <DropdownMenuItem>
                     <Crown className="mr-2 h-4 w-4 text-muted-foreground" />
                     Upgrade Plan
@@ -529,18 +554,18 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                     <Avatar className="h-9 w-9 flex-shrink-0">
                       <AvatarImage src="" alt="User" />
                       <AvatarFallback className="bg-primary text-primary-foreground">
-                        <User className="h-5 w-5" />
+                        {getUserInitials()}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 text-left">
-                      <p className="text-sm font-medium text-foreground">User Name</p>
-                      <p className="text-xs text-muted-foreground">user@example.com</p>
+                      <p className="text-sm font-medium text-foreground">{getUserDisplayName()}</p>
+                      <p className="text-xs text-muted-foreground">{user?.email || 'Not signed in'}</p>
                     </div>
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="top" align="center" sideOffset={8} className="z-[70] w-56 p-1">
                   <DropdownMenuLabel className="text-sm font-normal text-muted-foreground">
-                    user@example.com
+                    {user?.email || 'Not signed in'}
                   </DropdownMenuLabel>
                   <DropdownMenuItem>
                     <Crown className="mr-2 h-4 w-4 text-muted-foreground" />
@@ -575,7 +600,7 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
                     <Avatar className="h-8 w-8 flex-shrink-0">
                       <AvatarImage src="" alt="User" />
                       <AvatarFallback className="bg-primary text-primary-foreground">
-                        <User className="h-4 w-4" />
+                        {getUserInitials()}
                       </AvatarFallback>
                     </Avatar>
                   </Button>
