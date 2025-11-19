@@ -122,7 +122,7 @@ export function HeroPromptBox() {
   return (
     <section className="w-full max-w-4xl mx-auto px-4">
       <h1 className="text-4xl md:text-5xl font-semibold text-center mb-8 text-foreground">
-        What good shall we build this day?
+        What shall we build today?
       </h1>
 
       <div className="space-y-3">
