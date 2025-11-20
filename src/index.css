@@ -8,41 +8,50 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* OverDrafter Codex Dark Theme - ChatGPT/Codex inspired */
-    --background: 225 15% 6%;           /* #0E0F13 near-black */
-    --foreground: 220 13% 91%;          /* #E5E7EB primary text */
+    /* ChatGPT-inspired Dark Theme with OKLCH colors */
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
 
-    --card: 225 15% 10%;                /* #16181D surface */
-    --card-foreground: 220 13% 91%;
+    --card: oklch(0.145 0 0);
+    --card-foreground: oklch(0.985 0 0);
 
-    --popover: 225 15% 10%;
-    --popover-foreground: 220 13% 91%;
+    --popover: oklch(0.145 0 0);
+    --popover-foreground: oklch(0.985 0 0);
 
-    --primary: 217 91% 60%;             /* #3B82F6 blue accent */
-    --primary-foreground: 0 0% 100%;
+    --primary: oklch(0.985 0 0);
+    --primary-foreground: oklch(0.205 0 0);
 
-    --secondary: 225 15% 15%;           /* #1F222A elevated surface */
-    --secondary-foreground: 220 13% 91%;
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
 
-    --muted: 220 15% 19%;               /* #2A2F36 field outline */
-    --muted-foreground: 220 9% 65%;     /* #9CA3AF secondary text */
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
 
-    --accent: 217 91% 60%;              /* blue accent same as primary */
-    --accent-foreground: 0 0% 100%;
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
 
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive: oklch(0.396 0.141 25.723);
+    --destructive-foreground: oklch(0.637 0.237 25.331);
 
-    --border: 220 15% 19%;              /* #2A2F36 */
-    --input: 220 15% 19%;
-    --ring: 217 91% 60%;                /* blue focus ring */
+    --border: oklch(0.269 0 0);
+    --input: oklch(0.269 0 0);
+    --input-background: oklch(0.225 0 0);
+    --ring: oklch(0.439 0 0);
 
-    --radius: 0.75rem;
+    --radius: 0.625rem;
 
-    /* Custom tokens for OverDrafter */
-    --surface-elevated: 225 15% 15%;    /* #1F222A */
-    --blue-hover: 221 83% 53%;          /* #2563EB */
-    --glow-blue: 217 91% 60%;           /* for focus glow */
+    /* Surface elevation */
+    --surface-elevated: oklch(0.269 0 0);
+
+    /* Sidebar tokens */
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(0.269 0 0);
+    --sidebar-ring: oklch(0.439 0 0);
   }
 }
 
