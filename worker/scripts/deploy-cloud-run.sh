@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$SCRIPT_DIR"
+
+SERVICE_NAME="${SERVICE_NAME:-overdrafter-cad-worker}"
+PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-}"
+REGION="${CLOUD_RUN_REGION:-us-west1}"
+SUPABASE_URL="${SUPABASE_URL:-}"
+SUPABASE_SERVICE_ROLE_SECRET_NAME="${SUPABASE_SERVICE_ROLE_SECRET_NAME:-supabase-service-role-key}"
+XOMETRY_STORAGE_STATE_SECRET_NAME="${XOMETRY_STORAGE_STATE_SECRET_NAME:-xometry-storage-state}"
+OPENAI_API_KEY_SECRET_NAME="${OPENAI_API_KEY_SECRET_NAME:-}"
+WORKER_MODE="${WORKER_MODE:-live}"
+WORKER_POLL_INTERVAL_MS="${WORKER_POLL_INTERVAL_MS:-5000}"
+QUOTE_ARTIFACT_BUCKET="${QUOTE_ARTIFACT_BUCKET:-quote-artifacts}"
+PLAYWRIGHT_HEADLESS="${PLAYWRIGHT_HEADLESS:-true}"
+PLAYWRIGHT_CAPTURE_TRACE="${PLAYWRIGHT_CAPTURE_TRACE:-false}"
+PLAYWRIGHT_BROWSER_TIMEOUT_MS="${PLAYWRIGHT_BROWSER_TIMEOUT_MS:-45000}"
+PLAYWRIGHT_DISABLE_SANDBOX="${PLAYWRIGHT_DISABLE_SANDBOX:-true}"
+PLAYWRIGHT_DISABLE_DEV_SHM_USAGE="${PLAYWRIGHT_DISABLE_DEV_SHM_USAGE:-true}"
+CLOUD_RUN_SERVICE_ACCOUNT="${CLOUD_RUN_SERVICE_ACCOUNT:-}"
+
+if [[ -z "$PROJECT_ID" ]]; then
+  echo "GOOGLE_CLOUD_PROJECT is required."
+  exit 1
+fi
+
+if [[ -z "$SUPABASE_URL" ]]; then
+  echo "SUPABASE_URL is required."
+  exit 1
+fi
+
+env_vars=(
+  "SUPABASE_URL=${SUPABASE_URL}"
+  "WORKER_MODE=${WORKER_MODE}"
+  "WORKER_NAME=${SERVICE_NAME}"
+  "WORKER_POLL_INTERVAL_MS=${WORKER_POLL_INTERVAL_MS}"
+  "WORKER_HTTP_HOST=0.0.0.0"
+  "WORKER_TEMP_DIR=/tmp/overdrafter-worker"
+  "QUOTE_ARTIFACT_BUCKET=${QUOTE_ARTIFACT_BUCKET}"
+  "PLAYWRIGHT_HEADLESS=${PLAYWRIGHT_HEADLESS}"
+  "PLAYWRIGHT_CAPTURE_TRACE=${PLAYWRIGHT_CAPTURE_TRACE}"
+  "PLAYWRIGHT_BROWSER_TIMEOUT_MS=${PLAYWRIGHT_BROWSER_TIMEOUT_MS}"
+  "PLAYWRIGHT_DISABLE_SANDBOX=${PLAYWRIGHT_DISABLE_SANDBOX}"
+  "PLAYWRIGHT_DISABLE_DEV_SHM_USAGE=${PLAYWRIGHT_DISABLE_DEV_SHM_USAGE}"
+)
+
+secret_vars=(
+  "SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_SECRET_NAME}:latest"
+  "XOMETRY_STORAGE_STATE_JSON=${XOMETRY_STORAGE_STATE_SECRET_NAME}:latest"
+)
+
+if [[ -n "$OPENAI_API_KEY_SECRET_NAME" ]]; then
+  secret_vars+=("OPENAI_API_KEY=${OPENAI_API_KEY_SECRET_NAME}:latest")
+fi
+
+deploy_cmd=(
+  gcloud run deploy "$SERVICE_NAME"
+  --project "$PROJECT_ID"
+  --region "$REGION"
+  --source .
+  --execution-environment gen2
+  --min-instances 1
+  --max-instances 1
+  --concurrency 1
+  --cpu 2
+  --memory 2Gi
+  --timeout 3600
+  --no-cpu-throttling
+  --no-allow-unauthenticated
+  --set-env-vars "$(IFS=,; echo "${env_vars[*]}")"
+  --update-secrets "$(IFS=,; echo "${secret_vars[*]}")"
+)
+
+if [[ -n "$CLOUD_RUN_SERVICE_ACCOUNT" ]]; then
+  deploy_cmd+=(--service-account "$CLOUD_RUN_SERVICE_ACCOUNT")
+fi
+
+printf 'Deploying %s to project %s in %s\n' "$SERVICE_NAME" "$PROJECT_ID" "$REGION"
+"${deploy_cmd[@]}"

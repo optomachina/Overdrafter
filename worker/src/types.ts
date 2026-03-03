@@ -1,0 +1,159 @@
+export type QueueTaskType =
+  | "extract_part"
+  | "run_vendor_quote"
+  | "poll_vendor_quote"
+  | "publish_package"
+  | "repair_adapter_candidate";
+
+export type QueueTaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+export type VendorName =
+  | "xometry"
+  | "fictiv"
+  | "protolabs"
+  | "sendcutsend"
+  | "partsbadger"
+  | "fastdms";
+export type VendorStatus =
+  | "queued"
+  | "running"
+  | "instant_quote_received"
+  | "official_quote_received"
+  | "manual_review_pending"
+  | "manual_vendor_followup"
+  | "failed"
+  | "stale";
+
+export type QueueTaskRecord = {
+  id: string;
+  organization_id: string;
+  job_id: string | null;
+  part_id: string | null;
+  quote_run_id: string | null;
+  package_id: string | null;
+  task_type: QueueTaskType;
+  status: QueueTaskStatus;
+  payload: Record<string, unknown>;
+};
+
+export type PartRecord = {
+  id: string;
+  job_id: string;
+  organization_id: string;
+  name: string;
+  normalized_key: string;
+  cad_file_id: string | null;
+  drawing_file_id: string | null;
+  quantity: number;
+};
+
+export type JobFileRecord = {
+  id: string;
+  job_id: string;
+  storage_bucket: string;
+  storage_path: string;
+  original_name: string;
+  file_kind: "cad" | "drawing" | "artifact" | "other";
+};
+
+export type ApprovedRequirementRecord = {
+  id: string;
+  part_id: string;
+  description: string | null;
+  part_number: string | null;
+  revision: string | null;
+  material: string;
+  finish: string | null;
+  tightest_tolerance_inch: number | null;
+  quantity: number;
+  applicable_vendors: VendorName[];
+};
+
+export type DrawingExtractionPayload = {
+  partId: string;
+  description: string | null;
+  partNumber: string | null;
+  revision: string | null;
+  material: { raw: string | null; normalized: string | null; confidence: number };
+  finish: { raw: string | null; normalized: string | null; confidence: number };
+  tightestTolerance: { raw: string | null; valueInch: number | null; confidence: number };
+  evidence: Array<{ field: string; page: number; snippet: string; confidence: number }>;
+  warnings: string[];
+  status: "needs_review" | "approved";
+};
+
+export type VendorQuoteAdapterInput = {
+  organizationId: string;
+  quoteRunId: string;
+  part: PartRecord;
+  cadFile: JobFileRecord | null;
+  drawingFile: JobFileRecord | null;
+  stagedCadFile: StagedFile | null;
+  stagedDrawingFile: StagedFile | null;
+  requirement: ApprovedRequirementRecord;
+};
+
+export type StagedFile = {
+  originalName: string;
+  localPath: string;
+  storageBucket: string;
+  storagePath: string;
+};
+
+export type VendorArtifact = {
+  kind: "screenshot" | "html_snapshot" | "trace" | "json";
+  label: string;
+  localPath: string;
+  contentType: string;
+};
+
+export type VendorQuoteAdapterOutput = {
+  vendor: VendorName;
+  status: VendorStatus;
+  unitPriceUsd: number | null;
+  totalPriceUsd: number | null;
+  leadTimeBusinessDays: number | null;
+  quoteUrl: string | null;
+  dfmIssues: string[];
+  notes: string[];
+  artifacts: VendorArtifact[];
+  rawPayload: Record<string, unknown>;
+};
+
+export type VendorAutomationErrorCode =
+  | "login_required"
+  | "captcha"
+  | "selector_failure"
+  | "upload_failure"
+  | "navigation_failure"
+  | "unexpected_ui_state";
+
+export class VendorAutomationError extends Error {
+  constructor(
+    message: string,
+    public readonly code: VendorAutomationErrorCode,
+    public readonly payload: Record<string, unknown> = {},
+    public readonly artifacts: VendorArtifact[] = [],
+  ) {
+    super(message);
+    this.name = "VendorAutomationError";
+  }
+}
+
+export type WorkerConfig = {
+  supabaseUrl: string;
+  supabaseServiceRoleKey: string;
+  workerMode: "simulate" | "live";
+  workerName: string;
+  pollIntervalMs: number;
+  httpHost: string;
+  httpPort: number;
+  workerTempDir: string;
+  artifactBucket: string;
+  playwrightHeadless: boolean;
+  playwrightCaptureTrace: boolean;
+  browserTimeoutMs: number;
+  playwrightDisableSandbox: boolean;
+  playwrightDisableDevShmUsage: boolean;
+  xometryStorageStatePath: string | null;
+  xometryStorageStateJson: string | null;
+};

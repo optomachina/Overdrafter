@@ -6,6 +6,10 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import SignIn from "./pages/SignIn";
 import NotFound from "./pages/NotFound";
+import JobCreate from "./pages/JobCreate";
+import InternalJobDetail from "./pages/InternalJobDetail";
+import ClientPackage from "./pages/ClientPackage";
+import "./App.css";
 
 const queryClient = new QueryClient();
 
@@ -17,6 +21,9 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
+          <Route path="/jobs/new" element={<JobCreate />} />
+          <Route path="/internal/jobs/:jobId" element={<InternalJobDetail />} />
+          <Route path="/client/packages/:packageId" element={<ClientPackage />} />
           <Route path="/signin" element={<SignIn />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />

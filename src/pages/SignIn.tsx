@@ -1,11 +1,27 @@
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { AuthPanel } from "@/components/auth/AuthPanel";
+import { GuestAppShell } from "@/components/auth/GuestAppShell";
+
 const SignIn = () => {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const recoveryModeRequested = searchParams.get("mode") === "recovery";
+
+  if (!recoveryModeRequested) {
+    return <Navigate to="/?auth=signin" replace />;
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="text-3xl font-semibold mb-4">Sign In</h1>
-        <p className="text-muted-foreground">Coming soon...</p>
-      </div>
-    </div>
+    <GuestAppShell
+      authOpen
+      heading="Reset your password"
+      subtitle="Finish the recovery step and return directly to the app."
+      reservePanelSpace
+      onOpenAuth={(mode) => {
+        navigate(mode === "signup" ? "/?auth=signup" : "/?auth=signin", { replace: true });
+      }}
+      panel={<AuthPanel initialMode="update-password" />}
+    />
   );
 };
 

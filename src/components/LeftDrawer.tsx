@@ -41,7 +41,7 @@ interface StorageFile {
   id: string;
   updated_at: string;
   last_accessed_at: string;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 }
 
 export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
@@ -117,7 +117,9 @@ export function LeftDrawer({ isCollapsed, onToggle }: LeftDrawerProps) {
   useEffect(() => {
     try {
       window.localStorage.setItem("leftDrawer.filesOpen", isFilesOpen ? "1" : "0");
-    } catch {}
+    } catch {
+      // Ignore storage write failures in unsupported or private contexts.
+    }
   }, [isFilesOpen]);
 
   const handleDeleteFile = async (fileName: string) => {
