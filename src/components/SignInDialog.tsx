@@ -6,12 +6,14 @@ interface SignInDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialMode?: "sign-in" | "sign-up";
+  redirectPath?: string;
 }
 
 export function SignInDialog({
   open,
   onOpenChange,
   initialMode = "sign-in",
+  redirectPath = "/",
 }: SignInDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -21,7 +23,11 @@ export function SignInDialog({
           <DialogPrimitive.Title className="sr-only">
             {initialMode === "sign-up" ? "Create account" : "Log in"}
           </DialogPrimitive.Title>
-          <AuthPanel initialMode={initialMode} onSuccess={() => onOpenChange(false)} />
+          <AuthPanel
+            initialMode={initialMode}
+            redirectPath={redirectPath}
+            onSuccess={() => onOpenChange(false)}
+          />
         </DialogPrimitive.Content>
       </DialogPortal>
     </Dialog>

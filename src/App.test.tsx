@@ -39,6 +39,27 @@ vi.mock("./pages/ClientPackage", () => ({
   default: () => <div>Client Package Page</div>,
 }));
 
+vi.mock("./pages/ClientProject", () => ({
+  default: () => <div>Client Project Page</div>,
+}));
+
+vi.mock("./pages/ClientPart", () => ({
+  default: () => <div>Client Part Page</div>,
+}));
+
+vi.mock("./pages/SharedInvite", () => ({
+  default: () => <div>Shared Invite Page</div>,
+}));
+
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: {
+    auth: {
+      getUser: vi.fn(),
+      onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
+    },
+  },
+}));
+
 import App from "./App";
 
 describe("App routes", () => {
@@ -65,6 +86,30 @@ describe("App routes", () => {
     render(<App />);
 
     expect(screen.getByText("Client Package Page")).toBeInTheDocument();
+  });
+
+  it("renders the shared client project route", () => {
+    window.history.pushState({}, "", "/projects/project-42");
+
+    render(<App />);
+
+    expect(screen.getByText("Client Project Page")).toBeInTheDocument();
+  });
+
+  it("renders the part detail route", () => {
+    window.history.pushState({}, "", "/parts/job-42");
+
+    render(<App />);
+
+    expect(screen.getByText("Client Part Page")).toBeInTheDocument();
+  });
+
+  it("renders the shared invite route", () => {
+    window.history.pushState({}, "", "/shared/invite-token");
+
+    render(<App />);
+
+    expect(screen.getByText("Shared Invite Page")).toBeInTheDocument();
   });
 
   it("falls back to the not found route for unknown paths", () => {

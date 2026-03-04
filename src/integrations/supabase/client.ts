@@ -5,14 +5,28 @@ import type { Database } from './types';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
+const noopStorage = {
+  getItem: (_key: string) => null,
+  setItem: (_key: string, _value: string) => {},
+  removeItem: (_key: string) => {},
+};
+
+const safeStorage =
+  typeof window !== 'undefined' &&
+  typeof window.localStorage?.getItem === 'function' &&
+  typeof window.localStorage?.setItem === 'function' &&
+  typeof window.localStorage?.removeItem === 'function'
+    ? window.localStorage
+    : noopStorage;
+
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
-    storage: localStorage,
+    storage: safeStorage,
     persistSession: true,
-    autoRefreshToken: true,
+    autoRefreshToken: safeStorage !== noopStorage,
     detectSessionInUrl: true,
     flowType: 'pkce',
   }

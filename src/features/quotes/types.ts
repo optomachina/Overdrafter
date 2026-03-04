@@ -7,6 +7,8 @@ import type {
   JobFileKind,
   JobStatus,
   Json,
+  ProjectInviteStatus,
+  ProjectRole,
   QuoteRunStatus,
   QueueTaskStatus,
   QueueTaskType,
@@ -16,6 +18,9 @@ import type {
 
 export type OrganizationRecord = Database["public"]["Tables"]["organizations"]["Row"];
 export type MembershipRecord = Database["public"]["Tables"]["organization_memberships"]["Row"];
+export type ProjectRecord = Database["public"]["Tables"]["projects"]["Row"];
+export type ProjectMembershipRecord = Database["public"]["Tables"]["project_memberships"]["Row"];
+export type ProjectInviteRecord = Database["public"]["Tables"]["project_invites"]["Row"];
 export type PricingPolicyRecord = Database["public"]["Tables"]["pricing_policies"]["Row"];
 export type JobRecord = Database["public"]["Tables"]["jobs"]["Row"];
 export type JobFileRecord = Database["public"]["Tables"]["job_files"]["Row"];
@@ -140,6 +145,33 @@ export type AppMembership = {
   organizationId: string;
   organizationName: string;
   organizationSlug: string;
+};
+
+export type ProjectAccessRole = ProjectRole;
+
+export type AccessibleProjectSummary = {
+  project: ProjectRecord;
+  currentUserRole: ProjectAccessRole;
+  memberCount: number;
+  partCount: number;
+  inviteCount: number;
+};
+
+export type ClientDraftInput = {
+  title: string;
+  description?: string;
+  projectId?: string | null;
+  tags?: string[];
+};
+
+export type ProjectInviteSummary = {
+  id: string;
+  email: string;
+  role: ProjectRole;
+  status: ProjectInviteStatus;
+  token: string;
+  expiresAt: string;
+  createdAt: string;
 };
 
 export type OrganizationMembershipSummary = {

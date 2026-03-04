@@ -7,6 +7,8 @@ export type Json =
   | Json[];
 
 export type AppRole = "client" | "internal_estimator" | "internal_admin";
+export type ProjectRole = "owner" | "editor";
+export type ProjectInviteStatus = "pending" | "accepted" | "revoked" | "expired";
 export type JobStatus =
   | "uploaded"
   | "extracting"
@@ -90,6 +92,72 @@ export type Database = {
         };
         Update: Partial<Database["public"]["Tables"]["organization_memberships"]["Insert"]>;
       };
+      projects: {
+        Row: BaseRow & {
+          organization_id: string;
+          owner_user_id: string;
+          name: string;
+          description: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          owner_user_id: string;
+          name: string;
+          description?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["projects"]["Insert"]>;
+      };
+      project_memberships: {
+        Row: BaseRow & {
+          project_id: string;
+          user_id: string;
+          role: ProjectRole;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          project_id: string;
+          user_id: string;
+          role?: ProjectRole;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["project_memberships"]["Insert"]>;
+      };
+      project_invites: {
+        Row: BaseRow & {
+          project_id: string;
+          email: string;
+          role: ProjectRole;
+          invited_by: string;
+          accepted_by: string | null;
+          token: string;
+          status: ProjectInviteStatus;
+          expires_at: string;
+          accepted_at: string | null;
+          revoked_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          project_id: string;
+          email: string;
+          role?: ProjectRole;
+          invited_by: string;
+          accepted_by?: string | null;
+          token: string;
+          status?: ProjectInviteStatus;
+          expires_at?: string;
+          accepted_at?: string | null;
+          revoked_at?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["project_invites"]["Insert"]>;
+      };
       pricing_policies: {
         Row: BaseRow & {
           organization_id: string | null;
@@ -115,6 +183,7 @@ export type Database = {
       jobs: {
         Row: BaseRow & {
           organization_id: string;
+          project_id: string | null;
           created_by: string;
           title: string;
           description: string | null;
@@ -128,6 +197,7 @@ export type Database = {
         Insert: {
           id?: string;
           organization_id: string;
+          project_id?: string | null;
           created_by: string;
           title: string;
           description?: string | null;
@@ -556,6 +626,47 @@ export type Database = {
         };
         Returns: string;
       };
+      api_create_project: {
+        Args: {
+          p_name: string;
+          p_description?: string | null;
+        };
+        Returns: string;
+      };
+      api_update_project: {
+        Args: {
+          p_project_id: string;
+          p_name: string;
+          p_description?: string | null;
+        };
+        Returns: string;
+      };
+      api_delete_project: {
+        Args: {
+          p_project_id: string;
+        };
+        Returns: string;
+      };
+      api_invite_project_member: {
+        Args: {
+          p_project_id: string;
+          p_email: string;
+          p_role?: ProjectRole | null;
+        };
+        Returns: Json;
+      };
+      api_accept_project_invite: {
+        Args: {
+          p_token: string;
+        };
+        Returns: string;
+      };
+      api_remove_project_member: {
+        Args: {
+          p_project_membership_id: string;
+        };
+        Returns: string;
+      };
       api_create_self_service_organization: {
         Args: {
           p_organization_name: string;
@@ -569,6 +680,28 @@ export type Database = {
           p_description?: string | null;
           p_source?: string | null;
           p_tags?: string[] | null;
+        };
+        Returns: string;
+      };
+      api_create_client_draft: {
+        Args: {
+          p_title: string;
+          p_description?: string | null;
+          p_project_id?: string | null;
+          p_tags?: string[] | null;
+        };
+        Returns: string;
+      };
+      api_assign_job_to_project: {
+        Args: {
+          p_job_id: string;
+          p_project_id: string;
+        };
+        Returns: string;
+      };
+      api_remove_job_from_project: {
+        Args: {
+          p_job_id: string;
         };
         Returns: string;
       };

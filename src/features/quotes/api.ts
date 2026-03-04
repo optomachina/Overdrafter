@@ -2,10 +2,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { hasVerifiedAuth } from "@/lib/auth-status";
 import { buildAuthRedirectUrl } from "@/lib/auth-redirect";
 import type {
+  AccessibleProjectSummary,
   AppMembership,
   AppSessionData,
   ApprovedPartRequirement,
   ClientPackageAggregate,
+  ClientDraftInput,
   JobAggregate,
   JobFileRecord,
   JobPartSummary,
@@ -15,6 +17,10 @@ import type {
   ManualQuoteRecordResult,
   OrganizationMembershipSummary,
   PublishedQuotePackageRecord,
+  ProjectInviteRecord,
+  ProjectInviteSummary,
+  ProjectMembershipRecord,
+  ProjectRecord,
   QuoteRunReadiness,
 } from "@/features/quotes/types";
 import type {
@@ -23,6 +29,7 @@ import type {
   JobFileKind,
   Json,
   PublishedQuoteOptionRecord,
+  ProjectRole,
   VendorName,
   VendorStatus,
   WorkQueueRecord,
@@ -116,6 +123,23 @@ function ensureData<T>(data: T | null, error: { message: string } | null | undef
   }
 
   return data;
+}
+
+async function requireCurrentUser() {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!user) {
+    throw new Error("You must be signed in to continue.");
+  }
+
+  return user;
 }
 
 function asObject(value: Json | null | undefined): Record<string, unknown> {
@@ -303,6 +327,75 @@ export async function fetchJobPartSummariesByOrganization(
   return Array.from(summariesByJobId.values());
 }
 
+export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<JobPartSummary[]> {
+  if (jobIds.length === 0) {
+    return [];
+  }
+
+  const [partsResult, filesResult] = await Promise.all([
+    supabase
+      .from("parts")
+      .select("job_id, quantity, approved_part_requirements(part_number, revision, description, spec_snapshot)")
+      .in("job_id", jobIds)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("job_files")
+      .select("job_id, normalized_name, original_name, file_kind")
+      .in("job_id", jobIds)
+      .order("created_at", { ascending: true }),
+  ]);
+
+  const approvedRequirements = ensureData(
+    partsResult.data as unknown as ApprovedRequirementJoinRow[] | null,
+    partsResult.error,
+  );
+  const fileRows = ensureData(filesResult.data as unknown as JobFileSummaryRow[] | null, filesResult.error);
+  const summariesByJobId = new Map<string, JobPartSummary>();
+
+  for (const row of approvedRequirements) {
+    const specSnapshot = asObject(row.approved_part_requirements?.spec_snapshot);
+    const importedBatch =
+      typeof specSnapshot.importedBatch === "string" && specSnapshot.importedBatch.trim().length > 0
+        ? specSnapshot.importedBatch.trim().toUpperCase()
+        : null;
+
+    summariesByJobId.set(row.job_id, {
+      jobId: row.job_id,
+      partNumber: row.approved_part_requirements?.part_number ?? null,
+      revision: row.approved_part_requirements?.revision ?? null,
+      description: row.approved_part_requirements?.description ?? null,
+      quantity: row.quantity ?? null,
+      importedBatch,
+    });
+  }
+
+  for (const row of fileRows) {
+    const existingSummary = summariesByJobId.get(row.job_id);
+
+    if (existingSummary?.partNumber) {
+      continue;
+    }
+
+    const parsedReference =
+      parsePartReference(row.normalized_name) ?? parsePartReference(row.original_name);
+
+    if (!parsedReference && existingSummary) {
+      continue;
+    }
+
+    summariesByJobId.set(row.job_id, {
+      jobId: row.job_id,
+      partNumber: parsedReference?.partNumber ?? existingSummary?.partNumber ?? null,
+      revision: parsedReference?.revision ?? existingSummary?.revision ?? null,
+      description: existingSummary?.description ?? null,
+      quantity: existingSummary?.quantity ?? null,
+      importedBatch: existingSummary?.importedBatch ?? null,
+    });
+  }
+
+  return Array.from(summariesByJobId.values());
+}
+
 export async function fetchPublishedPackagesByOrganization(
   organizationId: string,
 ): Promise<PublishedQuotePackageRecord[]> {
@@ -310,6 +403,22 @@ export async function fetchPublishedPackagesByOrganization(
     .from("published_quote_packages")
     .select("*")
     .eq("organization_id", organizationId)
+    .order("published_at", { ascending: false });
+
+  return ensureData(data, error);
+}
+
+export async function fetchPublishedPackagesByJobIds(
+  jobIds: string[],
+): Promise<PublishedQuotePackageRecord[]> {
+  if (jobIds.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("published_quote_packages")
+    .select("*")
+    .in("job_id", jobIds)
     .order("published_at", { ascending: false });
 
   return ensureData(data, error);
@@ -535,6 +644,279 @@ export async function updateOrganizationMembershipRole(input: {
   const { data, error } = await supabase.rpc("api_update_organization_membership_role", {
     p_membership_id: input.membershipId,
     p_role: input.role,
+  });
+
+  return ensureData(data, error);
+}
+
+async function fetchAllAccessibleJobs(): Promise<JobRecord[]> {
+  const { data, error } = await supabase
+    .from("jobs")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  return ensureData(data, error);
+}
+
+export async function fetchAccessibleJobs(): Promise<JobRecord[]> {
+  return fetchAllAccessibleJobs();
+}
+
+export async function fetchAccessibleProjects(): Promise<AccessibleProjectSummary[]> {
+  const currentUser = await requireCurrentUser();
+  const { data: projectsData, error: projectsError } = await supabase
+    .from("projects")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  const projects = ensureData(projectsData, projectsError) as ProjectRecord[];
+
+  if (projects.length === 0) {
+    return [];
+  }
+
+  const projectIds = projects.map((project) => project.id);
+  const [membershipsResult, invitesResult, jobs] = await Promise.all([
+    supabase
+      .from("project_memberships")
+      .select("*")
+      .in("project_id", projectIds)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("project_invites")
+      .select("*")
+      .in("project_id", projectIds)
+      .order("created_at", { ascending: false }),
+    fetchAllAccessibleJobs(),
+  ]);
+
+  const memberships = ensureData(membershipsResult.data, membershipsResult.error) as ProjectMembershipRecord[];
+  const invites = ensureData(invitesResult.data, invitesResult.error) as ProjectInviteRecord[];
+
+  return projects.map((project) => {
+    const projectMemberships = memberships.filter((membership) => membership.project_id === project.id);
+    const currentMembership = projectMemberships.find((membership) => membership.user_id === currentUser.id);
+    const partCount = jobs.filter((job) => job.project_id === project.id).length;
+    const inviteCount = invites.filter(
+      (invite) => invite.project_id === project.id && invite.status === "pending",
+    ).length;
+
+    return {
+      project,
+      currentUserRole: currentMembership?.role ?? "owner",
+      memberCount: projectMemberships.length,
+      partCount,
+      inviteCount,
+    };
+  });
+}
+
+export async function fetchProject(projectId: string): Promise<ProjectRecord> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("id", projectId)
+    .single();
+
+  return ensureData(data, error) as ProjectRecord;
+}
+
+export async function fetchProjectMemberships(projectId: string): Promise<ProjectMembershipRecord[]> {
+  const { data, error } = await supabase
+    .from("project_memberships")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true });
+
+  return ensureData(data, error) as ProjectMembershipRecord[];
+}
+
+export async function fetchProjectInvites(projectId: string): Promise<ProjectInviteSummary[]> {
+  const { data, error } = await supabase
+    .from("project_invites")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+
+  const invites = ensureData(data, error) as ProjectInviteRecord[];
+
+  return invites.map((invite) => ({
+    id: invite.id,
+    email: invite.email,
+    role: invite.role,
+    status: invite.status,
+    token: invite.token,
+    expiresAt: invite.expires_at,
+    createdAt: invite.created_at,
+  }));
+}
+
+export async function fetchJobsByProject(projectId: string): Promise<JobRecord[]> {
+  const { data, error } = await supabase
+    .from("jobs")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+
+  return ensureData(data, error);
+}
+
+export async function fetchUngroupedParts(): Promise<JobRecord[]> {
+  const currentUser = await requireCurrentUser();
+  const { data, error } = await supabase
+    .from("jobs")
+    .select("*")
+    .eq("created_by", currentUser.id)
+    .is("project_id", null)
+    .order("created_at", { ascending: false });
+
+  return ensureData(data, error);
+}
+
+export async function searchAccessibleParts(query: string): Promise<JobRecord[]> {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const jobs = await fetchAllAccessibleJobs();
+
+  return jobs.filter((job) =>
+    [job.title, job.description ?? "", job.tags.join(" ")]
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedQuery),
+  );
+}
+
+export async function fetchPartDetail(jobId: string): Promise<{
+  job: JobRecord;
+  files: JobFileRecord[];
+  summary: JobPartSummary | null;
+  packages: PublishedQuotePackageRecord[];
+}> {
+  const [jobResult, filesResult, partSummaries, packages] = await Promise.all([
+    supabase.from("jobs").select("*").eq("id", jobId).single(),
+    supabase.from("job_files").select("*").eq("job_id", jobId).order("created_at", { ascending: true }),
+    fetchJobPartSummariesByJobIds([jobId]),
+    fetchPublishedPackagesByJobIds([jobId]),
+  ]);
+
+  return {
+    job: ensureData(jobResult.data, jobResult.error) as JobRecord,
+    files: ensureData(filesResult.data, filesResult.error) as JobFileRecord[],
+    summary: partSummaries[0] ?? null,
+    packages,
+  };
+}
+
+export async function createProject(input: {
+  name: string;
+  description?: string;
+}): Promise<string> {
+  const { data, error } = await supabase.rpc("api_create_project", {
+    p_name: input.name,
+    p_description: input.description ?? null,
+  });
+
+  return ensureData(data, error);
+}
+
+export async function updateProject(input: {
+  projectId: string;
+  name: string;
+  description?: string;
+}): Promise<string> {
+  const { data, error } = await supabase.rpc("api_update_project", {
+    p_project_id: input.projectId,
+    p_name: input.name,
+    p_description: input.description ?? null,
+  });
+
+  return ensureData(data, error);
+}
+
+export async function deleteProject(projectId: string): Promise<string> {
+  const { data, error } = await supabase.rpc("api_delete_project", {
+    p_project_id: projectId,
+  });
+
+  return ensureData(data, error);
+}
+
+export async function inviteProjectMember(input: {
+  projectId: string;
+  email: string;
+  role?: ProjectRole;
+}): Promise<ProjectInviteSummary> {
+  const { data, error } = await supabase.rpc("api_invite_project_member", {
+    p_project_id: input.projectId,
+    p_email: input.email,
+    p_role: input.role ?? "editor",
+  });
+
+  const invite = ensureData(data, error) as {
+    id: string;
+    email: string;
+    role: ProjectRole;
+    token: string;
+    expiresAt: string;
+  };
+
+  return {
+    id: invite.id,
+    email: invite.email,
+    role: invite.role,
+    status: "pending",
+    token: invite.token,
+    expiresAt: invite.expiresAt,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export async function acceptProjectInvite(token: string): Promise<string> {
+  const { data, error } = await supabase.rpc("api_accept_project_invite", {
+    p_token: token,
+  });
+
+  return ensureData(data, error);
+}
+
+export async function removeProjectMember(projectMembershipId: string): Promise<string> {
+  const { data, error } = await supabase.rpc("api_remove_project_member", {
+    p_project_membership_id: projectMembershipId,
+  });
+
+  return ensureData(data, error);
+}
+
+export async function createClientDraft(input: ClientDraftInput): Promise<string> {
+  const { data, error } = await supabase.rpc("api_create_client_draft", {
+    p_title: input.title,
+    p_description: input.description ?? null,
+    p_project_id: input.projectId ?? null,
+    p_tags: input.tags ?? [],
+  });
+
+  return ensureData(data, error);
+}
+
+export async function assignJobToProject(input: {
+  jobId: string;
+  projectId: string;
+}): Promise<string> {
+  const { data, error } = await supabase.rpc("api_assign_job_to_project", {
+    p_job_id: input.jobId,
+    p_project_id: input.projectId,
+  });
+
+  return ensureData(data, error);
+}
+
+export async function removeJobFromProject(jobId: string): Promise<string> {
+  const { data, error } = await supabase.rpc("api_remove_job_from_project", {
+    p_job_id: jobId,
   });
 
   return ensureData(data, error);

@@ -10,6 +10,9 @@ import JobCreate from "./pages/JobCreate";
 import InternalJobDetail from "./pages/InternalJobDetail";
 import ClientPackage from "./pages/ClientPackage";
 import AuthCallback from "./pages/AuthCallback";
+import ClientProject from "./pages/ClientProject";
+import ClientPart from "./pages/ClientPart";
+import SharedInvite from "./pages/SharedInvite";
 import "./App.css";
 
 const queryClient = new QueryClient();
@@ -22,6 +25,9 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
+          <Route path="/projects/:projectId" element={<ClientProject />} />
+          <Route path="/parts/:jobId" element={<ClientPart />} />
+          <Route path="/shared/:inviteToken" element={<SharedInvite />} />
           <Route path="/jobs/new" element={<JobCreate />} />
           <Route path="/internal/jobs/:jobId" element={<InternalJobDetail />} />
           <Route path="/client/packages/:packageId" element={<ClientPackage />} />

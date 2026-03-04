@@ -1,51 +1,56 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
-import { PROJECT_STORAGE_PREFIX } from "@/features/quotes/client-workspace";
 import Index from "./Index";
 
 const mockUseAppSession = vi.fn();
-const mockFetchJobsByOrganization = vi.fn();
-const mockFetchPublishedPackagesByOrganization = vi.fn();
-const mockFetchJobPartSummariesByOrganization = vi.fn();
-const localStorageState = new Map<string, string>();
+const mockFetchAccessibleProjects = vi.fn();
+const mockFetchAccessibleJobs = vi.fn();
+const mockFetchUngroupedParts = vi.fn();
+const mockFetchJobPartSummariesByJobIds = vi.fn();
 
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
 }));
 
-vi.mock("@/features/quotes/api", () => ({
-  createSelfServiceOrganization: vi.fn(),
-  fetchJobPartSummariesByOrganization: (...args: unknown[]) =>
-    mockFetchJobPartSummariesByOrganization(...args),
-  fetchJobsByOrganization: (...args: unknown[]) => mockFetchJobsByOrganization(...args),
-  fetchOrganizationMemberships: vi.fn(),
-  fetchPublishedPackagesByOrganization: (...args: unknown[]) =>
-    mockFetchPublishedPackagesByOrganization(...args),
-  resendSignupConfirmation: vi.fn(),
-  updateOrganizationMembershipRole: vi.fn(),
+vi.mock("@/components/SignInDialog", () => ({
+  SignInDialog: () => null,
 }));
 
-vi.mock("@/integrations/supabase/client", () => ({
-  supabase: {
-    auth: {
-      getUser: vi.fn(),
-    },
-  },
+vi.mock("@/components/ui/tooltip", () => ({
+  TooltipProvider: ({ children }: PropsWithChildren) => <>{children}</>,
+  Tooltip: ({ children }: PropsWithChildren) => <>{children}</>,
+  TooltipTrigger: ({ children }: PropsWithChildren) => <>{children}</>,
+  TooltipContent: () => null,
 }));
+
+vi.mock("@/features/quotes/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/quotes/api")>();
+
+  return {
+    ...actual,
+    createSelfServiceOrganization: vi.fn(),
+    fetchAccessibleProjects: (...args: unknown[]) => mockFetchAccessibleProjects(...args),
+    fetchAccessibleJobs: (...args: unknown[]) => mockFetchAccessibleJobs(...args),
+    fetchUngroupedParts: (...args: unknown[]) => mockFetchUngroupedParts(...args),
+    fetchJobPartSummariesByJobIds: (...args: unknown[]) => mockFetchJobPartSummariesByJobIds(...args),
+  };
+});
 
 function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
   return {
     id: "job-1",
     organization_id: "org-dmrifles",
-    created_by: null,
+    project_id: null,
+    created_by: "user-1",
     title: "Sample job",
     description: null,
     status: "uploaded",
-    source: "client",
+    source: "client_home",
     tags: [],
     active_pricing_policy_id: null,
     created_at: "2026-03-03T19:00:00Z",
@@ -99,6 +104,7 @@ function buildDmriflesFixtures() {
             ? "A"
             : "1";
       const jobId = `job-${index}`;
+
       jobs.push(
         makeJob({
           id: jobId,
@@ -107,7 +113,7 @@ function buildDmriflesFixtures() {
           status: statusResolver(partNumber),
           source:
             partNumber === "1093-05589"
-              ? "client"
+              ? "client_home"
               : `spreadsheet_import:${batch.toLowerCase()}:${partNumber.toLowerCase()}:${revision.toLowerCase()}`,
           created_at: `2026-03-03T19:${String(index).padStart(2, "0")}:00Z`,
         }),
@@ -149,30 +155,43 @@ function renderIndex() {
   );
 }
 
-describe("Index DMRifles workspace", () => {
+describe("Index client home", () => {
   beforeEach(() => {
-    const storage = {
-      getItem: (key: string) => localStorageState.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        localStorageState.set(key, value);
-      },
-      removeItem: (key: string) => {
-        localStorageState.delete(key);
-      },
-      clear: () => {
-        localStorageState.clear();
-      },
-    };
+    mockFetchAccessibleProjects.mockResolvedValue([]);
+    mockFetchAccessibleJobs.mockResolvedValue([]);
+    mockFetchUngroupedParts.mockResolvedValue([]);
+    mockFetchJobPartSummariesByJobIds.mockResolvedValue([]);
+  });
 
-    Object.defineProperty(window, "localStorage", {
-      value: storage,
-      configurable: true,
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders the guest ChatGPT-style landing shell", async () => {
+    mockUseAppSession.mockReturnValue({
+      user: null,
+      activeMembership: null,
+      isLoading: false,
+      isVerifiedAuth: false,
+      signOut: vi.fn(),
     });
 
+    renderIndex();
+
+    expect(screen.getAllByRole("button", { name: /^log in$/i }).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByRole("button", { name: /sign up for free/i })).toBeInTheDocument();
+    expect(screen.getByText("What are you working on?")).toBeInTheDocument();
+    expect(screen.getByText("Get quotes tailored to you")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Log in to get quotes based on price and lead time, plus upload files\./i),
+    ).toBeInTheDocument();
+  });
+
+  it("renders DMRifles seeded projects on the new client home", async () => {
     const { jobs, summaries } = buildDmriflesFixtures();
 
     mockUseAppSession.mockReturnValue({
-      user: { email: "dmrifles@gmail.com" },
+      user: { id: "user-1", email: "dmrifles@gmail.com" },
       activeMembership: {
         id: "membership-1",
         role: "client",
@@ -184,68 +203,17 @@ describe("Index DMRifles workspace", () => {
       isVerifiedAuth: true,
       signOut: vi.fn(),
     });
-    mockFetchJobsByOrganization.mockResolvedValue(jobs);
-    mockFetchPublishedPackagesByOrganization.mockResolvedValue([]);
-    mockFetchJobPartSummariesByOrganization.mockResolvedValue(summaries);
-    window.localStorage.setItem(
-      `${PROJECT_STORAGE_PREFIX}:org-dmrifles:dmrifles@gmail.com`,
-      JSON.stringify([
-        {
-          id: "project-stale",
-          name: "Stale folder",
-          jobIds: jobs.map((job) => job.id),
-          createdAt: "2026-03-03T00:00:00Z",
-        },
-      ]),
-    );
-  });
+    mockFetchAccessibleProjects.mockResolvedValue([]);
+    mockFetchAccessibleJobs.mockResolvedValue(jobs);
+    mockFetchUngroupedParts.mockResolvedValue([]);
+    mockFetchJobPartSummariesByJobIds.mockResolvedValue(summaries);
 
-  afterEach(() => {
-    vi.clearAllMocks();
-    localStorageState.clear();
-  });
-
-  it("renders system QB folders, ignores stale storage, and keeps project mutation disabled", async () => {
     renderIndex();
 
     expect(await screen.findByRole("button", { name: /qb00001/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /qb00002/i })).toHaveTextContent("1");
-    expect(screen.getByRole("button", { name: /qb00003/i })).toHaveTextContent("2");
-    expect(screen.queryByText("Stale folder")).not.toBeInTheDocument();
-
-    const newProjectButtons = screen.getAllByRole("button", { name: /new project/i });
-    expect(newProjectButtons).toHaveLength(2);
-    newProjectButtons.forEach((button) => expect(button).toBeDisabled());
-    expect(screen.getByRole("button", { name: /^rename$/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /^delete$/i })).toBeDisabled();
-    expect(screen.getAllByText(/qb folders are system-managed from imported quote batches/i).length).toBeGreaterThan(0);
-  });
-
-  it("filters, searches, and exposes selection mode in the DMRifles workspace", async () => {
-    renderIndex();
-
-    await screen.findByRole("button", { name: /qb00003/i });
-
-    fireEvent.click(screen.getByRole("button", { name: /qb00003/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^published/i }));
-
-    await waitFor(() => {
-      expect(screen.getAllByText("1093-05907 rev 1").length).toBeGreaterThan(0);
-      expect(screen.queryByText("1093-10435 rev A")).not.toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /^all jobs/i }));
-    fireEvent.change(screen.getByPlaceholderText(/search parts, descriptions, or tags/i), {
-      target: { value: "10435" },
-    });
-
-    await waitFor(() => {
-      expect(screen.getAllByText("1093-10435 rev A").length).toBeGreaterThan(0);
-      expect(screen.queryAllByText("1093-05907 rev 1")).toHaveLength(0);
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /select parts/i }));
-
-    expect(await screen.findAllByRole("checkbox")).not.toHaveLength(0);
+    expect(screen.getByRole("button", { name: /qb00002/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /qb00003/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /new project/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
   });
 });

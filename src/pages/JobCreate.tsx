@@ -25,20 +25,10 @@ import { isEmailConfirmationRequired } from "@/lib/auth-status";
 import { createCadPreviewSourceFromFile, isStepPreviewableFile } from "@/lib/cad-preview";
 import { supabase } from "@/integrations/supabase/client";
 import { formatStatusLabel } from "@/features/quotes/utils";
-
-const allowedExtensions = [
-  ".pdf",
-  ".step",
-  ".stp",
-  ".igs",
-  ".iges",
-  ".sldprt",
-  ".prt",
-  ".sldasm",
-  ".asm",
-  ".x_t",
-  ".xt",
-];
+import {
+  ALLOWED_QUOTE_UPLOAD_EXTENSIONS,
+  validateQuoteFiles,
+} from "@/features/quotes/file-validation";
 
 function parseJobTags(input: string): string[] {
   return Array.from(
@@ -120,25 +110,9 @@ const JobCreate = () => {
   );
 
   const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(event.target.files ?? []);
-    const validFiles = selectedFiles.filter((file) => {
-      const extension = `.${file.name.split(".").pop()?.toLowerCase()}`;
-      const maxSize = 200 * 1024 * 1024;
-
-      if (!allowedExtensions.includes(extension)) {
-        toast.error(`${file.name} is not a supported CNC upload type.`);
-        return false;
-      }
-
-      if (file.size > maxSize) {
-        toast.error(`${file.name} exceeds the 200 MB file limit.`);
-        return false;
-      }
-
-      return true;
-    });
-
-    setFiles((current) => [...current, ...validFiles]);
+    const { accepted, errors } = validateQuoteFiles(Array.from(event.target.files ?? []));
+    errors.forEach((error) => toast.error(error));
+    setFiles((current) => [...current, ...accepted]);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -329,7 +303,7 @@ const JobCreate = () => {
               className="hidden"
               disabled={!isVerifiedAuth}
               onChange={handleFileUpload}
-              accept={allowedExtensions.join(",")}
+              accept={ALLOWED_QUOTE_UPLOAD_EXTENSIONS.join(",")}
             />
           </CardHeader>
           <CardContent className="space-y-4">
