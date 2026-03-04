@@ -5,7 +5,6 @@ import type { User } from "@supabase/supabase-js";
 import {
   ArrowRight,
   CheckSquare,
-  ChevronDown,
   Clock3,
   Filter,
   FolderKanban,
@@ -76,37 +75,19 @@ import {
   getJobSummaryMetrics,
   optionLabelForKind,
 } from "@/features/quotes/utils";
+import {
+  buildDmriflesProjects,
+  DMRIFLES_EMAIL,
+  isDmriflesSystemProject,
+  PROJECT_STORAGE_PREFIX,
+  type ClientJobProject,
+} from "@/features/quotes/client-workspace";
 
 const membershipRoleOptions: AppRole[] = ["client", "internal_estimator", "internal_admin"];
-const seededProjectNames = ["QB00001", "QB00002", "QB00003"];
-const projectStoragePrefix = "overdrafter-job-projects-v2";
-const dmriflesEmail = "dmrifles@gmail.com";
-const dmriflesProjectAssignments: Record<string, string> = {
-  "1093-05589": "QB00001",
-  "1093-03242": "QB00001",
-  "1093-03247": "QB00001",
-  "1093-03258": "QB00001",
-  "1093-03266": "QB00001",
-  "1093-03292": "QB00001",
-  "1093-03548": "QB00001",
-  "1093-05974": "QB00001",
-  "1093-06156": "QB00001",
-  "1093-10569": "QB00002",
-  "1093-10570": "QB00002",
-  "1093-05907": "QB00003",
-  "1093-10435": "QB00003",
-};
 
 type JobFilter = "all" | "needs_attention" | "quoting" | "published";
 
-type JobProject = {
-  id: string;
-  name: string;
-  jobIds: string[];
-  createdAt: string;
-};
-
-type ProjectSection = JobProject & {
+type ProjectSection = ClientJobProject & {
   jobs: JobRecord[];
   visibleJobs: JobRecord[];
   isVirtual?: boolean;
@@ -126,7 +107,7 @@ function createProjectStorageKey(organizationId?: string, userEmail?: string): s
     return null;
   }
 
-  return `${projectStoragePrefix}:${organizationId}:${userEmail.toLowerCase()}`;
+  return `${PROJECT_STORAGE_PREFIX}:${organizationId}:${userEmail.toLowerCase()}`;
 }
 
 function matchesJobFilter(job: JobRecord, filter: JobFilter): boolean {
@@ -156,7 +137,7 @@ function matchesJobSearch(job: JobRecord, searchTerm: string): boolean {
     .includes(normalizedSearch);
 }
 
-function sanitizeProjectList(projects: JobProject[], jobs: JobRecord[]): JobProject[] {
+function sanitizeProjectList(projects: ClientJobProject[], jobs: JobRecord[]): ClientJobProject[] {
   const validJobIds = new Set(jobs.map((job) => job.id));
   const assignedJobIds = new Set<string>();
 
@@ -222,104 +203,29 @@ function getClientItemPresentation(
   };
 }
 
-function getDmriflesProjectName(job: JobRecord, partSummary?: JobPartSummary | null): string {
-  const titleReference = parsePartReferenceFromTitle(job.title);
-  const partNumber = partSummary?.partNumber ?? titleReference?.partNumber ?? null;
-
-  if (partNumber && dmriflesProjectAssignments[partNumber]) {
-    return dmriflesProjectAssignments[partNumber];
-  }
-
-  const searchText = [partSummary?.description, job.description, job.title]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  if (searchText.includes("pc6010")) {
-    return "QB00002";
-  }
-
-  if (searchText.includes("tip-tilt") || searchText.includes("accufiz")) {
-    return "QB00003";
-  }
-
-  return "QB00001";
-}
-
-function buildDmriflesProjects(
-  jobs: JobRecord[],
-  partSummariesByJobId: Map<string, JobPartSummary>,
-): JobProject[] {
-  const timestamp = new Date().toISOString();
-  const seedProjects = new Map(
-    seededProjectNames.map((name) => [
-      name,
-      {
-        id: `seed-${name.toLowerCase()}`,
-        name,
-        jobIds: [] as string[],
-        createdAt: timestamp,
-      },
-    ]),
-  );
-
-  const sortedJobs = [...jobs].sort((left, right) => {
-    const leftTitle = getClientItemPresentation(left, partSummariesByJobId.get(left.id)).title;
-    const rightTitle = getClientItemPresentation(right, partSummariesByJobId.get(right.id)).title;
-
-    if (leftTitle !== rightTitle) {
-      return leftTitle.localeCompare(rightTitle);
-    }
-
-    return new Date(left.created_at).getTime() - new Date(right.created_at).getTime();
-  });
-
-  sortedJobs.forEach((job) => {
-    const projectName = getDmriflesProjectName(job, partSummariesByJobId.get(job.id));
-    seedProjects.get(projectName)?.jobIds.push(job.id);
-  });
-
-  return seededProjectNames
-    .map((name) => seedProjects.get(name))
-    .filter((project): project is JobProject => Boolean(project));
-}
-
-function matchesDefaultDmriflesSeed(projects: JobProject[]): boolean {
-  if (projects.length !== seededProjectNames.length) {
-    return false;
-  }
-
-  return seededProjectNames.every((name) =>
-    projects.some((project) => project.id === `seed-${name.toLowerCase()}` && project.name === name),
-  );
-}
-
 function loadPersistedProjects(
   projectStorageKey: string,
   jobs: JobRecord[],
   userEmail: string,
   partSummariesByJobId: Map<string, JobPartSummary>,
-): JobProject[] {
+): ClientJobProject[] {
   const systemDmriflesProjects =
-    userEmail.toLowerCase() === dmriflesEmail
+    userEmail.toLowerCase() === DMRIFLES_EMAIL
       ? sanitizeProjectList(buildDmriflesProjects(jobs, partSummariesByJobId), jobs)
       : [];
+
+  if (userEmail.toLowerCase() === DMRIFLES_EMAIL) {
+    return systemDmriflesProjects;
+  }
 
   if (typeof window !== "undefined") {
     const rawProjects = window.localStorage.getItem(projectStorageKey);
 
     if (rawProjects) {
       try {
-        const parsedProjects = JSON.parse(rawProjects) as JobProject[];
+        const parsedProjects = JSON.parse(rawProjects) as ClientJobProject[];
         if (Array.isArray(parsedProjects)) {
           const sanitizedProjects = sanitizeProjectList(parsedProjects, jobs);
-
-          if (userEmail.toLowerCase() === dmriflesEmail) {
-            return matchesDefaultDmriflesSeed(sanitizedProjects)
-              ? systemDmriflesProjects
-              : sanitizedProjects;
-          }
-
           return sanitizedProjects;
         }
       } catch {
@@ -328,14 +234,10 @@ function loadPersistedProjects(
     }
   }
 
-  if (userEmail.toLowerCase() === dmriflesEmail) {
-    return systemDmriflesProjects;
-  }
-
   return [];
 }
 
-function getSuggestedProjectName(projects: JobProject[]): string {
+function getSuggestedProjectName(projects: ClientJobProject[]): string {
   const existingNames = new Set(projects.map((project) => project.name.toLowerCase()));
   let nextNumber = 1;
 
@@ -390,13 +292,12 @@ const Index = () => {
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
   const [isRefreshingVerification, setIsRefreshingVerification] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
-  const [projectGroups, setProjectGroups] = useState<JobProject[]>([]);
+  const [projectGroups, setProjectGroups] = useState<ClientJobProject[]>([]);
   const [loadedProjectKey, setLoadedProjectKey] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [focusedJobId, setFocusedJobId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<JobFilter>("all");
   const [searchTerm, setSearchTerm] = useState("");
-  const [isProjectsSectionCollapsed, setIsProjectsSectionCollapsed] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
@@ -411,7 +312,7 @@ const Index = () => {
 
   const normalizedEmail = user?.email?.toLowerCase() ?? "";
   const defaultAccountName = useMemo(() => getDefaultAccountName(user), [user]);
-  const isDmriflesWorkspace = normalizedEmail === dmriflesEmail;
+  const isDmriflesWorkspace = normalizedEmail === DMRIFLES_EMAIL;
   const projectStorageKey = useMemo(
     () => createProjectStorageKey(activeMembership?.organizationId, normalizedEmail),
     [activeMembership?.organizationId, normalizedEmail],
@@ -526,6 +427,7 @@ const Index = () => {
 
   useEffect(() => {
     if (
+      isDmriflesWorkspace ||
       !projectStorageKey ||
       loadedProjectKey !== projectStorageKey ||
       typeof window === "undefined"
@@ -534,7 +436,7 @@ const Index = () => {
     }
 
     window.localStorage.setItem(projectStorageKey, JSON.stringify(projectGroups));
-  }, [loadedProjectKey, projectGroups, projectStorageKey]);
+  }, [isDmriflesWorkspace, loadedProjectKey, projectGroups, projectStorageKey]);
 
   useEffect(() => {
     if (!selectionMode) {
@@ -611,6 +513,10 @@ const Index = () => {
     () => projectGroups.find((project) => project.id === selectedProjectId) ?? null,
     [projectGroups, selectedProjectId],
   );
+  const selectedProjectIsSystemManaged = useMemo(
+    () => isDmriflesSystemProject(selectedEditableProject),
+    [selectedEditableProject],
+  );
 
   const visibleJobs = useMemo(() => {
     if (selectedProject) {
@@ -664,6 +570,14 @@ const Index = () => {
   const projectNameSuggestion = useMemo(
     () => getSuggestedProjectName(projectGroups),
     [projectGroups],
+  );
+  const canMutateProjects = !isDmriflesWorkspace;
+  const canRenameSelectedProject = Boolean(selectedEditableProject) && !selectedProjectIsSystemManaged;
+  const activeFilterLabel =
+    clientFilterOptions.find((filterOption) => filterOption.id === activeFilter)?.label ?? "All jobs";
+  const focusedItemPresentation = useMemo(
+    () => (focusedJob ? getClientItemPresentation(focusedJob, partSummaryByJobId.get(focusedJob.id)) : null),
+    [focusedJob, partSummaryByJobId],
   );
 
   const handleSelectProject = (section: ProjectSection) => {
@@ -788,6 +702,10 @@ const Index = () => {
   };
 
   const openCreateProjectDialog = () => {
+    if (!canMutateProjects) {
+      return;
+    }
+
     setProjectDialogMode("create");
     setEditingProjectId(null);
     setProjectName(projectNameSuggestion);
@@ -797,7 +715,7 @@ const Index = () => {
   const openRenameProjectDialog = (projectId: string) => {
     const project = projectGroups.find((candidate) => candidate.id === projectId);
 
-    if (!project) {
+    if (!project || isDmriflesSystemProject(project)) {
       return;
     }
 
@@ -808,11 +726,21 @@ const Index = () => {
   };
 
   const openDeleteProjectDialog = (projectId: string) => {
+    const project = projectGroups.find((candidate) => candidate.id === projectId);
+
+    if (!project || isDmriflesSystemProject(project)) {
+      return;
+    }
+
     setDeletingProjectId(projectId);
     setIsDeleteProjectOpen(true);
   };
 
   const handleSaveProject = () => {
+    if (!canMutateProjects) {
+      return;
+    }
+
     const trimmedProjectName = projectName.trim();
 
     if (!trimmedProjectName) {
@@ -878,7 +806,7 @@ const Index = () => {
   };
 
   const handleDeleteProject = () => {
-    if (!deletingProjectId) {
+    if (!deletingProjectId || !canMutateProjects) {
       return;
     }
 
@@ -1038,141 +966,119 @@ const Index = () => {
 
   const clientSidebarContent = (
     <div className="space-y-4">
-      <div className="rounded-3xl border border-white/8 bg-white/[0.03] p-3">
-        <div className="flex items-start justify-between gap-2">
-          <button
-            type="button"
-            onClick={() => setIsProjectsSectionCollapsed((current) => !current)}
-            className="flex min-w-0 flex-1 items-start gap-3 rounded-2xl px-2 py-2 text-left transition-colors hover:bg-white/5"
-          >
-            <ChevronDown
-              className={cn(
-                "mt-0.5 h-4 w-4 shrink-0 text-white/55 transition-transform",
-                isProjectsSectionCollapsed ? "-rotate-90" : "rotate-0",
-              )}
-            />
-            <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-white/35">Projects</p>
-              <p className="mt-2 text-sm text-white/45">
-                {jobsQuery.isLoading
-                  ? "Loading project folders..."
-                  : `${jobs.length} ${clientItemLabel} organized into project folders.`}
-              </p>
-            </div>
-          </button>
+      <div className="rounded-[26px] border border-white/6 bg-white/[0.02] p-4">
+        <p className="text-[11px] uppercase tracking-[0.24em] text-white/35">Account</p>
+        <p className="mt-3 truncate text-sm font-medium text-white">{user?.email}</p>
+        <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-white/55">
+          <div className="rounded-2xl border border-white/8 bg-black/20 px-3 py-2">
+            <span className="block text-[10px] uppercase tracking-[0.18em] text-white/35">Items</span>
+            <span className="mt-2 block text-base font-medium text-white">{jobs.length}</span>
+          </div>
+          <div className="rounded-2xl border border-white/8 bg-black/20 px-3 py-2">
+            <span className="block text-[10px] uppercase tracking-[0.18em] text-white/35">Projects</span>
+            <span className="mt-2 block text-base font-medium text-white">{realProjectCount}</span>
+          </div>
+        </div>
+        <p className="mt-4 text-xs leading-5 text-white/45">
+          {isDmriflesWorkspace
+            ? "QB folders are system-managed from imported quote batches."
+            : "Use the rail like a thread list: pick a project, then work the active jobs in the main pane."}
+        </p>
+      </div>
+
+      <div className="rounded-[26px] border border-white/6 bg-white/[0.02] p-3">
+        <div className="flex items-start justify-between gap-3 px-2 pb-3">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.24em] text-white/35">Projects</p>
+            <p className="mt-2 text-xs text-white/45">
+              {jobsQuery.isLoading
+                ? "Loading project folders..."
+                : `${jobs.length} ${clientItemLabel} organized in the rail.`}
+            </p>
+          </div>
           <Button
             size="sm"
-            className="shrink-0 rounded-full"
+            className="rounded-full"
             onClick={openCreateProjectDialog}
+            disabled={!canMutateProjects}
+            title={canMutateProjects ? "Create project" : "DMRifles folders are system-managed"}
           >
             <FolderPlus className="mr-2 h-3.5 w-3.5" />
             New
           </Button>
         </div>
 
-        {!isProjectsSectionCollapsed ? (
-          <div className="mt-3 space-y-3">
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1 border-white/10 bg-white/[0.04]"
-                onClick={() => selectedEditableProject && openRenameProjectDialog(selectedEditableProject.id)}
-                disabled={!selectedEditableProject}
-              >
-                <PencilLine className="mr-2 h-3.5 w-3.5" />
-                Rename
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1 border-white/10 bg-white/[0.04] text-white hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => selectedEditableProject && openDeleteProjectDialog(selectedEditableProject.id)}
-                disabled={!selectedEditableProject}
-              >
-                <Trash2 className="mr-2 h-3.5 w-3.5" />
-                Delete
-              </Button>
-            </div>
+        <div className="flex gap-2 px-2 pb-3">
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1 border-white/10 bg-white/[0.04]"
+            onClick={() => selectedEditableProject && openRenameProjectDialog(selectedEditableProject.id)}
+            disabled={!canRenameSelectedProject}
+          >
+            <PencilLine className="mr-2 h-3.5 w-3.5" />
+            Rename
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1 border-white/10 bg-white/[0.04] text-white hover:bg-destructive/10 hover:text-destructive"
+            onClick={() => selectedEditableProject && openDeleteProjectDialog(selectedEditableProject.id)}
+            disabled={!canRenameSelectedProject}
+          >
+            <Trash2 className="mr-2 h-3.5 w-3.5" />
+            Delete
+          </Button>
+        </div>
 
-            {jobsQuery.isLoading ? (
-              <div className="flex items-center justify-center rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-6">
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              </div>
-            ) : projectSections.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-4 text-sm text-white/50">
-                Create a {clientItemLabelSingular} to start building project groups.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {projectSections.map((section) => (
-                  <div
-                    key={section.id}
-                    className={cn(
-                      "rounded-3xl border p-3 transition-colors",
-                      selectedProjectId === section.id
-                        ? "border-primary/30 bg-primary/8"
-                        : "border-white/8 bg-white/[0.03]",
-                    )}
-                  >
-                    <div className="flex items-start gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleSelectProject(section)}
-                        className="flex min-w-0 flex-1 items-start justify-between gap-3 rounded-2xl px-2 py-2 text-left"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <FolderKanban className="h-4 w-4 text-primary" />
-                            <span className="truncate font-medium">{section.name}</span>
-                          </div>
-                          <p className="mt-1 text-xs text-white/45">
-                            {section.visibleJobs.length === section.jobs.length && !searchTerm && activeFilter === "all"
-                              ? `${section.jobs.length} ${clientItemLabelSingular}${section.jobs.length === 1 ? "" : "s"} in main window`
-                              : `${section.visibleJobs.length} of ${section.jobs.length} shown in main window`}
-                          </p>
-                        </div>
-                        <Badge
-                          variant="secondary"
-                          className="border border-white/10 bg-white/[0.05] text-white/70"
-                        >
-                          {section.jobs.length}
-                        </Badge>
-                      </button>
-
-                      {!section.isVirtual ? (
-                        <div className="flex shrink-0 gap-1 pt-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 rounded-xl text-white/45 hover:bg-white/5 hover:text-white"
-                            onClick={() => openRenameProjectDialog(section.id)}
-                          >
-                            <PencilLine className="h-3.5 w-3.5" />
-                            <span className="sr-only">Rename project</span>
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 rounded-xl text-white/45 hover:bg-destructive/10 hover:text-destructive"
-                            onClick={() => openDeleteProjectDialog(section.id)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            <span className="sr-only">Delete project</span>
-                          </Button>
-                        </div>
-                      ) : null}
-                    </div>
+        {jobsQuery.isLoading ? (
+          <div className="flex items-center justify-center rounded-[22px] border border-dashed border-white/10 bg-black/20 p-6">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          </div>
+        ) : projectSections.length === 0 ? (
+          <div className="rounded-[22px] border border-dashed border-white/10 bg-black/20 p-4 text-sm text-white/50">
+            Create a {clientItemLabelSingular} to start organizing projects.
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {projectSections.map((section) => (
+              <button
+                key={section.id}
+                type="button"
+                onClick={() => handleSelectProject(section)}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-[22px] px-3 py-3 text-left transition-colors",
+                  selectedProjectId === section.id
+                    ? "bg-white/[0.10] text-white"
+                    : "bg-transparent text-white/75 hover:bg-white/[0.04] hover:text-white",
+                )}
+              >
+                <FolderKanban className="h-4 w-4 shrink-0 text-white/55" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-medium">{section.name}</span>
+                    {isDmriflesSystemProject(section) ? (
+                      <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-white/45">
+                        Batch
+                      </span>
+                    ) : null}
                   </div>
-                ))}
-              </div>
-            )}
+                  <p className="mt-1 text-xs text-white/40">
+                    {section.visibleJobs.length === section.jobs.length && !searchTerm && activeFilter === "all"
+                      ? `${section.jobs.length} ${clientItemLabelSingular}${section.jobs.length === 1 ? "" : "s"}`
+                      : `${section.visibleJobs.length} of ${section.jobs.length} shown`}
+                  </p>
+                </div>
+                <Badge
+                  variant="secondary"
+                  className="border border-white/10 bg-white/[0.05] text-white/70"
+                >
+                  {section.jobs.length}
+                </Badge>
+              </button>
+            ))}
           </div>
-        ) : projectSections.length > 0 ? (
-          <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/45">
-            {projectSections.length} project{projectSections.length === 1 ? "" : "s"} hidden
-          </div>
-        ) : null}
+        )}
       </div>
     </div>
   );
@@ -1181,15 +1087,18 @@ const Index = () => {
     return (
       <AppShell
         title="Projects"
-        subtitle="Use the left rail like ChatGPT or Codex: pick a project, filter the jobs inside it, and keep the active work visible in the main pane."
+        subtitle="Pick a project in the left rail, filter the active work, and keep the current part visible while you move through the queue."
         sidebarContent={clientSidebarContent}
         sidebarTitle="Projects"
+        variant="client-chat"
         actions={
           <>
             <Button
               variant="outline"
               className="border-white/10 bg-white/[0.04]"
               onClick={openCreateProjectDialog}
+              disabled={!canMutateProjects}
+              title={canMutateProjects ? "Create project" : "DMRifles folders are system-managed"}
             >
               <FolderPlus className="mr-2 h-4 w-4" />
               New project
@@ -1273,7 +1182,7 @@ const Index = () => {
               >
                 Cancel
               </Button>
-              <Button onClick={handleSaveProject}>
+              <Button onClick={handleSaveProject} disabled={!canMutateProjects}>
                 {projectDialogMode === "create" ? "Create project" : "Save name"}
               </Button>
             </DialogFooter>
@@ -1315,324 +1224,287 @@ const Index = () => {
           </DialogContent>
         </Dialog>
 
-        <section className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-          <div className="space-y-6">
-            <Card className="border-white/10 bg-[#111318]/90">
-              <CardContent className="p-6">
-                <div className="flex flex-col gap-5 2xl:flex-row 2xl:items-start 2xl:justify-between">
-                  <div className="max-w-2xl">
-                    <Badge className="border border-primary/20 bg-primary/10 text-primary">
-                      {normalizedEmail === dmriflesEmail ? "Seeded ChatGPT-style projects" : "Project view"}
-                    </Badge>
-                    <h2 className="mt-4 text-3xl font-semibold tracking-tight">
-                      {selectedProject?.name ?? "Projects"}
+        <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="space-y-4">
+            <div className="sticky top-24 z-10 rounded-[30px] border border-white/8 bg-[#15171b]/95 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.28)] backdrop-blur">
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-[11px] uppercase tracking-[0.24em] text-white/35">Active project</p>
+                    <h2 className="mt-3 truncate text-2xl font-medium tracking-tight text-white">
+                      {selectedProject?.name ?? "All projects"}
                     </h2>
-                    <p className="mt-2 text-sm text-white/55">
-                      {normalizedEmail === dmriflesEmail
-                        ? `${jobs.length} total jobs are now filed under QB00001, QB00002, and QB00003, with each project's parts listed in the main window.`
-                        : "Browse jobs the way ChatGPT and Codex organize threads: choose a project in the left rail, then work the files in the main window."}
+                    <p className="mt-2 text-sm text-white/50">
+                      {selectedProject
+                        ? `${selectedProject.jobs.length} ${clientItemLabel} in this project`
+                        : `${jobs.length} ${clientItemLabel} across the workspace`}
                     </p>
                     <div className="mt-4 flex flex-wrap gap-2">
                       <Badge variant="secondary" className="border border-white/10 bg-white/[0.05] text-white/75">
-                        {jobs.length} total jobs
+                        {jobs.length} total
                       </Badge>
                       <Badge variant="secondary" className="border border-white/10 bg-white/[0.05] text-white/75">
                         {realProjectCount} projects
                       </Badge>
                       <Badge variant="secondary" className="border border-white/10 bg-white/[0.05] text-white/75">
-                        {publishedPackages.length} published packages
+                        {publishedPackages.length} published
                       </Badge>
                     </div>
                   </div>
 
-                  <div className="w-full max-w-xl space-y-3">
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
-                      <Input
-                        value={searchTerm}
-                        onChange={(event) => setSearchTerm(event.target.value)}
-                        placeholder={`Search ${clientItemLabel}, descriptions, or tags`}
-                        className="border-white/10 bg-black/20 pl-9"
-                      />
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant={selectionMode ? "default" : "outline"}
-                        className={cn(
-                          "border-white/10",
-                          selectionMode ? "bg-primary text-primary-foreground" : "bg-white/[0.04]",
-                        )}
-                        onClick={() => setSelectionMode((current) => !current)}
-                      >
-                        <CheckSquare className="mr-2 h-4 w-4" />
-                        {selectionMode ? "Done selecting" : `Select ${clientItemLabel}`}
-                      </Button>
-
-                      {clientFilterOptions.map((filterOption) => (
-                        <Button
-                          key={filterOption.id}
-                          variant={activeFilter === filterOption.id ? "default" : "outline"}
-                          className={cn(
-                            "border-white/10",
-                            activeFilter === filterOption.id ? "bg-primary text-primary-foreground" : "bg-white/[0.04]",
-                          )}
-                          onClick={() => setActiveFilter(filterOption.id)}
-                        >
-                          {filterOption.label}
-                          <span className="ml-2 text-xs opacity-80">
-                            {selectedProjectFilterCounts[filterOption.id]}
-                          </span>
-                        </Button>
-                      ))}
-                    </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      className="border-white/10 bg-white/[0.04]"
+                      onClick={openCreateProjectDialog}
+                      disabled={!canMutateProjects}
+                    >
+                      <FolderPlus className="mr-2 h-4 w-4" />
+                      New project
+                    </Button>
+                    <Button asChild className="rounded-full">
+                      <Link to="/jobs/new">
+                        <UploadCloud className="mr-2 h-4 w-4" />
+                        Create Job
+                      </Link>
+                    </Button>
                   </div>
                 </div>
 
-                {selectionMode ? (
-                  <div className="mt-5 flex flex-col gap-3 rounded-3xl border border-primary/20 bg-primary/10 p-4 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <p className="font-medium">
-                        {selectedJobIds.length} {clientItemLabel} selected
-                      </p>
-                      <p className="text-sm text-primary-foreground/80">
-                        Use selection mode to build a project from existing {clientItemLabel}, similar to organizing threads in ChatGPT.
-                      </p>
-                    </div>
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
+                    <Input
+                      value={searchTerm}
+                      onChange={(event) => setSearchTerm(event.target.value)}
+                      placeholder={`Search ${clientItemLabel}, descriptions, or tags`}
+                      className="border-white/10 bg-black/20 pl-9"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
                     <Button
-                      className="rounded-full"
-                      onClick={openCreateProjectDialog}
-                      disabled={selectedJobIds.length === 0}
+                      variant={selectionMode ? "default" : "outline"}
+                      className={cn(
+                        "border-white/10",
+                        selectionMode ? "bg-primary text-primary-foreground" : "bg-white/[0.04]",
+                      )}
+                      onClick={() => setSelectionMode((current) => !current)}
                     >
-                      <FolderPlus className="mr-2 h-4 w-4" />
-                      Create project from selection
+                      <CheckSquare className="mr-2 h-4 w-4" />
+                      {selectionMode ? "Done selecting" : `Select ${clientItemLabel}`}
                     </Button>
+
+                    {clientFilterOptions.map((filterOption) => (
+                      <Button
+                        key={filterOption.id}
+                        variant={activeFilter === filterOption.id ? "default" : "outline"}
+                        className={cn(
+                          "border-white/10",
+                          activeFilter === filterOption.id ? "bg-primary text-primary-foreground" : "bg-white/[0.04]",
+                        )}
+                        onClick={() => setActiveFilter(filterOption.id)}
+                      >
+                        {filterOption.label}
+                        <span className="ml-2 text-xs opacity-80">
+                          {selectedProjectFilterCounts[filterOption.id]}
+                        </span>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 text-sm text-white/50">
+                  <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1.5">
+                    <Filter className="h-4 w-4" />
+                    {activeFilterLabel}
+                  </span>
+                  <span>
+                    {visibleJobs.length} visible {clientItemLabelSingular}
+                    {visibleJobs.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+
+                {isDmriflesWorkspace ? (
+                  <p className="text-sm text-white/45">
+                    QB folders are system-managed from imported quote batches. Selection and filtering stay available, but project edits are disabled for this demo account.
+                  </p>
+                ) : null}
+
+                {selectionMode ? (
+                  <div className="rounded-[24px] border border-primary/20 bg-primary/10 px-4 py-3">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="font-medium text-white">
+                          {selectedJobIds.length} {clientItemLabel} selected
+                        </p>
+                        <p className="text-sm text-primary-foreground/80">
+                          Use the selected rows to assemble a project thread from the current list.
+                        </p>
+                      </div>
+                      <Button
+                        className="rounded-full"
+                        onClick={openCreateProjectDialog}
+                        disabled={selectedJobIds.length === 0 || !canMutateProjects}
+                      >
+                        <FolderPlus className="mr-2 h-4 w-4" />
+                        Create project from selection
+                      </Button>
+                    </div>
                   </div>
                 ) : null}
-              </CardContent>
-            </Card>
-
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-medium">
-                  {selectedProject?.name ? `${selectedProject.name} files` : `Filtered ${clientItemLabel}`}
-                </h3>
-                <p className="text-sm text-white/50">
-                  {visibleJobs.length} visible {clientItemLabelSingular}
-                  {visibleJobs.length === 1 ? "" : "s"} in the main window
-                </p>
-              </div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-white/60">
-                <Filter className="h-4 w-4" />
-                {clientFilterOptions.find((filterOption) => filterOption.id === activeFilter)?.label}
               </div>
             </div>
 
             {jobsQuery.isLoading ? (
-              <div className="flex min-h-[320px] items-center justify-center rounded-3xl border border-dashed border-white/10 bg-white/[0.03]">
+              <div className="flex min-h-[320px] items-center justify-center rounded-[30px] border border-dashed border-white/10 bg-[#15171b]">
                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
               </div>
             ) : jobsQuery.isError ? (
-              <Card className="border-destructive/30 bg-destructive/10">
-                <CardContent className="p-6 text-sm text-destructive">
-                  {jobsQuery.error instanceof Error ? jobsQuery.error.message : "Failed to load jobs."}
-                </CardContent>
-              </Card>
+              <div className="rounded-[30px] border border-destructive/30 bg-destructive/10 p-6 text-sm text-destructive">
+                {jobsQuery.error instanceof Error ? jobsQuery.error.message : "Failed to load jobs."}
+              </div>
             ) : visibleJobs.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-white/10 bg-black/20 p-10 text-center">
-                <p className="text-lg font-medium">No {clientItemLabel} match the current filters</p>
+              <div className="rounded-[30px] border border-dashed border-white/10 bg-[#15171b] p-10 text-center">
+                <p className="text-lg font-medium text-white">No {clientItemLabel} match this view</p>
                 <p className="mt-2 text-sm text-white/50">
                   Adjust the project, search, or status filters to bring {clientItemLabel} back into view.
                 </p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="overflow-hidden rounded-[30px] border border-white/8 bg-[#15171b]">
                 {visibleJobs.map((job) => {
                   const itemPresentation = getClientItemPresentation(job, partSummaryByJobId.get(job.id));
                   const isSelected = selectedJobIds.includes(job.id);
                   const isFocused = focusedJobId === job.id;
 
                   return (
-                    <Card
+                    <div
                       key={job.id}
                       className={cn(
-                        "border transition-colors",
-                        isFocused ? "border-primary/35 bg-primary/8" : "border-white/10 bg-black/20",
+                        "flex w-full items-start gap-4 border-b border-white/6 px-4 py-4 text-left transition-colors last:border-b-0",
+                        isFocused ? "bg-white/[0.08]" : "hover:bg-white/[0.03]",
                       )}
                     >
+                      {selectionMode ? (
+                        <div className="pt-1">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => toggleJobSelection(job.id)}
+                            onClick={(event) => event.stopPropagation()}
+                            className="border-white/20 data-[state=checked]:border-primary data-[state=checked]:bg-primary"
+                          />
+                        </div>
+                      ) : null}
+
                       <button
                         type="button"
                         onClick={() => setFocusedJobId(job.id)}
-                        className="w-full text-left"
+                        className="flex min-w-0 flex-1 items-start gap-4 text-left"
                       >
-                        <CardContent className="p-5">
-                          <div className="flex items-start gap-4">
-                            {selectionMode ? (
-                              <div className="pt-1">
-                                <Checkbox
-                                  checked={isSelected}
-                                  onCheckedChange={() => toggleJobSelection(job.id)}
-                                  onClick={(event) => event.stopPropagation()}
-                                  className="border-white/20 data-[state=checked]:border-primary data-[state=checked]:bg-primary"
-                                />
-                              </div>
-                            ) : null}
-
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
                             <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-start justify-between gap-3">
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate text-lg font-medium">{itemPresentation.title}</p>
-                                  <p className="mt-2 text-sm text-white/55">
-                                    {itemPresentation.description}
-                                  </p>
-                                  {itemPresentation.originalTitle ? (
-                                    <p className="mt-2 text-xs text-white/35">
-                                      Source job: {itemPresentation.originalTitle}
-                                    </p>
-                                  ) : null}
-                                </div>
-                                <Badge variant="secondary" className="border border-white/10 bg-white/[0.05] text-white/75">
-                                  {formatStatusLabel(job.status)}
-                                </Badge>
-                              </div>
-
-                              {job.tags.length > 0 ? (
-                                <div className="mt-4 flex flex-wrap gap-2">
-                                  {job.tags.map((tag) => (
-                                    <Badge
-                                      key={`${job.id}-${tag}`}
-                                      variant="secondary"
-                                      className="border border-primary/20 bg-primary/10 text-primary"
-                                    >
-                                      {tag}
-                                    </Badge>
-                                  ))}
-                                </div>
+                              <p className="truncate text-base font-medium text-white">{itemPresentation.title}</p>
+                              <p className="mt-1 line-clamp-2 text-sm text-white/52">
+                                {itemPresentation.description}
+                              </p>
+                              {itemPresentation.originalTitle ? (
+                                <p className="mt-2 text-xs text-white/35">
+                                  Source job: {itemPresentation.originalTitle}
+                                </p>
                               ) : null}
-
-                              <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-white/45">
-                                <span className="inline-flex items-center gap-2">
-                                  <Clock3 className="h-3.5 w-3.5 text-primary" />
-                                  {new Date(job.created_at).toLocaleDateString()}
-                                </span>
-                                <span>
-                                  {itemPresentation.quantity !== null
-                                    ? `Qty ${itemPresentation.quantity}`
-                                    : job.tags.length > 0
-                                      ? `${job.tags.length} tag${job.tags.length === 1 ? "" : "s"}`
-                                      : "No tags"}
-                                </span>
-                              </div>
                             </div>
+                            <Badge variant="secondary" className="border border-white/10 bg-white/[0.05] text-white/75">
+                              {formatStatusLabel(job.status)}
+                            </Badge>
                           </div>
-                        </CardContent>
+
+                          <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-white/42">
+                            <span className="inline-flex items-center gap-2">
+                              <Clock3 className="h-3.5 w-3.5 text-white/35" />
+                              {new Date(job.created_at).toLocaleDateString()}
+                            </span>
+                            <span>
+                              {itemPresentation.quantity !== null
+                                ? `Qty ${itemPresentation.quantity}`
+                                : job.tags.length > 0
+                                  ? `${job.tags.length} tag${job.tags.length === 1 ? "" : "s"}`
+                                  : "No tags"}
+                            </span>
+                            {job.tags.length > 0 ? (
+                              <span className="truncate text-white/35">{job.tags.join(", ")}</span>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <ArrowRight className="mt-1 hidden h-4 w-4 shrink-0 text-white/25 sm:block" />
                       </button>
-                    </Card>
+                    </div>
                   );
                 })}
               </div>
             )}
           </div>
 
-          <div className="space-y-4">
-            <Card className="border-white/10 bg-black/20">
-              <CardHeader>
-                <CardTitle>Workspace pulse</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-3 xl:grid-cols-1">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                  <p className="text-sm text-white/55">Total jobs</p>
-                  <p className="mt-2 text-2xl font-semibold">{metrics.totalJobs}</p>
+          <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
+            <div className="rounded-[30px] border border-white/8 bg-[#15171b] p-5">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-white/35">
+                {isDmriflesWorkspace ? "Focused part" : "Focused job"}
+              </p>
+              {focusedJob && focusedItemPresentation ? (
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <h3 className="text-xl font-medium text-white">{focusedItemPresentation.title}</h3>
+                    <p className="mt-2 text-sm text-white/55">{focusedItemPresentation.description}</p>
+                    {focusedItemPresentation.originalTitle ? (
+                      <p className="mt-2 text-xs text-white/35">
+                        Source job: {focusedItemPresentation.originalTitle}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="grid gap-3">
+                    <div className="rounded-[22px] border border-white/8 bg-black/20 px-4 py-3">
+                      <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Status</p>
+                      <p className="mt-2 text-sm font-medium text-white">{formatStatusLabel(focusedJob.status)}</p>
+                    </div>
+                    <div className="rounded-[22px] border border-white/8 bg-black/20 px-4 py-3">
+                      <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Created</p>
+                      <p className="mt-2 text-sm font-medium text-white">
+                        {new Date(focusedJob.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="rounded-[22px] border border-white/8 bg-black/20 px-4 py-3">
+                      <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">
+                        {focusedItemPresentation.quantity !== null ? "Quantity" : "Tags"}
+                      </p>
+                      <p className="mt-2 text-sm font-medium text-white">
+                        {focusedItemPresentation.quantity !== null
+                          ? focusedItemPresentation.quantity
+                          : focusedJob.tags.length > 0
+                            ? focusedJob.tags.join(", ")
+                            : "No tags"}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                  <p className="text-sm text-white/55">Needs review</p>
-                  <p className="mt-2 text-2xl font-semibold">{metrics.needsReview}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                  <p className="text-sm text-white/55">Published packages</p>
-                  <p className="mt-2 text-2xl font-semibold">{publishedPackages.length}</p>
-                </div>
-              </CardContent>
-            </Card>
+              ) : (
+                <p className="mt-4 text-sm text-white/50">
+                  Select a {clientItemLabelSingular} to inspect its latest state here.
+                </p>
+              )}
+            </div>
 
-            <Card className="border-white/10 bg-black/20">
-              <CardHeader>
-                <CardTitle>{isDmriflesWorkspace ? "Focused part" : "Focused job"}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {focusedJob ? (
-                  (() => {
-                    const itemPresentation = getClientItemPresentation(
-                      focusedJob,
-                      partSummaryByJobId.get(focusedJob.id),
-                    );
-
-                    return (
-                      <div className="space-y-4">
-                        <div>
-                          <p className="text-2xl font-semibold">{itemPresentation.title}</p>
-                          <p className="mt-2 text-sm text-white/55">
-                            {itemPresentation.description}
-                          </p>
-                          {itemPresentation.originalTitle ? (
-                            <p className="mt-2 text-xs text-white/35">
-                              Source job: {itemPresentation.originalTitle}
-                            </p>
-                          ) : null}
-                        </div>
-
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                            <p className="text-xs uppercase tracking-[0.2em] text-white/40">Status</p>
-                            <p className="mt-2 font-medium">{formatStatusLabel(focusedJob.status)}</p>
-                          </div>
-                          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                            <p className="text-xs uppercase tracking-[0.2em] text-white/40">Created</p>
-                            <p className="mt-2 font-medium">{new Date(focusedJob.created_at).toLocaleDateString()}</p>
-                          </div>
-                        </div>
-
-                        {focusedJob.tags.length > 0 ? (
-                          <div className="flex flex-wrap gap-2">
-                            {focusedJob.tags.map((tag) => (
-                              <Badge
-                                key={`${focusedJob.id}-focus-${tag}`}
-                                variant="secondary"
-                                className="border border-primary/20 bg-primary/10 text-primary"
-                              >
-                                {tag}
-                              </Badge>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-white/45">
-                            {itemPresentation.quantity !== null
-                              ? `Quantity ${itemPresentation.quantity}`
-                              : "No tags assigned to this job."}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })()
-                ) : (
-                  <p className="text-sm text-white/50">
-                    Select a {clientItemLabelSingular} to inspect its latest state here.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="border-white/10 bg-black/20">
-              <CardHeader>
-                <CardTitle>Published options</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
+            <div className="rounded-[30px] border border-white/8 bg-[#15171b] p-5">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-white/35">Published options</p>
+              <div className="mt-4 space-y-3">
                 {packagesQuery.isLoading ? (
-                  <div className="flex items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-6">
+                  <div className="flex items-center justify-center rounded-[22px] border border-dashed border-white/10 bg-black/20 p-6">
                     <Loader2 className="h-5 w-5 animate-spin text-primary" />
                   </div>
                 ) : packagesQuery.isError ? (
-                  <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+                  <div className="rounded-[22px] border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
                     {packagesQuery.error instanceof Error ? packagesQuery.error.message : "Failed to load packages."}
                   </div>
                 ) : focusedJobPackages.length > 0 ? (
@@ -1640,9 +1512,9 @@ const Index = () => {
                     <Link
                       key={pkg.id}
                       to={`/client/packages/${pkg.id}`}
-                      className="block rounded-2xl border border-white/10 bg-white/[0.04] p-4 transition hover:border-primary/25 hover:bg-white/[0.06]"
+                      className="block rounded-[22px] border border-white/10 bg-black/20 p-4 transition hover:border-white/20 hover:bg-white/[0.04]"
                     >
-                      <p className="font-medium">Package {pkg.id.slice(0, 8)}</p>
+                      <p className="font-medium text-white">Package {pkg.id.slice(0, 8)}</p>
                       <p className="mt-1 text-sm text-white/50">
                         Published {new Date(pkg.published_at).toLocaleDateString()}
                       </p>
@@ -1651,15 +1523,15 @@ const Index = () => {
                 ) : publishedPackages.length > 0 ? (
                   <>
                     <p className="text-sm text-white/50">
-                      No package has been published for the focused {clientItemLabelSingular} yet. Latest published packages are below.
+                      No package has been published for the focused {clientItemLabelSingular} yet. Recent packages are below.
                     </p>
                     {publishedPackages.slice(0, 3).map((pkg) => (
                       <Link
                         key={pkg.id}
                         to={`/client/packages/${pkg.id}`}
-                        className="block rounded-2xl border border-white/10 bg-white/[0.04] p-4 transition hover:border-primary/25 hover:bg-white/[0.06]"
+                        className="block rounded-[22px] border border-white/10 bg-black/20 p-4 transition hover:border-white/20 hover:bg-white/[0.04]"
                       >
-                        <p className="font-medium">Package {pkg.id.slice(0, 8)}</p>
+                        <p className="font-medium text-white">Package {pkg.id.slice(0, 8)}</p>
                         <p className="mt-1 text-sm text-white/50">
                           Published {new Date(pkg.published_at).toLocaleDateString()}
                         </p>
@@ -1667,16 +1539,16 @@ const Index = () => {
                     ))}
                   </>
                 ) : (
-                  <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-6 text-center">
-                    <p className="font-medium">No packages published yet</p>
+                  <div className="rounded-[22px] border border-dashed border-white/10 bg-black/20 p-6 text-center">
+                    <p className="font-medium text-white">No packages published yet</p>
                     <p className="mt-2 text-sm text-white/50">
-                      Published quote options will appear here once an internal user completes the compare and publish flow.
+                      Published quote options appear here after the estimator publishes a package.
                     </p>
                   </div>
                 )}
-              </CardContent>
-            </Card>
-          </div>
+              </div>
+            </div>
+          </aside>
         </section>
       </AppShell>
     );

@@ -75,6 +75,7 @@ type ApprovedRequirementJoinRow = {
     part_number: string | null;
     revision: string | null;
     description: string | null;
+    spec_snapshot: Json | null;
   } | null;
 };
 
@@ -115,6 +116,12 @@ function ensureData<T>(data: T | null, error: { message: string } | null | undef
   }
 
   return data;
+}
+
+function asObject(value: Json | null | undefined): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function sanitizeStorageFileName(fileName: string): string {
@@ -234,7 +241,7 @@ export async function fetchJobPartSummariesByOrganization(
   const [partsResult, filesResult] = await Promise.all([
     supabase
       .from("parts")
-      .select("job_id, quantity, approved_part_requirements(part_number, revision, description)")
+      .select("job_id, quantity, approved_part_requirements(part_number, revision, description, spec_snapshot)")
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: true }),
     supabase
@@ -253,12 +260,19 @@ export async function fetchJobPartSummariesByOrganization(
   const summariesByJobId = new Map<string, JobPartSummary>();
 
   for (const row of approvedRequirements) {
+    const specSnapshot = asObject(row.approved_part_requirements?.spec_snapshot);
+    const importedBatch =
+      typeof specSnapshot.importedBatch === "string" && specSnapshot.importedBatch.trim().length > 0
+        ? specSnapshot.importedBatch.trim().toUpperCase()
+        : null;
+
     summariesByJobId.set(row.job_id, {
       jobId: row.job_id,
       partNumber: row.approved_part_requirements?.part_number ?? null,
       revision: row.approved_part_requirements?.revision ?? null,
       description: row.approved_part_requirements?.description ?? null,
       quantity: row.quantity ?? null,
+      importedBatch,
     });
   }
 
@@ -282,6 +296,7 @@ export async function fetchJobPartSummariesByOrganization(
       revision: parsedReference?.revision ?? existingSummary?.revision ?? null,
       description: existingSummary?.description ?? null,
       quantity: existingSummary?.quantity ?? null,
+      importedBatch: existingSummary?.importedBatch ?? null,
     });
   }
 

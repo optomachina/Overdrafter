@@ -26,6 +26,7 @@ type AppShellProps = {
   actions?: ReactNode;
   sidebarContent?: ReactNode;
   sidebarTitle?: string;
+  variant?: "default" | "client-chat";
   children: ReactNode;
 };
 
@@ -35,6 +36,7 @@ export function AppShell({
   actions,
   sidebarContent,
   sidebarTitle = "Navigation",
+  variant = "default",
   children,
 }: AppShellProps) {
   const navigate = useNavigate();
@@ -46,6 +48,7 @@ export function AppShell({
     { to: "/", label: activeMembership?.role === "client" ? "Projects" : "Dashboard", icon: LayoutDashboard },
     ...(activeMembership ? [{ to: "/jobs/new", label: "New Job", icon: PlusSquare }] : []),
   ];
+  const isClientChat = variant === "client-chat";
 
   const handleSignOut = async () => {
     setIsSigningOut(true);
@@ -62,11 +65,21 @@ export function AppShell({
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,hsl(var(--primary)/0.14),transparent_30%),linear-gradient(180deg,hsl(var(--background)),hsl(220_16%_7%))] text-foreground">
+    <div
+      className={cn(
+        "min-h-screen text-foreground",
+        isClientChat
+          ? "bg-[#111214]"
+          : "bg-[radial-gradient(circle_at_top,hsl(var(--primary)/0.14),transparent_30%),linear-gradient(180deg,hsl(var(--background)),hsl(220_16%_7%))]",
+      )}
+    >
       <div className="mx-auto flex min-h-screen w-full max-w-[1680px]">
         <aside
           className={cn(
-            "sticky top-0 hidden h-screen shrink-0 border-r border-white/8 bg-[#0d0f12]/95 backdrop-blur md:flex md:flex-col",
+            "sticky top-0 hidden h-screen shrink-0 border-r backdrop-blur md:flex md:flex-col",
+            isClientChat
+              ? "border-white/5 bg-[#17181b]/95"
+              : "border-white/8 bg-[#0d0f12]/95",
             collapsed ? "w-20" : "w-[19rem]",
           )}
         >
@@ -100,7 +113,11 @@ export function AppShell({
                   className={({ isActive }) =>
                     cn(
                       "flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-colors",
-                      isActive ? "bg-white/[0.07] text-white" : "text-white/65 hover:bg-white/5 hover:text-white",
+                      isActive
+                        ? isClientChat
+                          ? "bg-white/[0.1] text-white"
+                          : "bg-white/[0.07] text-white"
+                        : "text-white/65 hover:bg-white/5 hover:text-white",
                       collapsed && "justify-center px-0",
                     )
                   }
@@ -153,8 +170,20 @@ export function AppShell({
         </aside>
 
         <div className="flex min-h-screen flex-1 flex-col">
-          <header className="sticky top-0 z-20 border-b border-white/8 bg-background/80 backdrop-blur-xl">
-            <div className="flex flex-col gap-4 px-6 py-5 md:px-8 lg:flex-row lg:items-center lg:justify-between">
+          <header
+            className={cn(
+              "sticky top-0 z-20 border-b backdrop-blur-xl",
+              isClientChat
+                ? "border-white/5 bg-[#111214]/92"
+                : "border-white/8 bg-background/80",
+            )}
+          >
+            <div
+              className={cn(
+                "flex flex-col gap-4 px-6 md:px-8 lg:flex-row lg:items-center lg:justify-between",
+                isClientChat ? "py-4" : "py-5",
+              )}
+            >
               <div>
                 {sidebarContent ? (
                   <Sheet>
@@ -181,9 +210,18 @@ export function AppShell({
                     </SheetContent>
                   </Sheet>
                 ) : null}
-                <h1 className="mt-3 text-3xl font-semibold tracking-tight">{title}</h1>
+                <h1
+                  className={cn(
+                    "mt-3 tracking-tight",
+                    isClientChat ? "text-[1.7rem] font-medium" : "text-3xl font-semibold",
+                  )}
+                >
+                  {title}
+                </h1>
                 {subtitle ? (
-                  <p className="mt-2 max-w-3xl text-sm text-white/55">{subtitle}</p>
+                  <p className={cn("mt-2 max-w-3xl text-sm text-white/55", isClientChat && "max-w-2xl")}>
+                    {subtitle}
+                  </p>
                 ) : null}
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-3">
@@ -205,7 +243,7 @@ export function AppShell({
             </div>
           </header>
 
-          <main className="flex-1 px-6 py-8 md:px-8">{children}</main>
+          <main className={cn("flex-1 px-6 md:px-8", isClientChat ? "py-6" : "py-8")}>{children}</main>
         </div>
       </div>
     </div>

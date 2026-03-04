@@ -10,6 +10,7 @@
     "start:prod": "node dist/index.js",
     "check": "tsc --noEmit",
     "auth:xometry": "tsx src/tools/xometryAuth.ts",
+    "cleanup:dmrifles-demo": "tsx src/tools/cleanupDmriflesDemoData.ts",
     "import:quotes": "tsx src/tools/importSpreadsheetQuotes.ts",
     "install:browsers": "playwright install chromium"
   },

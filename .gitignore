@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.vercel
+worker/state/
+worker/tmp/
+worker/.env

@@ -156,6 +156,7 @@ export type JobPartSummary = {
   revision: string | null;
   description: string | null;
   quantity: number | null;
+  importedBatch: string | null;
 };
 
 export type AppSessionData = {
