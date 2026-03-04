@@ -52,7 +52,7 @@ export function SocialAuthButtons({
   buttonClassName,
   className,
   disabled = false,
-  redirectPath = "/",
+  redirectPath = "/auth/callback",
 }: SocialAuthButtonsProps) {
   const [pendingProvider, setPendingProvider] = useState<SocialAuthProviderId | null>(null);
 

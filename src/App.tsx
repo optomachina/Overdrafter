@@ -9,6 +9,7 @@ import NotFound from "./pages/NotFound";
 import JobCreate from "./pages/JobCreate";
 import InternalJobDetail from "./pages/InternalJobDetail";
 import ClientPackage from "./pages/ClientPackage";
+import AuthCallback from "./pages/AuthCallback";
 import "./App.css";
 
 const queryClient = new QueryClient();
@@ -25,6 +26,7 @@ const App = () => (
           <Route path="/internal/jobs/:jobId" element={<InternalJobDetail />} />
           <Route path="/client/packages/:packageId" element={<ClientPackage />} />
           <Route path="/signin" element={<SignIn />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
