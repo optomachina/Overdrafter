@@ -90,15 +90,14 @@ export function useAppSession() {
       }
 
       const currentSession = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
-      if (!currentSession) {
+      if (!currentSession || currentSession.user?.id !== session.user.id) {
         scheduleSessionRefresh();
         return;
       }
 
       queryClient.setQueryData<AppSessionData>(APP_SESSION_QUERY_KEY, (current) => ({
         user: session.user,
-        memberships:
-          current?.user?.id === session.user.id ? current.memberships : EMPTY_MEMBERSHIPS,
+        memberships: current?.memberships ?? EMPTY_MEMBERSHIPS,
         isVerifiedAuth: hasVerifiedAuth(session.user),
       }));
       scheduleSessionRefresh();

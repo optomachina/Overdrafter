@@ -267,7 +267,8 @@ const ClientHome = () => {
     },
   });
 
-  const showWorkspaceSetupState = Boolean(user) && !activeMembership;
+  const showWorkspaceSetupState =
+    Boolean(user) && !activeMembership && bootstrapAccountMutation.isPending;
 
   useEffect(() => {
     if (authIntent === "signin" || authIntent === "signup") {
@@ -516,48 +517,6 @@ const ClientHome = () => {
   };
 
   const renderCenteredContent = () => {
-    if (showWorkspaceSetupState) {
-      return (
-        <div className="mx-auto flex w-full max-w-[720px] flex-1 flex-col items-center justify-center px-6 pb-16">
-          <div className="w-full rounded-[28px] border border-white/8 bg-[#2a2a2a] p-8 text-center shadow-[0_8px_40px_rgba(0,0,0,0.2)]">
-            <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-full bg-white/8">
-              <Loader2 className="h-5 w-5 animate-spin text-white/80" />
-            </div>
-            <h1 className="text-3xl font-semibold tracking-tight text-white">Setting up your workspace</h1>
-            <p className="mt-3 text-sm leading-6 text-white/55">
-              Your private workspace is created automatically in the background. Shared project access
-              continues to work while setup finishes.
-            </p>
-
-            {!isVerifiedAuth && user.email ? (
-              <div className="mt-6 flex justify-center gap-3">
-                <Button
-                  variant="outline"
-                  className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
-                  disabled={isRefreshingVerification}
-                  onClick={() => {
-                    void handleRefreshVerification();
-                  }}
-                >
-                  {isRefreshingVerification ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="rounded-full text-white/70 hover:bg-white/6 hover:text-white"
-                  disabled={isResendingVerification}
-                  onClick={() => {
-                    void handleResendVerification();
-                  }}
-                >
-                  {isResendingVerification ? <Loader2 className="h-4 w-4 animate-spin" /> : "Resend email"}
-                </Button>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      );
-    }
-
     return (
       <div className="mx-auto flex w-full max-w-[720px] flex-1 flex-col items-center justify-center px-6 pb-20 pt-10">
         <h1 className="text-center text-[2.25rem] font-semibold tracking-tight text-white md:text-[2.65rem]">
