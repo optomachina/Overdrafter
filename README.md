@@ -45,6 +45,7 @@ This repo now contains the portal layer for a curated CNC quote workflow:
 
 ```bash
 npm install
+cp .env.example .env
 npm run dev
 ```
 
