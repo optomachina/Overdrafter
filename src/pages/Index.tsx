@@ -287,7 +287,14 @@ const Index = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const { user, activeMembership, isLoading, isVerifiedAuth, signOut } = useAppSession();
+  const {
+    user,
+    activeMembership,
+    isLoading,
+    isFetching: isSessionFetching,
+    isVerifiedAuth,
+    signOut,
+  } = useAppSession();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
   const [isRefreshingVerification, setIsRefreshingVerification] = useState(false);
@@ -676,6 +683,7 @@ const Index = () => {
     if (
       !user ||
       isLoading ||
+      isSessionFetching ||
       activeMembership ||
       !isVerifiedAuth ||
       bootstrapAccountMutation.status !== "idle"
@@ -688,6 +696,7 @@ const Index = () => {
     activeMembership,
     bootstrapAccountMutation,
     defaultAccountName,
+    isSessionFetching,
     isLoading,
     isVerifiedAuth,
     user,
@@ -846,6 +855,10 @@ const Index = () => {
   }
 
   if (!activeMembership) {
+    if (isSessionFetching) {
+      return null;
+    }
+
     const bootstrapErrorMessage =
       bootstrapAccountMutation.error instanceof Error
         ? bootstrapAccountMutation.error.message
