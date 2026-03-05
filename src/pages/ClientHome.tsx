@@ -253,6 +253,9 @@ const ClientHome = () => {
     },
   });
 
+  const showWorkspaceSetupState =
+    Boolean(user) && !activeMembership && (bootstrapAccountMutation.isPending || !isVerifiedAuth);
+
   useEffect(() => {
     if (authIntent === "signin" || authIntent === "signup") {
       setIsAuthDialogOpen(true);
@@ -396,7 +399,7 @@ const ClientHome = () => {
   };
 
   const renderCenteredContent = () => {
-    if (user && !activeMembership) {
+    if (showWorkspaceSetupState) {
       return (
         <div className="mx-auto flex w-full max-w-[720px] flex-1 flex-col items-center justify-center px-6 pb-16">
           <div className="w-full rounded-[28px] border border-white/8 bg-[#2a2a2a] p-8 text-center shadow-[0_8px_40px_rgba(0,0,0,0.2)]">
@@ -560,7 +563,9 @@ const ClientHome = () => {
               <div>
                 <p className="truncate text-sm font-medium text-white">{user.email}</p>
                 <p className="text-xs text-white/45">
-                  {activeMembership ? "Private workspace ready" : "Private workspace in setup"}
+                  {activeMembership || !showWorkspaceSetupState
+                    ? "Private workspace ready"
+                    : "Private workspace in setup"}
                 </p>
               </div>
               <div className="flex gap-2">
