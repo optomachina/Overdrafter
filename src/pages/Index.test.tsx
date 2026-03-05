@@ -216,4 +216,19 @@ describe("Index client home", () => {
     expect(screen.getByRole("button", { name: /new project/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
   });
+
+  it("does not render an intermediate loading page while app session hydrates", () => {
+    mockUseAppSession.mockReturnValue({
+      user: { id: "user-1", email: "client@example.com" },
+      activeMembership: null,
+      isLoading: true,
+      isVerifiedAuth: true,
+      signOut: vi.fn(),
+    });
+
+    renderIndex();
+
+    expect(screen.queryByText("Loading workspace…")).not.toBeInTheDocument();
+    expect(screen.getByText("What are you working on?")).toBeInTheDocument();
+  });
 });
