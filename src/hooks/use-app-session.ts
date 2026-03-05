@@ -76,9 +76,16 @@ export function useAppSession() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (!session) {
         queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
+        return;
+      }
+
+      // Avoid priming an incomplete user+membership snapshot on startup.
+      // Let fetchAppSessionData hydrate both values together for INITIAL_SESSION.
+      if (event === "INITIAL_SESSION") {
+        scheduleSessionRefresh();
         return;
       }
 
