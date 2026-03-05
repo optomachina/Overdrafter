@@ -1,15 +1,15 @@
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import {
   Check,
   ChevronRight,
   Clock3,
   Folder,
+  FolderPlus,
   ListFilter,
   MessageCircle,
   PenLine,
   Pin,
   PlusCircle,
-  Sparkles,
   Star,
 } from "lucide-react";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
@@ -226,31 +226,40 @@ export function WorkspaceSidebar({
     [projects],
   );
 
-  const getProjectIdForJob = (job: JobRecord) => {
-    if (resolveProjectIdForJob) {
-      return resolveProjectIdForJob(job);
-    }
-
-    return job.project_id;
-  };
-
-  const getJobSortTimestamp = (job: JobRecord) =>
-    filters.sortBy === "created" ? parseTimestamp(job.created_at) : parseTimestamp(job.updated_at ?? job.created_at);
-
-  const sortedJobs = (input: JobRecord[]) =>
-    [...input].sort((left, right) => {
-      const pinOrder = Number(pinnedPartSet.has(right.id)) - Number(pinnedPartSet.has(left.id));
-      if (pinOrder !== 0) {
-        return pinOrder;
+  const getProjectIdForJob = useCallback(
+    (job: JobRecord) => {
+      if (resolveProjectIdForJob) {
+        return resolveProjectIdForJob(job);
       }
 
-      const timeOrder = getJobSortTimestamp(right) - getJobSortTimestamp(left);
-      if (timeOrder !== 0) {
-        return timeOrder;
-      }
+      return job.project_id;
+    },
+    [resolveProjectIdForJob],
+  );
 
-      return left.title.localeCompare(right.title);
-    });
+  const getJobSortTimestamp = useCallback(
+    (job: JobRecord) =>
+      filters.sortBy === "created" ? parseTimestamp(job.created_at) : parseTimestamp(job.updated_at ?? job.created_at),
+    [filters.sortBy],
+  );
+
+  const sortedJobs = useCallback(
+    (input: JobRecord[]) =>
+      [...input].sort((left, right) => {
+        const pinOrder = Number(pinnedPartSet.has(right.id)) - Number(pinnedPartSet.has(left.id));
+        if (pinOrder !== 0) {
+          return pinOrder;
+        }
+
+        const timeOrder = getJobSortTimestamp(right) - getJobSortTimestamp(left);
+        if (timeOrder !== 0) {
+          return timeOrder;
+        }
+
+        return left.title.localeCompare(right.title);
+      }),
+    [getJobSortTimestamp, pinnedPartSet],
+  );
 
   const jobsByProjectId = useMemo(() => {
     const grouped = new Map<string, JobRecord[]>();
@@ -273,7 +282,7 @@ export function WorkspaceSidebar({
       grouped,
       ungrouped,
     };
-  }, [jobs, projectsById]);
+  }, [getProjectIdForJob, jobs, projectsById]);
 
   const sortedProjects = useMemo(() => {
     const getProjectSortTimestamp = (project: WorkspaceSidebarProject) => {
@@ -300,7 +309,7 @@ export function WorkspaceSidebar({
 
       return left.name.localeCompare(right.name);
     });
-  }, [filters.sortBy, jobsByProjectId.grouped, pinnedProjectSet, projects]);
+  }, [filters.sortBy, getJobSortTimestamp, jobsByProjectId.grouped, pinnedProjectSet, projects]);
 
   const groupedProjectRows = useMemo(() => {
     if (filters.organize !== "by_project") {
@@ -329,7 +338,7 @@ export function WorkspaceSidebar({
               : sortedJobs(projectJobs),
         };
       });
-  }, [filters.organize, filters.show, jobsByProjectId.grouped, pinnedPartSet, pinnedProjectSet, sortedProjects]);
+  }, [filters.organize, filters.show, jobsByProjectId.grouped, pinnedPartSet, pinnedProjectSet, sortedJobs, sortedProjects]);
 
   const groupedUngroupedJobs = useMemo(() => {
     if (filters.organize !== "by_project") {
@@ -341,7 +350,7 @@ export function WorkspaceSidebar({
     }
 
     return sortedJobs(jobsByProjectId.ungrouped);
-  }, [filters.organize, filters.show, jobsByProjectId.ungrouped, pinnedPartSet]);
+  }, [filters.organize, filters.show, jobsByProjectId.ungrouped, pinnedPartSet, sortedJobs]);
 
   const chronologicalJobs = useMemo(() => {
     if (filters.organize !== "chronological") {
@@ -353,7 +362,7 @@ export function WorkspaceSidebar({
     }
 
     return sortedJobs(jobs);
-  }, [filters.organize, filters.show, jobs, pinnedPartSet]);
+  }, [filters.organize, filters.show, jobs, pinnedPartSet, sortedJobs]);
 
   const persistFilters = (next: SidebarFilters) => {
     setFilters(next);
@@ -397,6 +406,8 @@ export function WorkspaceSidebar({
 
     try {
       await callback();
+    } catch {
+      // Parent handlers report errors.
     } finally {
       setPendingProjectPinIds((current) => current.filter((id) => id !== projectId));
     }
@@ -407,6 +418,8 @@ export function WorkspaceSidebar({
 
     try {
       await callback();
+    } catch {
+      // Parent handlers report errors.
     } finally {
       setPendingPartPinIds((current) => current.filter((id) => id !== jobId));
     }
@@ -417,6 +430,8 @@ export function WorkspaceSidebar({
 
     try {
       await callback();
+    } catch {
+      // Parent handlers report errors.
     } finally {
       setPendingMovePartIds((current) => current.filter((id) => id !== jobId));
     }
@@ -478,9 +493,16 @@ export function WorkspaceSidebar({
     return (
       <ContextMenu key={job.id}>
         <ContextMenuTrigger asChild>
-          <button
-            type="button"
+          <div
+            role="button"
+            tabIndex={0}
             onClick={() => onSelectPart(job.id)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelectPart(job.id);
+              }
+            }}
             className={cn(
               "group flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left transition",
               nestedInProject ? "ml-6 w-[calc(100%-1.5rem)]" : "",
@@ -506,7 +528,7 @@ export function WorkspaceSidebar({
             >
               <Pin className={cn("h-3.5 w-3.5", isPinned ? "fill-current" : "")} />
             </button>
-          </button>
+          </div>
         </ContextMenuTrigger>
         <ContextMenuContent className="w-56 border-white/10 bg-[#1f1f1f] text-white">
           <ContextMenuItem onSelect={() => onSelectPart(job.id)}>See details</ContextMenuItem>
@@ -574,9 +596,16 @@ export function WorkspaceSidebar({
       <div key={project.id} className="space-y-1">
         <ContextMenu>
           <ContextMenuTrigger asChild>
-            <button
-              type="button"
+            <div
+              role="button"
+              tabIndex={0}
               onClick={() => onSelectProject(project.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelectProject(project.id);
+                }
+              }}
               className={cn(
                 "group flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left transition",
                 activeProjectId === project.id
@@ -603,7 +632,7 @@ export function WorkspaceSidebar({
                 <p className="truncate text-sm">{project.name}</p>
               </div>
               {isPinned ? <Pin className="h-3.5 w-3.5 fill-current text-white/80" /> : null}
-            </button>
+            </div>
           </ContextMenuTrigger>
           <ContextMenuContent className="w-56 border-white/10 bg-[#1f1f1f] text-white">
             <ContextMenuItem onSelect={() => onSelectProject(project.id)}>See details</ContextMenuItem>
@@ -654,7 +683,7 @@ export function WorkspaceSidebar({
     <>
       <div className="space-y-3">
         <div className="flex items-center justify-between px-1">
-          <p className="px-2 text-[30px] font-medium text-white/75">Threads</p>
+          <p className="px-2 text-3xl font-medium text-white/75">Threads</p>
           <div className="flex items-center gap-1">
             {onCreateProject ? (
               <Button
@@ -666,7 +695,7 @@ export function WorkspaceSidebar({
                 disabled={!canCreateProject}
                 onClick={onCreateProject}
               >
-                <Folder className="h-4 w-4" />
+                <FolderPlus className="h-4 w-4" />
               </Button>
             ) : null}
 
@@ -803,6 +832,8 @@ export function WorkspaceSidebar({
                   await onRenameProject(projectToRename.id, renameValue.trim());
                   setProjectToRename(null);
                   setRenameValue("");
+                } catch {
+                  // Parent handlers report errors.
                 } finally {
                   setIsRenamingProject(false);
                 }
@@ -852,6 +883,8 @@ export function WorkspaceSidebar({
                 try {
                   await onDeleteProject(projectToDelete.id);
                   setProjectToDelete(null);
+                } catch {
+                  // Parent handlers report errors.
                 } finally {
                   setIsDeletingProject(false);
                 }

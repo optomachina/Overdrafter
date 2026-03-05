@@ -4,7 +4,6 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { FolderInput, Loader2, MoveRight, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
-import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import {
   WorkspaceSidebar,
   type WorkspaceSidebarProject,
@@ -22,15 +21,21 @@ import {
 import { useAppSession } from "@/hooks/use-app-session";
 import {
   assignJobToProject,
+  deleteProject,
   fetchAccessibleJobs,
   fetchAccessibleProjects,
   fetchJobPartSummariesByJobIds,
   fetchPartDetail,
-  fetchUngroupedParts,
+  fetchSidebarPins,
+  pinJob,
+  pinProject,
   removeJobFromProject,
+  unpinJob,
+  unpinProject,
+  updateProject,
 } from "@/features/quotes/api";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
-import { buildDmriflesProjects, DMRIFLES_EMAIL } from "@/features/quotes/client-workspace";
+import { buildDmriflesProjects, DMRIFLES_EMAIL, resolveImportedBatch } from "@/features/quotes/client-workspace";
 import { formatStatusLabel } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +44,6 @@ const ClientPart = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user, signOut } = useAppSession();
-  const [showSearch, setShowSearch] = useState(false);
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const normalizedEmail = user?.email?.toLowerCase() ?? "";
   const isDmriflesWorkspace = normalizedEmail === DMRIFLES_EMAIL;
@@ -54,9 +58,9 @@ const ClientPart = () => {
     queryFn: fetchAccessibleJobs,
     enabled: Boolean(user),
   });
-  const ungroupedPartsQuery = useQuery({
-    queryKey: ["client-ungrouped-parts", user?.id],
-    queryFn: fetchUngroupedParts,
+  const sidebarPinsQuery = useQuery({
+    queryKey: ["sidebar-pins", user?.id],
+    queryFn: fetchSidebarPins,
     enabled: Boolean(user),
   });
   const accessibleJobIds = useMemo(
@@ -91,6 +95,9 @@ const ClientPart = () => {
       partCount: project.jobIds.length,
       roleLabel: "batch",
       isReadOnly: true,
+      canManage: false,
+      createdAt: project.createdAt,
+      updatedAt: project.createdAt,
     }));
   }, [accessibleJobsQuery.data, isDmriflesWorkspace, partSummariesQuery.data]);
   const remoteProjects = useMemo(
@@ -101,6 +108,9 @@ const ClientPart = () => {
         partCount: project.partCount,
         inviteCount: project.inviteCount,
         roleLabel: project.currentUserRole,
+        canManage: project.currentUserRole === "owner",
+        createdAt: project.project.created_at,
+        updatedAt: project.project.updated_at,
       })),
     [accessibleProjectsQuery.data],
   );
@@ -149,6 +159,111 @@ const ClientPart = () => {
     },
   });
 
+  const resolveSidebarProjectIdForJob = (job: { id: string; project_id: string | null; source: string }) => {
+    if (!isDmriflesWorkspace) {
+      return job.project_id;
+    }
+
+    const importedBatch = resolveImportedBatch(job, summariesByJobId.get(job.id));
+    return importedBatch ? `seed-${importedBatch.toLowerCase()}` : null;
+  };
+
+  const invalidateSidebarQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["client-jobs"] }),
+      queryClient.invalidateQueries({ queryKey: ["client-projects"] }),
+      queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
+      queryClient.invalidateQueries({ queryKey: ["client-ungrouped-parts"] }),
+      queryClient.invalidateQueries({ queryKey: ["sidebar-pins"] }),
+      queryClient.invalidateQueries({ queryKey: ["part-detail"] }),
+      queryClient.invalidateQueries({ queryKey: ["project-jobs"] }),
+    ]);
+  };
+
+  const handlePinProject = async (projectId: string) => {
+    try {
+      await pinProject(projectId);
+      await queryClient.invalidateQueries({ queryKey: ["sidebar-pins"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to pin project.");
+      throw error;
+    }
+  };
+
+  const handleUnpinProject = async (projectId: string) => {
+    try {
+      await unpinProject(projectId);
+      await queryClient.invalidateQueries({ queryKey: ["sidebar-pins"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to unpin project.");
+      throw error;
+    }
+  };
+
+  const handlePinPart = async (targetJobId: string) => {
+    try {
+      await pinJob(targetJobId);
+      await queryClient.invalidateQueries({ queryKey: ["sidebar-pins"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to pin part.");
+      throw error;
+    }
+  };
+
+  const handleUnpinPart = async (targetJobId: string) => {
+    try {
+      await unpinJob(targetJobId);
+      await queryClient.invalidateQueries({ queryKey: ["sidebar-pins"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to unpin part.");
+      throw error;
+    }
+  };
+
+  const handleAssignPartToProject = async (targetJobId: string, projectId: string) => {
+    try {
+      await assignJobToProject({ jobId: targetJobId, projectId });
+      await invalidateSidebarQueries();
+      toast.success("Part moved to project.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to move part.");
+      throw error;
+    }
+  };
+
+  const handleRemovePartFromProject = async (targetJobId: string) => {
+    try {
+      await removeJobFromProject(targetJobId);
+      await invalidateSidebarQueries();
+      toast.success("Part removed from project.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to remove part.");
+      throw error;
+    }
+  };
+
+  const handleRenameProject = async (projectId: string, name: string) => {
+    try {
+      await updateProject({ projectId, name });
+      await queryClient.invalidateQueries({ queryKey: ["client-projects"] });
+      toast.success("Project updated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update project.");
+      throw error;
+    }
+  };
+
+  const handleDeleteProject = async (projectId: string) => {
+    try {
+      await deleteProject(projectId);
+      await invalidateSidebarQueries();
+      toast.success("Project deleted.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete project.");
+      throw error;
+    }
+  };
+
   useEffect(() => {
     if (!user) {
       navigate("/?auth=signin", { replace: true });
@@ -172,14 +287,25 @@ const ClientPart = () => {
         sidebarContent={
           <WorkspaceSidebar
             projects={sidebarProjects}
-            yourParts={ungroupedPartsQuery.data ?? []}
+            jobs={accessibleJobsQuery.data ?? []}
             summariesByJobId={summariesByJobId}
             activeJobId={jobId}
+            canCreateProject={!isDmriflesWorkspace}
             onCreateProject={() => navigate("/?createProject=1")}
-            onNewPart={() => navigate("/?focusComposer=1")}
-            onSearchParts={() => setShowSearch(true)}
+            storageScopeKey={user.id}
+            pinnedProjectIds={sidebarPinsQuery.data?.projectIds ?? []}
+            pinnedJobIds={sidebarPinsQuery.data?.jobIds ?? []}
+            onPinProject={handlePinProject}
+            onUnpinProject={handleUnpinProject}
+            onPinPart={handlePinPart}
+            onUnpinPart={handleUnpinPart}
+            onAssignPartToProject={isDmriflesWorkspace ? undefined : handleAssignPartToProject}
+            onRemovePartFromProject={isDmriflesWorkspace ? undefined : handleRemovePartFromProject}
+            onRenameProject={handleRenameProject}
+            onDeleteProject={handleDeleteProject}
             onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
             onSelectPart={(partId) => navigate(`/parts/${partId}`)}
+            resolveProjectIdForJob={resolveSidebarProjectIdForJob}
           />
         }
         sidebarFooter={
@@ -412,15 +538,6 @@ const ClientPart = () => {
         </DialogContent>
       </Dialog>
 
-      <SearchPartsDialog
-        open={showSearch}
-        onOpenChange={setShowSearch}
-        projects={accessibleProjectsQuery.data ?? []}
-        jobs={accessibleJobsQuery.data ?? []}
-        summariesByJobId={summariesByJobId}
-        onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
-        onSelectPart={(partId) => navigate(`/parts/${partId}`)}
-      />
     </>
   );
 };

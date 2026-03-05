@@ -6,16 +6,75 @@ const supabaseMock = vi.hoisted(() => {
     upload: storageUpload,
   }));
   const rpc = vi.fn();
+  const authGetUser = vi.fn();
+
+  const pinnedProjectsOrder = vi.fn();
+  const pinnedProjectsEq = vi.fn(() => ({ order: pinnedProjectsOrder }));
+  const pinnedProjectsSelect = vi.fn(() => ({ eq: pinnedProjectsEq }));
+
+  const pinnedProjectsDeleteEqSecond = vi.fn();
+  const pinnedProjectsDeleteEqFirst = vi.fn(() => ({ eq: pinnedProjectsDeleteEqSecond }));
+  const pinnedProjectsDelete = vi.fn(() => ({ eq: pinnedProjectsDeleteEqFirst }));
+  const pinnedProjectsUpsert = vi.fn();
+
+  const pinnedJobsOrder = vi.fn();
+  const pinnedJobsEq = vi.fn(() => ({ order: pinnedJobsOrder }));
+  const pinnedJobsSelect = vi.fn(() => ({ eq: pinnedJobsEq }));
+
+  const pinnedJobsDeleteEqSecond = vi.fn();
+  const pinnedJobsDeleteEqFirst = vi.fn(() => ({ eq: pinnedJobsDeleteEqSecond }));
+  const pinnedJobsDelete = vi.fn(() => ({ eq: pinnedJobsDeleteEqFirst }));
+  const pinnedJobsUpsert = vi.fn();
+
+  const from = vi.fn((table: string) => {
+    if (table === "user_pinned_projects") {
+      return {
+        select: pinnedProjectsSelect,
+        delete: pinnedProjectsDelete,
+        upsert: pinnedProjectsUpsert,
+      };
+    }
+
+    if (table === "user_pinned_jobs") {
+      return {
+        select: pinnedJobsSelect,
+        delete: pinnedJobsDelete,
+        upsert: pinnedJobsUpsert,
+      };
+    }
+
+    throw new Error(`Unexpected table: ${table}`);
+  });
 
   return {
-    storageUpload,
-    storageFrom,
+    authGetUser,
+    from,
+    pinnedJobsDelete,
+    pinnedJobsDeleteEqFirst,
+    pinnedJobsDeleteEqSecond,
+    pinnedJobsEq,
+    pinnedJobsOrder,
+    pinnedJobsSelect,
+    pinnedJobsUpsert,
+    pinnedProjectsDelete,
+    pinnedProjectsDeleteEqFirst,
+    pinnedProjectsDeleteEqSecond,
+    pinnedProjectsEq,
+    pinnedProjectsOrder,
+    pinnedProjectsSelect,
+    pinnedProjectsUpsert,
     rpc,
+    storageFrom,
+    storageUpload,
   };
 });
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
+    auth: {
+      getUser: supabaseMock.authGetUser,
+    },
+    from: supabaseMock.from,
     storage: {
       from: supabaseMock.storageFrom,
     },
@@ -24,7 +83,12 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import {
+  fetchSidebarPins,
   inferFileKind,
+  pinJob,
+  pinProject,
+  unpinJob,
+  unpinProject,
   uploadFilesToJob,
   uploadManualQuoteEvidence,
 } from "./api";
@@ -33,10 +97,19 @@ describe("quotes api helpers", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-03T12:34:56.000Z"));
+    supabaseMock.authGetUser.mockResolvedValue({
+      data: {
+        user: {
+          id: "user-1",
+        },
+      },
+      error: null,
+    });
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.clearAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -137,5 +210,92 @@ describe("quotes api helpers", () => {
         contentType: "application/pdf",
       },
     );
+  });
+
+  it("fetches pinned project and job ids for the current user", async () => {
+    supabaseMock.pinnedProjectsOrder.mockResolvedValue({
+      data: [
+        {
+          id: "pin-project-1",
+          user_id: "user-1",
+          project_id: "project-1",
+          created_at: "2026-03-03T00:00:00.000Z",
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.pinnedJobsOrder.mockResolvedValue({
+      data: [
+        {
+          id: "pin-job-1",
+          user_id: "user-1",
+          job_id: "job-1",
+          created_at: "2026-03-03T00:00:00.000Z",
+        },
+        {
+          id: "pin-job-2",
+          user_id: "user-1",
+          job_id: "job-2",
+          created_at: "2026-03-03T00:00:01.000Z",
+        },
+      ],
+      error: null,
+    });
+
+    await expect(fetchSidebarPins()).resolves.toEqual({
+      projectIds: ["project-1"],
+      jobIds: ["job-1", "job-2"],
+    });
+
+    expect(supabaseMock.from).toHaveBeenCalledWith("user_pinned_projects");
+    expect(supabaseMock.from).toHaveBeenCalledWith("user_pinned_jobs");
+    expect(supabaseMock.pinnedProjectsEq).toHaveBeenCalledWith("user_id", "user-1");
+    expect(supabaseMock.pinnedJobsEq).toHaveBeenCalledWith("user_id", "user-1");
+  });
+
+  it("pins and unpins projects for the current user", async () => {
+    supabaseMock.pinnedProjectsUpsert.mockResolvedValue({ error: null });
+    supabaseMock.pinnedProjectsDeleteEqSecond.mockResolvedValue({ error: null });
+
+    await pinProject("project-123");
+    await unpinProject("project-123");
+
+    expect(supabaseMock.pinnedProjectsUpsert).toHaveBeenCalledWith(
+      {
+        user_id: "user-1",
+        project_id: "project-123",
+      },
+      {
+        onConflict: "user_id,project_id",
+        ignoreDuplicates: true,
+      },
+    );
+
+    expect(supabaseMock.pinnedProjectsDelete).toHaveBeenCalled();
+    expect(supabaseMock.pinnedProjectsDeleteEqFirst).toHaveBeenCalledWith("user_id", "user-1");
+    expect(supabaseMock.pinnedProjectsDeleteEqSecond).toHaveBeenCalledWith("project_id", "project-123");
+  });
+
+  it("pins and unpins jobs for the current user", async () => {
+    supabaseMock.pinnedJobsUpsert.mockResolvedValue({ error: null });
+    supabaseMock.pinnedJobsDeleteEqSecond.mockResolvedValue({ error: null });
+
+    await pinJob("job-123");
+    await unpinJob("job-123");
+
+    expect(supabaseMock.pinnedJobsUpsert).toHaveBeenCalledWith(
+      {
+        user_id: "user-1",
+        job_id: "job-123",
+      },
+      {
+        onConflict: "user_id,job_id",
+        ignoreDuplicates: true,
+      },
+    );
+
+    expect(supabaseMock.pinnedJobsDelete).toHaveBeenCalled();
+    expect(supabaseMock.pinnedJobsDeleteEqFirst).toHaveBeenCalledWith("user_id", "user-1");
+    expect(supabaseMock.pinnedJobsDeleteEqSecond).toHaveBeenCalledWith("job_id", "job-123");
   });
 });
