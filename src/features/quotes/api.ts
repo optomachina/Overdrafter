@@ -22,6 +22,7 @@ import type {
   ProjectMembershipRecord,
   ProjectRecord,
   QuoteRunReadiness,
+  SidebarPins,
 } from "@/features/quotes/types";
 import type {
   AppRole,
@@ -42,6 +43,8 @@ import type {
   PublishedPackageAggregate,
   QuoteRunAggregate,
   QuoteRunRecord,
+  UserPinnedJobRecord,
+  UserPinnedProjectRecord,
   VendorQuoteAggregate,
   VendorQuoteOfferRecord,
   VendorQuoteResultRecord,
@@ -709,6 +712,96 @@ export async function fetchAccessibleProjects(): Promise<AccessibleProjectSummar
       inviteCount,
     };
   });
+}
+
+export async function fetchSidebarPins(): Promise<SidebarPins> {
+  const currentUser = await requireCurrentUser();
+
+  const [pinnedProjectsResult, pinnedJobsResult] = await Promise.all([
+    supabase
+      .from("user_pinned_projects")
+      .select("*")
+      .eq("user_id", currentUser.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("user_pinned_jobs")
+      .select("*")
+      .eq("user_id", currentUser.id)
+      .order("created_at", { ascending: false }),
+  ]);
+
+  const pinnedProjects = ensureData(
+    pinnedProjectsResult.data,
+    pinnedProjectsResult.error,
+  ) as UserPinnedProjectRecord[];
+  const pinnedJobs = ensureData(pinnedJobsResult.data, pinnedJobsResult.error) as UserPinnedJobRecord[];
+
+  return {
+    projectIds: [...new Set(pinnedProjects.map((record) => record.project_id))],
+    jobIds: [...new Set(pinnedJobs.map((record) => record.job_id))],
+  };
+}
+
+export async function pinProject(projectId: string): Promise<void> {
+  const currentUser = await requireCurrentUser();
+  const { error } = await supabase.from("user_pinned_projects").upsert(
+    {
+      user_id: currentUser.id,
+      project_id: projectId,
+    },
+    {
+      onConflict: "user_id,project_id",
+      ignoreDuplicates: true,
+    },
+  );
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function unpinProject(projectId: string): Promise<void> {
+  const currentUser = await requireCurrentUser();
+  const { error } = await supabase
+    .from("user_pinned_projects")
+    .delete()
+    .eq("user_id", currentUser.id)
+    .eq("project_id", projectId);
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function pinJob(jobId: string): Promise<void> {
+  const currentUser = await requireCurrentUser();
+  const { error } = await supabase.from("user_pinned_jobs").upsert(
+    {
+      user_id: currentUser.id,
+      job_id: jobId,
+    },
+    {
+      onConflict: "user_id,job_id",
+      ignoreDuplicates: true,
+    },
+  );
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function unpinJob(jobId: string): Promise<void> {
+  const currentUser = await requireCurrentUser();
+  const { error } = await supabase
+    .from("user_pinned_jobs")
+    .delete()
+    .eq("user_id", currentUser.id)
+    .eq("job_id", jobId);
+
+  if (error) {
+    throw error;
+  }
 }
 
 export async function fetchProject(projectId: string): Promise<ProjectRecord> {

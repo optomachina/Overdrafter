@@ -158,6 +158,34 @@ export type Database = {
         };
         Update: Partial<Database["public"]["Tables"]["project_invites"]["Insert"]>;
       };
+      user_pinned_projects: {
+        Row: BaseRow & {
+          user_id: string;
+          project_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          project_id: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["user_pinned_projects"]["Insert"]>;
+      };
+      user_pinned_jobs: {
+        Row: BaseRow & {
+          user_id: string;
+          job_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          job_id: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["user_pinned_jobs"]["Insert"]>;
+      };
       pricing_policies: {
         Row: BaseRow & {
           organization_id: string | null;

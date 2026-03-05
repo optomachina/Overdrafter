@@ -21,6 +21,8 @@ export type MembershipRecord = Database["public"]["Tables"]["organization_member
 export type ProjectRecord = Database["public"]["Tables"]["projects"]["Row"];
 export type ProjectMembershipRecord = Database["public"]["Tables"]["project_memberships"]["Row"];
 export type ProjectInviteRecord = Database["public"]["Tables"]["project_invites"]["Row"];
+export type UserPinnedProjectRecord = Database["public"]["Tables"]["user_pinned_projects"]["Row"];
+export type UserPinnedJobRecord = Database["public"]["Tables"]["user_pinned_jobs"]["Row"];
 export type PricingPolicyRecord = Database["public"]["Tables"]["pricing_policies"]["Row"];
 export type JobRecord = Database["public"]["Tables"]["jobs"]["Row"];
 export type JobFileRecord = Database["public"]["Tables"]["job_files"]["Row"];
@@ -172,6 +174,11 @@ export type ProjectInviteSummary = {
   token: string;
   expiresAt: string;
   createdAt: string;
+};
+
+export type SidebarPins = {
+  projectIds: string[];
+  jobIds: string[];
 };
 
 export type OrganizationMembershipSummary = {
