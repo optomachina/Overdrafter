@@ -266,7 +266,7 @@ const ClientHome = () => {
   });
 
   const showWorkspaceSetupState =
-    Boolean(user) && !activeMembership && (bootstrapAccountMutation.isPending || !isVerifiedAuth);
+    Boolean(user) && !activeMembership && !isVerifiedAuth;
 
   useEffect(() => {
     if (authIntent === "signin" || authIntent === "signup") {

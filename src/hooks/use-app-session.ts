@@ -89,6 +89,12 @@ export function useAppSession() {
         return;
       }
 
+      const currentSession = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
+      if (!currentSession) {
+        scheduleSessionRefresh();
+        return;
+      }
+
       queryClient.setQueryData<AppSessionData>(APP_SESSION_QUERY_KEY, (current) => ({
         user: session.user,
         memberships:
