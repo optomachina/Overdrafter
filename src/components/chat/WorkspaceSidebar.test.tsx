@@ -180,9 +180,9 @@ describe("WorkspaceSidebar", () => {
 
     fireEvent.contextMenu(screen.getByText("Project One"));
 
-    expect(screen.getByText("See details")).toBeInTheDocument();
+    expect(screen.getByText("Edit project")).toBeInTheDocument();
     expect(screen.getByText("Pin")).toBeInTheDocument();
-    expect(screen.getByText("Rename")).toBeInTheDocument();
+    expect(screen.getByText("Edit project name")).toBeInTheDocument();
     expect(screen.getByText("Delete")).toBeInTheDocument();
   });
 

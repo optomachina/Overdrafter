@@ -219,6 +219,7 @@ export function WorkspaceSidebar({
   const [renameValue, setRenameValue] = useState("");
   const [isRenamingProject, setIsRenamingProject] = useState(false);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const [openContextTarget, setOpenContextTarget] = useState<string | null>(null);
 
   const pinnedProjectSet = useMemo(() => new Set(pinnedProjectIds), [pinnedProjectIds]);
   const pinnedPartSet = useMemo(() => new Set(pinnedJobIds), [pinnedJobIds]);
@@ -493,12 +494,24 @@ export function WorkspaceSidebar({
     const isMoveBusy = pendingMovePartIds.includes(job.id);
 
     return (
-      <ContextMenu key={job.id}>
+      <ContextMenu
+        key={job.id}
+        onOpenChange={(open) => {
+          setOpenContextTarget(open ? `part:${job.id}` : (current) => (current === `part:${job.id}` ? null : current));
+        }}
+      >
         <ContextMenuTrigger asChild>
           <div
             role="button"
             tabIndex={0}
-            onClick={() => onSelectPart(job.id)}
+            onClick={() => {
+              if (openContextTarget === `part:${job.id}`) {
+                setOpenContextTarget(null);
+                return;
+              }
+
+              onSelectPart(job.id);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
@@ -533,7 +546,7 @@ export function WorkspaceSidebar({
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent className="w-56 border-white/10 bg-[#1f1f1f] text-white">
-          <ContextMenuItem onSelect={() => onSelectPart(job.id)}>See details</ContextMenuItem>
+          <ContextMenuItem onSelect={() => onSelectPart(job.id)}>Edit part</ContextMenuItem>
 
           {onAssignPartToProject ? (
             <ContextMenuSub>
@@ -596,12 +609,25 @@ export function WorkspaceSidebar({
 
     return (
       <div key={project.id} className="space-y-1">
-        <ContextMenu>
+        <ContextMenu
+          onOpenChange={(open) => {
+            setOpenContextTarget(
+              open ? `project:${project.id}` : (current) => (current === `project:${project.id}` ? null : current),
+            );
+          }}
+        >
           <ContextMenuTrigger asChild>
             <div
               role="button"
               tabIndex={0}
-              onClick={() => onSelectProject(project.id)}
+              onClick={() => {
+                if (openContextTarget === `project:${project.id}`) {
+                  setOpenContextTarget(null);
+                  return;
+                }
+
+                onSelectProject(project.id);
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
@@ -637,7 +663,7 @@ export function WorkspaceSidebar({
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent className="w-56 border-white/10 bg-[#1f1f1f] text-white">
-            <ContextMenuItem onSelect={() => onSelectProject(project.id)}>See details</ContextMenuItem>
+            <ContextMenuItem onSelect={() => onSelectProject(project.id)}>Edit project</ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
               disabled={isPinBusy}
@@ -654,7 +680,7 @@ export function WorkspaceSidebar({
                   setRenameValue(project.name);
                 }}
               >
-                Rename
+                Edit project name
               </ContextMenuItem>
             ) : null}
             {(project.canDelete ?? project.canManage) && onDeleteProject ? (
