@@ -213,7 +213,7 @@ describe("Index client home", () => {
     expect(await screen.findByRole("button", { name: /qb00001/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /qb00002/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /qb00003/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /create project/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /new project/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
   });
 });

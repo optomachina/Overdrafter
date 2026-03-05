@@ -685,20 +685,6 @@ export function WorkspaceSidebar({
         <div className="flex items-center justify-between px-1">
           <p className="px-2 text-3xl font-medium text-white/75">Threads</p>
           <div className="flex items-center gap-1">
-            {onCreateProject ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label="Create project"
-                className="h-8 w-8 rounded-lg text-white/70 hover:bg-white/10 hover:text-white"
-                disabled={!canCreateProject}
-                onClick={onCreateProject}
-              >
-                <FolderPlus className="h-4 w-4" />
-              </Button>
-            ) : null}
-
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -761,6 +747,22 @@ export function WorkspaceSidebar({
             </DropdownMenu>
           </div>
         </div>
+
+        {onCreateProject ? (
+          <div className="space-y-1 px-1">
+            <p className="px-2 text-[11px] font-medium uppercase tracking-[0.16em] text-white/45">Projects</p>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-9 w-full justify-start rounded-xl px-2 text-white/80 hover:bg-white/6 hover:text-white"
+              disabled={!canCreateProject}
+              onClick={onCreateProject}
+            >
+              <FolderPlus className="mr-2 h-4 w-4" />
+              New project
+            </Button>
+          </div>
+        ) : null}
 
         <div className="space-y-1">
           {filters.organize === "by_project" ? (

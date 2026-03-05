@@ -117,7 +117,8 @@ describe("WorkspaceSidebar", () => {
 
     expect(screen.getByText("Threads")).toBeInTheDocument();
     expect(screen.queryByText(/group projects/i)).not.toBeInTheDocument();
-
+    expect(screen.getByRole("button", { name: /new project/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /create project/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /filter threads/i })).toBeInTheDocument();
   });
 

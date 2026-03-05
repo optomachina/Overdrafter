@@ -25,6 +25,7 @@ import { useAppSession } from "@/hooks/use-app-session";
 import {
   assignJobToProject,
   createClientDraft,
+  createProject,
   deleteProject,
   fetchAccessibleJobs,
   fetchAccessibleProjects,
@@ -84,10 +85,12 @@ const ClientProject = () => {
   const [activeFilter, setActiveFilter] = useState<JobFilter>("all");
   const [focusedJobId, setFocusedJobId] = useState<string | null>(null);
   const [showAddPart, setShowAddPart] = useState(false);
+  const [showCreateProject, setShowCreateProject] = useState(false);
   const [showRename, setShowRename] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [projectName, setProjectName] = useState("");
+  const [createProjectName, setCreateProjectName] = useState("");
   const normalizedEmail = user?.email?.toLowerCase() ?? "";
   const isDmriflesWorkspace = normalizedEmail === DMRIFLES_EMAIL;
   const isSeededProject = projectId.startsWith("seed-");
@@ -177,7 +180,9 @@ const ClientProject = () => {
       })),
     [accessibleProjectsQuery.data],
   );
-  const sidebarProjects = isDmriflesWorkspace ? seededProjects : remoteProjects;
+  const sidebarProjects = isDmriflesWorkspace
+    ? [...seededProjects, ...remoteProjects.filter((project) => !seededProjects.some((seeded) => seeded.id === project.id))]
+    : remoteProjects;
 
   const seededProject = useMemo(() => {
     if (!isSeededProject) {
@@ -228,6 +233,20 @@ const ClientProject = () => {
   const projectSummary = accessibleProjectsQuery.data?.find((project) => project.project.id === projectId) ?? null;
   const canManageProject = !isSeededProject && (projectSummary?.currentUserRole ?? "editor") === "owner";
 
+  const createProjectMutation = useMutation({
+    mutationFn: (name: string) => createProject({ name }),
+    onSuccess: async (nextProjectId) => {
+      toast.success("Project created.");
+      setShowCreateProject(false);
+      setCreateProjectName("");
+      await queryClient.invalidateQueries({ queryKey: ["client-projects"] });
+      navigate(`/projects/${nextProjectId}`);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to create project.");
+    },
+  });
+
   const updateProjectMutation = useMutation({
     mutationFn: (name: string) => updateProject({ projectId, name }),
     onSuccess: async () => {
@@ -269,7 +288,7 @@ const ClientProject = () => {
   });
 
   const resolveSidebarProjectIdForJob = (job: { id: string; project_id: string | null; source: string }) => {
-    if (!isDmriflesWorkspace) {
+    if (!isDmriflesWorkspace || job.project_id) {
       return job.project_id;
     }
 
@@ -408,8 +427,7 @@ const ClientProject = () => {
             jobs={accessibleJobsQuery.data ?? []}
             summariesByJobId={summariesByJobId}
             activeProjectId={projectId}
-            canCreateProject={!isDmriflesWorkspace}
-            onCreateProject={() => navigate("/?createProject=1")}
+            onCreateProject={() => setShowCreateProject(true)}
             storageScopeKey={user?.id}
             pinnedProjectIds={sidebarPinsQuery.data?.projectIds ?? []}
             pinnedJobIds={sidebarPinsQuery.data?.jobIds ?? []}
@@ -610,6 +628,47 @@ const ClientProject = () => {
           </div>
         </div>
       </ChatWorkspaceLayout>
+
+      <Dialog
+        open={showCreateProject}
+        onOpenChange={(open) => {
+          setShowCreateProject(open);
+          if (!open) {
+            setCreateProjectName("");
+          }
+        }}
+      >
+        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
+          <DialogHeader>
+            <DialogTitle>Create project</DialogTitle>
+            <DialogDescription className="text-white/55">
+              Projects are shareable by default and live in your hidden workspace.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={createProjectName}
+            onChange={(event) => setCreateProjectName(event.target.value)}
+            placeholder="Project name"
+            className="border-white/10 bg-[#2a2a2a] text-white placeholder:text-white/35"
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="border-white/10 bg-transparent text-white hover:bg-white/6"
+              onClick={() => setShowCreateProject(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="rounded-full"
+              disabled={createProjectMutation.isPending || createProjectName.trim().length === 0}
+              onClick={() => createProjectMutation.mutate(createProjectName.trim())}
+            >
+              {createProjectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showAddPart} onOpenChange={setShowAddPart}>
         <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">

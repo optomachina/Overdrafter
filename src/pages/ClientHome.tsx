@@ -187,7 +187,9 @@ const ClientHome = () => {
       })),
     [accessibleProjectsQuery.data],
   );
-  const sidebarProjects = isDmriflesWorkspace ? seededProjects : remoteProjects;
+  const sidebarProjects = isDmriflesWorkspace
+    ? [...seededProjects, ...remoteProjects.filter((project) => !seededProjects.some((seeded) => seeded.id === project.id))]
+    : remoteProjects;
 
   const bootstrapAccountMutation = useMutation({
     mutationFn: (organizationName: string) => createSelfServiceOrganization(organizationName),
@@ -290,7 +292,7 @@ const ClientHome = () => {
   }, [focusComposerIntent, searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (createProjectIntent !== "1" || !user || isDmriflesWorkspace) {
+    if (createProjectIntent !== "1" || !user) {
       return;
     }
 
@@ -299,7 +301,7 @@ const ClientHome = () => {
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.delete("createProject");
     setSearchParams(nextSearchParams, { replace: true });
-  }, [createProjectIntent, isDmriflesWorkspace, searchParams, setSearchParams, user]);
+  }, [createProjectIntent, searchParams, setSearchParams, user]);
 
   useEffect(() => {
     if (!user) {
@@ -366,7 +368,7 @@ const ClientHome = () => {
   };
 
   const resolveSidebarProjectIdForJob = (job: { id: string; project_id: string | null; source: string }) => {
-    if (!isDmriflesWorkspace) {
+    if (!isDmriflesWorkspace || job.project_id) {
       return job.project_id;
     }
 
@@ -645,7 +647,6 @@ const ClientHome = () => {
               projects={sidebarProjects}
               jobs={accessibleJobsQuery.data ?? []}
               summariesByJobId={summariesByJobId}
-              canCreateProject={!isDmriflesWorkspace}
               onCreateProject={() => setShowCreateProject(true)}
               storageScopeKey={user.id}
               pinnedProjectIds={sidebarPinsQuery.data?.projectIds ?? []}
