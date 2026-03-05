@@ -8,6 +8,10 @@ const supabaseMock = vi.hoisted(() => {
   const rpc = vi.fn();
   const authGetUser = vi.fn();
 
+  const membershipsOrder = vi.fn();
+  const membershipsEq = vi.fn(() => ({ order: membershipsOrder }));
+  const membershipsSelect = vi.fn(() => ({ eq: membershipsEq }));
+
   const pinnedProjectsOrder = vi.fn();
   const pinnedProjectsEq = vi.fn(() => ({ order: pinnedProjectsOrder }));
   const pinnedProjectsSelect = vi.fn(() => ({ eq: pinnedProjectsEq }));
@@ -27,6 +31,12 @@ const supabaseMock = vi.hoisted(() => {
   const pinnedJobsUpsert = vi.fn();
 
   const from = vi.fn((table: string) => {
+    if (table === "organization_memberships") {
+      return {
+        select: membershipsSelect,
+      };
+    }
+
     if (table === "user_pinned_projects") {
       return {
         select: pinnedProjectsSelect,
@@ -49,6 +59,9 @@ const supabaseMock = vi.hoisted(() => {
   return {
     authGetUser,
     from,
+    membershipsEq,
+    membershipsOrder,
+    membershipsSelect,
     pinnedJobsDelete,
     pinnedJobsDeleteEqFirst,
     pinnedJobsDeleteEqSecond,
@@ -83,6 +96,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import {
+  createClientDraft,
   fetchSidebarPins,
   inferFileKind,
   pinJob,
@@ -210,6 +224,69 @@ describe("quotes api helpers", () => {
         contentType: "application/pdf",
       },
     );
+  });
+
+  it("falls back to api_create_job when api_create_client_draft is unavailable", async () => {
+    supabaseMock.rpc.mockImplementation((fn: string) => {
+      if (fn === "api_create_client_draft") {
+        return Promise.resolve({
+          data: null,
+          error: {
+            code: "42883",
+            message: "function public.api_create_client_draft does not exist",
+            details: null,
+            hint: null,
+          },
+        });
+      }
+
+      if (fn === "api_create_job") {
+        return Promise.resolve({
+          data: "job-fallback-1",
+          error: null,
+        });
+      }
+
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    supabaseMock.membershipsOrder.mockResolvedValue({
+      data: [
+        {
+          id: "membership-1",
+          organization_id: "org-123",
+          role: "client",
+          organizations: {
+            id: "org-123",
+            name: "Acme",
+            slug: "acme",
+          },
+        },
+      ],
+      error: null,
+    });
+
+    await expect(
+      createClientDraft({
+        title: "Bracket",
+        description: "Upload test",
+        tags: [],
+      }),
+    ).resolves.toBe("job-fallback-1");
+
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(1, "api_create_client_draft", {
+      p_title: "Bracket",
+      p_description: "Upload test",
+      p_project_id: null,
+      p_tags: [],
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_create_job", {
+      p_organization_id: "org-123",
+      p_title: "Bracket",
+      p_description: "Upload test",
+      p_source: "client_home",
+      p_tags: [],
+    });
   });
 
   it("fetches pinned project and job ids for the current user", async () => {

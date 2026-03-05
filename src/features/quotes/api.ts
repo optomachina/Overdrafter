@@ -128,6 +128,22 @@ function ensureData<T>(data: T | null, error: { message: string } | null | undef
   return data;
 }
 
+function isMissingFunctionError(error: unknown, functionName: string): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const value = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+  const functionPattern = functionName.toLowerCase();
+  const code = typeof value.code === "string" ? value.code : "";
+  const message = typeof value.message === "string" ? value.message : "";
+  const details = typeof value.details === "string" ? value.details : "";
+  const hint = typeof value.hint === "string" ? value.hint : "";
+  const blob = `${message} ${details} ${hint}`.toLowerCase();
+
+  return code === "42883" && blob.includes(functionPattern);
+}
+
 async function requireCurrentUser() {
   const {
     data: { user },
@@ -992,7 +1008,32 @@ export async function createClientDraft(input: ClientDraftInput): Promise<string
     p_tags: input.tags ?? [],
   });
 
-  return ensureData(data, error);
+  if (!error) {
+    return ensureData(data, null);
+  }
+
+  // Backward-compatible fallback for environments that have not applied
+  // the shared-project migration with api_create_client_draft yet.
+  if (!input.projectId && isMissingFunctionError(error, "api_create_client_draft")) {
+    const appSession = await fetchAppSessionData();
+    const fallbackMembership =
+      appSession.memberships.find((membership) => membership.role === "client") ??
+      appSession.memberships[0];
+
+    if (!fallbackMembership) {
+      throw error;
+    }
+
+    return createJob({
+      organizationId: fallbackMembership.organizationId,
+      title: input.title,
+      description: input.description,
+      source: "client_home",
+      tags: input.tags,
+    });
+  }
+
+  throw error;
 }
 
 export async function assignJobToProject(input: {

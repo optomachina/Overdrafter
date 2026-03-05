@@ -27,6 +27,23 @@ type PromptComposerProps = {
   onSubmit: (input: { prompt: string; files: File[]; clear: () => void }) => Promise<void>;
 };
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string"
+  ) {
+    return (error as { message: string }).message;
+  }
+
+  return "Unable to submit this part right now.";
+}
+
 export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerProps>(
   ({ isSignedIn, placeholder = "Ask anything", onRequireAuth, onSubmit }, ref) => {
     const [prompt, setPrompt] = useState("");
@@ -98,7 +115,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       try {
         await onSubmit({ prompt, files, clear });
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Unable to submit this part right now.");
+        toast.error(getErrorMessage(error));
       } finally {
         setIsSubmitting(false);
       }
