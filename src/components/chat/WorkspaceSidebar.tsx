@@ -51,6 +51,8 @@ export type WorkspaceSidebarProject = {
   roleLabel?: string;
   isReadOnly?: boolean;
   canManage?: boolean;
+  canRename?: boolean;
+  canDelete?: boolean;
   createdAt?: string | null;
   updatedAt?: string | null;
 };
@@ -645,7 +647,7 @@ export function WorkspaceSidebar({
             >
               {isPinned ? "Unpin" : "Pin"}
             </ContextMenuItem>
-            {project.canManage && onRenameProject ? (
+            {(project.canRename ?? project.canManage) && onRenameProject ? (
               <ContextMenuItem
                 onSelect={() => {
                   setProjectToRename(project);
@@ -655,7 +657,7 @@ export function WorkspaceSidebar({
                 Rename
               </ContextMenuItem>
             ) : null}
-            {project.canManage && onDeleteProject ? (
+            {(project.canDelete ?? project.canManage) && onDeleteProject ? (
               <ContextMenuItem
                 className="text-destructive focus:text-destructive"
                 onSelect={() => {
@@ -756,7 +758,9 @@ export function WorkspaceSidebar({
               variant="ghost"
               className="h-9 w-full justify-start rounded-xl px-2 text-white/80 hover:bg-white/6 hover:text-white"
               disabled={!canCreateProject}
-              onClick={onCreateProject}
+              onClick={() => {
+                onCreateProject();
+              }}
             >
               <FolderPlus className="mr-2 h-4 w-4" />
               New project

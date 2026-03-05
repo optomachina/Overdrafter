@@ -174,7 +174,8 @@ const ClientProject = () => {
         partCount: project.partCount,
         inviteCount: project.inviteCount,
         roleLabel: project.currentUserRole,
-        canManage: project.currentUserRole === "owner",
+        canRename: project.currentUserRole === "owner" || project.currentUserRole === "editor",
+        canDelete: project.currentUserRole === "owner",
         createdAt: project.project.created_at,
         updatedAt: project.project.updated_at,
       })),
@@ -231,7 +232,9 @@ const ClientProject = () => {
   );
   const focusedSummary = focusedJob ? summariesByJobId.get(focusedJob.id) ?? null : null;
   const projectSummary = accessibleProjectsQuery.data?.find((project) => project.project.id === projectId) ?? null;
-  const canManageProject = !isSeededProject && (projectSummary?.currentUserRole ?? "editor") === "owner";
+  const canRenameProject = !isSeededProject && ["owner", "editor"].includes(projectSummary?.currentUserRole ?? "editor");
+  const canDeleteProject = !isSeededProject && (projectSummary?.currentUserRole ?? "editor") === "owner";
+  const canManageMembers = canDeleteProject;
 
   const createProjectMutation = useMutation({
     mutationFn: (name: string) => createProject({ name }),
@@ -489,7 +492,7 @@ const ClientProject = () => {
                   Add Part
                 </Button>
               ) : null}
-              {canManageProject ? (
+              {canManageMembers ? (
                 <>
                   <Button
                     type="button"
@@ -769,7 +772,8 @@ const ClientProject = () => {
         currentUserId={user?.id ?? ""}
         memberships={projectMembershipsQuery.data ?? []}
         invites={projectInvitesQuery.data ?? []}
-        canManage={canManageProject}
+        canRename={canRenameProject}
+        canDelete={canDeleteProject}
         onInvite={async (email) => {
           const invite = await inviteProjectMember({ projectId, email });
           toast.success(`Invite created for ${invite.email}.`);
