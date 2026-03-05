@@ -122,6 +122,26 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByRole("button", { name: /filter threads/i })).toBeInTheDocument();
   });
 
+
+  it("fires create project callback", () => {
+    const onCreateProject = vi.fn();
+
+    render(
+      <WorkspaceSidebar
+        projects={projects}
+        jobs={jobs}
+        summariesByJobId={summariesByJobId}
+        onCreateProject={onCreateProject}
+        onSelectProject={vi.fn()}
+        onSelectPart={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /new project/i }));
+
+    expect(onCreateProject).toHaveBeenCalledTimes(1);
+  });
+
   it("restores expanded project state from local storage", () => {
     localStorage.setItem(
       "workspace-sidebar-expanded-v1:sidebar-expanded",
