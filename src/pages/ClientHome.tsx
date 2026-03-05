@@ -265,8 +265,7 @@ const ClientHome = () => {
     },
   });
 
-  const showWorkspaceSetupState =
-    Boolean(user) && !activeMembership && !isVerifiedAuth;
+  const showWorkspaceSetupState = Boolean(user) && !activeMembership;
 
   useEffect(() => {
     if (authIntent === "signin" || authIntent === "signup") {
@@ -569,6 +568,10 @@ const ClientHome = () => {
             isSignedIn={Boolean(user)}
             onRequireAuth={() => openAuth("signin")}
             onSubmit={async ({ prompt, files, clear }) => {
+              if (!activeMembership) {
+                throw new Error("Your workspace is still being prepared. Please wait a moment and try again.");
+              }
+
               const title = buildDraftTitleFromPrompt(prompt, files);
               const jobId = await createClientDraft({
                 title,
