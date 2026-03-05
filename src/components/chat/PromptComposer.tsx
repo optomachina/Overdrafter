@@ -97,6 +97,8 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
       try {
         await onSubmit({ prompt, files, clear });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Unable to submit this part right now.");
       } finally {
         setIsSubmitting(false);
       }
