@@ -929,7 +929,21 @@ export async function createProject(input: {
     p_description: input.description ?? null,
   });
 
-  return ensureData(data, error);
+  if (!error) {
+    return ensureData(data, null);
+  }
+
+  // Backward-compatible fallback for environments that still expose the
+  // older one-argument function signature or have a stale schema cache.
+  if (!input.description && isMissingFunctionError(error, "api_create_project")) {
+    const fallbackResult = await supabase.rpc("api_create_project", {
+      p_name: input.name,
+    });
+
+    return ensureData(fallbackResult.data, fallbackResult.error);
+  }
+
+  throw error;
 }
 
 export async function updateProject(input: {

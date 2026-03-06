@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { FolderInput, Loader2, MoveRight, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
+import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import {
   WorkspaceSidebar,
   type WorkspaceSidebarProject,
@@ -18,7 +19,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { useAppSession } from "@/hooks/use-app-session";
 import {
   assignJobToProject,
@@ -512,7 +512,7 @@ const ClientPart = () => {
         </div>
       </ChatWorkspaceLayout>
 
-      <Dialog
+      <ProjectNameDialog
         open={showCreateProject}
         onOpenChange={(open) => {
           setShowCreateProject(open);
@@ -520,38 +520,15 @@ const ClientPart = () => {
             setCreateProjectName("");
           }
         }}
-      >
-        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
-          <DialogHeader>
-            <DialogTitle>Create project</DialogTitle>
-            <DialogDescription className="text-white/55">
-              Projects are shareable by default and live in your hidden workspace.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            value={createProjectName}
-            onChange={(event) => setCreateProjectName(event.target.value)}
-            placeholder="Project name"
-            className="border-white/10 bg-[#2a2a2a] text-white placeholder:text-white/35"
-          />
-          <DialogFooter>
-            <Button
-              variant="outline"
-              className="border-white/10 bg-transparent text-white hover:bg-white/6"
-              onClick={() => setShowCreateProject(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="rounded-full"
-              disabled={createProjectMutation.isPending || createProjectName.trim().length === 0}
-              onClick={() => createProjectMutation.mutate(createProjectName.trim())}
-            >
-              {createProjectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        title="Create project"
+        description="Projects are shareable by default and live in your hidden workspace."
+        value={createProjectName}
+        onValueChange={setCreateProjectName}
+        submitLabel="Create"
+        isPending={createProjectMutation.isPending}
+        isSubmitDisabled={createProjectName.trim().length === 0}
+        onSubmit={() => createProjectMutation.mutate(createProjectName.trim())}
+      />
 
       <Dialog open={showMoveDialog} onOpenChange={setShowMoveDialog}>
         <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import type { User } from "@supabase/supabase-js";
-import { Loader2, LogOut } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
 import { GuestSidebarCta } from "@/components/chat/GuestSidebarCta";
@@ -11,17 +11,9 @@ import {
   WorkspaceSidebar,
   type WorkspaceSidebarProject,
 } from "@/components/chat/WorkspaceSidebar";
+import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { SignInDialog } from "@/components/SignInDialog";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { useAppSession } from "@/hooks/use-app-session";
 import { supabase } from "@/integrations/supabase/client";
 import { isEmailConfirmationRequired } from "@/lib/auth-status";
@@ -678,38 +670,23 @@ const ClientHome = () => {
         {renderCenteredContent()}
       </ChatWorkspaceLayout>
 
-      <Dialog open={showCreateProject} onOpenChange={setShowCreateProject}>
-        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
-          <DialogHeader>
-            <DialogTitle>Create project</DialogTitle>
-            <DialogDescription className="text-white/55">
-              Projects are shareable by default and live in your hidden workspace.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            value={projectName}
-            onChange={(event) => setProjectName(event.target.value)}
-            placeholder="Project name"
-            className="border-white/10 bg-[#2a2a2a] text-white placeholder:text-white/35"
-          />
-          <DialogFooter>
-            <Button
-              variant="outline"
-              className="border-white/10 bg-transparent text-white hover:bg-white/6"
-              onClick={() => setShowCreateProject(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="rounded-full"
-              disabled={createProjectMutation.isPending || projectName.trim().length === 0}
-              onClick={() => createProjectMutation.mutate(projectName.trim())}
-            >
-              {createProjectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ProjectNameDialog
+        open={showCreateProject}
+        onOpenChange={(open) => {
+          setShowCreateProject(open);
+          if (!open) {
+            setProjectName("");
+          }
+        }}
+        title="Create project"
+        description="Projects are shareable by default and live in your hidden workspace."
+        value={projectName}
+        onValueChange={setProjectName}
+        submitLabel="Create"
+        isPending={createProjectMutation.isPending}
+        isSubmitDisabled={projectName.trim().length === 0}
+        onSubmit={() => createProjectMutation.mutate(projectName.trim())}
+      />
 
       <SignInDialog
         open={isAuthDialogOpen}

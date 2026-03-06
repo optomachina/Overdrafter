@@ -23,6 +23,7 @@ function SidebarScaffold({
         </div>
         <div className="min-w-0">
           <p className="truncate text-base font-semibold">OverDrafter</p>
+          <p className="truncate text-xs text-white/45">v{__APP_VERSION__}</p>
         </div>
       </div>
 
