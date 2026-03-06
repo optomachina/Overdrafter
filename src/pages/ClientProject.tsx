@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
 import { ProjectMembersDialog } from "@/components/chat/ProjectMembersDialog";
 import { PromptComposer } from "@/components/chat/PromptComposer";
+import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import {
   WorkspaceSidebar,
   type WorkspaceSidebarProject,
@@ -632,7 +633,7 @@ const ClientProject = () => {
         </div>
       </ChatWorkspaceLayout>
 
-      <Dialog
+      <ProjectNameDialog
         open={showCreateProject}
         onOpenChange={(open) => {
           setShowCreateProject(open);
@@ -640,38 +641,15 @@ const ClientProject = () => {
             setCreateProjectName("");
           }
         }}
-      >
-        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
-          <DialogHeader>
-            <DialogTitle>Create project</DialogTitle>
-            <DialogDescription className="text-white/55">
-              Projects are shareable by default and live in your hidden workspace.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            value={createProjectName}
-            onChange={(event) => setCreateProjectName(event.target.value)}
-            placeholder="Project name"
-            className="border-white/10 bg-[#2a2a2a] text-white placeholder:text-white/35"
-          />
-          <DialogFooter>
-            <Button
-              variant="outline"
-              className="border-white/10 bg-transparent text-white hover:bg-white/6"
-              onClick={() => setShowCreateProject(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="rounded-full"
-              disabled={createProjectMutation.isPending || createProjectName.trim().length === 0}
-              onClick={() => createProjectMutation.mutate(createProjectName.trim())}
-            >
-              {createProjectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        title="Create project"
+        description="Projects are shareable by default and live in your hidden workspace."
+        value={createProjectName}
+        onValueChange={setCreateProjectName}
+        submitLabel="Create"
+        isPending={createProjectMutation.isPending}
+        isSubmitDisabled={createProjectName.trim().length === 0}
+        onSubmit={() => createProjectMutation.mutate(createProjectName.trim())}
+      />
 
       <Dialog open={showAddPart} onOpenChange={setShowAddPart}>
         <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
@@ -710,34 +688,18 @@ const ClientProject = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showRename} onOpenChange={setShowRename}>
-        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
-          <DialogHeader>
-            <DialogTitle>Rename project</DialogTitle>
-          </DialogHeader>
-          <Input
-            value={projectName}
-            onChange={(event) => setProjectName(event.target.value)}
-            className="border-white/10 bg-[#2a2a2a] text-white"
-          />
-          <DialogFooter>
-            <Button
-              variant="outline"
-              className="border-white/10 bg-transparent text-white hover:bg-white/6"
-              onClick={() => setShowRename(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="rounded-full"
-              disabled={updateProjectMutation.isPending || projectName.trim().length === 0}
-              onClick={() => updateProjectMutation.mutate(projectName.trim())}
-            >
-              {updateProjectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ProjectNameDialog
+        open={showRename}
+        onOpenChange={setShowRename}
+        title="Rename project"
+        description="Update the project name shown throughout this project workspace."
+        value={projectName}
+        onValueChange={setProjectName}
+        submitLabel="Save"
+        isPending={updateProjectMutation.isPending}
+        isSubmitDisabled={projectName.trim().length === 0}
+        onSubmit={() => updateProjectMutation.mutate(projectName.trim())}
+      />
 
       <Dialog open={showDelete} onOpenChange={setShowDelete}>
         <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">

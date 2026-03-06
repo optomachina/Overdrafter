@@ -17,6 +17,7 @@ import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -34,15 +35,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export type WorkspaceSidebarProject = {
   id: string;
@@ -829,7 +822,7 @@ export function WorkspaceSidebar({
         </div>
       </div>
 
-      <Dialog
+      <ProjectNameDialog
         open={Boolean(projectToRename)}
         onOpenChange={(open) => {
           if (!open) {
@@ -837,62 +830,36 @@ export function WorkspaceSidebar({
             setRenameValue("");
           }
         }}
-      >
-        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
-          <DialogHeader>
-            <DialogTitle>Rename project</DialogTitle>
-            <DialogDescription className="text-white/55">
-              Update the project name shown in your thread list.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            value={renameValue}
-            onChange={(event) => setRenameValue(event.target.value)}
-            className="border-white/10 bg-[#2a2a2a] text-white"
-          />
-          <DialogFooter>
-            <Button
-              variant="outline"
-              className="border-white/10 bg-transparent text-white hover:bg-white/6"
-              onClick={() => {
-                setProjectToRename(null);
-                setRenameValue("");
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="rounded-full"
-              disabled={
-                !projectToRename ||
-                !onRenameProject ||
-                isRenamingProject ||
-                renameValue.trim().length === 0 ||
-                renameValue.trim() === projectToRename.name
-              }
-              onClick={async () => {
-                if (!projectToRename || !onRenameProject) {
-                  return;
-                }
+        title="Rename project"
+        description="Update the project name shown in your thread list."
+        value={renameValue}
+        onValueChange={setRenameValue}
+        submitLabel="Save"
+        isPending={isRenamingProject}
+        isSubmitDisabled={
+          !projectToRename ||
+          !onRenameProject ||
+          renameValue.trim().length === 0 ||
+          renameValue.trim() === projectToRename.name
+        }
+        onSubmit={async () => {
+          if (!projectToRename || !onRenameProject) {
+            return;
+          }
 
-                setIsRenamingProject(true);
+          setIsRenamingProject(true);
 
-                try {
-                  await onRenameProject(projectToRename.id, renameValue.trim());
-                  setProjectToRename(null);
-                  setRenameValue("");
-                } catch {
-                  // Parent handlers report errors.
-                } finally {
-                  setIsRenamingProject(false);
-                }
-              }}
-            >
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          try {
+            await onRenameProject(projectToRename.id, renameValue.trim());
+            setProjectToRename(null);
+            setRenameValue("");
+          } catch {
+            // Parent handlers report errors.
+          } finally {
+            setIsRenamingProject(false);
+          }
+        }}
+      />
 
       <Dialog
         open={Boolean(projectToDelete)}

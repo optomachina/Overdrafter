@@ -97,6 +97,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 import {
   createClientDraft,
+  createProject,
   fetchSidebarPins,
   inferFileKind,
   pinJob,
@@ -286,6 +287,33 @@ describe("quotes api helpers", () => {
       p_description: "Upload test",
       p_source: "client_home",
       p_tags: [],
+    });
+  });
+
+  it("retries project creation against the legacy one-argument RPC signature", async () => {
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "42883",
+          message: "Could not find the function public.api_create_project(p_description, p_name) in the schema cache",
+          details: null,
+          hint: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        data: "project-fallback-1",
+        error: null,
+      });
+
+    await expect(createProject({ name: "Fixture project" })).resolves.toBe("project-fallback-1");
+
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(1, "api_create_project", {
+      p_name: "Fixture project",
+      p_description: null,
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_create_project", {
+      p_name: "Fixture project",
     });
   });
 
