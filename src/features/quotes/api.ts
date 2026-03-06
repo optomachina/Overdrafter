@@ -144,6 +144,28 @@ function isMissingFunctionError(error: unknown, functionName: string): boolean {
   return (code === "42883" || code === "PGRST202") && blob.includes(functionPattern);
 }
 
+async function createProjectViaEdgeFunction(input: {
+  name: string;
+  description?: string;
+}): Promise<string> {
+  const { data, error } = await supabase.functions.invoke("create-project-fallback", {
+    body: {
+      name: input.name,
+      description: input.description ?? null,
+    },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data || typeof data !== "object" || !("projectId" in data) || typeof data.projectId !== "string") {
+    throw new Error("Expected a projectId from create-project-fallback.");
+  }
+
+  return data.projectId;
+}
+
 async function requireCurrentUser() {
   const {
     data: { user },
@@ -933,14 +955,26 @@ export async function createProject(input: {
     return ensureData(data, null);
   }
 
-  // Backward-compatible fallback for environments that still expose the
-  // older one-argument function signature or have a stale schema cache.
-  if (!input.description && isMissingFunctionError(error, "api_create_project")) {
-    const fallbackResult = await supabase.rpc("api_create_project", {
-      p_name: input.name,
-    });
+  if (isMissingFunctionError(error, "api_create_project")) {
+    // Backward-compatible fallback for environments that still expose the
+    // older one-argument function signature.
+    if (!input.description) {
+      const fallbackResult = await supabase.rpc("api_create_project", {
+        p_name: input.name,
+      });
 
-    return ensureData(fallbackResult.data, fallbackResult.error);
+      if (!fallbackResult.error) {
+        return ensureData(fallbackResult.data, null);
+      }
+
+      if (!isMissingFunctionError(fallbackResult.error, "api_create_project")) {
+        throw fallbackResult.error;
+      }
+    }
+
+    // Last-resort fallback for environments where the shared-project RPC
+    // has not been applied to Postgres at all yet.
+    return createProjectViaEdgeFunction(input);
   }
 
   throw error;

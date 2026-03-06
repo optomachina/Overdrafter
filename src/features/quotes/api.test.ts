@@ -6,6 +6,7 @@ const supabaseMock = vi.hoisted(() => {
     upload: storageUpload,
   }));
   const rpc = vi.fn();
+  const functionsInvoke = vi.fn();
   const authGetUser = vi.fn();
 
   const membershipsOrder = vi.fn();
@@ -77,6 +78,7 @@ const supabaseMock = vi.hoisted(() => {
     pinnedProjectsSelect,
     pinnedProjectsUpsert,
     rpc,
+    functionsInvoke,
     storageFrom,
     storageUpload,
   };
@@ -90,6 +92,9 @@ vi.mock("@/integrations/supabase/client", () => ({
     from: supabaseMock.from,
     storage: {
       from: supabaseMock.storageFrom,
+    },
+    functions: {
+      invoke: supabaseMock.functionsInvoke,
     },
     rpc: supabaseMock.rpc,
   },
@@ -314,6 +319,43 @@ describe("quotes api helpers", () => {
     });
     expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_create_project", {
       p_name: "Fixture project",
+    });
+  });
+
+  it("falls back to the edge function when project creation RPCs are unavailable", async () => {
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "PGRST202",
+          message: "Could not find the function public.api_create_project(p_description, p_name) in the schema cache",
+          details: null,
+          hint: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "PGRST202",
+          message: "Could not find the function public.api_create_project(p_name) in the schema cache",
+          details: null,
+          hint: null,
+        },
+      });
+    supabaseMock.functionsInvoke.mockResolvedValue({
+      data: {
+        projectId: "project-edge-1",
+      },
+      error: null,
+    });
+
+    await expect(createProject({ name: "Fixture project" })).resolves.toBe("project-edge-1");
+
+    expect(supabaseMock.functionsInvoke).toHaveBeenCalledWith("create-project-fallback", {
+      body: {
+        name: "Fixture project",
+        description: null,
+      },
     });
   });
 
