@@ -10,6 +10,7 @@ import {
   PenLine,
   Pin,
   PlusCircle,
+  Search,
   Star,
 } from "lucide-react";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
@@ -75,6 +76,7 @@ type WorkspaceSidebarProps = {
   activeJobId?: string | null;
   canCreateProject?: boolean;
   onCreateProject?: () => void;
+  onSearchParts?: () => void;
   onSelectProject: (projectId: string) => void;
   onSelectPart: (jobId: string) => void;
   resolveProjectIdForJob?: (job: JobRecord) => string | null;
@@ -187,6 +189,7 @@ export function WorkspaceSidebar({
   activeJobId,
   canCreateProject = true,
   onCreateProject,
+  onSearchParts,
   onSelectProject,
   onSelectPart,
   resolveProjectIdForJob,
@@ -775,6 +778,20 @@ export function WorkspaceSidebar({
             </DropdownMenu>
           </div>
         </div>
+
+        {onSearchParts ? (
+          <div className="space-y-1 px-1">
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-9 w-full justify-start rounded-xl px-2 text-white/80 hover:bg-white/6 hover:text-white"
+              onClick={onSearchParts}
+            >
+              <Search className="mr-2 h-4 w-4" />
+              Search parts
+            </Button>
+          </div>
+        ) : null}
 
         {onCreateProject ? (
           <div className="space-y-1 px-1">

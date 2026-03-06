@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
 import { GuestSidebarCta } from "@/components/chat/GuestSidebarCta";
 import { PromptComposer, type PromptComposerHandle } from "@/components/chat/PromptComposer";
+import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import {
   WorkspaceSidebar,
   type WorkspaceSidebarProject,
@@ -111,6 +112,7 @@ const ClientHome = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, activeMembership, isLoading, isVerifiedAuth, signOut } = useAppSession();
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [isRefreshingVerification, setIsRefreshingVerification] = useState(false);
@@ -608,6 +610,7 @@ const ClientHome = () => {
               jobs={accessibleJobsQuery.data ?? []}
               summariesByJobId={summariesByJobId}
               onCreateProject={() => setShowCreateProject(true)}
+              onSearchParts={() => setShowSearch(true)}
               storageScopeKey={user.id}
               pinnedProjectIds={sidebarPinsQuery.data?.projectIds ?? []}
               pinnedJobIds={sidebarPinsQuery.data?.jobIds ?? []}
@@ -710,6 +713,16 @@ const ClientHome = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SearchPartsDialog
+        open={showSearch}
+        onOpenChange={setShowSearch}
+        projects={accessibleProjectsQuery.data ?? []}
+        jobs={accessibleJobsQuery.data ?? []}
+        summariesByJobId={summariesByJobId}
+        onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
+        onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+      />
 
       <SignInDialog
         open={isAuthDialogOpen}
