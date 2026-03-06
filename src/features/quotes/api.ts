@@ -141,7 +141,7 @@ function isMissingFunctionError(error: unknown, functionName: string): boolean {
   const hint = typeof value.hint === "string" ? value.hint : "";
   const blob = `${message} ${details} ${hint}`.toLowerCase();
 
-  return code === "42883" && blob.includes(functionPattern);
+  return (code === "42883" || code === "PGRST202") && blob.includes(functionPattern);
 }
 
 async function requireCurrentUser() {

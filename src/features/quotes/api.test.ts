@@ -295,7 +295,7 @@ describe("quotes api helpers", () => {
       .mockResolvedValueOnce({
         data: null,
         error: {
-          code: "42883",
+          code: "PGRST202",
           message: "Could not find the function public.api_create_project(p_description, p_name) in the schema cache",
           details: null,
           hint: null,
