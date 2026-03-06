@@ -110,6 +110,7 @@ describe("WorkspaceSidebar", () => {
         summariesByJobId={summariesByJobId}
         storageScopeKey="sidebar-tests"
         onCreateProject={vi.fn()}
+        onSearchParts={vi.fn()}
         onSelectProject={vi.fn()}
         onSelectPart={vi.fn()}
       />,
@@ -117,9 +118,29 @@ describe("WorkspaceSidebar", () => {
 
     expect(screen.getByText("Threads")).toBeInTheDocument();
     expect(screen.queryByText(/group projects/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /search parts/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /new project/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /create project/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /filter threads/i })).toBeInTheDocument();
+  });
+
+  it("calls the search callback from the top controls", () => {
+    const onSearchParts = vi.fn();
+
+    render(
+      <WorkspaceSidebar
+        projects={projects}
+        jobs={jobs}
+        summariesByJobId={summariesByJobId}
+        onSearchParts={onSearchParts}
+        onSelectProject={vi.fn()}
+        onSelectPart={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /search parts/i }));
+
+    expect(onSearchParts).toHaveBeenCalledTimes(1);
   });
 
   it("restores expanded project state from local storage", () => {

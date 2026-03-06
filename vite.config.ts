@@ -18,6 +18,10 @@ export default defineConfig(({ mode }) => ({
   test: {
     globals: true,
     environment: "jsdom",
+    env: {
+      VITE_SUPABASE_URL: "https://example.supabase.co",
+      VITE_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
+    },
     environmentMatchGlobs: [["worker/src/**/*.test.ts", "node"]],
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "worker/src/**/*.test.ts"],
     clearMocks: true,
