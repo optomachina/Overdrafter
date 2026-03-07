@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FunctionsHttpError } from "@supabase/supabase-js";
 
 const supabaseMock = vi.hoisted(() => {
   const storageUpload = vi.fn();
@@ -357,6 +358,43 @@ describe("quotes api helpers", () => {
         description: null,
       },
     });
+  });
+
+  it("surfaces edge function error bodies during project creation fallback", async () => {
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "PGRST202",
+          message: "Could not find the function public.api_create_project(p_description, p_name) in the schema cache",
+          details: null,
+          hint: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "PGRST202",
+          message: "Could not find the function public.api_create_project(p_name) in the schema cache",
+          details: null,
+          hint: null,
+        },
+      });
+    supabaseMock.functionsInvoke.mockResolvedValue({
+      data: null,
+      error: new FunctionsHttpError(
+        new Response(JSON.stringify({ error: "A home workspace is still being prepared for this account." }), {
+          status: 400,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }),
+      ),
+    });
+
+    await expect(createProject({ name: "Fixture project" })).rejects.toThrow(
+      "A home workspace is still being prepared for this account.",
+    );
   });
 
   it("fetches pinned project and job ids for the current user", async () => {

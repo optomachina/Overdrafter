@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import postgres from "npm:postgres@3.4.7";
 
 type CreateProjectPayload = {
   name?: string;
@@ -23,10 +24,24 @@ function json(status: number, body: Record<string, unknown>) {
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
-const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const supabaseDbUrl = Deno.env.get("SUPABASE_DB_URL");
 
-if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
+if (!supabaseUrl || !supabaseAnonKey || !supabaseDbUrl) {
   throw new Error("Missing Supabase function environment configuration.");
+}
+
+const sql = postgres(supabaseDbUrl, {
+  prepare: false,
+  max: 1,
+});
+
+class HttpError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
 }
 
 Deno.serve(async (request) => {
@@ -89,64 +104,73 @@ Deno.serve(async (request) => {
     });
   }
 
-  const serviceClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
+  const description = typeof payload.description === "string" ? payload.description.trim() : null;
 
-  const { data: memberships, error: membershipError } = await serviceClient
-    .from("organization_memberships")
-    .select("organization_id")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: true })
-    .limit(1);
+  try {
+    const projectId = await sql.begin(async (transaction) => {
+      const memberships = await transaction<{ organization_id: string }[]>`
+        select organization_id
+        from public.organization_memberships
+        where user_id = ${user.id}::uuid
+        order by created_at asc
+        limit 1
+      `;
 
-  if (membershipError) {
-    return json(500, { error: membershipError.message });
+      const organizationId = memberships[0]?.organization_id;
+
+      if (!organizationId) {
+        throw new HttpError(400, "A home workspace is still being prepared for this account.");
+      }
+
+      const projects = await transaction<{ id: string }[]>`
+        insert into public.projects (
+          organization_id,
+          owner_user_id,
+          name,
+          description
+        )
+        values (
+          ${organizationId}::uuid,
+          ${user.id}::uuid,
+          ${name},
+          ${description}
+        )
+        returning id
+      `;
+
+      const projectId = projects[0]?.id;
+
+      if (!projectId) {
+        throw new HttpError(500, "Failed to create project.");
+      }
+
+      await transaction`
+        insert into public.project_memberships (
+          project_id,
+          user_id,
+          role
+        )
+        values (
+          ${projectId}::uuid,
+          ${user.id}::uuid,
+          'owner'::public.project_role
+        )
+        on conflict (project_id, user_id) do update
+          set role = 'owner'::public.project_role
+      `;
+
+      return projectId;
+    });
+
+    return json(200, { projectId });
+  } catch (error) {
+    if (error instanceof HttpError) {
+      return json(error.status, { error: error.message });
+    }
+
+    console.error("create-project-fallback failed", error);
+    return json(500, {
+      error: error instanceof Error ? error.message : "Failed to create project.",
+    });
   }
-
-  const organizationId = memberships?.[0]?.organization_id;
-
-  if (!organizationId) {
-    return json(400, { error: "A home workspace is still being prepared for this account." });
-  }
-
-  const description = typeof payload.description === "string" ? payload.description.trim() : "";
-
-  const { data: project, error: projectError } = await serviceClient
-    .from("projects")
-    .insert({
-      organization_id: organizationId,
-      owner_user_id: user.id,
-      name,
-      description: description || null,
-    })
-    .select("id")
-    .single();
-
-  if (projectError || !project?.id) {
-    return json(500, { error: projectError?.message ?? "Failed to create project." });
-  }
-
-  const { error: projectMembershipError } = await serviceClient
-    .from("project_memberships")
-    .upsert(
-      {
-        project_id: project.id,
-        user_id: user.id,
-        role: "owner",
-      },
-      {
-        onConflict: "project_id,user_id",
-      },
-    );
-
-  if (projectMembershipError) {
-    await serviceClient.from("projects").delete().eq("id", project.id);
-    return json(500, { error: projectMembershipError.message });
-  }
-
-  return json(200, { projectId: project.id });
 });

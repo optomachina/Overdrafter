@@ -49,7 +49,7 @@ import type {
   VendorQuoteOfferRecord,
   VendorQuoteResultRecord,
 } from "@/features/quotes/types";
-import { isAuthError } from "@supabase/supabase-js";
+import { FunctionsHttpError, isAuthError } from "@supabase/supabase-js";
 import type { PostgrestSingleResponse, PostgrestResponse } from "@supabase/supabase-js";
 
 const CAD_EXTENSIONS = new Set([
@@ -156,6 +156,22 @@ async function createProjectViaEdgeFunction(input: {
   });
 
   if (error) {
+    if (error instanceof FunctionsHttpError && error.context instanceof Response) {
+      let message = error.message;
+
+      try {
+        const body = (await error.context.clone().json()) as { error?: unknown; message?: unknown };
+        message =
+          typeof body.error === "string"
+            ? body.error
+            : typeof body.message === "string"
+              ? body.message
+              : error.message;
+      } catch {}
+
+      throw new Error(message);
+    }
+
     throw error;
   }
 
