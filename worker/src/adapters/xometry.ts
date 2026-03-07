@@ -34,7 +34,7 @@ function excerptText(text: string) {
 }
 
 function normalizedQuantity(input: VendorQuoteAdapterInput) {
-  return Math.max(1, input.requirement.quantity || input.part.quantity || 1);
+  return Math.max(1, input.requestedQuantity || input.requirement.quantity || input.part.quantity || 1);
 }
 
 function buildRawPayload(overrides: Partial<XometryQuoteRawPayload>): XometryQuoteRawPayload {
@@ -115,6 +115,7 @@ function buildManualVendorFollowupOutput(
       detectedFlow: "manual_vendor_followup",
       drawingUploadMode: input.stagedDrawingFile ? "not_needed" : "not_provided",
       bodyExcerpt: reason,
+      requestedQuantity: input.requestedQuantity,
       url: XOMETRY_URLS.quoteHome,
       ...details,
     }),
@@ -458,6 +459,7 @@ export class XometryAdapter extends VendorAdapter {
       artifacts: [],
       rawPayload: buildRawPayload({
         detectedFlow: "simulate",
+        requestedQuantity: input.requestedQuantity,
         url: quoteUrl,
       }),
     };
@@ -728,6 +730,7 @@ export class XometryAdapter extends VendorAdapter {
           priceSource,
           leadTimeSource,
           bodyExcerpt: excerptText(bodyText),
+          requestedQuantity: input.requestedQuantity,
           url: page.url(),
         }),
       };

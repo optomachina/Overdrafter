@@ -20,6 +20,7 @@ export type OrganizationRecord = Database["public"]["Tables"]["organizations"]["
 export type MembershipRecord = Database["public"]["Tables"]["organization_memberships"]["Row"];
 export type ProjectRecord = Database["public"]["Tables"]["projects"]["Row"];
 export type ProjectMembershipRecord = Database["public"]["Tables"]["project_memberships"]["Row"];
+export type ProjectJobRecord = Database["public"]["Tables"]["project_jobs"]["Row"];
 export type ProjectInviteRecord = Database["public"]["Tables"]["project_invites"]["Row"];
 export type UserPinnedProjectRecord = Database["public"]["Tables"]["user_pinned_projects"]["Row"];
 export type UserPinnedJobRecord = Database["public"]["Tables"]["user_pinned_jobs"]["Row"];
@@ -28,6 +29,7 @@ export type JobRecord = Database["public"]["Tables"]["jobs"]["Row"];
 export type JobFileRecord = Database["public"]["Tables"]["job_files"]["Row"];
 export type PartRecord = Database["public"]["Tables"]["parts"]["Row"];
 export type DrawingExtractionRecord = Database["public"]["Tables"]["drawing_extractions"]["Row"];
+export type DrawingPreviewAssetRecord = Database["public"]["Tables"]["drawing_preview_assets"]["Row"];
 export type ApprovedPartRequirementRecord = Database["public"]["Tables"]["approved_part_requirements"]["Row"];
 export type QuoteRunRecord = Database["public"]["Tables"]["quote_runs"]["Row"];
 export type VendorQuoteResultRecord = Database["public"]["Tables"]["vendor_quote_results"]["Row"];
@@ -80,6 +82,8 @@ export type ApprovedPartRequirement = {
   finish: string | null;
   tightestToleranceInch: number | null;
   quantity: number;
+  quoteQuantities: number[];
+  requestedByDate: string | null;
   applicableVendors: VendorName[];
 };
 
@@ -87,6 +91,7 @@ export type VendorQuoteResult = {
   vendor: VendorName;
   status: VendorStatus;
   partId: string;
+  requestedQuantity: number;
   unitPriceUsd: number | null;
   totalPriceUsd: number | null;
   leadTimeBusinessDays: number | null;
@@ -99,6 +104,7 @@ export type VendorQuoteResult = {
 export type PublishedQuoteOption = {
   optionKind: ClientOptionKind;
   label: string;
+  requestedQuantity: number;
   publishedPriceUsd: number;
   leadTimeBusinessDays: number | null;
   comparisonSummary: string | null;
@@ -109,6 +115,7 @@ export type PublishedQuoteOption = {
 
 export type ManualQuoteOfferInput = {
   laneLabel: string;
+  requestedQuantity?: number | null;
   sourcing?: string | null;
   tier?: string | null;
   quoteRef?: string | null;
@@ -164,6 +171,8 @@ export type ClientDraftInput = {
   description?: string;
   projectId?: string | null;
   tags?: string[];
+  requestedQuoteQuantities?: number[];
+  requestedByDate?: string | null;
 };
 
 export type ProjectInviteSummary = {
@@ -195,7 +204,12 @@ export type JobPartSummary = {
   revision: string | null;
   description: string | null;
   quantity: number | null;
+  requestedQuoteQuantities: number[];
+  requestedByDate: string | null;
   importedBatch: string | null;
+  selectedSupplier: string | null;
+  selectedPriceUsd: number | null;
+  selectedLeadTimeBusinessDays: number | null;
 };
 
 export type AppSessionData = {
@@ -233,6 +247,21 @@ export type JobAggregate = {
   packages: PublishedPackageAggregate[];
   pricingPolicy: PricingPolicyRecord | null;
   workQueue: WorkQueueRecord[];
+};
+
+export type PartDetailAggregate = {
+  job: JobRecord;
+  files: JobFileRecord[];
+  summary: JobPartSummary | null;
+  packages: PublishedQuotePackageRecord[];
+  part: PartAggregate | null;
+  projectIds: string[];
+  previewAssets: DrawingPreviewAssetRecord[];
+  revisionSiblings: Array<{
+    jobId: string;
+    revision: string | null;
+    title: string;
+  }>;
 };
 
 export type ClientPackageAggregate = {

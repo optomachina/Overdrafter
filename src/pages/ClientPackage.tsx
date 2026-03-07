@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app/AppShell";
+import { RequestedQuantityFilter } from "@/components/quotes/RequestedQuantityFilter";
+import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +13,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
 import { useAppSession } from "@/hooks/use-app-session";
 import { fetchClientPackage, resendSignupConfirmation, selectQuoteOption } from "@/features/quotes/api";
+import {
+  collectRequestedQuantities,
+  groupByRequestedQuantity,
+  resolveRequestedQuantitySelection,
+  type RequestedQuantityFilterValue,
+} from "@/features/quotes/request-scenarios";
 import { isEmailConfirmationRequired } from "@/lib/auth-status";
 import { supabase } from "@/integrations/supabase/client";
 import { formatCurrency, formatLeadTime, optionLabelForKind } from "@/features/quotes/utils";
@@ -24,6 +32,8 @@ const ClientPackage = () => {
   const [selectionNote, setSelectionNote] = useState("");
   const [isRefreshingVerification, setIsRefreshingVerification] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
+  const [activeRequestedQuantity, setActiveRequestedQuantity] =
+    useState<RequestedQuantityFilterValue | null>(null);
 
   const packageQuery = useQuery({
     queryKey: ["client-package", packageId],
@@ -35,6 +45,75 @@ const ClientPackage = () => {
     () => packageQuery.data?.selections[0] ?? null,
     [packageQuery.data],
   );
+  const selectedOption = useMemo(
+    () =>
+      latestSelection
+        ? packageQuery.data?.options.find((option) => option.id === latestSelection.option_id) ?? null
+        : null,
+    [latestSelection, packageQuery.data?.options],
+  );
+  const requestQuantities = useMemo(
+    () =>
+      collectRequestedQuantities(
+        [
+          packageQuery.data?.job.requested_quote_quantities,
+          packageQuery.data?.options.map((option) => option.requested_quantity),
+        ],
+        packageQuery.data?.job.requested_quote_quantities?.[0] ?? null,
+      ),
+    [packageQuery.data?.job.requested_quote_quantities, packageQuery.data?.options],
+  );
+  const visibleOptions = useMemo(() => {
+    if (!packageQuery.data) {
+      return [];
+    }
+
+    if (activeRequestedQuantity === "all" || activeRequestedQuantity === null) {
+      return packageQuery.data.options;
+    }
+
+    return packageQuery.data.options.filter((option) => option.requested_quantity === activeRequestedQuantity);
+  }, [activeRequestedQuantity, packageQuery.data]);
+  const visibleOptionGroups = useMemo(() => {
+    if (visibleOptions.length === 0) {
+      return [];
+    }
+
+    if (activeRequestedQuantity === "all") {
+      return groupByRequestedQuantity(
+        visibleOptions.map((option) => ({
+          ...option,
+          requestedQuantity: option.requested_quantity,
+        })),
+      );
+    }
+
+    return [
+      {
+        requestedQuantity:
+          typeof activeRequestedQuantity === "number"
+            ? activeRequestedQuantity
+            : visibleOptions[0]?.requested_quantity ?? 1,
+        items: visibleOptions.map((option) => ({
+          ...option,
+          requestedQuantity: option.requested_quantity,
+        })),
+      },
+    ];
+  }, [activeRequestedQuantity, visibleOptions]);
+  const requestSummaryQuantity =
+    requestQuantities[0] ?? packageQuery.data?.job.requested_quote_quantities?.[0] ?? null;
+
+  useEffect(() => {
+    setActiveRequestedQuantity((current) =>
+      resolveRequestedQuantitySelection({
+        availableQuantities: requestQuantities,
+        currentSelection: current,
+        preferredQuantity: selectedOption?.requested_quantity ?? requestSummaryQuantity,
+        allowAll: true,
+      }),
+    );
+  }, [requestQuantities, requestSummaryQuantity, selectedOption?.requested_quantity]);
 
   const handleRefreshVerification = async () => {
     setIsRefreshingVerification(true);
@@ -208,41 +287,78 @@ const ClientPackage = () => {
         </Card>
       </section>
 
+      <RequestSummaryBadges
+        quantity={requestSummaryQuantity}
+        requestedQuoteQuantities={requestQuantities}
+        requestedByDate={data.job.requested_by_date}
+        className="mt-4"
+      />
+
       <section className="mt-8 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="space-y-6">
-          {data.options.map((option) => (
-            <Card key={option.id} className="border-white/10 bg-black/20">
-              <CardHeader className="flex flex-row items-start justify-between gap-4">
-                <div>
-                  <Badge className="border border-primary/20 bg-primary/10 text-primary">
-                    {optionLabelForKind(option.option_kind)}
-                  </Badge>
-                  <CardTitle className="mt-4 text-2xl">{option.label}</CardTitle>
-                </div>
-                <div className="text-right">
-                  <p className="text-3xl font-semibold">{formatCurrency(option.published_price_usd)}</p>
-                  <p className="mt-1 text-sm text-white/50">{formatLeadTime(option.lead_time_business_days)}</p>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-white/60">
-                  {option.comparison_summary || "Curated from the internal vendor comparison."}
-                </p>
-                <Button
-                  className="w-full rounded-full"
-                  onClick={() => selectMutation.mutate(option.id)}
-                  disabled={!isVerifiedAuth || selectMutation.isPending}
-                >
-                  {selectMutation.isPending ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="mr-2 h-4 w-4" />
-                  )}
-                  Select this option
-                </Button>
+          <RequestedQuantityFilter
+            quantities={requestQuantities}
+            value={activeRequestedQuantity}
+            onChange={setActiveRequestedQuantity}
+          />
+          {visibleOptions.length === 0 ? (
+            <Card className="border-white/10 bg-black/20">
+              <CardContent className="p-6 text-sm text-white/55">
+                No published options are available for qty {activeRequestedQuantity}.
               </CardContent>
             </Card>
-          ))}
+          ) : (
+            visibleOptionGroups.map((group) => (
+              <div key={group.requestedQuantity} className="space-y-4">
+                {activeRequestedQuantity === "all" ? (
+                  <div className="flex items-center justify-between rounded-2xl border border-white/8 bg-white/5 px-4 py-3">
+                    <p className="text-sm font-medium text-white">Qty {group.requestedQuantity}</p>
+                    <p className="text-xs text-white/45">
+                      {group.items.length} option{group.items.length === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                ) : null}
+                {group.items.map((option) => (
+                  <Card key={option.id} className="border-white/10 bg-black/20">
+                    <CardHeader className="flex flex-row items-start justify-between gap-4">
+                      <div>
+                        <div className="flex flex-wrap gap-2">
+                          <Badge className="border border-primary/20 bg-primary/10 text-primary">
+                            {optionLabelForKind(option.option_kind)}
+                          </Badge>
+                          <Badge className="border border-white/10 bg-white/6 text-white/75">
+                            Qty {option.requested_quantity}
+                          </Badge>
+                        </div>
+                        <CardTitle className="mt-4 text-2xl">{option.label}</CardTitle>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-3xl font-semibold">{formatCurrency(option.published_price_usd)}</p>
+                        <p className="mt-1 text-sm text-white/50">{formatLeadTime(option.lead_time_business_days)}</p>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <p className="text-sm text-white/60">
+                        {option.comparison_summary || "Curated from the internal vendor comparison."}
+                      </p>
+                      <Button
+                        className="w-full rounded-full"
+                        onClick={() => selectMutation.mutate(option.id)}
+                        disabled={!isVerifiedAuth || selectMutation.isPending}
+                      >
+                        {selectMutation.isPending ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                        )}
+                        Select this option
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ))
+          )}
         </div>
 
         <div className="space-y-6">

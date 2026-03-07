@@ -12,6 +12,7 @@ import type {
   QuoteRunAggregate,
 } from "@/features/quotes/types";
 import type { ClientOptionKind, Json, VendorName } from "@/integrations/supabase/types";
+import { normalizeRequestedQuoteQuantities } from "@/features/quotes/request-intake";
 
 export const DEFAULT_APPLICABLE_VENDORS: VendorName[] = [
   "xometry",
@@ -135,9 +136,20 @@ export function normalizeDrawingExtraction(
   };
 }
 
-export function buildRequirementDraft(part: PartAggregate): ApprovedPartRequirement {
+export function buildRequirementDraft(
+  part: PartAggregate,
+  jobRequest?: {
+    requested_quote_quantities: number[];
+    requested_by_date: string | null;
+  } | null,
+): ApprovedPartRequirement {
   const normalizedExtraction = normalizeDrawingExtraction(part.extraction, part.id);
   const approved = part.approvedRequirement;
+  const quantity = approved?.quantity ?? part.quantity ?? jobRequest?.requested_quote_quantities?.[0] ?? 1;
+  const quoteQuantities = normalizeRequestedQuoteQuantities(
+    approved?.quote_quantities ?? jobRequest?.requested_quote_quantities ?? [],
+    quantity,
+  );
 
   return {
     partId: part.id,
@@ -156,7 +168,9 @@ export function buildRequirementDraft(part: PartAggregate): ApprovedPartRequirem
       null,
     tightestToleranceInch:
       approved?.tightest_tolerance_inch ?? normalizedExtraction.tightestTolerance.valueInch,
-    quantity: approved?.quantity ?? part.quantity ?? 1,
+    quantity,
+    quoteQuantities,
+    requestedByDate: approved?.requested_by_date ?? jobRequest?.requested_by_date ?? null,
     applicableVendors:
       approved?.applicable_vendors?.length
         ? approved.applicable_vendors
@@ -213,6 +227,7 @@ export function projectedClientPrice(rawTotal: number | null | undefined): numbe
 export type ImportedVendorOffer = {
   id: string | null;
   offerId: string;
+  requestedQuantity: number;
   supplier: string;
   laneLabel: string | null;
   sourcing: string | null;
@@ -234,10 +249,11 @@ export type ImportedVendorOffer = {
   notes: string | null;
 };
 
-function mapOfferRecord(offer: VendorQuoteOfferRecord): ImportedVendorOffer {
+function mapOfferRecord(offer: VendorQuoteOfferRecord, requestedQuantity: number): ImportedVendorOffer {
   return {
     id: offer.id,
     offerId: offer.offer_key,
+    requestedQuantity,
     supplier: offer.supplier,
     laneLabel: offer.lane_label,
     sourcing: offer.sourcing,
@@ -263,6 +279,15 @@ function mapOfferRecord(offer: VendorQuoteOfferRecord): ImportedVendorOffer {
 export function getImportedVendorOffers(
   quote: VendorQuoteAggregate | VendorQuoteResultRecord,
 ): ImportedVendorOffer[] {
+  const quoteRequestedQuantityCandidate =
+    "requested_quantity" in quote && typeof quote.requested_quantity === "number"
+      ? quote.requested_quantity
+      : Number(asObject(quote.raw_payload).requestedQuantity ?? 1);
+  const quoteRequestedQuantity =
+    Number.isFinite(quoteRequestedQuantityCandidate) && quoteRequestedQuantityCandidate > 0
+      ? Math.max(1, Math.trunc(quoteRequestedQuantityCandidate))
+      : 1;
+
   if ("offers" in quote && Array.isArray(quote.offers) && quote.offers.length > 0) {
     return [...quote.offers]
       .sort((left, right) => {
@@ -272,7 +297,7 @@ export function getImportedVendorOffers(
 
         return (left.total_price_usd ?? Number.MAX_SAFE_INTEGER) - (right.total_price_usd ?? Number.MAX_SAFE_INTEGER);
       })
-      .map(mapOfferRecord);
+      .map((offer) => mapOfferRecord(offer, quoteRequestedQuantity));
   }
 
   const payload = asObject(quote.raw_payload);
@@ -282,6 +307,10 @@ export function getImportedVendorOffers(
     .map((offer) => ({
       id: null,
       offerId: String(offer.offerId ?? ""),
+      requestedQuantity:
+        Number.isFinite(Number(offer.requestedQuantity))
+          ? Number(offer.requestedQuantity)
+          : quoteRequestedQuantity,
       supplier: String(offer.supplier ?? ""),
       laneLabel: offer.laneLabel ? String(offer.laneLabel) : null,
       sourcing: offer.sourcing ? String(offer.sourcing) : null,

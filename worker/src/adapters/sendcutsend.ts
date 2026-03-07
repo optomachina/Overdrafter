@@ -22,6 +22,7 @@ export class SendCutSendAdapter extends VendorAdapter {
         mode: this.config.workerMode,
         source: "sendcutsend-adapter",
         requiresManualVendorFollowUp: true,
+        requestedQuantity: input.requestedQuantity,
       },
     };
   }

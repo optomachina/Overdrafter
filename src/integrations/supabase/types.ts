@@ -128,6 +128,22 @@ export type Database = {
         };
         Update: Partial<Database["public"]["Tables"]["project_memberships"]["Insert"]>;
       };
+      project_jobs: {
+        Row: BaseRow & {
+          project_id: string;
+          job_id: string;
+          created_by: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          project_id: string;
+          job_id: string;
+          created_by: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["project_jobs"]["Insert"]>;
+      };
       project_invites: {
         Row: BaseRow & {
           project_id: string;
@@ -212,6 +228,7 @@ export type Database = {
         Row: BaseRow & {
           organization_id: string;
           project_id: string | null;
+          selected_vendor_quote_offer_id: string | null;
           created_by: string;
           title: string;
           description: string | null;
@@ -219,6 +236,8 @@ export type Database = {
           source: string;
           active_pricing_policy_id: string | null;
           tags: string[];
+          requested_quote_quantities: number[];
+          requested_by_date: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -226,6 +245,7 @@ export type Database = {
           id?: string;
           organization_id: string;
           project_id?: string | null;
+          selected_vendor_quote_offer_id?: string | null;
           created_by: string;
           title: string;
           description?: string | null;
@@ -233,6 +253,8 @@ export type Database = {
           source?: string;
           active_pricing_policy_id?: string | null;
           tags?: string[];
+          requested_quote_quantities?: number[];
+          requested_by_date?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -324,6 +346,32 @@ export type Database = {
         };
         Update: Partial<Database["public"]["Tables"]["drawing_extractions"]["Insert"]>;
       };
+      drawing_preview_assets: {
+        Row: BaseRow & {
+          part_id: string;
+          organization_id: string;
+          page_number: number;
+          kind: string;
+          storage_bucket: string;
+          storage_path: string;
+          width: number | null;
+          height: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          part_id: string;
+          organization_id: string;
+          page_number?: number;
+          kind?: string;
+          storage_bucket?: string;
+          storage_path: string;
+          width?: number | null;
+          height?: number | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["drawing_preview_assets"]["Insert"]>;
+      };
       approved_part_requirements: {
         Row: BaseRow & {
           part_id: string;
@@ -336,6 +384,8 @@ export type Database = {
           finish: string | null;
           tightest_tolerance_inch: number | null;
           quantity: number;
+          quote_quantities: number[];
+          requested_by_date: string | null;
           applicable_vendors: VendorName[];
           spec_snapshot: Json;
           approved_at: string;
@@ -354,6 +404,8 @@ export type Database = {
           finish?: string | null;
           tightest_tolerance_inch?: number | null;
           quantity?: number;
+          quote_quantities?: number[];
+          requested_by_date?: string | null;
           applicable_vendors?: VendorName[];
           spec_snapshot?: Json;
           approved_at?: string;
@@ -390,6 +442,7 @@ export type Database = {
           part_id: string;
           organization_id: string;
           vendor: VendorName;
+          requested_quantity: number;
           status: VendorStatus;
           unit_price_usd: number | null;
           total_price_usd: number | null;
@@ -407,6 +460,7 @@ export type Database = {
           part_id: string;
           organization_id: string;
           vendor: VendorName;
+          requested_quantity?: number;
           status?: VendorStatus;
           unit_price_usd?: number | null;
           total_price_usd?: number | null;
@@ -532,6 +586,7 @@ export type Database = {
         Row: BaseRow & {
           package_id: string;
           organization_id: string;
+          requested_quantity: number;
           option_kind: ClientOptionKind;
           label: string;
           published_price_usd: number;
@@ -546,6 +601,7 @@ export type Database = {
           id?: string;
           package_id: string;
           organization_id: string;
+          requested_quantity?: number;
           option_kind: ClientOptionKind;
           label: string;
           published_price_usd: number;
@@ -708,6 +764,8 @@ export type Database = {
           p_description?: string | null;
           p_source?: string | null;
           p_tags?: string[] | null;
+          p_requested_quote_quantities?: number[] | null;
+          p_requested_by_date?: string | null;
         };
         Returns: string;
       };
@@ -717,6 +775,8 @@ export type Database = {
           p_description?: string | null;
           p_project_id?: string | null;
           p_tags?: string[] | null;
+          p_requested_quote_quantities?: number[] | null;
+          p_requested_by_date?: string | null;
         };
         Returns: string;
       };
@@ -730,6 +790,14 @@ export type Database = {
       api_remove_job_from_project: {
         Args: {
           p_job_id: string;
+          p_project_id: string;
+        };
+        Returns: string;
+      };
+      api_set_job_selected_vendor_quote_offer: {
+        Args: {
+          p_job_id: string;
+          p_vendor_quote_offer_id: string;
         };
         Returns: string;
       };

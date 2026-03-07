@@ -166,6 +166,8 @@ describe("quotes utils", () => {
       finish: "Passivate",
       tightestToleranceInch: 0.002,
       quantity: 3,
+      quoteQuantities: [3],
+      requestedByDate: null,
       applicableVendors: ["xometry", "fictiv", "protolabs"],
     });
   });
@@ -205,6 +207,8 @@ describe("quotes utils", () => {
       finish: "Black anodize",
       tightestToleranceInch: 0.01,
       quantity: 9,
+      quoteQuantities: [9],
+      requestedByDate: null,
       applicableVendors: ["partsbadger"],
     });
   });
@@ -219,10 +223,10 @@ describe("quotes utils", () => {
       ],
     } as VendorQuoteAggregate;
 
-    expect(getImportedVendorOffers(quote).map((offer) => offer.offerId)).toEqual([
-      "lane-b",
-      "lane-a",
-      "lane-z",
+    expect(getImportedVendorOffers(quote).map((offer) => [offer.offerId, offer.requestedQuantity])).toEqual([
+      ["lane-b", 1],
+      ["lane-a", 1],
+      ["lane-z", 1],
     ]);
   });
 
@@ -239,9 +243,9 @@ describe("quotes utils", () => {
     } as VendorQuoteResultRecord;
 
     expect(hasManualQuoteIntakeSource(quote)).toBe(true);
-    expect(getImportedVendorOffers(quote).map((offer) => offer.offerId)).toEqual([
-      "fast",
-      "slow",
+    expect(getImportedVendorOffers(quote).map((offer) => [offer.offerId, offer.requestedQuantity])).toEqual([
+      ["fast", 1],
+      ["slow", 1],
     ]);
   });
 

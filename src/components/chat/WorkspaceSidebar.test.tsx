@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { WorkspaceSidebar, type WorkspaceSidebarProject } from "./WorkspaceSidebar";
+import { WorkspaceSidebar, type WorkspaceSidebarProject } from "@/components/chat/WorkspaceSidebar";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
 
 function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
@@ -16,8 +16,8 @@ function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
     source: "client_home",
     active_pricing_policy_id: null,
     tags: [],
-    created_at: "2026-03-05T09:00:00.000Z",
-    updated_at: "2026-03-05T10:00:00.000Z",
+    created_at: "2026-03-05T12:00:00.000Z",
+    updated_at: "2026-03-05T12:30:00.000Z",
     ...overrides,
   };
 }
@@ -30,6 +30,9 @@ function makeSummary(overrides: Partial<JobPartSummary> = {}): JobPartSummary {
     description: "Part description",
     quantity: 1,
     importedBatch: null,
+    selectedSupplier: null,
+    selectedPriceUsd: null,
+    selectedLeadTimeBusinessDays: null,
     ...overrides,
   };
 }
@@ -65,7 +68,7 @@ describe("WorkspaceSidebar", () => {
     {
       id: "project-1",
       name: "Project One",
-      partCount: 1,
+      partCount: 2,
       canManage: true,
       createdAt: "2026-03-05T08:00:00.000Z",
       updatedAt: "2026-03-05T10:00:00.000Z",
@@ -73,7 +76,7 @@ describe("WorkspaceSidebar", () => {
     {
       id: "project-2",
       name: "Project Two",
-      partCount: 0,
+      partCount: 1,
       canManage: true,
       createdAt: "2026-03-04T08:00:00.000Z",
       updatedAt: "2026-03-04T10:00:00.000Z",
@@ -81,13 +84,25 @@ describe("WorkspaceSidebar", () => {
   ];
 
   const jobs = [
-    makeJob(),
+    makeJob({
+      id: "job-1",
+      title: "Job One",
+      created_at: "2026-03-05T12:00:00.000Z",
+      updated_at: "2026-03-05T12:30:00.000Z",
+    }),
     makeJob({
       id: "job-2",
-      project_id: null,
-      title: "Ungrouped Job",
+      project_id: "project-1",
+      title: "Job Two",
       created_at: "2026-03-05T11:00:00.000Z",
       updated_at: "2026-03-05T11:30:00.000Z",
+    }),
+    makeJob({
+      id: "job-3",
+      project_id: null,
+      title: "Job Three",
+      created_at: "2026-03-05T10:00:00.000Z",
+      updated_at: "2026-03-05T10:30:00.000Z",
     }),
   ];
 
@@ -100,59 +115,53 @@ describe("WorkspaceSidebar", () => {
         partNumber: "1093-00002",
       }),
     ],
+    [
+      "job-3",
+      makeSummary({
+        jobId: "job-3",
+        partNumber: "1093-00003",
+      }),
+    ],
   ]);
 
-  it("renders the top actions and section headings", () => {
-    render(
+  function renderSidebar(overrides: Partial<React.ComponentProps<typeof WorkspaceSidebar>> = {}) {
+    return render(
       <WorkspaceSidebar
         projects={projects}
         jobs={jobs}
         summariesByJobId={summariesByJobId}
-        storageScopeKey="sidebar-tests"
-        onCreateJob={vi.fn()}
-        onSearch={vi.fn()}
-        onCreateProject={vi.fn()}
         onSelectProject={vi.fn()}
         onSelectPart={vi.fn()}
+        resolveProjectIdsForJob={(job) => {
+          if (job.id === "job-1") {
+            return ["project-1", "project-2"];
+          }
+
+          return job.project_id ? [job.project_id] : [];
+        }}
+        {...overrides}
       />,
     );
+  }
+
+  it("renders the top actions and trailing section headings without a new project button", () => {
+    renderSidebar({
+      storageScopeKey: "sidebar-tests",
+      onCreateJob: vi.fn(),
+      onSearch: vi.fn(),
+    });
 
     const newJobButton = screen.getByRole("button", { name: /new job/i });
     const searchButton = screen.getByRole("button", { name: /^search$/i });
-    const [newJobIconSlot] = newJobButton.querySelectorAll("span");
-    const [searchIconSlot] = searchButton.querySelectorAll("span");
+    const collapseProjectsButton = screen.getByRole("button", { name: /collapse projects/i });
+    const collapsePartsButton = screen.getByRole("button", { name: /collapse parts/i });
 
-    expect(screen.queryByText("Threads")).not.toBeInTheDocument();
     expect(newJobButton).toBeInTheDocument();
-    expect(newJobButton).not.toHaveClass("border");
-    expect(newJobIconSlot).toHaveClass("w-5");
     expect(searchButton).toBeInTheDocument();
-    expect(searchButton).not.toHaveClass("border");
-    expect(searchIconSlot).toHaveClass("w-5");
-    expect(screen.getByText("Projects")).toBeInTheDocument();
-    expect(screen.getByText("Parts")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /new project/i })).toBeInTheDocument();
+    expect(collapseProjectsButton).toHaveTextContent("Projects");
+    expect(collapsePartsButton).toHaveTextContent("Parts");
+    expect(screen.queryByRole("button", { name: /new project/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /filter parts/i })).toBeInTheDocument();
-  });
-
-
-  it("fires create project callback", () => {
-    const onCreateProject = vi.fn();
-
-    render(
-      <WorkspaceSidebar
-        projects={projects}
-        jobs={jobs}
-        summariesByJobId={summariesByJobId}
-        onCreateProject={onCreateProject}
-        onSelectProject={vi.fn()}
-        onSelectPart={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /new project/i }));
-
-    expect(onCreateProject).toHaveBeenCalledTimes(1);
   });
 
   it("restores expanded project state from local storage", () => {
@@ -161,37 +170,23 @@ describe("WorkspaceSidebar", () => {
       JSON.stringify({ "project-1": true }),
     );
 
-    render(
-      <WorkspaceSidebar
-        projects={projects}
-        jobs={jobs}
-        summariesByJobId={summariesByJobId}
-        storageScopeKey="sidebar-expanded"
-        onSelectProject={vi.fn()}
-        onSelectPart={vi.fn()}
-      />,
-    );
+    renderSidebar({
+      storageScopeKey: "sidebar-expanded",
+    });
 
     expect(screen.getAllByText(/1093-00001/i).length).toBeGreaterThan(0);
   });
 
   it("collapses and persists the projects and parts sections", () => {
-    render(
-      <WorkspaceSidebar
-        projects={projects}
-        jobs={jobs}
-        summariesByJobId={summariesByJobId}
-        storageScopeKey="sidebar-sections"
-        onSelectProject={vi.fn()}
-        onSelectPart={vi.fn()}
-      />,
-    );
+    renderSidebar({
+      storageScopeKey: "sidebar-sections",
+    });
 
     fireEvent.click(screen.getByRole("button", { name: /collapse projects/i }));
     expect(screen.queryByText("Project Two")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /collapse parts/i }));
-    expect(screen.queryByText(/1093-00002/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/1093-00003/i)).not.toBeInTheDocument();
 
     expect(JSON.parse(localStorage.getItem("workspace-sidebar-sections-v1:sidebar-sections") ?? "{}")).toEqual({
       projects: false,
@@ -203,22 +198,12 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("shows project context menu actions", () => {
-    const onRenameProject = vi.fn();
-    const onDeleteProject = vi.fn();
+    renderSidebar({
+      onRenameProject: vi.fn(),
+      onDeleteProject: vi.fn(),
+    });
 
-    render(
-      <WorkspaceSidebar
-        projects={projects}
-        jobs={jobs}
-        summariesByJobId={summariesByJobId}
-        onRenameProject={onRenameProject}
-        onDeleteProject={onDeleteProject}
-        onSelectProject={vi.fn()}
-        onSelectPart={vi.fn()}
-      />,
-    );
-
-    fireEvent.contextMenu(screen.getAllByText("Project One")[0]);
+    fireEvent.contextMenu(screen.getAllByText("Project One")[0]!);
 
     expect(screen.getByText("Edit project")).toBeInTheDocument();
     expect(screen.getByText("Pin")).toBeInTheDocument();
@@ -226,26 +211,79 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByText("Delete")).toBeInTheDocument();
   });
 
-  it("shows part context menu project actions", () => {
-    const onAssignPartToProject = vi.fn();
-    const onRemovePartFromProject = vi.fn();
-
-    render(
-      <WorkspaceSidebar
-        projects={projects}
-        jobs={jobs}
-        summariesByJobId={summariesByJobId}
-        activeProjectId="project-1"
-        onAssignPartToProject={onAssignPartToProject}
-        onRemovePartFromProject={onRemovePartFromProject}
-        onSelectProject={vi.fn()}
-        onSelectPart={vi.fn()}
-      />,
+  it("mirrors part selection across duplicate rows", () => {
+    localStorage.setItem(
+      "workspace-sidebar-expanded-v1:sidebar-selection",
+      JSON.stringify({ "project-1": true, "project-2": true }),
     );
 
-    fireEvent.contextMenu(screen.getByText(/1093-00001/i));
+    renderSidebar({
+      storageScopeKey: "sidebar-selection",
+    });
 
-    expect(screen.getByText("Add to project")).toBeInTheDocument();
-    expect(screen.getByText("Remove from project")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByText(/1093-00001/i)[0]!);
+
+    const selectedRows = screen
+      .getAllByText(/1093-00001/i)
+      .map((element) => element.closest('[role="button"]'))
+      .filter((row): row is HTMLElement => Boolean(row));
+
+    expect(selectedRows).toHaveLength(3);
+    selectedRows.forEach((row) => {
+      expect(row).toHaveClass("bg-white/[0.08]");
+    });
+  });
+
+  it("supports shift-range selection and batch project creation", async () => {
+    const onCreateProjectFromSelection = vi.fn();
+
+    renderSidebar({
+      onCreateProjectFromSelection,
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText(/1093-00001/i));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText(/1093-00003/i), { shiftKey: true });
+    });
+
+    await act(async () => {
+      fireEvent.contextMenu(screen.getByText(/1093-00003/i));
+    });
+
+    const createProjectItem = await screen.findByText("Create new project");
+
+    await act(async () => {
+      fireEvent.click(createProjectItem);
+    });
+
+    expect(onCreateProjectFromSelection).toHaveBeenCalledTimes(1);
+    expect(onCreateProjectFromSelection).toHaveBeenCalledWith(["job-1", "job-2", "job-3"]);
+  });
+
+  it("removes a nested part from the specific project it was opened under", async () => {
+    const onRemovePartFromProject = vi.fn();
+
+    localStorage.setItem(
+      "workspace-sidebar-expanded-v1:sidebar-removal",
+      JSON.stringify({ "project-1": true, "project-2": true }),
+    );
+
+    renderSidebar({
+      storageScopeKey: "sidebar-removal",
+      onRemovePartFromProject,
+    });
+
+    await act(async () => {
+      fireEvent.contextMenu(screen.getAllByText(/1093-00001/i)[1]!);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Remove from this project"));
+    });
+
+    expect(onRemovePartFromProject).toHaveBeenCalledWith("job-1", "project-2");
   });
 });

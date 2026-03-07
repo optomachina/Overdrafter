@@ -53,6 +53,7 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
   return {
     organizationId: "org-1",
     quoteRunId: "run-1",
+    requestedQuantity: 2,
     part: {
       id: "part-1",
       job_id: "job-1",
@@ -89,6 +90,8 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
       finish: "Type II black anodize",
       tightest_tolerance_inch: 0.005,
       quantity: 2,
+      quote_quantities: [2],
+      requested_by_date: null,
       applicable_vendors: ["xometry"],
     },
     ...overrides,

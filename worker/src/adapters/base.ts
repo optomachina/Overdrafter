@@ -14,7 +14,7 @@ export abstract class VendorAdapter {
   abstract quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput>;
 
   protected simulatedBaseAmount(input: VendorQuoteAdapterInput): number {
-    const quantity = Math.max(1, input.requirement.quantity || input.part.quantity || 1);
+    const quantity = Math.max(1, input.requestedQuantity || input.requirement.quantity || input.part.quantity || 1);
     const toleranceMultiplier =
       input.requirement.tightest_tolerance_inch && input.requirement.tightest_tolerance_inch < 0.003
         ? 1.35

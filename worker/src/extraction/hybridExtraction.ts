@@ -4,6 +4,7 @@ import type {
   JobFileRecord,
   PartRecord,
 } from "../types.js";
+import { inferDrawingSignalsFromPdf, type PdfTextExtraction } from "./pdfDrawing.js";
 
 function titleCase(value: string): string {
   return value
@@ -25,10 +26,15 @@ export async function runHybridExtraction(input: {
   part: PartRecord;
   cadFile: JobFileRecord | null;
   drawingFile: JobFileRecord | null;
+  pdfText?: PdfTextExtraction | null;
 }): Promise<DrawingExtractionPayload> {
   const inferredBase = baseName(input.drawingFile ?? input.cadFile, input.part.name);
   const normalizedTitle = titleCase(inferredBase);
-  const warnings: string[] = [];
+  const drawingSignals = inferDrawingSignalsFromPdf({
+    baseName: inferredBase,
+    pdfText: input.pdfText ?? null,
+  });
+  const warnings = [...drawingSignals.warnings];
 
   if (!input.drawingFile) {
     warnings.push("No PDF drawing was attached. Material, finish, and tolerance values require review.");
@@ -36,32 +42,43 @@ export async function runHybridExtraction(input: {
 
   return {
     partId: input.part.id,
-    description: normalizedTitle,
-    partNumber: inferredBase.toUpperCase(),
-    revision: null,
+    description: drawingSignals.description ?? normalizedTitle,
+    partNumber: drawingSignals.partNumber ?? inferredBase.toUpperCase(),
+    revision: drawingSignals.revision,
     material: {
-      raw: null,
-      normalized: null,
-      confidence: input.drawingFile ? 0.35 : 0.15,
+      raw: drawingSignals.material,
+      normalized: drawingSignals.material,
+      confidence: drawingSignals.material ? (input.drawingFile ? 0.72 : 0.2) : input.drawingFile ? 0.35 : 0.15,
     },
     finish: {
-      raw: null,
-      normalized: null,
-      confidence: input.drawingFile ? 0.25 : 0.1,
+      raw: drawingSignals.finish,
+      normalized: drawingSignals.finish,
+      confidence: drawingSignals.finish ? 0.6 : input.drawingFile ? 0.25 : 0.1,
+    },
+    generalTolerance: {
+      raw: drawingSignals.generalTolerance,
+      confidence: drawingSignals.generalTolerance ? 0.68 : input.drawingFile ? 0.2 : 0.1,
     },
     tightestTolerance: {
-      raw: null,
-      valueInch: null,
-      confidence: input.drawingFile ? 0.25 : 0.1,
+      raw: drawingSignals.tightestTolerance,
+      valueInch: drawingSignals.tightestTolerance
+        ? Number.parseFloat(drawingSignals.tightestTolerance.replace(/[^0-9.]/g, "")) || null
+        : null,
+      confidence: drawingSignals.tightestTolerance ? 0.68 : input.drawingFile ? 0.25 : 0.1,
     },
-    evidence: [
-      {
-        field: "description",
-        page: 1,
-        snippet: normalizedTitle,
-        confidence: 0.75,
-      },
-    ],
+    notes: drawingSignals.notes,
+    threads: drawingSignals.threads,
+    evidence:
+      drawingSignals.evidence.length > 0
+        ? drawingSignals.evidence
+        : [
+            {
+              field: "description",
+              page: 1,
+              snippet: normalizedTitle,
+              confidence: 0.75,
+            },
+          ],
     warnings,
     status: "needs_review",
   };

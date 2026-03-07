@@ -161,6 +161,8 @@ describe("WorkspaceAccountMenu", () => {
 
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Are you sure you want to log out?")).toBeInTheDocument();
+    expect(screen.getByText("Log out of Overdrafter as")).toBeInTheDocument();
+    expect(screen.getByText("blaine@example.com?")).toBeInTheDocument();
     expect(onSignOut).not.toHaveBeenCalled();
     expect(onSignedOut).not.toHaveBeenCalled();
   });

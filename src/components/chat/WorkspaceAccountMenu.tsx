@@ -566,6 +566,7 @@ export function WorkspaceAccountMenu({
           }
         }}
         onConfirm={handleSignOut}
+        emailAddress={user.email}
         isPending={isSigningOut}
       />
 

@@ -8,7 +8,7 @@ import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
 import { ProjectMembersDialog } from "@/components/chat/ProjectMembersDialog";
 import { PromptComposer } from "@/components/chat/PromptComposer";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
-import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
+import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import {
   WorkspaceSidebar,
   type WorkspaceSidebarProject,
@@ -28,11 +28,13 @@ import { useAppSession } from "@/hooks/use-app-session";
 import {
   assignJobToProject,
   createClientDraft,
+  createJobsFromUploadFiles,
   createProject,
   deleteProject,
   fetchAccessibleJobs,
   fetchAccessibleProjects,
   fetchJobPartSummariesByJobIds,
+  fetchProjectJobMembershipsByJobIds,
   fetchJobsByProject,
   fetchProject,
   fetchProjectInvites,
@@ -42,18 +44,18 @@ import {
   isProjectCollaborationSchemaUnavailable,
   pinJob,
   pinProject,
-  reconcileJobParts,
   removeJobFromProject,
   removeProjectMember,
-  requestExtraction,
   unpinJob,
   unpinProject,
   updateProject,
-  uploadFilesToJob,
 } from "@/features/quotes/api";
 import { getClientItemPresentation, matchesClientJobSearch } from "@/features/quotes/client-presentation";
-import { buildDraftTitleFromPrompt } from "@/features/quotes/file-validation";
 import { buildDmriflesProjects, DMRIFLES_EMAIL, resolveImportedBatch } from "@/features/quotes/client-workspace";
+import { parseRequestIntake } from "@/features/quotes/request-intake";
+import { getSharedRequestMetadata } from "@/features/quotes/request-scenarios";
+import { buildProjectNameFromLabels } from "@/features/quotes/upload-groups";
+import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { formatStatusLabel } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
 
@@ -89,13 +91,11 @@ const ClientProject = () => {
   const [activeFilter, setActiveFilter] = useState<JobFilter>("all");
   const [focusedJobId, setFocusedJobId] = useState<string | null>(null);
   const [showAddPart, setShowAddPart] = useState(false);
-  const [showCreateProject, setShowCreateProject] = useState(false);
   const [showRename, setShowRename] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
-  const [createProjectName, setCreateProjectName] = useState("");
   const normalizedEmail = user?.email?.toLowerCase() ?? "";
   const isDmriflesWorkspace = normalizedEmail === DMRIFLES_EMAIL;
   const isSeededProject = projectId.startsWith("seed-");
@@ -116,7 +116,32 @@ const ClientProject = () => {
     enabled: Boolean(user),
   });
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
-  const canCreateProjects = !projectCollaborationUnavailable && !accessibleProjectsQuery.isLoading;
+  const newJobFilePicker = useClientJobFilePicker({
+    isSignedIn: Boolean(user),
+    onRequireAuth: () => navigate("/?auth=signin"),
+    onFilesSelected: async (files) => {
+      const result = await createJobsFromUploadFiles({
+        files,
+        projectId: isSeededProject ? null : projectId,
+      });
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["client-jobs"] }),
+        queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
+        queryClient.invalidateQueries({ queryKey: ["client-project-job-memberships"] }),
+        queryClient.invalidateQueries({ queryKey: ["client-projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-jobs", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["sidebar-pins", user?.id] }),
+      ]);
+
+      if (result.projectId && result.jobIds.length > 1) {
+        navigate(`/projects/${result.projectId}`);
+        return;
+      }
+
+      navigate(`/parts/${result.jobIds[0]}`);
+    },
+  });
   const canLoadRemoteProjectData =
     Boolean(user) && !isSeededProject && !accessibleProjectsQuery.isLoading && !projectCollaborationUnavailable;
 
@@ -128,6 +153,11 @@ const ClientProject = () => {
     queryKey: ["client-part-summaries", accessibleJobIds],
     queryFn: () => fetchJobPartSummariesByJobIds(accessibleJobIds),
     enabled: Boolean(user) && accessibleJobIds.length > 0,
+  });
+  const sidebarProjectJobMembershipsQuery = useQuery({
+    queryKey: ["client-project-job-memberships", accessibleJobIds],
+    queryFn: () => fetchProjectJobMembershipsByJobIds(accessibleJobIds),
+    enabled: Boolean(user) && accessibleJobIds.length > 0 && !projectCollaborationUnavailable,
   });
 
   const projectQuery = useQuery({
@@ -155,6 +185,25 @@ const ClientProject = () => {
     () => new Map((partSummariesQuery.data ?? []).map((summary) => [summary.jobId, summary])),
     [partSummariesQuery.data],
   );
+  const accessibleJobsById = useMemo(
+    () => new Map((accessibleJobsQuery.data ?? []).map((job) => [job.id, job])),
+    [accessibleJobsQuery.data],
+  );
+  const sidebarProjectIdsByJobId = useMemo(() => {
+    const next = new Map<string, string[]>();
+
+    (sidebarProjectJobMembershipsQuery.data ?? []).forEach((membership) => {
+      const projectIds = next.get(membership.job_id) ?? [];
+
+      if (!projectIds.includes(membership.project_id)) {
+        projectIds.push(membership.project_id);
+      }
+
+      next.set(membership.job_id, projectIds);
+    });
+
+    return next;
+  }, [sidebarProjectJobMembershipsQuery.data]);
 
   const seededProjects = useMemo(() => {
     if (!isDmriflesWorkspace) {
@@ -240,24 +289,14 @@ const ClientProject = () => {
     [filteredJobs, focusedJobId],
   );
   const focusedSummary = focusedJob ? summariesByJobId.get(focusedJob.id) ?? null : null;
+  const sharedRequestSummary = useMemo(
+    () => getSharedRequestMetadata(projectJobs.map((job) => summariesByJobId.get(job.id) ?? null)),
+    [projectJobs, summariesByJobId],
+  );
   const projectSummary = accessibleProjectsQuery.data?.find((project) => project.project.id === projectId) ?? null;
   const canRenameProject = !isSeededProject && ["owner", "editor"].includes(projectSummary?.currentUserRole ?? "editor");
   const canDeleteProject = !isSeededProject && (projectSummary?.currentUserRole ?? "editor") === "owner";
   const canManageMembers = canDeleteProject;
-
-  const createProjectMutation = useMutation({
-    mutationFn: (name: string) => createProject({ name }),
-    onSuccess: async (nextProjectId) => {
-      toast.success("Project created.");
-      setShowCreateProject(false);
-      setCreateProjectName("");
-      await queryClient.invalidateQueries({ queryKey: ["client-projects"] });
-      navigate(`/projects/${nextProjectId}`);
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to create project.");
-    },
-  });
 
   const updateProjectMutation = useMutation({
     mutationFn: (name: string) => updateProject({ projectId, name }),
@@ -299,13 +338,15 @@ const ClientProject = () => {
     },
   });
 
-  const resolveSidebarProjectIdForJob = (job: { id: string; project_id: string | null; source: string }) => {
-    if (!isDmriflesWorkspace || job.project_id) {
-      return job.project_id;
+  const resolveSidebarProjectIdsForJob = (job: { id: string; project_id: string | null; source: string }) => {
+    const projectIds = [...new Set([...(sidebarProjectIdsByJobId.get(job.id) ?? []), ...(job.project_id ? [job.project_id] : [])])];
+
+    if (!isDmriflesWorkspace) {
+      return projectIds;
     }
 
     const importedBatch = resolveImportedBatch(job, summariesByJobId.get(job.id));
-    return importedBatch ? `seed-${importedBatch.toLowerCase()}` : null;
+    return importedBatch ? [...new Set([...projectIds, `seed-${importedBatch.toLowerCase()}`])] : projectIds;
   };
 
   const invalidateSidebarQueries = async () => {
@@ -313,6 +354,7 @@ const ClientProject = () => {
       queryClient.invalidateQueries({ queryKey: ["client-jobs"] }),
       queryClient.invalidateQueries({ queryKey: ["client-projects"] }),
       queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
+      queryClient.invalidateQueries({ queryKey: ["client-project-job-memberships"] }),
       queryClient.invalidateQueries({ queryKey: ["client-ungrouped-parts"] }),
       queryClient.invalidateQueries({ queryKey: ["sidebar-pins"] }),
       queryClient.invalidateQueries({ queryKey: ["project-jobs"] }),
@@ -372,9 +414,9 @@ const ClientProject = () => {
     }
   };
 
-  const handleRemovePartFromProject = async (jobId: string) => {
+  const handleRemovePartFromProject = async (jobId: string, targetProjectId: string) => {
     try {
-      await removeJobFromProject(jobId);
+      await removeJobFromProject(jobId, targetProjectId);
       await invalidateSidebarQueries();
       toast.success("Part removed from project.");
     } catch (error) {
@@ -414,13 +456,29 @@ const ClientProject = () => {
     }
   };
 
-  useEffect(() => {
-    if (canCreateProjects) {
-      return;
-    }
+  const handleCreateProjectFromSelection = async (jobIds: string[]) => {
+    try {
+      const labels = jobIds
+        .map((selectedJobId) => {
+          const job = accessibleJobsById.get(selectedJobId);
+          return job ? getClientItemPresentation(job, summariesByJobId.get(selectedJobId)).title : null;
+        })
+        .filter((label): label is string => Boolean(label));
+      const nextProjectId = await createProject({
+        name: buildProjectNameFromLabels(labels),
+      });
 
-    setShowCreateProject(false);
-  }, [canCreateProjects]);
+      await Promise.all(
+        jobIds.map((selectedJobId) => assignJobToProject({ jobId: selectedJobId, projectId: nextProjectId })),
+      );
+      await invalidateSidebarQueries();
+      toast.success("Project created.");
+      navigate(`/projects/${nextProjectId}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to create project.");
+      throw error;
+    }
+  };
 
   useEffect(() => {
     if (projectQuery.data) {
@@ -443,7 +501,7 @@ const ClientProject = () => {
       <ChatWorkspaceLayout
         onLogoClick={() => navigate("/")}
         sidebarRailActions={[
-          { label: "New Job", icon: PlusSquare, onClick: () => navigate("/jobs/new") },
+          { label: "New Job", icon: PlusSquare, onClick: newJobFilePicker.openFilePicker },
           { label: "Search", icon: SearchIcon, onClick: () => setIsSearchOpen(true) },
         ]}
         sidebarContent={
@@ -452,10 +510,8 @@ const ClientProject = () => {
             jobs={accessibleJobsQuery.data ?? []}
             summariesByJobId={summariesByJobId}
             activeProjectId={projectId}
-            onCreateJob={() => navigate("/jobs/new")}
+            onCreateJob={newJobFilePicker.openFilePicker}
             onSearch={() => setIsSearchOpen(true)}
-            canCreateProject={canCreateProjects}
-            onCreateProject={() => setShowCreateProject(true)}
             storageScopeKey={user?.id}
             pinnedProjectIds={sidebarPinsQuery.data?.projectIds ?? []}
             pinnedJobIds={sidebarPinsQuery.data?.jobIds ?? []}
@@ -465,11 +521,12 @@ const ClientProject = () => {
             onUnpinPart={handleUnpinPart}
             onAssignPartToProject={isDmriflesWorkspace ? undefined : handleAssignPartToProject}
             onRemovePartFromProject={isDmriflesWorkspace ? undefined : handleRemovePartFromProject}
+            onCreateProjectFromSelection={projectCollaborationUnavailable ? undefined : handleCreateProjectFromSelection}
             onRenameProject={handleRenameProject}
             onDeleteProject={handleDeleteProject}
             onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
             onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
-            resolveProjectIdForJob={resolveSidebarProjectIdForJob}
+            resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
           />
         }
         sidebarFooter={
@@ -493,6 +550,14 @@ const ClientProject = () => {
                   ? "Read-only imported batch project."
                   : "Shared project members can collaborate here without exposing unrelated workspace data."}
               </p>
+              {sharedRequestSummary ? (
+                <RequestSummaryBadges
+                  quantity={sharedRequestSummary.requestedQuoteQuantities[0] ?? null}
+                  requestedQuoteQuantities={sharedRequestSummary.requestedQuoteQuantities}
+                  requestedByDate={sharedRequestSummary.requestedByDate}
+                  className="mt-4"
+                />
+              ) : null}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -627,6 +692,15 @@ const ClientProject = () => {
                         <p className="mt-2 text-sm font-medium text-white">{formatStatusLabel(focusedJob.status)}</p>
                       </div>
                       <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
+                        <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Request</p>
+                        <RequestSummaryBadges
+                          quantity={focusedSummary?.quantity ?? null}
+                          requestedQuoteQuantities={focusedSummary?.requestedQuoteQuantities ?? []}
+                          requestedByDate={focusedSummary?.requestedByDate ?? null}
+                          className="mt-2"
+                        />
+                      </div>
+                      <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
                         <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Created</p>
                         <p className="mt-2 text-sm font-medium text-white">
                           {new Date(focusedJob.created_at).toLocaleDateString()}
@@ -656,22 +730,16 @@ const ClientProject = () => {
         onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
       />
 
-      <ProjectNameDialog
-        open={showCreateProject}
-        onOpenChange={(open) => {
-          setShowCreateProject(open);
-          if (!open) {
-            setCreateProjectName("");
-          }
+      <input
+        ref={newJobFilePicker.inputRef}
+        type="file"
+        multiple
+        accept={newJobFilePicker.accept}
+        onChange={(event) => {
+          void newJobFilePicker.handleFileInputChange(event);
         }}
-        title="Create project"
-        description="Projects are shareable by default and live in your hidden workspace."
-        value={createProjectName}
-        onValueChange={setCreateProjectName}
-        submitLabel="Create"
-        isPending={createProjectMutation.isPending}
-        isSubmitDisabled={createProjectName.trim().length === 0}
-        onSubmit={() => createProjectMutation.mutate(createProjectName.trim())}
+        className="hidden"
+        aria-label="Create new job from files"
       />
 
       <Dialog open={showAddPart} onOpenChange={setShowAddPart}>
@@ -685,17 +753,28 @@ const ClientProject = () => {
           <PromptComposer
             isSignedIn={Boolean(user)}
             onSubmit={async ({ prompt, files, clear }) => {
-              const jobId = await createClientDraft({
-                title: buildDraftTitleFromPrompt(prompt, files),
-                description: prompt.trim() || undefined,
-                projectId: isSeededProject ? undefined : projectId,
-              });
-
-              if (files.length > 0) {
-                await uploadFilesToJob(jobId, files);
-                await reconcileJobParts(jobId);
-                await requestExtraction(jobId);
-              }
+              const result =
+                files.length > 0
+                  ? await createJobsFromUploadFiles({
+                      files,
+                      prompt,
+                      projectId: isSeededProject ? null : projectId,
+                    })
+                  : {
+                      projectId: isSeededProject ? null : projectId,
+                      jobIds: [
+                        await (() => {
+                          const requestIntake = parseRequestIntake(prompt);
+                          return createClientDraft({
+                            title: prompt.trim().split("\n")[0].slice(0, 120) || "Untitled part",
+                            description: prompt.trim() || undefined,
+                            projectId: isSeededProject ? undefined : projectId,
+                            requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
+                            requestedByDate: requestIntake.requestedByDate,
+                          });
+                        })(),
+                      ],
+                    };
 
               clear();
               setShowAddPart(false);
@@ -703,9 +782,15 @@ const ClientProject = () => {
                 queryClient.invalidateQueries({ queryKey: ["project-jobs", projectId] }),
                 queryClient.invalidateQueries({ queryKey: ["client-jobs"] }),
                 queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
+                queryClient.invalidateQueries({ queryKey: ["client-project-job-memberships"] }),
                 queryClient.invalidateQueries({ queryKey: ["client-projects"] }),
               ]);
-              navigate(`/parts/${jobId}`);
+              if (result.projectId && result.jobIds.length > 1) {
+                navigate(`/projects/${result.projectId}`);
+                return;
+              }
+
+              navigate(`/parts/${result.jobIds[0]}`);
             }}
           />
         </DialogContent>

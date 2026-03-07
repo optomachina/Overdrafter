@@ -5,6 +5,7 @@ import { buildAdapterRegistry } from "./adapters/index.js";
 import { XOMETRY_AUTOMATION_VERSION } from "./adapters/xometry.js";
 import { loadConfig } from "./config.js";
 import { runHybridExtraction } from "./extraction/hybridExtraction.js";
+import { extractPdfText, renderPdfPreviewAssets } from "./extraction/pdfDrawing.js";
 import {
   cleanupPaths,
   createRunDir,
@@ -58,6 +59,14 @@ function buildTaskContext(task: QueueTaskRecord) {
     quoteRunId: task.quote_run_id,
     packageId: task.package_id,
     vendor: typeof task.payload.vendor === "string" ? task.payload.vendor : null,
+    vendorQuoteResultId:
+      typeof task.payload.vendorQuoteResultId === "string" ? task.payload.vendorQuoteResultId : null,
+    requestedQuantity:
+      typeof task.payload.requestedQuantity === "number"
+        ? task.payload.requestedQuantity
+        : typeof task.payload.requestedQuantity === "string"
+          ? Number.parseInt(task.payload.requestedQuantity, 10)
+          : null,
   };
 }
 
@@ -112,6 +121,8 @@ function buildFailureRawPayload(
     return {
       failureCode,
       retryCount,
+      requestedQuantity:
+        typeof payload.requestedQuantity === "number" ? payload.requestedQuantity : null,
       ...payload,
       artifactStoragePaths,
     };
@@ -135,6 +146,8 @@ function buildFailureRawPayload(
       typeof payload.leadTimeSource === "string" ? payload.leadTimeSource : "none",
     bodyExcerpt: typeof payload.bodyExcerpt === "string" ? payload.bodyExcerpt : "",
     artifactStoragePaths,
+    requestedQuantity:
+      typeof payload.requestedQuantity === "number" ? payload.requestedQuantity : null,
     retryCount,
     failureCode,
     url: typeof payload.url === "string" ? payload.url : null,
@@ -323,55 +336,142 @@ async function syncJobStatusAfterVendorUpdate(
     .eq("id", jobId);
 }
 
-async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord) {
+async function persistDrawingPreviewAssets(
+  supabase: SupabaseClient,
+  config: WorkerConfig,
+  input: {
+    organizationId: string;
+    partId: string;
+    jobId: string;
+    previewAssets: Awaited<ReturnType<typeof renderPdfPreviewAssets>>;
+  },
+) {
+  if (input.previewAssets.length === 0) {
+    await supabase.from("drawing_preview_assets").delete().eq("part_id", input.partId);
+    return;
+  }
+
+  const rows = [] as Array<{
+    part_id: string;
+    organization_id: string;
+    page_number: number;
+    kind: string;
+    storage_bucket: string;
+    storage_path: string;
+    width: number | null;
+    height: number | null;
+  }>;
+
+  for (const asset of input.previewAssets) {
+    const fileBuffer = await pathToBuffer(asset.localPath);
+    const storagePath = `${input.organizationId}/drawing-previews/${input.jobId}/${input.partId}/${asset.kind}-${asset.pageNumber}.png`;
+    const { error: uploadError } = await supabase.storage.from(config.artifactBucket).upload(storagePath, fileBuffer, {
+      contentType: asset.contentType,
+      upsert: true,
+    });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    rows.push({
+      part_id: input.partId,
+      organization_id: input.organizationId,
+      page_number: asset.pageNumber,
+      kind: asset.kind,
+      storage_bucket: config.artifactBucket,
+      storage_path: storagePath,
+      width: asset.width,
+      height: asset.height,
+    });
+  }
+
+  await supabase.from("drawing_preview_assets").delete().eq("part_id", input.partId);
+
+  const { error: insertError } = await supabase.from("drawing_preview_assets").insert(rows);
+
+  if (insertError) {
+    throw insertError;
+  }
+}
+
+async function pathToBuffer(filePath: string) {
+  const { readFile } = await import("node:fs/promises");
+  return readFile(filePath);
+}
+
+async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord, config: WorkerConfig) {
   if (!task.part_id || !task.job_id) {
     throw new Error("extract_part task is missing job_id or part_id.");
   }
 
   const context = await fetchPartContext(supabase, task.part_id);
-  const extraction = await runHybridExtraction({
-    part: context.part,
-    cadFile: context.cadFile,
-    drawingFile: context.drawingFile,
-  });
+  const runDir = await createRunDir(config, ["extract", task.id]);
+  const stagedDrawingFile = await stageStorageObject(supabase, context.drawingFile, runDir);
 
-  const { error } = await supabase.from("drawing_extractions").upsert(
-    {
-      part_id: context.part.id,
-      organization_id: context.part.organization_id,
-      extractor_version: "worker-sim-v1",
-      extraction: {
-        description: extraction.description,
-        partNumber: extraction.partNumber,
-        revision: extraction.revision,
-        material: extraction.material,
-        finish: extraction.finish,
-        tolerances: {
-          tightest: extraction.tightestTolerance.raw,
-          valueInch: extraction.tightestTolerance.valueInch,
-          confidence: extraction.tightestTolerance.confidence,
+  try {
+    const pdfText = stagedDrawingFile ? await extractPdfText(stagedDrawingFile.localPath) : null;
+    const previewAssets =
+      stagedDrawingFile && pdfText ? await renderPdfPreviewAssets(stagedDrawingFile.localPath, runDir, pdfText.pageCount) : [];
+    const extraction = await runHybridExtraction({
+      part: context.part,
+      cadFile: context.cadFile,
+      drawingFile: context.drawingFile,
+      pdfText,
+    });
+
+    const { error } = await supabase.from("drawing_extractions").upsert(
+      {
+        part_id: context.part.id,
+        organization_id: context.part.organization_id,
+        extractor_version: stagedDrawingFile ? "worker-pdf-v2" : "worker-sim-v1",
+        extraction: {
+          description: extraction.description,
+          partNumber: extraction.partNumber,
+          revision: extraction.revision,
+          material: extraction.material,
+          finish: extraction.finish,
+          generalTolerance: extraction.generalTolerance,
+          tolerances: {
+            general: extraction.generalTolerance.raw,
+            tightest: extraction.tightestTolerance.raw,
+            valueInch: extraction.tightestTolerance.valueInch,
+            confidence: extraction.tightestTolerance.confidence,
+          },
+          notes: extraction.notes,
+          threads: extraction.threads,
         },
+        confidence: extraction.material.confidence,
+        warnings: extraction.warnings,
+        evidence: extraction.evidence,
+        status: extraction.status,
       },
-      confidence: extraction.material.confidence,
-      warnings: extraction.warnings,
-      evidence: extraction.evidence,
-      status: extraction.status,
-    },
-    {
-      onConflict: "part_id",
-    },
-  );
+      {
+        onConflict: "part_id",
+      },
+    );
 
-  if (error) {
-    throw error;
+    if (error) {
+      throw error;
+    }
+
+    await persistDrawingPreviewAssets(supabase, config, {
+      organizationId: context.part.organization_id,
+      partId: context.part.id,
+      jobId: task.job_id,
+      previewAssets,
+    });
+
+    await supabase.from("jobs").update({ status: "needs_spec_review" }).eq("id", task.job_id);
+    await markTaskCompleted(supabase, task.id, {
+      ...task.payload,
+      extractionStatus: extraction.status,
+      warningCount: extraction.warnings.length,
+      previewAssetCount: previewAssets.length,
+    });
+  } finally {
+    await cleanupPaths([runDir]);
   }
-
-  await supabase.from("jobs").update({ status: "needs_spec_review" }).eq("id", task.job_id);
-  await markTaskCompleted(supabase, task.id, {
-    ...task.payload,
-    extractionStatus: extraction.status,
-    warningCount: extraction.warnings.length,
-  });
 }
 
 async function handleVendorQuoteTask(
@@ -384,6 +484,14 @@ async function handleVendorQuoteTask(
   }
 
   const vendor = task.payload.vendor as VendorName | undefined;
+  const vendorQuoteResultId =
+    typeof task.payload.vendorQuoteResultId === "string" ? task.payload.vendorQuoteResultId : null;
+  const requestedQuantity =
+    typeof task.payload.requestedQuantity === "number"
+      ? task.payload.requestedQuantity
+      : typeof task.payload.requestedQuantity === "string"
+        ? Number.parseInt(task.payload.requestedQuantity, 10)
+        : requestedQuantityFallback(task);
 
   if (!vendor) {
     throw new Error("run_vendor_quote task is missing vendor in payload.");
@@ -395,13 +503,22 @@ async function handleVendorQuoteTask(
     throw new Error(`No approved requirement found for part ${task.part_id}.`);
   }
 
-  const { data: currentResult, error: currentResultError } = await supabase
-    .from("vendor_quote_results")
-    .select("id")
-    .eq("quote_run_id", task.quote_run_id)
-    .eq("part_id", task.part_id)
-    .eq("vendor", vendor)
-    .single();
+  const currentResultRequest = vendorQuoteResultId
+    ? supabase
+        .from("vendor_quote_results")
+        .select("id, requested_quantity")
+        .eq("id", vendorQuoteResultId)
+        .single()
+    : supabase
+        .from("vendor_quote_results")
+        .select("id, requested_quantity")
+        .eq("quote_run_id", task.quote_run_id)
+        .eq("part_id", task.part_id)
+        .eq("vendor", vendor)
+        .eq("requested_quantity", Math.max(1, requestedQuantity))
+        .single();
+
+  const { data: currentResult, error: currentResultError } = await currentResultRequest;
 
   if (currentResultError || !currentResult) {
     throw currentResultError ?? new Error("Vendor quote result row was not found.");
@@ -421,6 +538,7 @@ async function handleVendorQuoteTask(
         retryCount,
         failureCode: null,
         retryScheduledFor: null,
+        requestedQuantity: currentResult.requested_quantity,
       },
     })
     .eq("id", currentResult.id);
@@ -442,6 +560,7 @@ async function handleVendorQuoteTask(
           mode: config.workerMode,
           source: "manual-import-vendor",
           requiresManualVendorFollowUp: true,
+          requestedQuantity: currentResult.requested_quantity,
           retryCount,
           failureCode: null,
         },
@@ -470,6 +589,7 @@ async function handleVendorQuoteTask(
       stagedCadFile,
       stagedDrawingFile,
       requirement: context.requirement,
+      requestedQuantity: currentResult.requested_quantity,
     });
 
     result.artifacts.forEach((artifact: VendorArtifact) =>
@@ -497,6 +617,7 @@ async function handleVendorQuoteTask(
         raw_payload: {
           ...result.rawPayload,
           artifactStoragePaths,
+          requestedQuantity: currentResult.requested_quantity,
           retryCount,
           failureCode: null,
         },
@@ -556,6 +677,7 @@ async function handleVendorQuoteTask(
             vendorError?.payload ?? {},
             failureArtifactStoragePaths,
           ),
+          requestedQuantity: currentResult.requested_quantity,
           retryScheduledFor: retryAt,
         },
       })
@@ -566,6 +688,21 @@ async function handleVendorQuoteTask(
   } finally {
     await cleanupPaths([stageDir, ...artifactDirs]);
   }
+}
+
+function requestedQuantityFallback(task: QueueTaskRecord) {
+  if (typeof task.payload.requestedQuantity === "number") {
+    return task.payload.requestedQuantity;
+  }
+
+  if (typeof task.payload.requestedQuantity === "string") {
+    const parsed = Number.parseInt(task.payload.requestedQuantity, 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return 1;
 }
 
 async function handlePublishTask(supabase: SupabaseClient, task: QueueTaskRecord) {
@@ -615,7 +752,7 @@ async function processTask(
 ) {
   switch (task.task_type) {
     case "extract_part":
-      await handleExtractTask(supabase, task);
+      await handleExtractTask(supabase, task, config);
       return;
     case "run_vendor_quote":
       await handleVendorQuoteTask(supabase, task, config);

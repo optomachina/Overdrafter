@@ -17,6 +17,8 @@ import { AppShell } from "@/components/app/AppShell";
 import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
 import { ManualQuoteIntakeCard } from "@/components/quotes/ManualQuoteIntakeCard";
+import { RequestedQuantityFilter } from "@/components/quotes/RequestedQuantityFilter";
+import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,6 +40,16 @@ import {
   resendSignupConfirmation,
   startQuoteRun,
 } from "@/features/quotes/api";
+import {
+  formatRequestedQuoteQuantitiesInput,
+  parseRequestedQuoteQuantitiesInput,
+} from "@/features/quotes/request-intake";
+import {
+  collectRequestedQuantities,
+  normalizeApprovedRequirementDraft,
+  resolveRequestedQuantitySelection,
+  type RequestedQuantityFilterValue,
+} from "@/features/quotes/request-scenarios";
 import type { ApprovedPartRequirement } from "@/features/quotes/types";
 import {
   buildRequirementDraft,
@@ -64,9 +76,12 @@ const InternalJobDetail = () => {
   const queryClient = useQueryClient();
   const { user, activeMembership, isVerifiedAuth, signOut } = useAppSession();
   const [drafts, setDrafts] = useState<Record<string, ApprovedPartRequirement>>({});
+  const [quoteQuantityInputs, setQuoteQuantityInputs] = useState<Record<string, string>>({});
   const [clientSummary, setClientSummary] = useState("");
   const [isRefreshingVerification, setIsRefreshingVerification] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
+  const [activeCompareRequestedQuantity, setActiveCompareRequestedQuantity] =
+    useState<RequestedQuantityFilterValue | null>(null);
 
   const jobQuery = useQuery({
     queryKey: ["job", jobId],
@@ -114,17 +129,75 @@ const InternalJobDetail = () => {
     queryFn: () => getQuoteRunReadiness(latestQuoteRun!.id),
     enabled: Boolean(latestQuoteRun?.id),
   });
+  const quoteRows = useMemo(
+    () => latestQuoteRun?.vendorQuotes ?? [],
+    [latestQuoteRun?.vendorQuotes],
+  );
+  const compareQuantities = useMemo(
+    () =>
+      collectRequestedQuantities(
+        [
+          quoteRows.map((quote) => quote.requested_quantity),
+          Object.values(drafts).flatMap((draft) => draft.quoteQuantities),
+          jobQuery.data?.job.requested_quote_quantities,
+        ],
+        jobQuery.data?.parts[0]?.quantity ?? null,
+      ),
+    [drafts, jobQuery.data?.job.requested_quote_quantities, jobQuery.data?.parts, quoteRows],
+  );
+  const visibleQuoteRows = useMemo(() => {
+    const nextRows =
+      activeCompareRequestedQuantity === "all" || activeCompareRequestedQuantity === null
+        ? quoteRows
+        : quoteRows.filter((quote) => quote.requested_quantity === activeCompareRequestedQuantity);
+
+    return [...nextRows].sort((left, right) => {
+      if (left.requested_quantity !== right.requested_quantity) {
+        return left.requested_quantity - right.requested_quantity;
+      }
+
+      if (left.part_id !== right.part_id) {
+        return left.part_id.localeCompare(right.part_id);
+      }
+
+      return left.vendor.localeCompare(right.vendor);
+    });
+  }, [activeCompareRequestedQuantity, quoteRows]);
+  const writeActionsDisabled = !isVerifiedAuth;
+
+  useEffect(() => {
+    setActiveCompareRequestedQuantity((current) =>
+      resolveRequestedQuantitySelection({
+        availableQuantities: compareQuantities,
+        currentSelection: current,
+        preferredQuantity: compareQuantities[0] ?? null,
+        allowAll: true,
+      }),
+    );
+  }, [compareQuantities]);
 
   useEffect(() => {
     if (!jobQuery.data) {
       return;
     }
 
+    const jobRequestDefaults = {
+      requested_quote_quantities: jobQuery.data.job.requested_quote_quantities ?? [],
+      requested_by_date: jobQuery.data.job.requested_by_date ?? null,
+    };
     const nextDrafts = Object.fromEntries(
-      jobQuery.data.parts.map((part) => [part.id, buildRequirementDraft(part)]),
+      jobQuery.data.parts.map((part) => [part.id, buildRequirementDraft(part, jobRequestDefaults)]),
     );
 
     setDrafts(nextDrafts);
+    setQuoteQuantityInputs(
+      Object.fromEntries(
+        Object.values(nextDrafts).map((draft) => [
+          draft.partId,
+          formatRequestedQuoteQuantitiesInput(draft.quoteQuantities),
+        ]),
+      ),
+    );
 
     setClientSummary((current) =>
       current ||
@@ -143,7 +216,11 @@ const InternalJobDetail = () => {
   });
 
   const saveRequirementsMutation = useMutation({
-    mutationFn: () => approveJobRequirements(jobId, Object.values(drafts)),
+    mutationFn: () =>
+      approveJobRequirements(
+        jobId,
+        Object.values(drafts).map((draft) => normalizeApprovedRequirementDraft(draft)),
+      ),
     onSuccess: async (approvedCount) => {
       toast.success(`Approved ${approvedCount} part requirement set(s).`);
       await queryClient.invalidateQueries({ queryKey: ["job", jobId] });
@@ -219,9 +296,6 @@ const InternalJobDetail = () => {
       [partId]: updater(current[partId]),
     }));
   };
-
-  const quoteRows = latestQuoteRun?.vendorQuotes ?? [];
-  const writeActionsDisabled = !isVerifiedAuth;
 
   const handleRefreshVerification = async () => {
     setIsRefreshingVerification(true);
@@ -405,9 +479,16 @@ const InternalJobDetail = () => {
           <CardContent className="space-y-5">
             {job.parts.map((part) => {
               const extraction = normalizeDrawingExtraction(part.extraction, part.id);
-              const draft = drafts[part.id];
+              const draft =
+                drafts[part.id] ??
+                buildRequirementDraft(part, {
+                  requested_quote_quantities: job.job.requested_quote_quantities ?? [],
+                  requested_by_date: job.job.requested_by_date ?? null,
+                });
               const cadPreviewSource = cadPreviewSources.get(part.id) ?? null;
               const cadPreviewable = part.cadFile ? isStepPreviewableFile(part.cadFile.original_name) : false;
+              const quoteQuantityInput =
+                quoteQuantityInputs[part.id] ?? formatRequestedQuoteQuantitiesInput(draft.quoteQuantities);
 
               return (
                 <div key={part.id} className="rounded-3xl border border-white/8 bg-black/20 p-5">
@@ -428,6 +509,12 @@ const InternalJobDetail = () => {
                           Extraction: {formatStatusLabel(extraction.status)}
                         </Badge>
                       </div>
+                      <RequestSummaryBadges
+                        quantity={draft.quantity}
+                        requestedQuoteQuantities={draft.quoteQuantities}
+                        requestedByDate={draft.requestedByDate}
+                        className="mt-3"
+                      />
                     </div>
                     {extraction.warnings.length > 0 ? (
                       <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs text-amber-300">
@@ -532,12 +619,64 @@ const InternalJobDetail = () => {
                           type="number"
                           min={1}
                           className="border-white/10 bg-black/20"
-                          value={draft?.quantity ?? 1}
+                          value={draft.quantity}
+                          disabled={writeActionsDisabled}
+                          onChange={(event) => {
+                            const nextDraft = normalizeApprovedRequirementDraft({
+                              ...draft,
+                              quantity: Number(event.target.value || 1),
+                            });
+                            setQuoteQuantityInputs((current) => ({
+                              ...current,
+                              [part.id]: formatRequestedQuoteQuantitiesInput(nextDraft.quoteQuantities),
+                            }));
+                            updateDraft(part.id, () => nextDraft);
+                          }}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Quote quantities</Label>
+                        <Input
+                          className="border-white/10 bg-black/20"
+                          value={quoteQuantityInput}
+                          disabled={writeActionsDisabled}
+                          placeholder="1/10/100"
+                          onChange={(event) =>
+                            setQuoteQuantityInputs((current) => ({
+                              ...current,
+                              [part.id]: event.target.value,
+                            }))
+                          }
+                          onBlur={() => {
+                            const nextDraft = normalizeApprovedRequirementDraft({
+                              ...draft,
+                              quoteQuantities: parseRequestedQuoteQuantitiesInput(
+                                quoteQuantityInputs[part.id] ?? "",
+                                draft.quantity,
+                              ),
+                            });
+                            setQuoteQuantityInputs((current) => ({
+                              ...current,
+                              [part.id]: formatRequestedQuoteQuantitiesInput(nextDraft.quoteQuantities),
+                            }));
+                            updateDraft(part.id, () => nextDraft);
+                          }}
+                        />
+                        <p className="text-xs text-white/45">
+                          Use slash-delimited quantities like 1/10/100.
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Requested by</Label>
+                        <Input
+                          type="date"
+                          className="border-white/10 bg-black/20"
+                          value={draft.requestedByDate ?? ""}
                           disabled={writeActionsDisabled}
                           onChange={(event) =>
                             updateDraft(part.id, (current) => ({
                               ...current,
-                              quantity: Number(event.target.value || 1),
+                              requestedByDate: event.target.value || null,
                             }))
                           }
                         />
@@ -764,12 +903,21 @@ const InternalJobDetail = () => {
             <CardTitle>Vendor compare view</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <RequestedQuantityFilter
+              quantities={compareQuantities}
+              value={activeCompareRequestedQuantity}
+              onChange={setActiveCompareRequestedQuantity}
+            />
             {!quoteRows.length ? (
               <p className="text-sm text-white/55">
                 No vendor quote rows yet. Once the worker processes queued tasks, raw vendor results will appear here.
               </p>
+            ) : visibleQuoteRows.length === 0 ? (
+              <p className="text-sm text-white/55">
+                No vendor quote rows are available for qty {activeCompareRequestedQuantity}.
+              </p>
             ) : (
-              quoteRows.map((quote) => {
+              visibleQuoteRows.map((quote) => {
                 const part = job.parts.find((item) => item.id === quote.part_id);
                 const importedOffers = getImportedVendorOffers(quote);
                 const isManualVendor = isManualImportVendor(quote.vendor);
@@ -784,6 +932,9 @@ const InternalJobDetail = () => {
                         <p className="text-lg font-medium">{part?.name ?? "Unknown part"}</p>
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
                           <p className="text-white/50">{formatVendorName(quote.vendor)}</p>
+                          <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/65">
+                            Qty {quote.requested_quantity}
+                          </Badge>
                           {isManualVendor ? (
                             <Badge className="border border-sky-500/20 bg-sky-500/10 text-sky-200">
                               Manual source
@@ -897,6 +1048,12 @@ const InternalJobDetail = () => {
                                           {offer.process}
                                         </Badge>
                                       ) : null}
+                                      <Badge
+                                        variant="secondary"
+                                        className="border border-white/10 bg-white/5 text-white/70"
+                                      >
+                                        Qty {offer.requestedQuantity}
+                                      </Badge>
                                       {publishedOptionKinds.map((kind) => (
                                         <Badge
                                           key={`${offer.offerId}-${kind}`}

@@ -70,6 +70,8 @@ export type ApprovedRequirementRecord = {
   finish: string | null;
   tightest_tolerance_inch: number | null;
   quantity: number;
+  quote_quantities: number[];
+  requested_by_date: string | null;
   applicable_vendors: VendorName[];
 };
 
@@ -80,7 +82,10 @@ export type DrawingExtractionPayload = {
   revision: string | null;
   material: { raw: string | null; normalized: string | null; confidence: number };
   finish: { raw: string | null; normalized: string | null; confidence: number };
+  generalTolerance: { raw: string | null; confidence: number };
   tightestTolerance: { raw: string | null; valueInch: number | null; confidence: number };
+  notes: string[];
+  threads: string[];
   evidence: Array<{ field: string; page: number; snippet: string; confidence: number }>;
   warnings: string[];
   status: "needs_review" | "approved";
@@ -95,6 +100,7 @@ export type VendorQuoteAdapterInput = {
   stagedCadFile: StagedFile | null;
   stagedDrawingFile: StagedFile | null;
   requirement: ApprovedRequirementRecord;
+  requestedQuantity: number;
 };
 
 export type StagedFile = {
@@ -153,6 +159,7 @@ export type XometryQuoteRawPayload = Record<string, unknown> & {
   leadTimeSource?: XometryValueSource | null;
   bodyExcerpt?: string;
   artifactStoragePaths?: string[];
+  requestedQuantity?: number;
   retryCount?: number;
   failureCode?: string | null;
   url?: string | null;

@@ -1,10 +1,9 @@
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Check,
   ChevronRight,
   Clock3,
   Folder,
-  FolderPlus,
   ListFilter,
   PenLine,
   Pin,
@@ -16,7 +15,6 @@ import {
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -36,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 export type WorkspaceSidebarProject = {
   id: string;
@@ -72,11 +71,9 @@ type WorkspaceSidebarProps = {
   activeJobId?: string | null;
   onCreateJob?: () => void;
   onSearch?: () => void;
-  canCreateProject?: boolean;
-  onCreateProject?: () => void;
   onSelectProject: (projectId: string) => void;
   onSelectPart: (jobId: string) => void;
-  resolveProjectIdForJob?: (job: JobRecord) => string | null;
+  resolveProjectIdsForJob?: (job: JobRecord) => string[];
   storageScopeKey?: string;
   pinnedProjectIds?: string[];
   pinnedJobIds?: string[];
@@ -85,9 +82,15 @@ type WorkspaceSidebarProps = {
   onPinPart?: (jobId: string) => Promise<void> | void;
   onUnpinPart?: (jobId: string) => Promise<void> | void;
   onAssignPartToProject?: (jobId: string, projectId: string) => Promise<void> | void;
-  onRemovePartFromProject?: (jobId: string) => Promise<void> | void;
+  onRemovePartFromProject?: (jobId: string, projectId: string) => Promise<void> | void;
+  onCreateProjectFromSelection?: (jobIds: string[]) => Promise<void> | void;
   onRenameProject?: (projectId: string, name: string) => Promise<void> | void;
   onDeleteProject?: (projectId: string) => Promise<void> | void;
+};
+
+type RenderPartRowOptions = {
+  contextProjectId?: string | null;
+  nestedInProject?: boolean;
 };
 
 const DEFAULT_FILTERS: SidebarFilters = {
@@ -100,6 +103,22 @@ const DEFAULT_SECTIONS: SidebarSections = {
   projects: true,
   parts: true,
 };
+
+function formatSelectedQuote(summary: JobPartSummary | undefined) {
+  if (!summary?.selectedSupplier || summary.selectedPriceUsd === null) {
+    return null;
+  }
+
+  const price = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(summary.selectedPriceUsd);
+
+  return `${summary.selectedSupplier} · ${price}${
+    summary.selectedLeadTimeBusinessDays ? ` · ${summary.selectedLeadTimeBusinessDays}d` : ""
+  }`;
+}
 
 function readFilters(storageKey: string): SidebarFilters {
   try {
@@ -175,6 +194,18 @@ function parseTimestamp(value: string | null | undefined): number {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
+function isMacPlatform() {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+
+  return /(Mac|iPhone|iPad|iPod)/i.test(navigator.platform || navigator.userAgent);
+}
+
+function isAdditiveSelectionInput(input: { ctrlKey: boolean; metaKey: boolean }) {
+  return isMacPlatform() ? input.metaKey : input.ctrlKey;
+}
+
 function SectionTitle({ children }: { children: ReactNode }) {
   return <p className="px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-white/40">{children}</p>;
 }
@@ -192,20 +223,16 @@ function SidebarSectionHeading({
 }) {
   return (
     <div className="flex items-center justify-between gap-3 px-2.5">
-      {onToggle ? (
-        <button
-          type="button"
-          aria-expanded={expanded}
-          aria-label={`${expanded ? "Collapse" : "Expand"} ${label.toLowerCase()}`}
-          className="flex items-center gap-1.5 rounded-[10px] py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-white/38 transition-colors hover:text-white/68"
-          onClick={onToggle}
-        >
-          <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", expanded ? "rotate-90" : "")} />
-          <span>{label}</span>
-        </button>
-      ) : (
-        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-white/38">{label}</p>
-      )}
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-label={`${expanded ? "Collapse" : "Expand"} ${label.toLowerCase()}`}
+        className="flex items-center gap-1 rounded-[10px] py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-white/38 transition-colors hover:text-white/68"
+        onClick={onToggle}
+      >
+        <span>{label}</span>
+        <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", expanded ? "rotate-90" : "")} />
+      </button>
       {action}
     </div>
   );
@@ -242,11 +269,9 @@ export function WorkspaceSidebar({
   activeJobId,
   onCreateJob,
   onSearch,
-  canCreateProject = true,
-  onCreateProject,
   onSelectProject,
   onSelectPart,
-  resolveProjectIdForJob,
+  resolveProjectIdsForJob,
   storageScopeKey,
   pinnedProjectIds = [],
   pinnedJobIds = [],
@@ -256,6 +281,7 @@ export function WorkspaceSidebar({
   onUnpinPart,
   onAssignPartToProject,
   onRemovePartFromProject,
+  onCreateProjectFromSelection,
   onRenameProject,
   onDeleteProject,
 }: WorkspaceSidebarProps) {
@@ -272,6 +298,9 @@ export function WorkspaceSidebar({
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>(() =>
     typeof window === "undefined" ? {} : readExpandedProjects(expandedStorageKey),
   );
+  const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+  const [selectionAnchorJobId, setSelectionAnchorJobId] = useState<string | null>(null);
+  const [contextSelectionJobIds, setContextSelectionJobIds] = useState<string[]>([]);
   const [pendingProjectPinIds, setPendingProjectPinIds] = useState<string[]>([]);
   const [pendingPartPinIds, setPendingPartPinIds] = useState<string[]>([]);
   const [pendingMovePartIds, setPendingMovePartIds] = useState<string[]>([]);
@@ -280,26 +309,30 @@ export function WorkspaceSidebar({
   const [renameValue, setRenameValue] = useState("");
   const [isRenamingProject, setIsRenamingProject] = useState(false);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const [isCreatingProjectFromSelection, setIsCreatingProjectFromSelection] = useState(false);
   const [openContextTarget, setOpenContextTarget] = useState<string | null>(null);
 
   const pinnedProjectSet = useMemo(() => new Set(pinnedProjectIds), [pinnedProjectIds]);
   const pinnedPartSet = useMemo(() => new Set(pinnedJobIds), [pinnedJobIds]);
+  const selectedJobIdSet = useMemo(() => new Set(selectedJobIds), [selectedJobIds]);
   const projectsById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
-  const assignableProjects = useMemo(
-    () => projects.filter((project) => !project.isReadOnly),
-    [projects],
-  );
+  const assignableProjects = useMemo(() => projects.filter((project) => !project.isReadOnly), [projects]);
 
-  const getProjectIdForJob = useCallback(
+  const getProjectIdsForJob = useCallback(
     (job: JobRecord) => {
-      if (resolveProjectIdForJob) {
-        return resolveProjectIdForJob(job);
-      }
-
-      return job.project_id;
+      const projectIds = resolveProjectIdsForJob?.(job) ?? (job.project_id ? [job.project_id] : []);
+      return [...new Set(projectIds.filter((projectId): projectId is string => Boolean(projectId)))];
     },
-    [resolveProjectIdForJob],
+    [resolveProjectIdsForJob],
   );
+
+  useEffect(() => {
+    const jobIdSet = new Set(jobs.map((job) => job.id));
+
+    setSelectedJobIds((current) => current.filter((jobId) => jobIdSet.has(jobId)));
+    setContextSelectionJobIds((current) => current.filter((jobId) => jobIdSet.has(jobId)));
+    setSelectionAnchorJobId((current) => (current && jobIdSet.has(current) ? current : null));
+  }, [jobs]);
 
   const getJobSortTimestamp = useCallback(
     (job: JobRecord) =>
@@ -327,30 +360,23 @@ export function WorkspaceSidebar({
 
   const jobsByProjectId = useMemo(() => {
     const grouped = new Map<string, JobRecord[]>();
-    const ungrouped: JobRecord[] = [];
 
     jobs.forEach((job) => {
-      const projectId = getProjectIdForJob(job);
-
-      if (projectId && projectsById.has(projectId)) {
-        const projectJobs = grouped.get(projectId) ?? [];
-        projectJobs.push(job);
-        grouped.set(projectId, projectJobs);
-        return;
-      }
-
-      ungrouped.push(job);
+      getProjectIdsForJob(job)
+        .filter((projectId) => projectsById.has(projectId))
+        .forEach((projectId) => {
+          const projectJobs = grouped.get(projectId) ?? [];
+          projectJobs.push(job);
+          grouped.set(projectId, projectJobs);
+        });
     });
 
-    return {
-      grouped,
-      ungrouped,
-    };
-  }, [getProjectIdForJob, jobs, projectsById]);
+    return grouped;
+  }, [getProjectIdsForJob, jobs, projectsById]);
 
   const sortedProjects = useMemo(() => {
     const getProjectSortTimestamp = (project: WorkspaceSidebarProject) => {
-      const projectJobs = jobsByProjectId.grouped.get(project.id) ?? [];
+      const projectJobs = jobsByProjectId.get(project.id) ?? [];
 
       if (projectJobs.length > 0) {
         return projectJobs.reduce((maxTimestamp, job) => Math.max(maxTimestamp, getJobSortTimestamp(job)), 0);
@@ -373,7 +399,27 @@ export function WorkspaceSidebar({
 
       return left.name.localeCompare(right.name);
     });
-  }, [filters.sortBy, getJobSortTimestamp, jobsByProjectId.grouped, pinnedProjectSet, projects]);
+  }, [filters.sortBy, getJobSortTimestamp, jobsByProjectId, pinnedProjectSet, projects]);
+
+  const visibleProjects = useMemo(
+    () =>
+      sortedProjects.filter((project) => {
+        if (filters.show === "all") {
+          return true;
+        }
+
+        const projectJobs = jobsByProjectId.get(project.id) ?? [];
+        return pinnedProjectSet.has(project.id) || projectJobs.some((job) => pinnedPartSet.has(job.id));
+      }),
+    [filters.show, jobsByProjectId, pinnedPartSet, pinnedProjectSet, sortedProjects],
+  );
+
+  const visibleParts = useMemo(
+    () => (filters.show === "relevant" ? sortedJobs(jobs.filter((job) => pinnedPartSet.has(job.id))) : sortedJobs(jobs)),
+    [filters.show, jobs, pinnedPartSet, sortedJobs],
+  );
+
+  const selectionOrderJobIds = useMemo(() => visibleParts.map((job) => job.id), [visibleParts]);
 
   const persistFilters = (next: SidebarFilters) => {
     setFilters(next);
@@ -405,21 +451,13 @@ export function WorkspaceSidebar({
     }
   };
 
-  const isProjectExpanded = (projectId: string) => {
-    if (expandedProjects[projectId] !== undefined) {
-      return expandedProjects[projectId];
-    }
-
-    return false;
-  };
+  const isProjectExpanded = (projectId: string) => expandedProjects[projectId] ?? false;
 
   const toggleProjectExpanded = (projectId: string) => {
-    const next = {
+    persistExpandedProjects({
       ...expandedProjects,
       [projectId]: !isProjectExpanded(projectId),
-    };
-
-    persistExpandedProjects(next);
+    });
   };
 
   const toggleSectionExpanded = (section: SidebarSectionKey) => {
@@ -466,9 +504,7 @@ export function WorkspaceSidebar({
   };
 
   const toggleProjectPin = async (projectId: string) => {
-    const isPinned = pinnedProjectSet.has(projectId);
-
-    if (isPinned) {
+    if (pinnedProjectSet.has(projectId)) {
       if (!onUnpinProject) {
         return;
       }
@@ -489,9 +525,7 @@ export function WorkspaceSidebar({
   };
 
   const togglePartPin = async (jobId: string) => {
-    const isPinned = pinnedPartSet.has(jobId);
-
-    if (isPinned) {
+    if (pinnedPartSet.has(jobId)) {
       if (!onUnpinPart) {
         return;
       }
@@ -511,43 +545,159 @@ export function WorkspaceSidebar({
     });
   };
 
-  const renderPartRow = (job: JobRecord, nestedInProject = false) => {
-    const presentation = getClientItemPresentation(job, summariesByJobId.get(job.id));
+  const selectSingleJob = useCallback((jobId: string) => {
+    setSelectedJobIds([jobId]);
+    setSelectionAnchorJobId(jobId);
+  }, []);
+
+  const toggleJobSelection = useCallback((jobId: string) => {
+    setSelectedJobIds((current) =>
+      current.includes(jobId) ? current.filter((currentJobId) => currentJobId !== jobId) : [...current, jobId],
+    );
+    setSelectionAnchorJobId(jobId);
+  }, []);
+
+  const selectJobRange = useCallback(
+    (jobId: string) => {
+      const anchorId = selectionAnchorJobId ?? jobId;
+      const anchorIndex = selectionOrderJobIds.indexOf(anchorId);
+      const targetIndex = selectionOrderJobIds.indexOf(jobId);
+
+      if (anchorIndex === -1 || targetIndex === -1) {
+        selectSingleJob(jobId);
+        return;
+      }
+
+      const [startIndex, endIndex] =
+        anchorIndex <= targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex];
+
+      setSelectedJobIds(selectionOrderJobIds.slice(startIndex, endIndex + 1));
+      setSelectionAnchorJobId(anchorId);
+    },
+    [selectSingleJob, selectionAnchorJobId, selectionOrderJobIds],
+  );
+
+  const prepareContextSelection = useCallback(
+    (jobId: string) => {
+      const nextSelection = selectedJobIdSet.has(jobId) ? selectedJobIds : [jobId];
+
+      setContextSelectionJobIds(nextSelection);
+
+      if (!selectedJobIdSet.has(jobId)) {
+        setSelectedJobIds([jobId]);
+        setSelectionAnchorJobId(jobId);
+      }
+    },
+    [selectedJobIdSet, selectedJobIds],
+  );
+
+  const createProjectFromSelection = useCallback(
+    async (jobIds: string[]) => {
+      if (!onCreateProjectFromSelection || jobIds.length < 2) {
+        return;
+      }
+
+      setIsCreatingProjectFromSelection(true);
+
+      try {
+        await onCreateProjectFromSelection(jobIds);
+        setSelectedJobIds([]);
+        setSelectionAnchorJobId(null);
+        setContextSelectionJobIds([]);
+      } catch {
+        // Parent handlers report errors.
+      } finally {
+        setIsCreatingProjectFromSelection(false);
+      }
+    },
+    [onCreateProjectFromSelection],
+  );
+
+  const renderPartRow = (job: JobRecord, options: RenderPartRowOptions = {}) => {
+    const { contextProjectId = null, nestedInProject = false } = options;
+    const summary = summariesByJobId.get(job.id);
+    const presentation = getClientItemPresentation(job, summary);
+    const selectedQuote = formatSelectedQuote(summary);
+    const currentProjectIds = getProjectIdsForJob(job).filter((projectId) => projectsById.has(projectId));
+    const currentProjectIdSet = new Set(currentProjectIds);
     const isPinned = pinnedPartSet.has(job.id);
-    const currentProjectId = getProjectIdForJob(job);
-    const parentProject = currentProjectId ? projectsById.get(currentProjectId) ?? null : null;
+    const isSelected = selectedJobIdSet.has(job.id);
     const isPinBusy = pendingPartPinIds.includes(job.id);
     const isMoveBusy = pendingMovePartIds.includes(job.id);
+    const contextKey = `part:${job.id}:${contextProjectId ?? "all"}`;
+    const contextSelection =
+      openContextTarget === contextKey && contextSelectionJobIds.length > 0
+        ? contextSelectionJobIds
+        : isSelected
+          ? selectedJobIds
+          : [job.id];
+    const showBatchAction = contextSelection.length > 1 && contextSelection.includes(job.id);
+    const removableProjectIds =
+      contextProjectId !== null
+        ? [contextProjectId]
+        : currentProjectIds.filter((projectId) => !projectsById.get(projectId)?.isReadOnly);
+    const addableProjects = assignableProjects.filter((project) => !currentProjectIdSet.has(project.id));
+    const parentProjectNames = currentProjectIds
+      .map((projectId) => projectsById.get(projectId)?.name)
+      .filter((name): name is string => Boolean(name));
 
     return (
       <ContextMenu
-        key={job.id}
+        key={`${job.id}:${contextProjectId ?? "all"}`}
         onOpenChange={(open) => {
-          setOpenContextTarget(open ? `part:${job.id}` : (current) => (current === `part:${job.id}` ? null : current));
+          setOpenContextTarget((current) => {
+            if (open) {
+              return contextKey;
+            }
+
+            return current === contextKey ? null : current;
+          });
+
+          if (!open) {
+            setContextSelectionJobIds([]);
+          }
         }}
       >
         <ContextMenuTrigger asChild>
           <div
             role="button"
             tabIndex={0}
-            onClick={() => {
-              if (openContextTarget === `part:${job.id}`) {
+            onClick={(event) => {
+              if (openContextTarget === contextKey) {
                 setOpenContextTarget(null);
                 return;
               }
 
+              if (event.shiftKey) {
+                event.preventDefault();
+                selectJobRange(job.id);
+                return;
+              }
+
+              if (isAdditiveSelectionInput(event)) {
+                event.preventDefault();
+                toggleJobSelection(job.id);
+                return;
+              }
+
+              selectSingleJob(job.id);
               onSelectPart(job.id);
             }}
+            onContextMenu={() => {
+              prepareContextSelection(job.id);
+            }}
             onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                onSelectPart(job.id);
+              if (event.key !== "Enter" && event.key !== " ") {
+                return;
               }
+
+              event.preventDefault();
+              selectSingleJob(job.id);
+              onSelectPart(job.id);
             }}
             className={cn(
-              "group flex w-full items-center gap-2.5 text-left transition-colors",
-              nestedInProject ? "rounded-[10px] px-2.5 py-2" : "rounded-[10px] px-2.5 py-2",
-              activeJobId === job.id
+              "group flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left transition-colors",
+              isSelected || activeJobId === job.id
                 ? "bg-white/[0.08] text-white"
                 : "text-white/[0.72] hover:bg-white/[0.06] hover:text-white",
             )}
@@ -555,8 +705,11 @@ export function WorkspaceSidebar({
             <Shapes className="h-4 w-4 shrink-0 text-white/[0.42]" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm leading-5">{presentation.title}</p>
-              {!nestedInProject && parentProject ? (
-                <p className="truncate text-[12px] leading-4 text-white/[0.38]">{parentProject.name}</p>
+              {selectedQuote ? (
+                <p className="truncate text-[11px] leading-4 text-emerald-300/90">{selectedQuote}</p>
+              ) : null}
+              {!nestedInProject && parentProjectNames.length > 0 ? (
+                <p className="truncate text-[12px] leading-4 text-white/[0.38]">{parentProjectNames.join(" · ")}</p>
               ) : null}
             </div>
             <button
@@ -577,57 +730,89 @@ export function WorkspaceSidebar({
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent className="chatgpt-shell w-56 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">
-          <ContextMenuItem onSelect={() => onSelectPart(job.id)}>Edit part</ContextMenuItem>
-
-          {onAssignPartToProject ? (
-            <ContextMenuSub>
-              <ContextMenuSubTrigger inset>Add to project</ContextMenuSubTrigger>
-              <ContextMenuSubContent className="chatgpt-shell max-h-[280px] w-56 overflow-y-auto rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">
-                {assignableProjects.filter((project) => project.id !== currentProjectId).length === 0 ? (
-                  <ContextMenuItem disabled>No projects available</ContextMenuItem>
-                ) : (
-                  assignableProjects
-                    .filter((project) => project.id !== currentProjectId)
-                    .map((project) => (
-                      <ContextMenuItem
-                        key={project.id}
-                        disabled={isMoveBusy}
-                        onSelect={() => {
-                          void withBusyPartMove(job.id, async () => {
-                            await onAssignPartToProject(job.id, project.id);
-                          });
-                        }}
-                      >
-                        {project.name}
-                      </ContextMenuItem>
-                    ))
-                )}
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-          ) : null}
-
-          {currentProjectId && onRemovePartFromProject ? (
+          {showBatchAction ? (
             <ContextMenuItem
-              disabled={isMoveBusy}
+              disabled={!onCreateProjectFromSelection || isCreatingProjectFromSelection}
               onSelect={() => {
-                void withBusyPartMove(job.id, async () => {
-                  await onRemovePartFromProject(job.id);
-                });
+                void createProjectFromSelection(contextSelection);
               }}
             >
-              Remove from project
+              Create new project
             </ContextMenuItem>
-          ) : null}
+          ) : (
+            <>
+              <ContextMenuItem onSelect={() => onSelectPart(job.id)}>Edit part</ContextMenuItem>
 
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            disabled={isPinBusy}
-            onSelect={() => {
-              void togglePartPin(job.id);
-            }}
-          >
-            {isPinned ? "Unpin" : "Pin"}
-          </ContextMenuItem>
+              {onAssignPartToProject ? (
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger inset>Add to project</ContextMenuSubTrigger>
+                  <ContextMenuSubContent className="chatgpt-shell max-h-[280px] w-56 overflow-y-auto rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">
+                    {addableProjects.length === 0 ? (
+                      <ContextMenuItem disabled>No other projects available</ContextMenuItem>
+                    ) : (
+                      addableProjects.map((project) => (
+                        <ContextMenuItem
+                          key={project.id}
+                          disabled={isMoveBusy}
+                          onSelect={() => {
+                            void withBusyPartMove(job.id, async () => {
+                              await onAssignPartToProject(job.id, project.id);
+                            });
+                          }}
+                        >
+                          {project.name}
+                        </ContextMenuItem>
+                      ))
+                    )}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              ) : null}
+
+              {onRemovePartFromProject && removableProjectIds.length > 0 ? (
+                removableProjectIds.length === 1 ? (
+                  <ContextMenuItem
+                    disabled={isMoveBusy}
+                    onSelect={() => {
+                      void withBusyPartMove(job.id, async () => {
+                        await onRemovePartFromProject(job.id, removableProjectIds[0]!);
+                      });
+                    }}
+                  >
+                    {contextProjectId ? "Remove from this project" : "Remove from project"}
+                  </ContextMenuItem>
+                ) : (
+                  <ContextMenuSub>
+                    <ContextMenuSubTrigger inset>Remove from project</ContextMenuSubTrigger>
+                    <ContextMenuSubContent className="chatgpt-shell max-h-[280px] w-56 overflow-y-auto rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">
+                      {removableProjectIds.map((projectId) => (
+                        <ContextMenuItem
+                          key={projectId}
+                          disabled={isMoveBusy}
+                          onSelect={() => {
+                            void withBusyPartMove(job.id, async () => {
+                              await onRemovePartFromProject(job.id, projectId);
+                            });
+                          }}
+                        >
+                          {projectsById.get(projectId)?.name ?? "Project"}
+                        </ContextMenuItem>
+                      ))}
+                    </ContextMenuSubContent>
+                  </ContextMenuSub>
+                )
+              ) : null}
+
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                disabled={isPinBusy}
+                onSelect={() => {
+                  void togglePartPin(job.id);
+                }}
+              >
+                {isPinned ? "Unpin" : "Pin"}
+              </ContextMenuItem>
+            </>
+          )}
         </ContextMenuContent>
       </ContextMenu>
     );
@@ -637,15 +822,18 @@ export function WorkspaceSidebar({
     const isPinned = pinnedProjectSet.has(project.id);
     const isPinBusy = pendingProjectPinIds.includes(project.id);
     const expanded = isProjectExpanded(project.id);
-    const projectPartCount = projectJobs.length || project.partCount;
 
     return (
       <div key={project.id} className="space-y-1">
         <ContextMenu
           onOpenChange={(open) => {
-            setOpenContextTarget(
-              open ? `project:${project.id}` : (current) => (current === `project:${project.id}` ? null : current),
-            );
+            setOpenContextTarget((current) => {
+              if (open) {
+                return `project:${project.id}`;
+              }
+
+              return current === `project:${project.id}` ? null : current;
+            });
           }}
         >
           <ContextMenuTrigger asChild>
@@ -694,7 +882,7 @@ export function WorkspaceSidebar({
               </div>
               <div className="flex items-center gap-2">
                 <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[11px] text-white/[0.42]">
-                  {projectPartCount}
+                  {projectJobs.length || project.partCount}
                 </span>
                 {isPinned ? <Pin className="h-3.5 w-3.5 fill-current text-white/[0.72]" /> : null}
               </div>
@@ -736,32 +924,12 @@ export function WorkspaceSidebar({
 
         {expanded ? (
           <div className="ml-[14px] space-y-1 border-l border-white/[0.08] pl-3">
-            {projectJobs.map((job) => renderPartRow(job, true))}
+            {projectJobs.map((job) => renderPartRow(job, { contextProjectId: project.id, nestedInProject: true }))}
           </div>
         ) : null}
       </div>
     );
   };
-
-  const visibleProjects = useMemo(
-    () =>
-      sortedProjects.filter((project) => {
-        if (filters.show === "all") {
-          return true;
-        }
-
-        const projectJobs = jobsByProjectId.grouped.get(project.id) ?? [];
-        const hasPinnedJob = projectJobs.some((job) => pinnedPartSet.has(job.id));
-
-        return pinnedProjectSet.has(project.id) || hasPinnedJob;
-      }),
-    [filters.show, jobsByProjectId.grouped, pinnedPartSet, pinnedProjectSet, sortedProjects],
-  );
-
-  const visibleParts = useMemo(
-    () => (filters.show === "relevant" ? sortedJobs(jobs.filter((job) => pinnedPartSet.has(job.id))) : sortedJobs(jobs)),
-    [filters.show, jobs, pinnedPartSet, sortedJobs],
-  );
 
   const noProjectsMessage = filters.show === "relevant" ? "No pinned projects yet." : "No projects yet.";
   const noPartsMessage = filters.show === "relevant" ? "No pinned parts yet." : "No parts yet.";
@@ -776,9 +944,7 @@ export function WorkspaceSidebar({
                 type="button"
                 variant="ghost"
                 className="h-10 w-full justify-start rounded-[10px] bg-transparent px-3 text-white/[0.88] hover:bg-white/[0.06] hover:text-white"
-                onClick={() => {
-                  onCreateJob();
-                }}
+                onClick={onCreateJob}
               >
                 <span className="flex w-5 shrink-0 items-center justify-center">
                   <PlusSquare aria-hidden="true" className="h-4 w-4" />
@@ -792,9 +958,7 @@ export function WorkspaceSidebar({
                 type="button"
                 variant="ghost"
                 className="h-10 w-full justify-start rounded-[10px] bg-transparent px-3 text-white/[0.72] hover:bg-white/[0.06] hover:text-white"
-                onClick={() => {
-                  onSearch();
-                }}
+                onClick={onSearch}
               >
                 <span className="flex w-5 shrink-0 items-center justify-center">
                   <Search aria-hidden="true" className="h-4 w-4" />
@@ -810,29 +974,11 @@ export function WorkspaceSidebar({
             label="Projects"
             expanded={expandedSections.projects}
             onToggle={() => toggleSectionExpanded("projects")}
-            action={
-              onCreateProject ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label="New project"
-                  className="h-8 w-8 rounded-[10px] text-white/[0.54] hover:bg-white/[0.06] hover:text-white"
-                  disabled={!canCreateProject}
-                  onClick={() => {
-                    onCreateProject();
-                  }}
-                >
-                  <FolderPlus className="h-4 w-4" />
-                </Button>
-              ) : null
-            }
           />
-
           {expandedSections.projects ? (
             <div className="space-y-1">
               {visibleProjects.length > 0 ? (
-                visibleProjects.map((project) => renderProjectRow(project, jobsByProjectId.grouped.get(project.id) ?? []))
+                visibleProjects.map((project) => renderProjectRow(project, jobsByProjectId.get(project.id) ?? []))
               ) : (
                 <div className="px-2.5 py-2 text-sm text-white/[0.42]">{noProjectsMessage}</div>
               )}
@@ -846,58 +992,55 @@ export function WorkspaceSidebar({
             expanded={expandedSections.parts}
             onToggle={() => toggleSectionExpanded("parts")}
             action={
-              <div className="flex items-center gap-1">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Filter parts"
-                      className="h-8 w-8 rounded-[10px] text-white/[0.54] hover:bg-white/[0.06] hover:text-white"
-                    >
-                      <ListFilter className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="end"
-                    className="chatgpt-shell w-64 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1.5 text-white"
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Filter parts"
+                    className="h-8 w-8 rounded-[10px] text-white/[0.54] hover:bg-white/[0.06] hover:text-white"
                   >
-                    <SectionTitle>Sort by</SectionTitle>
-                    <FilterOption
-                      icon={<Clock3 className="h-4 w-4" />}
-                      label="Created"
-                      selected={filters.sortBy === "created"}
-                      onSelect={() => persistFilters({ ...filters, sortBy: "created" })}
-                    />
-                    <FilterOption
-                      icon={<PenLine className="h-4 w-4" />}
-                      label="Updated"
-                      selected={filters.sortBy === "updated"}
-                      onSelect={() => persistFilters({ ...filters, sortBy: "updated" })}
-                    />
+                    <ListFilter className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="chatgpt-shell w-64 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1.5 text-white"
+                >
+                  <SectionTitle>Sort by</SectionTitle>
+                  <FilterOption
+                    icon={<Clock3 className="h-4 w-4" />}
+                    label="Created"
+                    selected={filters.sortBy === "created"}
+                    onSelect={() => persistFilters({ ...filters, sortBy: "created" })}
+                  />
+                  <FilterOption
+                    icon={<PenLine className="h-4 w-4" />}
+                    label="Updated"
+                    selected={filters.sortBy === "updated"}
+                    onSelect={() => persistFilters({ ...filters, sortBy: "updated" })}
+                  />
 
-                    <DropdownMenuSeparator className="my-1 bg-white/[0.08]" />
+                  <DropdownMenuSeparator className="my-1 bg-white/[0.08]" />
 
-                    <SectionTitle>Show</SectionTitle>
-                    <FilterOption
-                      icon={<Shapes className="h-4 w-4" />}
-                      label="All parts"
-                      selected={filters.show === "all"}
-                      onSelect={() => persistFilters({ ...filters, show: "all" })}
-                    />
-                    <FilterOption
-                      icon={<Star className="h-4 w-4" />}
-                      label="Pinned"
-                      selected={filters.show === "relevant"}
-                      onSelect={() => persistFilters({ ...filters, show: "relevant" })}
-                    />
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+                  <SectionTitle>Show</SectionTitle>
+                  <FilterOption
+                    icon={<Shapes className="h-4 w-4" />}
+                    label="All parts"
+                    selected={filters.show === "all"}
+                    onSelect={() => persistFilters({ ...filters, show: "all" })}
+                  />
+                  <FilterOption
+                    icon={<Star className="h-4 w-4" />}
+                    label="Pinned"
+                    selected={filters.show === "relevant"}
+                    onSelect={() => persistFilters({ ...filters, show: "relevant" })}
+                  />
+                </DropdownMenuContent>
+              </DropdownMenu>
             }
           />
-
           {expandedSections.parts ? (
             <div className="space-y-1">
               {visibleParts.length > 0 ? (

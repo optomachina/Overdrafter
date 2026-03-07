@@ -114,6 +114,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 import {
   createClientDraft,
+  createJobsFromUploadFiles,
   createProject,
   fetchAccessibleProjects,
   fetchSidebarPins,
@@ -300,6 +301,8 @@ describe("quotes api helpers", () => {
       p_description: "Upload test",
       p_project_id: null,
       p_tags: [],
+      p_requested_quote_quantities: [],
+      p_requested_by_date: null,
     });
     expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_create_job", {
       p_organization_id: "org-123",
@@ -307,6 +310,100 @@ describe("quotes api helpers", () => {
       p_description: "Upload test",
       p_source: "client_home",
       p_tags: [],
+      p_requested_quote_quantities: [],
+      p_requested_by_date: null,
+    });
+  });
+
+  it("passes structured request fields to api_create_client_draft", async () => {
+    supabaseMock.rpc.mockResolvedValue({
+      data: "job-structured-1",
+      error: null,
+    });
+
+    await expect(
+      createClientDraft({
+        title: "Bracket",
+        description: "I need 10 of these by April 15",
+        tags: [],
+        requestedQuoteQuantities: [10],
+        requestedByDate: "2026-04-15",
+      }),
+    ).resolves.toBe("job-structured-1");
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_create_client_draft", {
+      p_title: "Bracket",
+      p_description: "I need 10 of these by April 15",
+      p_project_id: null,
+      p_tags: [],
+      p_requested_quote_quantities: [10],
+      p_requested_by_date: "2026-04-15",
+    });
+  });
+
+  it("creates upload drafts from file stems and reuses parsed request metadata for each upload group", async () => {
+    supabaseMock.storageUpload.mockResolvedValue({ error: null });
+    supabaseMock.rpc.mockImplementation((fn: string) => {
+      if (fn === "api_create_project") {
+        return Promise.resolve({ data: "project-1", error: null });
+      }
+
+      if (fn === "api_create_client_draft") {
+        const jobId = supabaseMock.rpc.mock.calls.filter(([name]) => name === "api_create_client_draft").length;
+        return Promise.resolve({ data: `job-${jobId}`, error: null });
+      }
+
+      if (
+        fn === "api_attach_job_file"
+      ) {
+        return Promise.resolve({ data: {}, error: null });
+      }
+
+      if (fn === "api_reconcile_job_parts") {
+        return Promise.resolve({ data: {}, error: null });
+      }
+
+      if (fn === "api_request_extraction") {
+        return Promise.resolve({ data: 1, error: null });
+      }
+
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    const files = [
+      new File(["a"], "alpha.step", { type: "model/step" }),
+      new File(["b"], "beta.step", { type: "model/step" }),
+    ];
+
+    await expect(
+      createJobsFromUploadFiles({
+        files,
+        prompt: "I need 10 of these by April 15",
+      }),
+    ).resolves.toEqual({
+      jobIds: ["job-1", "job-2"],
+      projectId: "project-1",
+    });
+
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(1, "api_create_project", {
+      p_name: "alpha + 1 parts",
+      p_description: null,
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_create_client_draft", {
+      p_title: "alpha",
+      p_description: "I need 10 of these by April 15",
+      p_project_id: "project-1",
+      p_tags: [],
+      p_requested_quote_quantities: [10],
+      p_requested_by_date: "2026-04-15",
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(6, "api_create_client_draft", {
+      p_title: "beta",
+      p_description: "I need 10 of these by April 15",
+      p_project_id: "project-1",
+      p_tags: [],
+      p_requested_quote_quantities: [10],
+      p_requested_by_date: "2026-04-15",
     });
   });
 

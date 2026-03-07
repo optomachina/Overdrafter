@@ -12,6 +12,7 @@ const mockFetchAccessibleProjects = vi.fn();
 const mockFetchAccessibleJobs = vi.fn();
 const mockFetchUngroupedParts = vi.fn();
 const mockFetchJobPartSummariesByJobIds = vi.fn();
+const mockFetchProjectJobMembershipsByJobIds = vi.fn();
 
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
@@ -38,6 +39,7 @@ vi.mock("@/features/quotes/api", async (importOriginal) => {
     fetchAccessibleJobs: (...args: unknown[]) => mockFetchAccessibleJobs(...args),
     fetchUngroupedParts: (...args: unknown[]) => mockFetchUngroupedParts(...args),
     fetchJobPartSummariesByJobIds: (...args: unknown[]) => mockFetchJobPartSummariesByJobIds(...args),
+    fetchProjectJobMembershipsByJobIds: (...args: unknown[]) => mockFetchProjectJobMembershipsByJobIds(...args),
   };
 });
 
@@ -161,6 +163,7 @@ describe("Index client home", () => {
     mockFetchAccessibleJobs.mockResolvedValue([]);
     mockFetchUngroupedParts.mockResolvedValue([]);
     mockFetchJobPartSummariesByJobIds.mockResolvedValue([]);
+    mockFetchProjectJobMembershipsByJobIds.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -214,8 +217,8 @@ describe("Index client home", () => {
       expect(screen.getAllByRole("button", { name: /qb00001/i }).length).toBeGreaterThan(0);
       expect(screen.getAllByRole("button", { name: /qb00002/i }).length).toBeGreaterThan(0);
       expect(screen.getAllByRole("button", { name: /qb00003/i }).length).toBeGreaterThan(0);
-      expect(screen.getByRole("button", { name: /new project/i })).toBeEnabled();
     });
+    expect(screen.queryByRole("button", { name: /new project/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /open account menu/i })).toBeInTheDocument();
   });
 

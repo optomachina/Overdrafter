@@ -8,6 +8,7 @@ import type {
   ApprovedPartRequirement,
   ClientPackageAggregate,
   ClientDraftInput,
+  DrawingPreviewAssetRecord,
   JobAggregate,
   JobFileRecord,
   JobPartSummary,
@@ -19,7 +20,9 @@ import type {
   PublishedQuotePackageRecord,
   ProjectInviteRecord,
   ProjectInviteSummary,
+  ProjectJobRecord,
   ProjectMembershipRecord,
+  PartDetailAggregate,
   ProjectRecord,
   QuoteRunReadiness,
   SidebarPins,
@@ -51,6 +54,10 @@ import type {
 } from "@/features/quotes/types";
 import { FunctionsHttpError, isAuthError } from "@supabase/supabase-js";
 import type { PostgrestSingleResponse, PostgrestResponse } from "@supabase/supabase-js";
+import { buildAutoProjectName, groupUploadFiles, normalizeUploadStem } from "@/features/quotes/upload-groups";
+import { buildDraftTitleFromPrompt } from "@/features/quotes/file-validation";
+import { normalizeRequestedQuoteQuantities, parseRequestIntake } from "@/features/quotes/request-intake";
+import { getImportedVendorOffers } from "@/features/quotes/utils";
 
 const CAD_EXTENSIONS = new Set([
   "step",
@@ -85,6 +92,8 @@ type ApprovedRequirementJoinRow = {
     part_number: string | null;
     revision: string | null;
     description: string | null;
+    quote_quantities: number[] | null;
+    requested_by_date: string | null;
     spec_snapshot: Json | null;
   } | null;
 };
@@ -94,6 +103,13 @@ type JobFileSummaryRow = {
   normalized_name: string;
   original_name: string;
   file_kind: JobFileKind;
+};
+
+type JobSelectedOfferRow = {
+  id: string;
+  selected_vendor_quote_offer_id: string | null;
+  requested_quote_quantities: number[];
+  requested_by_date: string | null;
 };
 
 function emptyResponse<T>(): Promise<PostgrestResponse<T>> {
@@ -329,6 +345,120 @@ function parsePartReference(value: string | null | undefined): Pick<JobPartSumma
   return null;
 }
 
+function buildJobPartSummary(
+  input: {
+    row: ApprovedRequirementJoinRow;
+    existing: JobPartSummary | undefined;
+    requestedQuoteQuantities: number[];
+    requestedByDate: string | null;
+  },
+): JobPartSummary {
+  const specSnapshot = asObject(input.row.approved_part_requirements?.spec_snapshot);
+  const normalizedQuoteQuantities = normalizeRequestedQuoteQuantities(
+    input.row.approved_part_requirements?.quote_quantities ?? [],
+    input.row.quantity ?? undefined,
+  );
+  const importedBatch =
+    typeof specSnapshot.importedBatch === "string" && specSnapshot.importedBatch.trim().length > 0
+      ? specSnapshot.importedBatch.trim().toUpperCase()
+      : null;
+
+  return {
+    jobId: input.row.job_id,
+    partNumber: input.row.approved_part_requirements?.part_number ?? null,
+    revision: input.row.approved_part_requirements?.revision ?? null,
+    description: input.row.approved_part_requirements?.description ?? null,
+    quantity: input.row.quantity ?? null,
+    requestedQuoteQuantities:
+      normalizedQuoteQuantities.length > 0 ? normalizedQuoteQuantities : input.requestedQuoteQuantities,
+    requestedByDate:
+      input.row.approved_part_requirements?.requested_by_date ?? input.requestedByDate ?? null,
+    importedBatch,
+    selectedSupplier: input.existing?.selectedSupplier ?? null,
+    selectedPriceUsd: input.existing?.selectedPriceUsd ?? null,
+    selectedLeadTimeBusinessDays: input.existing?.selectedLeadTimeBusinessDays ?? null,
+  };
+}
+
+async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
+  if (jobIds.length === 0) {
+    return {
+      selectedOffersByJobId: new Map<string, VendorQuoteOfferRecord>(),
+      requestByJobId: new Map<string, { requestedQuoteQuantities: number[]; requestedByDate: string | null }>(),
+    };
+  }
+
+  const { data: jobsData, error: jobsError } = await supabase
+    .from("jobs")
+    .select("id, selected_vendor_quote_offer_id, requested_quote_quantities, requested_by_date")
+    .in("id", jobIds);
+
+  const jobsWithSelection = ensureData(jobsData, jobsError) as JobSelectedOfferRow[];
+  const offerIds = jobsWithSelection
+    .map((job) => job.selected_vendor_quote_offer_id)
+    .filter((value): value is string => Boolean(value));
+
+  if (offerIds.length === 0) {
+    return {
+      selectedOffersByJobId: new Map<string, VendorQuoteOfferRecord>(),
+      requestByJobId: new Map(
+        jobsWithSelection.map((job) => [
+          job.id,
+          {
+            requestedQuoteQuantities: normalizeRequestedQuoteQuantities(job.requested_quote_quantities ?? []),
+            requestedByDate: job.requested_by_date ?? null,
+          },
+        ]),
+      ),
+    };
+  }
+
+  const { data: offersData, error: offersError } = await supabase
+    .from("vendor_quote_offers")
+    .select("*")
+    .in("id", offerIds);
+
+  const offers = ensureData(offersData, offersError) as VendorQuoteOfferRecord[];
+  const offersById = new Map(offers.map((offer) => [offer.id, offer]));
+
+  return {
+    selectedOffersByJobId: new Map(
+      jobsWithSelection.flatMap((job) => {
+        if (!job.selected_vendor_quote_offer_id) {
+          return [];
+        }
+
+        const offer = offersById.get(job.selected_vendor_quote_offer_id);
+        return offer ? [[job.id, offer] as const] : [];
+      }),
+    ),
+    requestByJobId: new Map(
+      jobsWithSelection.map((job) => [
+        job.id,
+        {
+          requestedQuoteQuantities: normalizeRequestedQuoteQuantities(job.requested_quote_quantities ?? []),
+          requestedByDate: job.requested_by_date ?? null,
+        },
+      ]),
+    ),
+  };
+}
+
+export async function fetchProjectJobMembershipsByJobIds(jobIds: string[]): Promise<ProjectJobRecord[]> {
+  if (jobIds.length === 0 || isProjectCollaborationSchemaUnavailable()) {
+    return [];
+  }
+
+  const { data, error } = await supabase.from("project_jobs").select("*").in("job_id", jobIds);
+
+  if (isMissingProjectCollaborationSchemaError(error)) {
+    markProjectCollaborationSchemaAvailability("unavailable");
+    return [];
+  }
+
+  return ensureData(data, error) as ProjectJobRecord[];
+}
+
 export async function fetchAppSessionData(): Promise<AppSessionData> {
   const {
     data: { user },
@@ -395,10 +525,12 @@ export async function fetchJobsByOrganization(organizationId: string): Promise<J
 export async function fetchJobPartSummariesByOrganization(
   organizationId: string,
 ): Promise<JobPartSummary[]> {
-  const [partsResult, filesResult] = await Promise.all([
+  const [partsResult, filesResult, jobsResult] = await Promise.all([
     supabase
       .from("parts")
-      .select("job_id, quantity, approved_part_requirements(part_number, revision, description, spec_snapshot)")
+      .select(
+        "job_id, quantity, approved_part_requirements(part_number, revision, description, quote_quantities, requested_by_date, spec_snapshot)",
+      )
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: true }),
     supabase
@@ -406,6 +538,10 @@ export async function fetchJobPartSummariesByOrganization(
       .select("job_id, normalized_name, original_name, file_kind")
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: true }),
+    supabase
+      .from("jobs")
+      .select("id, selected_vendor_quote_offer_id, requested_quote_quantities, requested_by_date")
+      .eq("organization_id", organizationId),
   ]);
 
   const approvedRequirements = ensureData(
@@ -413,23 +549,27 @@ export async function fetchJobPartSummariesByOrganization(
     partsResult.error,
   );
   const fileRows = ensureData(filesResult.data as unknown as JobFileSummaryRow[] | null, filesResult.error);
+  const jobs = ensureData(jobsResult.data, jobsResult.error) as JobSelectedOfferRow[];
+  const { selectedOffersByJobId, requestByJobId } = await fetchJobSelectionStateByJobIds(jobs.map((job) => job.id));
 
   const summariesByJobId = new Map<string, JobPartSummary>();
 
   for (const row of approvedRequirements) {
-    const specSnapshot = asObject(row.approved_part_requirements?.spec_snapshot);
-    const importedBatch =
-      typeof specSnapshot.importedBatch === "string" && specSnapshot.importedBatch.trim().length > 0
-        ? specSnapshot.importedBatch.trim().toUpperCase()
-        : null;
-
+    const selectedOffer = selectedOffersByJobId.get(row.job_id) ?? null;
+    const requestDefaults = requestByJobId.get(row.job_id) ?? {
+      requestedQuoteQuantities: [],
+      requestedByDate: null,
+    };
     summariesByJobId.set(row.job_id, {
-      jobId: row.job_id,
-      partNumber: row.approved_part_requirements?.part_number ?? null,
-      revision: row.approved_part_requirements?.revision ?? null,
-      description: row.approved_part_requirements?.description ?? null,
-      quantity: row.quantity ?? null,
-      importedBatch,
+      ...buildJobPartSummary({
+        row,
+        existing: summariesByJobId.get(row.job_id),
+        requestedQuoteQuantities: requestDefaults.requestedQuoteQuantities,
+        requestedByDate: requestDefaults.requestedByDate,
+      }),
+      selectedSupplier: selectedOffer?.supplier ?? null,
+      selectedPriceUsd: selectedOffer?.unit_price_usd ?? null,
+      selectedLeadTimeBusinessDays: selectedOffer?.lead_time_business_days ?? null,
     });
   }
 
@@ -453,7 +593,12 @@ export async function fetchJobPartSummariesByOrganization(
       revision: parsedReference?.revision ?? existingSummary?.revision ?? null,
       description: existingSummary?.description ?? null,
       quantity: existingSummary?.quantity ?? null,
+      requestedQuoteQuantities: existingSummary?.requestedQuoteQuantities ?? requestByJobId.get(row.job_id)?.requestedQuoteQuantities ?? [],
+      requestedByDate: existingSummary?.requestedByDate ?? requestByJobId.get(row.job_id)?.requestedByDate ?? null,
       importedBatch: existingSummary?.importedBatch ?? null,
+      selectedSupplier: existingSummary?.selectedSupplier ?? null,
+      selectedPriceUsd: existingSummary?.selectedPriceUsd ?? null,
+      selectedLeadTimeBusinessDays: existingSummary?.selectedLeadTimeBusinessDays ?? null,
     });
   }
 
@@ -465,10 +610,12 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
     return [];
   }
 
-  const [partsResult, filesResult] = await Promise.all([
+  const [partsResult, filesResult, jobSelectionState] = await Promise.all([
     supabase
       .from("parts")
-      .select("job_id, quantity, approved_part_requirements(part_number, revision, description, spec_snapshot)")
+      .select(
+        "job_id, quantity, approved_part_requirements(part_number, revision, description, quote_quantities, requested_by_date, spec_snapshot)",
+      )
       .in("job_id", jobIds)
       .order("created_at", { ascending: true }),
     supabase
@@ -476,6 +623,7 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
       .select("job_id, normalized_name, original_name, file_kind")
       .in("job_id", jobIds)
       .order("created_at", { ascending: true }),
+    fetchJobSelectionStateByJobIds(jobIds),
   ]);
 
   const approvedRequirements = ensureData(
@@ -483,22 +631,25 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
     partsResult.error,
   );
   const fileRows = ensureData(filesResult.data as unknown as JobFileSummaryRow[] | null, filesResult.error);
+  const { selectedOffersByJobId, requestByJobId } = jobSelectionState;
   const summariesByJobId = new Map<string, JobPartSummary>();
 
   for (const row of approvedRequirements) {
-    const specSnapshot = asObject(row.approved_part_requirements?.spec_snapshot);
-    const importedBatch =
-      typeof specSnapshot.importedBatch === "string" && specSnapshot.importedBatch.trim().length > 0
-        ? specSnapshot.importedBatch.trim().toUpperCase()
-        : null;
-
+    const selectedOffer = selectedOffersByJobId.get(row.job_id) ?? null;
+    const requestDefaults = requestByJobId.get(row.job_id) ?? {
+      requestedQuoteQuantities: [],
+      requestedByDate: null,
+    };
     summariesByJobId.set(row.job_id, {
-      jobId: row.job_id,
-      partNumber: row.approved_part_requirements?.part_number ?? null,
-      revision: row.approved_part_requirements?.revision ?? null,
-      description: row.approved_part_requirements?.description ?? null,
-      quantity: row.quantity ?? null,
-      importedBatch,
+      ...buildJobPartSummary({
+        row,
+        existing: summariesByJobId.get(row.job_id),
+        requestedQuoteQuantities: requestDefaults.requestedQuoteQuantities,
+        requestedByDate: requestDefaults.requestedByDate,
+      }),
+      selectedSupplier: selectedOffer?.supplier ?? null,
+      selectedPriceUsd: selectedOffer?.unit_price_usd ?? null,
+      selectedLeadTimeBusinessDays: selectedOffer?.lead_time_business_days ?? null,
     });
   }
 
@@ -522,7 +673,12 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
       revision: parsedReference?.revision ?? existingSummary?.revision ?? null,
       description: existingSummary?.description ?? null,
       quantity: existingSummary?.quantity ?? null,
+      requestedQuoteQuantities: existingSummary?.requestedQuoteQuantities ?? requestByJobId.get(row.job_id)?.requestedQuoteQuantities ?? [],
+      requestedByDate: existingSummary?.requestedByDate ?? requestByJobId.get(row.job_id)?.requestedByDate ?? null,
       importedBatch: existingSummary?.importedBatch ?? null,
+      selectedSupplier: existingSummary?.selectedSupplier ?? null,
+      selectedPriceUsd: existingSummary?.selectedPriceUsd ?? null,
+      selectedLeadTimeBusinessDays: existingSummary?.selectedLeadTimeBusinessDays ?? null,
     });
   }
 
@@ -688,7 +844,24 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
 
         return (left.total_price_usd ?? Number.MAX_SAFE_INTEGER) - (right.total_price_usd ?? Number.MAX_SAFE_INTEGER);
       }),
-  }));
+  })).sort((left, right) => {
+    if (left.requested_quantity !== right.requested_quantity) {
+      return left.requested_quantity - right.requested_quantity;
+    }
+
+    if (left.part_id !== right.part_id) {
+      return left.part_id.localeCompare(right.part_id);
+    }
+
+    return left.vendor.localeCompare(right.vendor);
+  });
+  const sortedOptions = [...options].sort((left, right) => {
+    if (left.requested_quantity !== right.requested_quantity) {
+      return left.requested_quantity - right.requested_quantity;
+    }
+
+    return left.created_at.localeCompare(right.created_at);
+  });
 
   const partsWithRelations = parts.map((part) => ({
     ...part,
@@ -706,7 +879,7 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
 
   const packagesWithOptions: PublishedPackageAggregate[] = packages.map((pkg) => ({
     ...pkg,
-    options: options.filter((option) => option.package_id === pkg.id),
+    options: sortedOptions.filter((option) => option.package_id === pkg.id),
     selections: selections.filter((selection) => selection.package_id === pkg.id),
   }));
 
@@ -736,6 +909,7 @@ export async function fetchClientPackage(packageId: string): Promise<ClientPacka
       .from("published_quote_options")
       .select("*")
       .eq("package_id", packageId)
+      .order("requested_quantity", { ascending: true })
       .order("created_at", { ascending: true }),
     supabase
       .from("client_selections")
@@ -819,7 +993,7 @@ export async function fetchAccessibleProjects(): Promise<AccessibleProjectSummar
   }
 
   const projectIds = projects.map((project) => project.id);
-  const [membershipsResult, invitesResult, jobs] = await Promise.all([
+  const [membershipsResult, invitesResult, projectJobsResult] = await Promise.all([
     supabase
       .from("project_memberships")
       .select("*")
@@ -830,7 +1004,7 @@ export async function fetchAccessibleProjects(): Promise<AccessibleProjectSummar
       .select("*")
       .in("project_id", projectIds)
       .order("created_at", { ascending: false }),
-    fetchAllAccessibleJobs(),
+    supabase.from("project_jobs").select("*").in("project_id", projectIds),
   ]);
 
   if (
@@ -843,13 +1017,14 @@ export async function fetchAccessibleProjects(): Promise<AccessibleProjectSummar
 
   const memberships = ensureData(membershipsResult.data, membershipsResult.error) as ProjectMembershipRecord[];
   const invites = ensureData(invitesResult.data, invitesResult.error) as ProjectInviteRecord[];
+  const projectJobs = ensureData(projectJobsResult.data, projectJobsResult.error) as ProjectJobRecord[];
 
   markProjectCollaborationSchemaAvailability("available");
 
   return projects.map((project) => {
     const projectMemberships = memberships.filter((membership) => membership.project_id === project.id);
     const currentMembership = projectMemberships.find((membership) => membership.user_id === currentUser.id);
-    const partCount = jobs.filter((job) => job.project_id === project.id).length;
+    const partCount = projectJobs.filter((projectJob) => projectJob.project_id === project.id).length;
     const inviteCount = invites.filter(
       (invite) => invite.project_id === project.id && invite.status === "pending",
     ).length;
@@ -1036,10 +1211,25 @@ export async function fetchProjectInvites(projectId: string): Promise<ProjectInv
 }
 
 export async function fetchJobsByProject(projectId: string): Promise<JobRecord[]> {
+  const { data: membershipRows, error: membershipError } = await supabase
+    .from("project_jobs")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true });
+
+  const memberships = ensureData(membershipRows, membershipError) as ProjectJobRecord[];
+
+  if (memberships.length === 0) {
+    return [];
+  }
+
   const { data, error } = await supabase
     .from("jobs")
     .select("*")
-    .eq("project_id", projectId)
+    .in(
+      "id",
+      memberships.map((membership) => membership.job_id),
+    )
     .order("created_at", { ascending: false });
 
   return ensureData(data, error);
@@ -1074,24 +1264,44 @@ export async function searchAccessibleParts(query: string): Promise<JobRecord[]>
   );
 }
 
-export async function fetchPartDetail(jobId: string): Promise<{
-  job: JobRecord;
-  files: JobFileRecord[];
-  summary: JobPartSummary | null;
-  packages: PublishedQuotePackageRecord[];
-}> {
-  const [jobResult, filesResult, partSummaries, packages] = await Promise.all([
-    supabase.from("jobs").select("*").eq("id", jobId).single(),
-    supabase.from("job_files").select("*").eq("job_id", jobId).order("created_at", { ascending: true }),
+export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregate> {
+  const [jobAggregate, partSummaries, projectMemberships] = await Promise.all([
+    fetchJobAggregate(jobId),
     fetchJobPartSummariesByJobIds([jobId]),
-    fetchPublishedPackagesByJobIds([jobId]),
+    fetchProjectJobMembershipsByJobIds([jobId]),
   ]);
 
+  const part = jobAggregate.parts[0] ?? null;
+  const previewAssets =
+    part !== null
+      ? ((await supabase.from("drawing_preview_assets").select("*").eq("part_id", part.id).order("page_number", {
+          ascending: true,
+        })).data as DrawingPreviewAssetRecord[] | null) ?? []
+      : [];
+
+  const summary = partSummaries[0] ?? null;
+  const allSummaries = await fetchJobPartSummariesByOrganization(jobAggregate.job.organization_id);
+  const revisionSiblings =
+    summary?.partNumber
+      ? allSummaries
+          .filter((candidate) => candidate.partNumber === summary.partNumber && candidate.jobId !== jobId)
+          .map((candidate) => ({
+            jobId: candidate.jobId,
+            revision: candidate.revision,
+            title: `${candidate.partNumber}${candidate.revision ? ` rev ${candidate.revision}` : ""}`,
+          }))
+          .sort((left, right) => (left.revision ?? "").localeCompare(right.revision ?? ""))
+      : [];
+
   return {
-    job: ensureData(jobResult.data, jobResult.error) as JobRecord,
-    files: ensureData(filesResult.data, filesResult.error) as JobFileRecord[],
-    summary: partSummaries[0] ?? null,
-    packages,
+    job: jobAggregate.job,
+    files: jobAggregate.files,
+    summary,
+    packages: jobAggregate.packages.map((pkg) => pkg as PublishedQuotePackageRecord),
+    part,
+    projectIds: projectMemberships.map((membership) => membership.project_id),
+    previewAssets,
+    revisionSiblings,
   };
 }
 
@@ -1224,6 +1434,8 @@ export async function createClientDraft(input: ClientDraftInput): Promise<string
     p_description: input.description ?? null,
     p_project_id: input.projectId ?? null,
     p_tags: input.tags ?? [],
+    p_requested_quote_quantities: input.requestedQuoteQuantities ?? [],
+    p_requested_by_date: input.requestedByDate ?? null,
   });
 
   if (!error) {
@@ -1248,10 +1460,54 @@ export async function createClientDraft(input: ClientDraftInput): Promise<string
       description: input.description,
       source: "client_home",
       tags: input.tags,
+      requestedQuoteQuantities: input.requestedQuoteQuantities,
+      requestedByDate: input.requestedByDate,
     });
   }
 
   throw error;
+}
+
+export async function createJobsFromUploadFiles(input: {
+  files: File[];
+  prompt?: string;
+  projectId?: string | null;
+}): Promise<{ jobIds: string[]; projectId: string | null }> {
+  const groups = groupUploadFiles(input.files);
+  const requestIntake = parseRequestIntake(input.prompt ?? "");
+
+  if (groups.length === 0) {
+    return { jobIds: [], projectId: input.projectId ?? null };
+  }
+
+  let targetProjectId = input.projectId ?? null;
+
+  if (!targetProjectId && groups.length > 1) {
+    targetProjectId = await createProject({
+      name: buildAutoProjectName(input.prompt ?? "", groups),
+    });
+  }
+
+  const jobIds: string[] = [];
+
+  for (const group of groups) {
+    const title = buildDraftTitleFromPrompt("", group.files);
+    const jobId = await createClientDraft({
+      title,
+      description: input.prompt?.trim() || undefined,
+      projectId: targetProjectId,
+      tags: [],
+      requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
+      requestedByDate: requestIntake.requestedByDate,
+    });
+
+    await uploadFilesToJob(jobId, group.files);
+    await reconcileJobParts(jobId);
+    await requestExtraction(jobId);
+    jobIds.push(jobId);
+  }
+
+  return { jobIds, projectId: targetProjectId };
 }
 
 export async function assignJobToProject(input: {
@@ -1266,12 +1522,22 @@ export async function assignJobToProject(input: {
   return ensureProjectCollaborationData(data, error);
 }
 
-export async function removeJobFromProject(jobId: string): Promise<string> {
+export async function removeJobFromProject(jobId: string, projectId: string): Promise<string> {
   const { data, error } = await supabase.rpc("api_remove_job_from_project", {
     p_job_id: jobId,
+    p_project_id: projectId,
   });
 
   return ensureProjectCollaborationData(data, error);
+}
+
+export async function setJobSelectedVendorQuoteOffer(jobId: string, offerId: string): Promise<string> {
+  const { data, error } = await supabase.rpc("api_set_job_selected_vendor_quote_offer", {
+    p_job_id: jobId,
+    p_vendor_quote_offer_id: offerId,
+  });
+
+  return ensureData(data, error);
 }
 
 export async function requestPasswordReset(email: string): Promise<void> {
@@ -1314,6 +1580,8 @@ export async function createJob(input: {
   description?: string;
   source: string;
   tags?: string[];
+  requestedQuoteQuantities?: number[];
+  requestedByDate?: string | null;
 }): Promise<string> {
   const { data, error } = await supabase.rpc("api_create_job", {
     p_organization_id: input.organizationId,
@@ -1321,6 +1589,8 @@ export async function createJob(input: {
     p_description: input.description ?? null,
     p_source: input.source,
     p_tags: input.tags ?? [],
+    p_requested_quote_quantities: input.requestedQuoteQuantities ?? [],
+    p_requested_by_date: input.requestedByDate ?? null,
   });
 
   return ensureData(data, error);

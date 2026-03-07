@@ -41,6 +41,7 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
   return {
     organizationId: "org-1",
     quoteRunId: "run-1",
+    requestedQuantity: 2,
     part: {
       id: "part-1",
       job_id: "job-1",
@@ -65,6 +66,8 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
       finish: null,
       tightest_tolerance_inch: 0.0025,
       quantity: 2,
+      quote_quantities: [2],
+      requested_by_date: null,
       applicable_vendors: ["xometry"],
     },
     ...overrides,
@@ -84,6 +87,7 @@ describe("VendorAdapter.simulatedBaseAmount", () => {
     expect(
       adapter.getSimulatedBaseAmount(
         makeInput({
+          requestedQuantity: 0,
           part: {
             id: "part-2",
             job_id: "job-1",
@@ -104,6 +108,8 @@ describe("VendorAdapter.simulatedBaseAmount", () => {
             finish: null,
             tightest_tolerance_inch: 0.004,
             quantity: 0,
+            quote_quantities: [3],
+            requested_by_date: null,
             applicable_vendors: ["fictiv"],
           },
         }),

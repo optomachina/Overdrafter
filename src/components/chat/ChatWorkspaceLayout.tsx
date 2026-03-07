@@ -249,14 +249,14 @@ function SidebarScaffold({
 }) {
   return (
     <div className="chatgpt-shell flex h-full flex-col bg-[#171717] text-white">
-      <div className="flex items-center justify-between gap-3 px-3 py-3">
+      <div className="flex items-center justify-between gap-3 pb-3 pl-[18px] pr-2.5 pt-3">
         {onLogoClick ? (
           <button
             type="button"
             onClick={onLogoClick}
             className="flex min-w-0 items-center gap-2.5 text-left transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
           >
-            <div className="grid h-8 w-8 place-items-center rounded-xl bg-white/[0.03]">
+            <div className="grid h-10 w-10 place-items-center rounded-[10px] bg-white/[0.03]">
               <img src={logo} alt="OverDrafter logo" className="h-6 w-6 object-contain" />
             </div>
             <div className="min-w-0">
@@ -266,7 +266,7 @@ function SidebarScaffold({
           </button>
         ) : (
           <div className="flex min-w-0 items-center gap-2.5">
-            <div className="grid h-8 w-8 place-items-center rounded-xl bg-white/[0.03]">
+            <div className="grid h-10 w-10 place-items-center rounded-[10px] bg-white/[0.03]">
               <img src={logo} alt="OverDrafter logo" className="h-6 w-6 object-contain" />
             </div>
             <div className="min-w-0">

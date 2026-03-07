@@ -8,7 +8,7 @@ export class ProtolabsAdapter extends VendorAdapter {
     return {
       vendor: "protolabs",
       status: "official_quote_received",
-      unitPriceUsd: Math.round((total / input.requirement.quantity) * 100) / 100,
+      unitPriceUsd: Math.round((total / Math.max(1, input.requestedQuantity)) * 100) / 100,
       totalPriceUsd: total,
       leadTimeBusinessDays: 4,
       quoteUrl:
@@ -23,6 +23,7 @@ export class ProtolabsAdapter extends VendorAdapter {
       rawPayload: {
         mode: this.config.workerMode,
         source: "protolabs-adapter",
+        requestedQuantity: input.requestedQuantity,
       },
     };
   }

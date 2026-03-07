@@ -36,7 +36,7 @@ export class FictivAdapter extends VendorAdapter {
     return {
       vendor: "fictiv",
       status: "instant_quote_received",
-      unitPriceUsd: Math.round((total / input.requirement.quantity) * 100) / 100,
+      unitPriceUsd: Math.round((total / Math.max(1, input.requestedQuantity)) * 100) / 100,
       totalPriceUsd: total,
       leadTimeBusinessDays: 7,
       quoteUrl:
@@ -49,6 +49,7 @@ export class FictivAdapter extends VendorAdapter {
       rawPayload: {
         mode: this.config.workerMode,
         source: "fictiv-adapter",
+        requestedQuantity: input.requestedQuantity,
       },
     };
   }
