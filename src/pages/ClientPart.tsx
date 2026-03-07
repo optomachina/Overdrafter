@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { FolderInput, Loader2, MoveRight, XCircle } from "lucide-react";
+import { FolderInput, Loader2, MoveRight, PlusSquare, Search, XCircle } from "lucide-react";
 import { toast } from "sonner";
+import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
+import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import {
   WorkspaceSidebar,
@@ -29,6 +31,7 @@ import {
   fetchJobPartSummariesByJobIds,
   fetchPartDetail,
   fetchSidebarPins,
+  isProjectCollaborationSchemaUnavailable,
   pinJob,
   pinProject,
   removeJobFromProject,
@@ -45,10 +48,11 @@ const ClientPart = () => {
   const { jobId = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, signOut } = useAppSession();
+  const { user, activeMembership, signOut } = useAppSession();
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [createProjectName, setCreateProjectName] = useState("");
   const [showMoveDialog, setShowMoveDialog] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const normalizedEmail = user?.email?.toLowerCase() ?? "";
   const isDmriflesWorkspace = normalizedEmail === DMRIFLES_EMAIL;
 
@@ -67,6 +71,8 @@ const ClientPart = () => {
     queryFn: fetchSidebarPins,
     enabled: Boolean(user),
   });
+  const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+  const canCreateProjects = !projectCollaborationUnavailable && !accessibleProjectsQuery.isLoading;
   const accessibleJobIds = useMemo(
     () => (accessibleJobsQuery.data ?? []).map((job) => job.id),
     [accessibleJobsQuery.data],
@@ -286,6 +292,15 @@ const ClientPart = () => {
   };
 
   useEffect(() => {
+    if (canCreateProjects) {
+      return;
+    }
+
+    setShowCreateProject(false);
+    setShowMoveDialog(false);
+  }, [canCreateProjects]);
+
+  useEffect(() => {
     if (!user) {
       navigate("/?auth=signin", { replace: true });
     }
@@ -305,12 +320,20 @@ const ClientPart = () => {
   return (
     <>
       <ChatWorkspaceLayout
+        onLogoClick={() => navigate("/")}
+        sidebarRailActions={[
+          { label: "New Job", icon: PlusSquare, onClick: () => navigate("/jobs/new") },
+          { label: "Search", icon: Search, onClick: () => setIsSearchOpen(true) },
+        ]}
         sidebarContent={
           <WorkspaceSidebar
             projects={sidebarProjects}
             jobs={accessibleJobsQuery.data ?? []}
             summariesByJobId={summariesByJobId}
             activeJobId={jobId}
+            onCreateJob={() => navigate("/jobs/new")}
+            onSearch={() => setIsSearchOpen(true)}
+            canCreateProject={canCreateProjects}
             onCreateProject={() => setShowCreateProject(true)}
             storageScopeKey={user.id}
             pinnedProjectIds={sidebarPinsQuery.data?.projectIds ?? []}
@@ -329,23 +352,12 @@ const ClientPart = () => {
           />
         }
         sidebarFooter={
-          <div className="space-y-3">
-            <div>
-              <p className="truncate text-sm font-medium text-white">{user.email}</p>
-              <p className="text-xs text-white/45">Your parts and shared projects</p>
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-10 w-full rounded-full border border-white/10 bg-transparent text-white/80 hover:bg-white/6 hover:text-white"
-              onClick={async () => {
-                await signOut();
-                navigate("/", { replace: true });
-              }}
-            >
-              Sign out
-            </Button>
-          </div>
+          <WorkspaceAccountMenu
+            user={user}
+            activeMembership={activeMembership}
+            onSignOut={signOut}
+            onSignedOut={() => navigate("/", { replace: true })}
+          />
         }
       >
         <div className="mx-auto flex w-full max-w-[1280px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
@@ -399,7 +411,7 @@ const ClientPart = () => {
                     </Button>
                   ) : null}
 
-                  {!isDmriflesWorkspace ? (
+                  {!isDmriflesWorkspace && !projectCollaborationUnavailable ? (
                     <Button
                       type="button"
                       variant="outline"
@@ -411,7 +423,7 @@ const ClientPart = () => {
                     </Button>
                   ) : null}
 
-                  {partDetail.job.project_id && !isDmriflesWorkspace ? (
+                  {partDetail.job.project_id && !isDmriflesWorkspace && !projectCollaborationUnavailable ? (
                     <Button
                       type="button"
                       variant="outline"
@@ -511,6 +523,16 @@ const ClientPart = () => {
           )}
         </div>
       </ChatWorkspaceLayout>
+
+      <SearchPartsDialog
+        open={isSearchOpen}
+        onOpenChange={setIsSearchOpen}
+        projects={sidebarProjects}
+        jobs={accessibleJobsQuery.data ?? []}
+        summariesByJobId={summariesByJobId}
+        onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
+        onSelectPart={(partId) => navigate(`/parts/${partId}`)}
+      />
 
       <ProjectNameDialog
         open={showCreateProject}

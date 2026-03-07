@@ -72,6 +72,12 @@ All colors MUST be HSL.
 }
 
 @layer utilities {
+  .chatgpt-shell {
+    font-family:
+      ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif,
+      "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  }
+
   /* Glass morphism for header blur */
   .glass-header {
     @apply bg-background/80 backdrop-blur-lg;

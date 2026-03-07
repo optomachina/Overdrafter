@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { FolderPlus, Loader2, Pencil, Trash2, Users } from "lucide-react";
+import { FolderPlus, Loader2, Pencil, PlusSquare, Search as SearchIcon, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
+import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
 import { ProjectMembersDialog } from "@/components/chat/ProjectMembersDialog";
 import { PromptComposer } from "@/components/chat/PromptComposer";
+import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import {
   WorkspaceSidebar,
@@ -37,6 +39,7 @@ import {
   fetchProjectMemberships,
   fetchSidebarPins,
   inviteProjectMember,
+  isProjectCollaborationSchemaUnavailable,
   pinJob,
   pinProject,
   reconcileJobParts,
@@ -81,7 +84,7 @@ const ClientProject = () => {
   const { projectId = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, signOut } = useAppSession();
+  const { user, activeMembership, signOut } = useAppSession();
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<JobFilter>("all");
   const [focusedJobId, setFocusedJobId] = useState<string | null>(null);
@@ -90,6 +93,7 @@ const ClientProject = () => {
   const [showRename, setShowRename] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [createProjectName, setCreateProjectName] = useState("");
   const normalizedEmail = user?.email?.toLowerCase() ?? "";
@@ -111,6 +115,10 @@ const ClientProject = () => {
     queryFn: fetchSidebarPins,
     enabled: Boolean(user),
   });
+  const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+  const canCreateProjects = !projectCollaborationUnavailable && !accessibleProjectsQuery.isLoading;
+  const canLoadRemoteProjectData =
+    Boolean(user) && !isSeededProject && !accessibleProjectsQuery.isLoading && !projectCollaborationUnavailable;
 
   const accessibleJobIds = useMemo(
     () => (accessibleJobsQuery.data ?? []).map((job) => job.id),
@@ -125,22 +133,22 @@ const ClientProject = () => {
   const projectQuery = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => fetchProject(projectId),
-    enabled: Boolean(user) && !isSeededProject,
+    enabled: canLoadRemoteProjectData,
   });
   const projectJobsQuery = useQuery({
     queryKey: ["project-jobs", projectId],
     queryFn: () => fetchJobsByProject(projectId),
-    enabled: Boolean(user) && !isSeededProject,
+    enabled: canLoadRemoteProjectData,
   });
   const projectMembershipsQuery = useQuery({
     queryKey: ["project-memberships", projectId],
     queryFn: () => fetchProjectMemberships(projectId),
-    enabled: Boolean(user) && showMembers && !isSeededProject,
+    enabled: canLoadRemoteProjectData && showMembers,
   });
   const projectInvitesQuery = useQuery({
     queryKey: ["project-invites", projectId],
     queryFn: () => fetchProjectInvites(projectId),
-    enabled: Boolean(user) && showMembers && !isSeededProject,
+    enabled: canLoadRemoteProjectData && showMembers,
   });
 
   const summariesByJobId = useMemo(
@@ -407,6 +415,14 @@ const ClientProject = () => {
   };
 
   useEffect(() => {
+    if (canCreateProjects) {
+      return;
+    }
+
+    setShowCreateProject(false);
+  }, [canCreateProjects]);
+
+  useEffect(() => {
     if (projectQuery.data) {
       setProjectName(projectQuery.data.name);
     }
@@ -425,12 +441,20 @@ const ClientProject = () => {
   return (
     <>
       <ChatWorkspaceLayout
+        onLogoClick={() => navigate("/")}
+        sidebarRailActions={[
+          { label: "New Job", icon: PlusSquare, onClick: () => navigate("/jobs/new") },
+          { label: "Search", icon: SearchIcon, onClick: () => setIsSearchOpen(true) },
+        ]}
         sidebarContent={
           <WorkspaceSidebar
             projects={sidebarProjects}
             jobs={accessibleJobsQuery.data ?? []}
             summariesByJobId={summariesByJobId}
             activeProjectId={projectId}
+            onCreateJob={() => navigate("/jobs/new")}
+            onSearch={() => setIsSearchOpen(true)}
+            canCreateProject={canCreateProjects}
             onCreateProject={() => setShowCreateProject(true)}
             storageScopeKey={user?.id}
             pinnedProjectIds={sidebarPinsQuery.data?.projectIds ?? []}
@@ -449,23 +473,12 @@ const ClientProject = () => {
           />
         }
         sidebarFooter={
-          <div className="space-y-3">
-            <div>
-              <p className="truncate text-sm font-medium text-white">{user?.email}</p>
-              <p className="text-xs text-white/45">Shared project workspace</p>
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-10 w-full rounded-full border border-white/10 bg-transparent text-white/80 hover:bg-white/6 hover:text-white"
-              onClick={async () => {
-                await signOut();
-                navigate("/", { replace: true });
-              }}
-            >
-              Sign out
-            </Button>
-          </div>
+          <WorkspaceAccountMenu
+            user={user}
+            activeMembership={activeMembership}
+            onSignOut={signOut}
+            onSignedOut={() => navigate("/", { replace: true })}
+          />
         }
       >
         <div className="mx-auto flex w-full max-w-[1280px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
@@ -483,7 +496,7 @@ const ClientProject = () => {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {!isSeededProject ? (
+              {!isSeededProject && !projectCollaborationUnavailable ? (
                 <Button
                   type="button"
                   className="rounded-full"
@@ -632,6 +645,16 @@ const ClientProject = () => {
           </div>
         </div>
       </ChatWorkspaceLayout>
+
+      <SearchPartsDialog
+        open={isSearchOpen}
+        onOpenChange={setIsSearchOpen}
+        projects={sidebarProjects}
+        jobs={accessibleJobsQuery.data ?? []}
+        summariesByJobId={summariesByJobId}
+        onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
+        onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+      />
 
       <ProjectNameDialog
         open={showCreateProject}

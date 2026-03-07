@@ -62,7 +62,7 @@ For internal estimators:
 
 ### Client user
 
-- Owns a hidden workspace backed by an organization membership
+- Owns or belongs to a hidden workspace
 - Creates parts/drafts
 - Uploads CAD/drawing files
 - Organizes parts into projects
@@ -81,8 +81,8 @@ For internal estimators:
 ### Internal admin
 
 - Has estimator capabilities
-- Can manage organization membership roles
-- Must retain at least one admin per organization
+- Can manage workspace access and role assignments
+- Must retain at least one admin per workspace
 
 ### Project collaborator
 
@@ -98,7 +98,7 @@ For internal estimators:
 - Preserve a strong internal review checkpoint before quoting/publishing
 - Centralize vendor comparison in one canonical job record
 - Provide a clean client experience for collaboration and selection
-- Maintain secure access boundaries between organizations, projects, and internal-only data
+- Maintain secure access boundaries between workspaces, projects, and internal-only data
 
 ### Secondary goals
 
@@ -129,6 +129,8 @@ These may be future opportunities, but they are not core to the current product.
 - All state transitions that matter operationally should be modeled in the database
 - Automation failures must fail closed and remain reviewable
 - Internal-only sourcing data must never leak into the client package surface
+- The product should expose `workspace` as the tenancy concept; `organization` and `organization membership` should remain backend implementation details
+- The product should assume one workspace per user/company in v1 and avoid premature multi-workspace UX
 
 ## 8. Core product flows
 
@@ -136,15 +138,16 @@ These may be future opportunities, but they are not core to the current product.
 
 Observed behavior:
 
-- A signed-in, verified user with no membership is automatically bootstrapped into an organization
+- A signed-in, verified user with no workspace access is automatically bootstrapped into a workspace
 - Most users become `client`
 - An allowlisted email can bootstrap as `internal_admin`
 
 Recommended rebuild target:
 
 - Keep automatic first-run workspace creation
-- Make the workspace concept explicit in UX and naming
-- Support future multi-workspace switching, even if v1 exposes only one active workspace
+- Treat `workspace` as the user-facing concept and hide `organization_memberships` entirely
+- Assume one workspace per user/company in v1
+- Do not ship workspace switching or membership-management UX unless a real use case appears
 
 ### 8.2 Client part intake
 
@@ -308,6 +311,7 @@ Requirements:
 - Authorization must be enforced in both UI and backend
 - Internal-only data must remain inaccessible to client/project-only users
 - Project sharing must not grant workspace-wide visibility
+- Workspace access should stay modeled internally even if the product does not expose workspace membership as a concept
 
 ### 9.3 Client workspace
 
@@ -475,6 +479,8 @@ erDiagram
 ## Appendix A. Schema reference
 
 This appendix captures the concrete schema surface observed in the repository so a rebuild can reproduce the domain model without re-deriving it from migrations.
+
+For the rebuild, these schema names should remain internal implementation details. The user-facing product should talk about `workspace` and `workspace access`, not `organization` and `organization membership`.
 
 ### A.1 Schema namespaces
 
@@ -820,7 +826,7 @@ Recommended rebuild target:
 
 ### Authorization requirements
 
-- Organization membership gates workspace-level access
+- Internal workspace-access records gate workspace-level access
 - Project membership gates shared project access
 - Internal role gates raw vendor, queue, pricing, extraction, and publication features
 
@@ -866,13 +872,20 @@ These are important because a rebuild should preserve the product, not necessari
 - Extraction is currently heuristic/scaffolded, not production-grade
 - Live vendor automation appears incomplete beyond the Xometry path
 - Invite generation exists, but outbound email sending is not implemented in this repo
-- Multi-organization support exists in schema, but the UI assumes the first membership is active
+- Backend multi-workspace support exists in schema, but the current UI already behaves like a single-workspace product
 - Queue claiming is simple and should be hardened for concurrency
 - Much business logic currently lives in frontend pages rather than a central domain layer
 - Search/filtering is lightweight and not yet optimized for large datasets
 - There is special-case logic for the `dmrifles@gmail.com` demo/import workspace that should be treated as seed/demo behavior, not core product design
 
 ## 16. Rebuild recommendations
+
+### Product model recommendation
+
+- Keep the tenancy layer internally, but hide it
+- Treat it as `workspace`, not `organization membership`
+- Assume one workspace per user/company in v1
+- Remove workspace switching and any membership-options UI until there is a real use case
 
 ### Preserve without debate
 
@@ -889,7 +902,7 @@ These are important because a rebuild should preserve the product, not necessari
 - Add notifications for invites, quote publication, and client selections
 - Add better failure recovery and retry policies for async jobs
 - Add version history for approved requirements and published packages if needed
-- Add explicit workspace switching if multi-org becomes real product scope
+- Keep backend workspace support without exposing workspace switching in v1
 
 ### Likely architecture target
 
@@ -944,7 +957,6 @@ flowchart TB
 
 These are not blockers for a first draft rebuild, but they should be answered before implementation locks in.
 
-- Should one user be able to switch between multiple organizations/workspaces in the UI?
 - Should project invites send emails automatically or remain copy-link based?
 - Is a job always a single part request, or should multi-part jobs be a first-class visible concept for clients?
 - Should approved requirements be versioned instead of overwritten?

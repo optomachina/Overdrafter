@@ -6,10 +6,11 @@ import {
   Folder,
   FolderPlus,
   ListFilter,
-  MessageCircle,
   PenLine,
   Pin,
-  PlusCircle,
+  PlusSquare,
+  Search,
+  Shapes,
   Star,
 } from "lucide-react";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
@@ -53,6 +54,7 @@ export type WorkspaceSidebarProject = {
 type SidebarOrganizeMode = "by_project" | "chronological";
 type SidebarSortMode = "created" | "updated";
 type SidebarShowMode = "all" | "relevant";
+type SidebarSectionKey = "projects" | "parts";
 
 type SidebarFilters = {
   organize: SidebarOrganizeMode;
@@ -60,12 +62,16 @@ type SidebarFilters = {
   show: SidebarShowMode;
 };
 
+type SidebarSections = Record<SidebarSectionKey, boolean>;
+
 type WorkspaceSidebarProps = {
   projects: WorkspaceSidebarProject[];
   jobs: JobRecord[];
   summariesByJobId: Map<string, JobPartSummary>;
   activeProjectId?: string | null;
   activeJobId?: string | null;
+  onCreateJob?: () => void;
+  onSearch?: () => void;
   canCreateProject?: boolean;
   onCreateProject?: () => void;
   onSelectProject: (projectId: string) => void;
@@ -88,6 +94,11 @@ const DEFAULT_FILTERS: SidebarFilters = {
   organize: "by_project",
   sortBy: "updated",
   show: "all",
+};
+
+const DEFAULT_SECTIONS: SidebarSections = {
+  projects: true,
+  parts: true,
 };
 
 function readFilters(storageKey: string): SidebarFilters {
@@ -136,6 +147,25 @@ function readExpandedProjects(storageKey: string): Record<string, boolean> {
   }
 }
 
+function readExpandedSections(storageKey: string): SidebarSections {
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+
+    if (!raw) {
+      return DEFAULT_SECTIONS;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<Record<SidebarSectionKey, unknown>>;
+
+    return {
+      projects: typeof parsed.projects === "boolean" ? parsed.projects : DEFAULT_SECTIONS.projects,
+      parts: typeof parsed.parts === "boolean" ? parsed.parts : DEFAULT_SECTIONS.parts,
+    };
+  } catch {
+    return DEFAULT_SECTIONS;
+  }
+}
+
 function parseTimestamp(value: string | null | undefined): number {
   if (!value) {
     return 0;
@@ -146,7 +176,39 @@ function parseTimestamp(value: string | null | undefined): number {
 }
 
 function SectionTitle({ children }: { children: ReactNode }) {
-  return <p className="px-2 py-1 text-xs font-medium text-white/55">{children}</p>;
+  return <p className="px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-white/40">{children}</p>;
+}
+
+function SidebarSectionHeading({
+  label,
+  action,
+  expanded,
+  onToggle,
+}: {
+  label: string;
+  action?: ReactNode;
+  expanded?: boolean;
+  onToggle?: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-2.5">
+      {onToggle ? (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "Collapse" : "Expand"} ${label.toLowerCase()}`}
+          className="flex items-center gap-1.5 rounded-[10px] py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-white/38 transition-colors hover:text-white/68"
+          onClick={onToggle}
+        >
+          <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", expanded ? "rotate-90" : "")} />
+          <span>{label}</span>
+        </button>
+      ) : (
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-white/38">{label}</p>
+      )}
+      {action}
+    </div>
+  );
 }
 
 type FilterOptionProps = {
@@ -159,15 +221,15 @@ type FilterOptionProps = {
 function FilterOption({ icon, label, selected, onSelect }: FilterOptionProps) {
   return (
     <DropdownMenuItem
-      className="flex items-center gap-3 rounded-lg px-2 py-2 text-[16px] text-white/92 focus:bg-white/10 focus:text-white"
+      className="flex items-center gap-3 rounded-[10px] px-2.5 py-2 text-sm text-white/90 focus:bg-white/[0.08] focus:text-white"
       onSelect={(event) => {
         event.preventDefault();
         onSelect();
       }}
     >
-      <span className="text-white/80">{icon}</span>
+      <span className="text-white/72">{icon}</span>
       <span>{label}</span>
-      {selected ? <Check className="ml-auto h-4 w-4 text-white" /> : null}
+      {selected ? <Check className="ml-auto h-4 w-4 text-white/82" /> : null}
     </DropdownMenuItem>
   );
 }
@@ -178,6 +240,8 @@ export function WorkspaceSidebar({
   summariesByJobId,
   activeProjectId,
   activeJobId,
+  onCreateJob,
+  onSearch,
   canCreateProject = true,
   onCreateProject,
   onSelectProject,
@@ -197,9 +261,13 @@ export function WorkspaceSidebar({
 }: WorkspaceSidebarProps) {
   const filtersStorageKey = `workspace-sidebar-filters-v1:${storageScopeKey ?? "default"}`;
   const expandedStorageKey = `workspace-sidebar-expanded-v1:${storageScopeKey ?? "default"}`;
+  const sectionsStorageKey = `workspace-sidebar-sections-v1:${storageScopeKey ?? "default"}`;
 
   const [filters, setFilters] = useState<SidebarFilters>(() =>
     typeof window === "undefined" ? DEFAULT_FILTERS : readFilters(filtersStorageKey),
+  );
+  const [expandedSections, setExpandedSections] = useState<SidebarSections>(() =>
+    typeof window === "undefined" ? DEFAULT_SECTIONS : readExpandedSections(sectionsStorageKey),
   );
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>(() =>
     typeof window === "undefined" ? {} : readExpandedProjects(expandedStorageKey),
@@ -307,59 +375,6 @@ export function WorkspaceSidebar({
     });
   }, [filters.sortBy, getJobSortTimestamp, jobsByProjectId.grouped, pinnedProjectSet, projects]);
 
-  const groupedProjectRows = useMemo(() => {
-    if (filters.organize !== "by_project") {
-      return [] as Array<{ project: WorkspaceSidebarProject; jobs: JobRecord[] }>;
-    }
-
-    return sortedProjects
-      .filter((project) => {
-        if (filters.show === "all") {
-          return true;
-        }
-
-        const projectJobs = jobsByProjectId.grouped.get(project.id) ?? [];
-        const hasPinnedJob = projectJobs.some((job) => pinnedPartSet.has(job.id));
-
-        return pinnedProjectSet.has(project.id) || hasPinnedJob;
-      })
-      .map((project) => {
-        const projectJobs = jobsByProjectId.grouped.get(project.id) ?? [];
-
-        return {
-          project,
-          jobs:
-            filters.show === "relevant"
-              ? sortedJobs(projectJobs.filter((job) => pinnedPartSet.has(job.id)))
-              : sortedJobs(projectJobs),
-        };
-      });
-  }, [filters.organize, filters.show, jobsByProjectId.grouped, pinnedPartSet, pinnedProjectSet, sortedJobs, sortedProjects]);
-
-  const groupedUngroupedJobs = useMemo(() => {
-    if (filters.organize !== "by_project") {
-      return [] as JobRecord[];
-    }
-
-    if (filters.show === "relevant") {
-      return sortedJobs(jobsByProjectId.ungrouped.filter((job) => pinnedPartSet.has(job.id)));
-    }
-
-    return sortedJobs(jobsByProjectId.ungrouped);
-  }, [filters.organize, filters.show, jobsByProjectId.ungrouped, pinnedPartSet, sortedJobs]);
-
-  const chronologicalJobs = useMemo(() => {
-    if (filters.organize !== "chronological") {
-      return [] as JobRecord[];
-    }
-
-    if (filters.show === "relevant") {
-      return sortedJobs(jobs.filter((job) => pinnedPartSet.has(job.id)));
-    }
-
-    return sortedJobs(jobs);
-  }, [filters.organize, filters.show, jobs, pinnedPartSet, sortedJobs]);
-
   const persistFilters = (next: SidebarFilters) => {
     setFilters(next);
 
@@ -380,12 +395,22 @@ export function WorkspaceSidebar({
     }
   };
 
+  const persistExpandedSections = (next: SidebarSections) => {
+    setExpandedSections(next);
+
+    try {
+      window.localStorage.setItem(sectionsStorageKey, JSON.stringify(next));
+    } catch {
+      // Ignore storage failures.
+    }
+  };
+
   const isProjectExpanded = (projectId: string) => {
     if (expandedProjects[projectId] !== undefined) {
       return expandedProjects[projectId];
     }
 
-    return activeProjectId === projectId;
+    return false;
   };
 
   const toggleProjectExpanded = (projectId: string) => {
@@ -395,6 +420,13 @@ export function WorkspaceSidebar({
     };
 
     persistExpandedProjects(next);
+  };
+
+  const toggleSectionExpanded = (section: SidebarSectionKey) => {
+    persistExpandedSections({
+      ...expandedSections,
+      [section]: !expandedSections[section],
+    });
   };
 
   const withBusyProjectPin = async (projectId: string, callback: () => Promise<void> | void) => {
@@ -483,6 +515,7 @@ export function WorkspaceSidebar({
     const presentation = getClientItemPresentation(job, summariesByJobId.get(job.id));
     const isPinned = pinnedPartSet.has(job.id);
     const currentProjectId = getProjectIdForJob(job);
+    const parentProject = currentProjectId ? projectsById.get(currentProjectId) ?? null : null;
     const isPinBusy = pendingPartPinIds.includes(job.id);
     const isMoveBusy = pendingMovePartIds.includes(job.id);
 
@@ -512,20 +545,25 @@ export function WorkspaceSidebar({
               }
             }}
             className={cn(
-              "group flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left transition",
-              nestedInProject ? "ml-6 w-[calc(100%-1.5rem)]" : "",
-              activeJobId === job.id ? "bg-white/12 text-white" : "text-white/82 hover:bg-white/7 hover:text-white",
+              "group flex w-full items-center gap-2.5 text-left transition-colors",
+              nestedInProject ? "rounded-[10px] px-2.5 py-2" : "rounded-[10px] px-2.5 py-2",
+              activeJobId === job.id
+                ? "bg-white/[0.08] text-white"
+                : "text-white/[0.72] hover:bg-white/[0.06] hover:text-white",
             )}
           >
-            <MessageCircle className="h-4 w-4 shrink-0 text-white/45" />
+            <Shapes className="h-4 w-4 shrink-0 text-white/[0.42]" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm">{presentation.title}</p>
+              <p className="truncate text-sm leading-5">{presentation.title}</p>
+              {!nestedInProject && parentProject ? (
+                <p className="truncate text-[12px] leading-4 text-white/[0.38]">{parentProject.name}</p>
+              ) : null}
             </div>
             <button
               type="button"
               aria-label={isPinned ? "Unpin part" : "Pin part"}
               className={cn(
-                "rounded-md p-1 text-white/70 transition hover:bg-white/10 hover:text-white",
+                "rounded-[8px] p-1 text-white/[0.58] transition-colors hover:bg-white/[0.08] hover:text-white",
                 isPinned ? "opacity-100" : "opacity-0 group-hover:opacity-100",
               )}
               disabled={isPinBusy}
@@ -538,13 +576,13 @@ export function WorkspaceSidebar({
             </button>
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-56 border-white/10 bg-[#1f1f1f] text-white">
+        <ContextMenuContent className="chatgpt-shell w-56 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">
           <ContextMenuItem onSelect={() => onSelectPart(job.id)}>Edit part</ContextMenuItem>
 
           {onAssignPartToProject ? (
             <ContextMenuSub>
               <ContextMenuSubTrigger inset>Add to project</ContextMenuSubTrigger>
-              <ContextMenuSubContent className="max-h-[280px] w-56 overflow-y-auto border-white/10 bg-[#1f1f1f] text-white">
+              <ContextMenuSubContent className="chatgpt-shell max-h-[280px] w-56 overflow-y-auto rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">
                 {assignableProjects.filter((project) => project.id !== currentProjectId).length === 0 ? (
                   <ContextMenuItem disabled>No projects available</ContextMenuItem>
                 ) : (
@@ -599,6 +637,7 @@ export function WorkspaceSidebar({
     const isPinned = pinnedProjectSet.has(project.id);
     const isPinBusy = pendingProjectPinIds.includes(project.id);
     const expanded = isProjectExpanded(project.id);
+    const projectPartCount = projectJobs.length || project.partCount;
 
     return (
       <div key={project.id} className="space-y-1">
@@ -628,34 +667,40 @@ export function WorkspaceSidebar({
                 }
               }}
               className={cn(
-                "group flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left transition",
+                "group flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left transition-colors",
                 activeProjectId === project.id
-                  ? "bg-white/12 text-white"
-                  : "text-white/82 hover:bg-white/7 hover:text-white",
+                  ? "bg-white/[0.08] text-white"
+                  : "text-white/[0.72] hover:bg-white/[0.06] hover:text-white",
               )}
             >
-              <button
-                type="button"
-                aria-label={expanded ? "Collapse project" : "Expand project"}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  toggleProjectExpanded(project.id);
-                }}
-                className={cn(
-                  "rounded-md p-0.5 text-white/55 transition hover:bg-white/10 hover:text-white",
-                  expanded ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-                )}
-              >
-                <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", expanded ? "rotate-90" : "")} />
-              </button>
-              <Folder className="h-4 w-4 shrink-0 text-white/45" />
+              {projectJobs.length > 0 ? (
+                <button
+                  type="button"
+                  aria-label={expanded ? "Collapse project" : "Expand project"}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleProjectExpanded(project.id);
+                  }}
+                  className="rounded-[8px] p-0.5 text-white/[0.36] transition-colors hover:bg-white/[0.08] hover:text-white"
+                >
+                  <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", expanded ? "rotate-90" : "")} />
+                </button>
+              ) : (
+                <span className="h-4 w-4 shrink-0" />
+              )}
+              <Folder className="h-4 w-4 shrink-0 text-white/[0.42]" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm">{project.name}</p>
+                <p className="truncate text-sm leading-5">{project.name}</p>
               </div>
-              {isPinned ? <Pin className="h-3.5 w-3.5 fill-current text-white/80" /> : null}
+              <div className="flex items-center gap-2">
+                <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[11px] text-white/[0.42]">
+                  {projectPartCount}
+                </span>
+                {isPinned ? <Pin className="h-3.5 w-3.5 fill-current text-white/[0.72]" /> : null}
+              </div>
             </div>
           </ContextMenuTrigger>
-          <ContextMenuContent className="w-56 border-white/10 bg-[#1f1f1f] text-white">
+          <ContextMenuContent className="chatgpt-shell w-56 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">
             <ContextMenuItem onSelect={() => onSelectProject(project.id)}>Edit project</ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
@@ -689,119 +734,179 @@ export function WorkspaceSidebar({
           </ContextMenuContent>
         </ContextMenu>
 
-        {expanded ? <div className="space-y-1">{projectJobs.map((job) => renderPartRow(job, true))}</div> : null}
+        {expanded ? (
+          <div className="ml-[14px] space-y-1 border-l border-white/[0.08] pl-3">
+            {projectJobs.map((job) => renderPartRow(job, true))}
+          </div>
+        ) : null}
       </div>
     );
   };
 
-  const noThreadsMessage =
-    filters.show === "relevant" ? "No pinned threads yet." : filters.organize === "chronological" ? "No threads yet." : "No projects yet.";
+  const visibleProjects = useMemo(
+    () =>
+      sortedProjects.filter((project) => {
+        if (filters.show === "all") {
+          return true;
+        }
 
-  const hasByProjectContent = groupedProjectRows.length > 0 || groupedUngroupedJobs.length > 0;
-  const hasChronologicalContent = chronologicalJobs.length > 0;
+        const projectJobs = jobsByProjectId.grouped.get(project.id) ?? [];
+        const hasPinnedJob = projectJobs.some((job) => pinnedPartSet.has(job.id));
+
+        return pinnedProjectSet.has(project.id) || hasPinnedJob;
+      }),
+    [filters.show, jobsByProjectId.grouped, pinnedPartSet, pinnedProjectSet, sortedProjects],
+  );
+
+  const visibleParts = useMemo(
+    () => (filters.show === "relevant" ? sortedJobs(jobs.filter((job) => pinnedPartSet.has(job.id))) : sortedJobs(jobs)),
+    [filters.show, jobs, pinnedPartSet, sortedJobs],
+  );
+
+  const noProjectsMessage = filters.show === "relevant" ? "No pinned projects yet." : "No projects yet.";
+  const noPartsMessage = filters.show === "relevant" ? "No pinned parts yet." : "No parts yet.";
 
   return (
     <>
-      <div className="space-y-3">
-        <div className="flex items-center justify-between px-1">
-          <p className="px-2 text-3xl font-medium text-white/75">Threads</p>
-          <div className="flex items-center gap-1">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+      <div className="space-y-5">
+        {onCreateJob || onSearch ? (
+          <div className="space-y-2 px-1.5">
+            {onCreateJob ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-10 w-full justify-start rounded-[10px] bg-transparent px-3 text-white/[0.88] hover:bg-white/[0.06] hover:text-white"
+                onClick={() => {
+                  onCreateJob();
+                }}
+              >
+                <span className="flex w-5 shrink-0 items-center justify-center">
+                  <PlusSquare aria-hidden="true" className="h-4 w-4" />
+                </span>
+                <span className="truncate">New Job</span>
+              </Button>
+            ) : null}
+
+            {onSearch ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-10 w-full justify-start rounded-[10px] bg-transparent px-3 text-white/[0.72] hover:bg-white/[0.06] hover:text-white"
+                onClick={() => {
+                  onSearch();
+                }}
+              >
+                <span className="flex w-5 shrink-0 items-center justify-center">
+                  <Search aria-hidden="true" className="h-4 w-4" />
+                </span>
+                <span className="truncate">Search</span>
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="space-y-2">
+          <SidebarSectionHeading
+            label="Projects"
+            expanded={expandedSections.projects}
+            onToggle={() => toggleSectionExpanded("projects")}
+            action={
+              onCreateProject ? (
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  aria-label="Filter threads"
-                  className="h-8 w-8 rounded-lg text-white/70 hover:bg-white/10 hover:text-white"
+                  aria-label="New project"
+                  className="h-8 w-8 rounded-[10px] text-white/[0.54] hover:bg-white/[0.06] hover:text-white"
+                  disabled={!canCreateProject}
+                  onClick={() => {
+                    onCreateProject();
+                  }}
                 >
-                  <ListFilter className="h-4 w-4" />
+                  <FolderPlus className="h-4 w-4" />
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72 border-white/10 bg-[#1f1f1f] p-2 text-white">
-                <SectionTitle>Organize</SectionTitle>
-                <FilterOption
-                  icon={<Folder className="h-4 w-4" />}
-                  label="By project"
-                  selected={filters.organize === "by_project"}
-                  onSelect={() => persistFilters({ ...filters, organize: "by_project" })}
-                />
-                <FilterOption
-                  icon={<Clock3 className="h-4 w-4" />}
-                  label="Chronological list"
-                  selected={filters.organize === "chronological"}
-                  onSelect={() => persistFilters({ ...filters, organize: "chronological" })}
-                />
+              ) : null
+            }
+          />
 
-                <DropdownMenuSeparator className="my-1 bg-white/10" />
-
-                <SectionTitle>Sort by</SectionTitle>
-                <FilterOption
-                  icon={<PlusCircle className="h-4 w-4" />}
-                  label="Created"
-                  selected={filters.sortBy === "created"}
-                  onSelect={() => persistFilters({ ...filters, sortBy: "created" })}
-                />
-                <FilterOption
-                  icon={<PenLine className="h-4 w-4" />}
-                  label="Updated"
-                  selected={filters.sortBy === "updated"}
-                  onSelect={() => persistFilters({ ...filters, sortBy: "updated" })}
-                />
-
-                <DropdownMenuSeparator className="my-1 bg-white/10" />
-
-                <SectionTitle>Show</SectionTitle>
-                <FilterOption
-                  icon={<MessageCircle className="h-4 w-4" />}
-                  label="All threads"
-                  selected={filters.show === "all"}
-                  onSelect={() => persistFilters({ ...filters, show: "all" })}
-                />
-                <FilterOption
-                  icon={<Star className="h-4 w-4" />}
-                  label="Relevant"
-                  selected={filters.show === "relevant"}
-                  onSelect={() => persistFilters({ ...filters, show: "relevant" })}
-                />
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          {expandedSections.projects ? (
+            <div className="space-y-1">
+              {visibleProjects.length > 0 ? (
+                visibleProjects.map((project) => renderProjectRow(project, jobsByProjectId.grouped.get(project.id) ?? []))
+              ) : (
+                <div className="px-2.5 py-2 text-sm text-white/[0.42]">{noProjectsMessage}</div>
+              )}
+            </div>
+          ) : null}
         </div>
 
-        {onCreateProject ? (
-          <div className="space-y-1 px-1">
-            <p className="px-2 text-[11px] font-medium uppercase tracking-[0.16em] text-white/45">Projects</p>
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-9 w-full justify-start rounded-xl px-2 text-white/80 hover:bg-white/6 hover:text-white"
-              disabled={!canCreateProject}
-              onClick={() => {
-                onCreateProject();
-              }}
-            >
-              <FolderPlus className="mr-2 h-4 w-4" />
-              New project
-            </Button>
-          </div>
-        ) : null}
+        <div className="space-y-2">
+          <SidebarSectionHeading
+            label="Parts"
+            expanded={expandedSections.parts}
+            onToggle={() => toggleSectionExpanded("parts")}
+            action={
+              <div className="flex items-center gap-1">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Filter parts"
+                      className="h-8 w-8 rounded-[10px] text-white/[0.54] hover:bg-white/[0.06] hover:text-white"
+                    >
+                      <ListFilter className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    className="chatgpt-shell w-64 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1.5 text-white"
+                  >
+                    <SectionTitle>Sort by</SectionTitle>
+                    <FilterOption
+                      icon={<Clock3 className="h-4 w-4" />}
+                      label="Created"
+                      selected={filters.sortBy === "created"}
+                      onSelect={() => persistFilters({ ...filters, sortBy: "created" })}
+                    />
+                    <FilterOption
+                      icon={<PenLine className="h-4 w-4" />}
+                      label="Updated"
+                      selected={filters.sortBy === "updated"}
+                      onSelect={() => persistFilters({ ...filters, sortBy: "updated" })}
+                    />
 
-        <div className="space-y-1">
-          {filters.organize === "by_project" ? (
-            hasByProjectContent ? (
-              <>
-                {groupedProjectRows.map(({ project, jobs: projectJobs }) => renderProjectRow(project, projectJobs))}
-                {groupedUngroupedJobs.map((job) => renderPartRow(job))}
-              </>
-            ) : (
-              <div className="px-2 py-3 text-sm text-white/45">{noThreadsMessage}</div>
-            )
-          ) : hasChronologicalContent ? (
-            chronologicalJobs.map((job) => renderPartRow(job))
-          ) : (
-            <div className="px-2 py-3 text-sm text-white/45">{noThreadsMessage}</div>
-          )}
+                    <DropdownMenuSeparator className="my-1 bg-white/[0.08]" />
+
+                    <SectionTitle>Show</SectionTitle>
+                    <FilterOption
+                      icon={<Shapes className="h-4 w-4" />}
+                      label="All parts"
+                      selected={filters.show === "all"}
+                      onSelect={() => persistFilters({ ...filters, show: "all" })}
+                    />
+                    <FilterOption
+                      icon={<Star className="h-4 w-4" />}
+                      label="Pinned"
+                      selected={filters.show === "relevant"}
+                      onSelect={() => persistFilters({ ...filters, show: "relevant" })}
+                    />
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            }
+          />
+
+          {expandedSections.parts ? (
+            <div className="space-y-1">
+              {visibleParts.length > 0 ? (
+                visibleParts.map((job) => renderPartRow(job))
+              ) : (
+                <div className="px-2.5 py-2 text-sm text-white/[0.42]">{noPartsMessage}</div>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -852,7 +957,7 @@ export function WorkspaceSidebar({
           }
         }}
       >
-        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
+        <DialogContent className="chatgpt-shell rounded-2xl border-white/[0.08] bg-[#2a2a2a] text-white">
           <DialogHeader>
             <DialogTitle>Delete project</DialogTitle>
             <DialogDescription className="text-white/55">
@@ -864,7 +969,7 @@ export function WorkspaceSidebar({
           <DialogFooter>
             <Button
               variant="outline"
-              className="border-white/10 bg-transparent text-white hover:bg-white/6"
+              className="rounded-[10px] border-white/[0.08] bg-transparent text-white hover:bg-white/[0.06]"
               onClick={() => setProjectToDelete(null)}
             >
               Cancel

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { FolderKanban, Search, Shapes } from "lucide-react";
-import type { AccessibleProjectSummary, JobPartSummary, JobRecord } from "@/features/quotes/types";
+import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {
   CommandDialog,
@@ -11,10 +11,16 @@ import {
   CommandList,
 } from "@/components/ui/command";
 
+type SearchPartsProject = {
+  id: string;
+  name: string;
+  partCount: number;
+};
+
 type SearchPartsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  projects: AccessibleProjectSummary[];
+  projects: SearchPartsProject[];
   jobs: JobRecord[];
   summariesByJobId: Map<string, JobPartSummary>;
   onSelectProject: (projectId: string) => void;
@@ -35,9 +41,7 @@ export function SearchPartsDialog({
   const normalizedQuery = query.trim().toLowerCase();
   const filteredProjects = useMemo(
     () =>
-      projects.filter((project) =>
-        project.project.name.toLowerCase().includes(normalizedQuery),
-      ),
+      projects.filter((project) => project.name.toLowerCase().includes(normalizedQuery)),
     [normalizedQuery, projects],
   );
   const filteredJobs = useMemo(
@@ -66,17 +70,17 @@ export function SearchPartsDialog({
         <CommandGroup heading="Projects">
           {filteredProjects.map((project) => (
             <CommandItem
-              key={project.project.id}
-              value={project.project.name}
+              key={project.id}
+              value={project.name}
               onSelect={() => {
                 onOpenChange(false);
-                onSelectProject(project.project.id);
+                onSelectProject(project.id);
               }}
               className="rounded-xl data-[selected=true]:bg-white/8 data-[selected=true]:text-white"
             >
               <FolderKanban className="mr-2 h-4 w-4 text-white/60" />
               <div className="flex min-w-0 flex-1 items-center gap-2">
-                <span className="truncate">{project.project.name}</span>
+                <span className="truncate">{project.name}</span>
                 <span className="text-xs text-white/45">{project.partCount}</span>
               </div>
             </CommandItem>

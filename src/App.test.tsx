@@ -15,6 +15,14 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipProvider: ({ children }: PropsWithChildren) => <>{children}</>,
 }));
 
+vi.mock("@/components/debug/DiagnosticsBootstrap", () => ({
+  DiagnosticsBootstrap: () => null,
+}));
+
+vi.mock("@/components/debug/AppErrorBoundary", () => ({
+  AppErrorBoundary: ({ children }: PropsWithChildren) => <>{children}</>,
+}));
+
 vi.mock("./pages/Index", () => ({
   default: () => <div>Index Page</div>,
 }));

@@ -39,7 +39,7 @@ export function ProjectNameDialog({
 }: ProjectNameDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
+      <DialogContent className="chatgpt-shell rounded-2xl border-white/[0.08] bg-[#2a2a2a] text-white">
         <form
           className="space-y-4"
           onSubmit={(event) => {
@@ -61,18 +61,18 @@ export function ProjectNameDialog({
             value={value}
             onChange={(event) => onValueChange(event.target.value)}
             placeholder={placeholder}
-            className="border-white/10 bg-[#2a2a2a] text-white placeholder:text-white/35"
+            className="h-10 rounded-[10px] border-white/[0.08] bg-[#212121] text-white placeholder:text-white/35 focus-visible:ring-white/20"
           />
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
-              className="border-white/10 bg-transparent text-white hover:bg-white/6"
+              className="rounded-[10px] border-white/[0.08] bg-transparent text-white hover:bg-white/[0.06]"
               onClick={() => onOpenChange(false)}
             >
               Cancel
             </Button>
-            <Button type="submit" className="rounded-full" disabled={isPending || isSubmitDisabled}>
+            <Button type="submit" className="rounded-[10px]" disabled={isPending || isSubmitDisabled}>
               {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : submitLabel}
             </Button>
           </DialogFooter>

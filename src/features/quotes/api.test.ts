@@ -14,6 +14,9 @@ const supabaseMock = vi.hoisted(() => {
   const membershipsEq = vi.fn(() => ({ order: membershipsOrder }));
   const membershipsSelect = vi.fn(() => ({ eq: membershipsEq }));
 
+  const projectsOrder = vi.fn();
+  const projectsSelect = vi.fn(() => ({ order: projectsOrder }));
+
   const pinnedProjectsOrder = vi.fn();
   const pinnedProjectsEq = vi.fn(() => ({ order: pinnedProjectsOrder }));
   const pinnedProjectsSelect = vi.fn(() => ({ eq: pinnedProjectsEq }));
@@ -36,6 +39,12 @@ const supabaseMock = vi.hoisted(() => {
     if (table === "organization_memberships") {
       return {
         select: membershipsSelect,
+      };
+    }
+
+    if (table === "projects") {
+      return {
+        select: projectsSelect,
       };
     }
 
@@ -64,6 +73,8 @@ const supabaseMock = vi.hoisted(() => {
     membershipsEq,
     membershipsOrder,
     membershipsSelect,
+    projectsOrder,
+    projectsSelect,
     pinnedJobsDelete,
     pinnedJobsDeleteEqFirst,
     pinnedJobsDeleteEqSecond,
@@ -104,10 +115,12 @@ vi.mock("@/integrations/supabase/client", () => ({
 import {
   createClientDraft,
   createProject,
+  fetchAccessibleProjects,
   fetchSidebarPins,
   inferFileKind,
   pinJob,
   pinProject,
+  resetProjectCollaborationSchemaAvailabilityForTests,
   unpinJob,
   unpinProject,
   uploadFilesToJob,
@@ -118,6 +131,7 @@ describe("quotes api helpers", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-03T12:34:56.000Z"));
+    resetProjectCollaborationSchemaAvailabilityForTests();
     supabaseMock.authGetUser.mockResolvedValue({
       data: {
         user: {
@@ -360,6 +374,36 @@ describe("quotes api helpers", () => {
     });
   });
 
+  it("surfaces a compatibility message when the project schema is unavailable", async () => {
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "PGRST202",
+          message: "Could not find the function public.api_create_project(p_description, p_name) in the schema cache",
+          details: null,
+          hint: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "PGRST202",
+          message: "Could not find the function public.api_create_project(p_name) in the schema cache",
+          details: null,
+          hint: null,
+        },
+      });
+    supabaseMock.functionsInvoke.mockResolvedValue({
+      data: null,
+      error: new Error('relation "public.projects" does not exist'),
+    });
+
+    await expect(createProject({ name: "Fixture project" })).rejects.toThrow(
+      "Projects are unavailable in this environment until the shared workspace schema is applied.",
+    );
+  });
+
   it("surfaces edge function error bodies during project creation fallback", async () => {
     supabaseMock.rpc
       .mockResolvedValueOnce({
@@ -436,6 +480,50 @@ describe("quotes api helpers", () => {
     expect(supabaseMock.from).toHaveBeenCalledWith("user_pinned_jobs");
     expect(supabaseMock.pinnedProjectsEq).toHaveBeenCalledWith("user_id", "user-1");
     expect(supabaseMock.pinnedJobsEq).toHaveBeenCalledWith("user_id", "user-1");
+  });
+
+  it("returns an empty project list when the project schema has not been applied", async () => {
+    supabaseMock.projectsOrder.mockResolvedValue({
+      data: null,
+      error: {
+        code: "PGRST205",
+        message: "Could not find the table 'public.projects' in the schema cache",
+        details: null,
+        hint: null,
+      },
+    });
+
+    await expect(fetchAccessibleProjects()).resolves.toEqual([]);
+
+    expect(supabaseMock.from).toHaveBeenCalledWith("projects");
+  });
+
+  it("still returns pinned jobs when project pin tables are unavailable", async () => {
+    supabaseMock.pinnedProjectsOrder.mockResolvedValue({
+      data: null,
+      error: {
+        code: "PGRST205",
+        message: "Could not find the table 'public.user_pinned_projects' in the schema cache",
+        details: null,
+        hint: null,
+      },
+    });
+    supabaseMock.pinnedJobsOrder.mockResolvedValue({
+      data: [
+        {
+          id: "pin-job-1",
+          user_id: "user-1",
+          job_id: "job-1",
+          created_at: "2026-03-03T00:00:00.000Z",
+        },
+      ],
+      error: null,
+    });
+
+    await expect(fetchSidebarPins()).resolves.toEqual({
+      projectIds: [],
+      jobIds: ["job-1"],
+    });
   });
 
   it("pins and unpins projects for the current user", async () => {

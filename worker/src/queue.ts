@@ -93,3 +93,27 @@ export async function markTaskFailed(
     throw error;
   }
 }
+
+export async function markTaskQueuedForRetry(
+  supabase: SupabaseClient,
+  taskId: string,
+  errorMessage: string,
+  availableAt: string,
+  payloadPatch: Record<string, unknown> = {},
+) {
+  const { error } = await supabase
+    .from("work_queue")
+    .update({
+      status: "queued",
+      payload: payloadPatch,
+      available_at: availableAt,
+      locked_at: null,
+      locked_by: null,
+      last_error: errorMessage,
+    })
+    .eq("id", taskId);
+
+  if (error) {
+    throw error;
+  }
+}

@@ -116,6 +116,28 @@ function emptySingleResponse<T>(data: T | null = null): Promise<PostgrestSingleR
   });
 }
 
+const PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE =
+  "Projects are unavailable in this environment until the shared workspace schema is applied.";
+
+type ProjectCollaborationSchemaAvailability = "unknown" | "available" | "unavailable";
+
+let projectCollaborationSchemaAvailability: ProjectCollaborationSchemaAvailability = "unknown";
+
+const PROJECT_COLLABORATION_IDENTIFIERS = [
+  "public.projects",
+  "public.project_memberships",
+  "public.project_invites",
+  "public.user_pinned_projects",
+  "api_create_project",
+  "api_update_project",
+  "api_delete_project",
+  "api_invite_project_member",
+  "api_accept_project_invite",
+  "api_remove_project_member",
+  "api_assign_job_to_project",
+  "api_remove_job_from_project",
+] as const;
+
 function ensureData<T>(data: T | null, error: { message: string } | null | undefined): T {
   if (error) {
     throw error;
@@ -126,6 +148,58 @@ function ensureData<T>(data: T | null, error: { message: string } | null | undef
   }
 
   return data;
+}
+
+function markProjectCollaborationSchemaAvailability(next: Exclude<ProjectCollaborationSchemaAvailability, "unknown">) {
+  projectCollaborationSchemaAvailability = next;
+}
+
+function isMissingProjectCollaborationSchemaError(error: unknown): boolean {
+  if (!error) {
+    return false;
+  }
+
+  const value = error as {
+    code?: unknown;
+    message?: unknown;
+    details?: unknown;
+    hint?: unknown;
+  };
+  const code = typeof value.code === "string" ? value.code : "";
+  const message = typeof value.message === "string" ? value.message : error instanceof Error ? error.message : "";
+  const details = typeof value.details === "string" ? value.details : "";
+  const hint = typeof value.hint === "string" ? value.hint : "";
+  const blob = `${message} ${details} ${hint}`.toLowerCase();
+
+  if (!PROJECT_COLLABORATION_IDENTIFIERS.some((identifier) => blob.includes(identifier))) {
+    return false;
+  }
+
+  return (
+    code === "42P01" ||
+    code === "42883" ||
+    code === "PGRST202" ||
+    code === "PGRST205" ||
+    blob.includes("does not exist") ||
+    blob.includes("schema cache")
+  );
+}
+
+function ensureProjectCollaborationData<T>(data: T | null, error: { message: string } | null | undefined): T {
+  if (isMissingProjectCollaborationSchemaError(error)) {
+    markProjectCollaborationSchemaAvailability("unavailable");
+    throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
+  }
+
+  return ensureData(data, error);
+}
+
+export function isProjectCollaborationSchemaUnavailable(): boolean {
+  return projectCollaborationSchemaAvailability === "unavailable";
+}
+
+export function resetProjectCollaborationSchemaAvailabilityForTests(): void {
+  projectCollaborationSchemaAvailability = "unknown";
 }
 
 function isMissingFunctionError(error: unknown, functionName: string): boolean {
@@ -167,7 +241,9 @@ async function createProjectViaEdgeFunction(input: {
             : typeof body.message === "string"
               ? body.message
               : error.message;
-      } catch {}
+      } catch {
+        // Ignore malformed edge-function error bodies and keep the original message.
+      }
 
       throw new Error(message);
     }
@@ -720,15 +796,25 @@ export async function fetchAccessibleJobs(): Promise<JobRecord[]> {
 }
 
 export async function fetchAccessibleProjects(): Promise<AccessibleProjectSummary[]> {
+  if (isProjectCollaborationSchemaUnavailable()) {
+    return [];
+  }
+
   const currentUser = await requireCurrentUser();
   const { data: projectsData, error: projectsError } = await supabase
     .from("projects")
     .select("*")
     .order("created_at", { ascending: false });
 
+  if (isMissingProjectCollaborationSchemaError(projectsError)) {
+    markProjectCollaborationSchemaAvailability("unavailable");
+    return [];
+  }
+
   const projects = ensureData(projectsData, projectsError) as ProjectRecord[];
 
   if (projects.length === 0) {
+    markProjectCollaborationSchemaAvailability("available");
     return [];
   }
 
@@ -747,8 +833,18 @@ export async function fetchAccessibleProjects(): Promise<AccessibleProjectSummar
     fetchAllAccessibleJobs(),
   ]);
 
+  if (
+    isMissingProjectCollaborationSchemaError(membershipsResult.error) ||
+    isMissingProjectCollaborationSchemaError(invitesResult.error)
+  ) {
+    markProjectCollaborationSchemaAvailability("unavailable");
+    return [];
+  }
+
   const memberships = ensureData(membershipsResult.data, membershipsResult.error) as ProjectMembershipRecord[];
   const invites = ensureData(invitesResult.data, invitesResult.error) as ProjectInviteRecord[];
+
+  markProjectCollaborationSchemaAvailability("available");
 
   return projects.map((project) => {
     const projectMemberships = memberships.filter((membership) => membership.project_id === project.id);
@@ -770,6 +866,21 @@ export async function fetchAccessibleProjects(): Promise<AccessibleProjectSummar
 
 export async function fetchSidebarPins(): Promise<SidebarPins> {
   const currentUser = await requireCurrentUser();
+  const pinnedJobsRequest = supabase
+    .from("user_pinned_jobs")
+    .select("*")
+    .eq("user_id", currentUser.id)
+    .order("created_at", { ascending: false });
+
+  if (isProjectCollaborationSchemaUnavailable()) {
+    const pinnedJobsResult = await pinnedJobsRequest;
+    const pinnedJobs = ensureData(pinnedJobsResult.data, pinnedJobsResult.error) as UserPinnedJobRecord[];
+
+    return {
+      projectIds: [],
+      jobIds: [...new Set(pinnedJobs.map((record) => record.job_id))],
+    };
+  }
 
   const [pinnedProjectsResult, pinnedJobsResult] = await Promise.all([
     supabase
@@ -777,18 +888,26 @@ export async function fetchSidebarPins(): Promise<SidebarPins> {
       .select("*")
       .eq("user_id", currentUser.id)
       .order("created_at", { ascending: false }),
-    supabase
-      .from("user_pinned_jobs")
-      .select("*")
-      .eq("user_id", currentUser.id)
-      .order("created_at", { ascending: false }),
+    pinnedJobsRequest,
   ]);
+
+  if (isMissingProjectCollaborationSchemaError(pinnedProjectsResult.error)) {
+    markProjectCollaborationSchemaAvailability("unavailable");
+    const pinnedJobs = ensureData(pinnedJobsResult.data, pinnedJobsResult.error) as UserPinnedJobRecord[];
+
+    return {
+      projectIds: [],
+      jobIds: [...new Set(pinnedJobs.map((record) => record.job_id))],
+    };
+  }
 
   const pinnedProjects = ensureData(
     pinnedProjectsResult.data,
     pinnedProjectsResult.error,
   ) as UserPinnedProjectRecord[];
   const pinnedJobs = ensureData(pinnedJobsResult.data, pinnedJobsResult.error) as UserPinnedJobRecord[];
+
+  markProjectCollaborationSchemaAvailability("available");
 
   return {
     projectIds: [...new Set(pinnedProjects.map((record) => record.project_id))],
@@ -797,6 +916,10 @@ export async function fetchSidebarPins(): Promise<SidebarPins> {
 }
 
 export async function pinProject(projectId: string): Promise<void> {
+  if (isProjectCollaborationSchemaUnavailable()) {
+    throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
+  }
+
   const currentUser = await requireCurrentUser();
   const { error } = await supabase.from("user_pinned_projects").upsert(
     {
@@ -810,11 +933,20 @@ export async function pinProject(projectId: string): Promise<void> {
   );
 
   if (error) {
+    if (isMissingProjectCollaborationSchemaError(error)) {
+      markProjectCollaborationSchemaAvailability("unavailable");
+      throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
+    }
+
     throw error;
   }
 }
 
 export async function unpinProject(projectId: string): Promise<void> {
+  if (isProjectCollaborationSchemaUnavailable()) {
+    throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
+  }
+
   const currentUser = await requireCurrentUser();
   const { error } = await supabase
     .from("user_pinned_projects")
@@ -823,6 +955,11 @@ export async function unpinProject(projectId: string): Promise<void> {
     .eq("project_id", projectId);
 
   if (error) {
+    if (isMissingProjectCollaborationSchemaError(error)) {
+      markProjectCollaborationSchemaAvailability("unavailable");
+      throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
+    }
+
     throw error;
   }
 }
@@ -865,7 +1002,7 @@ export async function fetchProject(projectId: string): Promise<ProjectRecord> {
     .eq("id", projectId)
     .single();
 
-  return ensureData(data, error) as ProjectRecord;
+  return ensureProjectCollaborationData(data, error) as ProjectRecord;
 }
 
 export async function fetchProjectMemberships(projectId: string): Promise<ProjectMembershipRecord[]> {
@@ -875,7 +1012,7 @@ export async function fetchProjectMemberships(projectId: string): Promise<Projec
     .eq("project_id", projectId)
     .order("created_at", { ascending: true });
 
-  return ensureData(data, error) as ProjectMembershipRecord[];
+  return ensureProjectCollaborationData(data, error) as ProjectMembershipRecord[];
 }
 
 export async function fetchProjectInvites(projectId: string): Promise<ProjectInviteSummary[]> {
@@ -885,7 +1022,7 @@ export async function fetchProjectInvites(projectId: string): Promise<ProjectInv
     .eq("project_id", projectId)
     .order("created_at", { ascending: false });
 
-  const invites = ensureData(data, error) as ProjectInviteRecord[];
+  const invites = ensureProjectCollaborationData(data, error) as ProjectInviteRecord[];
 
   return invites.map((invite) => ({
     id: invite.id,
@@ -962,12 +1099,17 @@ export async function createProject(input: {
   name: string;
   description?: string;
 }): Promise<string> {
+  if (isProjectCollaborationSchemaUnavailable()) {
+    throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
+  }
+
   const { data, error } = await supabase.rpc("api_create_project", {
     p_name: input.name,
     p_description: input.description ?? null,
   });
 
   if (!error) {
+    markProjectCollaborationSchemaAvailability("available");
     return ensureData(data, null);
   }
 
@@ -980,20 +1122,32 @@ export async function createProject(input: {
       });
 
       if (!fallbackResult.error) {
+        markProjectCollaborationSchemaAvailability("available");
         return ensureData(fallbackResult.data, null);
       }
 
       if (!isMissingFunctionError(fallbackResult.error, "api_create_project")) {
-        throw fallbackResult.error;
+        return ensureProjectCollaborationData(fallbackResult.data, fallbackResult.error);
       }
     }
 
     // Last-resort fallback for environments where the shared-project RPC
     // has not been applied to Postgres at all yet.
-    return createProjectViaEdgeFunction(input);
+    try {
+      const projectId = await createProjectViaEdgeFunction(input);
+      markProjectCollaborationSchemaAvailability("available");
+      return projectId;
+    } catch (fallbackError) {
+      if (isMissingProjectCollaborationSchemaError(fallbackError)) {
+        markProjectCollaborationSchemaAvailability("unavailable");
+        throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
+      }
+
+      throw fallbackError;
+    }
   }
 
-  throw error;
+  return ensureProjectCollaborationData(data, error);
 }
 
 export async function updateProject(input: {
@@ -1007,7 +1161,7 @@ export async function updateProject(input: {
     p_description: input.description ?? null,
   });
 
-  return ensureData(data, error);
+  return ensureProjectCollaborationData(data, error);
 }
 
 export async function deleteProject(projectId: string): Promise<string> {
@@ -1015,7 +1169,7 @@ export async function deleteProject(projectId: string): Promise<string> {
     p_project_id: projectId,
   });
 
-  return ensureData(data, error);
+  return ensureProjectCollaborationData(data, error);
 }
 
 export async function inviteProjectMember(input: {
@@ -1029,7 +1183,7 @@ export async function inviteProjectMember(input: {
     p_role: input.role ?? "editor",
   });
 
-  const invite = ensureData(data, error) as {
+  const invite = ensureProjectCollaborationData(data, error) as {
     id: string;
     email: string;
     role: ProjectRole;
@@ -1053,7 +1207,7 @@ export async function acceptProjectInvite(token: string): Promise<string> {
     p_token: token,
   });
 
-  return ensureData(data, error);
+  return ensureProjectCollaborationData(data, error);
 }
 
 export async function removeProjectMember(projectMembershipId: string): Promise<string> {
@@ -1061,7 +1215,7 @@ export async function removeProjectMember(projectMembershipId: string): Promise<
     p_project_membership_id: projectMembershipId,
   });
 
-  return ensureData(data, error);
+  return ensureProjectCollaborationData(data, error);
 }
 
 export async function createClientDraft(input: ClientDraftInput): Promise<string> {
@@ -1109,7 +1263,7 @@ export async function assignJobToProject(input: {
     p_project_id: input.projectId,
   });
 
-  return ensureData(data, error);
+  return ensureProjectCollaborationData(data, error);
 }
 
 export async function removeJobFromProject(jobId: string): Promise<string> {
@@ -1117,7 +1271,7 @@ export async function removeJobFromProject(jobId: string): Promise<string> {
     p_job_id: jobId,
   });
 
-  return ensureData(data, error);
+  return ensureProjectCollaborationData(data, error);
 }
 
 export async function requestPasswordReset(email: string): Promise<void> {

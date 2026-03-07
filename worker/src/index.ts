@@ -2,6 +2,7 @@ import "dotenv/config";
 import path from "node:path";
 import type { PostgrestResponse, SupabaseClient } from "@supabase/supabase-js";
 import { buildAdapterRegistry } from "./adapters/index.js";
+import { XOMETRY_AUTOMATION_VERSION } from "./adapters/xometry.js";
 import { loadConfig } from "./config.js";
 import { runHybridExtraction } from "./extraction/hybridExtraction.js";
 import {
@@ -15,11 +16,17 @@ import {
   createServiceClient,
   markTaskCompleted,
   markTaskFailed,
+  markTaskQueuedForRetry,
 } from "./queue.js";
-import { createWorkerRuntimeState, startHealthServer } from "./httpServer.js";
+import {
+  createWorkerRuntimeState,
+  recordRuntimeEvent,
+  startHealthServer,
+  type WorkerRuntimeState,
+} from "./httpServer.js";
 import { suggestLocatorUpdate } from "./repair/suggestLocatorUpdate.js";
-import { prepareRuntimeSecrets } from "./runtimeSecrets.js";
-import type {
+import { prepareRuntimeSecrets, validateXometryReadiness } from "./runtimeSecrets.js";
+import {
   ApprovedRequirementRecord,
   JobFileRecord,
   PartRecord,
@@ -29,9 +36,134 @@ import type {
   VendorName,
   WorkerConfig,
 } from "./types.js";
+import {
+  failureCodeForError,
+  isRetryableVendorTaskError,
+  nextRetryAt,
+  retryCountForAttempts,
+} from "./vendorTaskRetry.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function buildTaskContext(task: QueueTaskRecord) {
+  return {
+    taskId: task.id,
+    taskType: task.task_type,
+    attempts: task.attempts,
+    organizationId: task.organization_id,
+    jobId: task.job_id,
+    partId: task.part_id,
+    quoteRunId: task.quote_run_id,
+    packageId: task.package_id,
+    vendor: typeof task.payload.vendor === "string" ? task.payload.vendor : null,
+  };
+}
+
+function logWorkerEvent(
+  runtimeState: WorkerRuntimeState,
+  input: {
+    level: "info" | "warn" | "error";
+    source: string;
+    message: string;
+    context?: Record<string, unknown>;
+    error?: unknown;
+  },
+) {
+  const event = recordRuntimeEvent(runtimeState, input);
+  const payload = {
+    service: "overdrafter-cad-worker",
+    workerStatus: runtimeState.status,
+    timestamp: event.timestamp,
+    level: event.level,
+    source: event.source,
+    message: event.message,
+    context: event.context,
+    error: event.error,
+  };
+  const serialized = JSON.stringify(payload);
+
+  if (input.level === "error") {
+    console.error(serialized);
+    return;
+  }
+
+  if (input.level === "warn") {
+    console.warn(serialized);
+    return;
+  }
+
+  console.log(serialized);
+}
+
+function summarizeError(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function buildFailureRawPayload(
+  vendor: VendorName,
+  retryCount: number,
+  failureCode: string,
+  payload: Record<string, unknown>,
+  artifactStoragePaths: string[],
+) {
+  if (vendor !== "xometry") {
+    return {
+      failureCode,
+      retryCount,
+      ...payload,
+      artifactStoragePaths,
+    };
+  }
+
+  return {
+    automationVersion: XOMETRY_AUTOMATION_VERSION,
+    detectedFlow:
+      typeof payload.detectedFlow === "string" ? payload.detectedFlow : "quote_home",
+    uploadSelector:
+      typeof payload.uploadSelector === "string" ? payload.uploadSelector : null,
+    drawingUploadMode:
+      typeof payload.drawingUploadMode === "string" ? payload.drawingUploadMode : null,
+    selectedMaterial:
+      typeof payload.selectedMaterial === "string" ? payload.selectedMaterial : null,
+    selectedFinish:
+      typeof payload.selectedFinish === "string" ? payload.selectedFinish : null,
+    priceSource:
+      typeof payload.priceSource === "string" ? payload.priceSource : "none",
+    leadTimeSource:
+      typeof payload.leadTimeSource === "string" ? payload.leadTimeSource : "none",
+    bodyExcerpt: typeof payload.bodyExcerpt === "string" ? payload.bodyExcerpt : "",
+    artifactStoragePaths,
+    retryCount,
+    failureCode,
+    url: typeof payload.url === "string" ? payload.url : null,
+    ...payload,
+  };
+}
+
+async function refreshRuntimeReadiness(
+  config: WorkerConfig,
+  runtimeState: WorkerRuntimeState,
+  logIssueChange: (issues: string[]) => void,
+) {
+  const issues = await validateXometryReadiness(config);
+  const previousSignature = runtimeState.readinessIssues.join("\n");
+  const nextSignature = issues.join("\n");
+
+  runtimeState.readinessIssues = issues;
+
+  if (issues.length > 0) {
+    runtimeState.lastError = issues.join(" ");
+  } else if (previousSignature.length > 0) {
+    runtimeState.lastError = null;
+  }
+
+  if (previousSignature !== nextSignature) {
+    logIssueChange(issues);
+  }
+
+  return issues.length === 0;
 }
 
 function emptyResponse<T>(): Promise<PostgrestResponse<T>> {
@@ -104,9 +236,11 @@ async function enqueueRepairCandidate(
     payload: {
       vendor: task.payload.vendor,
       failedSelector: error.payload.failedSelector ?? null,
+      attemptedSelectors: error.payload.attemptedSelectors ?? [],
       errorMessage: error.message,
       nearbyAttributes: error.payload.nearbyAttributes ?? [],
       failureCode: error.code,
+      url: error.payload.url ?? null,
     },
   });
 
@@ -273,13 +407,28 @@ async function handleVendorQuoteTask(
     throw currentResultError ?? new Error("Vendor quote result row was not found.");
   }
 
-  const stageDir = await createRunDir(config, ["staging", task.quote_run_id, task.part_id]);
-  const stagedCadFile = await stageStorageObject(supabase, context.cadFile, stageDir);
-  const stagedDrawingFile = await stageStorageObject(supabase, context.drawingFile, stageDir);
+  const retryCount = retryCountForAttempts(task.attempts);
+
+  await supabase
+    .from("vendor_quote_results")
+    .update({
+      status: "running",
+      notes:
+        retryCount > 0
+          ? [`Retry attempt ${retryCount + 1} is in progress.`]
+          : ["Vendor automation is in progress."],
+      raw_payload: {
+        retryCount,
+        failureCode: null,
+        retryScheduledFor: null,
+      },
+    })
+    .eq("id", currentResult.id);
 
   const adapters = buildAdapterRegistry(config);
   const adapter = adapters[vendor];
   const artifactDirs = new Set<string>();
+  let stageDir: string | null = null;
 
   if (!adapter) {
     await supabase
@@ -293,6 +442,8 @@ async function handleVendorQuoteTask(
           mode: config.workerMode,
           source: "manual-import-vendor",
           requiresManualVendorFollowUp: true,
+          retryCount,
+          failureCode: null,
         },
       })
       .eq("id", currentResult.id);
@@ -307,6 +458,9 @@ async function handleVendorQuoteTask(
   }
 
   try {
+    stageDir = await createRunDir(config, ["staging", task.quote_run_id, task.part_id]);
+    const stagedCadFile = await stageStorageObject(supabase, context.cadFile, stageDir);
+    const stagedDrawingFile = await stageStorageObject(supabase, context.drawingFile, stageDir);
     const result = await adapter.quote({
       organizationId: task.organization_id,
       quoteRunId: task.quote_run_id,
@@ -343,6 +497,8 @@ async function handleVendorQuoteTask(
         raw_payload: {
           ...result.rawPayload,
           artifactStoragePaths,
+          retryCount,
+          failureCode: null,
         },
       })
       .eq("id", currentResult.id);
@@ -358,9 +514,8 @@ async function handleVendorQuoteTask(
       artifactCount: artifactStoragePaths.length,
     });
   } catch (error) {
-    const isVendorError =
-      error instanceof Error && error.name === "VendorAutomationError";
-    const vendorError = isVendorError ? (error as VendorAutomationError) : null;
+    const vendorError =
+      error instanceof VendorAutomationError ? error : null;
     const failureArtifacts = vendorError?.artifacts ?? [];
     failureArtifacts.forEach((artifact) => artifactDirs.add(path.dirname(artifact.localPath)));
     const failureArtifactStoragePaths =
@@ -379,17 +534,29 @@ async function handleVendorQuoteTask(
       await enqueueRepairCandidate(supabase, task, vendorError);
     }
 
+    const failureCode = failureCodeForError(error);
+    const failureMessage = summarizeError(error);
+    const retryAt =
+      isRetryableVendorTaskError(error) ? nextRetryAt(task.attempts) : null;
+
     await supabase
       .from("vendor_quote_results")
       .update({
-        status: "failed",
+        status: retryAt ? "queued" : "failed",
         notes: [
-          vendorError?.message ?? (error instanceof Error ? error.message : "Vendor quote task failed."),
+          retryAt
+            ? `Transient vendor automation failure. Retry scheduled for ${retryAt}. ${failureMessage}`
+            : failureMessage,
         ],
         raw_payload: {
-          failureCode: vendorError?.code ?? "task_failure",
-          ...vendorError?.payload,
-          artifactStoragePaths: failureArtifactStoragePaths,
+          ...buildFailureRawPayload(
+            vendor,
+            retryCount,
+            failureCode,
+            vendorError?.payload ?? {},
+            failureArtifactStoragePaths,
+          ),
+          retryScheduledFor: retryAt,
         },
       })
       .eq("id", currentResult.id);
@@ -471,11 +638,40 @@ async function processTask(
 }
 
 async function main() {
-  const config = await prepareRuntimeSecrets(loadConfig());
-  const supabase = createServiceClient(config);
+  const baseConfig = loadConfig();
   const runtimeState = createWorkerRuntimeState();
+  let config = baseConfig;
+  let startupReadinessIssue: string | null = null;
+
+  try {
+    config = await prepareRuntimeSecrets(baseConfig);
+  } catch (error) {
+    startupReadinessIssue = summarizeError(error);
+  }
+
+  const supabase = createServiceClient(config);
   const healthServer = await startHealthServer(config, runtimeState);
   let stopping = false;
+
+  const logReadinessChange = (issues: string[]) => {
+    if (issues.length > 0) {
+      logWorkerEvent(runtimeState, {
+        level: "error",
+        source: "worker.readiness",
+        message: "Worker is not ready to process tasks.",
+        context: {
+          issues,
+        },
+      });
+      return;
+    }
+
+    logWorkerEvent(runtimeState, {
+      level: "info",
+      source: "worker.readiness",
+      message: "Worker readiness checks passed.",
+    });
+  };
 
   const requestShutdown = (signal: string) => {
     if (stopping) {
@@ -484,21 +680,71 @@ async function main() {
 
     stopping = true;
     runtimeState.status = "shutting_down";
-    console.log(`[worker] received ${signal}, shutting down after the current cycle`);
+    logWorkerEvent(runtimeState, {
+      level: "info",
+      source: "worker.shutdown",
+      message: `Received ${signal}; shutting down after the current cycle.`,
+      context: {
+        signal,
+      },
+    });
   };
 
   process.on("SIGTERM", () => requestShutdown("SIGTERM"));
   process.on("SIGINT", () => requestShutdown("SIGINT"));
+  process.on("unhandledRejection", (error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    runtimeState.lastError = message;
+    logWorkerEvent(runtimeState, {
+      level: "error",
+      source: "process.unhandledRejection",
+      message,
+      error,
+    });
+  });
+  process.on("uncaughtExceptionMonitor", (error) => {
+    runtimeState.lastError = error.message;
+    logWorkerEvent(runtimeState, {
+      level: "error",
+      source: "process.uncaughtException",
+      message: error.message,
+      error,
+    });
+  });
 
-  console.log(
-    `[worker] starting in ${config.workerMode} mode as ${config.workerName}`,
-  );
-  console.log(`[worker] health server listening on ${healthServer.url}`);
+  logWorkerEvent(runtimeState, {
+    level: "info",
+    source: "worker.startup",
+    message: `Starting worker ${config.workerName} in ${config.workerMode} mode.`,
+    context: {
+      workerName: config.workerName,
+      workerMode: config.workerMode,
+      healthUrl: healthServer.url,
+      pollIntervalMs: config.pollIntervalMs,
+    },
+  });
 
   runtimeState.status = "running";
 
+  if (startupReadinessIssue) {
+    runtimeState.readinessIssues = [startupReadinessIssue];
+    runtimeState.lastError = startupReadinessIssue;
+    logReadinessChange(runtimeState.readinessIssues);
+  } else {
+    await refreshRuntimeReadiness(config, runtimeState, logReadinessChange);
+  }
+
   while (!stopping) {
     runtimeState.lastLoopAt = new Date().toISOString();
+    const ready = startupReadinessIssue
+      ? false
+      : await refreshRuntimeReadiness(config, runtimeState, logReadinessChange);
+
+    if (!ready) {
+      await sleep(config.pollIntervalMs);
+      continue;
+    }
+
     const task = await claimNextTask(supabase, config.workerName);
 
     if (!task) {
@@ -512,23 +758,65 @@ async function main() {
     };
     runtimeState.currentTask = taskSummary;
     runtimeState.lastTaskStartedAt = new Date().toISOString();
+    logWorkerEvent(runtimeState, {
+      level: "info",
+      source: "worker.task.start",
+      message: `Starting ${task.task_type} ${task.id}.`,
+      context: buildTaskContext(task),
+    });
 
     try {
       await processTask(supabase, task, config);
       runtimeState.lastTaskCompletedAt = new Date().toISOString();
       runtimeState.lastCompletedTask = taskSummary;
       runtimeState.lastError = null;
-      console.log(`[worker] completed ${task.task_type} ${task.id}`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await markTaskFailed(supabase, task.id, message, {
-        ...task.payload,
-        failureMessage: message,
+      logWorkerEvent(runtimeState, {
+        level: "info",
+        source: "worker.task.complete",
+        message: `Completed ${task.task_type} ${task.id}.`,
+        context: buildTaskContext(task),
       });
+    } catch (error) {
+      const message = summarizeError(error);
+      const retryAt =
+        task.task_type === "run_vendor_quote" && isRetryableVendorTaskError(error)
+          ? nextRetryAt(task.attempts)
+          : null;
+      const retryCount = retryCountForAttempts(task.attempts);
+
+      if (retryAt) {
+        await markTaskQueuedForRetry(supabase, task.id, message, retryAt, {
+          ...task.payload,
+          failureMessage: message,
+          failureCode: failureCodeForError(error),
+          retryCount,
+          nextRetryAt: retryAt,
+        });
+      } else {
+        await markTaskFailed(supabase, task.id, message, {
+          ...task.payload,
+          failureMessage: message,
+          failureCode: failureCodeForError(error),
+          retryCount,
+        });
+      }
+
       runtimeState.lastTaskFailedAt = new Date().toISOString();
       runtimeState.lastFailedTask = taskSummary;
       runtimeState.lastError = message;
-      console.error(`[worker] failed ${task.task_type} ${task.id}: ${message}`);
+      logWorkerEvent(runtimeState, {
+        level: retryAt ? "warn" : "error",
+        source: retryAt ? "worker.task.retry" : "worker.task.failure",
+        message: retryAt
+          ? `Retrying ${task.task_type} ${task.id} at ${retryAt}: ${message}`
+          : `Failed ${task.task_type} ${task.id}: ${message}`,
+        context: {
+          ...buildTaskContext(task),
+          retryCount,
+          nextRetryAt: retryAt,
+        },
+        error,
+      });
     } finally {
       runtimeState.currentTask = null;
     }
@@ -538,6 +826,21 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error("[worker] fatal startup error", error);
+  console.error(
+    JSON.stringify({
+      service: "overdrafter-cad-worker",
+      level: "error",
+      source: "worker.startup.fatal",
+      message: error instanceof Error ? error.message : String(error),
+      error:
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+              stack: error.stack ?? null,
+            }
+          : null,
+    }),
+  );
   process.exit(1);
 });

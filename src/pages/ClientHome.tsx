@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import type { User } from "@supabase/supabase-js";
-import { LogOut } from "lucide-react";
+import { PlusSquare, Search } from "lucide-react";
 import { toast } from "sonner";
+import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
 import { GuestSidebarCta } from "@/components/chat/GuestSidebarCta";
 import { PromptComposer, type PromptComposerHandle } from "@/components/chat/PromptComposer";
+import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import {
   WorkspaceSidebar,
   type WorkspaceSidebarProject,
@@ -16,6 +17,7 @@ import { SignInDialog } from "@/components/SignInDialog";
 import { Button } from "@/components/ui/button";
 import { useAppSession } from "@/hooks/use-app-session";
 import { supabase } from "@/integrations/supabase/client";
+import { getDefaultAccountName } from "@/lib/account-profile";
 import { isEmailConfirmationRequired } from "@/lib/auth-status";
 import {
   assignJobToProject,
@@ -27,6 +29,7 @@ import {
   fetchAccessibleProjects,
   fetchJobPartSummariesByJobIds,
   fetchSidebarPins,
+  isProjectCollaborationSchemaUnavailable,
   pinJob,
   pinProject,
   reconcileJobParts,
@@ -45,41 +48,6 @@ import {
   PROJECT_STORAGE_PREFIX,
   resolveImportedBatch,
 } from "@/features/quotes/client-workspace";
-
-function normalizeAccountNameSeed(value: string): string {
-  return value
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/[._-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function toTitleCase(value: string): string {
-  return value
-    .split(" ")
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(" ");
-}
-
-function getDefaultAccountName(user: User | null): string {
-  if (!user) {
-    return "Personal workspace";
-  }
-
-  const metadataName = [
-    user.user_metadata?.full_name,
-    user.user_metadata?.name,
-    user.user_metadata?.company,
-  ].find((value): value is string => typeof value === "string" && value.trim().length > 0);
-
-  if (metadataName) {
-    return metadataName.trim();
-  }
-
-  const emailLocalPart = normalizeAccountNameSeed(user.email?.split("@")[0] ?? "");
-  return emailLocalPart ? toTitleCase(emailLocalPart) : "Personal workspace";
-}
 
 function createProjectStorageKey(organizationId?: string, userEmail?: string): string | null {
   if (!organizationId || !userEmail) {
@@ -104,6 +72,7 @@ const ClientHome = () => {
   const { user, activeMembership, isLoading, isVerifiedAuth, signOut } = useAppSession();
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [isRefreshingVerification, setIsRefreshingVerification] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
@@ -130,6 +99,8 @@ const ClientHome = () => {
     queryFn: fetchSidebarPins,
     enabled: Boolean(user),
   });
+  const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+  const canCreateProjects = !projectCollaborationUnavailable && !accessibleProjectsQuery.isLoading;
 
   const accessibleJobIds = useMemo(
     () => (accessibleJobsQuery.data ?? []).map((job) => job.id),
@@ -286,7 +257,19 @@ const ClientHome = () => {
   }, [focusComposerIntent, searchParams, setSearchParams]);
 
   useEffect(() => {
+    if (canCreateProjects) {
+      return;
+    }
+
+    setShowCreateProject(false);
+  }, [canCreateProjects]);
+
+  useEffect(() => {
     if (createProjectIntent !== "1" || !user) {
+      return;
+    }
+
+    if (!canCreateProjects) {
       return;
     }
 
@@ -295,7 +278,7 @@ const ClientHome = () => {
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.delete("createProject");
     setSearchParams(nextSearchParams, { replace: true });
-  }, [createProjectIntent, searchParams, setSearchParams, user]);
+  }, [canCreateProjects, createProjectIntent, searchParams, setSearchParams, user]);
 
   useEffect(() => {
     if (!user) {
@@ -336,6 +319,7 @@ const ClientHome = () => {
       !user ||
       !activeMembership?.organizationId ||
       isDmriflesWorkspace ||
+      projectCollaborationUnavailable ||
       accessibleProjectsQuery.isLoading ||
       migrateLegacyProjectsMutation.isPending
     ) {
@@ -350,6 +334,7 @@ const ClientHome = () => {
     accessibleProjectsQuery.isLoading,
     activeMembership?.organizationId,
     isDmriflesWorkspace,
+    projectCollaborationUnavailable,
     migrateLegacyProjectsMutation,
     user,
   ]);
@@ -572,6 +557,7 @@ const ClientHome = () => {
   return (
     <>
       <ChatWorkspaceLayout
+        onLogoClick={() => navigate("/")}
         topRightContent={
           user ? null : (
             <>
@@ -593,12 +579,26 @@ const ClientHome = () => {
             </>
           )
         }
+        sidebarRailActions={
+          user
+            ? [
+                { label: "New Job", icon: PlusSquare, onClick: () => navigate("/jobs/new") },
+                { label: "Search", icon: Search, onClick: () => setIsSearchOpen(true) },
+              ]
+            : [
+                { label: "New Job", icon: PlusSquare, onClick: () => composerRef.current?.focus() },
+                { label: "Search", icon: Search, onClick: () => openAuth("signin") },
+              ]
+        }
         sidebarContent={
           user ? (
             <WorkspaceSidebar
               projects={sidebarProjects}
               jobs={accessibleJobsQuery.data ?? []}
               summariesByJobId={summariesByJobId}
+              onCreateJob={() => navigate("/jobs/new")}
+              onSearch={() => setIsSearchOpen(true)}
+              canCreateProject={canCreateProjects}
               onCreateProject={() => setShowCreateProject(true)}
               storageScopeKey={user.id}
               pinnedProjectIds={sidebarPinsQuery.data?.projectIds ?? []}
@@ -623,7 +623,7 @@ const ClientHome = () => {
                 className="w-full justify-start rounded-xl px-3 text-white/85 hover:bg-white/6 hover:text-white"
                 onClick={() => composerRef.current?.focus()}
               >
-                New Part
+                New Job
               </Button>
               <Button
                 type="button"
@@ -631,37 +631,19 @@ const ClientHome = () => {
                 className="w-full justify-start rounded-xl px-3 text-white/85 hover:bg-white/6 hover:text-white"
                 onClick={() => openAuth("signin")}
               >
-                Search Parts
+                Search
               </Button>
             </div>
           )
         }
         sidebarFooter={
           user ? (
-            <div className="space-y-3">
-              <div>
-                <p className="truncate text-sm font-medium text-white">{user.email}</p>
-                <p className="text-xs text-white/45">
-                  {activeMembership || !showWorkspaceSetupState
-                    ? "Private workspace ready"
-                    : "Private workspace in setup"}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-10 flex-1 rounded-full border border-white/10 bg-transparent text-white/80 hover:bg-white/6 hover:text-white"
-                  onClick={async () => {
-                    await signOut();
-                    navigate("/", { replace: true });
-                  }}
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Sign out
-                </Button>
-              </div>
-            </div>
+            <WorkspaceAccountMenu
+              user={user}
+              activeMembership={activeMembership}
+              onSignOut={signOut}
+              onSignedOut={() => navigate("/", { replace: true })}
+            />
           ) : (
             <GuestSidebarCta onLogIn={() => openAuth("signin")} />
           )
@@ -686,6 +668,16 @@ const ClientHome = () => {
         isPending={createProjectMutation.isPending}
         isSubmitDisabled={projectName.trim().length === 0}
         onSubmit={() => createProjectMutation.mutate(projectName.trim())}
+      />
+
+      <SearchPartsDialog
+        open={isSearchOpen}
+        onOpenChange={setIsSearchOpen}
+        projects={sidebarProjects}
+        jobs={accessibleJobsQuery.data ?? []}
+        summariesByJobId={summariesByJobId}
+        onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
+        onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
       />
 
       <SignInDialog

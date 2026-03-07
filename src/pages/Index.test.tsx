@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -210,11 +210,13 @@ describe("Index client home", () => {
 
     renderIndex();
 
-    expect(await screen.findByRole("button", { name: /qb00001/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /qb00002/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /qb00003/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /new project/i })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: /qb00001/i }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole("button", { name: /qb00002/i }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole("button", { name: /qb00003/i }).length).toBeGreaterThan(0);
+      expect(screen.getByRole("button", { name: /new project/i })).toBeEnabled();
+    });
+    expect(screen.getByRole("button", { name: /open account menu/i })).toBeInTheDocument();
   });
 
   it("does not render an intermediate loading page while app session hydrates", () => {

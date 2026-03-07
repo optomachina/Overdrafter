@@ -102,24 +102,37 @@ describe("WorkspaceSidebar", () => {
     ],
   ]);
 
-  it("renders the codex-style header and top controls", () => {
+  it("renders the top actions and section headings", () => {
     render(
       <WorkspaceSidebar
         projects={projects}
         jobs={jobs}
         summariesByJobId={summariesByJobId}
         storageScopeKey="sidebar-tests"
+        onCreateJob={vi.fn()}
+        onSearch={vi.fn()}
         onCreateProject={vi.fn()}
         onSelectProject={vi.fn()}
         onSelectPart={vi.fn()}
       />,
     );
 
-    expect(screen.getByText("Threads")).toBeInTheDocument();
-    expect(screen.queryByText(/group projects/i)).not.toBeInTheDocument();
+    const newJobButton = screen.getByRole("button", { name: /new job/i });
+    const searchButton = screen.getByRole("button", { name: /^search$/i });
+    const [newJobIconSlot] = newJobButton.querySelectorAll("span");
+    const [searchIconSlot] = searchButton.querySelectorAll("span");
+
+    expect(screen.queryByText("Threads")).not.toBeInTheDocument();
+    expect(newJobButton).toBeInTheDocument();
+    expect(newJobButton).not.toHaveClass("border");
+    expect(newJobIconSlot).toHaveClass("w-5");
+    expect(searchButton).toBeInTheDocument();
+    expect(searchButton).not.toHaveClass("border");
+    expect(searchIconSlot).toHaveClass("w-5");
+    expect(screen.getByText("Projects")).toBeInTheDocument();
+    expect(screen.getByText("Parts")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /new project/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /create project/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /filter threads/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /filter parts/i })).toBeInTheDocument();
   });
 
 
@@ -159,7 +172,34 @@ describe("WorkspaceSidebar", () => {
       />,
     );
 
-    expect(screen.getByText(/1093-00001/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/1093-00001/i).length).toBeGreaterThan(0);
+  });
+
+  it("collapses and persists the projects and parts sections", () => {
+    render(
+      <WorkspaceSidebar
+        projects={projects}
+        jobs={jobs}
+        summariesByJobId={summariesByJobId}
+        storageScopeKey="sidebar-sections"
+        onSelectProject={vi.fn()}
+        onSelectPart={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /collapse projects/i }));
+    expect(screen.queryByText("Project Two")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /collapse parts/i }));
+    expect(screen.queryByText(/1093-00002/i)).not.toBeInTheDocument();
+
+    expect(JSON.parse(localStorage.getItem("workspace-sidebar-sections-v1:sidebar-sections") ?? "{}")).toEqual({
+      projects: false,
+      parts: false,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /expand projects/i }));
+    expect(screen.getByText("Project Two")).toBeInTheDocument();
   });
 
   it("shows project context menu actions", () => {
@@ -178,7 +218,7 @@ describe("WorkspaceSidebar", () => {
       />,
     );
 
-    fireEvent.contextMenu(screen.getByText("Project One"));
+    fireEvent.contextMenu(screen.getAllByText("Project One")[0]);
 
     expect(screen.getByText("Edit project")).toBeInTheDocument();
     expect(screen.getByText("Pin")).toBeInTheDocument();

@@ -33,6 +33,11 @@ export type QueueTaskRecord = {
   task_type: QueueTaskType;
   status: QueueTaskStatus;
   payload: Record<string, unknown>;
+  attempts: number;
+  available_at: string;
+  locked_at: string | null;
+  locked_by: string | null;
+  last_error: string | null;
 };
 
 export type PartRecord = {
@@ -117,6 +122,40 @@ export type VendorQuoteAdapterOutput = {
   notes: string[];
   artifacts: VendorArtifact[];
   rawPayload: Record<string, unknown>;
+};
+
+export type XometryDetectedFlow =
+  | "simulate"
+  | "quote_home"
+  | "upload_complete"
+  | "configuration_complete"
+  | "instant_quote"
+  | "manual_review"
+  | "manual_vendor_followup";
+
+export type XometryDrawingUploadMode =
+  | "bundled"
+  | "fallback"
+  | "not_provided"
+  | "not_needed";
+
+export type XometryValueSource = "selector" | "body_text" | "none";
+
+// Stable raw-payload contract for Xometry results and failures.
+export type XometryQuoteRawPayload = Record<string, unknown> & {
+  automationVersion: string;
+  detectedFlow: XometryDetectedFlow;
+  uploadSelector?: string | null;
+  drawingUploadMode?: XometryDrawingUploadMode | null;
+  selectedMaterial?: string | null;
+  selectedFinish?: string | null;
+  priceSource?: XometryValueSource | null;
+  leadTimeSource?: XometryValueSource | null;
+  bodyExcerpt?: string;
+  artifactStoragePaths?: string[];
+  retryCount?: number;
+  failureCode?: string | null;
+  url?: string | null;
 };
 
 export type VendorAutomationErrorCode =

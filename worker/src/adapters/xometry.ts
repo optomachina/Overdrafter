@@ -7,6 +7,9 @@ import {
   type VendorArtifact,
   type VendorQuoteAdapterInput,
   type VendorQuoteAdapterOutput,
+  type XometryDrawingUploadMode,
+  type XometryQuoteRawPayload,
+  type XometryValueSource,
 } from "../types.js";
 import { VendorAdapter } from "./base.js";
 import {
@@ -16,11 +19,44 @@ import {
   XOMETRY_URLS,
 } from "./xometryConstraints.js";
 
+export const XOMETRY_AUTOMATION_VERSION = "xometry-worker-v1";
+
 function sanitizeSegment(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "-").toLowerCase();
 }
 
-function parseFirstCurrency(text: string): number | null {
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function excerptText(text: string) {
+  return text.slice(0, 2000);
+}
+
+function normalizedQuantity(input: VendorQuoteAdapterInput) {
+  return Math.max(1, input.requirement.quantity || input.part.quantity || 1);
+}
+
+function buildRawPayload(overrides: Partial<XometryQuoteRawPayload>): XometryQuoteRawPayload {
+  return {
+    automationVersion: XOMETRY_AUTOMATION_VERSION,
+    detectedFlow: "quote_home",
+    uploadSelector: null,
+    drawingUploadMode: null,
+    selectedMaterial: null,
+    selectedFinish: null,
+    priceSource: "none",
+    leadTimeSource: "none",
+    bodyExcerpt: "",
+    artifactStoragePaths: [],
+    retryCount: 0,
+    failureCode: null,
+    url: null,
+    ...overrides,
+  };
+}
+
+export function parseFirstCurrency(text: string): number | null {
   const match = text.match(/\$ ?([\d,]+(?:\.\d{2})?)/);
   if (!match) return null;
 
@@ -28,7 +64,7 @@ function parseFirstCurrency(text: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function parseLeadTime(text: string): number | null {
+export function parseLeadTime(text: string): number | null {
   const match = text.match(/(\d+)\s+(?:business\s+)?days?/i);
   if (!match) return null;
 
@@ -36,8 +72,53 @@ function parseLeadTime(text: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function isBlockingSignal(text: string, patterns: readonly RegExp[]) {
+function isSignalPresent(text: string, patterns: readonly RegExp[]) {
   return patterns.some((pattern) => pattern.test(text));
+}
+
+export function isManualReviewText(text: string) {
+  return isSignalPresent(text, XOMETRY_LOCATORS.manualReviewSignals);
+}
+
+export function detectBlockingStateSignal(input: { text: string; url: string }) {
+  if (isSignalPresent(input.text, XOMETRY_LOCATORS.captchaSignals)) {
+    return "captcha";
+  }
+
+  if (input.url.includes("/login") || isSignalPresent(input.text, XOMETRY_LOCATORS.loginSignals)) {
+    return "login_required";
+  }
+
+  return null;
+}
+
+function buildManualVendorFollowupOutput(
+  input: VendorQuoteAdapterInput,
+  workerMode: "simulate" | "live",
+  reason: string,
+  details: Record<string, unknown>,
+): VendorQuoteAdapterOutput {
+  return {
+    vendor: "xometry",
+    status: "manual_vendor_followup",
+    unitPriceUsd: null,
+    totalPriceUsd: null,
+    leadTimeBusinessDays: null,
+    quoteUrl:
+      workerMode === "live"
+        ? XOMETRY_URLS.quoteHome
+        : `simulated://xometry/manual/${input.part.id}`,
+    dfmIssues: [],
+    notes: [reason],
+    artifacts: [],
+    rawPayload: buildRawPayload({
+      detectedFlow: "manual_vendor_followup",
+      drawingUploadMode: input.stagedDrawingFile ? "not_needed" : "not_provided",
+      bodyExcerpt: reason,
+      url: XOMETRY_URLS.quoteHome,
+      ...details,
+    }),
+  };
 }
 
 async function capturePageArtifacts(
@@ -72,6 +153,15 @@ async function capturePageArtifacts(
   ];
 }
 
+async function appendArtifacts(
+  artifacts: VendorArtifact[],
+  page: Page,
+  runDir: string,
+  label: string,
+) {
+  artifacts.push(...(await capturePageArtifacts(page, runDir, label)));
+}
+
 async function firstWorkingLocator(page: Page, selectors: readonly string[]) {
   for (const selector of selectors) {
     const locator = page.locator(selector).first();
@@ -85,21 +175,52 @@ async function firstWorkingLocator(page: Page, selectors: readonly string[]) {
   return null;
 }
 
+async function firstWorkingText(page: Page, selectors: readonly string[]) {
+  for (const selector of selectors) {
+    const locator = page.locator(selector).first();
+    const count = await locator.count().catch(() => 0);
+
+    if (count < 1) {
+      continue;
+    }
+
+    const text = await locator.innerText().catch(() => "");
+    if (text.trim()) {
+      return {
+        selector,
+        text: text.trim(),
+      };
+    }
+  }
+
+  return null;
+}
+
+async function readBodyText(page: Page) {
+  return page.locator("body").innerText().catch(() => "");
+}
+
 async function waitForQuoteSignals(page: Page, timeoutMs: number) {
   await page.waitForFunction(
-    (patterns) => patterns.some((pattern) => new RegExp(pattern, "i").test(document.body.innerText)),
-    XOMETRY_LOCATORS.quoteReadySignals.map((pattern) => pattern.source),
+    (patterns) =>
+      [...patterns.readyPatterns, ...patterns.reviewPatterns].some((pattern) =>
+        new RegExp(pattern, "i").test(document.body.innerText),
+      ),
+    {
+      readyPatterns: XOMETRY_LOCATORS.quoteReadySignals.map((pattern) => pattern.source),
+      reviewPatterns: XOMETRY_LOCATORS.manualReviewSignals.map((pattern) => pattern.source),
+    },
     {
       timeout: timeoutMs,
     },
   );
 }
 
-async function setFilesOnUpload(
-  page: Page,
-  files: string[],
-): Promise<string> {
+async function setFilesOnUpload(page: Page, files: string[]) {
+  const attemptedSelectors: string[] = [];
+
   for (const selector of XOMETRY_LOCATORS.uploadInputs) {
+    attemptedSelectors.push(selector);
     const locator = page.locator(selector).first();
     const count = await locator.count().catch(() => 0);
 
@@ -107,7 +228,7 @@ async function setFilesOnUpload(
 
     try {
       await locator.setInputFiles(files);
-      return selector;
+      return { selector, attemptedSelectors };
     } catch {
       // Try the next known upload locator.
     }
@@ -119,7 +240,9 @@ async function setFilesOnUpload(
     {
       vendor: "xometry",
       failedSelector: XOMETRY_LOCATORS.uploadInputs[0],
+      attemptedSelectors,
       nearbyAttributes: [...XOMETRY_LOCATORS.uploadInputs],
+      url: page.url(),
     },
   );
 }
@@ -137,8 +260,11 @@ async function findButtonAndOpen(
       "selector_failure",
       {
         vendor: "xometry",
+        field,
         failedSelector: selectors[0],
+        attemptedSelectors: [...selectors],
         nearbyAttributes: [...selectors],
+        url: page.url(),
       },
     );
   }
@@ -154,14 +280,21 @@ async function chooseOptionByTerms(
   field: "material" | "finish",
 ) {
   for (const term of terms) {
-    const roleOption = page.getByRole("option", { name: new RegExp(term, "i") }).first();
+    const roleOption = page
+      .getByRole("option", { name: new RegExp(escapeRegex(term), "i") })
+      .first();
+
     if ((await roleOption.count().catch(() => 0)) > 0) {
       await roleOption.click();
       return term;
     }
 
     for (const selector of optionSelectors) {
-      const option = page.locator(selector).filter({ hasText: new RegExp(term, "i") }).first();
+      const option = page
+        .locator(selector)
+        .filter({ hasText: new RegExp(escapeRegex(term), "i") })
+        .first();
+
       if ((await option.count().catch(() => 0)) > 0) {
         await option.click();
         return term;
@@ -176,8 +309,10 @@ async function chooseOptionByTerms(
       vendor: "xometry",
       field,
       failedSelector: optionSelectors[0],
+      attemptedSelectors: [...optionSelectors],
       nearbyAttributes: [...optionSelectors],
       requestedTerms: terms,
+      url: page.url(),
     },
   );
 }
@@ -192,7 +327,9 @@ async function setQuantity(page: Page, quantity: number) {
       {
         vendor: "xometry",
         failedSelector: XOMETRY_LOCATORS.quantityInputs[0],
+        attemptedSelectors: [...XOMETRY_LOCATORS.quantityInputs],
         nearbyAttributes: [...XOMETRY_LOCATORS.quantityInputs],
+        url: page.url(),
       },
     );
   }
@@ -220,9 +357,13 @@ async function attachDrawingFallback(page: Page, drawingPath: string) {
 }
 
 async function detectBlockingState(page: Page, runDir: string) {
-  const bodyText = await page.locator("body").innerText().catch(() => "");
+  const bodyText = await readBodyText(page);
+  const signal = detectBlockingStateSignal({
+    text: bodyText,
+    url: page.url(),
+  });
 
-  if (isBlockingSignal(bodyText, XOMETRY_LOCATORS.captchaSignals)) {
+  if (signal === "captcha") {
     const artifacts = await capturePageArtifacts(page, runDir, "captcha");
     throw new VendorAutomationError(
       "Xometry presented a captcha challenge.",
@@ -235,7 +376,7 @@ async function detectBlockingState(page: Page, runDir: string) {
     );
   }
 
-  if (page.url().includes("/login") || isBlockingSignal(bodyText, XOMETRY_LOCATORS.loginSignals)) {
+  if (signal === "login_required") {
     const artifacts = await capturePageArtifacts(page, runDir, "login-required");
     throw new VendorAutomationError(
       "Xometry authentication is required. Refresh the stored Playwright session.",
@@ -248,32 +389,115 @@ async function detectBlockingState(page: Page, runDir: string) {
       artifacts,
     );
   }
+
+  return bodyText;
+}
+
+async function extractParsedValue(
+  page: Page,
+  selectors: readonly string[],
+  parser: (text: string) => number | null,
+  bodyText: string,
+) {
+  for (const selector of selectors) {
+    const match = await firstWorkingText(page, [selector]);
+    if (!match) {
+      continue;
+    }
+
+    const value = parser(match.text);
+    if (value !== null) {
+      return {
+        value,
+        source: "selector" as XometryValueSource,
+        selector: match.selector,
+      };
+    }
+  }
+
+  const fallbackValue = parser(bodyText);
+
+  return {
+    value: fallbackValue,
+    source: fallbackValue !== null ? ("body_text" as XometryValueSource) : ("none" as XometryValueSource),
+    selector: null,
+  };
+}
+
+async function detectManualReview(page: Page, bodyText: string) {
+  const match = await firstWorkingText(page, XOMETRY_LOCATORS.manualReviewText);
+
+  if (match && isManualReviewText(match.text)) {
+    return {
+      manualReview: true,
+      selector: match.selector,
+    };
+  }
+
+  return {
+    manualReview: isManualReviewText(bodyText),
+    selector: null,
+  };
 }
 
 export class XometryAdapter extends VendorAdapter {
-  private async simulateQuote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
+  private simulateQuote(input: VendorQuoteAdapterInput): VendorQuoteAdapterOutput {
+    const quantity = normalizedQuantity(input);
     const total = this.simulatedBaseAmount(input);
+    const quoteUrl = `simulated://xometry/${input.part.id}`;
 
     return {
       vendor: "xometry",
       status: "instant_quote_received",
-      unitPriceUsd: Math.round((total / input.requirement.quantity) * 100) / 100,
+      unitPriceUsd: Math.round((total / quantity) * 100) / 100,
       totalPriceUsd: total,
       leadTimeBusinessDays: 6,
-      quoteUrl: `simulated://xometry/${input.part.id}`,
+      quoteUrl,
       dfmIssues: [],
       notes: ["Simulated instant quote generated from the deterministic worker model."],
       artifacts: [],
-      rawPayload: {
-        mode: this.config.workerMode,
-        source: "xometry-adapter",
-      },
+      rawPayload: buildRawPayload({
+        detectedFlow: "simulate",
+        url: quoteUrl,
+      }),
     };
   }
 
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
     if (this.config.workerMode !== "live") {
       return this.simulateQuote(input);
+    }
+
+    const materialTerms = buildMaterialSearchTerms(input.requirement.material);
+    if (!materialTerms) {
+      return {
+        ...buildManualVendorFollowupOutput(
+          input,
+          this.config.workerMode,
+          `Material "${input.requirement.material}" is not mapped to a supported Xometry option.`,
+          {
+          selectedMaterial: null,
+          unmappedField: "material",
+          unmappedValue: input.requirement.material,
+          },
+        ),
+      };
+    }
+
+    const finishTerms = buildFinishSearchTerms(input.requirement.finish);
+    if (input.requirement.finish && finishTerms === null) {
+      return {
+        ...buildManualVendorFollowupOutput(
+          input,
+          this.config.workerMode,
+          `Finish "${input.requirement.finish}" is not mapped to a supported Xometry option.`,
+          {
+          selectedFinish: null,
+          unmappedField: "finish",
+          unmappedValue: input.requirement.finish,
+          },
+        ),
+      };
     }
 
     if (!input.stagedCadFile) {
@@ -298,20 +522,6 @@ export class XometryAdapter extends VendorAdapter {
       );
     }
 
-    try {
-      await fs.access(this.config.xometryStorageStatePath);
-    } catch {
-      throw new VendorAutomationError(
-        `Xometry storage state file was not found at ${this.config.xometryStorageStatePath}.`,
-        "login_required",
-        {
-          vendor: "xometry",
-          expectedLoginUrl: XOMETRY_URLS.login,
-          storageStatePath: this.config.xometryStorageStatePath,
-        },
-      );
-    }
-
     const runDir = await createRunDir(this.config, [
       "xometry",
       input.quoteRunId,
@@ -322,6 +532,14 @@ export class XometryAdapter extends VendorAdapter {
     let browserContext: BrowserContext | null = null;
     const artifacts: VendorArtifact[] = [];
     let traceStopped = false;
+    let detectedFlow: XometryQuoteRawPayload["detectedFlow"] = "quote_home";
+    let uploadSelector: string | null = null;
+    let selectedMaterial: string | null = null;
+    let selectedFinish: string | null = null;
+    let drawingUploadMode: XometryDrawingUploadMode =
+      input.stagedDrawingFile ? "bundled" : "not_provided";
+    let priceSource: XometryValueSource = "none";
+    let leadTimeSource: XometryValueSource = "none";
 
     try {
       const launchArgs: string[] = [];
@@ -356,74 +574,95 @@ export class XometryAdapter extends VendorAdapter {
       const page = await browserContext.newPage();
       await page.goto(XOMETRY_URLS.quoteHome, { waitUntil: "domcontentloaded" });
       await detectBlockingState(page, runDir);
-
-      artifacts.push(...(await capturePageArtifacts(page, runDir, "landing")));
+      await appendArtifacts(artifacts, page, runDir, "landing");
 
       const uploadFiles = [
         input.stagedCadFile.localPath,
         input.stagedDrawingFile?.localPath,
       ].filter((value): value is string => Boolean(value));
 
-      let uploadSelector: string;
-      let drawingUploadedInInitialStep = Boolean(input.stagedDrawingFile);
-
       try {
-        uploadSelector = await setFilesOnUpload(page, uploadFiles);
+        const uploadResult = await setFilesOnUpload(page, uploadFiles);
+        uploadSelector = uploadResult.selector;
       } catch (error) {
         if (!input.stagedDrawingFile) {
           throw error;
         }
 
-        uploadSelector = await setFilesOnUpload(page, [input.stagedCadFile.localPath]);
-        drawingUploadedInInitialStep = false;
+        const uploadResult = await setFilesOnUpload(page, [input.stagedCadFile.localPath]);
+        uploadSelector = uploadResult.selector;
+        drawingUploadMode = "not_needed";
       }
 
       await waitForQuoteSignals(page, this.config.browserTimeoutMs);
-      artifacts.push(...(await capturePageArtifacts(page, runDir, "uploaded")));
+      await detectBlockingState(page, runDir);
+      detectedFlow = "upload_complete";
+      await appendArtifacts(artifacts, page, runDir, "uploaded");
 
-      await setQuantity(page, input.requirement.quantity);
+      await setQuantity(page, normalizedQuantity(input));
 
-      const materialTriggerSelector = await findButtonAndOpen(
+      await findButtonAndOpen(page, XOMETRY_LOCATORS.materialButtons, "material");
+      selectedMaterial = await chooseOptionByTerms(
         page,
-        XOMETRY_LOCATORS.materialButtons,
-        "material",
-      );
-      const selectedMaterial = await chooseOptionByTerms(
-        page,
-        buildMaterialSearchTerms(input.requirement.material),
+        materialTerms,
         XOMETRY_LOCATORS.materialOptions,
         "material",
       );
 
-      let selectedFinish: string | null = null;
-      if (input.requirement.finish && !/as.?machined/i.test(input.requirement.finish)) {
+      if (finishTerms && finishTerms.length > 0) {
         await findButtonAndOpen(page, XOMETRY_LOCATORS.finishButtons, "finish");
         selectedFinish = await chooseOptionByTerms(
           page,
-          buildFinishSearchTerms(input.requirement.finish),
+          finishTerms,
           XOMETRY_LOCATORS.finishOptions,
           "finish",
         );
       }
 
-      const postConfigText = await page.locator("body").innerText().catch(() => "");
+      const postConfigText = await readBodyText(page);
 
-      let drawingFallbackSelector: string | null = null;
       if (
         input.stagedDrawingFile &&
-        (!drawingUploadedInInitialStep ||
-          /drawing required|upload drawing|add drawing/i.test(postConfigText))
+        (drawingUploadMode === "not_needed" || /drawing required|upload drawing|add drawing/i.test(postConfigText))
       ) {
-        drawingFallbackSelector = await attachDrawingFallback(page, input.stagedDrawingFile.localPath);
+        const drawingFallbackSelector = await attachDrawingFallback(
+          page,
+          input.stagedDrawingFile.localPath,
+        );
+        if (drawingFallbackSelector) {
+          drawingUploadMode = "fallback";
+        }
       }
 
       await page.waitForLoadState("networkidle").catch(() => undefined);
-      artifacts.push(...(await capturePageArtifacts(page, runDir, "configured")));
+      await detectBlockingState(page, runDir);
+      detectedFlow = "configuration_complete";
+      await appendArtifacts(artifacts, page, runDir, "configured");
 
-      const bodyText = await page.locator("body").innerText();
-      const totalPrice = parseFirstCurrency(bodyText);
-      const leadTime = parseLeadTime(bodyText);
-      const manualReview = /manual review|required for review|drawing required/i.test(bodyText);
+      const bodyText = await readBodyText(page);
+      const priceResult = await extractParsedValue(
+        page,
+        XOMETRY_LOCATORS.priceText,
+        parseFirstCurrency,
+        bodyText,
+      );
+      const leadTimeResult = await extractParsedValue(
+        page,
+        XOMETRY_LOCATORS.leadTimeText,
+        parseLeadTime,
+        bodyText,
+      );
+      const manualReviewResult = await detectManualReview(page, bodyText);
+      const totalPrice = priceResult.value;
+      const leadTime = leadTimeResult.value;
+      const manualReview = manualReviewResult.manualReview;
+
+      priceSource = priceResult.source;
+      leadTimeSource = leadTimeResult.source;
+
+      if (manualReview) {
+        detectedFlow = "manual_review";
+      }
 
       if (!totalPrice && !manualReview) {
         throw new VendorAutomationError(
@@ -431,19 +670,25 @@ export class XometryAdapter extends VendorAdapter {
           "unexpected_ui_state",
           {
             vendor: "xometry",
-          uploadSelector,
-          drawingUploadedInInitialStep,
-          materialTriggerSelector,
-          selectedMaterial,
-          selectedFinish,
-            drawingFallbackSelector,
+            uploadSelector,
+            drawingUploadMode,
+            selectedMaterial,
+            selectedFinish,
+            priceSource,
+            leadTimeSource,
+            manualReviewSelector: manualReviewResult.selector,
             url: page.url(),
+            detectedFlow,
           },
           await capturePageArtifacts(page, runDir, "missing-price"),
         );
       }
 
-      artifacts.push(...(await capturePageArtifacts(page, runDir, "result")));
+      if (!manualReview) {
+        detectedFlow = "instant_quote";
+      }
+
+      await appendArtifacts(artifacts, page, runDir, "result");
 
       if (this.config.playwrightCaptureTrace && browserContext) {
         const tracePath = path.join(runDir, "trace.zip");
@@ -460,7 +705,10 @@ export class XometryAdapter extends VendorAdapter {
       return {
         vendor: "xometry",
         status: manualReview ? "manual_review_pending" : "instant_quote_received",
-        unitPriceUsd: totalPrice ? Math.round((totalPrice / input.requirement.quantity) * 100) / 100 : null,
+        unitPriceUsd:
+          totalPrice !== null
+            ? Math.round((totalPrice / normalizedQuantity(input)) * 100) / 100
+            : null,
         totalPriceUsd: totalPrice,
         leadTimeBusinessDays: leadTime,
         quoteUrl: page.url(),
@@ -471,15 +719,17 @@ export class XometryAdapter extends VendorAdapter {
             : "Live Xometry quote captured via Playwright.",
         ],
         artifacts,
-        rawPayload: {
-          mode: "live",
+        rawPayload: buildRawPayload({
+          detectedFlow,
           uploadSelector,
-          drawingUploadedInInitialStep,
+          drawingUploadMode,
           selectedMaterial,
           selectedFinish,
-          drawingFallbackSelector,
-          bodyExcerpt: bodyText.slice(0, 2000),
-        },
+          priceSource,
+          leadTimeSource,
+          bodyExcerpt: excerptText(bodyText),
+          url: page.url(),
+        }),
       };
     } catch (error) {
       if (error instanceof VendorAutomationError) {
@@ -491,6 +741,11 @@ export class XometryAdapter extends VendorAdapter {
         "navigation_failure",
         {
           vendor: "xometry",
+          detectedFlow,
+          uploadSelector,
+          drawingUploadMode,
+          selectedMaterial,
+          selectedFinish,
         },
         artifacts,
       );
