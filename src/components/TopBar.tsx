@@ -1,10 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { SignInDialog } from "./SignInDialog";
-import { PanelLeft, LogOut } from "lucide-react";
+import { PanelLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from "@supabase/supabase-js";
-import { toast } from "sonner";
 
 interface TopBarProps {
   onMenuClick: () => void;
@@ -28,15 +27,6 @@ export function TopBar({ onMenuClick, showMenuButton = true }: TopBarProps) {
 
     return () => subscription.unsubscribe();
   }, []);
-
-  const handleSignOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      toast.error("Failed to sign out");
-    } else {
-      toast.success("Signed out successfully");
-    }
-  };
 
   return (
     <>

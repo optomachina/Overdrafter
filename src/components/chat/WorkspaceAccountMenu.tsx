@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -13,6 +13,7 @@ import {
   LogOut,
   Settings,
 } from "lucide-react";
+import { LogoutConfirmDialog } from "@/components/auth/LogoutConfirmDialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   DropdownMenu,
@@ -65,12 +66,12 @@ type ReleaseNote = {
 };
 
 const MENU_CONTENT_CLASS =
-  "chatgpt-shell z-[70] min-w-0 box-border rounded-[28px] border border-white/[0.08] bg-[#2a2a2a] p-2 text-white shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
+  "chatgpt-shell z-[70] w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 box-border rounded-[30px] border border-white/[0.08] bg-[#2a2a2a] p-2.5 text-white shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
 const SUBMENU_CONTENT_CLASS =
-  "chatgpt-shell z-[71] w-[320px] rounded-[28px] border border-white/[0.08] bg-[#2a2a2a] p-2 text-white shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
+  "chatgpt-shell z-[71] w-[320px] rounded-[30px] border border-white/[0.08] bg-[#2a2a2a] p-2.5 text-white shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
 const MENU_ITEM_CLASS =
-  "rounded-[18px] px-4 py-3 text-[16px] font-normal leading-6 text-white/[0.96] focus:bg-white/[0.08] focus:text-white";
-const MENU_ICON_CLASS = "h-5 w-5 shrink-0 text-white/[0.92]";
+  "gap-3.5 rounded-[20px] px-4 py-3 text-[15px] font-normal leading-6 text-white/[0.96] focus:bg-white/[0.08] focus:text-white";
+const MENU_ICON_CLASS = "h-[22px] w-[22px] shrink-0 text-white/[0.92]";
 const PANEL_SHEET_CLASS =
   "chatgpt-shell w-[min(100vw,30rem)] border-l border-white/[0.08] bg-[#2a2a2a] p-0 text-white sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-full [&>button]:bg-white/[0.06] [&>button]:p-2 [&>button]:text-white/72 [&>button]:hover:bg-white/[0.1] [&>button]:hover:text-white";
 const PANEL_CARD_CLASS = "rounded-[22px] border border-white/[0.08] bg-black/20 p-4";
@@ -247,61 +248,8 @@ export function WorkspaceAccountMenu({
   const [menuOpen, setMenuOpen] = useState(false);
   const [activePanel, setActivePanel] = useState<AccountPanelId | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const [menuWidth, setMenuWidth] = useState<number | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [signOutDialogOpen, setSignOutDialogOpen] = useState(false);
   const roleLabel = getRoleLabel(activeMembership?.role);
-
-  const measureTriggerWidth = useCallback(() => {
-    const trigger = triggerRef.current;
-
-    if (!trigger) {
-      return;
-    }
-
-    const rectWidth = trigger.getBoundingClientRect().width;
-    const nextWidth = rectWidth > 0 ? rectWidth : trigger.offsetWidth;
-
-    if (nextWidth > 0) {
-      setMenuWidth(nextWidth);
-    }
-  }, []);
-
-  useEffect(() => {
-    measureTriggerWidth();
-
-    if (typeof ResizeObserver === "undefined") {
-      if (typeof window === "undefined") {
-        return;
-      }
-
-      window.addEventListener("resize", measureTriggerWidth);
-      return () => {
-        window.removeEventListener("resize", measureTriggerWidth);
-      };
-    }
-
-    const trigger = triggerRef.current;
-
-    if (!trigger) {
-      return;
-    }
-
-    const observer = new ResizeObserver(() => {
-      measureTriggerWidth();
-    });
-
-    observer.observe(trigger);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [measureTriggerWidth]);
-
-  useEffect(() => {
-    if (menuOpen) {
-      measureTriggerWidth();
-    }
-  }, [measureTriggerWidth, menuOpen]);
 
   const openPanel = (panelId: AccountPanelId) => {
     setMenuOpen(false);
@@ -319,11 +267,11 @@ export function WorkspaceAccountMenu({
   };
 
   const handleSignOut = async () => {
-    setMenuOpen(false);
     setIsSigningOut(true);
 
     try {
       await onSignOut();
+      setSignOutDialogOpen(false);
       onSignedOut?.();
     } finally {
       setIsSigningOut(false);
@@ -532,27 +480,31 @@ export function WorkspaceAccountMenu({
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <button
-            ref={triggerRef}
             type="button"
             aria-label="Open account menu"
             disabled={isSigningOut}
             className={cn(
-              "chatgpt-shell group/account flex w-full items-center gap-3 rounded-[22px] px-3 py-3 text-left text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-60",
-              "bg-transparent hover:bg-white/[0.06] focus-visible:bg-white/[0.06]",
+              "chatgpt-shell group/account flex w-full items-center gap-3 rounded-[24px] px-3 py-2.5 text-left text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-60",
+              menuOpen ? "bg-white/[0.06]" : "bg-transparent hover:bg-white/[0.06] focus-visible:bg-white/[0.06]",
             )}
           >
-            <Avatar className="h-12 w-12 shrink-0">
-              <AvatarFallback className="bg-[#10a37f] text-[20px] font-medium text-white">
+            <Avatar className="h-11 w-11 shrink-0">
+              <AvatarFallback className="bg-[#10a37f] text-[18px] font-medium text-white">
                 {profile.initials}
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[16px] font-medium leading-6 tracking-[-0.01em] text-white/[0.96]">
+              <p className="truncate text-[15px] font-medium leading-5 tracking-[-0.01em] text-white/[0.96]">
                 {profile.displayName}
               </p>
               <p className="truncate text-[13px] leading-5 text-white/48">{roleLabel}</p>
             </div>
-            <div className="pointer-events-none hidden h-8 w-8 items-center justify-center rounded-full bg-white/[0.08] text-white/72 transition group-hover/account:flex group-focus-visible/account:flex md:flex md:opacity-0 md:group-hover/account:opacity-100 md:group-focus-visible/account:opacity-100">
+            <div
+              className={cn(
+                "pointer-events-none hidden h-8 w-8 items-center justify-center rounded-full bg-white/[0.08] text-white/72 transition group-hover/account:flex group-focus-visible/account:flex md:flex",
+                menuOpen ? "opacity-100" : "md:opacity-0 md:group-hover/account:opacity-100 md:group-focus-visible/account:opacity-100",
+              )}
+            >
               <ChevronRight className="h-4 w-4" />
             </div>
           </button>
@@ -564,7 +516,6 @@ export function WorkspaceAccountMenu({
           sideOffset={12}
           collisionPadding={16}
           className={MENU_CONTENT_CLASS}
-          style={menuWidth ? { width: `${menuWidth}px` } : undefined}
         >
           <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => openPanel("settings")}>
             <Settings className={MENU_ICON_CLASS} strokeWidth={1.85} />
@@ -594,12 +545,29 @@ export function WorkspaceAccountMenu({
             </DropdownMenuSubContent>
           </DropdownMenuSub>
 
-          <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => void handleSignOut()}>
+          <DropdownMenuItem
+            className={MENU_ITEM_CLASS}
+            onSelect={() => {
+              setMenuOpen(false);
+              setSignOutDialogOpen(true);
+            }}
+          >
             <LogOut className={MENU_ICON_CLASS} strokeWidth={1.85} />
-            <span>{isSigningOut ? "Logging out..." : "Log out"}</span>
+            <span>Log out</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <LogoutConfirmDialog
+        open={signOutDialogOpen}
+        onOpenChange={(open) => {
+          if (!isSigningOut) {
+            setSignOutDialogOpen(open);
+          }
+        }}
+        onConfirm={handleSignOut}
+        isPending={isSigningOut}
+      />
 
       <Sheet open={activePanel !== null} onOpenChange={(open) => (!open ? setActivePanel(null) : undefined)}>
         <SheetContent side="right" className={PANEL_SHEET_CLASS}>

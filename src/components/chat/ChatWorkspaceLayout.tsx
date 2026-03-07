@@ -287,7 +287,7 @@ function SidebarScaffold({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3">{sidebarContent}</div>
 
-      {sidebarFooter ? <div className="border-t border-white/[0.08] px-3 py-3">{sidebarFooter}</div> : null}
+      {sidebarFooter ? <div className="px-3 pb-3 pt-2">{sidebarFooter}</div> : null}
     </div>
   );
 }

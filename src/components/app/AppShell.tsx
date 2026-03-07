@@ -1,12 +1,10 @@
 import { type ReactNode, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import {
   ChevronLeft,
   ChevronRight,
   FileSpreadsheet,
   LayoutDashboard,
-  Loader2,
-  LogOut,
   PanelLeft,
   PlusSquare,
   ShieldCheck,
@@ -18,7 +16,6 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { cn } from "@/lib/utils";
 import { useAppSession } from "@/hooks/use-app-session";
 import { formatStatusLabel } from "@/features/quotes/utils";
-import { toast } from "sonner";
 
 type AppShellProps = {
   title: string;
@@ -39,30 +36,14 @@ export function AppShell({
   variant = "default",
   children,
 }: AppShellProps) {
-  const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
-  const [isSigningOut, setIsSigningOut] = useState(false);
-  const { user, activeMembership, signOut } = useAppSession();
+  const { user, activeMembership } = useAppSession();
 
   const navItems = [
     { to: "/", label: activeMembership?.role === "client" ? "Projects" : "Dashboard", icon: LayoutDashboard },
     ...(activeMembership ? [{ to: "/jobs/new", label: "New Job", icon: PlusSquare }] : []),
   ];
   const isClientChat = variant === "client-chat";
-
-  const handleSignOut = async () => {
-    setIsSigningOut(true);
-
-    try {
-      await signOut();
-      navigate("/", { replace: true });
-      toast.success("Signed out successfully.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to sign out.");
-    } finally {
-      setIsSigningOut(false);
-    }
-  };
 
   return (
     <div
@@ -155,16 +136,6 @@ export function AppShell({
                   </p>
                 </div>
               )}
-              {!collapsed && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-white/60 hover:bg-white/5 hover:text-white"
-                  onClick={handleSignOut}
-                >
-                  <LogOut className="h-4 w-4" />
-                </Button>
-              )}
             </div>
           </div>
         </aside>
@@ -224,22 +195,7 @@ export function AppShell({
                   </p>
                 ) : null}
               </div>
-              <div className="flex shrink-0 flex-wrap items-center gap-3">
-                {actions}
-                <Button
-                  variant="outline"
-                  className="border-white/10 bg-white/[0.04]"
-                  onClick={handleSignOut}
-                  disabled={isSigningOut}
-                >
-                  {isSigningOut ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <LogOut className="mr-2 h-4 w-4" />
-                  )}
-                  Sign out
-                </Button>
-              </div>
+              <div className="flex shrink-0 flex-wrap items-center gap-3">{actions}</div>
             </div>
           </header>
 

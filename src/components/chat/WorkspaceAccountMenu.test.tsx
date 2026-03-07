@@ -85,42 +85,21 @@ describe("WorkspaceAccountMenu", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows the resolved full name, current role, and larger avatar in the footer without the email", () => {
+  it("shows the resolved full name, current role, and footer-sized avatar without the email", () => {
     render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
 
     expect(screen.getByText("Blaine Wilson")).toBeInTheDocument();
     expect(screen.getByText("Client")).toBeInTheDocument();
     expect(screen.queryByText("blaine@example.com")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /open account menu/i }).querySelector(".h-12.w-12")).not.toBeNull();
+    expect(screen.getByRole("button", { name: /open account menu/i }).querySelector(".h-11.w-11")).not.toBeNull();
   });
 
-  it("matches the main dropdown width to the account trigger", async () => {
+  it("ties the main dropdown width to the account trigger width", async () => {
     render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
-
-    const trigger = screen.getByRole("button", { name: /open account menu/i });
-
-    Object.defineProperty(trigger, "offsetWidth", {
-      configurable: true,
-      value: 248,
-    });
-    Object.defineProperty(trigger, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({
-        width: 248,
-        height: 72,
-        top: 0,
-        right: 248,
-        bottom: 72,
-        left: 0,
-        x: 0,
-        y: 0,
-        toJSON: () => "",
-      }),
-    });
 
     await openMainMenu();
 
-    expect(screen.getByRole("menu")).toHaveStyle({ width: "248px" });
+    expect(screen.getByRole("menu")).toHaveClass("w-[var(--radix-dropdown-menu-trigger-width)]");
   });
 
   it("opens the help submenu with the requested items", async () => {
@@ -162,7 +141,7 @@ describe("WorkspaceAccountMenu", () => {
     });
   });
 
-  it("signs out only through the menu action", async () => {
+  it("opens a confirmation dialog before signing out", async () => {
     const onSignOut = vi.fn().mockResolvedValue(undefined);
     const onSignedOut = vi.fn();
 
@@ -180,9 +159,72 @@ describe("WorkspaceAccountMenu", () => {
     await openMainMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Log out" }));
 
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Are you sure you want to log out?")).toBeInTheDocument();
+    expect(onSignOut).not.toHaveBeenCalled();
+    expect(onSignedOut).not.toHaveBeenCalled();
+  });
+
+  it("signs out after confirming from the modal", async () => {
+    const onSignOut = vi.fn().mockResolvedValue(undefined);
+    const onSignedOut = vi.fn();
+
+    render(
+      <WorkspaceAccountMenu
+        user={makeUser()}
+        activeMembership={membership}
+        onSignOut={onSignOut}
+        onSignedOut={onSignedOut}
+      />,
+    );
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Log out" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Log out" }));
+
     await waitFor(() => {
       expect(onSignOut).toHaveBeenCalledTimes(1);
       expect(onSignedOut).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("cancels logout from the modal without signing out", async () => {
+    const onSignOut = vi.fn().mockResolvedValue(undefined);
+
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={onSignOut} />);
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Log out" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    expect(onSignOut).not.toHaveBeenCalled();
+  });
+
+  it("dismisses the logout dialog when clicking outside it", async () => {
+    const onSignOut = vi.fn().mockResolvedValue(undefined);
+
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={onSignOut} />);
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Log out" }));
+    await screen.findByRole("dialog");
+
+    const overlay = document.querySelector("[data-state='open'].bg-black\\/62") as HTMLElement | null;
+    expect(overlay).not.toBeNull();
+
+    if (overlay) {
+      fireEvent.pointerDown(overlay);
+      fireEvent.click(overlay);
+    }
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    expect(onSignOut).not.toHaveBeenCalled();
   });
 });
