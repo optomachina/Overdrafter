@@ -46,6 +46,7 @@ This repo now contains the portal layer for a curated CNC quote workflow:
 ```bash
 npm install
 cp .env.example .env
+npm run generate:favicon
 npm run dev
 ```
 
@@ -54,6 +55,14 @@ Required frontend environment variables:
 - `VITE_APP_URL` for the canonical public app URL used in Supabase email links in deployed environments
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
+
+If you replace `src/assets/logo.png`, regenerate the favicon assets before committing:
+
+```bash
+npm run generate:favicon
+```
+
+The script refreshes `public/favicon.ico`, `public/favicon-32x32.png`, and `public/apple-touch-icon.png`.
 
 If you want Google, Microsoft, and Apple sign-in enabled in the UI, also turn on the `Google`,
 `Azure`, and `Apple` providers in Supabase Auth and add your app URL from `VITE_APP_URL` to the
@@ -91,3 +100,20 @@ Optional worker environment variables:
 ## Current State
 
 The portal and Supabase foundation are implemented. The worker is executable in simulation mode and structured for live Playwright-based vendor adapters, but live vendor automation and production-grade extraction still need to be filled in.
+
+## Favicon Verification
+
+When checking a favicon change locally or after deploy:
+
+```bash
+npm run build
+npm run preview
+```
+
+Then verify:
+
+- `/favicon.ico`
+- `/favicon-32x32.png`
+- `/apple-touch-icon.png`
+
+If the browser still shows an old icon, use a hard refresh or a fresh/private browser profile. Favicons are commonly cached independently from the page HTML.

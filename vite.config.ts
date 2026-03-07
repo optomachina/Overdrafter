@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react-swc";
+import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "path";
@@ -40,6 +41,10 @@ function readGitCommitCount() {
 const productionBaselineCommitCount =
   parseCommitCount(process.env.APP_VERSION_PRODUCTION_BASELINE_COMMIT_COUNT) ??
   DEFAULT_PRODUCTION_BASELINE_COMMIT_COUNT;
+const faviconVersion = createHash("sha1")
+  .update(fs.readFileSync(path.resolve(__dirname, "src/assets/logo.png")))
+  .digest("hex")
+  .slice(0, 8);
 
 const appVersion = buildAppVersion({
   baseVersion,
@@ -54,7 +59,16 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
   },
-  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [
+    react(),
+    {
+      name: "html-favicon-version",
+      transformIndexHtml(html) {
+        return html.replace(/__FAVICON_VERSION__/g, faviconVersion);
+      },
+    },
+    mode === "development" && componentTagger(),
+  ].filter(Boolean),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
