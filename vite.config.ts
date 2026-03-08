@@ -82,6 +82,7 @@ export default defineConfig(({ mode }) => ({
     environment: "jsdom",
     environmentMatchGlobs: [["worker/src/**/*.test.ts", "node"]],
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "worker/src/**/*.test.ts"],
+    setupFiles: ["./src/test/setup.ts"],
     clearMocks: true,
     mockReset: true,
     restoreMocks: true,

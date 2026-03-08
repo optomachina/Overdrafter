@@ -234,13 +234,15 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByRole("button", { name: /1093-00003/i })).toBeInTheDocument();
   });
 
-  it("keeps grouped pinned parts out of the parts section in pinned mode", () => {
+  it("keeps grouped pinned parts out of the parts section in pinned mode", async () => {
+    localStorage.setItem(
+      "workspace-sidebar-filters-v1:default",
+      JSON.stringify({ sortBy: "updated", show: "relevant" }),
+    );
+
     renderSidebar({
       pinnedJobIds: ["job-1", "job-3"],
     });
-
-    fireEvent.click(screen.getByRole("button", { name: /sort and filter sidebar/i }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /pinned/i }));
 
     expect(screen.getByRole("button", { name: /1093-00003/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /1093-00001/i })).not.toBeInTheDocument();
@@ -312,6 +314,28 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByText("Edit project name")).toBeInTheDocument();
     expect(screen.getByText("Archive project")).toBeInTheDocument();
     expect(screen.getByText("Dissolve project")).toBeInTheDocument();
+  });
+
+  it("opens the rename dialog when a renamable project is double-clicked", () => {
+    const onSelectProject = vi.fn();
+
+    renderSidebar({
+      onRenameProject: vi.fn(),
+      onSelectProject,
+      projects: [
+        {
+          id: "project-1",
+          name: "Project One",
+          partCount: 2,
+          canRename: true,
+        },
+      ],
+    });
+
+    fireEvent.doubleClick(screen.getByRole("button", { name: /project one/i }));
+
+    expect(screen.getByText("Rename project")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Project One")).toBeInTheDocument();
   });
 
   it("shows the archive action in the part context menu", () => {

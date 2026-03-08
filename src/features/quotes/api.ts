@@ -1778,6 +1778,11 @@ export async function archiveJob(jobId: string): Promise<string> {
     p_job_id: jobId,
   });
 
+  if (isMissingFunctionError(error, "api_archive_job")) {
+    markProjectCollaborationSchemaAvailability("unavailable");
+    throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
+  }
+
   return ensureProjectCollaborationData(data, error);
 }
 
@@ -1786,6 +1791,11 @@ export async function unarchiveJob(jobId: string): Promise<string> {
     p_job_id: jobId,
   });
 
+  if (isMissingFunctionError(error, "api_unarchive_job")) {
+    markProjectCollaborationSchemaAvailability("unavailable");
+    throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
+  }
+
   return ensureProjectCollaborationData(data, error);
 }
 
@@ -1793,6 +1803,11 @@ export async function deleteArchivedJob(jobId: string): Promise<string> {
   const { data, error } = await supabase.rpc("api_delete_archived_job", {
     p_job_id: jobId,
   });
+
+  if (isMissingFunctionError(error, "api_delete_archived_job")) {
+    markProjectCollaborationSchemaAvailability("unavailable");
+    throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
+  }
 
   return ensureProjectCollaborationData(data, error);
 }

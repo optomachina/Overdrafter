@@ -648,6 +648,18 @@ export function WorkspaceSidebar({
     [onCreateProjectFromSelection],
   );
 
+  const openRenameProject = useCallback(
+    (project: WorkspaceSidebarProject) => {
+      if (!(project.canRename ?? project.canManage) || !onRenameProject) {
+        return;
+      }
+
+      setProjectToRename(project);
+      setRenameValue(project.name);
+    },
+    [onRenameProject],
+  );
+
   const renderPartRow = (job: JobRecord, options: RenderPartRowOptions = {}) => {
     const { contextProjectId = null, nestedInProject = false } = options;
     const summary = summariesByJobId.get(job.id);
@@ -887,6 +899,11 @@ export function WorkspaceSidebar({
 
                 onSelectProject(project.id);
               }}
+              onDoubleClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openRenameProject(project);
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
@@ -941,8 +958,7 @@ export function WorkspaceSidebar({
             {(project.canRename ?? project.canManage) && onRenameProject ? (
               <ContextMenuItem
                 onSelect={() => {
-                  setProjectToRename(project);
-                  setRenameValue(project.name);
+                  openRenameProject(project);
                 }}
               >
                 Edit project name
