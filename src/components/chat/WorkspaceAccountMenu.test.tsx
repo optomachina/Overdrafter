@@ -178,12 +178,16 @@ describe("WorkspaceAccountMenu", () => {
 
     const projectHeading = await screen.findByRole("heading", { name: "Archived Project" });
     const partHeading = screen.getByRole("heading", { name: "Archived Part" });
+    const partCard = screen.getByTestId("archived-part-card-job-1");
+    const partActions = screen.getByTestId("archived-part-actions-job-1");
     expect(screen.queryByRole("tab", { name: "Projects" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Parts" })).not.toBeInTheDocument();
 
     expect(partHeading.compareDocumentPosition(projectHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(document.querySelector(".lucide-folder")).not.toBeNull();
     expect(document.querySelector(".lucide-box")).not.toBeNull();
+    expect(partCard).toHaveClass("min-w-0", "overflow-hidden");
+    expect(partActions).toHaveClass("absolute", "right-0", "top-0", "opacity-0");
     expect(screen.getByRole("button", { name: "Unarchive" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
 
@@ -201,6 +205,28 @@ describe("WorkspaceAccountMenu", () => {
     await waitFor(() => {
       expect(onDeleteArchivedPart).toHaveBeenCalledWith("job-1");
     });
+  });
+
+  it("keeps archived part actions hidden until hover or button focus styles apply", async () => {
+    render(
+      <WorkspaceAccountMenu
+        user={makeUser()}
+        activeMembership={membership}
+        onSignOut={vi.fn()}
+        archivedProjects={archivedProjects}
+        archivedJobs={archivedJobs}
+        onUnarchivePart={vi.fn()}
+        onDeleteArchivedPart={vi.fn()}
+      />,
+    );
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+
+    const partActions = await screen.findByTestId("archived-part-actions-job-1");
+    expect(partActions).toHaveClass("pointer-events-none", "opacity-0");
+    expect(partActions).toHaveClass("group-hover/item:opacity-100", "focus-within:opacity-100");
+    expect(partActions).not.toHaveClass("group-focus-within/item:opacity-100");
   });
 
   it("shows archive empty states", async () => {
