@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react-swc";
 import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
 import fs from "node:fs";
-import path from "path";
+import path from "node:path";
 import { componentTagger } from "lovable-tagger";
 import { buildAppVersion } from "./src/lib/app-version";
 
@@ -54,36 +54,101 @@ const appVersion = buildAppVersion({
 });
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
-  server: {
-    host: "::",
-    port: 8080,
-  },
-  plugins: [
-    react(),
-    {
-      name: "html-favicon-version",
-      transformIndexHtml(html) {
-        return html.replace(/__FAVICON_VERSION__/g, faviconVersion);
+export default defineConfig(({ mode }) => {
+  const resolveAlias = {
+    "@": path.resolve(__dirname, "./src"),
+    path: path.resolve(__dirname, "./src/test/shims/path.ts"),
+    crypto: path.resolve(__dirname, "./src/test/shims/crypto.ts"),
+  };
+
+  return {
+    server: {
+      host: "::",
+      port: 8080,
+    },
+    plugins: [
+      react(),
+      {
+        name: "html-favicon-version",
+        transformIndexHtml(html) {
+          return html.replace(/__FAVICON_VERSION__/g, faviconVersion);
+        },
       },
+      mode === "development" && componentTagger(),
+    ].filter(Boolean),
+    resolve: {
+      alias: resolveAlias,
     },
-    mode === "development" && componentTagger(),
-  ].filter(Boolean),
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes("node_modules/three")) {
+              return "three-core";
+            }
+
+            if (id.includes("node_modules/occt-import-js")) {
+              return "occt-runtime";
+            }
+
+            if (id.includes("node_modules/recharts")) {
+              return "charts";
+            }
+
+            if (id.includes("node_modules/@supabase")) {
+              return "supabase";
+            }
+
+            if (id.includes("node_modules/@tanstack/react-query")) {
+              return "react-query";
+            }
+          },
+        },
+      },
+      chunkSizeWarningLimit: 750,
     },
-  },
-  define: {
-    __APP_VERSION__: JSON.stringify(appVersion),
-  },
-  test: {
-    globals: true,
-    environment: "jsdom",
-    environmentMatchGlobs: [["worker/src/**/*.test.ts", "node"]],
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "worker/src/**/*.test.ts"],
-    clearMocks: true,
-    mockReset: true,
-    restoreMocks: true,
-  },
-}));
+    define: {
+      __APP_VERSION__: JSON.stringify(appVersion),
+    },
+    test: {
+      projects: [
+        {
+        resolve: {
+          alias: resolveAlias,
+        },
+        define: {
+          __APP_VERSION__: JSON.stringify(appVersion),
+        },
+        test: {
+          name: "app",
+            globals: true,
+            environment: "jsdom",
+            include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+            setupFiles: ["./src/test/setup.ts"],
+            pool: "forks",
+            clearMocks: true,
+            mockReset: true,
+            restoreMocks: true,
+          },
+        },
+        {
+        resolve: {
+          alias: resolveAlias,
+        },
+        define: {
+          __APP_VERSION__: JSON.stringify(appVersion),
+        },
+        test: {
+          name: "worker",
+            globals: true,
+            environment: "node",
+            include: ["worker/src/**/*.test.ts"],
+            clearMocks: true,
+            mockReset: true,
+            restoreMocks: true,
+          },
+        },
+      ],
+    },
+  };
+});

@@ -29,6 +29,15 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipContent: () => null,
 }));
 
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: {
+    auth: {
+      getUser: vi.fn(),
+      onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
+    },
+  },
+}));
+
 vi.mock("@/features/quotes/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/quotes/api")>();
 
@@ -150,7 +159,7 @@ function renderIndex() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Index />
       </MemoryRouter>
     </QueryClientProvider>,

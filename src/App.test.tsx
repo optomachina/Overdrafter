@@ -80,51 +80,51 @@ describe("App routes", () => {
     window.history.replaceState({}, "", "/");
   });
 
-  it("renders the job creation route", () => {
+  it("renders the job creation route", async () => {
     window.history.pushState({}, "", "/jobs/new");
 
     render(<App />);
 
-    expect(screen.getByText("Job Create Page")).toBeInTheDocument();
+    expect(await screen.findByText("Job Create Page")).toBeInTheDocument();
   });
 
-  it("renders the dynamic client package route", () => {
+  it("renders the dynamic client package route", async () => {
     window.history.pushState({}, "", "/client/packages/pkg-42");
 
     render(<App />);
 
-    expect(screen.getByText("Client Package Page")).toBeInTheDocument();
+    expect(await screen.findByText("Client Package Page")).toBeInTheDocument();
   });
 
-  it("renders the shared client project route", () => {
+  it("renders the shared client project route", async () => {
     window.history.pushState({}, "", "/projects/project-42");
 
     render(<App />);
 
-    expect(screen.getByText("Client Project Page")).toBeInTheDocument();
+    expect(await screen.findByText("Client Project Page")).toBeInTheDocument();
   });
 
-  it("renders the part detail route", () => {
+  it("renders the part detail route", async () => {
     window.history.pushState({}, "", "/parts/job-42");
 
     render(<App />);
 
-    expect(screen.getByText("Client Part Page")).toBeInTheDocument();
+    expect(await screen.findByText("Client Part Page")).toBeInTheDocument();
   });
 
-  it("renders the shared invite route", () => {
+  it("renders the shared invite route", async () => {
     window.history.pushState({}, "", "/shared/invite-token");
 
     render(<App />);
 
-    expect(screen.getByText("Shared Invite Page")).toBeInTheDocument();
+    expect(await screen.findByText("Shared Invite Page")).toBeInTheDocument();
   });
 
-  it("falls back to the not found route for unknown paths", () => {
+  it("falls back to the not found route for unknown paths", async () => {
     window.history.pushState({}, "", "/not-a-route");
 
     render(<App />);
 
-    expect(screen.getByText("Not Found Page")).toBeInTheDocument();
+    expect(await screen.findByText("Not Found Page")).toBeInTheDocument();
   });
 });
