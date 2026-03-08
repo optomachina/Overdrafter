@@ -7,7 +7,6 @@ import { CartesianGrid, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAx
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
-import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { DrawingPreviewDialog } from "@/components/quotes/DrawingPreviewDialog";
 import { RequestedQuantityFilter } from "@/components/quotes/RequestedQuantityFilter";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
@@ -86,8 +85,6 @@ const ClientPart = () => {
   const [drawingPreviewPageUrls, setDrawingPreviewPageUrls] = useState<Array<{ pageNumber: number; url: string }>>([]);
   const [isDrawingPreviewLoading, setIsDrawingPreviewLoading] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
-  const [newProjectName, setNewProjectName] = useState("");
   const [activeRequestedQuantity, setActiveRequestedQuantity] =
     useState<RequestedQuantityFilterValue | null>(null);
   const normalizedEmail = user?.email?.toLowerCase() ?? "";
@@ -320,20 +317,6 @@ const ClientPart = () => {
       toast.error(error.message || "Failed to update selected quote.");
     },
   });
-  const createProjectMutation = useMutation({
-    mutationFn: (name: string) => createProject({ name }),
-    onSuccess: async (projectId) => {
-      toast.success("Project created.");
-      setIsCreateProjectOpen(false);
-      setNewProjectName("");
-      await queryClient.invalidateQueries({ queryKey: ["client-projects"] });
-      navigate(`/projects/${projectId}`);
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to create project.");
-    },
-  });
-
   const resolveSidebarProjectIdsForJob = (job: { id: string; project_id: string | null; source: string }) => {
     const projectIds = [...new Set([...(sidebarProjectIdsByJobId.get(job.id) ?? []), ...(job.project_id ? [job.project_id] : [])])];
 
@@ -746,7 +729,7 @@ const ClientPart = () => {
             summariesByJobId={summariesByJobId}
             activeJobId={jobId}
             onCreateJob={newJobFilePicker.openFilePicker}
-            onCreateProject={projectCollaborationUnavailable ? undefined : () => setIsCreateProjectOpen(true)}
+            onCreateProject={projectCollaborationUnavailable ? undefined : newJobFilePicker.openFilePicker}
             onSearch={() => setIsSearchOpen(true)}
             storageScopeKey={user.id}
             pinnedProjectIds={sidebarPinsQuery.data?.projectIds ?? []}
@@ -1247,24 +1230,6 @@ const ClientPart = () => {
         summariesByJobId={summariesByJobId}
         onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
         onSelectPart={(partId) => navigate(`/parts/${partId}`)}
-      />
-
-      <ProjectNameDialog
-        open={isCreateProjectOpen}
-        onOpenChange={(open) => {
-          setIsCreateProjectOpen(open);
-          if (!open) {
-            setNewProjectName("");
-          }
-        }}
-        title="Create project"
-        description="Choose a name for the new project."
-        value={newProjectName}
-        onValueChange={setNewProjectName}
-        submitLabel="Create"
-        isPending={createProjectMutation.isPending}
-        isSubmitDisabled={newProjectName.trim().length === 0}
-        onSubmit={() => createProjectMutation.mutate(newProjectName.trim())}
       />
 
       <input

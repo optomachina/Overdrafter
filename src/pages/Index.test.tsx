@@ -218,7 +218,7 @@ describe("Index client home", () => {
       expect(screen.getAllByRole("button", { name: /qb00002/i }).length).toBeGreaterThan(0);
       expect(screen.getAllByRole("button", { name: /qb00003/i }).length).toBeGreaterThan(0);
     });
-    expect(screen.queryByRole("button", { name: /new project/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /new project/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /open account menu/i })).toBeInTheDocument();
   });
 

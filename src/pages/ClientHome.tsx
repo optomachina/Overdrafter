@@ -12,7 +12,6 @@ import {
   WorkspaceSidebar,
   type WorkspaceSidebarProject,
 } from "@/components/chat/WorkspaceSidebar";
-import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { SignInDialog } from "@/components/SignInDialog";
 import { Button } from "@/components/ui/button";
 import { useAppSession } from "@/hooks/use-app-session";
@@ -82,8 +81,6 @@ const ClientHome = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRefreshingVerification, setIsRefreshingVerification] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
-  const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
-  const [newProjectName, setNewProjectName] = useState("");
   const authIntent = searchParams.get("auth");
   const focusComposerIntent = searchParams.get("focusComposer");
   const authDialogMode = authIntent === "signup" ? "sign-up" : "sign-in";
@@ -285,20 +282,6 @@ const ClientHome = () => {
       ]);
     },
   });
-  const createProjectMutation = useMutation({
-    mutationFn: (name: string) => createProject({ name }),
-    onSuccess: async (projectId) => {
-      toast.success("Project created.");
-      setIsCreateProjectOpen(false);
-      setNewProjectName("");
-      await queryClient.invalidateQueries({ queryKey: ["client-projects"] });
-      navigate(`/projects/${projectId}`);
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to create project.");
-    },
-  });
-
   const showWorkspaceSetupState =
     Boolean(user) && !activeMembership && bootstrapAccountMutation.isPending;
 
@@ -727,7 +710,7 @@ const ClientHome = () => {
               jobs={accessibleJobsQuery.data ?? []}
               summariesByJobId={summariesByJobId}
               onCreateJob={newJobFilePicker.openFilePicker}
-              onCreateProject={projectCollaborationUnavailable ? undefined : () => setIsCreateProjectOpen(true)}
+              onCreateProject={projectCollaborationUnavailable ? undefined : newJobFilePicker.openFilePicker}
               onSearch={() => setIsSearchOpen(true)}
               storageScopeKey={user.id}
               pinnedProjectIds={sidebarPinsQuery.data?.projectIds ?? []}
@@ -815,24 +798,6 @@ const ClientHome = () => {
         summariesByJobId={summariesByJobId}
         onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
         onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
-      />
-
-      <ProjectNameDialog
-        open={isCreateProjectOpen}
-        onOpenChange={(open) => {
-          setIsCreateProjectOpen(open);
-          if (!open) {
-            setNewProjectName("");
-          }
-        }}
-        title="Create project"
-        description="Choose a name for the new project."
-        value={newProjectName}
-        onValueChange={setNewProjectName}
-        submitLabel="Create"
-        isPending={createProjectMutation.isPending}
-        isSubmitDisabled={newProjectName.trim().length === 0}
-        onSubmit={() => createProjectMutation.mutate(newProjectName.trim())}
       />
 
       <SignInDialog

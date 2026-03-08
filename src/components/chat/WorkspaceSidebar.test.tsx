@@ -172,15 +172,17 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("invokes the project header create action", () => {
-    const onCreateProject = vi.fn();
+    const sharedCreateHandler = vi.fn();
 
     renderSidebar({
-      onCreateProject,
+      onCreateJob: sharedCreateHandler,
+      onCreateProject: sharedCreateHandler,
     });
 
+    fireEvent.click(screen.getByRole("button", { name: /new job/i }));
     fireEvent.click(screen.getByRole("button", { name: /new project/i }));
 
-    expect(onCreateProject).toHaveBeenCalledTimes(1);
+    expect(sharedCreateHandler).toHaveBeenCalledTimes(2);
   });
 
   it("uses the brighter row icon treatment for project and part entries", () => {

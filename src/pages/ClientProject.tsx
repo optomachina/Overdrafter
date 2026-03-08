@@ -99,13 +99,11 @@ const ClientProject = () => {
   const [focusedJobId, setFocusedJobId] = useState<string | null>(null);
   const [showAddPart, setShowAddPart] = useState(false);
   const [showRename, setShowRename] = useState(false);
-  const [showCreateProject, setShowCreateProject] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [showDissolve, setShowDissolve] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
-  const [newProjectName, setNewProjectName] = useState("");
   const normalizedEmail = user?.email?.toLowerCase() ?? "";
   const isDmriflesWorkspace = normalizedEmail === DMRIFLES_EMAIL;
   const isSeededProject = projectId.startsWith("seed-");
@@ -331,19 +329,6 @@ const ClientProject = () => {
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to update project.");
-    },
-  });
-  const createProjectMutation = useMutation({
-    mutationFn: (name: string) => createProject({ name }),
-    onSuccess: async (nextProjectId) => {
-      toast.success("Project created.");
-      setShowCreateProject(false);
-      setNewProjectName("");
-      await queryClient.invalidateQueries({ queryKey: ["client-projects"] });
-      navigate(`/projects/${nextProjectId}`);
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to create project.");
     },
   });
   const archiveProjectMutation = useMutation({
@@ -624,7 +609,7 @@ const ClientProject = () => {
             summariesByJobId={summariesByJobId}
             activeProjectId={projectId}
             onCreateJob={newJobFilePicker.openFilePicker}
-            onCreateProject={projectCollaborationUnavailable ? undefined : () => setShowCreateProject(true)}
+            onCreateProject={projectCollaborationUnavailable ? undefined : newJobFilePicker.openFilePicker}
             onSearch={() => setIsSearchOpen(true)}
             storageScopeKey={user?.id}
             pinnedProjectIds={sidebarPinsQuery.data?.projectIds ?? []}
@@ -928,24 +913,6 @@ const ClientProject = () => {
           />
         </DialogContent>
       </Dialog>
-
-      <ProjectNameDialog
-        open={showCreateProject}
-        onOpenChange={(open) => {
-          setShowCreateProject(open);
-          if (!open) {
-            setNewProjectName("");
-          }
-        }}
-        title="Create project"
-        description="Choose a name for the new project."
-        value={newProjectName}
-        onValueChange={setNewProjectName}
-        submitLabel="Create"
-        isPending={createProjectMutation.isPending}
-        isSubmitDisabled={newProjectName.trim().length === 0}
-        onSubmit={() => createProjectMutation.mutate(newProjectName.trim())}
-      />
 
       <ProjectNameDialog
         open={showRename}
