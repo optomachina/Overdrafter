@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PanelLeftOpen, Sidebar, type LucideIcon } from "lucide-react";
-import logo from "@/assets/logo.png";
+import logoMark from "@/assets/logo-mark.svg";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -9,11 +9,12 @@ import { cn } from "@/lib/utils";
 
 const DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY = "chat-workspace-layout.desktop-collapsed-v1";
 const DESKTOP_SIDEBAR_EXPANDED_WIDTH = "260px";
-const DESKTOP_SIDEBAR_COLLAPSED_WIDTH = "56px";
+const DESKTOP_SIDEBAR_COLLAPSED_WIDTH = "52px";
 const SIDEBAR_TOOLTIP_DELAY_MS = 120;
 const CURSOR_TOOLTIP_OFFSET = 14;
 const SIDEBAR_ICON_TOOLTIP_CLASS_NAME =
   "chatgpt-shell rounded-lg border-transparent bg-[#0f0f0f] px-2.5 py-1.5 text-[11px] font-medium text-white shadow-[0_10px_30px_rgba(0,0,0,0.45)]";
+const BRAND_NAME = "OverDrafter";
 
 function readDesktopSidebarCollapsed() {
   try {
@@ -190,7 +191,7 @@ function SidebarIconButton({
         hideCursorTooltip();
       }}
       className={cn(
-        "flex h-9 w-9 items-center justify-center rounded-[10px] border text-white/70 transition-colors duration-150",
+        "flex h-9 w-9 items-center justify-center rounded-[10px] border text-white/[0.96] transition-colors duration-150",
         isActive
           ? "border-white/[0.12] bg-white/[0.1] text-white"
           : "border-transparent hover:border-white/[0.08] hover:bg-white/[0.06] hover:text-white",
@@ -249,30 +250,19 @@ function SidebarScaffold({
 }) {
   return (
     <div className="chatgpt-shell flex h-full flex-col bg-[#171717] text-white">
-      <div className="flex items-center justify-between gap-3 pb-3 pl-[18px] pr-2.5 pt-3">
+      <div className="flex items-center justify-between gap-3 pb-3 pl-2 pr-2 pt-3">
         {onLogoClick ? (
           <button
             type="button"
             onClick={onLogoClick}
-            className="flex min-w-0 items-center gap-2.5 text-left transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+            aria-label={`${BRAND_NAME} home`}
+            className="grid h-9 w-9 place-items-center rounded-[10px] text-left transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
           >
-            <div className="grid h-10 w-10 place-items-center rounded-[10px] bg-white/[0.03]">
-              <img src={logo} alt="OverDrafter logo" className="h-6 w-6 object-contain" />
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-[15px] font-medium tracking-[-0.01em] text-white/[0.94]">OverDrafter</p>
-              <p className="truncate text-[11px] text-white/40">v{__APP_VERSION__}</p>
-            </div>
+            <img src={logoMark} alt="OverDrafter logo" className="h-6 w-6 object-contain" />
           </button>
         ) : (
-          <div className="flex min-w-0 items-center gap-2.5">
-            <div className="grid h-10 w-10 place-items-center rounded-[10px] bg-white/[0.03]">
-              <img src={logo} alt="OverDrafter logo" className="h-6 w-6 object-contain" />
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-[15px] font-medium tracking-[-0.01em] text-white/[0.94]">OverDrafter</p>
-              <p className="truncate text-[11px] text-white/40">v{__APP_VERSION__}</p>
-            </div>
+          <div className="grid h-9 w-9 place-items-center">
+            <img src={logoMark} alt="OverDrafter logo" className="h-6 w-6 object-contain" />
           </div>
         )}
 
@@ -305,9 +295,11 @@ function CollapsedSidebarRail({
     >
       <div className="flex h-9 w-full items-center justify-center">
         <div className="relative h-9 w-9">
-          <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-white/[0.03] transition group-hover:opacity-0 group-focus-within:opacity-0">
-            <img src={logo} alt="OverDrafter logo" className="h-6 w-6 object-contain" />
-          </div>
+          <img
+            src={logoMark}
+            alt="OverDrafter logo"
+            className="h-9 w-9 object-contain p-[6px] transition group-hover:opacity-0 group-focus-within:opacity-0"
+          />
 
           <div className="pointer-events-none absolute inset-0 opacity-0 transition duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
             <SidebarIconButton
@@ -347,6 +339,7 @@ export function ChatWorkspaceLayout({
 }: ChatWorkspaceLayoutProps) {
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(() => readDesktopSidebarCollapsed());
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const BrandLabelTag = onLogoClick ? "button" : "div";
 
   useEffect(() => {
     try {
@@ -398,13 +391,13 @@ export function ChatWorkspaceLayout({
                 onClick={() => setDesktopSidebarCollapsed(false)}
               />
             ) : null}
-            <header className="flex items-center justify-between px-4 py-3 md:px-6">
+            <header className="flex items-center justify-between gap-3 px-4 py-3 md:px-6">
               <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
                 <SheetTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="rounded-[10px] text-white/72 hover:bg-white/[0.06] hover:text-white md:hidden"
+                    className="rounded-[10px] text-white/[0.96] hover:bg-white/[0.06] hover:text-white md:hidden"
                   >
                     <PanelLeftOpen className="h-5 w-5" />
                     <span className="sr-only">Open sidebar</span>
@@ -423,7 +416,26 @@ export function ChatWorkspaceLayout({
                 </SheetContent>
               </Sheet>
 
-              <div className="flex-1 md:hidden" />
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <BrandLabelTag
+                  {...(onLogoClick
+                    ? {
+                        type: "button" as const,
+                        onClick: onLogoClick,
+                      }
+                    : {})}
+                  className={cn(
+                    "flex h-10 min-w-0 items-center text-left",
+                    onLogoClick &&
+                      "transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20",
+                  )}
+                >
+                  <span className="block truncate text-[15px] font-medium tracking-[-0.01em] text-white/[0.94]">
+                    {BRAND_NAME}
+                  </span>
+                </BrandLabelTag>
+              </div>
+
               <div className="ml-auto flex items-center gap-2">{topRightContent}</div>
             </header>
 

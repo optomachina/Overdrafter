@@ -162,6 +162,23 @@ describe("WorkspaceSidebar", () => {
     expect(collapsePartsButton).toHaveTextContent("Parts");
     expect(screen.queryByRole("button", { name: /new project/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /filter parts/i })).toBeInTheDocument();
+    expect(newJobButton).toHaveClass("text-white/[0.94]");
+    expect(searchButton).toHaveClass("text-white/[0.94]");
+    expect(newJobButton).toHaveClass("pl-1", "pr-3");
+    expect(searchButton).toHaveClass("pl-1", "pr-3");
+  });
+
+  it("uses the brighter row icon treatment for project and part entries", () => {
+    const { container } = renderSidebar();
+    const folderIcon = container.querySelector(".lucide-folder");
+    const partIcon = container.querySelector(".lucide-shapes");
+    const projectRow = screen.getAllByRole("button", { name: /project one/i })[0];
+    const partRow = screen.getByRole("button", { name: /1093-00003/i });
+
+    expect(folderIcon).toHaveClass("text-white/[0.9]");
+    expect(partIcon).toHaveClass("text-white/[0.9]");
+    expect(projectRow).toHaveClass("px-2", "py-2");
+    expect(partRow).toHaveClass("px-2", "py-2");
   });
 
   it("restores expanded project state from local storage", () => {

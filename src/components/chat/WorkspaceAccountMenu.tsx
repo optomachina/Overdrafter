@@ -594,7 +594,11 @@ export function WorkspaceAccountMenu({
               <p className="truncate text-[15px] font-medium leading-5 tracking-[-0.01em] text-white/[0.96]">
                 {profile.displayName}
               </p>
-              <p className="truncate text-[13px] leading-5 text-white/48">{roleLabel}</p>
+              <p className="truncate text-[13px] leading-5 text-white/48">
+                {roleLabel}
+                {"\u00A0\u00A0"}
+                v{__APP_VERSION__}
+              </p>
             </div>
             <div
               className={cn(

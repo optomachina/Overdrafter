@@ -711,17 +711,23 @@ const ClientHome = () => {
               <Button
                 type="button"
                 variant="ghost"
-                className="w-full justify-start rounded-xl px-3 text-white/85 hover:bg-white/6 hover:text-white"
+                className="w-full justify-start rounded-[10px] pl-1 pr-3 text-white/[0.94] hover:bg-white/6 hover:text-white"
                 onClick={() => composerRef.current?.focus()}
               >
+                <span className="flex w-5 shrink-0 items-center justify-center text-white/[0.96]">
+                  <PlusSquare aria-hidden="true" className="h-4 w-4" />
+                </span>
                 New Job
               </Button>
               <Button
                 type="button"
                 variant="ghost"
-                className="w-full justify-start rounded-xl px-3 text-white/85 hover:bg-white/6 hover:text-white"
+                className="w-full justify-start rounded-[10px] pl-1 pr-3 text-white/[0.94] hover:bg-white/6 hover:text-white"
                 onClick={() => openAuth("signin")}
               >
+                <span className="flex w-5 shrink-0 items-center justify-center text-white/[0.96]">
+                  <Search aria-hidden="true" className="h-4 w-4" />
+                </span>
                 Search
               </Button>
             </div>

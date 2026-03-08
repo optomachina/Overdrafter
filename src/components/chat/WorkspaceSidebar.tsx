@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Clock3,
   Folder,
+  FolderPlus,
   ListFilter,
   PenLine,
   Pin,
@@ -70,6 +71,7 @@ type WorkspaceSidebarProps = {
   activeProjectId?: string | null;
   activeJobId?: string | null;
   onCreateJob?: () => void;
+  onCreateProject?: () => void;
   onSearch?: () => void;
   onSelectProject: (projectId: string) => void;
   onSelectPart: (jobId: string) => void;
@@ -106,6 +108,10 @@ const DEFAULT_SECTIONS: SidebarSections = {
   projects: true,
   parts: true,
 };
+
+const SIDEBAR_COLUMN_INSET_CLASS = "px-2";
+const SIDEBAR_ACTION_BUTTON_PADDING_CLASS = "pl-1 pr-3";
+const SIDEBAR_ROW_PADDING_CLASS = "px-2 py-2";
 
 function formatSelectedQuote(summary: JobPartSummary | undefined) {
   if (!summary?.selectedSupplier || summary.selectedPriceUsd === null) {
@@ -210,7 +216,7 @@ function isAdditiveSelectionInput(input: { ctrlKey: boolean; metaKey: boolean })
 }
 
 function SectionTitle({ children }: { children: ReactNode }) {
-  return <p className="px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-white/40">{children}</p>;
+  return <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-white/40">{children}</p>;
 }
 
 function SidebarSectionHeading({
@@ -225,7 +231,7 @@ function SidebarSectionHeading({
   onToggle?: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 px-2.5">
+    <div className={cn("flex items-center justify-between gap-3", SIDEBAR_COLUMN_INSET_CLASS)}>
       <button
         type="button"
         aria-expanded={expanded}
@@ -257,7 +263,7 @@ function FilterOption({ icon, label, selected, onSelect }: FilterOptionProps) {
         onSelect();
       }}
     >
-      <span className="text-white/72">{icon}</span>
+      <span className="text-white/[0.9]">{icon}</span>
       <span>{label}</span>
       {selected ? <Check className="ml-auto h-4 w-4 text-white/82" /> : null}
     </DropdownMenuItem>
@@ -271,6 +277,7 @@ export function WorkspaceSidebar({
   activeProjectId,
   activeJobId,
   onCreateJob,
+  onCreateProject,
   onSearch,
   onSelectProject,
   onSelectPart,
@@ -717,13 +724,14 @@ export function WorkspaceSidebar({
               onSelectPart(job.id);
             }}
             className={cn(
-              "group flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left transition-colors",
-              isSelected || activeJobId === job.id
-                ? "bg-white/[0.08] text-white"
-                : "text-white/[0.72] hover:bg-white/[0.06] hover:text-white",
-            )}
-          >
-            <Shapes className="h-4 w-4 shrink-0 text-white/[0.42]" />
+                "group flex w-full items-center gap-2.5 rounded-[10px] text-left transition-colors",
+                SIDEBAR_ROW_PADDING_CLASS,
+                isSelected || activeJobId === job.id
+                  ? "bg-white/[0.08] text-white"
+                  : "text-white/[0.8] hover:bg-white/[0.06] hover:text-white",
+              )}
+            >
+            <Shapes className="h-4 w-4 shrink-0 text-white/[0.9]" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm leading-5">{presentation.title}</p>
               {selectedQuote ? (
@@ -737,7 +745,7 @@ export function WorkspaceSidebar({
               type="button"
               aria-label={isPinned ? "Unpin part" : "Pin part"}
               className={cn(
-                "rounded-[8px] p-1 text-white/[0.58] transition-colors hover:bg-white/[0.08] hover:text-white",
+                "rounded-[8px] p-1 text-white/[0.82] transition-colors hover:bg-white/[0.08] hover:text-white",
                 isPinned ? "opacity-100" : "opacity-0 group-hover:opacity-100",
               )}
               disabled={isPinBusy}
@@ -888,10 +896,11 @@ export function WorkspaceSidebar({
                 }
               }}
               className={cn(
-                "group flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left transition-colors",
+                "group flex w-full items-center gap-2.5 rounded-[10px] text-left transition-colors",
+                SIDEBAR_ROW_PADDING_CLASS,
                 activeProjectId === project.id
                   ? "bg-white/[0.08] text-white"
-                  : "text-white/[0.72] hover:bg-white/[0.06] hover:text-white",
+                  : "text-white/[0.8] hover:bg-white/[0.06] hover:text-white",
               )}
             >
               {projectJobs.length > 0 ? (
@@ -902,23 +911,22 @@ export function WorkspaceSidebar({
                     event.stopPropagation();
                     toggleProjectExpanded(project.id);
                   }}
-                  className="rounded-[8px] p-0.5 text-white/[0.36] transition-colors hover:bg-white/[0.08] hover:text-white"
+                  className="rounded-[8px] p-0.5 text-white/[0.72] transition-colors hover:bg-white/[0.08] hover:text-white"
                 >
                   <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", expanded ? "rotate-90" : "")} />
                 </button>
               ) : (
                 <span className="h-4 w-4 shrink-0" />
               )}
-              <Folder className="h-4 w-4 shrink-0 text-white/[0.42]" />
+              <Folder className="h-4 w-4 shrink-0 text-white/[0.9]" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm leading-5">{project.name}</p>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[11px] text-white/[0.42]">
-                  {projectJobs.length || project.partCount}
-                </span>
-                {isPinned ? <Pin className="h-3.5 w-3.5 fill-current text-white/[0.72]" /> : null}
-              </div>
+              {isPinned ? (
+                <div className="flex items-center gap-2">
+                  <Pin className="h-3.5 w-3.5 fill-current text-white/[0.72]" />
+                </div>
+              ) : null}
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent className="chatgpt-shell w-56 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">
@@ -975,20 +983,89 @@ export function WorkspaceSidebar({
 
   const noProjectsMessage = filters.show === "relevant" ? "No pinned projects yet." : "No projects yet.";
   const noPartsMessage = filters.show === "relevant" ? "No pinned parts yet." : "No parts yet.";
+  const canCreateProject = Boolean(onCreateProject);
+
+  const projectSectionAction = (
+    <div className="flex items-center gap-1">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        aria-label="New project"
+        disabled={!canCreateProject}
+        className="h-8 w-8 rounded-[10px] text-white/[0.92] hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+        onClick={() => {
+          onCreateProject?.();
+        }}
+      >
+        <FolderPlus className="h-4 w-4" />
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Sort and filter sidebar"
+            className="h-8 w-8 rounded-[10px] text-white/[0.92] hover:bg-white/[0.06] hover:text-white"
+          >
+            <ListFilter className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="chatgpt-shell w-64 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1.5 text-white"
+        >
+          <SectionTitle>Sort by</SectionTitle>
+          <FilterOption
+            icon={<Clock3 className="h-4 w-4" />}
+            label="Created"
+            selected={filters.sortBy === "created"}
+            onSelect={() => persistFilters({ ...filters, sortBy: "created" })}
+          />
+          <FilterOption
+            icon={<PenLine className="h-4 w-4" />}
+            label="Updated"
+            selected={filters.sortBy === "updated"}
+            onSelect={() => persistFilters({ ...filters, sortBy: "updated" })}
+          />
+
+          <DropdownMenuSeparator className="my-1 bg-white/[0.08]" />
+
+          <SectionTitle>Show</SectionTitle>
+          <FilterOption
+            icon={<Shapes className="h-4 w-4" />}
+            label="All parts"
+            selected={filters.show === "all"}
+            onSelect={() => persistFilters({ ...filters, show: "all" })}
+          />
+          <FilterOption
+            icon={<Star className="h-4 w-4" />}
+            label="Pinned"
+            selected={filters.show === "relevant"}
+            onSelect={() => persistFilters({ ...filters, show: "relevant" })}
+          />
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
 
   return (
     <>
       <div className="space-y-5">
         {onCreateJob || onSearch ? (
-          <div className="space-y-2 px-1.5">
+          <div className={cn("space-y-2", SIDEBAR_COLUMN_INSET_CLASS)}>
             {onCreateJob ? (
               <Button
                 type="button"
                 variant="ghost"
-                className="h-10 w-full justify-start rounded-[10px] bg-transparent px-3 text-white/[0.88] hover:bg-white/[0.06] hover:text-white"
+                className={cn(
+                  "h-10 w-full justify-start rounded-[10px] bg-transparent text-white/[0.94] hover:bg-white/[0.06] hover:text-white",
+                  SIDEBAR_ACTION_BUTTON_PADDING_CLASS,
+                )}
                 onClick={onCreateJob}
               >
-                <span className="flex w-5 shrink-0 items-center justify-center">
+                <span className="flex w-5 shrink-0 items-center justify-center text-white/[0.96]">
                   <PlusSquare aria-hidden="true" className="h-4 w-4" />
                 </span>
                 <span className="truncate">New Job</span>
@@ -999,10 +1076,13 @@ export function WorkspaceSidebar({
               <Button
                 type="button"
                 variant="ghost"
-                className="h-10 w-full justify-start rounded-[10px] bg-transparent px-3 text-white/[0.72] hover:bg-white/[0.06] hover:text-white"
+                className={cn(
+                  "h-10 w-full justify-start rounded-[10px] bg-transparent text-white/[0.94] hover:bg-white/[0.06] hover:text-white",
+                  SIDEBAR_ACTION_BUTTON_PADDING_CLASS,
+                )}
                 onClick={onSearch}
               >
-                <span className="flex w-5 shrink-0 items-center justify-center">
+                <span className="flex w-5 shrink-0 items-center justify-center text-white/[0.96]">
                   <Search aria-hidden="true" className="h-4 w-4" />
                 </span>
                 <span className="truncate">Search</span>
@@ -1016,79 +1096,27 @@ export function WorkspaceSidebar({
             label="Projects"
             expanded={expandedSections.projects}
             onToggle={() => toggleSectionExpanded("projects")}
+            action={projectSectionAction}
           />
           {expandedSections.projects ? (
             <div className="space-y-1">
               {visibleProjects.length > 0 ? (
                 visibleProjects.map((project) => renderProjectRow(project, jobsByProjectId.get(project.id) ?? []))
               ) : (
-                <div className="px-2.5 py-2 text-sm text-white/[0.42]">{noProjectsMessage}</div>
+                <div className="px-2 py-2 text-sm text-white/[0.42]">{noProjectsMessage}</div>
               )}
             </div>
           ) : null}
         </div>
 
         <div className="space-y-2">
-          <SidebarSectionHeading
-            label="Parts"
-            expanded={expandedSections.parts}
-            onToggle={() => toggleSectionExpanded("parts")}
-            action={
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Filter parts"
-                    className="h-8 w-8 rounded-[10px] text-white/[0.54] hover:bg-white/[0.06] hover:text-white"
-                  >
-                    <ListFilter className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  className="chatgpt-shell w-64 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1.5 text-white"
-                >
-                  <SectionTitle>Sort by</SectionTitle>
-                  <FilterOption
-                    icon={<Clock3 className="h-4 w-4" />}
-                    label="Created"
-                    selected={filters.sortBy === "created"}
-                    onSelect={() => persistFilters({ ...filters, sortBy: "created" })}
-                  />
-                  <FilterOption
-                    icon={<PenLine className="h-4 w-4" />}
-                    label="Updated"
-                    selected={filters.sortBy === "updated"}
-                    onSelect={() => persistFilters({ ...filters, sortBy: "updated" })}
-                  />
-
-                  <DropdownMenuSeparator className="my-1 bg-white/[0.08]" />
-
-                  <SectionTitle>Show</SectionTitle>
-                  <FilterOption
-                    icon={<Shapes className="h-4 w-4" />}
-                    label="All parts"
-                    selected={filters.show === "all"}
-                    onSelect={() => persistFilters({ ...filters, show: "all" })}
-                  />
-                  <FilterOption
-                    icon={<Star className="h-4 w-4" />}
-                    label="Pinned"
-                    selected={filters.show === "relevant"}
-                    onSelect={() => persistFilters({ ...filters, show: "relevant" })}
-                  />
-                </DropdownMenuContent>
-              </DropdownMenu>
-            }
-          />
+          <SidebarSectionHeading label="Parts" expanded={expandedSections.parts} onToggle={() => toggleSectionExpanded("parts")} />
           {expandedSections.parts ? (
             <div className="space-y-1">
               {visibleParts.length > 0 ? (
                 visibleParts.map((job) => renderPartRow(job))
               ) : (
-                <div className="px-2.5 py-2 text-sm text-white/[0.42]">{noPartsMessage}</div>
+                <div className="px-2 py-2 text-sm text-white/[0.42]">{noPartsMessage}</div>
               )}
             </div>
           ) : null}

@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatWorkspaceLayout } from "./ChatWorkspaceLayout";
 
@@ -7,7 +7,7 @@ const DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY = "chat-workspace-layout.desktop-col
 
 function renderLayout() {
   return render(
-    <ChatWorkspaceLayout sidebarContent={<div>Sidebar</div>}>
+    <ChatWorkspaceLayout sidebarContent={<div>Sidebar</div>} onLogoClick={vi.fn()}>
       <div>Body</div>
     </ChatWorkspaceLayout>,
   );
@@ -46,7 +46,49 @@ describe("ChatWorkspaceLayout", () => {
     const { container } = renderLayout();
     const aside = container.querySelector("aside");
 
-    expect(aside).toHaveStyle({ width: "56px" });
+    expect(aside).toHaveStyle({ width: "52px" });
+  });
+
+  it("renders the collapsed rail logo without the decorative tile and keeps the open control accessible", () => {
+    localStorage.setItem(DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY, "1");
+
+    const { container } = renderLayout();
+    const aside = container.querySelector("aside");
+    const collapsedRail = container.querySelector(".group.cursor-e-resize");
+
+    expect(collapsedRail).not.toBeNull();
+
+    const logo = within(collapsedRail as HTMLElement).getByAltText("OverDrafter logo");
+    const openButton = within(collapsedRail as HTMLElement).getByRole("button", { name: /open sidebar/i });
+
+    expect(aside).toHaveStyle({ width: "52px" });
+    expect(logo).toBeInTheDocument();
+    expect(logo.closest("div")).not.toHaveClass("bg-white/[0.03]");
+    expect(openButton).toBeInTheDocument();
+    expect(openButton).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("renders the main header brand outside the sidebar and omits sidebar brand text", () => {
+    const { container } = renderLayout();
+    const aside = container.querySelector("aside");
+    const header = container.querySelector("header");
+    const headerLeftGroup = header?.firstElementChild?.nextElementSibling ?? header?.firstElementChild;
+    const sidebarHeader = aside?.querySelector(".chatgpt-shell > div:first-child");
+    const sidebarLogoButton = screen.getByRole("button", { name: /overdrafter home/i });
+
+    const visibleHeaderLogo = screen.getAllByAltText("OverDrafter logo")[0];
+    const headerBrand = within(header as HTMLElement).getByText("OverDrafter");
+
+    expect(visibleHeaderLogo).toBeInTheDocument();
+    expect(visibleHeaderLogo.closest("div")).not.toHaveClass("bg-white/[0.03]");
+    expect(header).toHaveTextContent("OverDrafter");
+    expect(headerBrand.closest("button")).not.toBeNull();
+    expect(headerLeftGroup).toHaveClass("flex", "items-center");
+    expect(within(headerLeftGroup as HTMLElement).getByText("OverDrafter")).toBeInTheDocument();
+    expect(sidebarHeader).toHaveClass("pl-2", "pr-2");
+    expect(sidebarLogoButton).toHaveClass("h-9", "w-9");
+    expect(aside).not.toHaveTextContent("v0.0.1");
+    expect(aside).not.toHaveTextContent(/^OverDrafter$/);
   });
 
   it("persists the collapsed state when the desktop sidebar is closed", () => {
@@ -60,7 +102,7 @@ describe("ChatWorkspaceLayout", () => {
 
     const aside = container.querySelector("aside");
 
-    expect(aside).toHaveStyle({ width: "56px" });
+    expect(aside).toHaveStyle({ width: "52px" });
     expect(localStorage.getItem(DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe("1");
   });
 

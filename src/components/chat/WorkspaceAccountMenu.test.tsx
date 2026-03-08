@@ -127,11 +127,11 @@ describe("WorkspaceAccountMenu", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows the resolved full name, current role, and footer-sized avatar without the email", () => {
+  it("shows the resolved full name, current role with version, and footer-sized avatar without the email", () => {
     render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
 
     expect(screen.getByText("Blaine Wilson")).toBeInTheDocument();
-    expect(screen.getByText("Client")).toBeInTheDocument();
+    expect(screen.getByText(/Client\s+v0\.0\.1/)).toBeInTheDocument();
     expect(screen.queryByText("blaine@example.com")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /open account menu/i }).querySelector(".h-11.w-11")).not.toBeNull();
   });
