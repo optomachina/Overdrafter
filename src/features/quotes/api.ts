@@ -152,9 +152,13 @@ let projectCollaborationSchemaAvailability: ProjectCollaborationSchemaAvailabili
 
 const PROJECT_COLLABORATION_IDENTIFIERS = [
   "public.projects",
+  "public.jobs",
   "public.project_memberships",
   "public.project_invites",
   "public.user_pinned_projects",
+  "api_archive_job",
+  "api_unarchive_job",
+  "api_delete_archived_job",
   "api_create_project",
   "api_update_project",
   "api_delete_project",
