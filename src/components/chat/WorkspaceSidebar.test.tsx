@@ -144,28 +144,43 @@ describe("WorkspaceSidebar", () => {
     );
   }
 
-  it("renders the top actions and trailing section headings without a new project button", () => {
+  it("renders the top actions and project header actions", () => {
     renderSidebar({
       storageScopeKey: "sidebar-tests",
       onCreateJob: vi.fn(),
+      onCreateProject: vi.fn(),
       onSearch: vi.fn(),
     });
 
     const newJobButton = screen.getByRole("button", { name: /new job/i });
+    const newProjectButton = screen.getByRole("button", { name: /new project/i });
     const searchButton = screen.getByRole("button", { name: /^search$/i });
     const collapseProjectsButton = screen.getByRole("button", { name: /collapse projects/i });
     const collapsePartsButton = screen.getByRole("button", { name: /collapse parts/i });
+    const sortAndFilterButton = screen.getByRole("button", { name: /sort and filter sidebar/i });
 
     expect(newJobButton).toBeInTheDocument();
+    expect(newProjectButton).toBeInTheDocument();
     expect(searchButton).toBeInTheDocument();
     expect(collapseProjectsButton).toHaveTextContent("Projects");
     expect(collapsePartsButton).toHaveTextContent("Parts");
-    expect(screen.queryByRole("button", { name: /new project/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /filter parts/i })).toBeInTheDocument();
+    expect(sortAndFilterButton).toBeInTheDocument();
     expect(newJobButton).toHaveClass("text-white/[0.94]");
     expect(searchButton).toHaveClass("text-white/[0.94]");
     expect(newJobButton).toHaveClass("pl-1", "pr-3");
     expect(searchButton).toHaveClass("pl-1", "pr-3");
+  });
+
+  it("invokes the project header create action", () => {
+    const onCreateProject = vi.fn();
+
+    renderSidebar({
+      onCreateProject,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /new project/i }));
+
+    expect(onCreateProject).toHaveBeenCalledTimes(1);
   });
 
   it("uses the brighter row icon treatment for project and part entries", () => {
