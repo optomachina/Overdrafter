@@ -426,6 +426,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
         organization_id: context.part.organization_id,
         extractor_version: stagedDrawingFile ? "worker-pdf-v2" : "worker-sim-v1",
         extraction: {
+          pageCount: pdfText?.pageCount ?? 0,
           description: extraction.description,
           partNumber: extraction.partNumber,
           revision: extraction.revision,

@@ -127,38 +127,47 @@ function estimateTightestTolerance(text: string) {
   };
 }
 
+async function getPdfPageCount(localPath: string): Promise<number | null> {
+  try {
+    const { stdout } = await execFileAsync("pdfinfo", [localPath], {
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const match = stdout.match(/^Pages:\s+(\d+)$/m);
+    const pageCount = Number.parseInt(match?.[1] ?? "", 10);
+    return Number.isFinite(pageCount) && pageCount > 0 ? pageCount : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function extractPdfText(localPath: string): Promise<PdfTextExtraction | null> {
-  if (process.platform !== "darwin") {
+  const pageCount = await getPdfPageCount(localPath);
+
+  if (!pageCount) {
     return null;
   }
 
-  const swiftSource = `
-import Foundation
-import PDFKit
+  const pages: PdfTextPage[] = [];
 
-let pdfPath = CommandLine.arguments[1]
-let url = URL(fileURLWithPath: pdfPath)
-guard let document = PDFDocument(url: url) else {
-  fputs("Unable to open PDF", stderr)
-  exit(2)
-}
+  for (let page = 1; page <= pageCount; page += 1) {
+    try {
+      const { stdout } = await execFileAsync(
+        "pdftotext",
+        ["-layout", "-enc", "UTF-8", "-f", String(page), "-l", String(page), localPath, "-"],
+        {
+          maxBuffer: 20 * 1024 * 1024,
+        },
+      );
+      pages.push({ page, text: stdout });
+    } catch {
+      pages.push({ page, text: "" });
+    }
+  }
 
-var pages: [[String: Any]] = []
-for index in 0..<document.pageCount {
-  let text = document.page(at: index)?.string ?? ""
-  pages.append(["page": index + 1, "text": text])
-}
-
-let payload: [String: Any] = ["pageCount": document.pageCount, "pages": pages]
-let json = try JSONSerialization.data(withJSONObject: payload, options: [])
-FileHandle.standardOutput.write(json)
-`;
-
-  const { stdout } = await execFileAsync("swift", ["-e", swiftSource, localPath], {
-    maxBuffer: 20 * 1024 * 1024,
-  });
-
-  return JSON.parse(stdout) as PdfTextExtraction;
+  return {
+    pageCount,
+    pages,
+  };
 }
 
 async function renderPdfPage(
@@ -166,85 +175,36 @@ async function renderPdfPage(
   outputPath: string,
   pageIndex: number,
   maxDimension: number,
-): Promise<{ width: number; height: number } | null> {
-  if (process.platform !== "darwin") {
-    return null;
-  }
+): Promise<{ width: number | null; height: number | null } | null> {
+  const outputPrefix = outputPath.endsWith(".png") ? outputPath.slice(0, -4) : outputPath;
 
-  const swiftSource = `
-import Foundation
-import PDFKit
-import AppKit
-
-let pdfPath = CommandLine.arguments[1]
-let outputPath = CommandLine.arguments[2]
-let pageIndex = Int(CommandLine.arguments[3]) ?? 0
-let maxDimension = CGFloat(Double(CommandLine.arguments[4]) ?? 1200.0)
-
-guard let document = PDFDocument(url: URL(fileURLWithPath: pdfPath)),
-      let page = document.page(at: pageIndex) else {
-  fputs("Unable to load PDF page", stderr)
-  exit(2)
-}
-
-let bounds = page.bounds(for: .mediaBox)
-let maxSourceDimension = max(bounds.width, bounds.height)
-let scale = maxSourceDimension > 0 ? maxDimension / maxSourceDimension : 1.0
-let width = max(Int((bounds.width * scale).rounded()), 1)
-let height = max(Int((bounds.height * scale).rounded()), 1)
-
-guard let rep = NSBitmapImageRep(
-  bitmapDataPlanes: nil,
-  pixelsWide: width,
-  pixelsHigh: height,
-  bitsPerSample: 8,
-  samplesPerPixel: 4,
-  hasAlpha: true,
-  isPlanar: false,
-  colorSpaceName: .deviceRGB,
-  bytesPerRow: 0,
-  bitsPerPixel: 0
-) else {
-  fputs("Unable to allocate bitmap", stderr)
-  exit(3)
-}
-
-guard let context = NSGraphicsContext(bitmapImageRep: rep) else {
-  fputs("Unable to create graphics context", stderr)
-  exit(4)
-}
-
-NSGraphicsContext.saveGraphicsState()
-NSGraphicsContext.current = context
-context.cgContext.setFillColor(NSColor.white.cgColor)
-context.cgContext.fill(CGRect(x: 0, y: 0, width: width, height: height))
-context.cgContext.translateBy(x: 0, y: CGFloat(height))
-context.cgContext.scaleBy(x: scale, y: -scale)
-page.draw(with: .mediaBox, to: context.cgContext)
-context.flushGraphics()
-NSGraphicsContext.restoreGraphicsState()
-
-guard let png = rep.representation(using: .png, properties: [:]) else {
-  fputs("Unable to encode PNG", stderr)
-  exit(5)
-}
-
-try png.write(to: URL(fileURLWithPath: outputPath))
-let payload: [String: Any] = ["width": width, "height": height]
-let json = try JSONSerialization.data(withJSONObject: payload, options: [])
-FileHandle.standardOutput.write(json)
-`;
-
-  const { stdout } = await execFileAsync(
-    "swift",
-    ["-e", swiftSource, pdfPath, outputPath, String(pageIndex), String(maxDimension)],
+  await execFileAsync(
+    "pdftoppm",
+    [
+      "-png",
+      "-f",
+      String(pageIndex + 1),
+      "-l",
+      String(pageIndex + 1),
+      "-singlefile",
+      "-scale-to",
+      String(maxDimension),
+      pdfPath,
+      outputPrefix,
+    ],
     {
       maxBuffer: 8 * 1024 * 1024,
     },
   );
 
-  const payload = JSON.parse(stdout) as { width: number; height: number };
-  return payload;
+  const resolvedOutputPath = `${outputPrefix}.png`;
+  await fs.access(resolvedOutputPath);
+
+  if (resolvedOutputPath !== outputPath) {
+    await fs.rename(resolvedOutputPath, outputPath);
+  }
+
+  return { width: null, height: null };
 }
 
 export async function renderPdfPreviewAssets(
@@ -252,7 +212,7 @@ export async function renderPdfPreviewAssets(
   outputDir: string,
   pageCount: number,
 ): Promise<RenderedPreviewAsset[]> {
-  if (process.platform !== "darwin" || pageCount <= 0) {
+  if (pageCount <= 0) {
     return [];
   }
 
@@ -271,7 +231,7 @@ export async function renderPdfPreviewAssets(
     });
   }
 
-  for (let pageIndex = 0; pageIndex < Math.min(pageCount, 3); pageIndex += 1) {
+  for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
     const outputPath = path.join(outputDir, `drawing-page-${pageIndex + 1}.png`);
     const pageMeta = await renderPdfPage(pdfPath, outputPath, pageIndex, 1600);
 

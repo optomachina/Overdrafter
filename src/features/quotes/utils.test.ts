@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
   DrawingExtractionRecord,
+  DrawingPreviewAssetRecord,
   PartAggregate,
   VendorQuoteAggregate,
   VendorQuoteOfferRecord,
@@ -221,7 +222,7 @@ describe("quotes utils", () => {
           created_at: "2026-03-03T00:00:00Z",
           updated_at: "2026-03-03T00:00:00Z",
         },
-      ] as never),
+      ] as DrawingPreviewAssetRecord[]),
     ).toEqual({
       pageCount: 5,
       thumbnail: {

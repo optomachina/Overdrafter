@@ -633,7 +633,7 @@ const ClientPart = () => {
     let isActive = true;
     const objectUrls: string[] = [];
 
-    if (!drawingFile || (!drawingPreview?.thumbnail && drawingPreview?.pages.length === 0)) {
+    if (!drawingFile || !drawingPreview || (!drawingPreview.thumbnail && drawingPreview.pages.length === 0)) {
       setDrawingPreviewThumbnailUrl(null);
       setDrawingPreviewPageUrls([]);
       setIsDrawingPreviewLoading(false);
@@ -937,7 +937,7 @@ const ClientPart = () => {
                           className="flex w-full items-center gap-4 rounded-2xl border border-white/8 bg-black/20 p-4 text-left transition hover:bg-white/4"
                         >
                           <div className="h-24 w-20 overflow-hidden rounded-xl border border-white/8 bg-white">
-                            {drawingPreviewUrl ? (
+                            {drawingPreviewThumbnailUrl ? (
                               <img
                                 src={drawingPreviewThumbnailUrl}
                                 alt={`Preview ${drawingFile.original_name}`}
@@ -1290,44 +1290,19 @@ const ClientPart = () => {
         aria-label="Attach files to part"
       />
 
-      <Dialog open={showDrawingPreview} onOpenChange={setShowDrawingPreview}>
-        <DialogContent className="max-w-5xl border-white/10 bg-[#1f1f1f] text-white">
-          <DialogHeader>
-            <DialogTitle>{drawingFile?.original_name ?? "Drawing preview"}</DialogTitle>
-            <DialogDescription className="text-white/55">
-              Review the uploaded drawing PDF and download the original file.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="min-h-[70vh] overflow-hidden rounded-2xl border border-white/8 bg-white">
-            {drawingPreviewUrl ? (
-              <iframe
-                title={drawingFile?.original_name ?? "Drawing preview"}
-                src={`${drawingPreviewUrl}#toolbar=0&navpanes=0&scrollbar=0&page=1`}
-                className="h-[70vh] w-full"
-              />
-            ) : (
-              <div className="flex h-[70vh] items-center justify-center text-zinc-500">
-                {isDrawingPreviewLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Preview unavailable"}
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            {drawingFile ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="border-white/10 bg-transparent text-white hover:bg-white/6"
-                onClick={() => {
-                  void handleDownloadFile(drawingFile);
-                }}
-              >
-                <Download className="mr-2 h-4 w-4" />
-                Download PDF
-              </Button>
-            ) : null}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {drawingFile ? (
+        <DrawingPreviewDialog
+          open={showDrawingPreview}
+          onOpenChange={setShowDrawingPreview}
+          fileName={drawingFile.original_name}
+          pageCount={drawingPreview?.pageCount ?? 0}
+          pages={drawingPreviewPageUrls}
+          isLoading={isDrawingPreviewLoading}
+          onDownload={() => {
+            void handleDownloadFile(drawingFile);
+          }}
+        />
+      ) : null}
 
       <Dialog open={showMoveDialog} onOpenChange={setShowMoveDialog}>
         <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
