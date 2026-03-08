@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -11,17 +12,18 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppErrorBoundary } from "@/components/debug/AppErrorBoundary";
 import { DiagnosticsBootstrap } from "@/components/debug/DiagnosticsBootstrap";
 import { captureDiagnosticError } from "@/lib/diagnostics";
-import Index from "./pages/Index";
-import SignIn from "./pages/SignIn";
-import NotFound from "./pages/NotFound";
-import JobCreate from "./pages/JobCreate";
-import InternalJobDetail from "./pages/InternalJobDetail";
-import ClientPackage from "./pages/ClientPackage";
-import AuthCallback from "./pages/AuthCallback";
-import ClientProject from "./pages/ClientProject";
-import ClientPart from "./pages/ClientPart";
-import SharedInvite from "./pages/SharedInvite";
 import "./App.css";
+
+const Index = lazy(() => import("./pages/Index"));
+const SignIn = lazy(() => import("./pages/SignIn"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const JobCreate = lazy(() => import("./pages/JobCreate"));
+const InternalJobDetail = lazy(() => import("./pages/InternalJobDetail"));
+const ClientPackage = lazy(() => import("./pages/ClientPackage"));
+const AuthCallback = lazy(() => import("./pages/AuthCallback"));
+const ClientProject = lazy(() => import("./pages/ClientProject"));
+const ClientPart = lazy(() => import("./pages/ClientPart"));
+const SharedInvite = lazy(() => import("./pages/SharedInvite"));
 
 function formatTargetName(value: unknown) {
   if (typeof value === "string") {
@@ -68,6 +70,10 @@ const queryClient = new QueryClient({
   }),
 });
 
+function AppRoutesFallback() {
+  return <div aria-hidden="true" className="min-h-screen" />;
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -76,19 +82,21 @@ const App = () => (
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <DiagnosticsBootstrap />
         <AppErrorBoundary>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/projects/:projectId" element={<ClientProject />} />
-            <Route path="/parts/:jobId" element={<ClientPart />} />
-            <Route path="/shared/:inviteToken" element={<SharedInvite />} />
-            <Route path="/jobs/new" element={<JobCreate />} />
-            <Route path="/internal/jobs/:jobId" element={<InternalJobDetail />} />
-            <Route path="/client/packages/:packageId" element={<ClientPackage />} />
-            <Route path="/signin" element={<SignIn />} />
-            <Route path="/auth/callback" element={<AuthCallback />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <Suspense fallback={<AppRoutesFallback />}>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/projects/:projectId" element={<ClientProject />} />
+              <Route path="/parts/:jobId" element={<ClientPart />} />
+              <Route path="/shared/:inviteToken" element={<SharedInvite />} />
+              <Route path="/jobs/new" element={<JobCreate />} />
+              <Route path="/internal/jobs/:jobId" element={<InternalJobDetail />} />
+              <Route path="/client/packages/:packageId" element={<ClientPackage />} />
+              <Route path="/signin" element={<SignIn />} />
+              <Route path="/auth/callback" element={<AuthCallback />} />
+              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
         </AppErrorBoundary>
       </BrowserRouter>
     </TooltipProvider>

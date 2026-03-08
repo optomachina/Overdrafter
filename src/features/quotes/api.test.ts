@@ -21,9 +21,46 @@ const supabaseMock = vi.hoisted(() => {
   const membershipsSelect = vi.fn(() => ({ eq: membershipsEq }));
 
   const projectsOrder = vi.fn();
-  const projectsIs = vi.fn(() => ({ order: projectsOrder }));
-  const projectsNot = vi.fn(() => ({ order: projectsOrder }));
-  const projectsSelect = vi.fn(() => ({ is: projectsIs, not: projectsNot, order: projectsOrder }));
+  const projectsIs = vi.fn();
+  const projectsNot = vi.fn();
+  const projectsEq = vi.fn();
+  const projectsIn = vi.fn();
+  const projectsSingle = vi.fn();
+  const projectsQuery = {
+    eq: projectsEq,
+    in: projectsIn,
+    is: projectsIs,
+    not: projectsNot,
+    order: projectsOrder,
+    single: projectsSingle,
+  };
+  projectsOrder.mockImplementation(() => projectsQuery);
+  projectsIs.mockImplementation(() => projectsQuery);
+  projectsNot.mockImplementation(() => projectsQuery);
+  projectsEq.mockImplementation(() => projectsQuery);
+  projectsIn.mockImplementation(() => projectsQuery);
+  const projectsSelect = vi.fn(() => projectsQuery);
+
+  const jobsOrder = vi.fn();
+  const jobsIs = vi.fn();
+  const jobsNot = vi.fn();
+  const jobsEq = vi.fn();
+  const jobsIn = vi.fn();
+  const jobsSingle = vi.fn();
+  const jobsQuery = {
+    eq: jobsEq,
+    in: jobsIn,
+    is: jobsIs,
+    not: jobsNot,
+    order: jobsOrder,
+    single: jobsSingle,
+  };
+  jobsOrder.mockImplementation(() => jobsQuery);
+  jobsIs.mockImplementation(() => jobsQuery);
+  jobsNot.mockImplementation(() => jobsQuery);
+  jobsEq.mockImplementation(() => jobsQuery);
+  jobsIn.mockImplementation(() => jobsQuery);
+  const jobsSelect = vi.fn(() => jobsQuery);
 
   const pinnedProjectsOrder = vi.fn();
   const pinnedProjectsEq = vi.fn(() => ({ order: pinnedProjectsOrder }));
@@ -56,6 +93,12 @@ const supabaseMock = vi.hoisted(() => {
       };
     }
 
+    if (table === "jobs") {
+      return {
+        select: jobsSelect,
+      };
+    }
+
     if (table === "user_pinned_projects") {
       return {
         select: pinnedProjectsSelect,
@@ -81,10 +124,22 @@ const supabaseMock = vi.hoisted(() => {
     membershipsEq,
     membershipsOrder,
     membershipsSelect,
+    jobsEq,
+    jobsIn,
+    jobsIs,
+    jobsNot,
+    jobsOrder,
+    jobsQuery,
+    jobsSelect,
+    jobsSingle,
     projectsOrder,
+    projectsEq,
+    projectsIn,
     projectsIs,
     projectsNot,
+    projectsQuery,
     projectsSelect,
+    projectsSingle,
     pinnedJobsDelete,
     pinnedJobsDeleteEqFirst,
     pinnedJobsDeleteEqSecond,
@@ -162,6 +217,18 @@ describe("quotes api helpers", () => {
     vi.setSystemTime(new Date("2026-03-03T12:34:56.000Z"));
     resetProjectCollaborationSchemaAvailabilityForTests();
     resetJobFileUploadCompatibilityForTests();
+    supabaseMock.projectsOrder.mockImplementation(() => supabaseMock.projectsQuery);
+    supabaseMock.projectsIs.mockImplementation(() => supabaseMock.projectsQuery);
+    supabaseMock.projectsNot.mockImplementation(() => supabaseMock.projectsQuery);
+    supabaseMock.projectsEq.mockImplementation(() => supabaseMock.projectsQuery);
+    supabaseMock.projectsIn.mockImplementation(() => supabaseMock.projectsQuery);
+    supabaseMock.projectsSelect.mockImplementation(() => supabaseMock.projectsQuery);
+    supabaseMock.jobsOrder.mockImplementation(() => supabaseMock.jobsQuery);
+    supabaseMock.jobsIs.mockImplementation(() => supabaseMock.jobsQuery);
+    supabaseMock.jobsNot.mockImplementation(() => supabaseMock.jobsQuery);
+    supabaseMock.jobsEq.mockImplementation(() => supabaseMock.jobsQuery);
+    supabaseMock.jobsIn.mockImplementation(() => supabaseMock.jobsQuery);
+    supabaseMock.jobsSelect.mockImplementation(() => supabaseMock.jobsQuery);
     supabaseMock.authGetUser.mockResolvedValue({
       data: {
         user: {

@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceSidebar, type WorkspaceSidebarProject } from "@/components/chat/WorkspaceSidebar";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
@@ -223,7 +223,7 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByText("Archive part")).toBeInTheDocument();
   });
 
-  it("invokes archive and dissolve handlers from project actions", () => {
+  it("invokes archive and dissolve handlers from project actions", async () => {
     const onArchiveProject = vi.fn();
     const onDissolveProject = vi.fn();
 
@@ -232,27 +232,31 @@ describe("WorkspaceSidebar", () => {
       onDissolveProject,
     });
 
-    act(() => {
+    await act(async () => {
       fireEvent.contextMenu(screen.getAllByText("Project One")[0]!);
     });
-    act(() => {
-      fireEvent.click(screen.getByText("Archive project"));
+    fireEvent.click(await screen.findByText("Archive project"));
+    const archiveButton = await screen.findByRole("button", { name: "Archive" });
+    fireEvent.click(archiveButton);
+    await waitFor(() => {
+      expect(onArchiveProject).toHaveBeenCalledWith("project-1");
     });
-    act(() => {
-      fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
     });
-    expect(onArchiveProject).toHaveBeenCalledWith("project-1");
 
-    act(() => {
+    await act(async () => {
       fireEvent.contextMenu(screen.getAllByText("Project One")[0]!);
     });
-    act(() => {
-      fireEvent.click(screen.getByText("Dissolve project"));
+    fireEvent.click(await screen.findByText("Dissolve project"));
+    const dissolveButton = await screen.findByRole("button", { name: "Dissolve" });
+    fireEvent.click(dissolveButton);
+    await waitFor(() => {
+      expect(onDissolveProject).toHaveBeenCalledWith("project-1");
     });
-    act(() => {
-      fireEvent.click(screen.getByRole("button", { name: "Dissolve" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Dissolve" })).not.toBeInTheDocument();
     });
-    expect(onDissolveProject).toHaveBeenCalledWith("project-1");
   });
 
   it("mirrors part selection across duplicate rows", () => {

@@ -13,9 +13,19 @@ const mockFetchAccessibleJobs = vi.fn();
 const mockFetchUngroupedParts = vi.fn();
 const mockFetchJobPartSummariesByJobIds = vi.fn();
 const mockFetchProjectJobMembershipsByJobIds = vi.fn();
+const mockSupabaseGetUser = vi.fn();
 
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
+}));
+
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: {
+    auth: {
+      getUser: (...args: unknown[]) => mockSupabaseGetUser(...args),
+      onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
+    },
+  },
 }));
 
 vi.mock("@/components/SignInDialog", () => ({
@@ -150,7 +160,7 @@ function renderIndex() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Index />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -159,6 +169,12 @@ function renderIndex() {
 
 describe("Index client home", () => {
   beforeEach(() => {
+    mockSupabaseGetUser.mockResolvedValue({
+      data: {
+        user: null,
+      },
+      error: null,
+    });
     mockFetchAccessibleProjects.mockResolvedValue([]);
     mockFetchAccessibleJobs.mockResolvedValue([]);
     mockFetchUngroupedParts.mockResolvedValue([]);
