@@ -2,6 +2,8 @@ import type {
   ApprovedPartRequirement,
   DrawingExtractionData,
   DrawingExtractionRecord,
+  DrawingPreviewAssetRecord,
+  DrawingPreviewData,
   JobAggregate,
   JobSummaryMetrics,
   PartAggregate,
@@ -133,6 +135,41 @@ export function normalizeDrawingExtraction(
     evidence: normalizeEvidence(extraction),
     warnings,
     status: extraction?.status ?? "needs_review",
+  };
+}
+
+export function normalizeDrawingPreview(
+  extraction: DrawingExtractionRecord | null,
+  previewAssets: DrawingPreviewAssetRecord[],
+): DrawingPreviewData {
+  const payload = asObject(extraction?.extraction);
+  const rawPageCount = payload.pageCount;
+  const extractedPageCount = typeof rawPageCount === "number" ? rawPageCount : Number(rawPageCount ?? 0);
+  const pageAssets = previewAssets
+    .filter((asset) => asset.kind === "page")
+    .sort((left, right) => left.page_number - right.page_number)
+    .map((asset) => ({
+      pageNumber: asset.page_number,
+      storageBucket: asset.storage_bucket,
+      storagePath: asset.storage_path,
+      width: asset.width,
+      height: asset.height,
+    }));
+  const thumbnailAsset = previewAssets.find((asset) => asset.kind === "thumbnail") ?? null;
+  const assetPageCount = pageAssets.reduce((maxPage, asset) => Math.max(maxPage, asset.pageNumber), 0);
+
+  return {
+    pageCount: Math.max(extractedPageCount, assetPageCount, 0),
+    thumbnail: thumbnailAsset
+      ? {
+          pageNumber: thumbnailAsset.page_number,
+          storageBucket: thumbnailAsset.storage_bucket,
+          storagePath: thumbnailAsset.storage_path,
+          width: thumbnailAsset.width,
+          height: thumbnailAsset.height,
+        }
+      : null,
+    pages: pageAssets,
   };
 }
 

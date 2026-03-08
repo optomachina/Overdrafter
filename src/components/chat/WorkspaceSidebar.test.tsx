@@ -255,6 +255,17 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByText("Archive part")).toBeInTheDocument();
   });
 
+  it("keeps part pinning in the context menu only", () => {
+    renderSidebar();
+
+    expect(screen.queryByRole("button", { name: /pin part/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /unpin part/i })).not.toBeInTheDocument();
+
+    fireEvent.contextMenu(screen.getByText(/1093-00003/i));
+
+    expect(screen.getByText("Pin")).toBeInTheDocument();
+  });
+
   it("invokes archive and dissolve handlers from project actions", () => {
     const onArchiveProject = vi.fn();
     const onDissolveProject = vi.fn();

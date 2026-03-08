@@ -18,6 +18,7 @@ import type {
   ManualQuoteArtifactInput,
   ManualQuoteOfferInput,
   ManualQuoteRecordResult,
+  WorkerReadinessSnapshot,
   OrganizationMembershipSummary,
   PrepareJobFileUploadResult,
   PublishedQuotePackageRecord,
@@ -61,7 +62,7 @@ import type { PostgrestSingleResponse, PostgrestResponse } from "@supabase/supab
 import { buildAutoProjectName, groupUploadFiles, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { buildDraftTitleFromPrompt } from "@/features/quotes/file-validation";
 import { normalizeRequestedQuoteQuantities, parseRequestIntake } from "@/features/quotes/request-intake";
-import { getImportedVendorOffers } from "@/features/quotes/utils";
+import { getImportedVendorOffers, normalizeDrawingPreview } from "@/features/quotes/utils";
 import { toast } from "sonner";
 
 const CAD_EXTENSIONS = new Set([
@@ -868,10 +869,18 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
     vendorQuoteResult.error,
   ) as VendorQuoteResultRecord[];
   const vendorQuoteIds = vendorQuotes.map((quote) => quote.id);
+  const vendorArtifactResultResolved =
+    vendorQuoteIds.length > 0
+      ? await supabase.from("vendor_quote_artifacts").select("*").in("vendor_quote_result_id", vendorQuoteIds)
+      : await emptyResponse<VendorQuoteArtifactRecord>();
   const vendorOffersResultResolved =
     vendorQuoteIds.length > 0
       ? await supabase.from("vendor_quote_offers").select("*").in("vendor_quote_result_id", vendorQuoteIds)
       : await emptyResponse<VendorQuoteOfferRecord>();
+  const vendorArtifacts = ensureData(
+    vendorArtifactResultResolved.data,
+    vendorArtifactResultResolved.error,
+  ) as VendorQuoteArtifactRecord[];
   const vendorOffers = ensureData(
     vendorOffersResultResolved.data,
     vendorOffersResultResolved.error,
@@ -890,6 +899,7 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
   const extractionMap = new Map(extractions.map((item) => [item.part_id, item]));
   const approvedMap = new Map(approvedRequirements.map((item) => [item.part_id, item]));
   const offerMap = new Map<string, VendorQuoteOfferRecord[]>();
+  const artifactMap = new Map<string, VendorQuoteArtifactRecord[]>();
 
   vendorOffers.forEach((offer) => {
     const current = offerMap.get(offer.vendor_quote_result_id) ?? [];
@@ -897,8 +907,17 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
     offerMap.set(offer.vendor_quote_result_id, current);
   });
 
+  vendorArtifacts.forEach((artifact) => {
+    const current = artifactMap.get(artifact.vendor_quote_result_id) ?? [];
+    current.push(artifact);
+    artifactMap.set(artifact.vendor_quote_result_id, current);
+  });
+
   const vendorQuoteAggregates: VendorQuoteAggregate[] = vendorQuotes.map((quote) => ({
     ...quote,
+    artifacts: [...(artifactMap.get(quote.id) ?? [])].sort((left, right) =>
+      left.created_at.localeCompare(right.created_at),
+    ),
     offers:
       (offerMap.get(quote.id) ?? []).sort((left, right) => {
         if (left.sort_rank !== right.sort_rank) {
@@ -1504,7 +1523,7 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
     packages: jobAggregate.packages.map((pkg) => pkg as PublishedQuotePackageRecord),
     part,
     projectIds: projectMemberships.map((membership) => membership.project_id),
-    previewAssets,
+    drawingPreview: normalizeDrawingPreview(part?.extraction ?? null, previewAssets),
     revisionSiblings,
   };
 }
@@ -1759,6 +1778,22 @@ export async function archiveJob(jobId: string): Promise<string> {
   return ensureProjectCollaborationData(data, error);
 }
 
+export async function unarchiveJob(jobId: string): Promise<string> {
+  const { data, error } = await supabase.rpc("api_unarchive_job", {
+    p_job_id: jobId,
+  });
+
+  return ensureProjectCollaborationData(data, error);
+}
+
+export async function deleteArchivedJob(jobId: string): Promise<string> {
+  const { data, error } = await supabase.rpc("api_delete_archived_job", {
+    p_job_id: jobId,
+  });
+
+  return ensureProjectCollaborationData(data, error);
+}
+
 export async function setJobSelectedVendorQuoteOffer(jobId: string, offerId: string): Promise<string> {
   const { data, error } = await supabase.rpc("api_set_job_selected_vendor_quote_offer", {
     p_job_id: jobId,
@@ -1976,6 +2011,140 @@ export async function startQuoteRun(
   });
 
   return ensureData(data, error);
+}
+
+export async function enqueueDebugVendorQuote(input: {
+  jobId: string;
+  quoteRunId: string;
+  partId: string;
+  vendor: VendorName;
+  requestedQuantity: number;
+}): Promise<string> {
+  const { data: quoteResult, error: quoteResultError } = await supabase
+    .from("vendor_quote_results")
+    .select("id, organization_id, status")
+    .eq("quote_run_id", input.quoteRunId)
+    .eq("part_id", input.partId)
+    .eq("vendor", input.vendor)
+    .eq("requested_quantity", input.requestedQuantity)
+    .maybeSingle();
+
+  if (quoteResultError) {
+    throw quoteResultError;
+  }
+
+  if (!quoteResult) {
+    throw new Error("No matching vendor quote lane exists for this part and quantity.");
+  }
+
+  const resolvedQuoteResult = quoteResult;
+
+  const { data: queueRows, error: queueError } = await supabase
+    .from("work_queue")
+    .select("id, status, payload")
+    .eq("job_id", input.jobId)
+    .eq("quote_run_id", input.quoteRunId)
+    .eq("part_id", input.partId)
+    .eq("task_type", "run_vendor_quote")
+    .in("status", ["queued", "running"]);
+
+  const existingTasks = ensureData(queueRows, queueError) as Pick<
+    WorkQueueRecord,
+    "id" | "status" | "payload"
+  >[];
+
+  const matchingTask = existingTasks.find((task) => {
+    const payload = task.payload && typeof task.payload === "object" && !Array.isArray(task.payload)
+      ? (task.payload as Record<string, unknown>)
+      : {};
+
+    return (
+      payload.vendor === input.vendor &&
+      Number(payload.requestedQuantity ?? 0) === input.requestedQuantity
+    );
+  });
+
+  if (matchingTask) {
+    throw new Error("A Xometry quote task is already queued or running for this part and quantity.");
+  }
+
+  const { data: insertedTask, error: insertError } = await supabase
+    .from("work_queue")
+    .insert({
+      organization_id: resolvedQuoteResult.organization_id,
+      job_id: input.jobId,
+      part_id: input.partId,
+      quote_run_id: input.quoteRunId,
+      task_type: "run_vendor_quote",
+      status: "queued",
+      payload: {
+        quoteRunId: input.quoteRunId,
+        partId: input.partId,
+        vendor: input.vendor,
+        vendorQuoteResultId: resolvedQuoteResult.id,
+        requestedQuantity: input.requestedQuantity,
+        source: "xometry-debug-submit",
+      },
+    })
+    .select("id")
+    .single();
+
+  return ensureData(insertedTask?.id ?? null, insertError);
+}
+
+export async function fetchWorkerReadiness(): Promise<WorkerReadinessSnapshot> {
+  const baseUrl = import.meta.env.VITE_WORKER_BASE_URL?.trim();
+
+  if (!baseUrl) {
+    return {
+      reachable: false,
+      ready: null,
+      workerName: null,
+      workerMode: null,
+      status: null,
+      readinessIssues: [],
+      message: "Set VITE_WORKER_BASE_URL to enable the worker readiness probe.",
+      url: null,
+    };
+  }
+
+  const targetUrl = new URL("/readyz", baseUrl).toString();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 4000);
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    const payload = (await response.json()) as Record<string, unknown>;
+
+    return {
+      reachable: true,
+      ready: typeof payload.ready === "boolean" ? payload.ready : response.ok,
+      workerName: typeof payload.workerName === "string" ? payload.workerName : null,
+      workerMode: typeof payload.workerMode === "string" ? payload.workerMode : null,
+      status: typeof payload.status === "string" ? payload.status : null,
+      readinessIssues: Array.isArray(payload.readinessIssues)
+        ? payload.readinessIssues.map(String)
+        : [],
+      message: response.ok ? null : `Worker readiness probe returned HTTP ${response.status}.`,
+      url: targetUrl,
+    };
+  } catch (error) {
+    return {
+      reachable: false,
+      ready: null,
+      workerName: null,
+      workerMode: null,
+      status: null,
+      readinessIssues: [],
+      message: error instanceof Error ? error.message : "Unable to reach the worker readiness probe.",
+      url: targetUrl,
+    };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 export async function getQuoteRunReadiness(

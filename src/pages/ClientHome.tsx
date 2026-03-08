@@ -27,6 +27,7 @@ import {
   createJobsFromUploadFiles,
   createProject,
   createSelfServiceOrganization,
+  deleteArchivedJob,
   dissolveProject,
   fetchAccessibleJobs,
   fetchAccessibleProjects,
@@ -40,6 +41,7 @@ import {
   pinProject,
   removeJobFromProject,
   resendSignupConfirmation,
+  unarchiveJob,
   unpinJob,
   unpinProject,
   updateProject,
@@ -508,6 +510,28 @@ const ClientHome = () => {
     }
   };
 
+  const handleUnarchivePart = async (jobId: string) => {
+    try {
+      await unarchiveJob(jobId);
+      await invalidateSidebarQueries();
+      toast.success("Part restored.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to unarchive part.");
+      throw error;
+    }
+  };
+
+  const handleDeleteArchivedPart = async (jobId: string) => {
+    try {
+      await deleteArchivedJob(jobId);
+      await invalidateSidebarQueries();
+      toast.success("Archived part deleted.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete archived part.");
+      throw error;
+    }
+  };
+
   const handleDissolveProject = async (projectId: string) => {
     try {
       await dissolveProject(projectId);
@@ -760,6 +784,8 @@ const ClientHome = () => {
                 archivedProjects={archivedProjectsQuery.data}
                 archivedJobs={archivedJobsQuery.data}
                 isArchiveLoading={archivedProjectsQuery.isLoading || archivedJobsQuery.isLoading}
+                onUnarchivePart={handleUnarchivePart}
+                onDeleteArchivedPart={handleDeleteArchivedPart}
               />
           ) : (
             <GuestSidebarCta onLogIn={() => openAuth("signin")} />

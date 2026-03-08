@@ -43,6 +43,25 @@ const supabaseMock = vi.hoisted(() => {
   const pinnedJobsDelete = vi.fn(() => ({ eq: pinnedJobsDeleteEqFirst }));
   const pinnedJobsUpsert = vi.fn();
 
+  const vendorQuoteResultsMaybeSingle = vi.fn();
+  const vendorQuoteResultsEqRequestedQuantity = vi.fn(() => ({
+    maybeSingle: vendorQuoteResultsMaybeSingle,
+  }));
+  const vendorQuoteResultsEqVendor = vi.fn(() => ({ eq: vendorQuoteResultsEqRequestedQuantity }));
+  const vendorQuoteResultsEqPartId = vi.fn(() => ({ eq: vendorQuoteResultsEqVendor }));
+  const vendorQuoteResultsEqQuoteRunId = vi.fn(() => ({ eq: vendorQuoteResultsEqPartId }));
+  const vendorQuoteResultsSelect = vi.fn(() => ({ eq: vendorQuoteResultsEqQuoteRunId }));
+
+  const workQueueIn = vi.fn();
+  const workQueueEqTaskType = vi.fn(() => ({ in: workQueueIn }));
+  const workQueueEqPartId = vi.fn(() => ({ eq: workQueueEqTaskType }));
+  const workQueueEqQuoteRunId = vi.fn(() => ({ eq: workQueueEqPartId }));
+  const workQueueEqJobId = vi.fn(() => ({ eq: workQueueEqQuoteRunId }));
+  const workQueueSelect = vi.fn(() => ({ eq: workQueueEqJobId }));
+  const workQueueInsertSingle = vi.fn();
+  const workQueueInsertSelect = vi.fn(() => ({ single: workQueueInsertSingle }));
+  const workQueueInsert = vi.fn(() => ({ select: workQueueInsertSelect }));
+
   const from = vi.fn((table: string) => {
     if (table === "organization_memberships") {
       return {
@@ -69,6 +88,19 @@ const supabaseMock = vi.hoisted(() => {
         select: pinnedJobsSelect,
         delete: pinnedJobsDelete,
         upsert: pinnedJobsUpsert,
+      };
+    }
+
+    if (table === "vendor_quote_results") {
+      return {
+        select: vendorQuoteResultsSelect,
+      };
+    }
+
+    if (table === "work_queue") {
+      return {
+        select: workQueueSelect,
+        insert: workQueueInsert,
       };
     }
 
@@ -103,6 +135,21 @@ const supabaseMock = vi.hoisted(() => {
     functionsInvoke,
     storageFrom,
     storageUpload,
+    vendorQuoteResultsMaybeSingle,
+    vendorQuoteResultsEqRequestedQuantity,
+    vendorQuoteResultsEqVendor,
+    vendorQuoteResultsEqPartId,
+    vendorQuoteResultsEqQuoteRunId,
+    vendorQuoteResultsSelect,
+    workQueueEqJobId,
+    workQueueEqQuoteRunId,
+    workQueueEqPartId,
+    workQueueEqTaskType,
+    workQueueIn,
+    workQueueSelect,
+    workQueueInsert,
+    workQueueInsertSelect,
+    workQueueInsertSingle,
   };
 });
 
@@ -142,13 +189,17 @@ import {
   createClientDraft,
   createJobsFromUploadFiles,
   createProject,
+  deleteArchivedJob,
+  enqueueDebugVendorQuote,
   fetchAccessibleProjects,
+  fetchWorkerReadiness,
   findDuplicateUploadSelections,
   fetchSidebarPins,
   inferFileKind,
   pinJob,
   pinProject,
   resetProjectCollaborationSchemaAvailabilityForTests,
+  unarchiveJob,
   unpinJob,
   unpinProject,
   uploadFilesToJob,
@@ -192,12 +243,33 @@ describe("quotes api helpers", () => {
     vi.useRealTimers();
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("infers CAD, drawing, and other file kinds case-insensitively", () => {
     expect(inferFileKind("assembly.STEP")).toBe("cad");
     expect(inferFileKind("print.PDF")).toBe("drawing");
     expect(inferFileKind("notes.txt")).toBe("other");
+  });
+
+  it("unarchives a job through the dedicated RPC", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({ data: "job-123", error: null });
+
+    await expect(unarchiveJob("job-123")).resolves.toBe("job-123");
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_unarchive_job", {
+      p_job_id: "job-123",
+    });
+  });
+
+  it("deletes an archived job through the dedicated RPC", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({ data: "job-123", error: null });
+
+    await expect(deleteArchivedJob("job-123")).resolves.toBe("job-123");
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_delete_archived_job", {
+      p_job_id: "job-123",
+    });
   });
 
   it("uploads job files through prepare/finalize RPCs and returns a summary", async () => {
@@ -418,6 +490,117 @@ describe("quotes api helpers", () => {
         contentType: "application/pdf",
       },
     );
+  });
+
+  it("enqueues a single debug vendor quote task for an existing Xometry lane", async () => {
+    supabaseMock.vendorQuoteResultsMaybeSingle.mockResolvedValue({
+      data: {
+        id: "vendor-quote-1",
+        organization_id: "org-1",
+        status: "failed",
+      },
+      error: null,
+    });
+    supabaseMock.workQueueIn.mockResolvedValue({
+      data: [],
+      error: null,
+    });
+    supabaseMock.workQueueInsertSingle.mockResolvedValue({
+      data: {
+        id: "task-1",
+      },
+      error: null,
+    });
+
+    await expect(
+      enqueueDebugVendorQuote({
+        jobId: "job-1",
+        quoteRunId: "run-1",
+        partId: "part-1",
+        vendor: "xometry",
+        requestedQuantity: 25,
+      }),
+    ).resolves.toBe("task-1");
+
+    expect(supabaseMock.vendorQuoteResultsSelect).toHaveBeenCalledWith("id, organization_id, status");
+    expect(supabaseMock.workQueueInsert).toHaveBeenCalledWith({
+      organization_id: "org-1",
+      job_id: "job-1",
+      part_id: "part-1",
+      quote_run_id: "run-1",
+      task_type: "run_vendor_quote",
+      status: "queued",
+      payload: {
+        quoteRunId: "run-1",
+        partId: "part-1",
+        vendor: "xometry",
+        vendorQuoteResultId: "vendor-quote-1",
+        requestedQuantity: 25,
+        source: "xometry-debug-submit",
+      },
+    });
+  });
+
+  it("rejects duplicate queued or running debug submissions for the same Xometry lane", async () => {
+    supabaseMock.vendorQuoteResultsMaybeSingle.mockResolvedValue({
+      data: {
+        id: "vendor-quote-1",
+        organization_id: "org-1",
+        status: "failed",
+      },
+      error: null,
+    });
+    supabaseMock.workQueueIn.mockResolvedValue({
+      data: [
+        {
+          id: "task-queued",
+          status: "queued",
+          payload: {
+            vendor: "xometry",
+            requestedQuantity: 10,
+          },
+        },
+      ],
+      error: null,
+    });
+
+    await expect(
+      enqueueDebugVendorQuote({
+        jobId: "job-1",
+        quoteRunId: "run-1",
+        partId: "part-1",
+        vendor: "xometry",
+        requestedQuantity: 10,
+      }),
+    ).rejects.toThrow("A Xometry quote task is already queued or running for this part and quantity.");
+  });
+
+  it("returns worker readiness data when the probe is configured", async () => {
+    vi.stubEnv("VITE_WORKER_BASE_URL", "https://worker.example.com");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          ready: true,
+          workerName: "worker-1",
+          workerMode: "live",
+          status: "running",
+          readinessIssues: [],
+        }),
+      }),
+    );
+
+    await expect(fetchWorkerReadiness()).resolves.toEqual({
+      reachable: true,
+      ready: true,
+      workerName: "worker-1",
+      workerMode: "live",
+      status: "running",
+      readinessIssues: [],
+      message: null,
+      url: "https://worker.example.com/readyz",
+    });
   });
 
   it("falls back to api_create_job when api_create_client_draft is unavailable", async () => {

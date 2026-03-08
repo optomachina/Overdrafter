@@ -232,8 +232,23 @@ export type PartAggregate = PartRecord & {
   vendorQuotes: VendorQuoteAggregate[];
 };
 
+export type DrawingPreviewImage = {
+  pageNumber: number;
+  storageBucket: string;
+  storagePath: string;
+  width: number | null;
+  height: number | null;
+};
+
+export type DrawingPreviewData = {
+  pageCount: number;
+  thumbnail: DrawingPreviewImage | null;
+  pages: DrawingPreviewImage[];
+};
+
 export type VendorQuoteAggregate = VendorQuoteResultRecord & {
   offers: VendorQuoteOfferRecord[];
+  artifacts: VendorQuoteArtifactRecord[];
 };
 
 export type QuoteRunAggregate = QuoteRunRecord & {
@@ -255,6 +270,17 @@ export type JobAggregate = {
   workQueue: WorkQueueRecord[];
 };
 
+export type WorkerReadinessSnapshot = {
+  reachable: boolean;
+  ready: boolean | null;
+  workerName: string | null;
+  workerMode: string | null;
+  status: string | null;
+  readinessIssues: string[];
+  message: string | null;
+  url: string | null;
+};
+
 export type PartDetailAggregate = {
   job: JobRecord;
   files: JobFileRecord[];
@@ -262,7 +288,7 @@ export type PartDetailAggregate = {
   packages: PublishedQuotePackageRecord[];
   part: PartAggregate | null;
   projectIds: string[];
-  previewAssets: DrawingPreviewAssetRecord[];
+  drawingPreview: DrawingPreviewData;
   revisionSiblings: Array<{
     jobId: string;
     revision: string | null;

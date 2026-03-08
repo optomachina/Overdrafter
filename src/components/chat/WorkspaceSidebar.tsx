@@ -741,21 +741,11 @@ export function WorkspaceSidebar({
                 <p className="truncate text-[12px] leading-4 text-white/[0.38]">{parentProjectNames.join(" · ")}</p>
               ) : null}
             </div>
-            <button
-              type="button"
-              aria-label={isPinned ? "Unpin part" : "Pin part"}
-              className={cn(
-                "rounded-[8px] p-1 text-white/[0.82] transition-colors hover:bg-white/[0.08] hover:text-white",
-                isPinned ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-              )}
-              disabled={isPinBusy}
-              onClick={(event) => {
-                event.stopPropagation();
-                void togglePartPin(job.id);
-              }}
-            >
-              <Pin className={cn("h-3.5 w-3.5", isPinned ? "fill-current" : "")} />
-            </button>
+            {isPinned ? (
+              <div className="flex items-center gap-2">
+                <Pin className="h-3.5 w-3.5 fill-current text-white/[0.72]" />
+              </div>
+            ) : null}
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent className="chatgpt-shell w-56 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">

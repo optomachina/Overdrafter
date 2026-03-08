@@ -8,6 +8,7 @@ import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
+import { DrawingPreviewDialog } from "@/components/quotes/DrawingPreviewDialog";
 import { RequestedQuantityFilter } from "@/components/quotes/RequestedQuantityFilter";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import {
@@ -32,6 +33,7 @@ import {
   assignJobToProject,
   createJobsFromUploadFiles,
   createProject,
+  deleteArchivedJob,
   dissolveProject,
   fetchAccessibleJobs,
   fetchAccessibleProjects,
@@ -48,6 +50,7 @@ import {
   removeJobFromProject,
   requestExtraction,
   setJobSelectedVendorQuoteOffer,
+  unarchiveJob,
   unpinJob,
   unpinProject,
   updateProject,
@@ -79,7 +82,8 @@ const ClientPart = () => {
   const { user, activeMembership, signOut } = useAppSession();
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [showDrawingPreview, setShowDrawingPreview] = useState(false);
-  const [drawingPreviewUrl, setDrawingPreviewUrl] = useState<string | null>(null);
+  const [drawingPreviewThumbnailUrl, setDrawingPreviewThumbnailUrl] = useState<string | null>(null);
+  const [drawingPreviewPageUrls, setDrawingPreviewPageUrls] = useState<Array<{ pageNumber: number; url: string }>>([]);
   const [isDrawingPreviewLoading, setIsDrawingPreviewLoading] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
@@ -454,6 +458,28 @@ const ClientPart = () => {
     }
   };
 
+  const handleUnarchivePart = async (targetJobId: string) => {
+    try {
+      await unarchiveJob(targetJobId);
+      await invalidateSidebarQueries();
+      toast.success("Part restored.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to unarchive part.");
+      throw error;
+    }
+  };
+
+  const handleDeleteArchivedPart = async (targetJobId: string) => {
+    try {
+      await deleteArchivedJob(targetJobId);
+      await invalidateSidebarQueries();
+      toast.success("Archived part deleted.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete archived part.");
+      throw error;
+    }
+  };
+
   const handleDissolveProject = async (projectId: string) => {
     try {
       await dissolveProject(projectId);
@@ -510,6 +536,7 @@ const ClientPart = () => {
   );
   const dmriflesBatchProjectId = summary?.importedBatch ? `seed-${summary.importedBatch.toLowerCase()}` : null;
   const extraction = partDetail?.part ? normalizeDrawingExtraction(partDetail.part.extraction, partDetail.part.id) : null;
+  const drawingPreview = partDetail?.drawingPreview ?? null;
   const drawingFile = partDetail?.files.find((file) => file.file_kind === "drawing") ?? null;
   const cadFiles = partDetail?.files.filter((file) => file.file_kind === "cad") ?? [];
   const quoteOffers = useMemo(() => {
@@ -604,30 +631,47 @@ const ClientPart = () => {
 
   useEffect(() => {
     let isActive = true;
-    let objectUrl: string | null = null;
+    const objectUrls: string[] = [];
 
-    if (!drawingFile) {
-      setDrawingPreviewUrl(null);
+    if (!drawingFile || (!drawingPreview?.thumbnail && drawingPreview?.pages.length === 0)) {
+      setDrawingPreviewThumbnailUrl(null);
+      setDrawingPreviewPageUrls([]);
       setIsDrawingPreviewLoading(false);
       return;
     }
 
     setIsDrawingPreviewLoading(true);
 
-    void supabase.storage
-      .from(drawingFile.storage_bucket)
-      .download(drawingFile.storage_path)
-      .then(({ data, error }) => {
+    const loadAsset = async (storageBucket: string, storagePath: string) => {
+      const { data, error } = await supabase.storage.from(storageBucket).download(storagePath);
+
+      if (error || !data) {
+        throw error ?? new Error(`Unable to load ${drawingFile.original_name}.`);
+      }
+
+      const url = URL.createObjectURL(data);
+      objectUrls.push(url);
+      return url;
+    };
+
+    void Promise.all([
+      drawingPreview.thumbnail
+        ? loadAsset(drawingPreview.thumbnail.storageBucket, drawingPreview.thumbnail.storagePath)
+        : Promise.resolve<string | null>(null),
+      Promise.all(
+        drawingPreview.pages.map(async (page) => ({
+          pageNumber: page.pageNumber,
+          url: await loadAsset(page.storageBucket, page.storagePath),
+        })),
+      ),
+    ])
+      .then(([thumbnailUrl, pageUrls]) => {
         if (!isActive) {
           return;
         }
 
-        if (error || !data) {
-          throw error ?? new Error(`Unable to load ${drawingFile.original_name}.`);
-        }
-
-        objectUrl = URL.createObjectURL(data);
-        setDrawingPreviewUrl(objectUrl);
+        setDrawingPreviewThumbnailUrl(thumbnailUrl);
+        setDrawingPreviewPageUrls(pageUrls);
       })
       .catch((error: unknown) => {
         if (!isActive) {
@@ -636,7 +680,8 @@ const ClientPart = () => {
 
         const message = error instanceof Error ? error.message : "Unable to load drawing preview.";
         toast.error(message);
-        setDrawingPreviewUrl(null);
+        setDrawingPreviewThumbnailUrl(null);
+        setDrawingPreviewPageUrls([]);
       })
       .finally(() => {
         if (isActive) {
@@ -646,11 +691,9 @@ const ClientPart = () => {
 
     return () => {
       isActive = false;
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-      }
+      objectUrls.forEach((objectUrl) => URL.revokeObjectURL(objectUrl));
     };
-  }, [drawingFile]);
+  }, [drawingFile, drawingPreview]);
 
   useEffect(() => {
     setActiveRequestedQuantity((current) =>
@@ -733,6 +776,8 @@ const ClientPart = () => {
             archivedProjects={archivedProjectsQuery.data}
             archivedJobs={archivedJobsQuery.data}
             isArchiveLoading={archivedProjectsQuery.isLoading || archivedJobsQuery.isLoading}
+            onUnarchivePart={handleUnarchivePart}
+            onDeleteArchivedPart={handleDeleteArchivedPart}
           />
         }
       >
@@ -893,10 +938,10 @@ const ClientPart = () => {
                         >
                           <div className="h-24 w-20 overflow-hidden rounded-xl border border-white/8 bg-white">
                             {drawingPreviewUrl ? (
-                              <iframe
-                                title={`Preview ${drawingFile.original_name}`}
-                                src={`${drawingPreviewUrl}#toolbar=0&navpanes=0&scrollbar=0&page=1`}
-                                className="h-full w-full"
+                              <img
+                                src={drawingPreviewThumbnailUrl}
+                                alt={`Preview ${drawingFile.original_name}`}
+                                className="h-full w-full object-cover"
                               />
                             ) : (
                               <div className="flex h-full items-center justify-center bg-zinc-100 text-zinc-500">

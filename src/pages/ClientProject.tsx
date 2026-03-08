@@ -33,6 +33,7 @@ import {
   createClientDraft,
   createJobsFromUploadFiles,
   createProject,
+  deleteArchivedJob,
   dissolveProject,
   fetchAccessibleJobs,
   fetchAccessibleProjects,
@@ -51,6 +52,7 @@ import {
   pinProject,
   removeJobFromProject,
   removeProjectMember,
+  unarchiveJob,
   unpinJob,
   unpinProject,
   updateProject,
@@ -531,6 +533,28 @@ const ClientProject = () => {
     }
   };
 
+  const handleUnarchivePart = async (targetJobId: string) => {
+    try {
+      await unarchiveJob(targetJobId);
+      await invalidateSidebarQueries();
+      toast.success("Part restored.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to unarchive part.");
+      throw error;
+    }
+  };
+
+  const handleDeleteArchivedPart = async (targetJobId: string) => {
+    try {
+      await deleteArchivedJob(targetJobId);
+      await invalidateSidebarQueries();
+      toast.success("Archived part deleted.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete archived part.");
+      throw error;
+    }
+  };
+
   const handleDissolveProject = async (targetProjectId: string) => {
     try {
       await dissolveProject(targetProjectId);
@@ -630,6 +654,8 @@ const ClientProject = () => {
             archivedProjects={archivedProjectsQuery.data}
             archivedJobs={archivedJobsQuery.data}
             isArchiveLoading={archivedProjectsQuery.isLoading || archivedJobsQuery.isLoading}
+            onUnarchivePart={handleUnarchivePart}
+            onDeleteArchivedPart={handleDeleteArchivedPart}
           />
         }
       >

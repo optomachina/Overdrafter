@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import type { LucideIcon } from "lucide-react";
 import {
   Archive,
   ArrowUpRight,
+  Box,
   Bug,
   ChevronRight,
   CircleHelp,
@@ -11,11 +12,25 @@ import {
   Download,
   FilePenLine,
   FileText,
+  Folder,
   LogOut,
+  Loader2,
   Settings,
+  Trash2,
+  Undo2,
 } from "lucide-react";
 import { LogoutConfirmDialog } from "@/components/auth/LogoutConfirmDialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,7 +43,6 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary } from "@/features/quotes/types";
 import { getAccountDisplayProfile } from "@/lib/account-profile";
@@ -43,6 +57,8 @@ type WorkspaceAccountMenuProps = {
   archivedProjects?: ArchivedProjectSummary[];
   archivedJobs?: ArchivedJobSummary[];
   isArchiveLoading?: boolean;
+  onUnarchivePart?: (jobId: string) => Promise<void> | void;
+  onDeleteArchivedPart?: (jobId: string) => Promise<void> | void;
 };
 
 type AccountPanelId =
@@ -82,6 +98,20 @@ const MENU_ICON_CLASS = "h-[22px] w-[22px] shrink-0 text-white/[0.92]";
 const PANEL_SHEET_CLASS =
   "chatgpt-shell w-[min(100vw,30rem)] border-l border-white/[0.08] bg-[#2a2a2a] p-0 text-white sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-full [&>button]:bg-white/[0.06] [&>button]:p-2 [&>button]:text-white/72 [&>button]:hover:bg-white/[0.1] [&>button]:hover:text-white";
 const PANEL_CARD_CLASS = "rounded-[22px] border border-white/[0.08] bg-black/20 p-4";
+
+type ArchiveListItem =
+  | {
+      kind: "project";
+      archivedAt: string | null;
+      id: string;
+      project: ArchivedProjectSummary;
+    }
+  | {
+      kind: "part";
+      archivedAt: string | null;
+      id: string;
+      job: ArchivedJobSummary;
+    };
 
 const HELP_ITEMS: HelpItem[] = [
   {
@@ -265,13 +295,49 @@ export function WorkspaceAccountMenu({
   archivedProjects = [],
   archivedJobs = [],
   isArchiveLoading = false,
+  onUnarchivePart,
+  onDeleteArchivedPart,
 }: WorkspaceAccountMenuProps) {
   const profile = getAccountDisplayProfile(user);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activePanel, setActivePanel] = useState<AccountPanelId | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutDialogOpen, setSignOutDialogOpen] = useState(false);
+  const [pendingUnarchiveJobIds, setPendingUnarchiveJobIds] = useState<string[]>([]);
+  const [pendingDeleteJobIds, setPendingDeleteJobIds] = useState<string[]>([]);
+  const [jobPendingDeleteConfirmation, setJobPendingDeleteConfirmation] = useState<ArchivedJobSummary | null>(null);
   const roleLabel = getRoleLabel(activeMembership?.role);
+  const archiveItems = useMemo<ArchiveListItem[]>(
+    () =>
+      [
+        ...archivedProjects.map((project) => ({
+          kind: "project" as const,
+          archivedAt: project.project.archived_at,
+          id: project.project.id,
+          project,
+        })),
+        ...archivedJobs.map((job) => ({
+          kind: "part" as const,
+          archivedAt: job.job.archived_at,
+          id: job.job.id,
+          job,
+        })),
+      ].sort((left, right) => {
+        const leftTime = left.archivedAt ? new Date(left.archivedAt).getTime() : 0;
+        const rightTime = right.archivedAt ? new Date(right.archivedAt).getTime() : 0;
+
+        if (rightTime !== leftTime) {
+          return rightTime - leftTime;
+        }
+
+        if (left.kind !== right.kind) {
+          return left.kind.localeCompare(right.kind);
+        }
+
+        return left.id.localeCompare(right.id);
+      }),
+    [archivedJobs, archivedProjects],
+  );
 
   const openPanel = (panelId: AccountPanelId) => {
     setMenuOpen(false);
@@ -297,6 +363,35 @@ export function WorkspaceAccountMenu({
       onSignedOut?.();
     } finally {
       setIsSigningOut(false);
+    }
+  };
+
+  const handleUnarchivePart = async (jobId: string) => {
+    if (!onUnarchivePart) {
+      return;
+    }
+
+    setPendingUnarchiveJobIds((current) => (current.includes(jobId) ? current : [...current, jobId]));
+
+    try {
+      await onUnarchivePart(jobId);
+    } finally {
+      setPendingUnarchiveJobIds((current) => current.filter((id) => id !== jobId));
+    }
+  };
+
+  const handleDeleteArchivedPart = async (jobId: string) => {
+    if (!onDeleteArchivedPart) {
+      return;
+    }
+
+    setPendingDeleteJobIds((current) => (current.includes(jobId) ? current : [...current, jobId]));
+
+    try {
+      await onDeleteArchivedPart(jobId);
+      setJobPendingDeleteConfirmation((current) => (current?.job.id === jobId ? null : current));
+    } finally {
+      setPendingDeleteJobIds((current) => current.filter((id) => id !== jobId));
     }
   };
 
@@ -374,74 +469,106 @@ export function WorkspaceAccountMenu({
         );
       case "archive":
         return (
-          <Tabs defaultValue="projects" className="space-y-4">
-            <TabsList className="grid h-auto grid-cols-2 rounded-[18px] bg-white/[0.06] p-1">
-              <TabsTrigger
-                value="projects"
-                className="rounded-[14px] px-4 py-2 text-sm text-white/70 data-[state=active]:bg-white data-[state=active]:text-black"
-              >
-                Projects
-              </TabsTrigger>
-              <TabsTrigger
-                value="parts"
-                className="rounded-[14px] px-4 py-2 text-sm text-white/70 data-[state=active]:bg-white data-[state=active]:text-black"
-              >
-                Parts
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="projects" className="space-y-3">
-              {isArchiveLoading ? (
-                <div className={PANEL_CARD_CLASS}>
-                  <p className="text-sm leading-6 text-white/58">Loading archived projects...</p>
-                </div>
-              ) : archivedProjects.length === 0 ? (
-                <div className={PANEL_CARD_CLASS}>
-                  <p className="text-sm leading-6 text-white/58">No archived projects yet.</p>
-                </div>
-              ) : (
-                archivedProjects.map((item) => (
-                  <div key={item.project.id} className={PANEL_CARD_CLASS}>
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <h3 className="truncate text-[17px] font-medium text-white">{item.project.name}</h3>
-                        <p className="mt-1 text-sm text-white/52">{formatArchivedAt(item.project.archived_at)}</p>
-                      </div>
-                      <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs font-medium text-white/70">
-                        {item.partCount} {item.partCount === 1 ? "part" : "parts"}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </TabsContent>
-
-            <TabsContent value="parts" className="space-y-3">
-              {isArchiveLoading ? (
-                <div className={PANEL_CARD_CLASS}>
-                  <p className="text-sm leading-6 text-white/58">Loading archived parts...</p>
-                </div>
-              ) : archivedJobs.length === 0 ? (
-                <div className={PANEL_CARD_CLASS}>
-                  <p className="text-sm leading-6 text-white/58">No archived parts yet.</p>
-                </div>
-              ) : (
-                archivedJobs.map((item) => {
-                  const presentation = getClientItemPresentation(item.job, item.summary ?? undefined);
-
+          <div className="space-y-3">
+            {isArchiveLoading ? (
+              <div className={PANEL_CARD_CLASS}>
+                <p className="text-sm leading-6 text-white/58">Loading archived items...</p>
+              </div>
+            ) : archiveItems.length === 0 ? (
+              <div className={PANEL_CARD_CLASS}>
+                <p className="text-sm leading-6 text-white/58">No archived items yet.</p>
+              </div>
+            ) : (
+              archiveItems.map((item) => {
+                if (item.kind === "project") {
                   return (
-                    <div key={item.job.id} className={PANEL_CARD_CLASS}>
-                      <h3 className="truncate text-[17px] font-medium text-white">{presentation.title}</h3>
-                      <p className="mt-1 text-sm text-white/52">{formatArchivedAt(item.job.archived_at)}</p>
-                      {item.projectNames.length > 0 ? (
-                        <p className="mt-3 truncate text-sm text-white/62">{item.projectNames.join(" · ")}</p>
-                      ) : null}
+                    <div key={`project-${item.project.project.id}`} className={cn(PANEL_CARD_CLASS, "group/item")}>
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04]">
+                            <Folder className="h-[18px] w-[18px] text-white/80" strokeWidth={1.9} />
+                          </span>
+                          <div className="min-w-0">
+                            <h3 className="truncate text-[17px] font-medium text-white">{item.project.project.name}</h3>
+                            <p className="mt-1 text-sm text-white/52">{formatArchivedAt(item.project.project.archived_at)}</p>
+                          </div>
+                        </div>
+                        <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs font-medium text-white/70">
+                          {item.project.partCount} {item.project.partCount === 1 ? "part" : "parts"}
+                        </span>
+                      </div>
                     </div>
                   );
-                })
-              )}
-            </TabsContent>
-          </Tabs>
+                }
+
+                const presentation = getClientItemPresentation(item.job.job, item.job.summary ?? undefined);
+                const isUnarchivePending = pendingUnarchiveJobIds.includes(item.job.job.id);
+                const isDeletePending = pendingDeleteJobIds.includes(item.job.job.id);
+                const isBusy = isUnarchivePending || isDeletePending;
+
+                return (
+                  <div key={`part-${item.job.job.id}`} className={cn(PANEL_CARD_CLASS, "group/item")}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04]">
+                          <Box className="h-[18px] w-[18px] text-white/80" strokeWidth={1.9} />
+                        </span>
+                        <div className="min-w-0">
+                          <h3 className="truncate text-[17px] font-medium text-white">{presentation.title}</h3>
+                          <p className="mt-1 text-sm text-white/52">{formatArchivedAt(item.job.job.archived_at)}</p>
+                          {item.job.projectNames.length > 0 ? (
+                            <p className="mt-3 truncate text-sm text-white/62">{item.job.projectNames.join(" · ")}</p>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="pointer-events-none flex shrink-0 items-center gap-2 opacity-0 transition group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-focus-within/item:pointer-events-auto group-focus-within/item:opacity-100">
+                        {onUnarchivePart ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={isBusy}
+                            className="h-9 rounded-full border border-white/[0.08] bg-white/[0.04] px-3 text-white/78 hover:bg-white/[0.08] hover:text-white"
+                            onClick={() => void handleUnarchivePart(item.job.job.id)}
+                          >
+                            {isUnarchivePending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <>
+                                <Undo2 className="mr-2 h-4 w-4" />
+                                Unarchive
+                              </>
+                            )}
+                          </Button>
+                        ) : null}
+
+                        {onDeleteArchivedPart ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={isBusy}
+                            className="h-9 rounded-full border border-red-500/20 bg-red-500/10 px-3 text-red-100 hover:bg-red-500/18 hover:text-white"
+                            onClick={() => setJobPendingDeleteConfirmation(item.job)}
+                          >
+                            {isDeletePending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <>
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete
+                              </>
+                            )}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         );
       case "release-notes":
         return (
@@ -708,6 +835,58 @@ export function WorkspaceAccountMenu({
           </div>
         </SheetContent>
       </Sheet>
+
+      <AlertDialog
+        open={Boolean(jobPendingDeleteConfirmation)}
+        onOpenChange={(open) => {
+          if (!open && !jobPendingDeleteConfirmation) {
+            return;
+          }
+
+          if (!pendingDeleteJobIds.includes(jobPendingDeleteConfirmation?.job.id ?? "")) {
+            setJobPendingDeleteConfirmation(open ? jobPendingDeleteConfirmation : null);
+          }
+        }}
+      >
+        <AlertDialogContent className="chatgpt-shell border-white/[0.08] bg-[#2a2a2a] text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete archived part?</AlertDialogTitle>
+            <AlertDialogDescription className="text-white/55">
+              {jobPendingDeleteConfirmation
+                ? `Delete ${getClientItemPresentation(jobPendingDeleteConfirmation.job, jobPendingDeleteConfirmation.summary ?? undefined).title} permanently. This cannot be undone.`
+                : "Delete this archived part permanently. This cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-white/[0.08] bg-transparent text-white hover:bg-white/[0.06] hover:text-white">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 text-white hover:bg-red-500"
+              disabled={
+                !jobPendingDeleteConfirmation ||
+                pendingDeleteJobIds.includes(jobPendingDeleteConfirmation.job.id)
+              }
+              onClick={(event) => {
+                if (!jobPendingDeleteConfirmation) {
+                  event.preventDefault();
+                  return;
+                }
+
+                event.preventDefault();
+                void handleDeleteArchivedPart(jobPendingDeleteConfirmation.job.id);
+              }}
+            >
+              {jobPendingDeleteConfirmation &&
+              pendingDeleteJobIds.includes(jobPendingDeleteConfirmation.job.id) ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

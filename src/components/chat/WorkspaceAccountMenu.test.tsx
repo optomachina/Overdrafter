@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@supabase/supabase-js";
 import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary } from "@/features/quotes/types";
@@ -159,6 +159,8 @@ describe("WorkspaceAccountMenu", () => {
   });
 
   it("opens the archive panel from the account menu", async () => {
+    const onUnarchivePart = vi.fn();
+    const onDeleteArchivedPart = vi.fn();
     render(
       <WorkspaceAccountMenu
         user={makeUser()}
@@ -166,15 +168,39 @@ describe("WorkspaceAccountMenu", () => {
         onSignOut={vi.fn()}
         archivedProjects={archivedProjects}
         archivedJobs={archivedJobs}
+        onUnarchivePart={onUnarchivePart}
+        onDeleteArchivedPart={onDeleteArchivedPart}
       />,
     );
 
     await openMainMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
-    expect(await screen.findByRole("tab", { name: "Projects" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Parts" })).toBeInTheDocument();
-    expect(screen.getByText("Archived Project")).toBeInTheDocument();
+    const projectHeading = await screen.findByRole("heading", { name: "Archived Project" });
+    const partHeading = screen.getByRole("heading", { name: "Archived Part" });
+    expect(screen.queryByRole("tab", { name: "Projects" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Parts" })).not.toBeInTheDocument();
+
+    expect(partHeading.compareDocumentPosition(projectHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelector(".lucide-folder")).not.toBeNull();
+    expect(document.querySelector(".lucide-box")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Unarchive" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Unarchive" }));
+    await waitFor(() => {
+      expect(onUnarchivePart).toHaveBeenCalledWith("job-1");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("Delete archived part?")).toBeInTheDocument();
+    expect(onDeleteArchivedPart).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await waitFor(() => {
+      expect(onDeleteArchivedPart).toHaveBeenCalledWith("job-1");
+    });
   });
 
   it("shows archive empty states", async () => {
@@ -183,8 +209,7 @@ describe("WorkspaceAccountMenu", () => {
     await openMainMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
-    expect(await screen.findByText("No archived projects yet.")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Parts" })).toBeInTheDocument();
+    expect(await screen.findByText("No archived items yet.")).toBeInTheDocument();
   });
 
   it("opens the settings panel from the account menu", async () => {

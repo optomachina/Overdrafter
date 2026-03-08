@@ -12,6 +12,7 @@ import {
   getJobSummaryMetrics,
   hasManualQuoteIntakeSource,
   normalizeDrawingExtraction,
+  normalizeDrawingPreview,
   projectedClientPrice,
 } from "./utils";
 
@@ -169,6 +170,83 @@ describe("quotes utils", () => {
       quoteQuantities: [3],
       requestedByDate: null,
       applicableVendors: ["xometry", "fictiv", "protolabs"],
+    });
+  });
+
+  it("normalizes drawing preview metadata from extraction and stored assets", () => {
+    const extraction = makeExtractionRecord({
+      extraction: {
+        pageCount: 5,
+      },
+    });
+
+    expect(
+      normalizeDrawingPreview(extraction, [
+        {
+          id: "asset-thumb",
+          part_id: "part-1",
+          organization_id: "org-1",
+          page_number: 1,
+          kind: "thumbnail",
+          storage_bucket: "quote-artifacts",
+          storage_path: "thumb.png",
+          width: 320,
+          height: 240,
+          created_at: "2026-03-03T00:00:00Z",
+          updated_at: "2026-03-03T00:00:00Z",
+        },
+        {
+          id: "asset-page-2",
+          part_id: "part-1",
+          organization_id: "org-1",
+          page_number: 2,
+          kind: "page",
+          storage_bucket: "quote-artifacts",
+          storage_path: "page-2.png",
+          width: 1200,
+          height: 900,
+          created_at: "2026-03-03T00:00:00Z",
+          updated_at: "2026-03-03T00:00:00Z",
+        },
+        {
+          id: "asset-page-1",
+          part_id: "part-1",
+          organization_id: "org-1",
+          page_number: 1,
+          kind: "page",
+          storage_bucket: "quote-artifacts",
+          storage_path: "page-1.png",
+          width: 1200,
+          height: 900,
+          created_at: "2026-03-03T00:00:00Z",
+          updated_at: "2026-03-03T00:00:00Z",
+        },
+      ] as never),
+    ).toEqual({
+      pageCount: 5,
+      thumbnail: {
+        pageNumber: 1,
+        storageBucket: "quote-artifacts",
+        storagePath: "thumb.png",
+        width: 320,
+        height: 240,
+      },
+      pages: [
+        {
+          pageNumber: 1,
+          storageBucket: "quote-artifacts",
+          storagePath: "page-1.png",
+          width: 1200,
+          height: 900,
+        },
+        {
+          pageNumber: 2,
+          storageBucket: "quote-artifacts",
+          storagePath: "page-2.png",
+          width: 1200,
+          height: 900,
+        },
+      ],
     });
   });
 

@@ -19,6 +19,7 @@ import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
 import { ManualQuoteIntakeCard } from "@/components/quotes/ManualQuoteIntakeCard";
 import { RequestedQuantityFilter } from "@/components/quotes/RequestedQuantityFilter";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
+import { XometryDebugCard } from "@/components/quotes/XometryDebugCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +29,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppSession } from "@/hooks/use-app-session";
+import { useDiagnosticsSnapshot } from "@/lib/diagnostics";
 import { isEmailConfirmationRequired } from "@/lib/auth-status";
 import { createCadPreviewSourceFromJobFile, isStepPreviewableFile } from "@/lib/cad-preview";
 import { supabase } from "@/integrations/supabase/client";
@@ -75,6 +77,7 @@ const InternalJobDetail = () => {
   const jobId = params.jobId ?? "";
   const queryClient = useQueryClient();
   const { user, activeMembership, isVerifiedAuth, signOut } = useAppSession();
+  const diagnostics = useDiagnosticsSnapshot();
   const [drafts, setDrafts] = useState<Record<string, ApprovedPartRequirement>>({});
   const [quoteQuantityInputs, setQuoteQuantityInputs] = useState<Record<string, string>>({});
   const [clientSummary, setClientSummary] = useState("");
@@ -164,6 +167,7 @@ const InternalJobDetail = () => {
     });
   }, [activeCompareRequestedQuantity, quoteRows]);
   const writeActionsDisabled = !isVerifiedAuth;
+  const showDebugTools = diagnostics.enabled || import.meta.env.DEV;
 
   useEffect(() => {
     setActiveCompareRequestedQuantity((current) =>
@@ -802,6 +806,16 @@ const InternalJobDetail = () => {
             parts={job.parts}
             disabled={writeActionsDisabled}
           />
+
+          {showDebugTools ? (
+            <XometryDebugCard
+              jobId={jobId}
+              latestQuoteRun={latestQuoteRun}
+              parts={job.parts}
+              workQueue={job.workQueue}
+              disabled={writeActionsDisabled}
+            />
+          ) : null}
 
           <Card className="border-white/10 bg-white/5">
             <CardHeader>
