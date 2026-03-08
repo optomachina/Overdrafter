@@ -55,20 +55,27 @@ describe("runHybridExtraction", () => {
         normalized: null,
         confidence: 0.1,
       },
+      generalTolerance: {
+        raw: null,
+        confidence: 0.1,
+      },
       tightestTolerance: {
         raw: null,
         valueInch: null,
         confidence: 0.1,
       },
+      notes: [],
+      threads: [],
       evidence: [
         {
           field: "description",
           page: 1,
           snippet: "Optic Bracket Lower",
-          confidence: 0.75,
+          confidence: 0.65,
         },
       ],
       warnings: [
+        "Unable to extract text from the drawing PDF. Review extracted fields manually.",
         "No PDF drawing was attached. Material, finish, and tolerance values require review.",
       ],
       status: "needs_review",
@@ -91,6 +98,6 @@ describe("runHybridExtraction", () => {
     expect(result.material.confidence).toBe(0.35);
     expect(result.finish.confidence).toBe(0.25);
     expect(result.tightestTolerance.confidence).toBe(0.25);
-    expect(result.warnings).toEqual([]);
+    expect(result.warnings).toEqual(["Unable to extract text from the drawing PDF. Review extracted fields manually."]);
   });
 });

@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceSidebar, type WorkspaceSidebarProject } from "@/components/chat/WorkspaceSidebar";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
@@ -39,6 +39,8 @@ function makeSummary(overrides: Partial<JobPartSummary> = {}): JobPartSummary {
 
 describe("WorkspaceSidebar", () => {
   beforeEach(() => {
+    vi.stubGlobal("PointerEvent", MouseEvent);
+
     const store = new Map<string, string>();
     const localStorageMock = {
       getItem: (key: string) => store.get(key) ?? null,
@@ -234,16 +236,21 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByRole("button", { name: /1093-00003/i })).toBeInTheDocument();
   });
 
-  it("keeps grouped pinned parts out of the parts section in pinned mode", () => {
+  it("keeps grouped pinned parts out of the parts section in pinned mode", async () => {
     renderSidebar({
       pinnedJobIds: ["job-1", "job-3"],
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /sort and filter sidebar/i }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /pinned/i }));
+    const filterButton = screen.getByRole("button", { name: /sort and filter sidebar/i });
 
-    expect(screen.getByRole("button", { name: /1093-00003/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /1093-00001/i })).not.toBeInTheDocument();
+    fireEvent.pointerDown(filterButton, { button: 0 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /pinned/i }));
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /1093-00003/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /1093-00001/i })).not.toBeInTheDocument();
+    });
   });
 
   it("treats resolved project memberships as grouped even without job.project_id", () => {
