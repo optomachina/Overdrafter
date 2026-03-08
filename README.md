@@ -78,6 +78,12 @@ Minimum bootstrap flow:
 2. Add one `internal_admin` or `internal_estimator` membership for your own auth user.
 3. Add any client users with role `client`.
 
+Production release order:
+
+1. Apply all pending Supabase migrations before promoting a new app build.
+2. Regenerate and commit [`src/integrations/supabase/types.ts`](/Users/blainewilson/.codex/worktrees/53f5/Overdrafter/src/integrations/supabase/types.ts) whenever RPC signatures or tables change.
+3. Include `notify pgrst, 'reload schema';` in migrations that add, remove, or change public RPC signatures so PostgREST sees the new contract immediately after deploy.
+
 ### 3. Worker
 
 ```bash

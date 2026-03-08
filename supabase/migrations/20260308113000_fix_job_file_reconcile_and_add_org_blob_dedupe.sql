@@ -494,6 +494,8 @@ $$;
 grant execute on function public.api_prepare_job_file_upload(uuid, text, public.job_file_kind, text, bigint, text) to authenticated;
 grant execute on function public.api_finalize_job_file_upload(uuid, text, text, text, public.job_file_kind, text, bigint, text) to authenticated;
 
+notify pgrst, 'reload schema';
+
 drop policy if exists "job_files_storage_insert" on storage.objects;
 create policy "job_files_storage_insert"
 on storage.objects

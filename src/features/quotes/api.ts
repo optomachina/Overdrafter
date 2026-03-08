@@ -148,9 +148,12 @@ const PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE =
 type ProjectCollaborationSchemaAvailability = "unknown" | "available" | "unavailable";
 
 let projectCollaborationSchemaAvailability: ProjectCollaborationSchemaAvailability = "unknown";
+let jobFileUploadCompatibilityMode = false;
+let jobFileUploadCompatibilityToastShown = false;
 
 const PROJECT_COLLABORATION_IDENTIFIERS = [
   "public.projects",
+  "public.jobs",
   "public.project_memberships",
   "public.project_invites",
   "public.user_pinned_projects",
@@ -196,6 +199,14 @@ function isMissingProjectCollaborationSchemaError(error: unknown): boolean {
   const details = typeof value.details === "string" ? value.details : "";
   const hint = typeof value.hint === "string" ? value.hint : "";
   const blob = `${message} ${details} ${hint}`.toLowerCase();
+  const isMissingArchivedAtColumn =
+    code === "42703" &&
+    blob.includes("archived_at") &&
+    (blob.includes("projects") || blob.includes("jobs") || blob.includes("public.projects") || blob.includes("public.jobs"));
+
+  if (isMissingArchivedAtColumn) {
+    return true;
+  }
 
   if (!PROJECT_COLLABORATION_IDENTIFIERS.some((identifier) => blob.includes(identifier))) {
     return false;
@@ -228,6 +239,11 @@ export function resetProjectCollaborationSchemaAvailabilityForTests(): void {
   projectCollaborationSchemaAvailability = "unknown";
 }
 
+export function resetJobFileUploadCompatibilityForTests(): void {
+  jobFileUploadCompatibilityMode = false;
+  jobFileUploadCompatibilityToastShown = false;
+}
+
 function isMissingFunctionError(error: unknown, functionName: string): boolean {
   if (!error || typeof error !== "object") {
     return false;
@@ -242,6 +258,72 @@ function isMissingFunctionError(error: unknown, functionName: string): boolean {
   const blob = `${message} ${details} ${hint}`.toLowerCase();
 
   return (code === "42883" || code === "PGRST202") && blob.includes(functionPattern);
+}
+
+function isMissingJobFileUploadSchemaError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const value = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+  const code = typeof value.code === "string" ? value.code : "";
+  const message = typeof value.message === "string" ? value.message : "";
+  const details = typeof value.details === "string" ? value.details : "";
+  const hint = typeof value.hint === "string" ? value.hint : "";
+  const blob = `${message} ${details} ${hint}`.toLowerCase();
+
+  if (
+    !blob.includes("api_prepare_job_file_upload") &&
+    !blob.includes("api_finalize_job_file_upload") &&
+    !blob.includes("schema cache")
+  ) {
+    return false;
+  }
+
+  return code === "42703" || code === "42883" || code === "PGRST202";
+}
+
+function buildLegacyJobFileStoragePath(jobId: string, fileName: string): string {
+  return `${jobId}/${Date.now()}-${crypto.randomUUID()}-${sanitizeStorageFileName(fileName)}`;
+}
+
+function enableJobFileUploadCompatibilityMode(): void {
+  jobFileUploadCompatibilityMode = true;
+
+  if (!jobFileUploadCompatibilityToastShown) {
+    jobFileUploadCompatibilityToastShown = true;
+    toast.success("Uploads are running in compatibility mode while workspace file dedupe finishes deploying.");
+  }
+}
+
+async function uploadFileToJobLegacy(input: {
+  jobId: string;
+  file: File;
+  fileKind: JobFileKind;
+}): Promise<void> {
+  const storageBucket = "job-files";
+  const storagePath = buildLegacyJobFileStoragePath(input.jobId, input.file.name);
+  const { error: storageError } = await supabase.storage.from(storageBucket).upload(storagePath, input.file, {
+    upsert: false,
+  });
+
+  if (storageError && !isStorageObjectExistsError(storageError)) {
+    throw storageError;
+  }
+
+  const { error: attachError } = await supabase.rpc("api_attach_job_file", {
+    p_job_id: input.jobId,
+    p_storage_bucket: storageBucket,
+    p_storage_path: storagePath,
+    p_original_name: input.file.name,
+    p_file_kind: input.fileKind,
+    p_mime_type: input.file.type || null,
+    p_size_bytes: input.file.size,
+  });
+
+  if (attachError) {
+    throw attachError;
+  }
 }
 
 async function createProjectViaEdgeFunction(input: {
@@ -1843,6 +1925,16 @@ export async function uploadFilesToJob(jobId: string, files: File[]): Promise<Up
     seenHashes.add(contentSha256);
 
     const fileKind = inferFileKind(file.name);
+    if (jobFileUploadCompatibilityMode) {
+      await uploadFileToJobLegacy({
+        jobId,
+        file,
+        fileKind,
+      });
+      uploadedCount += 1;
+      continue;
+    }
+
     const { data, error } = await supabase.rpc("api_prepare_job_file_upload", {
       p_job_id: jobId,
       p_original_name: file.name,
@@ -1851,6 +1943,17 @@ export async function uploadFilesToJob(jobId: string, files: File[]): Promise<Up
       p_size_bytes: file.size,
       p_content_sha256: contentSha256,
     });
+
+    if (isMissingJobFileUploadSchemaError(error)) {
+      enableJobFileUploadCompatibilityMode();
+      await uploadFileToJobLegacy({
+        jobId,
+        file,
+        fileKind,
+      });
+      uploadedCount += 1;
+      continue;
+    }
 
     const prepareResult = ensureData(data, error) as PrepareJobFileUploadResult;
 
@@ -1883,6 +1986,26 @@ export async function uploadFilesToJob(jobId: string, files: File[]): Promise<Up
       p_size_bytes: file.size,
       p_content_sha256: contentSha256,
     });
+
+    if (isMissingJobFileUploadSchemaError(finalizeError)) {
+      enableJobFileUploadCompatibilityMode();
+      const { error: attachError } = await supabase.rpc("api_attach_job_file", {
+        p_job_id: jobId,
+        p_storage_bucket: prepareResult.storageBucket,
+        p_storage_path: prepareResult.storagePath,
+        p_original_name: file.name,
+        p_file_kind: fileKind,
+        p_mime_type: file.type || null,
+        p_size_bytes: file.size,
+      });
+
+      if (attachError) {
+        throw attachError;
+      }
+
+      uploadedCount += 1;
+      continue;
+    }
 
     if (finalizeError) {
       throw finalizeError;

@@ -149,6 +149,7 @@ import {
   pinJob,
   pinProject,
   resetProjectCollaborationSchemaAvailabilityForTests,
+  resetJobFileUploadCompatibilityForTests,
   unpinJob,
   unpinProject,
   uploadFilesToJob,
@@ -160,6 +161,7 @@ describe("quotes api helpers", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-03T12:34:56.000Z"));
     resetProjectCollaborationSchemaAvailabilityForTests();
+    resetJobFileUploadCompatibilityForTests();
     supabaseMock.authGetUser.mockResolvedValue({
       data: {
         user: {
@@ -283,6 +285,125 @@ describe("quotes api helpers", () => {
       p_size_bytes: files[1].size,
       p_content_sha256: expect.any(String),
     });
+  });
+
+  it("falls back to the legacy attach flow when the prepare RPC is missing from schema cache", async () => {
+    supabaseMock.storageUpload.mockResolvedValue({ error: null });
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "PGRST202",
+          message:
+            "Could not find the function public.api_prepare_job_file_upload(p_content_sha256, p_file_kind, p_job_id, p_mime_type, p_original_name, p_size_bytes) in the schema cache",
+          details: null,
+          hint: null,
+        },
+      })
+      .mockResolvedValueOnce({ data: "file-legacy-1", error: null })
+      .mockResolvedValueOnce({ data: "file-legacy-2", error: null });
+
+    const files = [
+      createMockFile("step", "bracket.step", { type: "model/step" }),
+      createMockFile("drawing", "bracket.pdf", { type: "application/pdf" }),
+    ];
+
+    await expect(uploadFilesToJob("job-123", files)).resolves.toEqual({
+      uploadedCount: 2,
+      reusedCount: 0,
+      duplicateNames: [],
+    });
+
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(1, "api_prepare_job_file_upload", {
+      p_job_id: "job-123",
+      p_original_name: "bracket.step",
+      p_file_kind: "cad",
+      p_mime_type: "model/step",
+      p_size_bytes: files[0].size,
+      p_content_sha256: expect.any(String),
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_attach_job_file", {
+      p_job_id: "job-123",
+      p_storage_bucket: "job-files",
+      p_storage_path: "job-123/1772541296000-uuid-default-bracket.step",
+      p_original_name: "bracket.step",
+      p_file_kind: "cad",
+      p_mime_type: "model/step",
+      p_size_bytes: files[0].size,
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(3, "api_attach_job_file", {
+      p_job_id: "job-123",
+      p_storage_bucket: "job-files",
+      p_storage_path: "job-123/1772541296000-uuid-default-bracket.pdf",
+      p_original_name: "bracket.pdf",
+      p_file_kind: "drawing",
+      p_mime_type: "application/pdf",
+      p_size_bytes: files[1].size,
+    });
+    expect(supabaseMock.storageUpload).toHaveBeenNthCalledWith(
+      1,
+      "job-123/1772541296000-uuid-default-bracket.step",
+      files[0],
+      { upsert: false },
+    );
+    expect(supabaseMock.storageUpload).toHaveBeenNthCalledWith(
+      2,
+      "job-123/1772541296000-uuid-default-bracket.pdf",
+      files[1],
+      { upsert: false },
+    );
+    expect(toastMock.success).toHaveBeenCalledWith(
+      "Uploads are running in compatibility mode while workspace file dedupe finishes deploying.",
+    );
+    expect(toastMock.success).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to legacy attachment when finalize RPC is unavailable after upload", async () => {
+    supabaseMock.storageUpload.mockResolvedValue({ error: null });
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: {
+          status: "upload_required",
+          storageBucket: "job-files",
+          storagePath: "org-sha256/org-1/hash-a/bracket.step",
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "PGRST202",
+          message:
+            "Could not find the function public.api_finalize_job_file_upload(p_content_sha256, p_file_kind, p_job_id, p_mime_type, p_original_name, p_size_bytes, p_storage_bucket, p_storage_path) in the schema cache",
+          details: null,
+          hint: null,
+        },
+      })
+      .mockResolvedValueOnce({ data: "file-legacy-1", error: null });
+
+    const file = createMockFile("step", "bracket.step", { type: "model/step" });
+
+    await expect(uploadFilesToJob("job-123", [file])).resolves.toEqual({
+      uploadedCount: 1,
+      reusedCount: 0,
+      duplicateNames: [],
+    });
+
+    expect(supabaseMock.storageUpload).toHaveBeenCalledWith("org-sha256/org-1/hash-a/bracket.step", file, {
+      upsert: false,
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(3, "api_attach_job_file", {
+      p_job_id: "job-123",
+      p_storage_bucket: "job-files",
+      p_storage_path: "org-sha256/org-1/hash-a/bracket.step",
+      p_original_name: "bracket.step",
+      p_file_kind: "cad",
+      p_mime_type: "model/step",
+      p_size_bytes: file.size,
+    });
+    expect(toastMock.success).toHaveBeenCalledWith(
+      "Uploads are running in compatibility mode while workspace file dedupe finishes deploying.",
+    );
   });
 
   it("stops when file storage upload fails", async () => {
@@ -775,6 +896,20 @@ describe("quotes api helpers", () => {
     await expect(fetchAccessibleProjects()).resolves.toEqual([]);
 
     expect(supabaseMock.from).toHaveBeenCalledWith("projects");
+  });
+
+  it("treats missing archived_at columns as project schema drift", async () => {
+    supabaseMock.projectsOrder.mockResolvedValue({
+      data: null,
+      error: {
+        code: "42703",
+        message: 'column projects.archived_at does not exist',
+        details: null,
+        hint: null,
+      },
+    });
+
+    await expect(fetchAccessibleProjects()).resolves.toEqual([]);
   });
 
   it("still returns pinned jobs when project pin tables are unavailable", async () => {
