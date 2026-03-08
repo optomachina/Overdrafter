@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/playwright:v1.52.0-noble AS build
+FROM mcr.microsoft.com/playwright:v1.58.2-noble AS build
 
 WORKDIR /app
 
@@ -9,7 +9,7 @@ COPY src ./src
 RUN npm run build
 RUN npm prune --omit=dev
 
-FROM mcr.microsoft.com/playwright:v1.52.0-noble
+FROM mcr.microsoft.com/playwright:v1.58.2-noble
 
 WORKDIR /app
 

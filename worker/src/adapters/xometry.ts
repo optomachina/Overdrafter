@@ -219,20 +219,28 @@ async function waitForQuoteSignals(page: Page, timeoutMs: number) {
 
 async function setFilesOnUpload(page: Page, files: string[]) {
   const attemptedSelectors: string[] = [];
+  const deadline = Date.now() + 15_000;
 
-  for (const selector of XOMETRY_LOCATORS.uploadInputs) {
-    attemptedSelectors.push(selector);
-    const locator = page.locator(selector).first();
-    const count = await locator.count().catch(() => 0);
+  while (Date.now() < deadline) {
+    for (const selector of XOMETRY_LOCATORS.uploadInputs) {
+      if (!attemptedSelectors.includes(selector)) {
+        attemptedSelectors.push(selector);
+      }
 
-    if (count < 1) continue;
+      const locator = page.locator(selector).first();
+      const count = await locator.count().catch(() => 0);
 
-    try {
-      await locator.setInputFiles(files);
-      return { selector, attemptedSelectors };
-    } catch {
-      // Try the next known upload locator.
+      if (count < 1) continue;
+
+      try {
+        await locator.setInputFiles(files);
+        return { selector, attemptedSelectors };
+      } catch {
+        // Try the next known upload locator.
+      }
     }
+
+    await page.waitForTimeout(500);
   }
 
   throw new VendorAutomationError(

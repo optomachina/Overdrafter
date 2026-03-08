@@ -10,5 +10,6 @@
     "outDir": "dist",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts"],
+  "exclude": ["src/**/*.test.ts"]
 }
