@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { pathToFileURL } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadConfig } from "../config.js";
@@ -348,6 +347,8 @@ async function loadWorkspaceState(supabase: SupabaseClient, organizationId: stri
 }
 
 async function main() {
+  await import("dotenv/config");
+
   const args = parseArgs();
   const config = loadConfig();
   const supabase = createServiceClient(config);

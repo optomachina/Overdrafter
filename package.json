@@ -13,9 +13,9 @@
     "generate:favicon": "node scripts/generate-favicons.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test": "NODE_OPTIONS=--no-warnings vitest run",
+    "test:watch": "NODE_OPTIONS=--no-warnings vitest",
+    "test:coverage": "NODE_OPTIONS=--no-warnings vitest run --coverage"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

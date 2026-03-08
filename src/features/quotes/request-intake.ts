@@ -215,7 +215,7 @@ function collectQuantityCandidates(value: string): number[] {
     let match = pattern.exec(value);
     while (match) {
       const items = match[1]
-        ?.split(/[\/,]/)
+        ?.split(/[/,]/)
         .map((item) => Number.parseInt(item.trim(), 10))
         .filter((item) => Number.isFinite(item) && item > 0) ?? [];
       matches.push(...items);
@@ -275,7 +275,7 @@ export function normalizeRequestedQuoteQuantities(
 export function parseRequestedQuoteQuantitiesInput(value: string, fallbackQuantity?: number | null): number[] {
   return normalizeRequestedQuoteQuantities(
     value
-      .split(/[\/,\s]+/)
+      .split(/[/,\s]+/)
       .map((part) => part.trim())
       .filter(Boolean),
     fallbackQuantity,
