@@ -507,9 +507,13 @@ export function WorkspaceAccountMenu({
                 const isBusy = isUnarchivePending || isDeletePending;
 
                 return (
-                  <div key={`part-${item.job.job.id}`} className={cn(PANEL_CARD_CLASS, "group/item")}>
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex min-w-0 items-start gap-3">
+                  <div
+                    key={`part-${item.job.job.id}`}
+                    data-testid={`archived-part-card-${item.job.job.id}`}
+                    className={cn(PANEL_CARD_CLASS, "group/item min-w-0 overflow-hidden")}
+                  >
+                    <div className="relative flex min-w-0 items-start gap-4">
+                      <div className="flex min-w-0 items-start gap-3 pr-0 sm:pr-[13.5rem]">
                         <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04]">
                           <Box className="h-[18px] w-[18px] text-white/80" strokeWidth={1.9} />
                         </span>
@@ -522,7 +526,10 @@ export function WorkspaceAccountMenu({
                         </div>
                       </div>
 
-                      <div className="pointer-events-none flex shrink-0 items-center gap-2 opacity-0 transition group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-focus-within/item:pointer-events-auto group-focus-within/item:opacity-100">
+                      <div
+                        data-testid={`archived-part-actions-${item.job.job.id}`}
+                        className="pointer-events-none absolute right-0 top-0 flex max-w-full items-center gap-2 pl-4 opacity-0 transition group-hover/item:pointer-events-auto group-hover/item:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
+                      >
                         {onUnarchivePart ? (
                           <Button
                             type="button"
