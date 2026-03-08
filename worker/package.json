@@ -11,6 +11,7 @@
     "check": "tsc --noEmit",
     "auth:xometry": "tsx src/tools/xometryAuth.ts",
     "cleanup:dmrifles-demo": "tsx src/tools/cleanupDmriflesDemoData.ts",
+    "cleanup:dmrifles-workspace": "tsx src/tools/wipeDmriflesWorkspace.ts",
     "import:quotes": "tsx src/tools/importSpreadsheetQuotes.ts",
     "install:browsers": "playwright install chromium"
   },
