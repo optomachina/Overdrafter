@@ -196,6 +196,14 @@ describe("WorkspaceSidebar", () => {
     expect(partRow).toHaveClass("px-2", "py-2");
   });
 
+  it("shows only ungrouped parts in the flat parts section", () => {
+    renderSidebar();
+
+    expect(screen.getByRole("button", { name: /1093-00003/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /1093-00001/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /1093-00002/i })).not.toBeInTheDocument();
+  });
+
   it("restores expanded project state from local storage", () => {
     localStorage.setItem(
       "workspace-sidebar-expanded-v1:sidebar-expanded",
@@ -207,6 +215,65 @@ describe("WorkspaceSidebar", () => {
     });
 
     expect(screen.getAllByText(/1093-00001/i).length).toBeGreaterThan(0);
+  });
+
+  it("shows grouped parts only inside expanded projects, including multi-project jobs", () => {
+    localStorage.setItem(
+      "workspace-sidebar-expanded-v1:sidebar-grouped-parts",
+      JSON.stringify({ "project-1": true, "project-2": true }),
+    );
+
+    renderSidebar({
+      storageScopeKey: "sidebar-grouped-parts",
+    });
+
+    expect(screen.getAllByText(/1093-00001/i)).toHaveLength(2);
+    expect(screen.getAllByText(/1093-00002/i)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /1093-00003/i })).toBeInTheDocument();
+  });
+
+  it("keeps grouped pinned parts out of the parts section in pinned mode", () => {
+    renderSidebar({
+      pinnedJobIds: ["job-1", "job-3"],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /sort and filter sidebar/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /pinned/i }));
+
+    expect(screen.getByRole("button", { name: /1093-00003/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /1093-00001/i })).not.toBeInTheDocument();
+  });
+
+  it("treats resolved project memberships as grouped even without job.project_id", () => {
+    renderSidebar({
+      projects: [
+        {
+          id: "seed-qb00001",
+          name: "QB00001",
+          partCount: 1,
+          isReadOnly: true,
+        },
+      ],
+      jobs: [
+        makeJob({
+          id: "job-seeded",
+          project_id: null,
+          title: "Seeded Job",
+        }),
+      ],
+      summariesByJobId: new Map([
+        [
+          "job-seeded",
+          makeSummary({
+            jobId: "job-seeded",
+            partNumber: "1093-00010",
+          }),
+        ],
+      ]),
+      resolveProjectIdsForJob: () => ["seed-qb00001"],
+    });
+
+    expect(screen.queryByRole("button", { name: /1093-00010/i })).not.toBeInTheDocument();
   });
 
   it("collapses and persists the projects and parts sections", () => {
@@ -315,7 +382,7 @@ describe("WorkspaceSidebar", () => {
       .map((element) => element.closest('[role="button"]'))
       .filter((row): row is HTMLElement => Boolean(row));
 
-    expect(selectedRows).toHaveLength(3);
+    expect(selectedRows).toHaveLength(2);
     selectedRows.forEach((row) => {
       expect(row).toHaveClass("bg-white/[0.08]");
     });
@@ -325,7 +392,31 @@ describe("WorkspaceSidebar", () => {
     const onCreateProjectFromSelection = vi.fn();
 
     renderSidebar({
+      jobs: [
+        makeJob({
+          id: "job-1",
+          project_id: null,
+          title: "Job One",
+          created_at: "2026-03-05T12:00:00.000Z",
+          updated_at: "2026-03-05T12:30:00.000Z",
+        }),
+        makeJob({
+          id: "job-2",
+          project_id: null,
+          title: "Job Two",
+          created_at: "2026-03-05T11:00:00.000Z",
+          updated_at: "2026-03-05T11:30:00.000Z",
+        }),
+        makeJob({
+          id: "job-3",
+          project_id: null,
+          title: "Job Three",
+          created_at: "2026-03-05T10:00:00.000Z",
+          updated_at: "2026-03-05T10:30:00.000Z",
+        }),
+      ],
       onCreateProjectFromSelection,
+      resolveProjectIdsForJob: () => [],
     });
 
     await act(async () => {
