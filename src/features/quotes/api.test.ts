@@ -262,6 +262,22 @@ describe("quotes api helpers", () => {
     });
   });
 
+  it("surfaces the project-collaboration compatibility message when the unarchive RPC is missing from schema cache", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "PGRST202",
+        message: "Could not find the function public.api_unarchive_job(p_job_id) in the schema cache",
+        details: null,
+        hint: null,
+      },
+    });
+
+    await expect(unarchiveJob("job-123")).rejects.toThrow(
+      "Projects are unavailable in this environment until the shared workspace schema is applied.",
+    );
+  });
+
   it("deletes an archived job through the dedicated RPC", async () => {
     supabaseMock.rpc.mockResolvedValueOnce({ data: "job-123", error: null });
 
