@@ -1,6 +1,6 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { AuthPanel } from "@/components/auth/AuthPanel";
-import { Dialog, DialogOverlay, DialogPortal } from "@/components/ui/dialog";
+import { Dialog, DialogDescription, DialogOverlay, DialogPortal } from "@/components/ui/dialog";
 
 interface SignInDialogProps {
   open: boolean;
@@ -23,6 +23,11 @@ export function SignInDialog({
           <DialogPrimitive.Title className="sr-only">
             {initialMode === "sign-up" ? "Create account" : "Log in"}
           </DialogPrimitive.Title>
+          <DialogDescription className="sr-only">
+            {initialMode === "sign-up"
+              ? "Create an OverDrafter account to access uploads, quote reviews, and published packages."
+              : "Log in to OverDrafter to access uploads, quote reviews, and published packages."}
+          </DialogDescription>
           <AuthPanel
             initialMode={initialMode}
             redirectPath={redirectPath}

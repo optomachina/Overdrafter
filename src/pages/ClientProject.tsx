@@ -8,6 +8,7 @@ import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
 import { ProjectMembersDialog } from "@/components/chat/ProjectMembersDialog";
 import { PromptComposer } from "@/components/chat/PromptComposer";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
+import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import {
   WorkspaceSidebar,

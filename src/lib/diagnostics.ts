@@ -79,7 +79,6 @@ type DiagnosticEventInput = {
 type InstallCleanup = () => void;
 
 const ENABLED_STORAGE_KEY = "overdrafter.diagnostics.enabled";
-const SESSION_STORAGE_KEY = "overdrafter.diagnostics.session";
 const EVENT_LIMIT = 75;
 
 const defaultContext = (): DiagnosticContext => ({
@@ -290,63 +289,12 @@ function createInitialState(): DiagnosticsState {
   };
 }
 
-function loadPersistedState(): DiagnosticsState {
-  const freshState = createInitialState();
-
-  if (typeof window === "undefined") {
-    return freshState;
-  }
-
-  try {
-    const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) {
-      return freshState;
-    }
-
-    const parsed = JSON.parse(raw) as Partial<DiagnosticsState> | null;
-    if (!parsed) {
-      return freshState;
-    }
-
-    const events = Array.isArray(parsed.events) ? parsed.events.slice(0, EVENT_LIMIT) as DiagnosticEvent[] : [];
-
-    return {
-      ...freshState,
-      sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId : freshState.sessionId,
-      enabled: typeof parsed.enabled === "boolean" ? parsed.enabled : freshState.enabled,
-      panelOpen: false,
-      context: {
-        ...freshState.context,
-        ...(isRecord(parsed.context) ? parsed.context : {}),
-      },
-      events,
-      counts: deriveCounts(events),
-    };
-  } catch {
-    return freshState;
-  }
-}
-
-let diagnosticsState = loadPersistedState();
+let diagnosticsState = createInitialState();
 const subscribers = new Set<() => void>();
 let eventCounter = diagnosticsState.events.length;
 let installCleanup: InstallCleanup | null = null;
 
 function emit() {
-  if (typeof window !== "undefined") {
-    try {
-      window.sessionStorage.setItem(
-        SESSION_STORAGE_KEY,
-        JSON.stringify({
-          ...diagnosticsState,
-          panelOpen: false,
-        }),
-      );
-    } catch {
-      // Ignore persistence failures.
-    }
-  }
-
   subscribers.forEach((listener) => listener());
 }
 
@@ -797,7 +745,6 @@ export function resetDiagnosticsForTests() {
   if (typeof window !== "undefined") {
     try {
       window.localStorage.removeItem(ENABLED_STORAGE_KEY);
-      window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
     } catch {
       // Ignore storage cleanup failures.
     }

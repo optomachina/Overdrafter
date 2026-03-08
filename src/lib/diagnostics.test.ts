@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   captureDiagnosticError,
   createDiagnosticClipboardText,
@@ -134,5 +134,33 @@ describe("diagnostics", () => {
     expect(clipboardText).toContain(eventId);
     expect(clipboardText).toContain("Quote package publish failed");
     expect(clipboardText).toContain("\"jobId\": \"job-42\"");
+  });
+
+  it("starts each fresh boot with a new session and no retained events while preserving launcher state", async () => {
+    const firstModule = await import("./diagnostics");
+
+    firstModule.setDiagnosticsEnabled(true);
+    firstModule.recordDiagnosticEvent({
+      level: "error",
+      category: "manual",
+      source: "test.bootstrap",
+      message: "stale event",
+      handled: true,
+    });
+
+    const firstSnapshot = firstModule.getDiagnosticsSnapshot();
+    expect(firstSnapshot.enabled).toBe(true);
+    expect(firstSnapshot.events).toHaveLength(1);
+
+    vi.resetModules();
+
+    const secondModule = await import("./diagnostics");
+    const secondSnapshot = secondModule.getDiagnosticsSnapshot();
+
+    expect(secondSnapshot.enabled).toBe(true);
+    expect(secondSnapshot.events).toHaveLength(0);
+    expect(secondSnapshot.sessionId).not.toBe(firstSnapshot.sessionId);
+
+    secondModule.resetDiagnosticsForTests();
   });
 });
