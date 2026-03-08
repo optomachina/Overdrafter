@@ -70,7 +70,25 @@ allowed redirect URLs.
 
 ### 2. Supabase
 
-Run the new migration against your project, then create memberships for your users in `organization_memberships`.
+Apply the repo's full migration head before using the app. Do not apply a single migration file in isolation.
+
+For local development:
+
+```bash
+npm run db:start
+npm run db:reset
+```
+
+For the linked hosted dev project:
+
+```bash
+npm run db:push
+```
+
+After either flow, verify the latest migrations have been applied and that `public.projects.archived_at`
+and `public.jobs.archived_at` exist before debugging app-layer query failures.
+
+Then create memberships for your users in `organization_memberships`.
 
 Minimum bootstrap flow:
 

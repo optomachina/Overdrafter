@@ -1028,7 +1028,6 @@ async function fetchAllAccessibleJobs(options: { archived?: boolean } = {}): Pro
   const { data, error } = await (options.archived
     ? query.not("archived_at", "is", null)
     : query.is("archived_at", null));
-
   return ensureData(data, error);
 }
 
