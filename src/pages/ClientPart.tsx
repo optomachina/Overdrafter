@@ -26,12 +26,16 @@ import {
 import { useAppSession } from "@/hooks/use-app-session";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  archiveJob,
+  archiveProject,
   assignJobToProject,
   createJobsFromUploadFiles,
   createProject,
-  deleteProject,
+  dissolveProject,
   fetchAccessibleJobs,
   fetchAccessibleProjects,
+  fetchArchivedJobs,
+  fetchArchivedProjects,
   fetchJobPartSummariesByJobIds,
   fetchPartDetail,
   fetchProjectJobMembershipsByJobIds,
@@ -97,6 +101,16 @@ const ClientPart = () => {
     queryFn: fetchSidebarPins,
     enabled: Boolean(user),
   });
+  const archivedProjectsQuery = useQuery({
+    queryKey: ["archived-projects"],
+    queryFn: fetchArchivedProjects,
+    enabled: Boolean(user),
+  });
+  const archivedJobsQuery = useQuery({
+    queryKey: ["archived-jobs"],
+    queryFn: fetchArchivedJobs,
+    enabled: Boolean(user),
+  });
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const newJobFilePicker = useClientJobFilePicker({
     isSignedIn: Boolean(user),
@@ -157,15 +171,22 @@ const ClientPart = () => {
         throw new Error(`"${invalid.name}" does not match this part's filename stem.`);
       }
 
-      await uploadFilesToJob(jobId, files);
-      await reconcileJobParts(jobId);
-      await requestExtraction(jobId);
+      const uploadSummary = await uploadFilesToJob(jobId, files);
+
+      if (uploadSummary.uploadedCount > 0 || uploadSummary.reusedCount > 0) {
+        await reconcileJobParts(jobId);
+        await requestExtraction(jobId);
+      }
+
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["part-detail", jobId] }),
         queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
         queryClient.invalidateQueries({ queryKey: ["client-jobs"] }),
       ]);
-      toast.success("Files attached to part.");
+
+      if (uploadSummary.uploadedCount > 0 || uploadSummary.reusedCount > 0) {
+        toast.success("Files attached to part.");
+      }
     },
   });
 
@@ -314,6 +335,8 @@ const ClientPart = () => {
       queryClient.invalidateQueries({ queryKey: ["sidebar-pins"] }),
       queryClient.invalidateQueries({ queryKey: ["part-detail"] }),
       queryClient.invalidateQueries({ queryKey: ["project-jobs"] }),
+      queryClient.invalidateQueries({ queryKey: ["archived-projects"] }),
+      queryClient.invalidateQueries({ queryKey: ["archived-jobs"] }),
     ]);
   };
 
@@ -390,13 +413,38 @@ const ClientPart = () => {
     }
   };
 
-  const handleDeleteProject = async (projectId: string) => {
+  const handleArchivePart = async (targetJobId: string) => {
     try {
-      await deleteProject(projectId);
+      await archiveJob(targetJobId);
       await invalidateSidebarQueries();
-      toast.success("Project deleted.");
+      toast.success("Part archived.");
+      if (targetJobId === jobId) {
+        navigate("/");
+      }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to delete project.");
+      toast.error(error instanceof Error ? error.message : "Failed to archive part.");
+      throw error;
+    }
+  };
+
+  const handleArchiveProject = async (projectId: string) => {
+    try {
+      await archiveProject(projectId);
+      await invalidateSidebarQueries();
+      toast.success("Project archived.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to archive project.");
+      throw error;
+    }
+  };
+
+  const handleDissolveProject = async (projectId: string) => {
+    try {
+      await dissolveProject(projectId);
+      await invalidateSidebarQueries();
+      toast.success("Project dissolved.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to dissolve project.");
       throw error;
     }
   };
@@ -651,7 +699,9 @@ const ClientPart = () => {
             onRemovePartFromProject={isDmriflesWorkspace ? undefined : handleRemovePartFromProject}
             onCreateProjectFromSelection={projectCollaborationUnavailable ? undefined : handleCreateProjectFromSelection}
             onRenameProject={handleRenameProject}
-            onDeleteProject={handleDeleteProject}
+            onArchivePart={handleArchivePart}
+            onArchiveProject={handleArchiveProject}
+            onDissolveProject={handleDissolveProject}
             onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
             onSelectPart={(partId) => navigate(`/parts/${partId}`)}
             resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
@@ -663,6 +713,9 @@ const ClientPart = () => {
             activeMembership={activeMembership}
             onSignOut={signOut}
             onSignedOut={() => navigate("/", { replace: true })}
+            archivedProjects={archivedProjectsQuery.data}
+            archivedJobs={archivedJobsQuery.data}
+            isArchiveLoading={archivedProjectsQuery.isLoading || archivedJobsQuery.isLoading}
           />
         }
       >

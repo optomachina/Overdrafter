@@ -68,9 +68,13 @@ const JobCreate = () => {
         tags: parseJobTags(tagInput),
       });
 
-      await uploadFilesToJob(jobId, files);
-      const summary = await reconcileJobParts(jobId);
-      await requestExtraction(jobId);
+      const uploadSummary = await uploadFilesToJob(jobId, files);
+      const summary =
+        uploadSummary.uploadedCount > 0 || uploadSummary.reusedCount > 0 ? await reconcileJobParts(jobId) : null;
+
+      if (uploadSummary.uploadedCount > 0 || uploadSummary.reusedCount > 0) {
+        await requestExtraction(jobId);
+      }
 
       return {
         jobId,

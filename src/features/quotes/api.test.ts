@@ -1,5 +1,11 @@
+import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FunctionsHttpError } from "@supabase/supabase-js";
+
+const toastMock = vi.hoisted(() => ({
+  error: vi.fn(),
+  success: vi.fn(),
+}));
 
 const supabaseMock = vi.hoisted(() => {
   const storageUpload = vi.fn();
@@ -15,7 +21,9 @@ const supabaseMock = vi.hoisted(() => {
   const membershipsSelect = vi.fn(() => ({ eq: membershipsEq }));
 
   const projectsOrder = vi.fn();
-  const projectsSelect = vi.fn(() => ({ order: projectsOrder }));
+  const projectsIs = vi.fn(() => ({ order: projectsOrder }));
+  const projectsNot = vi.fn(() => ({ order: projectsOrder }));
+  const projectsSelect = vi.fn(() => ({ is: projectsIs, not: projectsNot, order: projectsOrder }));
 
   const pinnedProjectsOrder = vi.fn();
   const pinnedProjectsEq = vi.fn(() => ({ order: pinnedProjectsOrder }));
@@ -74,6 +82,8 @@ const supabaseMock = vi.hoisted(() => {
     membershipsOrder,
     membershipsSelect,
     projectsOrder,
+    projectsIs,
+    projectsNot,
     projectsSelect,
     pinnedJobsDelete,
     pinnedJobsDeleteEqFirst,
@@ -112,11 +122,28 @@ vi.mock("@/integrations/supabase/client", () => ({
   },
 }));
 
+vi.mock("sonner", () => ({
+  toast: toastMock,
+}));
+
+function createMockFile(contents: string, name: string, options: { type?: string } = {}): File {
+  const bytes = new TextEncoder().encode(contents);
+
+  return {
+    name,
+    size: bytes.byteLength,
+    type: options.type ?? "",
+    lastModified: Date.now(),
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  } as unknown as File;
+}
+
 import {
   createClientDraft,
   createJobsFromUploadFiles,
   createProject,
   fetchAccessibleProjects,
+  findDuplicateUploadSelections,
   fetchSidebarPins,
   inferFileKind,
   pinJob,
@@ -141,6 +168,24 @@ describe("quotes api helpers", () => {
       },
       error: null,
     });
+    vi.stubGlobal("crypto", {
+      randomUUID: vi.fn(() => "uuid-default"),
+      subtle: {
+        digest: vi.fn(async (_algorithm: string, data: BufferSource) => {
+          const isArrayBuffer =
+            Object.prototype.toString.call(data) === "[object ArrayBuffer]" ||
+            data?.constructor?.name === "ArrayBuffer";
+          const bytes =
+            isArrayBuffer
+              ? Buffer.from(new Uint8Array(data))
+              : ArrayBuffer.isView(data)
+                ? Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+                : Buffer.alloc(0);
+          const digest = createHash("sha256").update(Buffer.from(bytes)).digest();
+          return Uint8Array.from(digest).buffer;
+        }),
+      },
+    });
   });
 
   afterEach(() => {
@@ -155,62 +200,189 @@ describe("quotes api helpers", () => {
     expect(inferFileKind("notes.txt")).toBe("other");
   });
 
-  it("uploads job files and registers each attachment with its inferred metadata", async () => {
+  it("uploads job files through prepare/finalize RPCs and returns a summary", async () => {
     supabaseMock.storageUpload.mockResolvedValue({ error: null });
-    supabaseMock.rpc.mockResolvedValue({ error: null });
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: {
+          status: "upload_required",
+          storageBucket: "job-files",
+          storagePath: "org-sha256/org-1/hash-a/bracket.step",
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: "file-1", error: null })
+      .mockResolvedValueOnce({
+        data: {
+          status: "upload_required",
+          storageBucket: "job-files",
+          storagePath: "org-sha256/org-1/hash-b/bracket.pdf",
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: "file-2", error: null });
 
-    const now = Date.now();
     const files = [
-      new File(["step"], "bracket.step", { type: "model/step" }),
-      new File(["drawing"], "bracket.pdf", { type: "application/pdf" }),
+      createMockFile("step", "bracket.step", { type: "model/step" }),
+      createMockFile("drawing", "bracket.pdf", { type: "application/pdf" }),
     ];
 
-    await uploadFilesToJob("job-123", files);
+    await expect(uploadFilesToJob("job-123", files)).resolves.toEqual({
+      uploadedCount: 2,
+      reusedCount: 0,
+      duplicateNames: [],
+    });
 
     expect(supabaseMock.storageFrom).toHaveBeenNthCalledWith(1, "job-files");
     expect(supabaseMock.storageFrom).toHaveBeenNthCalledWith(2, "job-files");
     expect(supabaseMock.storageUpload).toHaveBeenNthCalledWith(
       1,
-      `job-123/${now}-bracket.step`,
+      "org-sha256/org-1/hash-a/bracket.step",
       files[0],
       { upsert: false },
     );
     expect(supabaseMock.storageUpload).toHaveBeenNthCalledWith(
       2,
-      `job-123/${now}-bracket.pdf`,
+      "org-sha256/org-1/hash-b/bracket.pdf",
       files[1],
       { upsert: false },
     );
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(1, "api_attach_job_file", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(1, "api_prepare_job_file_upload", {
       p_job_id: "job-123",
-      p_storage_bucket: "job-files",
-      p_storage_path: `job-123/${now}-bracket.step`,
       p_original_name: "bracket.step",
       p_file_kind: "cad",
       p_mime_type: "model/step",
       p_size_bytes: files[0].size,
+      p_content_sha256: expect.any(String),
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_attach_job_file", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_finalize_job_file_upload", {
       p_job_id: "job-123",
       p_storage_bucket: "job-files",
-      p_storage_path: `job-123/${now}-bracket.pdf`,
+      p_storage_path: "org-sha256/org-1/hash-a/bracket.step",
+      p_original_name: "bracket.step",
+      p_file_kind: "cad",
+      p_mime_type: "model/step",
+      p_size_bytes: files[0].size,
+      p_content_sha256: expect.any(String),
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(3, "api_prepare_job_file_upload", {
+      p_job_id: "job-123",
       p_original_name: "bracket.pdf",
       p_file_kind: "drawing",
       p_mime_type: "application/pdf",
       p_size_bytes: files[1].size,
+      p_content_sha256: expect.any(String),
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(4, "api_finalize_job_file_upload", {
+      p_job_id: "job-123",
+      p_storage_bucket: "job-files",
+      p_storage_path: "org-sha256/org-1/hash-b/bracket.pdf",
+      p_original_name: "bracket.pdf",
+      p_file_kind: "drawing",
+      p_mime_type: "application/pdf",
+      p_size_bytes: files[1].size,
+      p_content_sha256: expect.any(String),
     });
   });
 
   it("stops when file storage upload fails", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        status: "upload_required",
+        storageBucket: "job-files",
+        storagePath: "org-sha256/org-1/hash-a/bad.step",
+      },
+      error: null,
+    });
     supabaseMock.storageUpload.mockResolvedValueOnce({
       error: new Error("Storage down"),
     });
 
     await expect(
-      uploadFilesToJob("job-123", [new File(["x"], "bad.step", { type: "model/step" })]),
+      uploadFilesToJob("job-123", [createMockFile("x", "bad.step", { type: "model/step" })]),
     ).rejects.toThrow("Storage down");
 
-    expect(supabaseMock.rpc).not.toHaveBeenCalled();
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips same-job duplicates reported by the prepare RPC", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        status: "duplicate_in_job",
+      },
+      error: null,
+    });
+
+    await expect(
+      uploadFilesToJob("job-123", [createMockFile("x", "duplicate.step", { type: "model/step" })]),
+    ).resolves.toEqual({
+      uploadedCount: 0,
+      reusedCount: 0,
+      duplicateNames: ["duplicate.step"],
+    });
+
+    expect(supabaseMock.storageUpload).not.toHaveBeenCalled();
+    expect(toastMock.error).toHaveBeenCalledWith("duplicate.step is already attached to this part.");
+  });
+
+  it("reuses org-scoped duplicates without uploading the blob again", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        status: "reused",
+        fileId: "file-reused-1",
+      },
+      error: null,
+    });
+
+    await expect(
+      uploadFilesToJob("job-123", [createMockFile("x", "reused.step", { type: "model/step" })]),
+    ).resolves.toEqual({
+      uploadedCount: 0,
+      reusedCount: 1,
+      duplicateNames: [],
+    });
+
+    expect(supabaseMock.storageUpload).not.toHaveBeenCalled();
+    expect(toastMock.success).toHaveBeenCalledWith("Reused 1 existing file from your workspace.");
+  });
+
+  it("skips duplicate content within a selected batch before hitting the network twice", async () => {
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: {
+          status: "upload_required",
+          storageBucket: "job-files",
+          storagePath: "org-sha256/org-1/hash-a/first.step",
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: "file-1", error: null });
+    supabaseMock.storageUpload.mockResolvedValue({ error: null });
+
+    const duplicateContent = "same-content";
+    await expect(
+      uploadFilesToJob("job-123", [
+        createMockFile(duplicateContent, "first.step", { type: "model/step" }),
+        createMockFile(duplicateContent, "second.step", { type: "model/step" }),
+      ]),
+    ).resolves.toEqual({
+      uploadedCount: 1,
+      reusedCount: 0,
+      duplicateNames: ["second.step"],
+    });
+
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(2);
+    expect(toastMock.error).toHaveBeenCalledWith("second.step is duplicated in this upload batch and was skipped.");
+  });
+
+  it("finds duplicate file selections by content hash", async () => {
+    await expect(
+      findDuplicateUploadSelections([
+        createMockFile("a", "first.step", { type: "model/step" }),
+        createMockFile("b", "second.step", { type: "model/step" }),
+        createMockFile("a", "third.step", { type: "model/step" }),
+      ]),
+    ).resolves.toEqual(["third.step"]);
   });
 
   it("uploads manual quote evidence with sanitized artifact paths and metadata", async () => {
@@ -219,7 +391,7 @@ describe("quotes api helpers", () => {
       randomUUID: vi.fn(() => "uuid-123"),
     });
 
-    const file = new File(["quote"], "RFQ #12.PDF", { type: "application/pdf" });
+    const file = createMockFile("quote", "RFQ #12.PDF", { type: "application/pdf" });
     const now = Date.now();
     const uploadedAt = new Date(now).toISOString();
 
@@ -353,10 +525,20 @@ describe("quotes api helpers", () => {
         return Promise.resolve({ data: `job-${jobId}`, error: null });
       }
 
-      if (
-        fn === "api_attach_job_file"
-      ) {
-        return Promise.resolve({ data: {}, error: null });
+      if (fn === "api_prepare_job_file_upload") {
+        const originalName = supabaseMock.rpc.mock.calls.at(-1)?.[1]?.p_original_name;
+        return Promise.resolve({
+          data: {
+            status: "upload_required",
+            storageBucket: "job-files",
+            storagePath: `org-sha256/project-1/${originalName}`,
+          },
+          error: null,
+        });
+      }
+
+      if (fn === "api_finalize_job_file_upload") {
+        return Promise.resolve({ data: "file-1", error: null });
       }
 
       if (fn === "api_reconcile_job_parts") {
@@ -371,8 +553,8 @@ describe("quotes api helpers", () => {
     });
 
     const files = [
-      new File(["a"], "alpha.step", { type: "model/step" }),
-      new File(["b"], "beta.step", { type: "model/step" }),
+      createMockFile("a", "alpha.step", { type: "model/step" }),
+      createMockFile("b", "beta.step", { type: "model/step" }),
     ];
 
     await expect(
@@ -397,7 +579,7 @@ describe("quotes api helpers", () => {
       p_requested_quote_quantities: [10],
       p_requested_by_date: "2026-04-15",
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(6, "api_create_client_draft", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(7, "api_create_client_draft", {
       p_title: "beta",
       p_description: "I need 10 of these by April 15",
       p_project_id: "project-1",

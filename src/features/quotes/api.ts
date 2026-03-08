@@ -5,6 +5,8 @@ import type {
   AccessibleProjectSummary,
   AppMembership,
   AppSessionData,
+  ArchivedJobSummary,
+  ArchivedProjectSummary,
   ApprovedPartRequirement,
   ClientPackageAggregate,
   ClientDraftInput,
@@ -17,6 +19,7 @@ import type {
   ManualQuoteOfferInput,
   ManualQuoteRecordResult,
   OrganizationMembershipSummary,
+  PrepareJobFileUploadResult,
   PublishedQuotePackageRecord,
   ProjectInviteRecord,
   ProjectInviteSummary,
@@ -26,6 +29,7 @@ import type {
   ProjectRecord,
   QuoteRunReadiness,
   SidebarPins,
+  UploadFilesToJobSummary,
 } from "@/features/quotes/types";
 import type {
   AppRole,
@@ -58,6 +62,7 @@ import { buildAutoProjectName, groupUploadFiles, normalizeUploadStem } from "@/f
 import { buildDraftTitleFromPrompt } from "@/features/quotes/file-validation";
 import { normalizeRequestedQuoteQuantities, parseRequestIntake } from "@/features/quotes/request-intake";
 import { getImportedVendorOffers } from "@/features/quotes/utils";
+import { toast } from "sonner";
 
 const CAD_EXTENSIONS = new Set([
   "step",
@@ -110,6 +115,11 @@ type JobSelectedOfferRow = {
   selected_vendor_quote_offer_id: string | null;
   requested_quote_quantities: number[];
   requested_by_date: string | null;
+};
+
+type HashedUploadFile = {
+  file: File;
+  contentSha256: string;
 };
 
 function emptyResponse<T>(): Promise<PostgrestResponse<T>> {
@@ -317,6 +327,59 @@ export function inferFileKind(fileName: string): JobFileKind {
   }
 
   return "other";
+}
+
+async function computeFileSha256(file: File): Promise<string> {
+  const fileBuffer =
+    typeof file.arrayBuffer === "function"
+      ? await file.arrayBuffer()
+      : new TextEncoder().encode(await file.text()).buffer;
+  const hashBuffer = await crypto.subtle.digest("SHA-256", fileBuffer);
+  return Array.from(new Uint8Array(hashBuffer), (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+async function hashUploadFiles(files: File[]): Promise<HashedUploadFile[]> {
+  return Promise.all(
+    files.map(async (file) => ({
+      file,
+      contentSha256: await computeFileSha256(file),
+    })),
+  );
+}
+
+export async function findDuplicateUploadSelections(files: File[]): Promise<string[]> {
+  const hashedFiles = await hashUploadFiles(files);
+  const seenHashes = new Set<string>();
+  const duplicates: string[] = [];
+
+  for (const hashedFile of hashedFiles) {
+    if (seenHashes.has(hashedFile.contentSha256)) {
+      duplicates.push(hashedFile.file.name);
+      continue;
+    }
+
+    seenHashes.add(hashedFile.contentSha256);
+  }
+
+  return duplicates;
+}
+
+function isStorageObjectExistsError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const value = error as { message?: unknown; statusCode?: unknown; error?: unknown };
+  const message = typeof value.message === "string" ? value.message.toLowerCase() : "";
+  const errorCode = typeof value.error === "string" ? value.error.toLowerCase() : "";
+  const statusCode = typeof value.statusCode === "string" ? value.statusCode : "";
+
+  return (
+    statusCode === "409" ||
+    message.includes("already exists") ||
+    message.includes("duplicate") ||
+    errorCode.includes("duplicate")
+  );
 }
 
 function parsePartReference(value: string | null | undefined): Pick<JobPartSummary, "partNumber" | "revision"> | null {
@@ -956,17 +1019,21 @@ export async function updateOrganizationMembershipRole(input: {
   return ensureData(data, error);
 }
 
-async function fetchAllAccessibleJobs(): Promise<JobRecord[]> {
-  const { data, error } = await supabase
+async function fetchAllAccessibleJobs(options: { archived?: boolean } = {}): Promise<JobRecord[]> {
+  const query = supabase
     .from("jobs")
     .select("*")
-    .order("created_at", { ascending: false });
+    .order(options.archived ? "archived_at" : "created_at", { ascending: false });
+
+  const { data, error } = await (options.archived
+    ? query.not("archived_at", "is", null)
+    : query.is("archived_at", null));
 
   return ensureData(data, error);
 }
 
 export async function fetchAccessibleJobs(): Promise<JobRecord[]> {
-  return fetchAllAccessibleJobs();
+  return fetchAllAccessibleJobs({ archived: false });
 }
 
 export async function fetchAccessibleProjects(): Promise<AccessibleProjectSummary[]> {
@@ -978,6 +1045,7 @@ export async function fetchAccessibleProjects(): Promise<AccessibleProjectSummar
   const { data: projectsData, error: projectsError } = await supabase
     .from("projects")
     .select("*")
+    .is("archived_at", null)
     .order("created_at", { ascending: false });
 
   if (isMissingProjectCollaborationSchemaError(projectsError)) {
@@ -1018,13 +1086,23 @@ export async function fetchAccessibleProjects(): Promise<AccessibleProjectSummar
   const memberships = ensureData(membershipsResult.data, membershipsResult.error) as ProjectMembershipRecord[];
   const invites = ensureData(invitesResult.data, invitesResult.error) as ProjectInviteRecord[];
   const projectJobs = ensureData(projectJobsResult.data, projectJobsResult.error) as ProjectJobRecord[];
+  const projectJobIds = [...new Set(projectJobs.map((projectJob) => projectJob.job_id))];
+  const activeJobs =
+    projectJobIds.length === 0
+      ? []
+      : await fetchJobsByIds(projectJobIds, {
+          archived: false,
+        });
+  const activeJobIdSet = new Set(activeJobs.map((job) => job.id));
 
   markProjectCollaborationSchemaAvailability("available");
 
   return projects.map((project) => {
     const projectMemberships = memberships.filter((membership) => membership.project_id === project.id);
     const currentMembership = projectMemberships.find((membership) => membership.user_id === currentUser.id);
-    const partCount = projectJobs.filter((projectJob) => projectJob.project_id === project.id).length;
+    const partCount = projectJobs.filter(
+      (projectJob) => projectJob.project_id === project.id && activeJobIdSet.has(projectJob.job_id),
+    ).length;
     const inviteCount = invites.filter(
       (invite) => invite.project_id === project.id && invite.status === "pending",
     ).length;
@@ -1037,6 +1115,116 @@ export async function fetchAccessibleProjects(): Promise<AccessibleProjectSummar
       inviteCount,
     };
   });
+}
+
+async function fetchJobsByIds(jobIds: string[], options: { archived: boolean }): Promise<JobRecord[]> {
+  if (jobIds.length === 0) {
+    return [];
+  }
+
+  const query = supabase.from("jobs").select("*").in("id", jobIds);
+  const { data, error } = await (options.archived
+    ? query.not("archived_at", "is", null)
+    : query.is("archived_at", null));
+  return ensureData(data, error) as JobRecord[];
+}
+
+export async function fetchArchivedProjects(): Promise<ArchivedProjectSummary[]> {
+  if (isProjectCollaborationSchemaUnavailable()) {
+    return [];
+  }
+
+  const currentUser = await requireCurrentUser();
+  const { data: projectsData, error: projectsError } = await supabase
+    .from("projects")
+    .select("*")
+    .not("archived_at", "is", null)
+    .order("archived_at", { ascending: false });
+
+  if (isMissingProjectCollaborationSchemaError(projectsError)) {
+    markProjectCollaborationSchemaAvailability("unavailable");
+    return [];
+  }
+
+  const projects = ensureData(projectsData, projectsError) as ProjectRecord[];
+
+  if (projects.length === 0) {
+    markProjectCollaborationSchemaAvailability("available");
+    return [];
+  }
+
+  const projectIds = projects.map((project) => project.id);
+  const [membershipsResult, projectJobsResult] = await Promise.all([
+    supabase
+      .from("project_memberships")
+      .select("*")
+      .in("project_id", projectIds)
+      .order("created_at", { ascending: true }),
+    supabase.from("project_jobs").select("*").in("project_id", projectIds),
+  ]);
+
+  if (isMissingProjectCollaborationSchemaError(membershipsResult.error)) {
+    markProjectCollaborationSchemaAvailability("unavailable");
+    return [];
+  }
+
+  const memberships = ensureData(membershipsResult.data, membershipsResult.error) as ProjectMembershipRecord[];
+  const projectJobs = ensureData(projectJobsResult.data, projectJobsResult.error) as ProjectJobRecord[];
+
+  markProjectCollaborationSchemaAvailability("available");
+
+  return projects.map((project) => {
+    const projectMemberships = memberships.filter((membership) => membership.project_id === project.id);
+    const currentMembership = projectMemberships.find((membership) => membership.user_id === currentUser.id);
+
+    return {
+      project,
+      currentUserRole: currentMembership?.role ?? "owner",
+      partCount: projectJobs.filter((projectJob) => projectJob.project_id === project.id).length,
+    };
+  });
+}
+
+export async function fetchArchivedJobs(): Promise<ArchivedJobSummary[]> {
+  const jobs = await fetchAllAccessibleJobs({ archived: true });
+
+  if (jobs.length === 0) {
+    return [];
+  }
+
+  const jobIds = jobs.map((job) => job.id);
+  const [summaries, projectMemberships] = await Promise.all([
+    fetchJobPartSummariesByJobIds(jobIds),
+    fetchProjectJobMembershipsByJobIds(jobIds),
+  ]);
+
+  const projectIds = [...new Set(projectMemberships.map((membership) => membership.project_id))];
+  const projectNamesResult =
+    projectIds.length === 0
+      ? { data: [], error: null }
+      : await supabase.from("projects").select("id, name").in("id", projectIds);
+  const projectNamesById =
+    projectIds.length === 0
+      ? new Map<string, string>()
+      : new Map(
+          (ensureData(projectNamesResult.data, projectNamesResult.error) as Array<{ id: string; name: string }>).map(
+            (project) => [project.id, project.name],
+          ),
+        );
+  const summariesByJobId = new Map(summaries.map((summary) => [summary.jobId, summary]));
+
+  return jobs.map((job) => ({
+    job,
+    summary: summariesByJobId.get(job.id) ?? null,
+    projectNames: [
+      ...new Set(
+        projectMemberships
+          .filter((membership) => membership.job_id === job.id)
+          .map((membership) => projectNamesById.get(membership.project_id))
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ],
+  }));
 }
 
 export async function fetchSidebarPins(): Promise<SidebarPins> {
@@ -1175,6 +1363,7 @@ export async function fetchProject(projectId: string): Promise<ProjectRecord> {
     .from("projects")
     .select("*")
     .eq("id", projectId)
+    .is("archived_at", null)
     .single();
 
   return ensureProjectCollaborationData(data, error) as ProjectRecord;
@@ -1230,6 +1419,7 @@ export async function fetchJobsByProject(projectId: string): Promise<JobRecord[]
       "id",
       memberships.map((membership) => membership.job_id),
     )
+    .is("archived_at", null)
     .order("created_at", { ascending: false });
 
   return ensureData(data, error);
@@ -1242,6 +1432,7 @@ export async function fetchUngroupedParts(): Promise<JobRecord[]> {
     .select("*")
     .eq("created_by", currentUser.id)
     .is("project_id", null)
+    .is("archived_at", null)
     .order("created_at", { ascending: false });
 
   return ensureData(data, error);
@@ -1271,6 +1462,10 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
     fetchProjectJobMembershipsByJobIds([jobId]),
   ]);
 
+  if (jobAggregate.job.archived_at) {
+    throw new Error("Archived parts are only available from the Archive panel.");
+  }
+
   const part = jobAggregate.parts[0] ?? null;
   const previewAssets =
     part !== null
@@ -1280,11 +1475,20 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
       : [];
 
   const summary = partSummaries[0] ?? null;
-  const allSummaries = await fetchJobPartSummariesByOrganization(jobAggregate.job.organization_id);
+  const [allSummaries, activeJobs] = await Promise.all([
+    fetchJobPartSummariesByOrganization(jobAggregate.job.organization_id),
+    fetchAccessibleJobs(),
+  ]);
+  const activeJobIdSet = new Set(activeJobs.map((job) => job.id));
   const revisionSiblings =
     summary?.partNumber
       ? allSummaries
-          .filter((candidate) => candidate.partNumber === summary.partNumber && candidate.jobId !== jobId)
+          .filter(
+            (candidate) =>
+              candidate.partNumber === summary.partNumber &&
+              candidate.jobId !== jobId &&
+              activeJobIdSet.has(candidate.jobId),
+          )
           .map((candidate) => ({
             jobId: candidate.jobId,
             revision: candidate.revision,
@@ -1376,6 +1580,22 @@ export async function updateProject(input: {
 
 export async function deleteProject(projectId: string): Promise<string> {
   const { data, error } = await supabase.rpc("api_delete_project", {
+    p_project_id: projectId,
+  });
+
+  return ensureProjectCollaborationData(data, error);
+}
+
+export async function archiveProject(projectId: string): Promise<string> {
+  const { data, error } = await supabase.rpc("api_archive_project", {
+    p_project_id: projectId,
+  });
+
+  return ensureProjectCollaborationData(data, error);
+}
+
+export async function dissolveProject(projectId: string): Promise<string> {
+  const { data, error } = await supabase.rpc("api_dissolve_project", {
     p_project_id: projectId,
   });
 
@@ -1531,6 +1751,14 @@ export async function removeJobFromProject(jobId: string, projectId: string): Pr
   return ensureProjectCollaborationData(data, error);
 }
 
+export async function archiveJob(jobId: string): Promise<string> {
+  const { data, error } = await supabase.rpc("api_archive_job", {
+    p_job_id: jobId,
+  });
+
+  return ensureProjectCollaborationData(data, error);
+}
+
 export async function setJobSelectedVendorQuoteOffer(jobId: string, offerId: string): Promise<string> {
   const { data, error } = await supabase.rpc("api_set_job_selected_vendor_quote_offer", {
     p_job_id: jobId,
@@ -1596,33 +1824,82 @@ export async function createJob(input: {
   return ensureData(data, error);
 }
 
-export async function uploadFilesToJob(jobId: string, files: File[]): Promise<void> {
-  for (const file of files) {
-    const storagePath = `${jobId}/${Date.now()}-${file.name}`;
-    const fileKind = inferFileKind(file.name);
+export async function uploadFilesToJob(jobId: string, files: File[]): Promise<UploadFilesToJobSummary> {
+  const hashedFiles = await hashUploadFiles(files);
+  const seenHashes = new Set<string>();
+  const duplicateNames: string[] = [];
+  let uploadedCount = 0;
+  let reusedCount = 0;
 
-    const { error: storageError } = await supabase.storage
-      .from("job-files")
-      .upload(storagePath, file, { upsert: false });
+  for (const hashedFile of hashedFiles) {
+    const { file, contentSha256 } = hashedFile;
 
-    if (storageError) {
-      throw storageError;
+    if (seenHashes.has(contentSha256)) {
+      duplicateNames.push(file.name);
+      toast.error(`${file.name} is duplicated in this upload batch and was skipped.`);
+      continue;
     }
 
-    const { error } = await supabase.rpc("api_attach_job_file", {
+    seenHashes.add(contentSha256);
+
+    const fileKind = inferFileKind(file.name);
+    const { data, error } = await supabase.rpc("api_prepare_job_file_upload", {
       p_job_id: jobId,
-      p_storage_bucket: "job-files",
-      p_storage_path: storagePath,
       p_original_name: file.name,
       p_file_kind: fileKind,
       p_mime_type: file.type || null,
       p_size_bytes: file.size,
+      p_content_sha256: contentSha256,
     });
 
-    if (error) {
-      throw error;
+    const prepareResult = ensureData(data, error) as PrepareJobFileUploadResult;
+
+    if (prepareResult.status === "duplicate_in_job") {
+      duplicateNames.push(file.name);
+      toast.error(`${file.name} is already attached to this part.`);
+      continue;
     }
+
+    if (prepareResult.status === "reused") {
+      reusedCount += 1;
+      continue;
+    }
+
+    const { error: storageError } = await supabase.storage
+      .from(prepareResult.storageBucket)
+      .upload(prepareResult.storagePath, file, { upsert: false });
+
+    if (storageError && !isStorageObjectExistsError(storageError)) {
+      throw storageError;
+    }
+
+    const { error: finalizeError } = await supabase.rpc("api_finalize_job_file_upload", {
+      p_job_id: jobId,
+      p_storage_bucket: prepareResult.storageBucket,
+      p_storage_path: prepareResult.storagePath,
+      p_original_name: file.name,
+      p_file_kind: fileKind,
+      p_mime_type: file.type || null,
+      p_size_bytes: file.size,
+      p_content_sha256: contentSha256,
+    });
+
+    if (finalizeError) {
+      throw finalizeError;
+    }
+
+    uploadedCount += 1;
   }
+
+  if (reusedCount > 0) {
+    toast.success(`Reused ${reusedCount} existing file${reusedCount === 1 ? "" : "s"} from your workspace.`);
+  }
+
+  return {
+    uploadedCount,
+    reusedCount,
+    duplicateNames,
+  };
 }
 
 export async function uploadManualQuoteEvidence(

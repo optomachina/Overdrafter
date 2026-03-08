@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@supabase/supabase-js";
-import type { AppMembership } from "@/features/quotes/types";
+import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary } from "@/features/quotes/types";
 import { WorkspaceAccountMenu } from "./WorkspaceAccountMenu";
 
 const diagnosticsMocks = vi.hoisted(() => ({
@@ -54,6 +54,48 @@ const membership: AppMembership = {
   organizationName: "Wilson Works",
   organizationSlug: "wilson-works",
 };
+
+const archivedProjects: ArchivedProjectSummary[] = [
+  {
+    project: {
+      id: "project-1",
+      organization_id: "org-1",
+      owner_user_id: "user-1",
+      name: "Archived Project",
+      description: null,
+      archived_at: "2026-03-08T12:00:00.000Z",
+      created_at: "2026-03-06T00:00:00.000Z",
+      updated_at: "2026-03-08T12:00:00.000Z",
+    },
+    currentUserRole: "owner",
+    partCount: 2,
+  },
+];
+
+const archivedJobs: ArchivedJobSummary[] = [
+  {
+    job: {
+      id: "job-1",
+      organization_id: "org-1",
+      project_id: null,
+      selected_vendor_quote_offer_id: null,
+      created_by: "user-1",
+      title: "Archived Part",
+      description: null,
+      status: "uploaded",
+      source: "client_home",
+      active_pricing_policy_id: null,
+      tags: [],
+      requested_quote_quantities: [],
+      requested_by_date: null,
+      archived_at: "2026-03-08T12:00:00.000Z",
+      created_at: "2026-03-06T00:00:00.000Z",
+      updated_at: "2026-03-08T12:00:00.000Z",
+    },
+    summary: null,
+    projectNames: ["Archived Project"],
+  },
+];
 
 async function openMainMenu() {
   fireEvent.pointerDown(screen.getByRole("button", { name: /open account menu/i }), { button: 0 });
@@ -114,6 +156,35 @@ describe("WorkspaceAccountMenu", () => {
     expect(screen.getByRole("menuitem", { name: "Report a bug" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Download apps" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Keyboard shortcuts" })).toBeInTheDocument();
+  });
+
+  it("opens the archive panel from the account menu", async () => {
+    render(
+      <WorkspaceAccountMenu
+        user={makeUser()}
+        activeMembership={membership}
+        onSignOut={vi.fn()}
+        archivedProjects={archivedProjects}
+        archivedJobs={archivedJobs}
+      />,
+    );
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+
+    expect(await screen.findByRole("tab", { name: "Projects" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Parts" })).toBeInTheDocument();
+    expect(screen.getByText("Archived Project")).toBeInTheDocument();
+  });
+
+  it("shows archive empty states", async () => {
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+
+    expect(await screen.findByText("No archived projects yet.")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Parts" })).toBeInTheDocument();
   });
 
   it("opens the settings panel from the account menu", async () => {

@@ -200,7 +200,8 @@ describe("WorkspaceSidebar", () => {
   it("shows project context menu actions", () => {
     renderSidebar({
       onRenameProject: vi.fn(),
-      onDeleteProject: vi.fn(),
+      onArchiveProject: vi.fn(),
+      onDissolveProject: vi.fn(),
     });
 
     fireEvent.contextMenu(screen.getAllByText("Project One")[0]!);
@@ -208,7 +209,50 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByText("Edit project")).toBeInTheDocument();
     expect(screen.getByText("Pin")).toBeInTheDocument();
     expect(screen.getByText("Edit project name")).toBeInTheDocument();
-    expect(screen.getByText("Delete")).toBeInTheDocument();
+    expect(screen.getByText("Archive project")).toBeInTheDocument();
+    expect(screen.getByText("Dissolve project")).toBeInTheDocument();
+  });
+
+  it("shows the archive action in the part context menu", () => {
+    renderSidebar({
+      onArchivePart: vi.fn(),
+    });
+
+    fireEvent.contextMenu(screen.getByText(/1093-00003/i));
+
+    expect(screen.getByText("Archive part")).toBeInTheDocument();
+  });
+
+  it("invokes archive and dissolve handlers from project actions", () => {
+    const onArchiveProject = vi.fn();
+    const onDissolveProject = vi.fn();
+
+    renderSidebar({
+      onArchiveProject,
+      onDissolveProject,
+    });
+
+    act(() => {
+      fireEvent.contextMenu(screen.getAllByText("Project One")[0]!);
+    });
+    act(() => {
+      fireEvent.click(screen.getByText("Archive project"));
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+    });
+    expect(onArchiveProject).toHaveBeenCalledWith("project-1");
+
+    act(() => {
+      fireEvent.contextMenu(screen.getAllByText("Project One")[0]!);
+    });
+    act(() => {
+      fireEvent.click(screen.getByText("Dissolve project"));
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Dissolve" }));
+    });
+    expect(onDissolveProject).toHaveBeenCalledWith("project-1");
   });
 
   it("mirrors part selection across duplicate rows", () => {

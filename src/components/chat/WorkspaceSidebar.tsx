@@ -86,6 +86,9 @@ type WorkspaceSidebarProps = {
   onCreateProjectFromSelection?: (jobIds: string[]) => Promise<void> | void;
   onRenameProject?: (projectId: string, name: string) => Promise<void> | void;
   onDeleteProject?: (projectId: string) => Promise<void> | void;
+  onArchivePart?: (jobId: string) => Promise<void> | void;
+  onArchiveProject?: (projectId: string) => Promise<void> | void;
+  onDissolveProject?: (projectId: string) => Promise<void> | void;
 };
 
 type RenderPartRowOptions = {
@@ -283,7 +286,9 @@ export function WorkspaceSidebar({
   onRemovePartFromProject,
   onCreateProjectFromSelection,
   onRenameProject,
-  onDeleteProject,
+  onArchivePart,
+  onArchiveProject,
+  onDissolveProject,
 }: WorkspaceSidebarProps) {
   const filtersStorageKey = `workspace-sidebar-filters-v1:${storageScopeKey ?? "default"}`;
   const expandedStorageKey = `workspace-sidebar-expanded-v1:${storageScopeKey ?? "default"}`;
@@ -304,11 +309,14 @@ export function WorkspaceSidebar({
   const [pendingProjectPinIds, setPendingProjectPinIds] = useState<string[]>([]);
   const [pendingPartPinIds, setPendingPartPinIds] = useState<string[]>([]);
   const [pendingMovePartIds, setPendingMovePartIds] = useState<string[]>([]);
+  const [pendingArchivePartIds, setPendingArchivePartIds] = useState<string[]>([]);
   const [projectToRename, setProjectToRename] = useState<WorkspaceSidebarProject | null>(null);
-  const [projectToDelete, setProjectToDelete] = useState<WorkspaceSidebarProject | null>(null);
+  const [projectToArchive, setProjectToArchive] = useState<WorkspaceSidebarProject | null>(null);
+  const [projectToDissolve, setProjectToDissolve] = useState<WorkspaceSidebarProject | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [isRenamingProject, setIsRenamingProject] = useState(false);
-  const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const [isArchivingProject, setIsArchivingProject] = useState(false);
+  const [isDissolvingProject, setIsDissolvingProject] = useState(false);
   const [isCreatingProjectFromSelection, setIsCreatingProjectFromSelection] = useState(false);
   const [openContextTarget, setOpenContextTarget] = useState<string | null>(null);
 
@@ -503,6 +511,18 @@ export function WorkspaceSidebar({
     }
   };
 
+  const withBusyPartArchive = async (jobId: string, callback: () => Promise<void> | void) => {
+    setPendingArchivePartIds((current) => (current.includes(jobId) ? current : [...current, jobId]));
+
+    try {
+      await callback();
+    } catch {
+      // Parent handlers report errors.
+    } finally {
+      setPendingArchivePartIds((current) => current.filter((id) => id !== jobId));
+    }
+  };
+
   const toggleProjectPin = async (projectId: string) => {
     if (pinnedProjectSet.has(projectId)) {
       if (!onUnpinProject) {
@@ -624,6 +644,7 @@ export function WorkspaceSidebar({
     const isSelected = selectedJobIdSet.has(job.id);
     const isPinBusy = pendingPartPinIds.includes(job.id);
     const isMoveBusy = pendingMovePartIds.includes(job.id);
+    const isArchiveBusy = pendingArchivePartIds.includes(job.id);
     const contextKey = `part:${job.id}:${contextProjectId ?? "all"}`;
     const contextSelection =
       openContextTarget === contextKey && contextSelectionJobIds.length > 0
@@ -803,6 +824,18 @@ export function WorkspaceSidebar({
               ) : null}
 
               <ContextMenuSeparator />
+              {onArchivePart ? (
+                <ContextMenuItem
+                  disabled={isArchiveBusy}
+                  onSelect={() => {
+                    void withBusyPartArchive(job.id, async () => {
+                      await onArchivePart(job.id);
+                    });
+                  }}
+                >
+                  Archive part
+                </ContextMenuItem>
+              ) : null}
               <ContextMenuItem
                 disabled={isPinBusy}
                 onSelect={() => {
@@ -909,14 +942,23 @@ export function WorkspaceSidebar({
                 Edit project name
               </ContextMenuItem>
             ) : null}
-            {(project.canDelete ?? project.canManage) && onDeleteProject ? (
+            {(project.canRename ?? project.canManage) && onArchiveProject ? (
+              <ContextMenuItem
+                onSelect={() => {
+                  setProjectToArchive(project);
+                }}
+              >
+                Archive project
+              </ContextMenuItem>
+            ) : null}
+            {(project.canDelete ?? project.canManage) && onDissolveProject ? (
               <ContextMenuItem
                 className="text-destructive focus:text-destructive"
                 onSelect={() => {
-                  setProjectToDelete(project);
+                  setProjectToDissolve(project);
                 }}
               >
-                Delete
+                Dissolve project
               </ContextMenuItem>
             ) : null}
           </ContextMenuContent>
@@ -1093,51 +1135,101 @@ export function WorkspaceSidebar({
       />
 
       <Dialog
-        open={Boolean(projectToDelete)}
+        open={Boolean(projectToArchive)}
         onOpenChange={(open) => {
           if (!open) {
-            setProjectToDelete(null);
+            setProjectToArchive(null);
           }
         }}
       >
         <DialogContent className="chatgpt-shell rounded-2xl border-white/[0.08] bg-[#2a2a2a] text-white">
           <DialogHeader>
-            <DialogTitle>Delete project</DialogTitle>
+            <DialogTitle>Archive project</DialogTitle>
             <DialogDescription className="text-white/55">
-              {projectToDelete
-                ? `Delete ${projectToDelete.name} and move its parts back to ungrouped threads.`
-                : "Delete this project."}
+              {projectToArchive
+                ? `Archive ${projectToArchive.name}. Parts only in this project will also be archived.`
+                : "Archive this project."}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button
               variant="outline"
               className="rounded-[10px] border-white/[0.08] bg-transparent text-white hover:bg-white/[0.06]"
-              onClick={() => setProjectToDelete(null)}
+              onClick={() => setProjectToArchive(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!projectToArchive || !onArchiveProject || isArchivingProject}
+              onClick={async () => {
+                if (!projectToArchive || !onArchiveProject) {
+                  return;
+                }
+
+                setIsArchivingProject(true);
+
+                try {
+                  await onArchiveProject(projectToArchive.id);
+                  setProjectToArchive(null);
+                } catch {
+                  // Parent handlers report errors.
+                } finally {
+                  setIsArchivingProject(false);
+                }
+              }}
+            >
+              Archive
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(projectToDissolve)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setProjectToDissolve(null);
+          }
+        }}
+      >
+        <DialogContent className="chatgpt-shell rounded-2xl border-white/[0.08] bg-[#2a2a2a] text-white">
+          <DialogHeader>
+            <DialogTitle>Dissolve project</DialogTitle>
+            <DialogDescription className="text-white/55">
+              {projectToDissolve
+                ? `Dissolve ${projectToDissolve.name}. The project will be deleted and its parts will remain in Parts.`
+                : "Dissolve this project."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="rounded-[10px] border-white/[0.08] bg-transparent text-white hover:bg-white/[0.06]"
+              onClick={() => setProjectToDissolve(null)}
             >
               Cancel
             </Button>
             <Button
               variant="destructive"
-              disabled={!projectToDelete || !onDeleteProject || isDeletingProject}
+              disabled={!projectToDissolve || !onDissolveProject || isDissolvingProject}
               onClick={async () => {
-                if (!projectToDelete || !onDeleteProject) {
+                if (!projectToDissolve || !onDissolveProject) {
                   return;
                 }
 
-                setIsDeletingProject(true);
+                setIsDissolvingProject(true);
 
                 try {
-                  await onDeleteProject(projectToDelete.id);
-                  setProjectToDelete(null);
+                  await onDissolveProject(projectToDissolve.id);
+                  setProjectToDissolve(null);
                 } catch {
                   // Parent handlers report errors.
                 } finally {
-                  setIsDeletingProject(false);
+                  setIsDissolvingProject(false);
                 }
               }}
             >
-              Delete
+              Dissolve
             </Button>
           </DialogFooter>
         </DialogContent>

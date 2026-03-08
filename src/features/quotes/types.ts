@@ -166,6 +166,12 @@ export type AccessibleProjectSummary = {
   inviteCount: number;
 };
 
+export type ArchivedProjectSummary = {
+  project: ProjectRecord;
+  currentUserRole: ProjectAccessRole;
+  partCount: number;
+};
+
 export type ClientDraftInput = {
   title: string;
   description?: string;
@@ -262,6 +268,32 @@ export type PartDetailAggregate = {
     revision: string | null;
     title: string;
   }>;
+};
+
+export type ArchivedJobSummary = {
+  job: JobRecord;
+  summary: JobPartSummary | null;
+  projectNames: string[];
+};
+
+export type PrepareJobFileUploadResult =
+  | {
+      status: "duplicate_in_job";
+    }
+  | {
+      status: "reused";
+      fileId: string;
+    }
+  | {
+      status: "upload_required";
+      storageBucket: string;
+      storagePath: string;
+    };
+
+export type UploadFilesToJobSummary = {
+  uploadedCount: number;
+  reusedCount: number;
+  duplicateNames: string[];
 };
 
 export type ClientPackageAggregate = {

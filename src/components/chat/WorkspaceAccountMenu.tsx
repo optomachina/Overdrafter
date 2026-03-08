@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import type { LucideIcon } from "lucide-react";
 import {
+  Archive,
   ArrowUpRight,
   Bug,
   ChevronRight,
@@ -27,7 +28,9 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import type { AppMembership } from "@/features/quotes/types";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary } from "@/features/quotes/types";
 import { getAccountDisplayProfile } from "@/lib/account-profile";
 import { setDiagnosticsEnabled, setDiagnosticsPanelOpen } from "@/lib/diagnostics";
 import { cn } from "@/lib/utils";
@@ -37,10 +40,14 @@ type WorkspaceAccountMenuProps = {
   activeMembership?: AppMembership | null;
   onSignOut: () => Promise<void> | void;
   onSignedOut?: () => void;
+  archivedProjects?: ArchivedProjectSummary[];
+  archivedJobs?: ArchivedJobSummary[];
+  isArchiveLoading?: boolean;
 };
 
 type AccountPanelId =
   | "settings"
+  | "archive"
   | "help-center"
   | "release-notes"
   | "terms-policies"
@@ -238,11 +245,26 @@ function ShortcutKeys({ keys }: { keys: string[] }) {
   );
 }
 
+function formatArchivedAt(value: string | null) {
+  if (!value) {
+    return "Archived recently";
+  }
+
+  return `Archived ${new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value))}`;
+}
+
 export function WorkspaceAccountMenu({
   user,
   activeMembership = null,
   onSignOut,
   onSignedOut,
+  archivedProjects = [],
+  archivedJobs = [],
+  isArchiveLoading = false,
 }: WorkspaceAccountMenuProps) {
   const profile = getAccountDisplayProfile(user);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -350,6 +372,77 @@ export function WorkspaceAccountMenu({
             ))}
           </div>
         );
+      case "archive":
+        return (
+          <Tabs defaultValue="projects" className="space-y-4">
+            <TabsList className="grid h-auto grid-cols-2 rounded-[18px] bg-white/[0.06] p-1">
+              <TabsTrigger
+                value="projects"
+                className="rounded-[14px] px-4 py-2 text-sm text-white/70 data-[state=active]:bg-white data-[state=active]:text-black"
+              >
+                Projects
+              </TabsTrigger>
+              <TabsTrigger
+                value="parts"
+                className="rounded-[14px] px-4 py-2 text-sm text-white/70 data-[state=active]:bg-white data-[state=active]:text-black"
+              >
+                Parts
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="projects" className="space-y-3">
+              {isArchiveLoading ? (
+                <div className={PANEL_CARD_CLASS}>
+                  <p className="text-sm leading-6 text-white/58">Loading archived projects...</p>
+                </div>
+              ) : archivedProjects.length === 0 ? (
+                <div className={PANEL_CARD_CLASS}>
+                  <p className="text-sm leading-6 text-white/58">No archived projects yet.</p>
+                </div>
+              ) : (
+                archivedProjects.map((item) => (
+                  <div key={item.project.id} className={PANEL_CARD_CLASS}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <h3 className="truncate text-[17px] font-medium text-white">{item.project.name}</h3>
+                        <p className="mt-1 text-sm text-white/52">{formatArchivedAt(item.project.archived_at)}</p>
+                      </div>
+                      <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs font-medium text-white/70">
+                        {item.partCount} {item.partCount === 1 ? "part" : "parts"}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </TabsContent>
+
+            <TabsContent value="parts" className="space-y-3">
+              {isArchiveLoading ? (
+                <div className={PANEL_CARD_CLASS}>
+                  <p className="text-sm leading-6 text-white/58">Loading archived parts...</p>
+                </div>
+              ) : archivedJobs.length === 0 ? (
+                <div className={PANEL_CARD_CLASS}>
+                  <p className="text-sm leading-6 text-white/58">No archived parts yet.</p>
+                </div>
+              ) : (
+                archivedJobs.map((item) => {
+                  const presentation = getClientItemPresentation(item.job, item.summary ?? undefined);
+
+                  return (
+                    <div key={item.job.id} className={PANEL_CARD_CLASS}>
+                      <h3 className="truncate text-[17px] font-medium text-white">{presentation.title}</h3>
+                      <p className="mt-1 text-sm text-white/52">{formatArchivedAt(item.job.archived_at)}</p>
+                      {item.projectNames.length > 0 ? (
+                        <p className="mt-3 truncate text-sm text-white/62">{item.projectNames.join(" · ")}</p>
+                      ) : null}
+                    </div>
+                  );
+                })
+              )}
+            </TabsContent>
+          </Tabs>
+        );
       case "release-notes":
         return (
           <div className="space-y-4">
@@ -448,6 +541,8 @@ export function WorkspaceAccountMenu({
   const panelTitle =
     activePanel === "settings"
       ? "Settings"
+      : activePanel === "archive"
+        ? "Archive"
       : activePanel === "help-center"
         ? "Help center"
         : activePanel === "release-notes"
@@ -463,6 +558,8 @@ export function WorkspaceAccountMenu({
   const panelDescription =
     activePanel === "settings"
       ? "Account details and support entry points for the current workspace."
+      : activePanel === "archive"
+        ? "Archived projects and parts are listed here for reference."
       : activePanel === "help-center"
         ? "Browse support sections available from the account menu."
         : activePanel === "release-notes"
@@ -520,6 +617,11 @@ export function WorkspaceAccountMenu({
           <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => openPanel("settings")}>
             <Settings className={MENU_ICON_CLASS} strokeWidth={1.85} />
             <span>Settings</span>
+          </DropdownMenuItem>
+
+          <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => openPanel("archive")}>
+            <Archive className={MENU_ICON_CLASS} strokeWidth={1.85} />
+            <span>Archive</span>
           </DropdownMenuItem>
 
           <DropdownMenuSub>

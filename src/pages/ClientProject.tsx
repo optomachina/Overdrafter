@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { FolderPlus, Loader2, Pencil, PlusSquare, Search as SearchIcon, Trash2, Users } from "lucide-react";
+import { Archive, FolderPlus, Loader2, Pencil, PlusSquare, Search as SearchIcon, Users } from "lucide-react";
 import { toast } from "sonner";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
@@ -27,13 +27,17 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useAppSession } from "@/hooks/use-app-session";
 import {
+  archiveJob,
+  archiveProject,
   assignJobToProject,
   createClientDraft,
   createJobsFromUploadFiles,
   createProject,
-  deleteProject,
+  dissolveProject,
   fetchAccessibleJobs,
   fetchAccessibleProjects,
+  fetchArchivedJobs,
+  fetchArchivedProjects,
   fetchJobPartSummariesByJobIds,
   fetchProjectJobMembershipsByJobIds,
   fetchJobsByProject,
@@ -93,7 +97,8 @@ const ClientProject = () => {
   const [focusedJobId, setFocusedJobId] = useState<string | null>(null);
   const [showAddPart, setShowAddPart] = useState(false);
   const [showRename, setShowRename] = useState(false);
-  const [showDelete, setShowDelete] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
+  const [showDissolve, setShowDissolve] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
@@ -114,6 +119,16 @@ const ClientProject = () => {
   const sidebarPinsQuery = useQuery({
     queryKey: ["sidebar-pins", user?.id],
     queryFn: fetchSidebarPins,
+    enabled: Boolean(user),
+  });
+  const archivedProjectsQuery = useQuery({
+    queryKey: ["archived-projects"],
+    queryFn: fetchArchivedProjects,
+    enabled: Boolean(user),
+  });
+  const archivedJobsQuery = useQuery({
+    queryKey: ["archived-jobs"],
+    queryFn: fetchArchivedJobs,
     enabled: Boolean(user),
   });
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
@@ -296,8 +311,9 @@ const ClientProject = () => {
   );
   const projectSummary = accessibleProjectsQuery.data?.find((project) => project.project.id === projectId) ?? null;
   const canRenameProject = !isSeededProject && ["owner", "editor"].includes(projectSummary?.currentUserRole ?? "editor");
-  const canDeleteProject = !isSeededProject && (projectSummary?.currentUserRole ?? "editor") === "owner";
-  const canManageMembers = canDeleteProject;
+  const canArchiveProject = canRenameProject;
+  const canDissolveProject = !isSeededProject && (projectSummary?.currentUserRole ?? "editor") === "owner";
+  const canManageMembers = canDissolveProject;
 
   const updateProjectMutation = useMutation({
     mutationFn: (name: string) => updateProject({ projectId, name }),
@@ -313,19 +329,46 @@ const ClientProject = () => {
       toast.error(error.message || "Failed to update project.");
     },
   });
-  const deleteProjectMutation = useMutation({
-    mutationFn: () => deleteProject(projectId),
+  const archiveProjectMutation = useMutation({
+    mutationFn: () => archiveProject(projectId),
     onSuccess: async () => {
-      toast.success("Project deleted.");
+      toast.success("Project archived.");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["client-projects"] }),
         queryClient.invalidateQueries({ queryKey: ["client-jobs"] }),
         queryClient.invalidateQueries({ queryKey: ["client-ungrouped-parts"] }),
+        queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
+        queryClient.invalidateQueries({ queryKey: ["client-project-job-memberships"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-jobs", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["project", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["archived-projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["archived-jobs"] }),
       ]);
       navigate("/");
     },
     onError: (error: Error) => {
-      toast.error(error.message || "Failed to delete project.");
+      toast.error(error.message || "Failed to archive project.");
+    },
+  });
+  const dissolveProjectMutation = useMutation({
+    mutationFn: () => dissolveProject(projectId),
+    onSuccess: async () => {
+      toast.success("Project dissolved.");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["client-projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["client-jobs"] }),
+        queryClient.invalidateQueries({ queryKey: ["client-ungrouped-parts"] }),
+        queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
+        queryClient.invalidateQueries({ queryKey: ["client-project-job-memberships"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-jobs", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["project", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["archived-projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["archived-jobs"] }),
+      ]);
+      navigate("/");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to dissolve project.");
     },
   });
   const removeProjectMemberMutation = useMutation({
@@ -361,6 +404,8 @@ const ClientProject = () => {
       queryClient.invalidateQueries({ queryKey: ["project-jobs"] }),
       queryClient.invalidateQueries({ queryKey: ["project"] }),
       queryClient.invalidateQueries({ queryKey: ["part-detail"] }),
+      queryClient.invalidateQueries({ queryKey: ["archived-projects"] }),
+      queryClient.invalidateQueries({ queryKey: ["archived-jobs"] }),
     ]);
   };
 
@@ -443,16 +488,44 @@ const ClientProject = () => {
     }
   };
 
-  const handleDeleteProject = async (targetProjectId: string) => {
+  const handleArchivePart = async (targetJobId: string) => {
     try {
-      await deleteProject(targetProjectId);
+      await archiveJob(targetJobId);
       await invalidateSidebarQueries();
-      toast.success("Project deleted.");
+      toast.success("Part archived.");
+      if (targetJobId === focusedJobId) {
+        setFocusedJobId(null);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to archive part.");
+      throw error;
+    }
+  };
+
+  const handleArchiveProject = async (targetProjectId: string) => {
+    try {
+      await archiveProject(targetProjectId);
+      await invalidateSidebarQueries();
+      toast.success("Project archived.");
       if (targetProjectId === projectId) {
         navigate("/");
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to delete project.");
+      toast.error(error instanceof Error ? error.message : "Failed to archive project.");
+      throw error;
+    }
+  };
+
+  const handleDissolveProject = async (targetProjectId: string) => {
+    try {
+      await dissolveProject(targetProjectId);
+      await invalidateSidebarQueries();
+      toast.success("Project dissolved.");
+      if (targetProjectId === projectId) {
+        navigate("/");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to dissolve project.");
       throw error;
     }
   };
@@ -524,7 +597,9 @@ const ClientProject = () => {
             onRemovePartFromProject={isDmriflesWorkspace ? undefined : handleRemovePartFromProject}
             onCreateProjectFromSelection={projectCollaborationUnavailable ? undefined : handleCreateProjectFromSelection}
             onRenameProject={handleRenameProject}
-            onDeleteProject={handleDeleteProject}
+            onArchivePart={handleArchivePart}
+            onArchiveProject={handleArchiveProject}
+            onDissolveProject={handleDissolveProject}
             onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
             onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
             resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
@@ -536,6 +611,9 @@ const ClientProject = () => {
             activeMembership={activeMembership}
             onSignOut={signOut}
             onSignedOut={() => navigate("/", { replace: true })}
+            archivedProjects={archivedProjectsQuery.data}
+            archivedJobs={archivedJobsQuery.data}
+            isArchiveLoading={archivedProjectsQuery.isLoading || archivedJobsQuery.isLoading}
           />
         }
       >
@@ -595,11 +673,23 @@ const ClientProject = () => {
                   <Button
                     type="button"
                     variant="outline"
-                    className="rounded-full border-white/10 bg-transparent text-white hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() => setShowDelete(true)}
+                    className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                    onClick={() => setShowArchive(true)}
                   >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete
+                    <Archive className="mr-2 h-4 w-4" />
+                    Archive
+                  </Button>
+                </>
+              ) : null}
+              {canDissolveProject ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-full border-white/10 bg-transparent text-white hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => setShowDissolve(true)}
+                  >
+                    Dissolve
                   </Button>
                 </>
               ) : null}
@@ -810,28 +900,54 @@ const ClientProject = () => {
         onSubmit={() => updateProjectMutation.mutate(projectName.trim())}
       />
 
-      <Dialog open={showDelete} onOpenChange={setShowDelete}>
+      <Dialog open={showArchive} onOpenChange={setShowArchive}>
         <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
           <DialogHeader>
-            <DialogTitle>Delete project</DialogTitle>
+            <DialogTitle>Archive project</DialogTitle>
             <DialogDescription className="text-white/55">
-              This moves all project parts back into their creators&apos; ungrouped lists.
+              Parts only in this project will also be archived.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button
               variant="outline"
               className="border-white/10 bg-transparent text-white hover:bg-white/6"
-              onClick={() => setShowDelete(false)}
+              onClick={() => setShowArchive(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={archiveProjectMutation.isPending}
+              onClick={() => archiveProjectMutation.mutate()}
+            >
+              {archiveProjectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Archive"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDissolve} onOpenChange={setShowDissolve}>
+        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
+          <DialogHeader>
+            <DialogTitle>Dissolve project</DialogTitle>
+            <DialogDescription className="text-white/55">
+              This deletes the project and leaves its parts in the main Parts list.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="border-white/10 bg-transparent text-white hover:bg-white/6"
+              onClick={() => setShowDissolve(false)}
             >
               Cancel
             </Button>
             <Button
               variant="destructive"
-              disabled={deleteProjectMutation.isPending}
-              onClick={() => deleteProjectMutation.mutate()}
+              disabled={dissolveProjectMutation.isPending}
+              onClick={() => dissolveProjectMutation.mutate()}
             >
-              {deleteProjectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
+              {dissolveProjectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Dissolve"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -844,7 +960,7 @@ const ClientProject = () => {
         memberships={projectMembershipsQuery.data ?? []}
         invites={projectInvitesQuery.data ?? []}
         canRename={canRenameProject}
-        canDelete={canDeleteProject}
+        canDelete={canDissolveProject}
         onInvite={async (email) => {
           const invite = await inviteProjectMember({ projectId, email });
           toast.success(`Invite created for ${invite.email}.`);

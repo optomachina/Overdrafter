@@ -98,6 +98,7 @@ export type Database = {
           owner_user_id: string;
           name: string;
           description: string | null;
+          archived_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -107,6 +108,7 @@ export type Database = {
           owner_user_id: string;
           name: string;
           description?: string | null;
+          archived_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -238,6 +240,7 @@ export type Database = {
           tags: string[];
           requested_quote_quantities: number[];
           requested_by_date: string | null;
+          archived_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -255,6 +258,7 @@ export type Database = {
           tags?: string[];
           requested_quote_quantities?: number[];
           requested_by_date?: string | null;
+          archived_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -265,6 +269,8 @@ export type Database = {
           job_id: string;
           organization_id: string;
           uploaded_by: string;
+          blob_id: string | null;
+          content_sha256: string | null;
           storage_bucket: string;
           storage_path: string;
           original_name: string;
@@ -280,6 +286,8 @@ export type Database = {
           job_id: string;
           organization_id: string;
           uploaded_by: string;
+          blob_id?: string | null;
+          content_sha256?: string | null;
           storage_bucket?: string;
           storage_path: string;
           original_name: string;
@@ -291,6 +299,28 @@ export type Database = {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["job_files"]["Insert"]>;
+      };
+      organization_file_blobs: {
+        Row: BaseRow & {
+          organization_id: string;
+          content_sha256: string;
+          storage_bucket: string;
+          storage_path: string;
+          size_bytes: number | null;
+          mime_type: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          content_sha256: string;
+          storage_bucket?: string;
+          storage_path: string;
+          size_bytes?: number | null;
+          mime_type?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["organization_file_blobs"]["Insert"]>;
       };
       parts: {
         Row: BaseRow & {
@@ -731,6 +761,18 @@ export type Database = {
         };
         Returns: string;
       };
+      api_archive_project: {
+        Args: {
+          p_project_id: string;
+        };
+        Returns: string;
+      };
+      api_dissolve_project: {
+        Args: {
+          p_project_id: string;
+        };
+        Returns: string;
+      };
       api_invite_project_member: {
         Args: {
           p_project_id: string;
@@ -794,6 +836,12 @@ export type Database = {
         };
         Returns: string;
       };
+      api_archive_job: {
+        Args: {
+          p_job_id: string;
+        };
+        Returns: string;
+      };
       api_set_job_selected_vendor_quote_offer: {
         Args: {
           p_job_id: string;
@@ -810,6 +858,30 @@ export type Database = {
           p_file_kind: JobFileKind;
           p_mime_type?: string | null;
           p_size_bytes?: number | null;
+        };
+        Returns: string;
+      };
+      api_prepare_job_file_upload: {
+        Args: {
+          p_job_id: string;
+          p_original_name: string;
+          p_file_kind: JobFileKind;
+          p_mime_type?: string | null;
+          p_size_bytes?: number | null;
+          p_content_sha256?: string | null;
+        };
+        Returns: Json;
+      };
+      api_finalize_job_file_upload: {
+        Args: {
+          p_job_id: string;
+          p_storage_bucket: string;
+          p_storage_path: string;
+          p_original_name: string;
+          p_file_kind: JobFileKind;
+          p_mime_type?: string | null;
+          p_size_bytes?: number | null;
+          p_content_sha256?: string | null;
         };
         Returns: string;
       };

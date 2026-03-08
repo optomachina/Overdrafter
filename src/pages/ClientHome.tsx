@@ -19,14 +19,18 @@ import { supabase } from "@/integrations/supabase/client";
 import { getDefaultAccountName } from "@/lib/account-profile";
 import { isEmailConfirmationRequired } from "@/lib/auth-status";
 import {
+  archiveJob,
+  archiveProject,
   assignJobToProject,
   createClientDraft,
   createJobsFromUploadFiles,
   createProject,
   createSelfServiceOrganization,
-  deleteProject,
+  dissolveProject,
   fetchAccessibleJobs,
   fetchAccessibleProjects,
+  fetchArchivedJobs,
+  fetchArchivedProjects,
   fetchJobPartSummariesByJobIds,
   fetchProjectJobMembershipsByJobIds,
   fetchSidebarPins,
@@ -95,6 +99,16 @@ const ClientHome = () => {
   const sidebarPinsQuery = useQuery({
     queryKey: ["sidebar-pins", user?.id],
     queryFn: fetchSidebarPins,
+    enabled: Boolean(user),
+  });
+  const archivedProjectsQuery = useQuery({
+    queryKey: ["archived-projects"],
+    queryFn: fetchArchivedProjects,
+    enabled: Boolean(user),
+  });
+  const archivedJobsQuery = useQuery({
+    queryKey: ["archived-jobs"],
+    queryFn: fetchArchivedJobs,
     enabled: Boolean(user),
   });
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
@@ -378,6 +392,8 @@ const ClientHome = () => {
       queryClient.invalidateQueries({ queryKey: ["client-ungrouped-parts"] }),
       queryClient.invalidateQueries({ queryKey: ["sidebar-pins"] }),
       queryClient.invalidateQueries({ queryKey: ["part-detail"] }),
+      queryClient.invalidateQueries({ queryKey: ["archived-projects"] }),
+      queryClient.invalidateQueries({ queryKey: ["archived-jobs"] }),
     ]);
   };
 
@@ -454,13 +470,35 @@ const ClientHome = () => {
     }
   };
 
-  const handleDeleteProject = async (projectId: string) => {
+  const handleArchivePart = async (jobId: string) => {
     try {
-      await deleteProject(projectId);
+      await archiveJob(jobId);
       await invalidateSidebarQueries();
-      toast.success("Project deleted.");
+      toast.success("Part archived.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to delete project.");
+      toast.error(error instanceof Error ? error.message : "Failed to archive part.");
+      throw error;
+    }
+  };
+
+  const handleArchiveProject = async (projectId: string) => {
+    try {
+      await archiveProject(projectId);
+      await invalidateSidebarQueries();
+      toast.success("Project archived.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to archive project.");
+      throw error;
+    }
+  };
+
+  const handleDissolveProject = async (projectId: string) => {
+    try {
+      await dissolveProject(projectId);
+      await invalidateSidebarQueries();
+      toast.success("Project dissolved.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to dissolve project.");
       throw error;
     }
   };
@@ -658,13 +696,15 @@ const ClientHome = () => {
               onPinPart={handlePinPart}
               onUnpinPart={handleUnpinPart}
               onAssignPartToProject={isDmriflesWorkspace ? undefined : handleAssignPartToProject}
-              onRemovePartFromProject={isDmriflesWorkspace ? undefined : handleRemovePartFromProject}
-              onCreateProjectFromSelection={projectCollaborationUnavailable ? undefined : handleCreateProjectFromSelection}
-              onRenameProject={handleRenameProject}
-              onDeleteProject={handleDeleteProject}
-              onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
-              onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
-              resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
+            onRemovePartFromProject={isDmriflesWorkspace ? undefined : handleRemovePartFromProject}
+            onCreateProjectFromSelection={projectCollaborationUnavailable ? undefined : handleCreateProjectFromSelection}
+            onRenameProject={handleRenameProject}
+            onArchivePart={handleArchivePart}
+            onArchiveProject={handleArchiveProject}
+            onDissolveProject={handleDissolveProject}
+            onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
+            onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+            resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
             />
           ) : (
             <div className="space-y-1">
@@ -689,12 +729,15 @@ const ClientHome = () => {
         }
         sidebarFooter={
           user ? (
-            <WorkspaceAccountMenu
-              user={user}
-              activeMembership={activeMembership}
-              onSignOut={signOut}
-              onSignedOut={() => navigate("/", { replace: true })}
-            />
+              <WorkspaceAccountMenu
+                user={user}
+                activeMembership={activeMembership}
+                onSignOut={signOut}
+                onSignedOut={() => navigate("/", { replace: true })}
+                archivedProjects={archivedProjectsQuery.data}
+                archivedJobs={archivedJobsQuery.data}
+                isArchiveLoading={archivedProjectsQuery.isLoading || archivedJobsQuery.isLoading}
+              />
           ) : (
             <GuestSidebarCta onLogIn={() => openAuth("signin")} />
           )
