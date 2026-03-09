@@ -1,11 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
+const apiMock = vi.hoisted(() => ({
+  assignJobToProject: vi.fn(),
+  createProject: vi.fn(),
+}));
+
+vi.mock("@/features/quotes/api", () => apiMock);
+
 import {
   buildDmriflesProjects,
+  findImportedBatchProjectId,
   isDmriflesSystemProject,
   matchesDefaultDmriflesSeed,
   resolveImportedBatch,
   resolveImportedBatchFromSource,
+  syncImportedBatchProjects,
 } from "./client-workspace";
 
 function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
@@ -110,5 +119,43 @@ describe("client workspace helpers", () => {
     expect(matchesDefaultDmriflesSeed(projects)).toBe(true);
     expect(projects.every((project) => isDmriflesSystemProject(project))).toBe(true);
     expect(projects.flatMap((project) => project.jobIds)).not.toContain("stray");
+  });
+
+  it("finds a real project id for an imported batch name", () => {
+    expect(
+      findImportedBatchProjectId("QB00002", [
+        { id: "project-1", name: "QB00001" },
+        { id: "project-2", name: "QB00002" },
+      ]),
+    ).toBe("project-2");
+  });
+
+  it("creates real projects and memberships for imported batches", async () => {
+    apiMock.createProject.mockResolvedValueOnce("project-qb1");
+    apiMock.assignJobToProject.mockResolvedValue(undefined);
+
+    const mutated = await syncImportedBatchProjects({
+      jobs: [
+        makeJob({ id: "job-1", source: "spreadsheet_import:qb00001:1093-03242:3" }),
+        makeJob({ id: "job-2", source: "spreadsheet_import:qb00001:1093-03243:3" }),
+      ],
+      partSummariesByJobId: new Map([
+        ["job-1", makeSummary({ jobId: "job-1", importedBatch: "QB00001" })],
+        ["job-2", makeSummary({ jobId: "job-2", importedBatch: "QB00001" })],
+      ]),
+      projects: [],
+      resolveProjectIdsForJob: () => [],
+    });
+
+    expect(mutated).toBe(true);
+    expect(apiMock.createProject).toHaveBeenCalledWith({ name: "QB00001" });
+    expect(apiMock.assignJobToProject).toHaveBeenNthCalledWith(1, {
+      jobId: "job-1",
+      projectId: "project-qb1",
+    });
+    expect(apiMock.assignJobToProject).toHaveBeenNthCalledWith(2, {
+      jobId: "job-2",
+      projectId: "project-qb1",
+    });
   });
 });

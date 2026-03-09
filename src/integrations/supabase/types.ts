@@ -767,6 +767,12 @@ export type Database = {
         };
         Returns: string;
       };
+      api_unarchive_project: {
+        Args: {
+          p_project_id: string;
+        };
+        Returns: string;
+      };
       api_dissolve_project: {
         Args: {
           p_project_id: string;

@@ -1,3 +1,4 @@
+import { assignJobToProject, createProject } from "@/features/quotes/api";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
 
 export const DMRIFLES_EMAIL = "dmrifles@gmail.com";
@@ -11,6 +12,15 @@ export type ClientJobProject = {
   createdAt: string;
   systemManaged?: boolean;
 };
+
+type NamedProject = {
+  id: string;
+  name: string;
+};
+
+export function buildSeedProjectId(name: string): string {
+  return `seed-${name.toLowerCase()}`;
+}
 
 export function resolveImportedBatchFromSource(source: string | null | undefined): string | null {
   if (!source) {
@@ -43,7 +53,7 @@ export function buildDmriflesProjects(
     DMRIFLES_PROJECT_NAMES.map((name) => [
       name,
       {
-        id: `seed-${name.toLowerCase()}`,
+        id: buildSeedProjectId(name),
         name,
         jobIds: [] as string[],
         createdAt: timestamp,
@@ -71,6 +81,71 @@ export function buildDmriflesProjects(
   return DMRIFLES_PROJECT_NAMES.map((name) => seedProjects.get(name)!);
 }
 
+export function findImportedBatchProjectId(
+  importedBatch: string | null | undefined,
+  projects: NamedProject[],
+): string | null {
+  if (!importedBatch) {
+    return null;
+  }
+
+  const normalizedBatch = importedBatch.trim().toUpperCase();
+  const match = projects.find((project) => project.name.trim().toUpperCase() === normalizedBatch);
+  return match?.id ?? null;
+}
+
+export async function syncImportedBatchProjects(input: {
+  jobs: JobRecord[];
+  partSummariesByJobId: Map<string, JobPartSummary>;
+  projects: NamedProject[];
+  resolveProjectIdsForJob: (jobId: string) => string[];
+}): Promise<boolean> {
+  const groupedJobsByBatch = new Map<string, string[]>();
+
+  input.jobs.forEach((job) => {
+    const importedBatch = resolveImportedBatch(job, input.partSummariesByJobId.get(job.id));
+    if (!importedBatch) {
+      return;
+    }
+
+    const normalizedBatch = importedBatch.trim().toUpperCase();
+    const jobIds = groupedJobsByBatch.get(normalizedBatch) ?? [];
+    jobIds.push(job.id);
+    groupedJobsByBatch.set(normalizedBatch, jobIds);
+  });
+
+  if (groupedJobsByBatch.size === 0) {
+    return false;
+  }
+
+  const projectIdsByName = new Map(
+    input.projects.map((project) => [project.name.trim().toUpperCase(), project.id]),
+  );
+
+  let mutated = false;
+
+  for (const [batchName, jobIds] of groupedJobsByBatch.entries()) {
+    let targetProjectId = projectIdsByName.get(batchName) ?? null;
+
+    if (!targetProjectId) {
+      targetProjectId = await createProject({ name: batchName });
+      projectIdsByName.set(batchName, targetProjectId);
+      mutated = true;
+    }
+
+    for (const jobId of jobIds) {
+      if (input.resolveProjectIdsForJob(jobId).includes(targetProjectId)) {
+        continue;
+      }
+
+      await assignJobToProject({ jobId, projectId: targetProjectId });
+      mutated = true;
+    }
+  }
+
+  return mutated;
+}
+
 export function matchesDefaultDmriflesSeed(projects: ClientJobProject[]): boolean {
   if (projects.length !== DMRIFLES_PROJECT_NAMES.length) {
     return false;
@@ -79,7 +154,7 @@ export function matchesDefaultDmriflesSeed(projects: ClientJobProject[]): boolea
   return DMRIFLES_PROJECT_NAMES.every((name) =>
     projects.some(
       (project) =>
-        project.id === `seed-${name.toLowerCase()}` &&
+        project.id === buildSeedProjectId(name) &&
         project.name === name &&
         project.systemManaged === true,
     ),

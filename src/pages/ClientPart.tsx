@@ -50,11 +50,13 @@ import {
   requestExtraction,
   setJobSelectedVendorQuoteOffer,
   unarchiveJob,
+  unarchiveProject,
   unpinJob,
   unpinProject,
   updateProject,
   uploadFilesToJob,
 } from "@/features/quotes/api";
+import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {
   collectRequestedQuantities,
@@ -62,7 +64,14 @@ import {
   resolveRequestedQuantitySelection,
   type RequestedQuantityFilterValue,
 } from "@/features/quotes/request-scenarios";
-import { buildDmriflesProjects, DMRIFLES_EMAIL, resolveImportedBatch } from "@/features/quotes/client-workspace";
+import {
+  buildDmriflesProjects,
+  buildSeedProjectId,
+  DMRIFLES_EMAIL,
+  findImportedBatchProjectId,
+  resolveImportedBatch,
+  syncImportedBatchProjects,
+} from "@/features/quotes/client-workspace";
 import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import {
@@ -89,6 +98,8 @@ const ClientPart = () => {
     useState<RequestedQuantityFilterValue | null>(null);
   const normalizedEmail = user?.email?.toLowerCase() ?? "";
   const isDmriflesWorkspace = normalizedEmail === DMRIFLES_EMAIL;
+  const registerArchiveUndo = useArchiveUndo();
+  const [hasAttemptedDmriflesProjectSync, setHasAttemptedDmriflesProjectSync] = useState(false);
 
   const accessibleProjectsQuery = useQuery({
     queryKey: ["client-projects"],
@@ -250,8 +261,15 @@ const ClientPart = () => {
       })),
     [accessibleProjectsQuery.data],
   );
+  const remoteProjectsByName = useMemo(
+    () => new Map(remoteProjects.map((project) => [project.name.trim().toUpperCase(), project.id])),
+    [remoteProjects],
+  );
   const sidebarProjects = isDmriflesWorkspace
-    ? [...seededProjects, ...remoteProjects.filter((project) => !seededProjects.some((seeded) => seeded.id === project.id))]
+    ? [
+        ...seededProjects.filter((project) => !remoteProjectsByName.has(project.name.trim().toUpperCase())),
+        ...remoteProjects,
+      ]
     : remoteProjects;
 
   const partDetail = partDetailQuery.data;
@@ -325,7 +343,13 @@ const ClientPart = () => {
     }
 
     const importedBatch = resolveImportedBatch(job, summariesByJobId.get(job.id));
-    return importedBatch ? [...new Set([...projectIds, `seed-${importedBatch.toLowerCase()}`])] : projectIds;
+    if (!importedBatch) {
+      return projectIds;
+    }
+
+    const importedBatchProjectId =
+      findImportedBatchProjectId(importedBatch, remoteProjects) ?? buildSeedProjectId(importedBatch);
+    return [...new Set([...projectIds, importedBatchProjectId])];
   };
 
   const invalidateSidebarQueries = async () => {
@@ -420,7 +444,14 @@ const ClientPart = () => {
     try {
       await archiveJob(targetJobId);
       await invalidateSidebarQueries();
-      toast.success("Part archived.");
+      registerArchiveUndo({
+        label: "Part",
+        undo: async () => {
+          await unarchiveJob(targetJobId);
+          await invalidateSidebarQueries();
+        },
+      });
+      toast.success("Part archived. Press Ctrl+Z to undo.");
       if (targetJobId === jobId) {
         navigate("/");
       }
@@ -432,9 +463,33 @@ const ClientPart = () => {
 
   const handleArchiveProject = async (projectId: string) => {
     try {
+      if (projectId.startsWith("seed-")) {
+        const batchJobs =
+          buildDmriflesProjects(accessibleJobsQuery.data ?? [], summariesByJobId).find((project) => project.id === projectId)?.jobIds ?? [];
+
+        await Promise.all(batchJobs.map((jobId) => archiveJob(jobId)));
+        await invalidateSidebarQueries();
+        registerArchiveUndo({
+          label: "Project",
+          undo: async () => {
+            await Promise.all(batchJobs.map((jobId) => unarchiveJob(jobId)));
+            await invalidateSidebarQueries();
+          },
+        });
+        toast.success("Project archived. Press Ctrl+Z to undo.");
+        return;
+      }
+
       await archiveProject(projectId);
       await invalidateSidebarQueries();
-      toast.success("Project archived.");
+      registerArchiveUndo({
+        label: "Project",
+        undo: async () => {
+          await unarchiveProject(projectId);
+          await invalidateSidebarQueries();
+        },
+      });
+      toast.success("Project archived. Press Ctrl+Z to undo.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to archive project.");
       throw error;
@@ -496,11 +551,62 @@ const ClientPart = () => {
     }
   };
 
+  const syncDmriflesProjectsMutation = useMutation({
+    mutationFn: async () =>
+      syncImportedBatchProjects({
+        jobs: accessibleJobsQuery.data ?? [],
+        partSummariesByJobId: summariesByJobId,
+        projects: (accessibleProjectsQuery.data ?? []).map((project) => ({
+          id: project.project.id,
+          name: project.project.name,
+        })),
+        resolveProjectIdsForJob: (targetJobId: string) => sidebarProjectIdsByJobId.get(targetJobId) ?? [],
+      }),
+    onSuccess: async (mutated) => {
+      setHasAttemptedDmriflesProjectSync(true);
+
+      if (!mutated) {
+        return;
+      }
+
+      await invalidateSidebarQueries();
+    },
+    onError: () => {
+      setHasAttemptedDmriflesProjectSync(true);
+    },
+  });
+
   useEffect(() => {
     if (projectCollaborationUnavailable) {
       setShowMoveDialog(false);
     }
   }, [projectCollaborationUnavailable]);
+
+  useEffect(() => {
+    if (
+      !user ||
+      !isDmriflesWorkspace ||
+      projectCollaborationUnavailable ||
+      hasAttemptedDmriflesProjectSync ||
+      syncDmriflesProjectsMutation.isPending ||
+      accessibleProjectsQuery.isLoading ||
+      accessibleJobsQuery.isLoading ||
+      partSummariesQuery.isLoading
+    ) {
+      return;
+    }
+
+    syncDmriflesProjectsMutation.mutate();
+  }, [
+    accessibleJobsQuery.isLoading,
+    accessibleProjectsQuery.isLoading,
+    hasAttemptedDmriflesProjectSync,
+    isDmriflesWorkspace,
+    partSummariesQuery.isLoading,
+    projectCollaborationUnavailable,
+    syncDmriflesProjectsMutation,
+    user,
+  ]);
 
   useEffect(() => {
     if (!user) {
@@ -517,7 +623,9 @@ const ClientPart = () => {
       ),
     [accessibleProjectsQuery.data, partDetail?.projectIds],
   );
-  const dmriflesBatchProjectId = summary?.importedBatch ? `seed-${summary.importedBatch.toLowerCase()}` : null;
+  const dmriflesBatchProjectId =
+    findImportedBatchProjectId(summary?.importedBatch, remoteProjects) ??
+    (summary?.importedBatch ? buildSeedProjectId(summary.importedBatch) : null);
   const extraction = partDetail?.part ? normalizeDrawingExtraction(partDetail.part.extraction, partDetail.part.id) : null;
   const drawingPreview = partDetail?.drawingPreview ?? null;
   const drawingFile = partDetail?.files.find((file) => file.file_kind === "drawing") ?? null;

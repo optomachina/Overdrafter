@@ -41,16 +41,21 @@ import {
   removeJobFromProject,
   resendSignupConfirmation,
   unarchiveJob,
+  unarchiveProject,
   unpinJob,
   unpinProject,
   updateProject,
 } from "@/features/quotes/api";
+import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {
+  buildSeedProjectId,
   buildDmriflesProjects,
   DMRIFLES_EMAIL,
+  findImportedBatchProjectId,
   PROJECT_STORAGE_PREFIX,
   resolveImportedBatch,
+  syncImportedBatchProjects,
 } from "@/features/quotes/client-workspace";
 import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { buildProjectNameFromLabels } from "@/features/quotes/upload-groups";
@@ -87,6 +92,8 @@ const ClientHome = () => {
   const normalizedEmail = user?.email?.toLowerCase() ?? "";
   const isDmriflesWorkspace = normalizedEmail === DMRIFLES_EMAIL;
   const defaultAccountName = useMemo(() => getDefaultAccountName(user), [user]);
+  const registerArchiveUndo = useArchiveUndo();
+  const [hasAttemptedDmriflesProjectSync, setHasAttemptedDmriflesProjectSync] = useState(false);
 
   const accessibleProjectsQuery = useQuery({
     queryKey: ["client-projects"],
@@ -216,8 +223,15 @@ const ClientHome = () => {
       })),
     [accessibleProjectsQuery.data],
   );
+  const remoteProjectsByName = useMemo(
+    () => new Map(remoteProjects.map((project) => [project.name.trim().toUpperCase(), project.id])),
+    [remoteProjects],
+  );
   const sidebarProjects = isDmriflesWorkspace
-    ? [...seededProjects, ...remoteProjects.filter((project) => !seededProjects.some((seeded) => seeded.id === project.id))]
+    ? [
+        ...seededProjects.filter((project) => !remoteProjectsByName.has(project.name.trim().toUpperCase())),
+        ...remoteProjects,
+      ]
     : remoteProjects;
 
   const bootstrapAccountMutation = useMutation({
@@ -280,6 +294,30 @@ const ClientHome = () => {
         queryClient.invalidateQueries({ queryKey: ["client-jobs"] }),
         queryClient.invalidateQueries({ queryKey: ["client-ungrouped-parts"] }),
       ]);
+    },
+  });
+  const syncDmriflesProjectsMutation = useMutation({
+    mutationFn: async () =>
+      syncImportedBatchProjects({
+        jobs: accessibleJobsQuery.data ?? [],
+        partSummariesByJobId: summariesByJobId,
+        projects: (accessibleProjectsQuery.data ?? []).map((project) => ({
+          id: project.project.id,
+          name: project.project.name,
+        })),
+        resolveProjectIdsForJob: (jobId: string) => sidebarProjectIdsByJobId.get(jobId) ?? [],
+      }),
+    onSuccess: async (mutated) => {
+      setHasAttemptedDmriflesProjectSync(true);
+
+      if (!mutated) {
+        return;
+      }
+
+      await invalidateSidebarQueries();
+    },
+    onError: () => {
+      setHasAttemptedDmriflesProjectSync(true);
     },
   });
   const showWorkspaceSetupState =
@@ -366,6 +404,32 @@ const ClientHome = () => {
     user,
   ]);
 
+  useEffect(() => {
+    if (
+      !user ||
+      !isDmriflesWorkspace ||
+      projectCollaborationUnavailable ||
+      hasAttemptedDmriflesProjectSync ||
+      syncDmriflesProjectsMutation.isPending ||
+      accessibleProjectsQuery.isLoading ||
+      accessibleJobsQuery.isLoading ||
+      partSummariesQuery.isLoading
+    ) {
+      return;
+    }
+
+    syncDmriflesProjectsMutation.mutate();
+  }, [
+    accessibleJobsQuery.isLoading,
+    accessibleProjectsQuery.isLoading,
+    hasAttemptedDmriflesProjectSync,
+    isDmriflesWorkspace,
+    partSummariesQuery.isLoading,
+    projectCollaborationUnavailable,
+    syncDmriflesProjectsMutation,
+    user,
+  ]);
+
   const openAuth = (mode: "signin" | "signup") => {
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.set("auth", mode);
@@ -381,7 +445,13 @@ const ClientHome = () => {
     }
 
     const importedBatch = resolveImportedBatch(job, summariesByJobId.get(job.id));
-    return importedBatch ? [...new Set([...projectIds, `seed-${importedBatch.toLowerCase()}`])] : projectIds;
+    if (!importedBatch) {
+      return projectIds;
+    }
+
+    const importedBatchProjectId =
+      findImportedBatchProjectId(importedBatch, remoteProjects) ?? buildSeedProjectId(importedBatch);
+    return [...new Set([...projectIds, importedBatchProjectId])];
   };
 
   const invalidateSidebarQueries = async () => {
@@ -475,7 +545,14 @@ const ClientHome = () => {
     try {
       await archiveJob(jobId);
       await invalidateSidebarQueries();
-      toast.success("Part archived.");
+      registerArchiveUndo({
+        label: "Part",
+        undo: async () => {
+          await unarchiveJob(jobId);
+          await invalidateSidebarQueries();
+        },
+      });
+      toast.success("Part archived. Press Ctrl+Z to undo.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to archive part.");
       throw error;
@@ -484,9 +561,33 @@ const ClientHome = () => {
 
   const handleArchiveProject = async (projectId: string) => {
     try {
+      if (projectId.startsWith("seed-")) {
+        const batchJobs =
+          buildDmriflesProjects(accessibleJobsQuery.data ?? [], summariesByJobId).find((project) => project.id === projectId)?.jobIds ?? [];
+
+        await Promise.all(batchJobs.map((jobId) => archiveJob(jobId)));
+        await invalidateSidebarQueries();
+        registerArchiveUndo({
+          label: "Project",
+          undo: async () => {
+            await Promise.all(batchJobs.map((jobId) => unarchiveJob(jobId)));
+            await invalidateSidebarQueries();
+          },
+        });
+        toast.success("Project archived. Press Ctrl+Z to undo.");
+        return;
+      }
+
       await archiveProject(projectId);
       await invalidateSidebarQueries();
-      toast.success("Project archived.");
+      registerArchiveUndo({
+        label: "Project",
+        undo: async () => {
+          await unarchiveProject(projectId);
+          await invalidateSidebarQueries();
+        },
+      });
+      toast.success("Project archived. Press Ctrl+Z to undo.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to archive project.");
       throw error;

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
-const sourceLogoPath = path.join(rootDir, "src", "assets", "logo.png");
+const sourceLogoPath = path.join(rootDir, "src", "assets", "favicon-mark.svg");
 const publicDir = path.join(rootDir, "public");
 
 const pngOutputs = [
@@ -21,10 +21,18 @@ function ensurePrerequisites() {
     throw new Error(`Source logo not found at ${sourceLogoPath}`);
   }
 
-  try {
-    execFileSync("sips", ["--version"], { stdio: "ignore" });
-  } catch {
-    throw new Error("The favicon generator requires the macOS `sips` command.");
+  if (path.extname(sourceLogoPath).toLowerCase() === ".svg") {
+    try {
+      execFileSync("qlmanage", ["-h"], { stdio: "ignore" });
+    } catch {
+      throw new Error("The favicon generator requires the macOS `qlmanage` command to rasterize SVG files.");
+    }
+  } else {
+    try {
+      execFileSync("sips", ["--version"], { stdio: "ignore" });
+    } catch {
+      throw new Error("The favicon generator requires the macOS `sips` command.");
+    }
   }
 
   fs.mkdirSync(publicDir, { recursive: true });
@@ -32,11 +40,19 @@ function ensurePrerequisites() {
 
 function resizePng({ size, fileName }) {
   const outputPath = path.join(publicDir, fileName);
-  execFileSync(
-    "sips",
-    ["-z", String(size), String(size), sourceLogoPath, "--out", outputPath],
-    { stdio: "ignore" },
-  );
+
+  if (path.extname(sourceLogoPath).toLowerCase() === ".svg") {
+    execFileSync("qlmanage", ["-t", "-s", String(size), "-o", publicDir, sourceLogoPath], { stdio: "ignore" });
+    const quickLookOutputPath = path.join(publicDir, `${path.basename(sourceLogoPath)}.png`);
+    fs.renameSync(quickLookOutputPath, outputPath);
+  } else {
+    execFileSync(
+      "sips",
+      ["-z", String(size), String(size), sourceLogoPath, "--out", outputPath],
+      { stdio: "ignore" },
+    );
+  }
+
   return outputPath;
 }
 

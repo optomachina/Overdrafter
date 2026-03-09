@@ -317,8 +317,44 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByText("Edit project")).toBeInTheDocument();
     expect(screen.getByText("Pin")).toBeInTheDocument();
     expect(screen.getByText("Edit project name")).toBeInTheDocument();
-    expect(screen.getByText("Archive project")).toBeInTheDocument();
+    expect(screen.getByText("Archive Project")).toBeInTheDocument();
     expect(screen.getByText("Dissolve project")).toBeInTheDocument();
+  });
+
+  it("shows Archive Project for seeded batch rows", () => {
+    renderSidebar({
+      projects: [
+        {
+          id: "seed-qb00001",
+          name: "QB00001",
+          partCount: 1,
+          isReadOnly: true,
+          roleLabel: "batch",
+        },
+      ],
+      jobs: [
+        makeJob({
+          id: "job-seeded",
+          project_id: null,
+          source: "spreadsheet_import:qb00001:1093-00010:a",
+        }),
+      ],
+      summariesByJobId: new Map([
+        [
+          "job-seeded",
+          makeSummary({
+            jobId: "job-seeded",
+            importedBatch: "QB00001",
+          }),
+        ],
+      ]),
+      resolveProjectIdsForJob: () => ["seed-qb00001"],
+      onArchiveProject: vi.fn(),
+    });
+
+    fireEvent.contextMenu(screen.getAllByText("QB00001")[0]!);
+
+    expect(screen.getByText("Archive Project")).toBeInTheDocument();
   });
 
   it("shows the archive action in the part context menu", () => {
@@ -355,7 +391,7 @@ describe("WorkspaceSidebar", () => {
       fireEvent.contextMenu(screen.getAllByText("Project One")[0]!);
     });
     act(() => {
-      fireEvent.click(screen.getByText("Archive project"));
+      fireEvent.click(screen.getByText("Archive Project"));
     });
     act(() => {
       fireEvent.click(screen.getByRole("button", { name: "Archive" }));

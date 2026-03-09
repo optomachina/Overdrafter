@@ -47,6 +47,7 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       resendSignupConfirmation: vi.fn(),
       setJobSelectedVendorQuoteOffer: vi.fn(),
       unarchiveJob: vi.fn(),
+      unarchiveProject: vi.fn(),
       unpinJob: vi.fn(),
       unpinProject: vi.fn(),
       updateProject: vi.fn(),
@@ -83,9 +84,13 @@ vi.mock("@/components/chat/WorkspaceSidebar", () => ({
   WorkspaceSidebar: ({
     onCreateJob,
     onCreateProject,
+    onArchiveProject,
+    onArchivePart,
   }: {
     onCreateJob?: () => void;
     onCreateProject?: () => void;
+    onArchiveProject?: (projectId: string) => void;
+    onArchivePart?: (jobId: string) => void;
   }) => (
     <div>
       <button type="button" onClick={onCreateJob}>
@@ -93,6 +98,15 @@ vi.mock("@/components/chat/WorkspaceSidebar", () => ({
       </button>
       <button type="button" onClick={onCreateProject}>
         New Project
+      </button>
+      <button type="button" onClick={() => onArchiveProject?.("project-1")}>
+        Archive Sidebar Project
+      </button>
+      <button type="button" onClick={() => onArchiveProject?.("seed-qb00001")}>
+        Archive Seeded Sidebar Project
+      </button>
+      <button type="button" onClick={() => onArchivePart?.("job-1")}>
+        Archive Sidebar Part
       </button>
     </div>
   ),
@@ -347,5 +361,146 @@ describe("top-level create actions", () => {
 
     expect(mockOpenFilePicker).toHaveBeenCalledTimes(2);
     expect(screen.queryByText("Create project")).not.toBeInTheDocument();
+  });
+
+  it("undoes archived sidebar projects with Ctrl+Z", async () => {
+    api.archiveProject.mockResolvedValue("project-1");
+    api.unarchiveProject.mockResolvedValue("project-1");
+
+    renderWithClient(<ClientHome />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive Sidebar Project" }));
+
+    await waitFor(() => {
+      expect(api.archiveProject).toHaveBeenCalledWith("project-1");
+    });
+
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(api.unarchiveProject).toHaveBeenCalledWith("project-1");
+    });
+  });
+
+  it("undoes archived sidebar parts with Ctrl+Z", async () => {
+    api.archiveJob.mockResolvedValue("job-1");
+    api.unarchiveJob.mockResolvedValue("job-1");
+
+    renderWithClient(<ClientHome />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive Sidebar Part" }));
+
+    await waitFor(() => {
+      expect(api.archiveJob).toHaveBeenCalledWith("job-1");
+    });
+
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(api.unarchiveJob).toHaveBeenCalledWith("job-1");
+    });
+  });
+
+  it("syncs DMRifles imported batches into real projects", async () => {
+    mockUseAppSession.mockReturnValue({
+      user: { id: "user-1", email: "dmrifles@gmail.com" },
+      activeMembership: {
+        id: "membership-1",
+        role: "client",
+        organizationId: "org-1",
+        organizationName: "Acme",
+        organizationSlug: "acme",
+      },
+      isLoading: false,
+      isVerifiedAuth: true,
+      signOut: vi.fn(),
+    });
+
+    api.fetchAccessibleProjects.mockResolvedValue([]);
+    api.fetchAccessibleJobs.mockResolvedValue([
+      makeJob({
+        id: "job-1",
+        project_id: null,
+        source: "spreadsheet_import:qb00001:1093-00001:a",
+      }),
+      makeJob({
+        id: "job-2",
+        project_id: null,
+        source: "spreadsheet_import:qb00001:1093-00002:a",
+      }),
+    ]);
+    api.fetchJobPartSummariesByJobIds.mockResolvedValue([
+      makeSummary({ jobId: "job-1", importedBatch: "QB00001" }),
+      makeSummary({ jobId: "job-2", importedBatch: "QB00001" }),
+    ]);
+    api.createProject.mockResolvedValue("project-qb1");
+    api.assignJobToProject.mockResolvedValue("project-qb1");
+
+    renderWithClient(<ClientHome />);
+
+    await waitFor(() => {
+      expect(api.createProject).toHaveBeenCalledWith({ name: "QB00001" });
+    });
+
+    expect(api.assignJobToProject).toHaveBeenCalledWith({ jobId: "job-1", projectId: "project-qb1" });
+    expect(api.assignJobToProject).toHaveBeenCalledWith({ jobId: "job-2", projectId: "project-qb1" });
+  });
+
+  it("archives seeded sidebar projects as a batch and undoes with Ctrl+Z", async () => {
+    mockUseAppSession.mockReturnValue({
+      user: { id: "user-1", email: "dmrifles@gmail.com" },
+      activeMembership: {
+        id: "membership-1",
+        role: "client",
+        organizationId: "org-1",
+        organizationName: "Acme",
+        organizationSlug: "acme",
+      },
+      isLoading: false,
+      isVerifiedAuth: true,
+      signOut: vi.fn(),
+    });
+
+    api.fetchAccessibleProjects.mockResolvedValue([]);
+    api.fetchAccessibleJobs.mockResolvedValue([
+      makeJob({
+        id: "job-1",
+        project_id: null,
+        source: "spreadsheet_import:qb00001:1093-00001:a",
+      }),
+      makeJob({
+        id: "job-2",
+        project_id: null,
+        source: "spreadsheet_import:qb00001:1093-00002:a",
+      }),
+    ]);
+    api.fetchJobPartSummariesByJobIds.mockResolvedValue([
+      makeSummary({ jobId: "job-1", importedBatch: "QB00001" }),
+      makeSummary({ jobId: "job-2", importedBatch: "QB00001" }),
+    ]);
+    api.createProject.mockResolvedValue("project-qb1");
+    api.assignJobToProject.mockResolvedValue("project-qb1");
+    api.archiveJob.mockResolvedValue("job-1");
+    api.unarchiveJob.mockResolvedValue("job-1");
+
+    renderWithClient(<ClientHome />);
+
+    await waitFor(() => {
+      expect(api.createProject).toHaveBeenCalledWith({ name: "QB00001" });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive Seeded Sidebar Project" }));
+
+    await waitFor(() => {
+      expect(api.archiveJob).toHaveBeenCalledWith("job-1");
+      expect(api.archiveJob).toHaveBeenCalledWith("job-2");
+    });
+
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(api.unarchiveJob).toHaveBeenCalledWith("job-1");
+      expect(api.unarchiveJob).toHaveBeenCalledWith("job-2");
+    });
   });
 });

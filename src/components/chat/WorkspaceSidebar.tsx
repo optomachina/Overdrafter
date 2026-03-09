@@ -948,13 +948,13 @@ export function WorkspaceSidebar({
                 Edit project name
               </ContextMenuItem>
             ) : null}
-            {(project.canRename ?? project.canManage) && onArchiveProject ? (
+            {onArchiveProject ? (
               <ContextMenuItem
                 onSelect={() => {
                   setProjectToArchive(project);
                 }}
               >
-                Archive project
+                Archive Project
               </ContextMenuItem>
             ) : null}
             {(project.canDelete ?? project.canManage) && onDissolveProject ? (
@@ -1173,7 +1173,9 @@ export function WorkspaceSidebar({
             <DialogTitle>Archive project</DialogTitle>
             <DialogDescription className="text-white/55">
               {projectToArchive
-                ? `Archive ${projectToArchive.name}. Parts only in this project will also be archived.`
+                ? projectToArchive.id.startsWith("seed-")
+                  ? `Archive all parts in ${projectToArchive.name}. This batch group will disappear once its parts are archived.`
+                  : `Archive ${projectToArchive.name}. Parts only in this project will also be archived.`
                 : "Archive this project."}
             </DialogDescription>
           </DialogHeader>

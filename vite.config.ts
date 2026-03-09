@@ -41,8 +41,9 @@ function readGitCommitCount() {
 const productionBaselineCommitCount =
   parseCommitCount(process.env.APP_VERSION_PRODUCTION_BASELINE_COMMIT_COUNT) ??
   DEFAULT_PRODUCTION_BASELINE_COMMIT_COUNT;
+const faviconSourcePath = path.resolve(__dirname, "src/assets/favicon-mark.svg");
 const faviconVersion = createHash("sha1")
-  .update(fs.readFileSync(path.resolve(__dirname, "src/assets/logo.png")))
+  .update(fs.readFileSync(faviconSourcePath))
   .digest("hex")
   .slice(0, 8);
 

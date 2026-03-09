@@ -159,6 +159,7 @@ const PROJECT_COLLABORATION_IDENTIFIERS = [
   "api_archive_job",
   "api_unarchive_job",
   "api_delete_archived_job",
+  "api_unarchive_project",
   "api_create_project",
   "api_update_project",
   "api_delete_project",
@@ -1610,6 +1611,14 @@ export async function deleteProject(projectId: string): Promise<string> {
 
 export async function archiveProject(projectId: string): Promise<string> {
   const { data, error } = await supabase.rpc("api_archive_project", {
+    p_project_id: projectId,
+  });
+
+  return ensureProjectCollaborationData(data, error);
+}
+
+export async function unarchiveProject(projectId: string): Promise<string> {
+  const { data, error } = await supabase.rpc("api_unarchive_project", {
     p_project_id: projectId,
   });
 
