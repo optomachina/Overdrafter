@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900">
+  <rect width="1200" height="900" fill="#f8fafc" />
+  <rect x="72" y="72" width="1056" height="756" rx="24" fill="white" stroke="#cbd5e1" stroke-width="4" />
+  <text x="120" y="150" fill="#0f172a" font-family="Helvetica, Arial, sans-serif" font-size="42" font-weight="700">
+    FX-100 / FX-101 Fixture Drawing
+  </text>
+  <text x="120" y="196" fill="#475569" font-family="Helvetica, Arial, sans-serif" font-size="24">
+    Demo bracket main view
+  </text>
+  <rect x="170" y="250" width="340" height="220" rx="16" fill="#dbeafe" stroke="#1d4ed8" stroke-width="6" />
+  <rect x="455" y="250" width="210" height="220" rx="16" fill="#e2e8f0" stroke="#334155" stroke-width="6" />
+  <circle cx="620" cy="310" r="28" fill="white" stroke="#334155" stroke-width="6" />
+  <circle cx="620" cy="410" r="28" fill="white" stroke="#334155" stroke-width="6" />
+  <line x1="170" y1="510" x2="940" y2="510" stroke="#64748b" stroke-width="4" stroke-dasharray="18 18" />
+  <line x1="170" y1="560" x2="940" y2="560" stroke="#64748b" stroke-width="4" />
+  <line x1="170" y1="250" x2="170" y2="470" stroke="#ef4444" stroke-width="4" marker-start="url(#arrow)" marker-end="url(#arrow)" />
+  <line x1="170" y1="510" x2="510" y2="510" stroke="#ef4444" stroke-width="4" marker-start="url(#arrow)" marker-end="url(#arrow)" />
+  <text x="192" y="364" fill="#ef4444" font-family="Helvetica, Arial, sans-serif" font-size="26">2.000</text>
+  <text x="300" y="545" fill="#ef4444" font-family="Helvetica, Arial, sans-serif" font-size="26">3.250</text>
+  <text x="120" y="660" fill="#0f172a" font-family="Helvetica, Arial, sans-serif" font-size="28" font-weight="700">Notes</text>
+  <text x="120" y="708" fill="#334155" font-family="Helvetica, Arial, sans-serif" font-size="22">1. Material: 6061-T6 aluminum</text>
+  <text x="120" y="744" fill="#334155" font-family="Helvetica, Arial, sans-serif" font-size="22">2. Finish: As machined unless otherwise specified</text>
+  <text x="120" y="780" fill="#334155" font-family="Helvetica, Arial, sans-serif" font-size="22">3. Break sharp edges .010 max</text>
+  <text x="1040" y="790" fill="#475569" font-family="Helvetica, Arial, sans-serif" font-size="26">Page 1</text>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#ef4444" />
+    </marker>
+  </defs>
+</svg>

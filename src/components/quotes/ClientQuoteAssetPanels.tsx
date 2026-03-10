@@ -4,19 +4,14 @@ import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { Button } from "@/components/ui/button";
 import type { DrawingPreviewData, JobFileRecord } from "@/features/quotes/types";
 import { createCadPreviewSourceFromJobFile, isStepPreviewableFile } from "@/lib/cad-preview";
-import { supabase } from "@/integrations/supabase/client";
+import { downloadStoredFileBlob } from "@/lib/stored-file";
 import { cn } from "@/lib/utils";
 
 type DownloadableFile = Pick<JobFileRecord, "storage_bucket" | "storage_path" | "original_name">;
 
 async function downloadStoredFile(file: DownloadableFile) {
-  const { data, error } = await supabase.storage.from(file.storage_bucket).download(file.storage_path);
-
-  if (error || !data) {
-    throw error ?? new Error(`Unable to download ${file.original_name}.`);
-  }
-
-  const url = URL.createObjectURL(data);
+  const blob = await downloadStoredFileBlob(file);
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = file.original_name;
@@ -56,13 +51,12 @@ export function ClientDrawingPreviewPanel({
 
     void Promise.all(
       drawingPreview.pages.map(async (page) => {
-        const { data, error } = await supabase.storage.from(page.storageBucket).download(page.storagePath);
-
-        if (error || !data) {
-          throw error ?? new Error(`Unable to load ${drawingFile.original_name}.`);
-        }
-
-        const url = URL.createObjectURL(data);
+        const blob = await downloadStoredFileBlob({
+          storage_bucket: page.storageBucket,
+          storage_path: page.storagePath,
+          original_name: drawingFile.original_name,
+        });
+        const url = URL.createObjectURL(blob);
         objectUrls.push(url);
 
         return {

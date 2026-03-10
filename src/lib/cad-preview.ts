@@ -1,7 +1,7 @@
 import type { OcctReadResult } from "occt-import-js";
 import type { JobFileRecord } from "@/features/quotes/types";
-import { supabase } from "@/integrations/supabase/client";
 import { getOcctImportModule } from "@/lib/occt-import";
+import { downloadStoredFileBytes } from "@/lib/stored-file";
 
 const STEP_FILE_EXTENSIONS = new Set(["step", "stp"]);
 
@@ -38,20 +38,7 @@ export function createCadPreviewSourceFromJobFile(
   return {
     cacheKey,
     fileName: file.original_name,
-    loadStepBuffer: () =>
-      getOrCreateCacheEntry(cadFileBufferCache, cacheKey, async () => {
-        const { data, error } = await supabase.storage.from(file.storage_bucket).download(file.storage_path);
-
-        if (error) {
-          throw error;
-        }
-
-        if (!data) {
-          throw new Error(`Stored CAD file ${file.original_name} could not be downloaded.`);
-        }
-
-        return new Uint8Array(await data.arrayBuffer());
-      }),
+    loadStepBuffer: () => getOrCreateCacheEntry(cadFileBufferCache, cacheKey, () => downloadStoredFileBytes(file)),
   };
 }
 

@@ -115,6 +115,150 @@ Optional worker environment variables:
 - `WORKER_NAME=quote-worker-1`
 - `WORKER_POLL_INTERVAL_MS=5000`
 
+## Debugging Workflows
+
+Use the lane that matches the problem you are chasing:
+
+- production-realistic: real local Supabase auth plus seeded app data
+- fast E2E: Playwright with saved authenticated sessions
+- UI tuning: dev-only fixture mode for stable client workspace states
+
+### Quickstart
+
+Production-realistic local setup:
+
+```bash
+npm run db:start
+npm run db:reset
+npm run seed:dev
+npm run dev
+```
+
+Docker note:
+
+- `npm run db:start` and `npm run db:reset` require Docker Desktop because local Supabase runs in Docker
+- if `supabase start` fails with `Cannot connect to the Docker daemon`, start Docker Desktop first
+- if you do not want to use Docker, use fixture mode instead
+
+Typical usage:
+
+- first local setup or after Docker restart:
+
+```bash
+npm run db:start
+npm run db:reset
+npm run seed:dev
+npm run dev
+```
+
+- normal frontend work when local Supabase is already running and seeded:
+
+```bash
+npm run dev
+```
+
+- reset local data back to the known demo state:
+
+```bash
+npm run db:reset
+npm run seed:dev
+npm run dev
+```
+
+Seeded local users:
+
+- `client.demo@overdrafter.local`
+- `estimator.demo@overdrafter.local`
+- `admin.demo@overdrafter.local`
+- password: `Overdrafter123!`
+
+Fast E2E setup:
+
+```bash
+npm run e2e:prepare
+npm run e2e
+```
+
+Notes:
+
+- `npm run e2e:prepare` resets the local database, reseeds demo data, and writes saved auth sessions to `playwright/.auth/`
+- Playwright starts its own dev server on `http://127.0.0.1:4173`
+- failure artifacts are written to `test-results/` and `playwright-report/`
+
+Fixture mode:
+
+```bash
+VITE_ENABLE_FIXTURE_MODE=1 npm run dev
+```
+
+Then open one of these URLs:
+
+- `http://127.0.0.1:5173/?fixture=landing-anonymous&debug=1`
+- `http://127.0.0.1:5173/?fixture=client-empty&debug=1`
+- `http://127.0.0.1:5173/parts/fx-job-needs-attention?fixture=client-needs-attention&debug=1`
+- `http://127.0.0.1:5173/projects/fx-project-quoted?fixture=client-quoted&debug=1`
+- `http://127.0.0.1:5173/projects/fx-project-published/review?fixture=client-published&debug=1`
+
+The floating `Fixtures` launcher is only available in dev/test when `VITE_ENABLE_FIXTURE_MODE=1`.
+
+For a longer walkthrough, see `docs/debugging-workflows.md`.
+
+### Which Lane To Use
+
+- use production-realistic when you need real auth, real memberships, real Supabase queries, or seeded demo data
+- use fast E2E when you want repeatable browser coverage with saved sessions
+- use fixture mode when you want to tune client workspace UI without Docker or Supabase state
+
+### Codex Handoff Snippet
+
+Use this snippet in other Codex threads when you want the agent to work with the debugging workflows correctly:
+
+```md
+This repo has three supported debugging workflows. Use the lightest one that fits the task.
+
+1. Production-realistic local workflow
+- Requires Docker Desktop and local Supabase.
+- Commands:
+  - `npm run db:start`
+  - `npm run db:reset`
+  - `npm run seed:dev`
+  - `npm run dev`
+- Seeded users:
+  - `client.demo@overdrafter.local`
+  - `estimator.demo@overdrafter.local`
+  - `admin.demo@overdrafter.local`
+- Shared password: `Overdrafter123!`
+- Use this lane for real auth, RLS, memberships, seeded quote data, and true Supabase-backed behavior.
+
+2. Fast E2E workflow
+- Commands:
+  - `npm run e2e:prepare`
+  - `npm run e2e`
+- `e2e:prepare` resets and reseeds local data, then writes Playwright auth state under `playwright/.auth/`.
+- Playwright captures trace, video, screenshot, and diagnostics JSON on failure.
+
+3. Fixture-mode workflow
+- Does not require Docker or Supabase data.
+- Command:
+  - `VITE_ENABLE_FIXTURE_MODE=1 npm run dev`
+- Use normal app URLs with `?fixture=<scenarioId>&debug=1`.
+- Supported scenarios:
+  - `landing-anonymous`
+  - `client-empty`
+  - `client-needs-attention`
+  - `client-quoted`
+  - `client-published`
+- Use this lane for client workspace UI tuning and deterministic local repros.
+
+Diagnostics:
+- Add `?debug=1` to local URLs when debugging.
+- Diagnostics can be read from `window.__OVERDRAFTER_DEBUG__?.getSnapshot()` or `window.__OVERDRAFTER_DEBUG__?.exportJson()`.
+
+Default rule:
+- Do not tell me to run `db:start`, `db:reset`, and `seed:dev` every time.
+- If Docker is unavailable, prefer fixture mode unless the task explicitly requires real Supabase behavior.
+```
+
 ## Current State
 
 The portal and Supabase foundation are implemented. The worker is executable in simulation mode and structured for live Playwright-based vendor adapters, but live vendor automation and production-grade extraction still need to be filled in.

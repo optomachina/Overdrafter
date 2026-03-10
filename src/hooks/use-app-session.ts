@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "react-router-dom";
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
+import { getFixtureSessionDataForSearch } from "@/features/quotes/client-workspace-fixtures";
 import { fetchAppSessionData } from "@/features/quotes/api";
 import { supabase } from "@/integrations/supabase/client";
 import { hasVerifiedAuth } from "@/lib/auth-status";
@@ -51,9 +53,19 @@ function removeLocalSupabaseSession() {
 }
 
 export function useAppSession() {
+  const location = useLocation();
   const queryClient = useQueryClient();
+  const fixtureSession = getFixtureSessionDataForSearch(location.search);
+  const isFixtureSession = fixtureSession !== null;
+  const sessionQueryKey = isFixtureSession
+    ? [...APP_SESSION_QUERY_KEY, "fixture", location.pathname, location.search]
+    : APP_SESSION_QUERY_KEY;
 
   useEffect(() => {
+    if (isFixtureSession) {
+      return;
+    }
+
     let refreshTimeoutId: number | null = null;
 
     const scheduleSessionRefresh = () => {
@@ -110,16 +122,23 @@ export function useAppSession() {
 
       subscription.unsubscribe();
     };
-  }, [queryClient]);
+  }, [isFixtureSession, queryClient]);
 
   const sessionQuery = useQuery({
-    queryKey: APP_SESSION_QUERY_KEY,
-    queryFn: fetchAppSessionData,
+    queryKey: sessionQueryKey,
+    queryFn: () => (fixtureSession ? Promise.resolve(fixtureSession) : fetchAppSessionData()),
+    initialData: fixtureSession ?? undefined,
+    staleTime: fixtureSession ? Infinity : 0,
   });
 
   const memberships = sessionQuery.data?.memberships ?? EMPTY_MEMBERSHIPS;
 
   const signOut = async () => {
+    if (isFixtureSession) {
+      queryClient.setQueryData(sessionQueryKey, EMPTY_APP_SESSION);
+      return;
+    }
+
     void queryClient.cancelQueries({ queryKey: APP_SESSION_QUERY_KEY });
     const accessToken = getStoredAccessToken();
 
