@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import { PartContextMenuActions } from "@/components/chat/PartActionsMenu";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -87,6 +88,7 @@ type WorkspaceSidebarProps = {
   onRemovePartFromProject?: (jobId: string, projectId: string) => Promise<void> | void;
   onCreateProjectFromSelection?: (jobIds: string[]) => Promise<void> | void;
   onRenameProject?: (projectId: string, name: string) => Promise<void> | void;
+  onRenamePart?: (jobId: string, name: string) => Promise<void> | void;
   onDeleteProject?: (projectId: string) => Promise<void> | void;
   onArchivePart?: (jobId: string) => Promise<void> | void;
   onArchiveProject?: (projectId: string) => Promise<void> | void;
@@ -293,6 +295,7 @@ export function WorkspaceSidebar({
   onRemovePartFromProject,
   onCreateProjectFromSelection,
   onRenameProject,
+  onRenamePart,
   onArchivePart,
   onArchiveProject,
   onDissolveProject,
@@ -318,10 +321,12 @@ export function WorkspaceSidebar({
   const [pendingMovePartIds, setPendingMovePartIds] = useState<string[]>([]);
   const [pendingArchivePartIds, setPendingArchivePartIds] = useState<string[]>([]);
   const [projectToRename, setProjectToRename] = useState<WorkspaceSidebarProject | null>(null);
+  const [partToRename, setPartToRename] = useState<{ jobId: string; currentName: string } | null>(null);
   const [projectToArchive, setProjectToArchive] = useState<WorkspaceSidebarProject | null>(null);
   const [projectToDissolve, setProjectToDissolve] = useState<WorkspaceSidebarProject | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [isRenamingProject, setIsRenamingProject] = useState(false);
+  const [isRenamingPart, setIsRenamingPart] = useState(false);
   const [isArchivingProject, setIsArchivingProject] = useState(false);
   const [isDissolvingProject, setIsDissolvingProject] = useState(false);
   const [isCreatingProjectFromSelection, setIsCreatingProjectFromSelection] = useState(false);
@@ -756,103 +761,65 @@ export function WorkspaceSidebar({
             ) : null}
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="chatgpt-shell w-56 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">
-          {showBatchAction ? (
-            <ContextMenuItem
-              disabled={!onCreateProjectFromSelection || isCreatingProjectFromSelection}
-              onSelect={() => {
-                void createProjectFromSelection(contextSelection);
-              }}
-            >
-              Create new project
-            </ContextMenuItem>
-          ) : (
-            <>
-              <ContextMenuItem onSelect={() => onSelectPart(job.id)}>Edit part</ContextMenuItem>
-
-              {onAssignPartToProject ? (
-                <ContextMenuSub>
-                  <ContextMenuSubTrigger inset>Add to project</ContextMenuSubTrigger>
-                  <ContextMenuSubContent className="chatgpt-shell max-h-[280px] w-56 overflow-y-auto rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">
-                    {addableProjects.length === 0 ? (
-                      <ContextMenuItem disabled>No other projects available</ContextMenuItem>
-                    ) : (
-                      addableProjects.map((project) => (
-                        <ContextMenuItem
-                          key={project.id}
-                          disabled={isMoveBusy}
-                          onSelect={() => {
-                            void withBusyPartMove(job.id, async () => {
-                              await onAssignPartToProject(job.id, project.id);
-                            });
-                          }}
-                        >
-                          {project.name}
-                        </ContextMenuItem>
-                      ))
-                    )}
-                  </ContextMenuSubContent>
-                </ContextMenuSub>
-              ) : null}
-
-              {onRemovePartFromProject && removableProjectIds.length > 0 ? (
-                removableProjectIds.length === 1 ? (
-                  <ContextMenuItem
-                    disabled={isMoveBusy}
-                    onSelect={() => {
-                      void withBusyPartMove(job.id, async () => {
-                        await onRemovePartFromProject(job.id, removableProjectIds[0]!);
-                      });
-                    }}
-                  >
-                    {contextProjectId ? "Remove from this project" : "Remove from project"}
-                  </ContextMenuItem>
-                ) : (
-                  <ContextMenuSub>
-                    <ContextMenuSubTrigger inset>Remove from project</ContextMenuSubTrigger>
-                    <ContextMenuSubContent className="chatgpt-shell max-h-[280px] w-56 overflow-y-auto rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">
-                      {removableProjectIds.map((projectId) => (
-                        <ContextMenuItem
-                          key={projectId}
-                          disabled={isMoveBusy}
-                          onSelect={() => {
-                            void withBusyPartMove(job.id, async () => {
-                              await onRemovePartFromProject(job.id, projectId);
-                            });
-                          }}
-                        >
-                          {projectsById.get(projectId)?.name ?? "Project"}
-                        </ContextMenuItem>
-                      ))}
-                    </ContextMenuSubContent>
-                  </ContextMenuSub>
-                )
-              ) : null}
-
-              <ContextMenuSeparator />
-              {onArchivePart ? (
-                <ContextMenuItem
-                  disabled={isArchiveBusy}
-                  onSelect={() => {
-                    void withBusyPartArchive(job.id, async () => {
-                      await onArchivePart(job.id);
-                    });
-                  }}
-                >
-                  Archive part
-                </ContextMenuItem>
-              ) : null}
-              <ContextMenuItem
-                disabled={isPinBusy}
-                onSelect={() => {
-                  void togglePartPin(job.id);
-                }}
-              >
-                {isPinned ? "Unpin" : "Pin"}
-              </ContextMenuItem>
-            </>
-          )}
-        </ContextMenuContent>
+        <PartContextMenuActions
+          showBatchAction={showBatchAction}
+          isCreateProjectDisabled={!onCreateProjectFromSelection || isCreatingProjectFromSelection}
+          onCreateProjectFromSelection={() => {
+            void createProjectFromSelection(contextSelection);
+          }}
+          onEditPart={() => onSelectPart(job.id)}
+          onRenamePart={
+            onRenamePart
+              ? () => {
+                  setPartToRename({
+                    jobId: job.id,
+                    currentName: summary?.partNumber ?? presentation.partNumber ?? presentation.title,
+                  });
+                  setRenameValue(summary?.partNumber ?? presentation.partNumber ?? presentation.title);
+                }
+              : undefined
+          }
+          addableProjects={addableProjects.map((project) => ({ id: project.id, name: project.name }))}
+          removableProjects={removableProjectIds.map((projectId) => ({
+            id: projectId,
+            name: projectsById.get(projectId)?.name ?? "Project",
+          }))}
+          singleRemoveLabel={contextProjectId ? "Remove from this project" : "Remove from project"}
+          isMoveBusy={isMoveBusy}
+          onAddToProject={
+            onAssignPartToProject
+              ? (projectId) => {
+                  void withBusyPartMove(job.id, async () => {
+                    await onAssignPartToProject(job.id, projectId);
+                  });
+                }
+              : undefined
+          }
+          onRemoveFromProject={
+            onRemovePartFromProject
+              ? (projectId) => {
+                  void withBusyPartMove(job.id, async () => {
+                    await onRemovePartFromProject(job.id, projectId);
+                  });
+                }
+              : undefined
+          }
+          onArchivePart={
+            onArchivePart
+              ? () => {
+                  void withBusyPartArchive(job.id, async () => {
+                    await onArchivePart(job.id);
+                  });
+                }
+              : undefined
+          }
+          isArchiveBusy={isArchiveBusy}
+          pinLabel={isPinned ? "Unpin" : "Pin"}
+          onTogglePin={() => {
+            void togglePartPin(job.id);
+          }}
+          isPinBusy={isPinBusy}
+        />
       </ContextMenu>
     );
   };
@@ -1156,6 +1123,46 @@ export function WorkspaceSidebar({
             // Parent handlers report errors.
           } finally {
             setIsRenamingProject(false);
+          }
+        }}
+      />
+
+      <ProjectNameDialog
+        open={Boolean(partToRename)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPartToRename(null);
+            setRenameValue("");
+          }
+        }}
+        title="Rename part"
+        description="Update the part name shown throughout your workspace."
+        value={renameValue}
+        onValueChange={setRenameValue}
+        submitLabel="Save"
+        placeholder="Part name"
+        isPending={isRenamingPart}
+        isSubmitDisabled={
+          !partToRename ||
+          !onRenamePart ||
+          renameValue.trim().length === 0 ||
+          renameValue.trim() === partToRename.currentName
+        }
+        onSubmit={async () => {
+          if (!partToRename || !onRenamePart) {
+            return;
+          }
+
+          setIsRenamingPart(true);
+
+          try {
+            await onRenamePart(partToRename.jobId, renameValue.trim());
+            setPartToRename(null);
+            setRenameValue("");
+          } catch {
+            // Parent handlers report errors.
+          } finally {
+            setIsRenamingPart(false);
           }
         }}
       />

@@ -357,14 +357,21 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByText("Archive Project")).toBeInTheDocument();
   });
 
-  it("shows the archive action in the part context menu", () => {
+  it("shows the shared part actions in the part context menu", () => {
     renderSidebar({
+      onRenamePart: vi.fn(),
+      onAssignPartToProject: vi.fn(),
+      onRemovePartFromProject: vi.fn(),
       onArchivePart: vi.fn(),
     });
 
     fireEvent.contextMenu(screen.getByText(/1093-00003/i));
 
+    expect(screen.getByText("Edit part")).toBeInTheDocument();
+    expect(screen.getByText("Rename part")).toBeInTheDocument();
+    expect(screen.getByText("Add to project")).toBeInTheDocument();
     expect(screen.getByText("Archive part")).toBeInTheDocument();
+    expect(screen.getByText("Pin")).toBeInTheDocument();
   });
 
   it("keeps part pinning in the context menu only", () => {
