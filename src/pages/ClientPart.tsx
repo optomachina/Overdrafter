@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChevronDown, FolderInput, Loader2, MoveRight, PlusSquare, Search, Upload, XCircle } from "lucide-react";
+import { ChevronDown, FolderInput, Loader2, MoreHorizontal, MoveRight, PlusSquare, Search, Upload, XCircle } from "lucide-react";
 import { toast } from "sonner";
+import { PartDropdownMenuActions } from "@/components/chat/PartActionsMenu";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
@@ -15,6 +16,7 @@ import {
 import { ClientQuoteComparisonChart } from "@/components/quotes/ClientQuoteComparisonChart";
 import { DrawingPreviewDialog } from "@/components/quotes/DrawingPreviewDialog";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
+import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import {
   WorkspaceSidebar,
   type WorkspaceSidebarProject,
@@ -30,6 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useAppSession } from "@/hooks/use-app-session";
 import {
   archiveJob,
@@ -63,7 +66,7 @@ import {
   uploadFilesToJob,
 } from "@/features/quotes/api";
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
-import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import { formatPartLabel, getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {
   buildDmriflesProjects,
   buildSeedProjectId,
@@ -114,6 +117,12 @@ const ClientPart = () => {
   const [excludedVendorKeys, setExcludedVendorKeys] = useState<VendorName[]>([]);
   const [requestDraft, setRequestDraft] = useState<ClientPartRequestUpdateInput | null>(null);
   const [quoteQuantityInput, setQuoteQuantityInput] = useState("");
+  const [partRenameValue, setPartRenameValue] = useState("");
+  const [isPartOptionsOpen, setIsPartOptionsOpen] = useState(false);
+  const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [isRenamingPart, setIsRenamingPart] = useState(false);
+  const [isPartPinBusy, setIsPartPinBusy] = useState(false);
+  const [isPartArchiveBusy, setIsPartArchiveBusy] = useState(false);
   const normalizedEmail = user?.email?.toLowerCase() ?? "";
   const isDmriflesWorkspace = normalizedEmail === DMRIFLES_EMAIL;
   const registerArchiveUndo = useArchiveUndo();
@@ -367,6 +376,20 @@ const ClientPart = () => {
       toast.error(error.message || "Failed to update request details.");
     },
   });
+  const renamePartMutation = useMutation({
+    mutationFn: (input: ClientPartRequestUpdateInput) => updateClientPartRequest(input),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["part-detail", jobId] }),
+        queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
+        queryClient.invalidateQueries({ queryKey: ["client-jobs"] }),
+      ]);
+      toast.success("Part renamed.");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to rename part.");
+    },
+  });
   const resolveSidebarProjectIdsForJob = (job: { id: string; project_id: string | null; source: string }) => {
     const projectIds = [...new Set([...(sidebarProjectIdsByJobId.get(job.id) ?? []), ...(job.project_id ? [job.project_id] : [])])];
 
@@ -439,6 +462,21 @@ const ClientPart = () => {
     }
   };
 
+  const handleToggleCurrentPartPin = async () => {
+    setIsPartPinBusy(true);
+
+    try {
+      if ((sidebarPinsQuery.data?.jobIds ?? []).includes(jobId)) {
+        await handleUnpinPart(jobId);
+        return;
+      }
+
+      await handlePinPart(jobId);
+    } finally {
+      setIsPartPinBusy(false);
+    }
+  };
+
   const handleAssignPartToProject = async (targetJobId: string, projectId: string) => {
     try {
       await assignJobToProject({ jobId: targetJobId, projectId });
@@ -469,6 +507,33 @@ const ClientPart = () => {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to update project.");
       throw error;
+    }
+  };
+
+  const handleRenamePart = async (targetJobId: string, name: string) => {
+    const baseDraft = requestDraft ?? fallbackRequestDraft;
+
+    if (!baseDraft || targetJobId !== jobId) {
+      return;
+    }
+
+    const payload = {
+      ...baseDraft,
+      partNumber: name,
+    } satisfies ClientPartRequestUpdateInput;
+
+    setIsRenamingPart(true);
+
+    try {
+      setRequestDraft(payload);
+      await renamePartMutation.mutateAsync(payload);
+      setPartRenameValue(name);
+      setShowRenameDialog(false);
+    } catch (error) {
+      setRequestDraft(baseDraft);
+      throw error;
+    } finally {
+      setIsRenamingPart(false);
     }
   };
 
@@ -693,6 +758,15 @@ const ClientPart = () => {
     partDetail?.part,
   ]);
   const effectiveRequestDraft = requestDraft ?? fallbackRequestDraft;
+  const currentPartName = effectiveRequestDraft?.partNumber ?? summary?.partNumber ?? presentation?.partNumber ?? presentation?.title ?? "Part";
+  const currentRevision = effectiveRequestDraft?.revision ?? summary?.revision ?? null;
+  const displayPartTitle = partDetail?.job
+    ? formatPartLabel(
+        effectiveRequestDraft?.partNumber ?? summary?.partNumber ?? presentation?.partNumber ?? null,
+        currentRevision,
+        partDetail.job.title,
+      )
+    : presentation?.title ?? currentPartName;
   const requestQuantities = useMemo(
     () =>
       parseRequestedQuoteQuantitiesInput(
@@ -822,6 +896,9 @@ const ClientPart = () => {
     setActivePreset(null);
     setRequestDraft(null);
     setQuoteQuantityInput("");
+    setPartRenameValue("");
+    setShowRenameDialog(false);
+    setIsPartOptionsOpen(false);
   }, [jobId]);
 
   useEffect(() => {
@@ -831,7 +908,8 @@ const ClientPart = () => {
 
     setRequestDraft(fallbackRequestDraft);
     setQuoteQuantityInput(formatRequestedQuoteQuantitiesInput(fallbackRequestDraft.requestedQuoteQuantities));
-  }, [fallbackRequestDraft]);
+    setPartRenameValue(fallbackRequestDraft.partNumber ?? presentation?.title ?? "");
+  }, [fallbackRequestDraft, presentation?.title]);
 
   useEffect(() => {
     let isActive = true;
@@ -1004,6 +1082,7 @@ const ClientPart = () => {
             onRemovePartFromProject={isDmriflesWorkspace ? undefined : handleRemovePartFromProject}
             onCreateProjectFromSelection={projectCollaborationUnavailable ? undefined : handleCreateProjectFromSelection}
             onRenameProject={handleRenameProject}
+            onRenamePart={handleRenamePart}
             onArchivePart={handleArchivePart}
             onArchiveProject={handleArchiveProject}
             onDissolveProject={handleDissolveProject}
@@ -1036,7 +1115,7 @@ const ClientPart = () => {
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-white/35">Part workspace</p>
-                  <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">{presentation.title}</h1>
+                  <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">{displayPartTitle}</h1>
                   <p className="mt-2 max-w-3xl text-sm text-white/55">{presentation.description}</p>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Badge className="border border-white/10 bg-white/6 text-white/75">
@@ -1077,7 +1156,7 @@ const ClientPart = () => {
                   />
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {revisionOptions.length > 1 ? (
                     <>
                       <Button
@@ -1152,6 +1231,63 @@ const ClientPart = () => {
                     Review order
                     <MoveRight className="ml-2 h-4 w-4" />
                   </Button>
+                  <DropdownMenu open={isPartOptionsOpen} onOpenChange={setIsPartOptionsOpen}>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        aria-label="Part options"
+                        className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                      >
+                        <MoreHorizontal className="mr-2 h-4 w-4" />
+                        Options
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <PartDropdownMenuActions
+                      onEditPart={() => navigate(`/parts/${jobId}`)}
+                      onRenamePart={() => {
+                        setPartRenameValue(currentPartName);
+                        setShowRenameDialog(true);
+                        setIsPartOptionsOpen(false);
+                      }}
+                      addableProjects={currentProjectOptions
+                        .filter((project) => !(partDetail?.projectIds ?? []).includes(project.project.id))
+                        .map((project) => ({ id: project.project.id, name: project.project.name }))}
+                      removableProjects={currentProjectOptions
+                        .filter((project) => (partDetail?.projectIds ?? []).includes(project.project.id))
+                        .map((project) => ({ id: project.project.id, name: project.project.name }))}
+                      singleRemoveLabel="Remove from project"
+                      isMoveBusy={assignJobMutation.isPending || removeJobMutation.isPending}
+                      onAddToProject={
+                        !isDmriflesWorkspace && !projectCollaborationUnavailable
+                          ? (projectId) => {
+                              assignJobMutation.mutate(projectId);
+                              setIsPartOptionsOpen(false);
+                            }
+                          : undefined
+                      }
+                      onRemoveFromProject={
+                        !isDmriflesWorkspace && !projectCollaborationUnavailable
+                          ? (projectId) => {
+                              removeJobMutation.mutate(projectId);
+                              setIsPartOptionsOpen(false);
+                            }
+                          : undefined
+                      }
+                      onArchivePart={() => {
+                        setIsPartOptionsOpen(false);
+                        setIsPartArchiveBusy(true);
+                        void handleArchivePart(jobId).finally(() => setIsPartArchiveBusy(false));
+                      }}
+                      isArchiveBusy={isPartArchiveBusy}
+                      pinLabel={(sidebarPinsQuery.data?.jobIds ?? []).includes(jobId) ? "Unpin" : "Pin"}
+                      onTogglePin={() => {
+                        setIsPartOptionsOpen(false);
+                        void handleToggleCurrentPartPin();
+                      }}
+                      isPinBusy={isPartPinBusy}
+                    />
+                  </DropdownMenu>
                 </div>
               </div>
 
@@ -1415,6 +1551,25 @@ const ClientPart = () => {
           }}
         />
       ) : null}
+
+      <ProjectNameDialog
+        open={showRenameDialog}
+        onOpenChange={(open) => {
+          setShowRenameDialog(open);
+          if (!open) {
+            setPartRenameValue(currentPartName);
+          }
+        }}
+        title="Rename part"
+        description="Update the part name shown throughout your workspace."
+        value={partRenameValue}
+        onValueChange={setPartRenameValue}
+        submitLabel="Save"
+        placeholder="Part name"
+        isPending={isRenamingPart}
+        isSubmitDisabled={partRenameValue.trim().length === 0 || partRenameValue.trim() === currentPartName}
+        onSubmit={() => handleRenamePart(jobId, partRenameValue.trim())}
+      />
 
       <Dialog open={showMoveDialog} onOpenChange={setShowMoveDialog}>
         <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">

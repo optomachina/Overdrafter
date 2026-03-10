@@ -114,9 +114,59 @@ vi.mock("@/components/chat/WorkspaceSidebar", () => ({
   ),
 }));
 
+vi.mock("@/components/chat/PartActionsMenu", () => ({
+  PartDropdownMenuActions: ({
+    onEditPart,
+    onRenamePart,
+    onArchivePart,
+    onTogglePin,
+    onAddToProject,
+    onRemoveFromProject,
+  }: {
+    onEditPart: () => void;
+    onRenamePart?: () => void;
+    onArchivePart?: () => void;
+    onTogglePin: () => void;
+    onAddToProject?: (projectId: string) => void;
+    onRemoveFromProject?: (projectId: string) => void;
+  }) => (
+    <div>
+      <button type="button" onClick={onEditPart}>Edit part</button>
+      {onRenamePart ? <button type="button" onClick={onRenamePart}>Rename part</button> : null}
+      {onAddToProject ? <button type="button" onClick={() => onAddToProject("project-2")}>Add to project</button> : null}
+      {onRemoveFromProject ? <button type="button" onClick={() => onRemoveFromProject("project-1")}>Remove from project</button> : null}
+      {onArchivePart ? <button type="button" onClick={onArchivePart}>Archive part</button> : null}
+      <button type="button" onClick={onTogglePin}>Pin</button>
+    </div>
+  ),
+}));
+
+
 vi.mock("@/components/projects/ProjectNameDialog", () => ({
-  ProjectNameDialog: ({ open, title }: { open: boolean; title: string }) =>
-    open ? <div>{title}</div> : null,
+  ProjectNameDialog: ({
+    open,
+    title,
+    value,
+    onValueChange,
+    onSubmit,
+    submitLabel,
+  }: {
+    open: boolean;
+    title: string;
+    value: string;
+    onValueChange: (value: string) => void;
+    onSubmit: () => void;
+    submitLabel: string;
+  }) =>
+    open ? (
+      <div>
+        <div>{title}</div>
+        <input aria-label={title} value={value} onChange={(event) => onValueChange(event.target.value)} />
+        <button type="button" onClick={onSubmit}>
+          {submitLabel}
+        </button>
+      </div>
+    ) : null,
 }));
 
 vi.mock("@/components/chat/WorkspaceAccountMenu", () => ({
@@ -405,6 +455,69 @@ describe("top-level create actions", () => {
 
     expect(mockOpenFilePicker).toHaveBeenCalledTimes(2);
     expect(screen.queryByText("Create project")).not.toBeInTheDocument();
+  });
+
+
+  it("shows part header options with shared actions and renames the part", async () => {
+    api.updateClientPartRequest.mockResolvedValue("job-1");
+
+    renderWithClient(
+      <Routes>
+        <Route path="/parts/:jobId" element={<ClientPart />} />
+      </Routes>,
+      "/parts/job-1",
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /part options/i })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: /part options/i })).toBeInTheDocument();
+
+    expect(await screen.findByText("Edit part")).toBeInTheDocument();
+    expect(screen.getByText("Rename part")).toBeInTheDocument();
+    expect(screen.getByText("Add to project")).toBeInTheDocument();
+    expect(screen.getByText("Remove from project")).toBeInTheDocument();
+    expect(screen.getByText("Archive part")).toBeInTheDocument();
+    expect(screen.getByText("Pin")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Rename part"));
+
+    const input = await screen.findByRole("textbox", { name: "Rename part" });
+    fireEvent.change(input, { target: { value: "RENAMED-123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          jobId: "job-1",
+          partNumber: "RENAMED-123",
+        }),
+      );
+    });
+  });
+
+  it("archives the current part from the header options menu", async () => {
+    api.archiveJob.mockResolvedValue("job-1");
+
+    renderWithClient(
+      <Routes>
+        <Route path="/parts/:jobId" element={<ClientPart />} />
+        <Route path="/" element={<div>Home</div>} />
+      </Routes>,
+      "/parts/job-1",
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /part options/i })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: /part options/i })).toBeInTheDocument();
+    fireEvent.click(await screen.findByText("Archive part"));
+
+    await waitFor(() => {
+      expect(api.archiveJob).toHaveBeenCalledWith("job-1");
+    });
   });
 
   it("undoes archived sidebar projects with Ctrl+Z", async () => {
