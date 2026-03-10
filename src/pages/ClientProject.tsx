@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { Archive, FolderPlus, Loader2, Pencil, PlusSquare, Search as SearchIcon, Users } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import {
+  Archive,
+  FolderPlus,
+  Globe2,
+  Loader2,
+  MapPin,
+  MoveRight,
+  Pencil,
+  PlusSquare,
+  RotateCcw,
+  Search as SearchIcon,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
@@ -9,6 +21,12 @@ import { ProjectMembersDialog } from "@/components/chat/ProjectMembersDialog";
 import { PromptComposer } from "@/components/chat/PromptComposer";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
+import { ActivityLog, type ActivityLogEntry } from "@/components/quotes/ActivityLog";
+import { ClientPartRequestEditor } from "@/components/quotes/ClientPartRequestEditor";
+import {
+  ClientCadPreviewPanel,
+  ClientDrawingPreviewPanel,
+} from "@/components/quotes/ClientQuoteAssetPanels";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import {
   WorkspaceSidebar,
@@ -25,6 +43,22 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useAppSession } from "@/hooks/use-app-session";
 import {
   archiveJob,
@@ -39,6 +73,7 @@ import {
   fetchAccessibleProjects,
   fetchArchivedJobs,
   fetchArchivedProjects,
+  fetchClientQuoteWorkspaceByJobIds,
   fetchJobPartSummariesByJobIds,
   fetchProjectJobMembershipsByJobIds,
   fetchJobsByProject,
@@ -50,13 +85,18 @@ import {
   isProjectCollaborationSchemaUnavailable,
   pinJob,
   pinProject,
+  reconcileJobParts,
   removeJobFromProject,
   removeProjectMember,
+  requestExtraction,
+  setJobSelectedVendorQuoteOffer,
   unarchiveJob,
   unarchiveProject,
   unpinJob,
   unpinProject,
+  updateClientPartRequest,
   updateProject,
+  uploadFilesToJob,
 } from "@/features/quotes/api";
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { getClientItemPresentation, matchesClientJobSearch } from "@/features/quotes/client-presentation";
@@ -68,11 +108,35 @@ import {
   resolveImportedBatch,
   syncImportedBatchProjects,
 } from "@/features/quotes/client-workspace";
-import { parseRequestIntake } from "@/features/quotes/request-intake";
+import {
+  formatRequestedQuoteQuantitiesInput,
+  parseRequestIntake,
+  parseRequestedQuoteQuantitiesInput,
+} from "@/features/quotes/request-intake";
 import { getSharedRequestMetadata } from "@/features/quotes/request-scenarios";
-import { buildProjectNameFromLabels } from "@/features/quotes/upload-groups";
+import {
+  applyBulkPresetSelection,
+  buildClientQuoteSelectionOptions,
+  buildVendorLabelMap,
+  getSelectedOption,
+  revertBulkPresetSelection,
+  sortQuoteOptionsForPreset,
+  summarizeSelectedQuoteOptions,
+  type BulkSelectionChange,
+  type ClientQuoteSelectionOption,
+  type QuotePreset,
+} from "@/features/quotes/selection";
+import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
+import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
-import { formatStatusLabel } from "@/features/quotes/utils";
+import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
+import {
+  buildRequirementDraft,
+  formatCurrency,
+  formatLeadTime,
+  formatStatusLabel,
+} from "@/features/quotes/utils";
+import type { VendorName } from "@/integrations/supabase/types";
 import { cn } from "@/lib/utils";
 
 type JobFilter = "all" | "needs_attention" | "quoting" | "published";
@@ -113,6 +177,13 @@ const ClientProject = () => {
   const [showMembers, setShowMembers] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [selectedOfferOverrides, setSelectedOfferOverrides] = useState<Record<string, string | null>>({});
+  const [lastBulkAction, setLastBulkAction] = useState<BulkSelectionChange[]>([]);
+  const [excludedVendorKeysByJobId, setExcludedVendorKeysByJobId] = useState<Record<string, VendorName[]>>({});
+  const [requestDraftsByJobId, setRequestDraftsByJobId] = useState<Record<string, ClientPartRequestUpdateInput>>({});
+  const [quoteQuantityInputsByJobId, setQuoteQuantityInputsByJobId] = useState<Record<string, string>>({});
+  const isMobile = useIsMobile();
   const normalizedEmail = user?.email?.toLowerCase() ?? "";
   const isDmriflesWorkspace = normalizedEmail === DMRIFLES_EMAIL;
   const isSeededProject = projectId.startsWith("seed-");
@@ -169,6 +240,46 @@ const ClientProject = () => {
       }
 
       navigate(`/parts/${result.jobIds[0]}`);
+    },
+  });
+  const attachFilesPicker = useClientJobFilePicker({
+    isSignedIn: Boolean(user),
+    onRequireAuth: () => navigate("/?auth=signin"),
+    onFilesSelected: async (files) => {
+      if (!focusedJobId) {
+        throw new Error("Select a line item before uploading a revision.");
+      }
+
+      const workspaceItem = workspaceItemsByJobId.get(focusedJobId) ?? null;
+      const normalizedStem = workspaceItem?.part?.normalized_key;
+
+      if (!normalizedStem) {
+        throw new Error("This line item is not ready for attachments yet.");
+      }
+
+      const invalid = files.find((file) => normalizeUploadStem(file.name) !== normalizedStem);
+
+      if (invalid) {
+        throw new Error(`"${invalid.name}" does not match this line item's filename stem.`);
+      }
+
+      const uploadSummary = await uploadFilesToJob(focusedJobId, files);
+
+      if (uploadSummary.uploadedCount > 0 || uploadSummary.reusedCount > 0) {
+        await reconcileJobParts(focusedJobId);
+        await requestExtraction(focusedJobId);
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["client-quote-workspace", projectJobIds] }),
+        queryClient.invalidateQueries({ queryKey: ["project-jobs", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
+        queryClient.invalidateQueries({ queryKey: ["client-jobs"] }),
+      ]);
+
+      if (uploadSummary.uploadedCount > 0 || uploadSummary.reusedCount > 0) {
+        toast.success("Files attached to line item.");
+      }
     },
   });
   const canLoadRemoteProjectData =
@@ -308,6 +419,70 @@ const ClientProject = () => {
 
     return projectJobsQuery.data ?? [];
   }, [accessibleJobsQuery.data, projectJobsQuery.data, seededProject]);
+  const projectJobIds = useMemo(() => projectJobs.map((job) => job.id), [projectJobs]);
+  const projectWorkspaceItemsQuery = useQuery({
+    queryKey: ["client-quote-workspace", projectJobIds],
+    queryFn: () => fetchClientQuoteWorkspaceByJobIds(projectJobIds),
+    enabled: Boolean(user) && projectJobIds.length > 0,
+  });
+  const workspaceItemsByJobId = useMemo(
+    () => new Map((projectWorkspaceItemsQuery.data ?? []).map((item) => [item.job.id, item])),
+    [projectWorkspaceItemsQuery.data],
+  );
+  const currentSelectedOfferIdsByJobId = useMemo(
+    () =>
+      Object.fromEntries(
+        projectJobs.map((job) => [job.id, selectedOfferOverrides[job.id] ?? job.selected_vendor_quote_offer_id ?? null]),
+      ),
+    [projectJobs, selectedOfferOverrides],
+  );
+  const optionsByJobId = useMemo(
+    () =>
+      Object.fromEntries(
+        projectJobIds.map((jobId) => {
+          const workspaceItem = workspaceItemsByJobId.get(jobId);
+
+          if (!workspaceItem?.part) {
+            return [jobId, [] as ClientQuoteSelectionOption[]];
+          }
+
+          const requestedByDate =
+            requestDraftsByJobId[jobId]?.requestedByDate ??
+            workspaceItem.summary?.requestedByDate ??
+            workspaceItem.job.requested_by_date ??
+            null;
+          const vendorLabels = buildVendorLabelMap(workspaceItem.part.vendorQuotes.map((quote) => quote.vendor));
+
+          return [
+            jobId,
+            sortQuoteOptionsForPreset(
+              buildClientQuoteSelectionOptions({
+                vendorQuotes: workspaceItem.part.vendorQuotes,
+                requestedByDate,
+                excludedVendorKeys: excludedVendorKeysByJobId[jobId] ?? [],
+                vendorLabels,
+              }),
+              "cheapest",
+            ),
+          ];
+        }),
+      ) as Record<string, ClientQuoteSelectionOption[]>,
+    [excludedVendorKeysByJobId, projectJobIds, requestDraftsByJobId, workspaceItemsByJobId],
+  );
+  const selectedOptionsByJobId = useMemo(
+    () =>
+      Object.fromEntries(
+        projectJobIds.map((jobId) => [
+          jobId,
+          getSelectedOption(optionsByJobId[jobId] ?? [], currentSelectedOfferIdsByJobId[jobId]),
+        ]),
+      ) as Record<string, ClientQuoteSelectionOption | null>,
+    [currentSelectedOfferIdsByJobId, optionsByJobId, projectJobIds],
+  );
+  const projectSelectionSummary = useMemo(
+    () => summarizeSelectedQuoteOptions(projectJobIds.map((jobId) => selectedOptionsByJobId[jobId])),
+    [projectJobIds, selectedOptionsByJobId],
+  );
 
   const filteredJobs = useMemo(
     () =>
@@ -332,7 +507,10 @@ const ClientProject = () => {
     () => filteredJobs.find((job) => job.id === focusedJobId) ?? null,
     [filteredJobs, focusedJobId],
   );
-  const focusedSummary = focusedJob ? summariesByJobId.get(focusedJob.id) ?? null : null;
+  const focusedWorkspaceItem = focusedJob ? workspaceItemsByJobId.get(focusedJob.id) ?? null : null;
+  const focusedSummary = focusedWorkspaceItem?.summary ?? (focusedJob ? summariesByJobId.get(focusedJob.id) ?? null : null);
+  const focusedSelectedOption = focusedJob ? selectedOptionsByJobId[focusedJob.id] ?? null : null;
+  const focusedQuoteOptions = focusedJob ? optionsByJobId[focusedJob.id] ?? [] : [];
   const sharedRequestSummary = useMemo(
     () => getSharedRequestMetadata(projectJobs.map((job) => summariesByJobId.get(job.id) ?? null)),
     [projectJobs, summariesByJobId],
@@ -342,6 +520,73 @@ const ClientProject = () => {
   const canArchiveProject = canRenameProject;
   const canDissolveProject = !isSeededProject && (projectSummary?.currentUserRole ?? "editor") === "owner";
   const canManageMembers = canDissolveProject;
+
+  useEffect(() => {
+    if ((projectWorkspaceItemsQuery.data ?? []).length === 0) {
+      return;
+    }
+
+    setExcludedVendorKeysByJobId((current) => {
+      const next = { ...current };
+
+      projectWorkspaceItemsQuery.data?.forEach((item) => {
+        next[item.job.id] = readExcludedVendorKeys(item.job.id);
+      });
+
+      return next;
+    });
+
+    setRequestDraftsByJobId((current) => {
+      const next = { ...current };
+
+      projectWorkspaceItemsQuery.data?.forEach((item) => {
+        if (!item.part) {
+          return;
+        }
+
+        const requirement = buildRequirementDraft(item.part, {
+          requested_quote_quantities: item.job.requested_quote_quantities ?? [],
+          requested_by_date: item.job.requested_by_date ?? null,
+        });
+
+        next[item.job.id] = {
+          jobId: item.job.id,
+          description: requirement.description ?? null,
+          partNumber: requirement.partNumber ?? null,
+          revision: requirement.revision ?? null,
+          material: requirement.material,
+          finish: requirement.finish ?? null,
+          tightestToleranceInch: requirement.tightestToleranceInch ?? null,
+          process: requirement.process ?? null,
+          notes: requirement.notes ?? null,
+          quantity: requirement.quantity,
+          requestedQuoteQuantities: requirement.quoteQuantities,
+          requestedByDate: requirement.requestedByDate ?? null,
+        };
+      });
+
+      return next;
+    });
+
+    setQuoteQuantityInputsByJobId((current) => {
+      const next = { ...current };
+
+      projectWorkspaceItemsQuery.data?.forEach((item) => {
+        if (!item.part) {
+          return;
+        }
+
+        const requirement = buildRequirementDraft(item.part, {
+          requested_quote_quantities: item.job.requested_quote_quantities ?? [],
+          requested_by_date: item.job.requested_by_date ?? null,
+        });
+
+        next[item.job.id] = formatRequestedQuoteQuantitiesInput(requirement.quoteQuantities);
+      });
+
+      return next;
+    });
+  }, [projectWorkspaceItemsQuery.data]);
 
   const updateProjectMutation = useMutation({
     mutationFn: (name: string) => updateProject({ projectId, name }),
@@ -438,6 +683,20 @@ const ClientProject = () => {
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to remove member.");
+    },
+  });
+  const saveRequestMutation = useMutation({
+    mutationFn: (input: ClientPartRequestUpdateInput) => updateClientPartRequest(input),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["client-quote-workspace", projectJobIds] }),
+        queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
+        queryClient.invalidateQueries({ queryKey: ["project-jobs", projectId] }),
+      ]);
+      toast.success("Line item updated.");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to update line item.");
     },
   });
 
@@ -675,6 +934,188 @@ const ClientProject = () => {
     }
   };
 
+  const handleOpenJobDrawer = (jobId: string) => {
+    setFocusedJobId(jobId);
+
+    if (isMobile) {
+      setMobileDrawerOpen(true);
+    }
+  };
+
+  const handleToggleVendorExclusion = (jobId: string, vendorKey: VendorName, shouldExclude: boolean) => {
+    setExcludedVendorKeysByJobId((current) => ({
+      ...current,
+      [jobId]: toggleExcludedVendorKey(jobId, vendorKey, shouldExclude),
+    }));
+  };
+
+  const handleSelectQuoteOption = async (jobId: string, option: ClientQuoteSelectionOption) => {
+    if (!option.persistedOfferId) {
+      toast.error("This quote option is not ready to select yet.");
+      return;
+    }
+
+    const previousOfferId = currentSelectedOfferIdsByJobId[jobId] ?? null;
+
+    setSelectedOfferOverrides((current) => ({
+      ...current,
+      [jobId]: option.persistedOfferId,
+    }));
+
+    try {
+      await setJobSelectedVendorQuoteOffer(jobId, option.persistedOfferId);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["client-quote-workspace", projectJobIds] }),
+        queryClient.invalidateQueries({ queryKey: ["project-jobs", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
+      ]);
+    } catch (error) {
+      setSelectedOfferOverrides((current) => ({
+        ...current,
+        [jobId]: previousOfferId,
+      }));
+      toast.error(error instanceof Error ? error.message : "Failed to update selected quote.");
+    }
+  };
+
+  const handleBulkPreset = async (preset: QuotePreset) => {
+    const result = applyBulkPresetSelection({
+      optionsByJobId,
+      currentSelectedOfferIdsByJobId,
+      preset,
+    });
+
+    if (result.changes.length === 0) {
+      toast.error(
+        result.unavailableJobIds.length > 0
+          ? "No eligible project quotes were available for that preset."
+          : "Selections already match this preset.",
+      );
+      return;
+    }
+
+    setSelectedOfferOverrides((current) => ({
+      ...current,
+      ...Object.fromEntries(result.changes.map((change) => [change.jobId, change.appliedOfferId])),
+    }));
+    setLastBulkAction(result.changes);
+
+    try {
+      await Promise.all(
+        result.changes.map((change) => setJobSelectedVendorQuoteOffer(change.jobId, change.appliedOfferId)),
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["client-quote-workspace", projectJobIds] }),
+        queryClient.invalidateQueries({ queryKey: ["project-jobs", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
+      ]);
+      toast.success(
+        `${preset === "cheapest" ? "Cheapest" : preset === "fastest" ? "Fastest" : "Domestic"} preset applied to ${result.changes.length} part${result.changes.length === 1 ? "" : "s"}.`,
+      );
+    } catch (error) {
+      setSelectedOfferOverrides((current) => ({
+        ...current,
+        ...Object.fromEntries(result.changes.map((change) => [change.jobId, change.previousOfferId])),
+      }));
+      toast.error(error instanceof Error ? error.message : "Bulk preset failed.");
+    }
+  };
+
+  const handleRevertBulk = async () => {
+    if (lastBulkAction.length === 0) {
+      return;
+    }
+
+    const result = revertBulkPresetSelection({
+      currentSelectedOfferIdsByJobId,
+      lastBulkAction,
+    });
+
+    if (result.restoredJobIds.length === 0) {
+      toast.error("Nothing could be restored from the last bulk action.");
+      return;
+    }
+
+    setSelectedOfferOverrides((current) => ({
+      ...current,
+      ...Object.fromEntries(
+        result.restoredJobIds.map((jobId) => [jobId, result.nextSelectedOfferIdsByJobId[jobId] ?? null]),
+      ),
+    }));
+
+    try {
+      await Promise.all(
+        result.restoredJobIds.map((jobId) =>
+          setJobSelectedVendorQuoteOffer(jobId, result.nextSelectedOfferIdsByJobId[jobId] ?? null),
+        ),
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["client-quote-workspace", projectJobIds] }),
+        queryClient.invalidateQueries({ queryKey: ["project-jobs", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
+      ]);
+      setLastBulkAction([]);
+      toast.success("Bulk selection reverted.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to revert bulk selection.");
+    }
+  };
+
+  const handleRequestDraftChange = (
+    jobId: string,
+    next: Partial<ClientPartRequestUpdateInput>,
+  ) => {
+    setRequestDraftsByJobId((current) => {
+      const existing = current[jobId];
+
+      if (!existing) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [jobId]: {
+          ...existing,
+          ...next,
+        },
+      };
+    });
+  };
+
+  const handleQuoteQuantityInputChange = (jobId: string, value: string) => {
+    setQuoteQuantityInputsByJobId((current) => ({
+      ...current,
+      [jobId]: value,
+    }));
+  };
+
+  const handleSaveRequest = (jobId: string) => {
+    const draft = requestDraftsByJobId[jobId];
+
+    if (!draft) {
+      return;
+    }
+
+    const requestedQuoteQuantities = parseRequestedQuoteQuantitiesInput(
+      quoteQuantityInputsByJobId[jobId] ?? "",
+      draft.quantity,
+    );
+    const nextDraft = {
+      ...draft,
+      requestedQuoteQuantities,
+    } satisfies ClientPartRequestUpdateInput;
+
+    setRequestDraftsByJobId((current) => ({
+      ...current,
+      [jobId]: nextDraft,
+    }));
+    setQuoteQuantityInputsByJobId((current) => ({
+      ...current,
+      [jobId]: formatRequestedQuoteQuantitiesInput(requestedQuoteQuantities),
+    }));
+    saveRequestMutation.mutate(nextDraft);
+  };
+
   useEffect(() => {
     if (projectQuery.data) {
       setProjectName(projectQuery.data.name);
@@ -720,6 +1161,160 @@ const ClientProject = () => {
       navigate("/?auth=signin", { replace: true });
     }
   }, [navigate, user]);
+
+  const focusedDraft = focusedJob ? requestDraftsByJobId[focusedJob.id] ?? null : null;
+  const focusedQuoteQuantityInput = focusedJob ? quoteQuantityInputsByJobId[focusedJob.id] ?? "" : "";
+  const focusedActivityEntries = useMemo<ActivityLogEntry[]>(() => {
+    if (!focusedWorkspaceItem) {
+      return [];
+    }
+
+    return [
+      {
+        id: "parsing",
+        label: "Parsing drawing notes",
+        detail: focusedWorkspaceItem.part?.drawingFile
+          ? `Drawing ${focusedWorkspaceItem.part.drawingFile.original_name} attached for ${focusedWorkspaceItem.job.title}.`
+          : "No drawing PDF is attached to this line item.",
+        tone: focusedWorkspaceItem.part?.drawingFile ? "active" : "attention",
+      },
+      {
+        id: "matching",
+        label: "Matching vendor options",
+        detail:
+          focusedQuoteOptions.length > 0
+            ? `${focusedQuoteOptions.length} quote option${focusedQuoteOptions.length === 1 ? "" : "s"} available for review.`
+            : "No quote options available for this line item yet.",
+        tone: focusedQuoteOptions.length > 0 ? "active" : "attention",
+      },
+      {
+        id: "selection",
+        label: "Ranking cheapest eligible quotes",
+        detail: focusedSelectedOption
+          ? `${focusedSelectedOption.vendorLabel} selected at ${formatCurrency(focusedSelectedOption.totalPriceUsd)} total.`
+          : "No quote has been selected for this line item.",
+        tone: focusedSelectedOption ? "active" : "attention",
+      },
+    ];
+  }, [focusedQuoteOptions.length, focusedSelectedOption, focusedWorkspaceItem]);
+
+  const renderDetailDrawer = () => {
+    if (!focusedJob || !focusedWorkspaceItem) {
+      return (
+        <div className="rounded-[26px] border border-white/8 bg-[#262626] p-5 text-sm text-white/45">
+          Select a line item to inspect quotes, files, and extracted metadata.
+        </div>
+      );
+    }
+
+    const focusedPresentation = getClientItemPresentation(focusedJob, focusedSummary);
+
+    return (
+      <div className="space-y-4">
+        <div className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
+          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Line item</p>
+          <p className="mt-2 text-xl font-semibold text-white">{focusedPresentation.title}</p>
+          <p className="mt-2 text-sm text-white/55">{focusedPresentation.description}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Badge className="border border-white/10 bg-white/6 text-white/70">
+              {formatStatusLabel(focusedJob.status)}
+            </Badge>
+            {focusedSelectedOption ? (
+              <Badge className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">
+                {focusedSelectedOption.vendorLabel}
+              </Badge>
+            ) : null}
+          </div>
+          <RequestSummaryBadges
+            quantity={focusedDraft?.quantity ?? focusedSummary?.quantity ?? null}
+            requestedQuoteQuantities={
+              parseRequestedQuoteQuantitiesInput(
+                focusedQuoteQuantityInput,
+                focusedDraft?.quantity ?? focusedSummary?.quantity ?? 1,
+              )
+            }
+            requestedByDate={focusedDraft?.requestedByDate ?? focusedSummary?.requestedByDate ?? null}
+            className="mt-4"
+          />
+        </div>
+
+        <ClientDrawingPreviewPanel
+          drawingFile={focusedWorkspaceItem.part?.drawingFile ?? null}
+          drawingPreview={focusedWorkspaceItem.drawingPreview}
+        />
+        <ClientCadPreviewPanel cadFile={focusedWorkspaceItem.part?.cadFile ?? null} />
+
+        <div className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
+          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Quote options</p>
+          <div className="mt-4 space-y-3">
+            {focusedQuoteOptions.length === 0 ? (
+              <p className="text-sm text-white/45">No quote options available for this line item.</p>
+            ) : (
+              focusedQuoteOptions.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => {
+                    void handleSelectQuoteOption(focusedJob.id, option);
+                  }}
+                  className={cn(
+                    "block w-full rounded-2xl border px-4 py-3 text-left transition",
+                    focusedSelectedOption?.key === option.key
+                      ? "border-emerald-500/30 bg-emerald-500/10"
+                      : "border-white/8 bg-black/20 hover:bg-white/4",
+                  )}
+                  disabled={!option.isSelectable}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium text-white">{option.vendorLabel}</p>
+                      <p className="mt-1 text-xs text-white/45">
+                        Qty {option.requestedQuantity} ·{" "}
+                        {option.resolvedDeliveryDate ?? formatLeadTime(option.leadTimeBusinessDays)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-white">{formatCurrency(option.totalPriceUsd)}</p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="mt-1 h-auto p-0 text-xs text-white/60 hover:bg-transparent hover:text-white"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleToggleVendorExclusion(focusedJob.id, option.vendorKey, !option.excluded);
+                        }}
+                      >
+                        {option.excluded ? "Include vendor" : "Exclude vendor"}
+                      </Button>
+                    </div>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+
+        {focusedDraft ? (
+          <div className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
+            <p className="text-xs uppercase tracking-[0.18em] text-white/35">Metadata and RFQ details</p>
+            <div className="mt-4">
+              <ClientPartRequestEditor
+                draft={focusedDraft}
+                quoteQuantityInput={focusedQuoteQuantityInput}
+                onQuoteQuantityInputChange={(value) => handleQuoteQuantityInputChange(focusedJob.id, value)}
+                onChange={(next) => handleRequestDraftChange(focusedJob.id, next)}
+                onSave={() => handleSaveRequest(focusedJob.id)}
+                onUploadRevision={attachFilesPicker.openFilePicker}
+                isSaving={saveRequestMutation.isPending}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        <ActivityLog entries={focusedActivityEntries} />
+      </div>
+    );
+  };
 
   if (!user) {
     return null;
@@ -775,17 +1370,17 @@ const ClientProject = () => {
           />
         }
       >
-        <div className="mx-auto flex w-full max-w-[1280px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
+        <div className="mx-auto flex w-full max-w-[1380px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Project</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Project workspace</p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
                 {seededProject?.name ?? projectQuery.data?.name ?? "Project"}
               </h1>
               <p className="mt-2 text-sm text-white/55">
                 {isSeededProject
                   ? "Read-only imported batch project."
-                  : "Shared project members can collaborate here without exposing unrelated workspace data."}
+                  : "Dense procurement workspace tuned for fast quote selection."}
               </p>
               {sharedRequestSummary ? (
                 <RequestSummaryBadges
@@ -799,15 +1394,52 @@ const ClientProject = () => {
 
             <div className="flex flex-wrap gap-2">
               {!isSeededProject && !projectCollaborationUnavailable ? (
-                <Button
-                  type="button"
-                  className="rounded-full"
-                  onClick={() => setShowAddPart(true)}
-                >
+                <Button type="button" className="rounded-full" onClick={() => setShowAddPart(true)}>
                   <FolderPlus className="mr-2 h-4 w-4" />
-                  Add Part
+                  Add part
                 </Button>
               ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                onClick={() => handleBulkPreset("cheapest")}
+              >
+                Cheapest
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                onClick={() => handleBulkPreset("fastest")}
+              >
+                Fastest
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                onClick={() => handleBulkPreset("domestic")}
+              >
+                Domestic
+              </Button>
+              {lastBulkAction.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                  onClick={() => {
+                    void handleRevertBulk();
+                  }}
+                >
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Revert bulk
+                </Button>
+              ) : null}
+              <Button type="button" className="rounded-full" onClick={() => navigate(`/projects/${projectId}/review`)}>
+                Review order
+                <MoveRight className="ml-2 h-4 w-4" />
+              </Button>
               {canManageMembers ? (
                 <>
                   <Button
@@ -840,21 +1472,42 @@ const ClientProject = () => {
                 </>
               ) : null}
               {canDissolveProject ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="rounded-full border-white/10 bg-transparent text-white hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() => setShowDissolve(true)}
-                  >
-                    Dissolve
-                  </Button>
-                </>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full border-white/10 bg-transparent text-white hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => setShowDissolve(true)}
+                >
+                  Dissolve
+                </Button>
               ) : null}
             </div>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded-[22px] border border-white/8 bg-[#262626] px-4 py-4">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Selected total</p>
+              <p className="mt-2 text-2xl font-semibold text-white">{formatCurrency(projectSelectionSummary.totalPriceUsd)}</p>
+            </div>
+            <div className="rounded-[22px] border border-white/8 bg-[#262626] px-4 py-4">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Selected lines</p>
+              <p className="mt-2 text-2xl font-semibold text-white">
+                {projectSelectionSummary.selectedCount}/{projectJobs.length}
+              </p>
+            </div>
+            <div className="rounded-[22px] border border-white/8 bg-[#262626] px-4 py-4">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Domestic</p>
+              <p className="mt-2 text-2xl font-semibold text-white">{projectSelectionSummary.domesticCount}</p>
+            </div>
+            <div className="rounded-[22px] border border-white/8 bg-[#262626] px-4 py-4">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Foreign / unknown</p>
+              <p className="mt-2 text-2xl font-semibold text-white">
+                {projectSelectionSummary.foreignCount + projectSelectionSummary.unknownCount}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
             <div className="space-y-4">
               <div className="flex flex-col gap-3 rounded-[26px] border border-white/8 bg-[#262626] p-4">
                 <div className="flex flex-col gap-3 md:flex-row">
@@ -888,86 +1541,123 @@ const ClientProject = () => {
               </div>
 
               <div className="overflow-hidden rounded-[26px] border border-white/8 bg-[#262626]">
-                {projectJobsQuery.isLoading && !isSeededProject ? (
+                {projectJobsQuery.isLoading || projectWorkspaceItemsQuery.isLoading ? (
                   <div className="flex min-h-[240px] items-center justify-center">
                     <Loader2 className="h-6 w-6 animate-spin text-white/60" />
                   </div>
                 ) : filteredJobs.length === 0 ? (
                   <div className="px-6 py-12 text-center text-white/45">No parts match this view.</div>
                 ) : (
-                  filteredJobs.map((job) => {
-                    const presentation = getClientItemPresentation(job, summariesByJobId.get(job.id));
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-white/10 hover:bg-transparent">
+                          <TableHead className="text-white/45">Part</TableHead>
+                          <TableHead className="text-white/45">Rev</TableHead>
+                          <TableHead className="text-white/45">Qty</TableHead>
+                          <TableHead className="text-white/45">Process</TableHead>
+                          <TableHead className="text-white/45">Material</TableHead>
+                          <TableHead className="text-white/45">Finish</TableHead>
+                          <TableHead className="text-white/45">Source</TableHead>
+                          <TableHead className="text-white/45">Vendor</TableHead>
+                          <TableHead className="text-white/45">Price</TableHead>
+                          <TableHead className="text-white/45">Lead time</TableHead>
+                          <TableHead className="text-white/45">Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredJobs.map((job) => {
+                          const workspaceItem = workspaceItemsByJobId.get(job.id) ?? null;
+                          const summary = workspaceItem?.summary ?? summariesByJobId.get(job.id) ?? null;
+                          const draft = requestDraftsByJobId[job.id] ?? null;
+                          const selectedOption = selectedOptionsByJobId[job.id] ?? null;
+                          const presentation = getClientItemPresentation(job, summary);
+                          const sourceIcon =
+                            selectedOption?.domesticStatus === "domestic" ? (
+                              <MapPin className="h-4 w-4 text-emerald-300" />
+                            ) : (
+                              <Globe2 className="h-4 w-4 text-sky-300" />
+                            );
 
-                    return (
-                      <button
-                        key={job.id}
-                        type="button"
-                        onClick={() => setFocusedJobId(job.id)}
-                        className={cn(
-                          "flex w-full items-start justify-between gap-4 border-b border-white/6 px-4 py-4 text-left transition last:border-b-0",
-                          focusedJobId === job.id ? "bg-white/8" : "hover:bg-white/4",
-                        )}
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-base font-medium text-white">{presentation.title}</p>
-                          <p className="mt-1 line-clamp-2 text-sm text-white/55">{presentation.description}</p>
-                        </div>
-                        <Badge className="shrink-0 border border-white/10 bg-white/6 text-white/75">
-                          {formatStatusLabel(job.status)}
-                        </Badge>
-                      </button>
-                    );
-                  })
+                          return (
+                            <TableRow
+                              key={job.id}
+                              className={cn(
+                                "cursor-pointer border-white/8 hover:bg-white/4",
+                                focusedJobId === job.id && "bg-white/6",
+                              )}
+                              onClick={() => handleOpenJobDrawer(job.id)}
+                            >
+                              <TableCell className="min-w-[220px]">
+                                <div className="flex items-center gap-3">
+                                  <div className="h-10 w-10 overflow-hidden rounded-xl border border-white/10 bg-black/20">
+                                    {workspaceItem?.drawingPreview.thumbnail ? (
+                                      <div className="flex h-full items-center justify-center text-[10px] text-white/45">
+                                        PDF
+                                      </div>
+                                    ) : (
+                                      <div className="flex h-full items-center justify-center text-[10px] text-white/45">
+                                        CAD
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-medium text-white">{presentation.title}</p>
+                                    <p className="truncate text-xs text-white/45">{presentation.description}</p>
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-white/70">{draft?.revision ?? summary?.revision ?? "—"}</TableCell>
+                              <TableCell className="text-white/70">{draft?.quantity ?? summary?.quantity ?? "—"}</TableCell>
+                              <TableCell className="text-white/70">{draft?.process ?? "—"}</TableCell>
+                              <TableCell className="text-white/70">{draft?.material ?? "—"}</TableCell>
+                              <TableCell className="text-white/70">{draft?.finish ?? "—"}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  {sourceIcon}
+                                  <span className="text-white/70">
+                                    {selectedOption?.domesticStatus === "domestic" ? "USA" : "Global"}
+                                  </span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-white/70">{selectedOption?.vendorLabel ?? "Unselected"}</TableCell>
+                              <TableCell className="text-white/70">{formatCurrency(selectedOption?.totalPriceUsd ?? null)}</TableCell>
+                              <TableCell className="text-white/70">
+                                {selectedOption
+                                  ? selectedOption.resolvedDeliveryDate ?? formatLeadTime(selectedOption.leadTimeBusinessDays)
+                                  : "—"}
+                              </TableCell>
+                              <TableCell>
+                                <Badge className="border border-white/10 bg-white/6 text-white/70">
+                                  {formatStatusLabel(job.status)}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
                 )}
               </div>
             </div>
 
-            <aside className="space-y-4">
-              <div className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
-                <p className="text-xs uppercase tracking-[0.18em] text-white/35">Focused part</p>
-                {focusedJob ? (
-                  <div className="mt-4 space-y-4">
-                    <div>
-                      <p className="text-xl font-semibold text-white">
-                        {getClientItemPresentation(focusedJob, focusedSummary).title}
-                      </p>
-                      <p className="mt-2 text-sm text-white/55">
-                        {getClientItemPresentation(focusedJob, focusedSummary).description}
-                      </p>
-                    </div>
-                    <div className="grid gap-3">
-                      <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Status</p>
-                        <p className="mt-2 text-sm font-medium text-white">{formatStatusLabel(focusedJob.status)}</p>
-                      </div>
-                      <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Request</p>
-                        <RequestSummaryBadges
-                          quantity={focusedSummary?.quantity ?? null}
-                          requestedQuoteQuantities={focusedSummary?.requestedQuoteQuantities ?? []}
-                          requestedByDate={focusedSummary?.requestedByDate ?? null}
-                          className="mt-2"
-                        />
-                      </div>
-                      <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Created</p>
-                        <p className="mt-2 text-sm font-medium text-white">
-                          {new Date(focusedJob.created_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                    </div>
-                    <Button asChild className="w-full rounded-full">
-                      <Link to={`/parts/${focusedJob.id}`}>Open detail</Link>
-                    </Button>
-                  </div>
-                ) : (
-                  <p className="mt-4 text-sm text-white/45">Select a part to inspect it here.</p>
-                )}
-              </div>
-            </aside>
+            {!isMobile ? <aside className="space-y-4">{renderDetailDrawer()}</aside> : null}
           </div>
         </div>
       </ChatWorkspaceLayout>
+
+      <Sheet open={mobileDrawerOpen && Boolean(focusedJobId)} onOpenChange={setMobileDrawerOpen}>
+        <SheetContent side="right" className="w-[min(96vw,38rem)] overflow-y-auto border-white/10 bg-[#1f1f1f] p-0 text-white sm:max-w-[38rem]">
+          <SheetHeader className="border-b border-white/10 px-6 py-5">
+            <SheetTitle className="text-white">Line item detail</SheetTitle>
+            <SheetDescription className="text-white/55">
+              Review previews, metadata, and quote options for the selected project row.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="px-6 py-5">{renderDetailDrawer()}</div>
+        </SheetContent>
+      </Sheet>
 
       <SearchPartsDialog
         open={isSearchOpen}
@@ -989,6 +1679,17 @@ const ClientProject = () => {
         }}
         className="hidden"
         aria-label="Create new job from files"
+      />
+      <input
+        ref={attachFilesPicker.inputRef}
+        type="file"
+        multiple
+        accept={attachFilesPicker.accept}
+        onChange={(event) => {
+          void attachFilesPicker.handleFileInputChange(event);
+        }}
+        className="hidden"
+        aria-label="Attach files to selected project line item"
       />
 
       <Dialog open={showAddPart} onOpenChange={setShowAddPart}>

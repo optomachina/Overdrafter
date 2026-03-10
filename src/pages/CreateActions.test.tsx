@@ -28,6 +28,7 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       fetchAccessibleProjects: vi.fn(),
       fetchArchivedJobs: vi.fn(),
       fetchArchivedProjects: vi.fn(),
+      fetchClientQuoteWorkspaceByJobIds: vi.fn(),
       fetchJobPartSummariesByJobIds: vi.fn(),
       fetchJobsByProject: vi.fn(),
       fetchPartDetail: vi.fn(),
@@ -50,6 +51,7 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       unarchiveProject: vi.fn(),
       unpinJob: vi.fn(),
       unpinProject: vi.fn(),
+      updateClientPartRequest: vi.fn(),
       updateProject: vi.fn(),
       uploadFilesToJob: vi.fn(),
     },
@@ -165,6 +167,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 vi.mock("recharts", () => ({
   CartesianGrid: () => null,
+  Legend: () => null,
   ResponsiveContainer: ({ children }: PropsWithChildren) => <div>{children}</div>,
   Scatter: () => null,
   ScatterChart: ({ children }: PropsWithChildren) => <div>{children}</div>,
@@ -185,6 +188,9 @@ function makeJob(overrides: Record<string, unknown> = {}) {
     status: "uploaded",
     source: "client_home",
     active_pricing_policy_id: null,
+    selected_vendor_quote_offer_id: null,
+    requested_quote_quantities: [1],
+    requested_by_date: null,
     tags: [],
     created_at: "2026-03-05T12:00:00.000Z",
     updated_at: "2026-03-05T12:30:00.000Z",
@@ -199,6 +205,8 @@ function makeSummary(overrides: Record<string, unknown> = {}) {
     revision: "A",
     description: "Part description",
     quantity: 1,
+    requestedQuoteQuantities: [1],
+    requestedByDate: null,
     importedBatch: null,
     selectedSupplier: null,
     selectedPriceUsd: null,
@@ -225,6 +233,15 @@ function renderWithClient(component: React.ReactNode, initialEntry = "/") {
 
 describe("top-level create actions", () => {
   beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation(() => ({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
       activeMembership: {
@@ -286,10 +303,37 @@ describe("top-level create actions", () => {
       summary: makeSummary(),
       projectIds: ["project-1"],
       files: [],
-      selectedVendorQuoteOffer: null,
-      drawingPreview: null,
-      extraction: null,
+      drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+      latestQuoteRun: null,
+      revisionSiblings: [],
     });
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([
+      {
+        job: makeJob(),
+        files: [],
+        summary: makeSummary(),
+        part: {
+          id: "part-1",
+          job_id: "job-1",
+          normalized_key: "job-one",
+          quantity: 1,
+          cad_file_id: null,
+          drawing_file_id: null,
+          created_at: "2026-03-05T12:00:00.000Z",
+          updated_at: "2026-03-05T12:00:00.000Z",
+          organization_id: "org-1",
+          name: "Part 1",
+          cadFile: null,
+          drawingFile: null,
+          extraction: null,
+          approvedRequirement: null,
+          vendorQuotes: [],
+        },
+        projectIds: ["project-1"],
+        drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+        latestQuoteRun: null,
+      },
+    ]);
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
   });
 

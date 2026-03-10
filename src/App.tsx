@@ -20,6 +20,8 @@ import ClientPackage from "./pages/ClientPackage";
 import AuthCallback from "./pages/AuthCallback";
 import ClientProject from "./pages/ClientProject";
 import ClientPart from "./pages/ClientPart";
+import ClientPartReview from "./pages/ClientPartReview";
+import ClientProjectReview from "./pages/ClientProjectReview";
 import SharedInvite from "./pages/SharedInvite";
 import "./App.css";
 
@@ -79,7 +81,9 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/projects/:projectId" element={<ClientProject />} />
+            <Route path="/projects/:projectId/review" element={<ClientProjectReview />} />
             <Route path="/parts/:jobId" element={<ClientPart />} />
+            <Route path="/parts/:jobId/review" element={<ClientPartReview />} />
             <Route path="/shared/:inviteToken" element={<SharedInvite />} />
             <Route path="/jobs/new" element={<JobCreate />} />
             <Route path="/internal/jobs/:jobId" element={<InternalJobDetail />} />

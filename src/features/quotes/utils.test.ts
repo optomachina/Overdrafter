@@ -167,6 +167,8 @@ describe("quotes utils", () => {
       material: "17-4 stainless",
       finish: "Passivate",
       tightestToleranceInch: 0.002,
+      process: null,
+      notes: null,
       quantity: 3,
       quoteQuantities: [3],
       requestedByDate: null,

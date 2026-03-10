@@ -828,6 +828,23 @@ export type Database = {
         };
         Returns: string;
       };
+      api_update_client_part_request: {
+        Args: {
+          p_job_id: string;
+          p_description?: string | null;
+          p_part_number?: string | null;
+          p_revision?: string | null;
+          p_material: string;
+          p_finish?: string | null;
+          p_tightest_tolerance_inch?: number | null;
+          p_process?: string | null;
+          p_notes?: string | null;
+          p_quantity: number;
+          p_requested_quote_quantities?: number[] | null;
+          p_requested_by_date?: string | null;
+        };
+        Returns: string;
+      };
       api_assign_job_to_project: {
         Args: {
           p_job_id: string;
@@ -863,7 +880,7 @@ export type Database = {
       api_set_job_selected_vendor_quote_offer: {
         Args: {
           p_job_id: string;
-          p_vendor_quote_offer_id: string;
+          p_vendor_quote_offer_id?: string | null;
         };
         Returns: string;
       };

@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { Download, FolderInput, Loader2, MoveRight, PlusSquare, Search, Upload, XCircle } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import { ChevronDown, FolderInput, Loader2, MoveRight, PlusSquare, Search, Upload, XCircle } from "lucide-react";
 import { toast } from "sonner";
-import { CartesianGrid, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from "recharts";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
+import { ActivityLog, type ActivityLogEntry } from "@/components/quotes/ActivityLog";
+import { ClientPartRequestEditor } from "@/components/quotes/ClientPartRequestEditor";
+import {
+  ClientCadPreviewPanel,
+  ClientDrawingPreviewPanel,
+} from "@/components/quotes/ClientQuoteAssetPanels";
+import { ClientQuoteComparisonChart } from "@/components/quotes/ClientQuoteComparisonChart";
 import { DrawingPreviewDialog } from "@/components/quotes/DrawingPreviewDialog";
-import { RequestedQuantityFilter } from "@/components/quotes/RequestedQuantityFilter";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import {
   WorkspaceSidebar,
@@ -16,6 +21,7 @@ import {
 } from "@/components/chat/WorkspaceSidebar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -53,17 +59,12 @@ import {
   unarchiveProject,
   unpinJob,
   unpinProject,
+  updateClientPartRequest,
   updateProject,
   uploadFilesToJob,
 } from "@/features/quotes/api";
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
-import {
-  collectRequestedQuantities,
-  groupByRequestedQuantity,
-  resolveRequestedQuantitySelection,
-  type RequestedQuantityFilterValue,
-} from "@/features/quotes/request-scenarios";
 import {
   buildDmriflesProjects,
   buildSeedProjectId,
@@ -72,15 +73,31 @@ import {
   resolveImportedBatch,
   syncImportedBatchProjects,
 } from "@/features/quotes/client-workspace";
+import {
+  formatRequestedQuoteQuantitiesInput,
+  parseRequestedQuoteQuantitiesInput,
+} from "@/features/quotes/request-intake";
+import {
+  buildClientQuoteSelectionOptions,
+  buildVendorLabelMap,
+  getSelectedOption,
+  pickPresetOption,
+  sortQuoteOptionsForPreset,
+  type ClientQuoteSelectionOption,
+  type QuotePreset,
+} from "@/features/quotes/selection";
+import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
 import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
+import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
 import {
+  buildRequirementDraft,
   formatCurrency,
   formatLeadTime,
   formatStatusLabel,
-  getImportedVendorOffers,
   normalizeDrawingExtraction,
 } from "@/features/quotes/utils";
+import type { VendorName } from "@/integrations/supabase/types";
 import { cn } from "@/lib/utils";
 
 const ClientPart = () => {
@@ -90,12 +107,13 @@ const ClientPart = () => {
   const { user, activeMembership, signOut } = useAppSession();
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [showDrawingPreview, setShowDrawingPreview] = useState(false);
-  const [drawingPreviewThumbnailUrl, setDrawingPreviewThumbnailUrl] = useState<string | null>(null);
   const [drawingPreviewPageUrls, setDrawingPreviewPageUrls] = useState<Array<{ pageNumber: number; url: string }>>([]);
   const [isDrawingPreviewLoading, setIsDrawingPreviewLoading] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [activeRequestedQuantity, setActiveRequestedQuantity] =
-    useState<RequestedQuantityFilterValue | null>(null);
+  const [activePreset, setActivePreset] = useState<QuotePreset | null>(null);
+  const [excludedVendorKeys, setExcludedVendorKeys] = useState<VendorName[]>([]);
+  const [requestDraft, setRequestDraft] = useState<ClientPartRequestUpdateInput | null>(null);
+  const [quoteQuantityInput, setQuoteQuantityInput] = useState("");
   const normalizedEmail = user?.email?.toLowerCase() ?? "";
   const isDmriflesWorkspace = normalizedEmail === DMRIFLES_EMAIL;
   const registerArchiveUndo = useArchiveUndo();
@@ -333,6 +351,20 @@ const ClientPart = () => {
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to update selected quote.");
+    },
+  });
+  const saveRequestMutation = useMutation({
+    mutationFn: (input: ClientPartRequestUpdateInput) => updateClientPartRequest(input),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["part-detail", jobId] }),
+        queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
+        queryClient.invalidateQueries({ queryKey: ["client-jobs"] }),
+      ]);
+      toast.success("Request details updated.");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to update request details.");
     },
   });
   const resolveSidebarProjectIdsForJob = (job: { id: string; project_id: string | null; source: string }) => {
@@ -629,81 +661,79 @@ const ClientPart = () => {
   const extraction = partDetail?.part ? normalizeDrawingExtraction(partDetail.part.extraction, partDetail.part.id) : null;
   const drawingPreview = partDetail?.drawingPreview ?? null;
   const drawingFile = partDetail?.files.find((file) => file.file_kind === "drawing") ?? null;
-  const cadFiles = partDetail?.files.filter((file) => file.file_kind === "cad") ?? [];
-  const quoteOffers = useMemo(() => {
+  const cadFile = partDetail?.files.find((file) => file.file_kind === "cad") ?? null;
+  const fallbackRequestDraft = useMemo(() => {
     if (!partDetail?.part) {
-      return [];
+      return null;
     }
 
-    return partDetail.part.vendorQuotes
-      .flatMap((quote) =>
-        getImportedVendorOffers(quote).map((offer) => ({
-          ...offer,
-          vendor: quote.vendor,
-        })),
-      )
-      .filter((offer) => Number.isFinite(offer.totalPriceUsd))
-      .sort((left, right) => {
-        if (left.totalPriceUsd !== right.totalPriceUsd) {
-          return left.totalPriceUsd - right.totalPriceUsd;
-        }
+    const requirement = buildRequirementDraft(partDetail.part, {
+      requested_quote_quantities: partDetail.job.requested_quote_quantities ?? [],
+      requested_by_date: partDetail.job.requested_by_date ?? null,
+    });
 
-        return (left.leadTimeBusinessDays ?? Number.MAX_SAFE_INTEGER) - (right.leadTimeBusinessDays ?? Number.MAX_SAFE_INTEGER);
-      });
-  }, [partDetail?.part]);
-  const selectedOffer =
-    quoteOffers.find((offer) => offer.id === partDetail?.job.selected_vendor_quote_offer_id) ?? quoteOffers[0] ?? null;
-  const requestSummaryQuantity = summary?.quantity ?? partDetail?.part?.quantity ?? null;
+    return {
+      jobId,
+      description: requirement.description ?? null,
+      partNumber: requirement.partNumber ?? null,
+      revision: requirement.revision ?? null,
+      material: requirement.material,
+      finish: requirement.finish ?? null,
+      tightestToleranceInch: requirement.tightestToleranceInch ?? null,
+      process: requirement.process ?? null,
+      notes: requirement.notes ?? null,
+      quantity: requirement.quantity,
+      requestedQuoteQuantities: requirement.quoteQuantities,
+      requestedByDate: requirement.requestedByDate ?? null,
+    } satisfies ClientPartRequestUpdateInput;
+  }, [
+    jobId,
+    partDetail?.job.requested_by_date,
+    partDetail?.job.requested_quote_quantities,
+    partDetail?.part,
+  ]);
+  const effectiveRequestDraft = requestDraft ?? fallbackRequestDraft;
+  const requestQuantities = useMemo(
+    () =>
+      parseRequestedQuoteQuantitiesInput(
+        quoteQuantityInput,
+        effectiveRequestDraft?.quantity ?? summary?.quantity ?? partDetail?.part?.quantity ?? 1,
+      ),
+    [effectiveRequestDraft?.quantity, partDetail?.part?.quantity, quoteQuantityInput, summary?.quantity],
+  );
+  const requestSummaryQuantity = effectiveRequestDraft?.quantity ?? summary?.quantity ?? partDetail?.part?.quantity ?? null;
   const requestSummaryRequestedByDate =
+    effectiveRequestDraft?.requestedByDate ??
     summary?.requestedByDate ??
     partDetail?.part?.approvedRequirement?.requested_by_date ??
     partDetail?.job.requested_by_date ??
     null;
-  const requestQuantities = useMemo(
-    () =>
-      collectRequestedQuantities(
-        [
-          summary?.requestedQuoteQuantities,
-          partDetail?.part?.approvedRequirement?.quote_quantities,
-          partDetail?.job.requested_quote_quantities,
-          quoteOffers.map((offer) => offer.requestedQuantity),
-        ],
-        requestSummaryQuantity,
-      ),
-    [
-      partDetail?.job.requested_quote_quantities,
-      partDetail?.part?.approvedRequirement?.quote_quantities,
-      quoteOffers,
-      requestSummaryQuantity,
-      summary?.requestedQuoteQuantities,
-    ],
+  const vendorLabelMap = useMemo(
+    () => buildVendorLabelMap(partDetail?.part?.vendorQuotes.map((quote) => quote.vendor) ?? []),
+    [partDetail?.part?.vendorQuotes],
   );
-  const visibleQuoteOffers = useMemo(() => {
-    if (activeRequestedQuantity === "all" || activeRequestedQuantity === null) {
-      return quoteOffers;
-    }
-
-    return quoteOffers.filter((offer) => offer.requestedQuantity === activeRequestedQuantity);
-  }, [activeRequestedQuantity, quoteOffers]);
-  const visibleQuoteOfferGroups = useMemo(() => {
-    if (visibleQuoteOffers.length === 0) {
-      return [];
-    }
-
-    if (activeRequestedQuantity === "all") {
-      return groupByRequestedQuantity(visibleQuoteOffers);
-    }
-
-    return [
-      {
-        requestedQuantity:
-          typeof activeRequestedQuantity === "number"
-            ? activeRequestedQuantity
-            : visibleQuoteOffers[0]?.requestedQuantity ?? 1,
-        items: visibleQuoteOffers,
-      },
-    ];
-  }, [activeRequestedQuantity, visibleQuoteOffers]);
+  const quoteOptions = useMemo(
+    () =>
+      partDetail?.part
+        ? buildClientQuoteSelectionOptions({
+            vendorQuotes: partDetail.part.vendorQuotes,
+            requestedByDate: requestSummaryRequestedByDate,
+            excludedVendorKeys,
+            vendorLabels: vendorLabelMap,
+          })
+        : [],
+    [excludedVendorKeys, partDetail?.part, requestSummaryRequestedByDate, vendorLabelMap],
+  );
+  const rankedQuoteOptions = useMemo(
+    () => sortQuoteOptionsForPreset(quoteOptions, activePreset ?? "cheapest"),
+    [activePreset, quoteOptions],
+  );
+  const selectedQuoteOption =
+    getSelectedOption(rankedQuoteOptions, partDetail?.job.selected_vendor_quote_offer_id) ??
+    rankedQuoteOptions.find((option) => option.eligible) ??
+    rankedQuoteOptions[0] ??
+    null;
+  const eligibleQuoteCount = rankedQuoteOptions.filter((option) => option.eligible).length;
   const revisionOptions = useMemo(() => {
     if (!summary) {
       return [];
@@ -715,17 +745,99 @@ const ClientPart = () => {
         revision: summary.revision,
         title: `${summary.partNumber ?? presentation?.title ?? "Part"}${summary.revision ? ` rev ${summary.revision}` : ""}`,
       },
-      ...partDetail?.revisionSiblings ?? [],
+      ...(partDetail?.revisionSiblings ?? []),
     ].sort((left, right) => (left.revision ?? "").localeCompare(right.revision ?? ""));
   }, [jobId, partDetail?.revisionSiblings, presentation?.title, summary]);
   const selectedRevisionIndex = revisionOptions.findIndex((revision) => revision.jobId === jobId);
+  const activityEntries = useMemo<ActivityLogEntry[]>(() => {
+    const rankingLabel =
+      activePreset === "fastest"
+        ? "Ranking fastest eligible quotes"
+        : activePreset === "domestic"
+          ? "Ranking domestic eligible quotes"
+          : "Ranking cheapest eligible quotes";
+
+    return [
+      {
+        id: "parsing",
+        label: "Parsing drawing notes",
+        detail: drawingFile
+          ? `Drawing ${drawingFile.original_name} is attached${drawingPreview?.pageCount ? ` with ${drawingPreview.pageCount} preview page(s)` : ""}.`
+          : "No drawing PDF is attached yet.",
+        tone: drawingFile ? "active" : "attention",
+      },
+      {
+        id: "metadata",
+        label: "Extracting part details",
+        detail: extraction
+          ? `Material ${extraction.material.normalized ?? extraction.material.raw ?? "pending"}, finish ${extraction.finish.normalized ?? extraction.finish.raw ?? "pending"}, revision ${extraction.revision ?? "pending"}.`
+          : "Extraction is pending or unavailable.",
+        tone: extraction ? "active" : "attention",
+      },
+      {
+        id: "matching",
+        label: "Matching vendor options",
+        detail:
+          rankedQuoteOptions.length > 0
+            ? `${rankedQuoteOptions.length} quote option${rankedQuoteOptions.length === 1 ? "" : "s"} available across anonymized vendors.`
+            : "No quote options are available yet.",
+        tone: rankedQuoteOptions.length > 0 ? "active" : "attention",
+      },
+      requestSummaryRequestedByDate
+        ? {
+            id: "due-date",
+            label: "Filtering late deliveries",
+            detail: `${eligibleQuoteCount} option${eligibleQuoteCount === 1 ? "" : "s"} remain eligible for the requested date ${requestSummaryRequestedByDate}.`,
+            tone: eligibleQuoteCount > 0 ? "active" : "attention",
+          }
+        : {
+            id: "due-date",
+            label: "Filtering late deliveries",
+            detail: "No due date provided, so all selectable vendors remain eligible.",
+            tone: "default",
+          },
+      {
+        id: "ranking",
+        label: rankingLabel,
+        detail:
+          selectedQuoteOption
+            ? `${selectedQuoteOption.vendorLabel} currently leads at ${formatCurrency(selectedQuoteOption.totalPriceUsd)} total.`
+            : "No selectable quote is currently ranked.",
+        tone: selectedQuoteOption ? "active" : "attention",
+      },
+    ];
+  }, [
+    activePreset,
+    drawingFile,
+    drawingPreview?.pageCount,
+    eligibleQuoteCount,
+    extraction,
+    rankedQuoteOptions.length,
+    requestSummaryRequestedByDate,
+    selectedQuoteOption,
+  ]);
+
+  useEffect(() => {
+    setExcludedVendorKeys(readExcludedVendorKeys(jobId));
+    setActivePreset(null);
+    setRequestDraft(null);
+    setQuoteQuantityInput("");
+  }, [jobId]);
+
+  useEffect(() => {
+    if (!fallbackRequestDraft) {
+      return;
+    }
+
+    setRequestDraft(fallbackRequestDraft);
+    setQuoteQuantityInput(formatRequestedQuoteQuantitiesInput(fallbackRequestDraft.requestedQuoteQuantities));
+  }, [fallbackRequestDraft]);
 
   useEffect(() => {
     let isActive = true;
     const objectUrls: string[] = [];
 
     if (!drawingFile || !drawingPreview || (!drawingPreview.thumbnail && drawingPreview.pages.length === 0)) {
-      setDrawingPreviewThumbnailUrl(null);
       setDrawingPreviewPageUrls([]);
       setIsDrawingPreviewLoading(false);
       return;
@@ -745,23 +857,17 @@ const ClientPart = () => {
       return url;
     };
 
-    void Promise.all([
-      drawingPreview.thumbnail
-        ? loadAsset(drawingPreview.thumbnail.storageBucket, drawingPreview.thumbnail.storagePath)
-        : Promise.resolve<string | null>(null),
-      Promise.all(
-        drawingPreview.pages.map(async (page) => ({
-          pageNumber: page.pageNumber,
-          url: await loadAsset(page.storageBucket, page.storagePath),
-        })),
-      ),
-    ])
-      .then(([thumbnailUrl, pageUrls]) => {
+    void Promise.all(
+      drawingPreview.pages.map(async (page) => ({
+        pageNumber: page.pageNumber,
+        url: await loadAsset(page.storageBucket, page.storagePath),
+      })),
+    )
+      .then((pageUrls) => {
         if (!isActive) {
           return;
         }
 
-        setDrawingPreviewThumbnailUrl(thumbnailUrl);
         setDrawingPreviewPageUrls(pageUrls);
       })
       .catch((error: unknown) => {
@@ -771,7 +877,6 @@ const ClientPart = () => {
 
         const message = error instanceof Error ? error.message : "Unable to load drawing preview.";
         toast.error(message);
-        setDrawingPreviewThumbnailUrl(null);
         setDrawingPreviewPageUrls([]);
       })
       .finally(() => {
@@ -786,20 +891,75 @@ const ClientPart = () => {
     };
   }, [drawingFile, drawingPreview]);
 
-  useEffect(() => {
-    setActiveRequestedQuantity((current) =>
-      resolveRequestedQuantitySelection({
-        availableQuantities: requestQuantities,
-        currentSelection: current,
-        preferredQuantity: selectedOffer?.requestedQuantity ?? requestSummaryQuantity,
-        allowAll: true,
-      }),
-    );
-  }, [requestQuantities, requestSummaryQuantity, selectedOffer?.requestedQuantity]);
-
   if (!user) {
     return null;
   }
+
+  const handleSelectQuoteOption = (option: ClientQuoteSelectionOption) => {
+    if (!option.persistedOfferId) {
+      toast.error("This quote option is not ready to select yet.");
+      return;
+    }
+
+    setActivePreset(null);
+    selectOfferMutation.mutate(option.persistedOfferId);
+  };
+
+  const handlePresetSelection = (preset: QuotePreset) => {
+    setActivePreset(preset);
+
+    const nextOption = pickPresetOption(quoteOptions, preset);
+
+    if (!nextOption?.persistedOfferId) {
+      toast.error(
+        requestSummaryRequestedByDate
+          ? "No eligible quote meets the requested due date for this preset."
+          : "No eligible quote is available for this preset.",
+      );
+      return;
+    }
+
+    selectOfferMutation.mutate(nextOption.persistedOfferId);
+  };
+
+  const handleToggleVendorExclusion = (vendorKey: VendorName, shouldExclude: boolean) => {
+    setExcludedVendorKeys(toggleExcludedVendorKey(jobId, vendorKey, shouldExclude));
+  };
+
+  const handleDraftChange = (next: Partial<ClientPartRequestUpdateInput>) => {
+    setRequestDraft((current) => {
+      const base = current ?? fallbackRequestDraft;
+
+      if (!base) {
+        return current;
+      }
+
+      return {
+        ...base,
+        ...next,
+      };
+    });
+  };
+
+  const handleSaveRequest = () => {
+    if (!effectiveRequestDraft) {
+      return;
+    }
+
+    const nextQuantities = parseRequestedQuoteQuantitiesInput(
+      quoteQuantityInput,
+      effectiveRequestDraft.quantity,
+    );
+
+    const payload = {
+      ...effectiveRequestDraft,
+      requestedQuoteQuantities: nextQuantities,
+    } satisfies ClientPartRequestUpdateInput;
+
+    setRequestDraft(payload);
+    setQuoteQuantityInput(formatRequestedQuoteQuantitiesInput(nextQuantities));
+    saveRequestMutation.mutate(payload);
+  };
 
   const handleDownloadFile = async (file: { storage_bucket: string; storage_path: string; original_name: string }) => {
     try {
@@ -881,7 +1041,7 @@ const ClientPart = () => {
             <>
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-white/35">Part</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-white/35">Part workspace</p>
                   <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">{presentation.title}</h1>
                   <p className="mt-2 max-w-3xl text-sm text-white/55">{presentation.description}</p>
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -902,16 +1062,16 @@ const ClientPart = () => {
                         {summary?.importedBatch}
                       </Badge>
                     ) : (
-                      <Badge className="border border-white/10 bg-white/6 text-white/75">Your Parts</Badge>
+                      <Badge className="border border-white/10 bg-white/6 text-white/75">Standalone part</Badge>
                     )}
-                    {!cadFiles.length ? (
+                    {!cadFile ? (
                       <Badge className="border border-amber-400/25 bg-amber-500/10 text-amber-200">
-                        Upload CAD to complete quoting
+                        CAD missing
                       </Badge>
                     ) : null}
-                  {!drawingFile ? (
+                    {!drawingFile ? (
                       <Badge className="border border-sky-400/25 bg-sky-500/10 text-sky-200">
-                        Upload drawing PDF for extraction
+                        Drawing missing
                       </Badge>
                     ) : null}
                   </div>
@@ -933,13 +1093,12 @@ const ClientPart = () => {
                         onClick={() => {
                           const previousId =
                             revisionOptions[(selectedRevisionIndex - 1 + revisionOptions.length) % revisionOptions.length]?.jobId;
-                          if (!previousId) {
-                            return;
+                          if (previousId) {
+                            navigate(`/parts/${previousId}`);
                           }
-                          navigate(`/parts/${previousId}`);
                         }}
                       >
-                        &lt;
+                        Prev rev
                       </Button>
                       <Button
                         type="button"
@@ -947,27 +1106,12 @@ const ClientPart = () => {
                         className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
                         onClick={() => {
                           const nextId = revisionOptions[(selectedRevisionIndex + 1) % revisionOptions.length]?.jobId;
-                          if (!nextId) {
-                            return;
+                          if (nextId) {
+                            navigate(`/parts/${nextId}`);
                           }
-                          navigate(`/parts/${nextId}`);
                         }}
                       >
                         {revisionOptions[selectedRevisionIndex]?.revision ?? "Rev"}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
-                        onClick={() => {
-                          const nextId = revisionOptions[(selectedRevisionIndex + 1) % revisionOptions.length]?.jobId;
-                          if (!nextId) {
-                            return;
-                          }
-                          navigate(`/parts/${nextId}`);
-                        }}
-                      >
-                        &gt;
                       </Button>
                     </>
                   ) : null}
@@ -990,7 +1134,6 @@ const ClientPart = () => {
                       Open batch
                     </Button>
                   ) : null}
-
                   {!isDmriflesWorkspace && !projectCollaborationUnavailable ? (
                     <Button
                       type="button"
@@ -1002,7 +1145,6 @@ const ClientPart = () => {
                       Manage projects
                     </Button>
                   ) : null}
-
                   <Button
                     type="button"
                     variant="outline"
@@ -1012,314 +1154,217 @@ const ClientPart = () => {
                     <Upload className="mr-2 h-4 w-4" />
                     Attach files
                   </Button>
-
+                  <Button type="button" className="rounded-full" onClick={() => navigate(`/parts/${jobId}/review`)}>
+                    Review order
+                    <MoveRight className="ml-2 h-4 w-4" />
+                  </Button>
                 </div>
               </div>
 
-              <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-                <div className="space-y-4">
-                  <div className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
-                    <p className="text-xs uppercase tracking-[0.18em] text-white/35">Files</p>
-                    <div className="mt-4 space-y-3">
-                      {drawingFile ? (
-                        <button
-                          type="button"
-                          onClick={() => setShowDrawingPreview(true)}
-                          className="flex w-full items-center gap-4 rounded-2xl border border-white/8 bg-black/20 p-4 text-left transition hover:bg-white/4"
-                        >
-                          <div className="h-24 w-20 overflow-hidden rounded-xl border border-white/8 bg-white">
-                            {drawingPreviewThumbnailUrl ? (
-                              <img
-                                src={drawingPreviewThumbnailUrl}
-                                alt={`Preview ${drawingFile.original_name}`}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-full items-center justify-center bg-zinc-100 text-zinc-500">
-                                {isDrawingPreviewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "PDF"}
-                              </div>
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium text-white">{drawingFile.original_name}</p>
-                            <p className="mt-1 text-xs uppercase tracking-[0.14em] text-white/35">Drawing preview</p>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="shrink-0 text-white/70"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleDownloadFile(drawingFile);
-                            }}
-                          >
-                            <Download className="mr-2 h-4 w-4" />
-                            PDF
-                          </Button>
-                        </button>
-                      ) : null}
-                      {partDetail.files.length === 0 ? (
-                        <p className="text-sm text-white/45">No files uploaded yet.</p>
-                      ) : (
-                        partDetail.files.map((file) => (
-                          <div
-                            key={file.id}
-                            className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3"
-                          >
-                            <div className="flex items-center justify-between gap-4">
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-medium text-white">{file.original_name}</p>
-                                <p className="text-xs uppercase tracking-[0.14em] text-white/35">
-                                  {file.file_kind}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Badge className="border border-white/10 bg-white/6 text-white/70">
-                                  {file.mime_type ?? "file"}
-                                </Badge>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  className="text-white/70"
-                                  onClick={() => {
-                                    void handleDownloadFile(file);
-                                  }}
-                                >
-                                  <Download className="mr-2 h-4 w-4" />
-                                  Download
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
+              <div className="grid gap-6 xl:grid-cols-2">
+                <ClientDrawingPreviewPanel
+                  drawingFile={drawingFile}
+                  drawingPreview={drawingPreview ?? { pageCount: 0, thumbnail: null, pages: [] }}
+                  onOpenDialog={drawingFile ? () => setShowDrawingPreview(true) : undefined}
+                />
+                <ClientCadPreviewPanel cadFile={cadFile} />
+              </div>
 
-                  <div className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
+              <section className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
                     <p className="text-xs uppercase tracking-[0.18em] text-white/35">Quote comparison</p>
-                    <div className="mt-4 space-y-3">
-                      <RequestedQuantityFilter
-                        quantities={requestQuantities}
-                        value={activeRequestedQuantity}
-                        onChange={setActiveRequestedQuantity}
-                      />
-                      {!quoteOffers.length ? (
-                        <p className="text-sm text-white/45">
-                          {cadFiles.length
-                            ? "No vendor quote lanes are available yet."
-                            : "Upload a CAD model before vendor quote lanes can be compared."}
-                        </p>
-                      ) : (
-                        <>
-                          <div className="h-64 rounded-2xl border border-white/8 bg-black/20 p-3">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <ScatterChart margin={{ top: 12, right: 12, bottom: 12, left: 0 }}>
-                                <CartesianGrid stroke="rgba(255,255,255,0.08)" />
-                                <XAxis
-                                  type="number"
-                                  dataKey="leadTimeBusinessDays"
-                                  tick={{ fill: "rgba(255,255,255,0.6)", fontSize: 11 }}
-                                  name="Lead time"
-                                  unit="d"
-                                />
-                                <YAxis
-                                  type="number"
-                                  dataKey="unitPriceUsd"
-                                  tick={{ fill: "rgba(255,255,255,0.6)", fontSize: 11 }}
-                                  tickFormatter={(value) => `$${value}`}
-                                  name="Unit price"
-                                />
-                                <ZAxis type="number" dataKey={() => 5} range={[160, 160]} />
-                                <Tooltip
-                                  cursor={{ strokeDasharray: "3 3" }}
-                                  content={({ active, payload }) => {
-                                    if (!active || !payload?.[0]?.payload) {
-                                      return null;
-                                    }
-
-                                    const offer = payload[0].payload as (typeof quoteOffers)[number];
-                                    return (
-                                      <div className="rounded-lg border border-white/10 bg-[#1f1f1f] p-3 text-xs text-white shadow-xl">
-                                        <p className="font-medium">{offer.supplier}</p>
-                                        <p>Qty {offer.requestedQuantity}</p>
-                                        <p>{formatCurrency(offer.unitPriceUsd)} unit</p>
-                                        <p>{formatCurrency(offer.totalPriceUsd)} total</p>
-                                        <p>{formatLeadTime(offer.leadTimeBusinessDays)}</p>
-                                      </div>
-                                    );
-                                  }}
-                                />
-                                <Scatter
-                                  data={visibleQuoteOffers}
-                                  fill="#34d399"
-                                  onClick={(point) => {
-                                    const offer = point as (typeof quoteOffers)[number];
-                                    if (offer.id) {
-                                      selectOfferMutation.mutate(offer.id);
-                                    }
-                                  }}
-                                />
-                              </ScatterChart>
-                            </ResponsiveContainer>
-                          </div>
-
-                          {selectedOffer ? (
-                            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
-                              <p className="text-[10px] uppercase tracking-[0.18em] text-emerald-200/80">Current selection</p>
-                              <p className="mt-2 text-lg font-semibold text-white">{selectedOffer.supplier}</p>
-                              <p className="text-sm text-emerald-100/85">
-                                Qty {selectedOffer.requestedQuantity} · {formatCurrency(selectedOffer.unitPriceUsd)} unit · {formatCurrency(selectedOffer.totalPriceUsd)} total · {formatLeadTime(selectedOffer.leadTimeBusinessDays)}
-                              </p>
-                            </div>
-                          ) : null}
-
-                          {visibleQuoteOffers.length === 0 ? (
-                            <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm text-white/50">
-                              No vendor lanes are available for qty {activeRequestedQuantity}.
-                            </div>
-                          ) : (
-                            visibleQuoteOfferGroups.map((group) => (
-                              <div key={group.requestedQuantity} className="space-y-3">
-                                {activeRequestedQuantity === "all" ? (
-                                  <div className="flex items-center justify-between rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
-                                    <p className="text-sm font-medium text-white">
-                                      Qty {group.requestedQuantity}
-                                    </p>
-                                    <p className="text-xs text-white/45">
-                                      {group.items.length} lane{group.items.length === 1 ? "" : "s"}
-                                    </p>
-                                  </div>
-                                ) : null}
-                                {group.items.map((offer) => (
-                                  <button
-                                    key={offer.offerId}
-                                    type="button"
-                                    className={cn(
-                                      "block w-full rounded-2xl border px-4 py-3 text-left transition",
-                                      selectedOffer?.offerId === offer.offerId
-                                        ? "border-emerald-500/35 bg-emerald-500/10"
-                                        : "border-white/8 bg-black/20 hover:bg-white/4",
-                                    )}
-                                    onClick={() => {
-                                      if (offer.id) {
-                                        selectOfferMutation.mutate(offer.id);
-                                      }
-                                    }}
-                                  >
-                                    <div className="flex items-start justify-between gap-4">
-                                      <div>
-                                        <p className="text-sm font-medium text-white">{offer.supplier}</p>
-                                        <div className="mt-2 flex flex-wrap gap-2">
-                                          <Badge className="border border-white/10 bg-white/6 text-white/70">
-                                            Qty {offer.requestedQuantity}
-                                          </Badge>
-                                          <Badge className="border border-white/10 bg-white/6 text-white/70">
-                                            {offer.laneLabel ?? offer.tier ?? "Quote lane"}
-                                          </Badge>
-                                        </div>
-                                      </div>
-                                      <div className="text-right">
-                                        <p className="text-sm font-semibold text-white">{formatCurrency(offer.unitPriceUsd)}</p>
-                                        <p className="text-xs text-white/45">{formatLeadTime(offer.leadTimeBusinessDays)}</p>
-                                      </div>
-                                    </div>
-                                  </button>
-                                ))}
-                              </div>
-                            ))
-                          )}
-                        </>
-                      )}
-                    </div>
+                    <p className="mt-2 text-sm text-white/55">
+                      Presets only rank eligible quotes, ignore excluded vendors, and honor the requested due date.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(["cheapest", "fastest", "domestic"] as const).map((preset) => (
+                      <Button
+                        key={preset}
+                        type="button"
+                        variant={activePreset === preset ? "default" : "outline"}
+                        className={cn(
+                          "rounded-full border-white/10",
+                          activePreset === preset
+                            ? "bg-white text-black hover:bg-white/90"
+                            : "bg-transparent text-white hover:bg-white/6",
+                        )}
+                        onClick={() => handlePresetSelection(preset)}
+                      >
+                        {preset === "cheapest" ? "Cheapest" : preset === "fastest" ? "Fastest" : "Domestic"}
+                      </Button>
+                    ))}
                   </div>
                 </div>
 
-                <aside className="space-y-4">
-                  <div className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
-                    <p className="text-xs uppercase tracking-[0.18em] text-white/35">Details</p>
-                    <div className="mt-4 space-y-3">
-                      {selectedOffer ? (
-                        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
-                          <p className="text-[10px] uppercase tracking-[0.18em] text-emerald-200/80">Selected quote</p>
-                          <p className="mt-2 text-base font-semibold text-white">{selectedOffer.supplier}</p>
-                          <p className="text-sm text-emerald-100/85">
-                            {formatCurrency(selectedOffer.unitPriceUsd)} unit · {formatCurrency(selectedOffer.totalPriceUsd)} total
-                          </p>
-                          <p className="text-xs text-emerald-100/70">{formatLeadTime(selectedOffer.leadTimeBusinessDays)}</p>
-                        </div>
-                      ) : null}
-                      <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Created</p>
-                        <p className="mt-2 text-sm font-medium text-white">
-                          {new Date(partDetail.job.created_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Quantity</p>
-                        <p className="mt-2 text-sm font-medium text-white">{requestSummaryQuantity ?? 1}</p>
-                      </div>
-                      <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Request</p>
-                        <RequestSummaryBadges
-                          quantity={requestSummaryQuantity}
-                          requestedQuoteQuantities={requestQuantities}
-                          requestedByDate={requestSummaryRequestedByDate}
-                          className="mt-2"
-                        />
-                      </div>
-                      <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Tags</p>
-                        <p className="mt-2 text-sm font-medium text-white">
-                          {partDetail.job.tags.length > 0 ? partDetail.job.tags.join(", ") : "No tags"}
-                        </p>
-                      </div>
-                      <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Projects</p>
-                        <p className="mt-2 text-sm font-medium text-white">
-                          {projectMemberships.length > 0
-                            ? projectMemberships.map((project) => project.project.name).join(", ")
-                            : "Standalone part"}
-                        </p>
-                      </div>
-                    </div>
+                {selectedQuoteOption ? (
+                  <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-emerald-200/80">Current selection</p>
+                    <p className="mt-2 text-lg font-semibold text-white">{selectedQuoteOption.vendorLabel}</p>
+                    <p className="text-sm text-emerald-100/85">
+                      {formatCurrency(selectedQuoteOption.totalPriceUsd)} total ·{" "}
+                      {selectedQuoteOption.resolvedDeliveryDate ?? formatLeadTime(selectedQuoteOption.leadTimeBusinessDays)}
+                    </p>
                   </div>
+                ) : null}
 
-                  <div className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
-                    <p className="text-xs uppercase tracking-[0.18em] text-white/35">Drawing details</p>
-                    <div className="mt-4 space-y-3">
-                      {[
-                        ["Part number", extraction?.partNumber ?? summary?.partNumber ?? "Unknown"],
-                        ["Revision", extraction?.revision ?? summary?.revision ?? "Unknown"],
-                        ["Description", extraction?.description ?? summary?.description ?? "Unknown"],
-                        ["Material", extraction?.material.normalized ?? extraction?.material.raw ?? "Unknown"],
-                        ["Finish", extraction?.finish.normalized ?? extraction?.finish.raw ?? "Unknown"],
-                        [
-                          "Tolerance",
-                          extraction?.tightestTolerance.raw ??
-                            (extraction?.tightestTolerance.valueInch
-                              ? `${extraction.tightestTolerance.valueInch.toFixed(4)} in`
-                              : "Unknown"),
-                        ],
-                      ].map(([label, value]) => (
-                        <div key={label} className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
-                          <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">{label}</p>
-                          <p className="mt-2 text-sm font-medium text-white">{value}</p>
-                        </div>
-                      ))}
-                      {extraction?.warnings.length ? (
-                        <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3">
-                          <p className="text-[10px] uppercase tracking-[0.18em] text-amber-200/80">Warnings</p>
-                          <ul className="mt-2 space-y-1 text-sm text-amber-100/90">
-                            {extraction.warnings.map((warning) => (
-                              <li key={warning}>{warning}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                    </div>
+                {!rankedQuoteOptions.length ? (
+                  <div className="mt-4 rounded-2xl border border-white/8 bg-black/20 px-4 py-6 text-sm text-white/45">
+                    {cadFile
+                      ? "No quote options are available yet."
+                      : "Upload a CAD model before quote options can be compared."}
                   </div>
-                </aside>
+                ) : (
+                  <>
+                    <div className="mt-4 rounded-[22px] border border-white/8 bg-black/20 p-4">
+                      <ClientQuoteComparisonChart
+                        options={rankedQuoteOptions}
+                        selectedKey={selectedQuoteOption?.key ?? null}
+                        onSelect={handleSelectQuoteOption}
+                      />
+                    </div>
+
+                    {requestSummaryRequestedByDate && eligibleQuoteCount === 0 ? (
+                      <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                        No eligible quote currently meets the requested due date of {requestSummaryRequestedByDate}.
+                      </div>
+                    ) : null}
+
+                    <div className="mt-4 space-y-3">
+                      {rankedQuoteOptions.map((option) => {
+                        const selected = selectedQuoteOption?.key === option.key;
+                        const domesticLabel =
+                          option.domesticStatus === "domestic"
+                            ? "USA"
+                            : option.domesticStatus === "foreign"
+                              ? "Foreign"
+                              : "Unknown";
+
+                        return (
+                          <button
+                            key={option.key}
+                            type="button"
+                            onClick={() => handleSelectQuoteOption(option)}
+                            className={cn(
+                              "block w-full rounded-2xl border px-4 py-4 text-left transition",
+                              selected
+                                ? "border-emerald-500/30 bg-emerald-500/10"
+                                : "border-white/8 bg-black/20 hover:bg-white/4",
+                              !option.isSelectable && "cursor-not-allowed opacity-70",
+                            )}
+                            disabled={!option.isSelectable}
+                          >
+                            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-sm font-semibold text-white">{option.vendorLabel}</p>
+                                  <Badge className="border border-white/10 bg-white/6 text-white/70">
+                                    Qty {option.requestedQuantity}
+                                  </Badge>
+                                  <Badge
+                                    className={cn(
+                                      "border",
+                                      option.domesticStatus === "domestic"
+                                        ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
+                                        : option.domesticStatus === "foreign"
+                                          ? "border-sky-400/20 bg-sky-500/10 text-sky-100"
+                                          : "border-white/10 bg-white/6 text-white/70",
+                                    )}
+                                  >
+                                    {domesticLabel}
+                                  </Badge>
+                                  {option.expedite ? (
+                                    <Badge className="border border-fuchsia-400/20 bg-fuchsia-500/10 text-fuchsia-100">
+                                      Expedite
+                                    </Badge>
+                                  ) : null}
+                                  {!option.dueDateEligible && requestSummaryRequestedByDate ? (
+                                    <Badge className="border border-amber-400/20 bg-amber-500/10 text-amber-100">
+                                      Late
+                                    </Badge>
+                                  ) : null}
+                                  {option.excluded ? (
+                                    <Badge className="border border-white/10 bg-white/6 text-white/70">
+                                      Excluded
+                                    </Badge>
+                                  ) : null}
+                                  {selected ? (
+                                    <Badge className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">
+                                      Selected
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                                <p className="mt-2 text-sm text-white/55">
+                                  {option.laneLabel ?? option.tier ?? "Standard lane"}
+                                  {option.process ? ` · ${option.process}` : ""}
+                                  {option.material ? ` · ${option.material}` : ""}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+                                <div className="text-left lg:text-right">
+                                  <p className="text-sm font-semibold text-white">{formatCurrency(option.totalPriceUsd)}</p>
+                                  <p className="text-xs text-white/45">
+                                    {option.resolvedDeliveryDate ?? formatLeadTime(option.leadTimeBusinessDays)}
+                                  </p>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleToggleVendorExclusion(option.vendorKey, !option.excluded);
+                                  }}
+                                >
+                                  {option.excluded ? "Include vendor" : "Exclude vendor"}
+                                </Button>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </section>
+
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+                <Collapsible defaultOpen className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
+                  <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 text-left">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-white/35">Metadata and RFQ details</p>
+                      <p className="mt-2 text-sm text-white/55">
+                        Correct extracted fields and keep revised files on this same line item.
+                      </p>
+                    </div>
+                    <ChevronDown className="h-4 w-4 text-white/45" />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="pt-4">
+                    {effectiveRequestDraft ? (
+                      <ClientPartRequestEditor
+                        draft={effectiveRequestDraft}
+                        quoteQuantityInput={quoteQuantityInput}
+                        onQuoteQuantityInputChange={setQuoteQuantityInput}
+                        onChange={handleDraftChange}
+                        onSave={handleSaveRequest}
+                        onUploadRevision={attachFilesPicker.openFilePicker}
+                        isSaving={saveRequestMutation.isPending}
+                        footer={
+                          extraction?.warnings.length ? (
+                            <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                              {extraction.warnings.join(" ")}
+                            </div>
+                          ) : null
+                        }
+                      />
+                    ) : (
+                      <p className="text-sm text-white/45">Part details are still loading.</p>
+                    )}
+                  </CollapsibleContent>
+                </Collapsible>
+
+                <ActivityLog entries={activityEntries} />
               </div>
             </>
           ) : (
