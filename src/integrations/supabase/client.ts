@@ -2,8 +2,29 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const TEST_SUPABASE_URL = 'https://example.supabase.co';
+const TEST_SUPABASE_PUBLISHABLE_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV4YW1wbGUiLCJyb2xlIjoiYW5vbiIsImlhdCI6MCwiZXhwIjo0MTAyNDQ0ODAwfQ.test-signature';
+
+function resolveSupabaseCredentials() {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+  if (url && publishableKey) {
+    return { url, publishableKey };
+  }
+
+  if (import.meta.env.MODE === 'test') {
+    return {
+      url: url ?? TEST_SUPABASE_URL,
+      publishableKey: publishableKey ?? TEST_SUPABASE_PUBLISHABLE_KEY,
+    };
+  }
+
+  throw new Error('VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY are required.');
+}
+
+const { url: SUPABASE_URL, publishableKey: SUPABASE_PUBLISHABLE_KEY } = resolveSupabaseCredentials();
 
 const noopStorage = {
   getItem: (_key: string) => null,
