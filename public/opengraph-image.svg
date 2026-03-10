@@ -1,0 +1,65 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="130" y1="70" x2="1052" y2="566" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#050914"/>
+      <stop offset="0.52" stop-color="#0A1120"/>
+      <stop offset="1" stop-color="#08111F"/>
+    </linearGradient>
+    <radialGradient id="blueGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(604 292) rotate(90) scale(144 332)">
+      <stop offset="0" stop-color="#90AEFF" stop-opacity="0.94"/>
+      <stop offset="0.34" stop-color="#6B8CFF" stop-opacity="0.54"/>
+      <stop offset="0.72" stop-color="#4C6AE6" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#4C6AE6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="edgeVignette" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(600 315) rotate(90) scale(370 690)">
+      <stop offset="0.72" stop-color="#08111F" stop-opacity="0"/>
+      <stop offset="1" stop-color="#01040B" stop-opacity="0.9"/>
+    </radialGradient>
+    <filter id="blur96" x="140" y="70" width="930" height="444" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="42"/>
+    </filter>
+    <filter id="noise" x="0" y="0" width="1200" height="630" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="1.15" numOctaves="2" stitchTiles="stitch"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.026"/>
+      </feComponentTransfer>
+    </filter>
+    <clipPath id="clip">
+      <rect width="1200" height="630" rx="36" fill="white"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#clip)">
+    <rect width="1200" height="630" fill="url(#bg)"/>
+
+    <g filter="url(#blur96)">
+      <ellipse cx="604" cy="292" rx="236" ry="88" fill="url(#blueGlow)"/>
+    </g>
+
+    <rect width="1200" height="630" fill="white" filter="url(#noise)" opacity="0.36"/>
+    <rect width="1200" height="630" fill="url(#edgeVignette)"/>
+
+    <g opacity="0.9">
+      <path d="M171 111L207 132V176L171 197L135 176V132L171 111Z" stroke="#EAF1FF" stroke-width="5.5" stroke-linejoin="round"/>
+      <path d="M171 111V197" stroke="#EAF1FF" stroke-width="5.5" stroke-linecap="round"/>
+      <path d="M135 132L171 154L207 132" stroke="#EAF1FF" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M135 176L171 154L207 176" stroke="#EAF1FF" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+
+    <text x="235" y="163" fill="#F5F8FF" font-family="Inter, Arial, sans-serif" font-size="36" font-weight="600" letter-spacing="-1.1">
+      Overdrafter
+    </text>
+
+    <text x="600" y="278" text-anchor="middle" fill="#FCFDFF" font-family="Inter, Arial, sans-serif" font-size="84" font-weight="700" letter-spacing="-2.8">
+      Manufacturing
+    </text>
+    <text x="600" y="446" text-anchor="middle" fill="#FCFDFF" font-family="Inter, Arial, sans-serif" font-size="84" font-weight="700" letter-spacing="-2.8">
+      Automated
+    </text>
+
+    <text x="120" y="556" fill="#7FA4DD" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="600" letter-spacing="-0.5">
+      overdrafter.com
+    </text>
+  </g>
+</svg>
