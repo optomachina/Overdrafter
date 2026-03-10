@@ -43,7 +43,6 @@ import {
   deleteArchivedJob,
   dissolveProject,
   fetchPartDetail,
-  fetchPartRevisionSiblings,
   isProjectCollaborationSchemaUnavailable,
   pinJob,
   pinProject,
@@ -171,22 +170,6 @@ const ClientPart = () => {
     queryKey: workspaceQueryKeys.partDetail(jobId),
     queryFn: () => fetchPartDetail(jobId),
     enabled: Boolean(user) && Boolean(jobId),
-    ...workspaceDetailQueryOptions,
-  });
-  const revisionSiblingsQuery = useQuery({
-    queryKey: workspaceQueryKeys.partRevisionSiblings(jobId),
-    queryFn: () => {
-      if (!partDetailQuery.data?.job.organization_id || !partDetailQuery.data?.summary?.partNumber) {
-        return Promise.resolve([]);
-      }
-
-      return fetchPartRevisionSiblings(
-        jobId,
-        partDetailQuery.data.job.organization_id,
-        partDetailQuery.data.summary.partNumber,
-      );
-    },
-    enabled: Boolean(partDetailQuery.data?.job.organization_id && partDetailQuery.data?.summary?.partNumber),
     ...workspaceDetailQueryOptions,
   });
   const attachFilesPicker = useClientJobFilePicker({
@@ -392,6 +375,7 @@ const ClientPart = () => {
 
   useWarmClientWorkspaceNavigation({
     enabled: Boolean(user),
+    canPrefetchProjects: !projectCollaborationUnavailable,
     projects: sidebarProjects,
     jobs: accessibleJobsQuery.data ?? [],
     pinnedProjectIds: sidebarPinsQuery.data?.projectIds ?? [],
@@ -812,9 +796,9 @@ const ClientPart = () => {
         revision: summary.revision,
         title: `${summary.partNumber ?? presentation?.title ?? "Part"}${summary.revision ? ` rev ${summary.revision}` : ""}`,
       },
-      ...(revisionSiblingsQuery.data ?? []),
+      ...(partDetail?.revisionSiblings ?? []),
     ].sort((left, right) => (left.revision ?? "").localeCompare(right.revision ?? ""));
-  }, [jobId, presentation?.title, revisionSiblingsQuery.data, summary]);
+  }, [jobId, partDetail?.revisionSiblings, presentation?.title, summary]);
   const selectedRevisionIndex = revisionOptions.findIndex((revision) => revision.jobId === jobId);
   const activityEntries = useMemo<ActivityLogEntry[]>(() => {
     const rankingLabel =
@@ -1082,7 +1066,9 @@ const ClientPart = () => {
             onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
             onSelectPart={(partId) => navigate(`/parts/${partId}`)}
             onPrefetchProject={(projectId) => {
-              void prefetchProjectPage(queryClient, projectId);
+              void prefetchProjectPage(queryClient, projectId, {
+                enabled: !projectCollaborationUnavailable,
+              });
             }}
             onPrefetchPart={(partId) => {
               void prefetchPartPage(queryClient, partId);

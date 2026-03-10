@@ -694,6 +694,7 @@ const ClientProject = () => {
 
   useWarmClientWorkspaceNavigation({
     enabled: Boolean(user),
+    canPrefetchProjects: !projectCollaborationUnavailable,
     projects: sidebarProjects,
     jobs: accessibleJobsQuery.data ?? [],
     pinnedProjectIds: sidebarPinsQuery.data?.projectIds ?? [],
@@ -1339,7 +1340,9 @@ const ClientProject = () => {
             onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
             onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
             onPrefetchProject={(nextProjectId) => {
-              void prefetchProjectPage(queryClient, nextProjectId);
+              void prefetchProjectPage(queryClient, nextProjectId, {
+                enabled: !projectCollaborationUnavailable,
+              });
             }}
             onPrefetchPart={(jobId) => {
               void prefetchPartPage(queryClient, jobId);

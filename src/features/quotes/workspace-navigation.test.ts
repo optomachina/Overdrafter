@@ -1,6 +1,10 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { prefetchPartPage, prefetchProjectPage, workspaceQueryKeys } from "@/features/quotes/workspace-navigation";
+import {
+  prefetchPartPage,
+  prefetchProjectPage,
+  workspaceQueryKeys,
+} from "@/features/quotes/workspace-navigation";
 
 const {
   fetchClientQuoteWorkspaceByJobIds,
@@ -74,5 +78,13 @@ describe("workspace navigation prefetch", () => {
     await prefetchPartPage(queryClient, "job-1");
 
     expect(fetchPartDetail).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips remote prefetch for virtual seeded projects", async () => {
+    await prefetchProjectPage(queryClient, "seed-qb00001");
+
+    expect(fetchProject).not.toHaveBeenCalled();
+    expect(fetchJobsByProject).not.toHaveBeenCalled();
+    expect(fetchClientQuoteWorkspaceByJobIds).not.toHaveBeenCalled();
   });
 });

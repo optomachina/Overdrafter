@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { JobRecord } from "@/features/quotes/types";
 import {
   fetchAccessibleJobs,
@@ -11,6 +11,7 @@ import {
   fetchSidebarPins,
 } from "@/features/quotes/api";
 import {
+  isVirtualProjectId,
   prefetchPartPage,
   prefetchProjectPage,
   stableJobIds,
@@ -32,6 +33,7 @@ type UseWarmWorkspaceNavigationOptions = {
   jobs: JobRecord[];
   pinnedProjectIds?: string[];
   pinnedJobIds?: string[];
+  canPrefetchProjects?: boolean;
   resolveProjectIdsForJob?: (job: JobRecord) => string[];
   activeProjectId?: string | null;
   activeJobId?: string | null;
@@ -136,6 +138,7 @@ export function useWarmClientWorkspaceNavigation({
   jobs,
   pinnedProjectIds = [],
   pinnedJobIds = [],
+  canPrefetchProjects = true,
   resolveProjectIdsForJob,
   activeProjectId = null,
   activeJobId = null,
@@ -150,8 +153,14 @@ export function useWarmClientWorkspaceNavigation({
     const projectIdsToWarm: string[] = [];
     const jobIdsToWarm: string[] = [];
 
-    pinnedProjectIds.forEach((projectId) => pushUnique(projectIdsToWarm, projectId, MAX_WARM_PROJECTS));
-    projects.forEach((project) => pushUnique(projectIdsToWarm, project.id, MAX_WARM_PROJECTS));
+    if (canPrefetchProjects) {
+      pinnedProjectIds
+        .filter((projectId) => !isVirtualProjectId(projectId))
+        .forEach((projectId) => pushUnique(projectIdsToWarm, projectId, MAX_WARM_PROJECTS));
+      projects
+        .filter((project) => !isVirtualProjectId(project.id))
+        .forEach((project) => pushUnique(projectIdsToWarm, project.id, MAX_WARM_PROJECTS));
+    }
 
     pinnedJobIds.forEach((jobId) => pushUnique(jobIdsToWarm, jobId, MAX_WARM_PARTS));
     jobs.forEach((job) => {
@@ -186,6 +195,7 @@ export function useWarmClientWorkspaceNavigation({
   }, [
     activeJobId,
     activeProjectId,
+    canPrefetchProjects,
     enabled,
     jobs,
     pinnedJobIds,
@@ -200,3 +210,44 @@ export const workspaceDetailQueryOptions = {
   staleTime: WORKSPACE_DETAIL_STALE_TIME_MS,
   gcTime: WORKSPACE_GC_TIME_MS,
 };
+
+type InvalidateWorkspaceQueriesInput = {
+  projectId?: string | null;
+  jobId?: string | null;
+  clientQuoteWorkspaceJobIds?: string[];
+};
+
+export async function invalidateClientWorkspaceQueries(
+  queryClient: QueryClient,
+  input: InvalidateWorkspaceQueriesInput = {},
+): Promise<void> {
+  const jobIds = input.clientQuoteWorkspaceJobIds ? stableJobIds(input.clientQuoteWorkspaceJobIds) : [];
+
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["client-jobs"] }),
+    queryClient.invalidateQueries({ queryKey: ["client-projects"] }),
+    queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
+    queryClient.invalidateQueries({ queryKey: ["client-project-job-memberships"] }),
+    queryClient.invalidateQueries({ queryKey: ["client-ungrouped-parts"] }),
+    queryClient.invalidateQueries({ queryKey: ["sidebar-pins"] }),
+    queryClient.invalidateQueries({ queryKey: ["archived-projects"] }),
+    queryClient.invalidateQueries({ queryKey: ["archived-jobs"] }),
+    queryClient.invalidateQueries({ queryKey: ["project"] }),
+    queryClient.invalidateQueries({ queryKey: ["project-jobs"] }),
+    queryClient.invalidateQueries({ queryKey: ["part-detail"] }),
+    ...(input.projectId
+      ? [
+          queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.project(input.projectId) }),
+          queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.projectJobs(input.projectId) }),
+        ]
+      : []),
+    ...(input.jobId ? [queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.partDetail(input.jobId) })] : []),
+    ...(jobIds.length > 0
+      ? [
+          queryClient.invalidateQueries({
+            queryKey: workspaceQueryKeys.clientQuoteWorkspace(jobIds),
+          }),
+        ]
+      : []),
+  ]);
+}

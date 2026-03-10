@@ -15,6 +15,10 @@ export function stableJobIds(jobIds: string[]): string[] {
   return [...new Set(jobIds)].sort((left, right) => left.localeCompare(right));
 }
 
+export function isVirtualProjectId(projectId: string): boolean {
+  return projectId.startsWith("seed-");
+}
+
 export const workspaceQueryKeys = {
   clientProjects: () => ["client-projects"] as const,
   clientJobs: () => ["client-jobs"] as const,
@@ -28,7 +32,6 @@ export const workspaceQueryKeys = {
   projectJobs: (projectId: string) => ["project-jobs", projectId] as const,
   clientQuoteWorkspace: (jobIds: string[]) => ["client-quote-workspace", stableJobIds(jobIds)] as const,
   partDetail: (jobId: string) => ["part-detail", jobId] as const,
-  partRevisionSiblings: (jobId: string) => ["part-revision-siblings", jobId] as const,
 };
 
 function shouldPrefetchQuery(
@@ -75,7 +78,15 @@ async function maybePrefetchQuery<T>(
   return queryClient.getQueryData<T>(options.queryKey);
 }
 
-export async function prefetchProjectPage(queryClient: QueryClient, projectId: string): Promise<void> {
+export async function prefetchProjectPage(
+  queryClient: QueryClient,
+  projectId: string,
+  options: { enabled?: boolean } = {},
+): Promise<void> {
+  if (options.enabled === false || isVirtualProjectId(projectId)) {
+    return;
+  }
+
   const projectKey = workspaceQueryKeys.project(projectId);
   const projectJobsKey = workspaceQueryKeys.projectJobs(projectId);
 
