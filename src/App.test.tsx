@@ -55,6 +55,14 @@ vi.mock("./pages/ClientPart", () => ({
   default: () => <div>Client Part Page</div>,
 }));
 
+vi.mock("./pages/ClientProjectReview", () => ({
+  default: () => <div>Client Project Review Page</div>,
+}));
+
+vi.mock("./pages/ClientPartReview", () => ({
+  default: () => <div>Client Part Review Page</div>,
+}));
+
 vi.mock("./pages/SharedInvite", () => ({
   default: () => <div>Shared Invite Page</div>,
 }));
@@ -110,6 +118,22 @@ describe("App routes", () => {
     render(<App />);
 
     expect(screen.getByText("Client Part Page")).toBeInTheDocument();
+  });
+
+  it("renders the part review route", () => {
+    window.history.pushState({}, "", "/parts/job-42/review");
+
+    render(<App />);
+
+    expect(screen.getByText("Client Part Review Page")).toBeInTheDocument();
+  });
+
+  it("renders the project review route", () => {
+    window.history.pushState({}, "", "/projects/project-42/review");
+
+    render(<App />);
+
+    expect(screen.getByText("Client Project Review Page")).toBeInTheDocument();
   });
 
   it("renders the shared invite route", () => {

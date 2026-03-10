@@ -81,6 +81,8 @@ export type ApprovedPartRequirement = {
   material: string;
   finish: string | null;
   tightestToleranceInch: number | null;
+  process?: string | null;
+  notes?: string | null;
   quantity: number;
   quoteQuantities: number[];
   requestedByDate: string | null;
@@ -289,11 +291,37 @@ export type PartDetailAggregate = {
   part: PartAggregate | null;
   projectIds: string[];
   drawingPreview: DrawingPreviewData;
+  latestQuoteRun: QuoteRunRecord | null;
   revisionSiblings: Array<{
     jobId: string;
     revision: string | null;
     title: string;
   }>;
+};
+
+export type ClientPartRequestUpdateInput = {
+  jobId: string;
+  description: string | null;
+  partNumber: string | null;
+  revision: string | null;
+  material: string;
+  finish: string | null;
+  tightestToleranceInch: number | null;
+  process?: string | null;
+  notes?: string | null;
+  quantity: number;
+  requestedQuoteQuantities: number[];
+  requestedByDate: string | null;
+};
+
+export type ClientQuoteWorkspaceItem = {
+  job: JobRecord;
+  files: JobFileRecord[];
+  summary: JobPartSummary | null;
+  part: PartAggregate | null;
+  projectIds: string[];
+  drawingPreview: DrawingPreviewData;
+  latestQuoteRun: QuoteRunRecord | null;
 };
 
 export type ArchivedJobSummary = {

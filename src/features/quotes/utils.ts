@@ -77,6 +77,14 @@ function asObject(value: Json | null | undefined): Record<string, unknown> {
     : {};
 }
 
+function readSpecSnapshotString(
+  specSnapshot: Json | null | undefined,
+  key: string,
+): string | null {
+  const value = asObject(specSnapshot)[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
 function asArray<T>(value: Json | null | undefined): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
@@ -182,6 +190,8 @@ export function buildRequirementDraft(
 ): ApprovedPartRequirement {
   const normalizedExtraction = normalizeDrawingExtraction(part.extraction, part.id);
   const approved = part.approvedRequirement;
+  const process = readSpecSnapshotString(approved?.spec_snapshot, "process");
+  const notes = readSpecSnapshotString(approved?.spec_snapshot, "notes");
   const quantity = approved?.quantity ?? part.quantity ?? jobRequest?.requested_quote_quantities?.[0] ?? 1;
   const quoteQuantities = normalizeRequestedQuoteQuantities(
     approved?.quote_quantities ?? jobRequest?.requested_quote_quantities ?? [],
@@ -205,6 +215,8 @@ export function buildRequirementDraft(
       null,
     tightestToleranceInch:
       approved?.tightest_tolerance_inch ?? normalizedExtraction.tightestTolerance.valueInch,
+    process,
+    notes,
     quantity,
     quoteQuantities,
     requestedByDate: approved?.requested_by_date ?? jobRequest?.requested_by_date ?? null,

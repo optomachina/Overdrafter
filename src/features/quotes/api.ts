@@ -10,6 +10,8 @@ import type {
   ApprovedPartRequirement,
   ClientPackageAggregate,
   ClientDraftInput,
+  ClientPartRequestUpdateInput,
+  ClientQuoteWorkspaceItem,
   DrawingPreviewAssetRecord,
   JobAggregate,
   JobFileRecord,
@@ -637,7 +639,7 @@ export async function fetchJobPartSummariesByOrganization(
         requestedByDate: requestDefaults.requestedByDate,
       }),
       selectedSupplier: selectedOffer?.supplier ?? null,
-      selectedPriceUsd: selectedOffer?.unit_price_usd ?? null,
+      selectedPriceUsd: selectedOffer?.total_price_usd ?? null,
       selectedLeadTimeBusinessDays: selectedOffer?.lead_time_business_days ?? null,
     });
   }
@@ -717,7 +719,7 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
         requestedByDate: requestDefaults.requestedByDate,
       }),
       selectedSupplier: selectedOffer?.supplier ?? null,
-      selectedPriceUsd: selectedOffer?.unit_price_usd ?? null,
+      selectedPriceUsd: selectedOffer?.total_price_usd ?? null,
       selectedLeadTimeBusinessDays: selectedOffer?.lead_time_business_days ?? null,
     });
   }
@@ -979,6 +981,220 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
     pricingPolicy,
     workQueue,
   };
+}
+
+async function fetchLatestQuoteRunsByJobIds(jobIds: string[]): Promise<Map<string, QuoteRunRecord>> {
+  if (jobIds.length === 0) {
+    return new Map();
+  }
+
+  const { data, error } = await supabase
+    .from("quote_runs")
+    .select("*")
+    .in("job_id", jobIds)
+    .order("created_at", { ascending: false });
+
+  const runs = ensureData(data, error) as QuoteRunRecord[];
+  const latestByJobId = new Map<string, QuoteRunRecord>();
+
+  runs.forEach((run) => {
+    if (!latestByJobId.has(run.job_id)) {
+      latestByJobId.set(run.job_id, run);
+    }
+  });
+
+  return latestByJobId;
+}
+
+export async function fetchClientQuoteWorkspaceByJobIds(
+  jobIds: string[],
+): Promise<ClientQuoteWorkspaceItem[]> {
+  if (jobIds.length === 0) {
+    return [];
+  }
+
+  const [jobsResult, filesResult, partsResult, summaries, projectMemberships, latestQuoteRunsByJobId] =
+    await Promise.all([
+      supabase.from("jobs").select("*").in("id", jobIds).is("archived_at", null),
+      supabase.from("job_files").select("*").in("job_id", jobIds).order("created_at", { ascending: true }),
+      supabase.from("parts").select("*").in("job_id", jobIds).order("created_at", { ascending: true }),
+      fetchJobPartSummariesByJobIds(jobIds),
+      fetchProjectJobMembershipsByJobIds(jobIds),
+      fetchLatestQuoteRunsByJobIds(jobIds),
+    ]);
+
+  const jobs = ensureData(jobsResult.data, jobsResult.error) as JobRecord[];
+  const files = ensureData(filesResult.data, filesResult.error) as JobFileRecord[];
+  const parts = ensureData(partsResult.data, partsResult.error) as PartRecord[];
+  const partIds = parts.map((part) => part.id);
+  const latestQuoteRunIds = [...new Set(Array.from(latestQuoteRunsByJobId.values()).map((run) => run.id))];
+
+  const [extractionResult, approvedResult, previewResult, vendorQuoteResult] = await Promise.all([
+    partIds.length > 0
+      ? supabase.from("drawing_extractions").select("*").in("part_id", partIds)
+      : emptyResponse<DrawingExtractionRecord>(),
+    partIds.length > 0
+      ? supabase.from("approved_part_requirements").select("*").in("part_id", partIds)
+      : emptyResponse<ApprovedPartRequirementRecord>(),
+    partIds.length > 0
+      ? supabase
+          .from("drawing_preview_assets")
+          .select("*")
+          .in("part_id", partIds)
+          .order("page_number", { ascending: true })
+      : emptyResponse<DrawingPreviewAssetRecord>(),
+    latestQuoteRunIds.length > 0
+      ? supabase.from("vendor_quote_results").select("*").in("quote_run_id", latestQuoteRunIds)
+      : emptyResponse<VendorQuoteResultRecord>(),
+  ]);
+
+  const extractions = ensureData(extractionResult.data, extractionResult.error) as DrawingExtractionRecord[];
+  const approvedRequirements = ensureData(
+    approvedResult.data,
+    approvedResult.error,
+  ) as ApprovedPartRequirementRecord[];
+  const previewAssets = ensureData(
+    previewResult.data,
+    previewResult.error,
+  ) as DrawingPreviewAssetRecord[];
+  const vendorQuotes = ensureData(
+    vendorQuoteResult.data,
+    vendorQuoteResult.error,
+  ) as VendorQuoteResultRecord[];
+  const vendorQuoteIds = vendorQuotes.map((quote) => quote.id);
+
+  const [artifactResult, offerResult] = await Promise.all([
+    vendorQuoteIds.length > 0
+      ? supabase.from("vendor_quote_artifacts").select("*").in("vendor_quote_result_id", vendorQuoteIds)
+      : emptyResponse<VendorQuoteArtifactRecord>(),
+    vendorQuoteIds.length > 0
+      ? supabase.from("vendor_quote_offers").select("*").in("vendor_quote_result_id", vendorQuoteIds)
+      : emptyResponse<VendorQuoteOfferRecord>(),
+  ]);
+
+  const vendorArtifacts = ensureData(
+    artifactResult.data,
+    artifactResult.error,
+  ) as VendorQuoteArtifactRecord[];
+  const vendorOffers = ensureData(offerResult.data, offerResult.error) as VendorQuoteOfferRecord[];
+
+  const summariesByJobId = new Map(summaries.map((summary) => [summary.jobId, summary]));
+  const filesByJobId = new Map<string, JobFileRecord[]>();
+  const partsByJobId = new Map<string, PartRecord[]>();
+  const extractionByPartId = new Map(extractions.map((item) => [item.part_id, item]));
+  const approvedByPartId = new Map(approvedRequirements.map((item) => [item.part_id, item]));
+  const previewAssetsByPartId = new Map<string, DrawingPreviewAssetRecord[]>();
+  const fileById = new Map(files.map((file) => [file.id, file]));
+  const projectIdsByJobId = new Map<string, string[]>();
+  const vendorOffersByQuoteId = new Map<string, VendorQuoteOfferRecord[]>();
+  const vendorArtifactsByQuoteId = new Map<string, VendorQuoteArtifactRecord[]>();
+
+  files.forEach((file) => {
+    const jobFiles = filesByJobId.get(file.job_id) ?? [];
+    jobFiles.push(file);
+    filesByJobId.set(file.job_id, jobFiles);
+  });
+
+  parts.forEach((part) => {
+    const jobParts = partsByJobId.get(part.job_id) ?? [];
+    jobParts.push(part);
+    partsByJobId.set(part.job_id, jobParts);
+  });
+
+  previewAssets.forEach((asset) => {
+    const assets = previewAssetsByPartId.get(asset.part_id) ?? [];
+    assets.push(asset);
+    previewAssetsByPartId.set(asset.part_id, assets);
+  });
+
+  projectMemberships.forEach((membership) => {
+    const projectIds = projectIdsByJobId.get(membership.job_id) ?? [];
+    if (!projectIds.includes(membership.project_id)) {
+      projectIds.push(membership.project_id);
+    }
+    projectIdsByJobId.set(membership.job_id, projectIds);
+  });
+
+  vendorOffers.forEach((offer) => {
+    const offers = vendorOffersByQuoteId.get(offer.vendor_quote_result_id) ?? [];
+    offers.push(offer);
+    vendorOffersByQuoteId.set(offer.vendor_quote_result_id, offers);
+  });
+
+  vendorArtifacts.forEach((artifact) => {
+    const artifacts = vendorArtifactsByQuoteId.get(artifact.vendor_quote_result_id) ?? [];
+    artifacts.push(artifact);
+    vendorArtifactsByQuoteId.set(artifact.vendor_quote_result_id, artifacts);
+  });
+
+  const vendorQuoteAggregates: VendorQuoteAggregate[] = vendorQuotes
+    .map((quote) => ({
+      ...quote,
+      artifacts: [...(vendorArtifactsByQuoteId.get(quote.id) ?? [])].sort((left, right) =>
+        left.created_at.localeCompare(right.created_at),
+      ),
+      offers: [...(vendorOffersByQuoteId.get(quote.id) ?? [])].sort((left, right) => {
+        if (left.sort_rank !== right.sort_rank) {
+          return left.sort_rank - right.sort_rank;
+        }
+
+        return (left.total_price_usd ?? Number.MAX_SAFE_INTEGER) - (right.total_price_usd ?? Number.MAX_SAFE_INTEGER);
+      }),
+    }))
+    .sort((left, right) => {
+      if (left.requested_quantity !== right.requested_quantity) {
+        return left.requested_quantity - right.requested_quantity;
+      }
+
+      if (left.part_id !== right.part_id) {
+        return left.part_id.localeCompare(right.part_id);
+      }
+
+      return left.vendor.localeCompare(right.vendor);
+    });
+
+  const jobById = new Map(jobs.map((job) => [job.id, job]));
+
+  return jobIds.flatMap((jobId) => {
+    const job = jobById.get(jobId);
+
+    if (!job) {
+      return [];
+    }
+
+    const jobFiles = filesByJobId.get(jobId) ?? [];
+    const jobParts = partsByJobId.get(jobId) ?? [];
+    const primaryPart = jobParts[0] ?? null;
+    const partWithRelations =
+      primaryPart === null
+        ? null
+        : {
+            ...primaryPart,
+            cadFile: primaryPart.cad_file_id ? fileById.get(primaryPart.cad_file_id) ?? null : null,
+            drawingFile: primaryPart.drawing_file_id ? fileById.get(primaryPart.drawing_file_id) ?? null : null,
+            extraction: extractionByPartId.get(primaryPart.id) ?? null,
+            approvedRequirement: approvedByPartId.get(primaryPart.id) ?? null,
+            vendorQuotes: vendorQuoteAggregates.filter((quote) => quote.part_id === primaryPart.id),
+          };
+
+    return [
+      {
+        job,
+        files: jobFiles,
+        summary: summariesByJobId.get(jobId) ?? null,
+        part: partWithRelations,
+        projectIds: projectIdsByJobId.get(jobId) ?? [],
+        drawingPreview:
+          primaryPart === null
+            ? normalizeDrawingPreview(null, [])
+            : normalizeDrawingPreview(
+                extractionByPartId.get(primaryPart.id) ?? null,
+                previewAssetsByPartId.get(primaryPart.id) ?? [],
+              ),
+        latestQuoteRun: latestQuoteRunsByJobId.get(jobId) ?? null,
+      } satisfies ClientQuoteWorkspaceItem,
+    ];
+  });
 }
 
 export async function fetchClientPackage(packageId: string): Promise<ClientPackageAggregate> {
@@ -1528,6 +1744,7 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
     part,
     projectIds: projectMemberships.map((membership) => membership.project_id),
     drawingPreview: normalizeDrawingPreview(part?.extraction ?? null, previewAssets),
+    latestQuoteRun: jobAggregate.quoteRuns[0] ?? null,
     revisionSiblings,
   };
 }
@@ -1719,6 +1936,25 @@ export async function createClientDraft(input: ClientDraftInput): Promise<string
   throw error;
 }
 
+export async function updateClientPartRequest(input: ClientPartRequestUpdateInput): Promise<string> {
+  const { data, error } = await supabase.rpc("api_update_client_part_request", {
+    p_job_id: input.jobId,
+    p_description: input.description ?? null,
+    p_part_number: input.partNumber ?? null,
+    p_revision: input.revision ?? null,
+    p_material: input.material,
+    p_finish: input.finish ?? null,
+    p_tightest_tolerance_inch: input.tightestToleranceInch ?? null,
+    p_process: input.process ?? null,
+    p_notes: input.notes ?? null,
+    p_quantity: input.quantity,
+    p_requested_quote_quantities: input.requestedQuoteQuantities,
+    p_requested_by_date: input.requestedByDate ?? null,
+  });
+
+  return ensureData(data, error);
+}
+
 export async function createJobsFromUploadFiles(input: {
   files: File[];
   prompt?: string;
@@ -1806,7 +2042,7 @@ export async function deleteArchivedJob(jobId: string): Promise<string> {
   return ensureProjectCollaborationData(data, error);
 }
 
-export async function setJobSelectedVendorQuoteOffer(jobId: string, offerId: string): Promise<string> {
+export async function setJobSelectedVendorQuoteOffer(jobId: string, offerId: string | null): Promise<string> {
   const { data, error } = await supabase.rpc("api_set_job_selected_vendor_quote_offer", {
     p_job_id: jobId,
     p_vendor_quote_offer_id: offerId,
