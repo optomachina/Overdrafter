@@ -1,0 +1,78 @@
+import { QueryClient } from "@tanstack/react-query";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { prefetchPartPage, prefetchProjectPage, workspaceQueryKeys } from "@/features/quotes/workspace-navigation";
+
+const {
+  fetchClientQuoteWorkspaceByJobIds,
+  fetchJobsByProject,
+  fetchPartDetail,
+  fetchProject,
+} = vi.hoisted(() => ({
+  fetchClientQuoteWorkspaceByJobIds: vi.fn(),
+  fetchJobsByProject: vi.fn(),
+  fetchPartDetail: vi.fn(),
+  fetchProject: vi.fn(),
+}));
+
+vi.mock("@/features/quotes/api", () => ({
+  fetchClientQuoteWorkspaceByJobIds,
+  fetchJobsByProject,
+  fetchPartDetail,
+  fetchProject,
+}));
+
+describe("workspace navigation prefetch", () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+  });
+
+  afterEach(() => {
+    queryClient.clear();
+    vi.clearAllMocks();
+  });
+
+  it("prefetches project detail, project jobs, and quote workspace with matching keys", async () => {
+    const project = { id: "project-1", name: "Project One" };
+    const jobs = [{ id: "job-2", title: "Job Two" }];
+    const workspaceItems = [{ job: { id: "job-2" } }];
+
+    fetchProject.mockResolvedValue(project);
+    fetchJobsByProject.mockResolvedValue(jobs);
+    fetchClientQuoteWorkspaceByJobIds.mockResolvedValue(workspaceItems);
+
+    await prefetchProjectPage(queryClient, "project-1");
+
+    expect(queryClient.getQueryData(workspaceQueryKeys.project("project-1"))).toEqual(project);
+    expect(queryClient.getQueryData(workspaceQueryKeys.projectJobs("project-1"))).toEqual(jobs);
+    expect(
+      queryClient.getQueryData(workspaceQueryKeys.clientQuoteWorkspace(["job-2"])),
+    ).toEqual(workspaceItems);
+    expect(fetchClientQuoteWorkspaceByJobIds).toHaveBeenCalledWith(["job-2"]);
+  });
+
+  it("prefetches part detail with the route query key", async () => {
+    const detail = { job: { id: "job-1" } };
+    fetchPartDetail.mockResolvedValue(detail);
+
+    await prefetchPartPage(queryClient, "job-1");
+
+    expect(queryClient.getQueryData(workspaceQueryKeys.partDetail("job-1"))).toEqual(detail);
+  });
+
+  it("skips duplicate part prefetches while cached data is still fresh", async () => {
+    fetchPartDetail.mockResolvedValue({ job: { id: "job-1" } });
+
+    await prefetchPartPage(queryClient, "job-1");
+    await prefetchPartPage(queryClient, "job-1");
+
+    expect(fetchPartDetail).toHaveBeenCalledTimes(1);
+  });
+});

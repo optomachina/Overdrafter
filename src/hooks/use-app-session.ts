@@ -4,6 +4,7 @@ import { useLocation } from "react-router-dom";
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getFixtureSessionDataForSearch } from "@/features/quotes/client-workspace-fixtures";
 import { fetchAppSessionData } from "@/features/quotes/api";
+import { WORKSPACE_SHARED_STALE_TIME_MS } from "@/features/quotes/workspace-navigation";
 import { supabase } from "@/integrations/supabase/client";
 import { hasVerifiedAuth } from "@/lib/auth-status";
 
@@ -128,7 +129,7 @@ export function useAppSession() {
     queryKey: sessionQueryKey,
     queryFn: () => (fixtureSession ? Promise.resolve(fixtureSession) : fetchAppSessionData()),
     initialData: fixtureSession ?? undefined,
-    staleTime: fixtureSession ? Infinity : 0,
+    staleTime: fixtureSession ? Infinity : WORKSPACE_SHARED_STALE_TIME_MS,
   });
 
   const memberships = sessionQuery.data?.memberships ?? EMPTY_MEMBERSHIPS;

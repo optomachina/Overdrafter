@@ -1827,27 +1827,6 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
       : [];
 
   const summary = partSummaries[0] ?? null;
-  const [allSummaries, activeJobs] = await Promise.all([
-    fetchJobPartSummariesByOrganization(jobAggregate.job.organization_id),
-    fetchAccessibleJobs(),
-  ]);
-  const activeJobIdSet = new Set(activeJobs.map((job) => job.id));
-  const revisionSiblings =
-    summary?.partNumber
-      ? allSummaries
-          .filter(
-            (candidate) =>
-              candidate.partNumber === summary.partNumber &&
-              candidate.jobId !== jobId &&
-              activeJobIdSet.has(candidate.jobId),
-          )
-          .map((candidate) => ({
-            jobId: candidate.jobId,
-            revision: candidate.revision,
-            title: `${candidate.partNumber}${candidate.revision ? ` rev ${candidate.revision}` : ""}`,
-          }))
-          .sort((left, right) => (left.revision ?? "").localeCompare(right.revision ?? ""))
-      : [];
 
   return {
     job: jobAggregate.job,
@@ -1858,8 +1837,40 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
     projectIds: projectMemberships.map((membership) => membership.project_id),
     drawingPreview: normalizeDrawingPreview(part?.extraction ?? null, previewAssets),
     latestQuoteRun: jobAggregate.quoteRuns[0] ?? null,
-    revisionSiblings,
+    revisionSiblings: [],
   };
+}
+
+export async function fetchPartRevisionSiblings(
+  jobId: string,
+  organizationId: string,
+  partNumber: string,
+): Promise<PartDetailAggregate["revisionSiblings"]> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchPartDetail(jobId).then((detail) => detail.revisionSiblings);
+  }
+
+  const [allSummaries, activeJobs] = await Promise.all([
+    fetchJobPartSummariesByOrganization(organizationId),
+    fetchAccessibleJobs(),
+  ]);
+  const activeJobIdSet = new Set(activeJobs.map((job) => job.id));
+
+  return allSummaries
+    .filter(
+      (candidate) =>
+        candidate.partNumber === partNumber &&
+        candidate.jobId !== jobId &&
+        activeJobIdSet.has(candidate.jobId),
+    )
+    .map((candidate) => ({
+      jobId: candidate.jobId,
+      revision: candidate.revision,
+      title: `${candidate.partNumber}${candidate.revision ? ` rev ${candidate.revision}` : ""}`,
+    }))
+    .sort((left, right) => (left.revision ?? "").localeCompare(right.revision ?? ""));
 }
 
 export async function createProject(input: {

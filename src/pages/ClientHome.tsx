@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PlusSquare, Search } from "lucide-react";
 import { toast } from "sonner";
@@ -28,13 +28,6 @@ import {
   createSelfServiceOrganization,
   deleteArchivedJob,
   dissolveProject,
-  fetchAccessibleJobs,
-  fetchAccessibleProjects,
-  fetchArchivedJobs,
-  fetchArchivedProjects,
-  fetchJobPartSummariesByJobIds,
-  fetchProjectJobMembershipsByJobIds,
-  fetchSidebarPins,
   isProjectCollaborationSchemaUnavailable,
   pinJob,
   pinProject,
@@ -59,6 +52,11 @@ import {
 } from "@/features/quotes/client-workspace";
 import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { buildProjectNameFromLabels } from "@/features/quotes/upload-groups";
+import {
+  useClientWorkspaceData,
+  useWarmClientWorkspaceNavigation,
+} from "@/features/quotes/use-client-workspace-data";
+import { prefetchPartPage, prefetchProjectPage } from "@/features/quotes/workspace-navigation";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 
 function createProjectStorageKey(organizationId?: string, userEmail?: string): string | null {
@@ -94,33 +92,22 @@ const ClientHome = () => {
   const defaultAccountName = useMemo(() => getDefaultAccountName(user), [user]);
   const registerArchiveUndo = useArchiveUndo();
   const [hasAttemptedDmriflesProjectSync, setHasAttemptedDmriflesProjectSync] = useState(false);
-
-  const accessibleProjectsQuery = useQuery({
-    queryKey: ["client-projects"],
-    queryFn: fetchAccessibleProjects,
-    enabled: Boolean(user),
-  });
-  const accessibleJobsQuery = useQuery({
-    queryKey: ["client-jobs"],
-    queryFn: fetchAccessibleJobs,
-    enabled: Boolean(user),
-  });
-  const sidebarPinsQuery = useQuery({
-    queryKey: ["sidebar-pins", user?.id],
-    queryFn: fetchSidebarPins,
-    enabled: Boolean(user),
-  });
-  const archivedProjectsQuery = useQuery({
-    queryKey: ["archived-projects"],
-    queryFn: fetchArchivedProjects,
-    enabled: Boolean(user),
-  });
-  const archivedJobsQuery = useQuery({
-    queryKey: ["archived-jobs"],
-    queryFn: fetchArchivedJobs,
-    enabled: Boolean(user),
-  });
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+  const {
+    accessibleProjectsQuery,
+    accessibleJobsQuery,
+    accessibleJobsById,
+    partSummariesQuery,
+    projectJobMembershipsQuery,
+    sidebarPinsQuery,
+    archivedProjectsQuery,
+    archivedJobsQuery,
+    summariesByJobId,
+  } = useClientWorkspaceData({
+    enabled: Boolean(user),
+    userId: user?.id,
+    projectCollaborationUnavailable,
+  });
   const newJobFilePicker = useClientJobFilePicker({
     isSignedIn: Boolean(user),
     onRequireAuth: () => openAuth("signin"),
@@ -149,30 +136,6 @@ const ClientHome = () => {
       navigate(`/parts/${result.jobIds[0]}`);
     },
   });
-
-  const accessibleJobIds = useMemo(
-    () => (accessibleJobsQuery.data ?? []).map((job) => job.id),
-    [accessibleJobsQuery.data],
-  );
-  const partSummariesQuery = useQuery({
-    queryKey: ["client-part-summaries", accessibleJobIds],
-    queryFn: () => fetchJobPartSummariesByJobIds(accessibleJobIds),
-    enabled: Boolean(user) && accessibleJobIds.length > 0,
-  });
-  const projectJobMembershipsQuery = useQuery({
-    queryKey: ["client-project-job-memberships", accessibleJobIds],
-    queryFn: () => fetchProjectJobMembershipsByJobIds(accessibleJobIds),
-    enabled: Boolean(user) && accessibleJobIds.length > 0 && !projectCollaborationUnavailable,
-  });
-
-  const summariesByJobId = useMemo(
-    () => new Map((partSummariesQuery.data ?? []).map((summary) => [summary.jobId, summary])),
-    [partSummariesQuery.data],
-  );
-  const accessibleJobsById = useMemo(
-    () => new Map((accessibleJobsQuery.data ?? []).map((job) => [job.id, job])),
-    [accessibleJobsQuery.data],
-  );
   const sidebarProjectIdsByJobId = useMemo(() => {
     const next = new Map<string, string[]>();
 
@@ -453,6 +416,15 @@ const ClientHome = () => {
       findImportedBatchProjectId(importedBatch, remoteProjects) ?? buildSeedProjectId(importedBatch);
     return [...new Set([...projectIds, importedBatchProjectId])];
   };
+
+  useWarmClientWorkspaceNavigation({
+    enabled: Boolean(user) && !isLoading,
+    projects: sidebarProjects,
+    jobs: accessibleJobsQuery.data ?? [],
+    pinnedProjectIds: sidebarPinsQuery.data?.projectIds ?? [],
+    pinnedJobIds: sidebarPinsQuery.data?.jobIds ?? [],
+    resolveProjectIdsForJob: resolveSidebarProjectIdsForJob,
+  });
 
   const invalidateSidebarQueries = async () => {
     await Promise.all([
@@ -824,12 +796,18 @@ const ClientHome = () => {
             onRemovePartFromProject={isDmriflesWorkspace ? undefined : handleRemovePartFromProject}
             onCreateProjectFromSelection={projectCollaborationUnavailable ? undefined : handleCreateProjectFromSelection}
             onRenameProject={handleRenameProject}
-            onArchivePart={handleArchivePart}
-            onArchiveProject={handleArchiveProject}
-            onDissolveProject={handleDissolveProject}
-            onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
-            onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
-            resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
+              onArchivePart={handleArchivePart}
+              onArchiveProject={handleArchiveProject}
+              onDissolveProject={handleDissolveProject}
+              onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
+              onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+              onPrefetchProject={(projectId) => {
+                void prefetchProjectPage(queryClient, projectId);
+              }}
+              onPrefetchPart={(jobId) => {
+                void prefetchPartPage(queryClient, jobId);
+              }}
+              resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
             />
           ) : (
             <div className="space-y-1">

@@ -69,18 +69,11 @@ import {
   createProject,
   deleteArchivedJob,
   dissolveProject,
-  fetchAccessibleJobs,
-  fetchAccessibleProjects,
-  fetchArchivedJobs,
-  fetchArchivedProjects,
   fetchClientQuoteWorkspaceByJobIds,
-  fetchJobPartSummariesByJobIds,
-  fetchProjectJobMembershipsByJobIds,
   fetchJobsByProject,
   fetchProject,
   fetchProjectInvites,
   fetchProjectMemberships,
-  fetchSidebarPins,
   inviteProjectMember,
   isProjectCollaborationSchemaUnavailable,
   pinJob,
@@ -109,6 +102,11 @@ import {
   syncImportedBatchProjects,
 } from "@/features/quotes/client-workspace";
 import {
+  useClientWorkspaceData,
+  useWarmClientWorkspaceNavigation,
+  workspaceDetailQueryOptions,
+} from "@/features/quotes/use-client-workspace-data";
+import {
   formatRequestedQuoteQuantitiesInput,
   parseRequestIntake,
   parseRequestedQuoteQuantitiesInput,
@@ -130,6 +128,12 @@ import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
 import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
+import {
+  prefetchPartPage,
+  prefetchProjectPage,
+  stableJobIds,
+  workspaceQueryKeys,
+} from "@/features/quotes/workspace-navigation";
 import {
   buildRequirementDraft,
   formatCurrency,
@@ -189,33 +193,21 @@ const ClientProject = () => {
   const isSeededProject = projectId.startsWith("seed-");
   const registerArchiveUndo = useArchiveUndo();
   const [hasAttemptedDmriflesProjectSync, setHasAttemptedDmriflesProjectSync] = useState(false);
-
-  const accessibleProjectsQuery = useQuery({
-    queryKey: ["client-projects"],
-    queryFn: fetchAccessibleProjects,
-    enabled: Boolean(user),
-  });
-  const accessibleJobsQuery = useQuery({
-    queryKey: ["client-jobs"],
-    queryFn: fetchAccessibleJobs,
-    enabled: Boolean(user),
-  });
-  const sidebarPinsQuery = useQuery({
-    queryKey: ["sidebar-pins", user?.id],
-    queryFn: fetchSidebarPins,
-    enabled: Boolean(user),
-  });
-  const archivedProjectsQuery = useQuery({
-    queryKey: ["archived-projects"],
-    queryFn: fetchArchivedProjects,
-    enabled: Boolean(user),
-  });
-  const archivedJobsQuery = useQuery({
-    queryKey: ["archived-jobs"],
-    queryFn: fetchArchivedJobs,
-    enabled: Boolean(user),
-  });
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+  const {
+    accessibleProjectsQuery,
+    accessibleJobsQuery,
+    partSummariesQuery,
+    projectJobMembershipsQuery: sidebarProjectJobMembershipsQuery,
+    sidebarPinsQuery,
+    archivedProjectsQuery,
+    archivedJobsQuery,
+    summariesByJobId,
+  } = useClientWorkspaceData({
+    enabled: Boolean(user),
+    userId: user?.id,
+    projectCollaborationUnavailable,
+  });
   const newJobFilePicker = useClientJobFilePicker({
     isSignedIn: Boolean(user),
     onRequireAuth: () => navigate("/?auth=signin"),
@@ -285,30 +277,17 @@ const ClientProject = () => {
   const canLoadRemoteProjectData =
     Boolean(user) && !isSeededProject && !accessibleProjectsQuery.isLoading && !projectCollaborationUnavailable;
 
-  const accessibleJobIds = useMemo(
-    () => (accessibleJobsQuery.data ?? []).map((job) => job.id),
-    [accessibleJobsQuery.data],
-  );
-  const partSummariesQuery = useQuery({
-    queryKey: ["client-part-summaries", accessibleJobIds],
-    queryFn: () => fetchJobPartSummariesByJobIds(accessibleJobIds),
-    enabled: Boolean(user) && accessibleJobIds.length > 0,
-  });
-  const sidebarProjectJobMembershipsQuery = useQuery({
-    queryKey: ["client-project-job-memberships", accessibleJobIds],
-    queryFn: () => fetchProjectJobMembershipsByJobIds(accessibleJobIds),
-    enabled: Boolean(user) && accessibleJobIds.length > 0 && !projectCollaborationUnavailable,
-  });
-
   const projectQuery = useQuery({
-    queryKey: ["project", projectId],
+    queryKey: workspaceQueryKeys.project(projectId),
     queryFn: () => fetchProject(projectId),
     enabled: canLoadRemoteProjectData,
+    ...workspaceDetailQueryOptions,
   });
   const projectJobsQuery = useQuery({
-    queryKey: ["project-jobs", projectId],
+    queryKey: workspaceQueryKeys.projectJobs(projectId),
     queryFn: () => fetchJobsByProject(projectId),
     enabled: canLoadRemoteProjectData,
+    ...workspaceDetailQueryOptions,
   });
   const projectMembershipsQuery = useQuery({
     queryKey: ["project-memberships", projectId],
@@ -320,11 +299,6 @@ const ClientProject = () => {
     queryFn: () => fetchProjectInvites(projectId),
     enabled: canLoadRemoteProjectData && showMembers,
   });
-
-  const summariesByJobId = useMemo(
-    () => new Map((partSummariesQuery.data ?? []).map((summary) => [summary.jobId, summary])),
-    [partSummariesQuery.data],
-  );
   const accessibleJobsById = useMemo(
     () => new Map((accessibleJobsQuery.data ?? []).map((job) => [job.id, job])),
     [accessibleJobsQuery.data],
@@ -419,11 +393,12 @@ const ClientProject = () => {
 
     return projectJobsQuery.data ?? [];
   }, [accessibleJobsQuery.data, projectJobsQuery.data, seededProject]);
-  const projectJobIds = useMemo(() => projectJobs.map((job) => job.id), [projectJobs]);
+  const projectJobIds = useMemo(() => stableJobIds(projectJobs.map((job) => job.id)), [projectJobs]);
   const projectWorkspaceItemsQuery = useQuery({
-    queryKey: ["client-quote-workspace", projectJobIds],
+    queryKey: workspaceQueryKeys.clientQuoteWorkspace(projectJobIds),
     queryFn: () => fetchClientQuoteWorkspaceByJobIds(projectJobIds),
     enabled: Boolean(user) && projectJobIds.length > 0,
+    ...workspaceDetailQueryOptions,
   });
   const workspaceItemsByJobId = useMemo(
     () => new Map((projectWorkspaceItemsQuery.data ?? []).map((item) => [item.job.id, item])),
@@ -716,6 +691,16 @@ const ClientProject = () => {
       findImportedBatchProjectId(importedBatch, remoteProjects) ?? buildSeedProjectId(importedBatch);
     return [...new Set([...projectIds, importedBatchProjectId])];
   };
+
+  useWarmClientWorkspaceNavigation({
+    enabled: Boolean(user),
+    projects: sidebarProjects,
+    jobs: accessibleJobsQuery.data ?? [],
+    pinnedProjectIds: sidebarPinsQuery.data?.projectIds ?? [],
+    pinnedJobIds: sidebarPinsQuery.data?.jobIds ?? [],
+    resolveProjectIdsForJob: resolveSidebarProjectIdsForJob,
+    activeProjectId: projectId,
+  });
 
   const invalidateSidebarQueries = async () => {
     await Promise.all([
@@ -1353,6 +1338,12 @@ const ClientProject = () => {
             onDissolveProject={handleDissolveProject}
             onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
             onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+            onPrefetchProject={(nextProjectId) => {
+              void prefetchProjectPage(queryClient, nextProjectId);
+            }}
+            onPrefetchPart={(jobId) => {
+              void prefetchPartPage(queryClient, jobId);
+            }}
             resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
           />
         }

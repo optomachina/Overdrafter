@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
@@ -76,6 +76,8 @@ type WorkspaceSidebarProps = {
   onSearch?: () => void;
   onSelectProject: (projectId: string) => void;
   onSelectPart: (jobId: string) => void;
+  onPrefetchProject?: (projectId: string) => void;
+  onPrefetchPart?: (jobId: string) => void;
   resolveProjectIdsForJob?: (job: JobRecord) => string[];
   storageScopeKey?: string;
   pinnedProjectIds?: string[];
@@ -114,6 +116,7 @@ const DEFAULT_SECTIONS: SidebarSections = {
 const SIDEBAR_COLUMN_INSET_CLASS = "px-2";
 const SIDEBAR_ACTION_BUTTON_PADDING_CLASS = "pl-1 pr-3";
 const SIDEBAR_ROW_PADDING_CLASS = "px-2 py-2";
+const SIDEBAR_PREFETCH_DELAY_MS = 75;
 
 function formatSelectedQuote(summary: JobPartSummary | undefined) {
   if (!summary?.selectedSupplier || summary.selectedPriceUsd === null) {
@@ -283,6 +286,8 @@ export function WorkspaceSidebar({
   onSearch,
   onSelectProject,
   onSelectPart,
+  onPrefetchProject,
+  onPrefetchPart,
   resolveProjectIdsForJob,
   storageScopeKey,
   pinnedProjectIds = [],
@@ -331,6 +336,7 @@ export function WorkspaceSidebar({
   const [isDissolvingProject, setIsDissolvingProject] = useState(false);
   const [isCreatingProjectFromSelection, setIsCreatingProjectFromSelection] = useState(false);
   const [openContextTarget, setOpenContextTarget] = useState<string | null>(null);
+  const prefetchTimeoutsRef = useRef<Map<string, number>>(new Map());
 
   const pinnedProjectSet = useMemo(() => new Set(pinnedProjectIds), [pinnedProjectIds]);
   const pinnedPartSet = useMemo(() => new Set(pinnedJobIds), [pinnedJobIds]);
@@ -346,6 +352,25 @@ export function WorkspaceSidebar({
     [resolveProjectIdsForJob],
   );
 
+  const schedulePrefetch = useCallback((key: string, action?: () => void) => {
+    if (!action) {
+      return;
+    }
+
+    const existingTimeoutId = prefetchTimeoutsRef.current.get(key);
+
+    if (existingTimeoutId) {
+      window.clearTimeout(existingTimeoutId);
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      prefetchTimeoutsRef.current.delete(key);
+      action();
+    }, SIDEBAR_PREFETCH_DELAY_MS);
+
+    prefetchTimeoutsRef.current.set(key, timeoutId);
+  }, []);
+
   useEffect(() => {
     const jobIdSet = new Set(jobs.map((job) => job.id));
 
@@ -353,6 +378,16 @@ export function WorkspaceSidebar({
     setContextSelectionJobIds((current) => current.filter((jobId) => jobIdSet.has(jobId)));
     setSelectionAnchorJobId((current) => (current && jobIdSet.has(current) ? current : null));
   }, [jobs]);
+
+  useEffect(
+    () => () => {
+      prefetchTimeoutsRef.current.forEach((timeoutId) => {
+        window.clearTimeout(timeoutId);
+      });
+      prefetchTimeoutsRef.current.clear();
+    },
+    [],
+  );
 
   const getJobSortTimestamp = useCallback(
     (job: JobRecord) =>
@@ -727,6 +762,15 @@ export function WorkspaceSidebar({
             onContextMenu={() => {
               prepareContextSelection(job.id);
             }}
+            onPointerEnter={() => {
+              schedulePrefetch(`part:${job.id}`, () => onPrefetchPart?.(job.id));
+            }}
+            onFocus={() => {
+              schedulePrefetch(`part:${job.id}`, () => onPrefetchPart?.(job.id));
+            }}
+            onPointerDown={() => {
+              onPrefetchPart?.(job.id);
+            }}
             onKeyDown={(event) => {
               if (event.key !== "Enter" && event.key !== " ") {
                 return;
@@ -859,6 +903,15 @@ export function WorkspaceSidebar({
                   event.preventDefault();
                   onSelectProject(project.id);
                 }
+              }}
+              onPointerEnter={() => {
+                schedulePrefetch(`project:${project.id}`, () => onPrefetchProject?.(project.id));
+              }}
+              onFocus={() => {
+                schedulePrefetch(`project:${project.id}`, () => onPrefetchProject?.(project.id));
+              }}
+              onPointerDown={() => {
+                onPrefetchProject?.(project.id);
               }}
               className={cn(
                 "group flex w-full items-center gap-2.5 rounded-[10px] text-left transition-colors",

@@ -42,14 +42,8 @@ import {
   createProject,
   deleteArchivedJob,
   dissolveProject,
-  fetchAccessibleJobs,
-  fetchAccessibleProjects,
-  fetchArchivedJobs,
-  fetchArchivedProjects,
-  fetchJobPartSummariesByJobIds,
   fetchPartDetail,
-  fetchProjectJobMembershipsByJobIds,
-  fetchSidebarPins,
+  fetchPartRevisionSiblings,
   isProjectCollaborationSchemaUnavailable,
   pinJob,
   pinProject,
@@ -76,6 +70,11 @@ import {
   syncImportedBatchProjects,
 } from "@/features/quotes/client-workspace";
 import {
+  useClientWorkspaceData,
+  useWarmClientWorkspaceNavigation,
+  workspaceDetailQueryOptions,
+} from "@/features/quotes/use-client-workspace-data";
+import {
   formatRequestedQuoteQuantitiesInput,
   parseRequestedQuoteQuantitiesInput,
 } from "@/features/quotes/request-intake";
@@ -92,6 +91,7 @@ import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
 import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
+import { prefetchPartPage, prefetchProjectPage, workspaceQueryKeys } from "@/features/quotes/workspace-navigation";
 import { downloadStoredFileBlob } from "@/lib/stored-file";
 import {
   buildRequirementDraft,
@@ -127,33 +127,22 @@ const ClientPart = () => {
   const isDmriflesWorkspace = normalizedEmail === DMRIFLES_EMAIL;
   const registerArchiveUndo = useArchiveUndo();
   const [hasAttemptedDmriflesProjectSync, setHasAttemptedDmriflesProjectSync] = useState(false);
-
-  const accessibleProjectsQuery = useQuery({
-    queryKey: ["client-projects"],
-    queryFn: fetchAccessibleProjects,
-    enabled: Boolean(user),
-  });
-  const accessibleJobsQuery = useQuery({
-    queryKey: ["client-jobs"],
-    queryFn: fetchAccessibleJobs,
-    enabled: Boolean(user),
-  });
-  const sidebarPinsQuery = useQuery({
-    queryKey: ["sidebar-pins", user?.id],
-    queryFn: fetchSidebarPins,
-    enabled: Boolean(user),
-  });
-  const archivedProjectsQuery = useQuery({
-    queryKey: ["archived-projects"],
-    queryFn: fetchArchivedProjects,
-    enabled: Boolean(user),
-  });
-  const archivedJobsQuery = useQuery({
-    queryKey: ["archived-jobs"],
-    queryFn: fetchArchivedJobs,
-    enabled: Boolean(user),
-  });
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+  const {
+    accessibleProjectsQuery,
+    accessibleJobsQuery,
+    accessibleJobsById,
+    partSummariesQuery,
+    projectJobMembershipsQuery,
+    sidebarPinsQuery,
+    archivedProjectsQuery,
+    archivedJobsQuery,
+    summariesByJobId,
+  } = useClientWorkspaceData({
+    enabled: Boolean(user),
+    userId: user?.id,
+    projectCollaborationUnavailable,
+  });
   const newJobFilePicker = useClientJobFilePicker({
     isSignedIn: Boolean(user),
     onRequireAuth: () => navigate("/?auth=signin"),
@@ -178,24 +167,27 @@ const ClientPart = () => {
       navigate(`/parts/${result.jobIds[0]}`);
     },
   });
-  const accessibleJobIds = useMemo(
-    () => (accessibleJobsQuery.data ?? []).map((job) => job.id),
-    [accessibleJobsQuery.data],
-  );
-  const partSummariesQuery = useQuery({
-    queryKey: ["client-part-summaries", accessibleJobIds],
-    queryFn: () => fetchJobPartSummariesByJobIds(accessibleJobIds),
-    enabled: Boolean(user) && accessibleJobIds.length > 0,
-  });
-  const projectJobMembershipsQuery = useQuery({
-    queryKey: ["client-project-job-memberships", accessibleJobIds],
-    queryFn: () => fetchProjectJobMembershipsByJobIds(accessibleJobIds),
-    enabled: Boolean(user) && accessibleJobIds.length > 0 && !projectCollaborationUnavailable,
-  });
   const partDetailQuery = useQuery({
-    queryKey: ["part-detail", jobId],
+    queryKey: workspaceQueryKeys.partDetail(jobId),
     queryFn: () => fetchPartDetail(jobId),
     enabled: Boolean(user) && Boolean(jobId),
+    ...workspaceDetailQueryOptions,
+  });
+  const revisionSiblingsQuery = useQuery({
+    queryKey: workspaceQueryKeys.partRevisionSiblings(jobId),
+    queryFn: () => {
+      if (!partDetailQuery.data?.job.organization_id || !partDetailQuery.data?.summary?.partNumber) {
+        return Promise.resolve([]);
+      }
+
+      return fetchPartRevisionSiblings(
+        jobId,
+        partDetailQuery.data.job.organization_id,
+        partDetailQuery.data.summary.partNumber,
+      );
+    },
+    enabled: Boolean(partDetailQuery.data?.job.organization_id && partDetailQuery.data?.summary?.partNumber),
+    ...workspaceDetailQueryOptions,
   });
   const attachFilesPicker = useClientJobFilePicker({
     isSignedIn: Boolean(user),
@@ -231,15 +223,6 @@ const ClientPart = () => {
       }
     },
   });
-
-  const summariesByJobId = useMemo(
-    () => new Map((partSummariesQuery.data ?? []).map((summary) => [summary.jobId, summary])),
-    [partSummariesQuery.data],
-  );
-  const accessibleJobsById = useMemo(
-    () => new Map((accessibleJobsQuery.data ?? []).map((job) => [job.id, job])),
-    [accessibleJobsQuery.data],
-  );
   const sidebarProjectIdsByJobId = useMemo(() => {
     const next = new Map<string, string[]>();
 
@@ -406,6 +389,16 @@ const ClientPart = () => {
       findImportedBatchProjectId(importedBatch, remoteProjects) ?? buildSeedProjectId(importedBatch);
     return [...new Set([...projectIds, importedBatchProjectId])];
   };
+
+  useWarmClientWorkspaceNavigation({
+    enabled: Boolean(user),
+    projects: sidebarProjects,
+    jobs: accessibleJobsQuery.data ?? [],
+    pinnedProjectIds: sidebarPinsQuery.data?.projectIds ?? [],
+    pinnedJobIds: sidebarPinsQuery.data?.jobIds ?? [],
+    resolveProjectIdsForJob: resolveSidebarProjectIdsForJob,
+    activeJobId: jobId,
+  });
 
   const invalidateSidebarQueries = async () => {
     await Promise.all([
@@ -819,9 +812,9 @@ const ClientPart = () => {
         revision: summary.revision,
         title: `${summary.partNumber ?? presentation?.title ?? "Part"}${summary.revision ? ` rev ${summary.revision}` : ""}`,
       },
-      ...(partDetail?.revisionSiblings ?? []),
+      ...(revisionSiblingsQuery.data ?? []),
     ].sort((left, right) => (left.revision ?? "").localeCompare(right.revision ?? ""));
-  }, [jobId, partDetail?.revisionSiblings, presentation?.title, summary]);
+  }, [jobId, presentation?.title, revisionSiblingsQuery.data, summary]);
   const selectedRevisionIndex = revisionOptions.findIndex((revision) => revision.jobId === jobId);
   const activityEntries = useMemo<ActivityLogEntry[]>(() => {
     const rankingLabel =
@@ -1088,6 +1081,12 @@ const ClientPart = () => {
             onDissolveProject={handleDissolveProject}
             onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
             onSelectPart={(partId) => navigate(`/parts/${partId}`)}
+            onPrefetchProject={(projectId) => {
+              void prefetchProjectPage(queryClient, projectId);
+            }}
+            onPrefetchPart={(partId) => {
+              void prefetchPartPage(queryClient, partId);
+            }}
             resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
           />
         }

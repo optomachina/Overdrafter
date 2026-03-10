@@ -63,6 +63,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -198,6 +199,42 @@ describe("WorkspaceSidebar", () => {
     expect(partIcon).toHaveClass("text-white/[0.9]");
     expect(projectRow).toHaveClass("px-2", "py-2");
     expect(partRow).toHaveClass("px-2", "py-2");
+  });
+
+  it("prefetches a project on hover and focus", async () => {
+    vi.useFakeTimers();
+    const onPrefetchProject = vi.fn();
+
+    renderSidebar({
+      onPrefetchProject,
+    });
+
+    const projectRow = screen.getAllByRole("button", { name: /project one/i })[0];
+
+    fireEvent.pointerEnter(projectRow);
+    await act(async () => {
+      vi.advanceTimersByTime(80);
+    });
+    fireEvent.focus(projectRow);
+    await act(async () => {
+      vi.advanceTimersByTime(80);
+    });
+
+    expect(onPrefetchProject).toHaveBeenNthCalledWith(1, "project-1");
+    expect(onPrefetchProject).toHaveBeenNthCalledWith(2, "project-1");
+  });
+
+  it("prefetches a part before navigation on pointer down", () => {
+    const onPrefetchPart = vi.fn();
+
+    renderSidebar({
+      onPrefetchPart,
+    });
+
+    const partRow = screen.getByRole("button", { name: /1093-00003/i });
+    fireEvent.pointerDown(partRow, { button: 0 });
+
+    expect(onPrefetchPart).toHaveBeenCalledWith("job-3");
   });
 
   it("shows only ungrouped parts in the flat parts section", () => {
