@@ -31,7 +31,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useAppSession } from "@/hooks/use-app-session";
-import { supabase } from "@/integrations/supabase/client";
 import {
   archiveJob,
   archiveProject,
@@ -90,6 +89,7 @@ import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
 import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
+import { downloadStoredFileBlob } from "@/lib/stored-file";
 import {
   buildRequirementDraft,
   formatCurrency,
@@ -846,13 +846,12 @@ const ClientPart = () => {
     setIsDrawingPreviewLoading(true);
 
     const loadAsset = async (storageBucket: string, storagePath: string) => {
-      const { data, error } = await supabase.storage.from(storageBucket).download(storagePath);
-
-      if (error || !data) {
-        throw error ?? new Error(`Unable to load ${drawingFile.original_name}.`);
-      }
-
-      const url = URL.createObjectURL(data);
+      const blob = await downloadStoredFileBlob({
+        storage_bucket: storageBucket,
+        storage_path: storagePath,
+        original_name: drawingFile.original_name,
+      });
+      const url = URL.createObjectURL(blob);
       objectUrls.push(url);
       return url;
     };
@@ -963,13 +962,8 @@ const ClientPart = () => {
 
   const handleDownloadFile = async (file: { storage_bucket: string; storage_path: string; original_name: string }) => {
     try {
-      const { data, error } = await supabase.storage.from(file.storage_bucket).download(file.storage_path);
-
-      if (error || !data) {
-        throw error ?? new Error(`Unable to download ${file.original_name}.`);
-      }
-
-      const url = URL.createObjectURL(data);
+      const blob = await downloadStoredFileBlob(file);
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
       link.download = file.original_name;

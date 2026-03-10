@@ -64,6 +64,7 @@ import type { PostgrestSingleResponse, PostgrestResponse } from "@supabase/supab
 import { buildAutoProjectName, groupUploadFiles, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { buildDraftTitleFromPrompt } from "@/features/quotes/file-validation";
 import { normalizeRequestedQuoteQuantities, parseRequestIntake } from "@/features/quotes/request-intake";
+import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import { getImportedVendorOffers, normalizeDrawingPreview } from "@/features/quotes/utils";
 import { toast } from "sonner";
 
@@ -229,6 +230,10 @@ function ensureProjectCollaborationData<T>(data: T | null, error: { message: str
 }
 
 export function isProjectCollaborationSchemaUnavailable(): boolean {
+  if (getActiveClientWorkspaceGateway()) {
+    return false;
+  }
+
   return projectCollaborationSchemaAvailability === "unavailable";
 }
 
@@ -516,6 +521,12 @@ async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
 }
 
 export async function fetchProjectJobMembershipsByJobIds(jobIds: string[]): Promise<ProjectJobRecord[]> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchProjectJobMembershipsByJobIds(jobIds);
+  }
+
   if (jobIds.length === 0 || isProjectCollaborationSchemaUnavailable()) {
     return [];
   }
@@ -531,6 +542,12 @@ export async function fetchProjectJobMembershipsByJobIds(jobIds: string[]): Prom
 }
 
 export async function fetchAppSessionData(): Promise<AppSessionData> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.getSessionData();
+  }
+
   const {
     data: { user },
     error: userError,
@@ -677,6 +694,12 @@ export async function fetchJobPartSummariesByOrganization(
 }
 
 export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<JobPartSummary[]> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchJobPartSummariesByJobIds(jobIds);
+  }
+
   if (jobIds.length === 0) {
     return [];
   }
@@ -1009,6 +1032,12 @@ async function fetchLatestQuoteRunsByJobIds(jobIds: string[]): Promise<Map<strin
 export async function fetchClientQuoteWorkspaceByJobIds(
   jobIds: string[],
 ): Promise<ClientQuoteWorkspaceItem[]> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchClientQuoteWorkspaceByJobIds(jobIds);
+  }
+
   if (jobIds.length === 0) {
     return [];
   }
@@ -1272,10 +1301,22 @@ async function fetchAllAccessibleJobs(options: { archived?: boolean } = {}): Pro
 }
 
 export async function fetchAccessibleJobs(): Promise<JobRecord[]> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchAccessibleJobs();
+  }
+
   return fetchAllAccessibleJobs({ archived: false });
 }
 
 export async function fetchAccessibleProjects(): Promise<AccessibleProjectSummary[]> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchAccessibleProjects();
+  }
+
   if (isProjectCollaborationSchemaUnavailable()) {
     return [];
   }
@@ -1369,6 +1410,12 @@ async function fetchJobsByIds(jobIds: string[], options: { archived: boolean }):
 }
 
 export async function fetchArchivedProjects(): Promise<ArchivedProjectSummary[]> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchArchivedProjects();
+  }
+
   if (isProjectCollaborationSchemaUnavailable()) {
     return [];
   }
@@ -1425,6 +1472,12 @@ export async function fetchArchivedProjects(): Promise<ArchivedProjectSummary[]>
 }
 
 export async function fetchArchivedJobs(): Promise<ArchivedJobSummary[]> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchArchivedJobs();
+  }
+
   const jobs = await fetchAllAccessibleJobs({ archived: true });
 
   if (jobs.length === 0) {
@@ -1467,6 +1520,12 @@ export async function fetchArchivedJobs(): Promise<ArchivedJobSummary[]> {
 }
 
 export async function fetchSidebarPins(): Promise<SidebarPins> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchSidebarPins();
+  }
+
   const currentUser = await requireCurrentUser();
   const pinnedJobsRequest = supabase
     .from("user_pinned_jobs")
@@ -1518,6 +1577,12 @@ export async function fetchSidebarPins(): Promise<SidebarPins> {
 }
 
 export async function pinProject(projectId: string): Promise<void> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.pinProject(projectId);
+  }
+
   if (isProjectCollaborationSchemaUnavailable()) {
     throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
   }
@@ -1545,6 +1610,12 @@ export async function pinProject(projectId: string): Promise<void> {
 }
 
 export async function unpinProject(projectId: string): Promise<void> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.unpinProject(projectId);
+  }
+
   if (isProjectCollaborationSchemaUnavailable()) {
     throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
   }
@@ -1567,6 +1638,12 @@ export async function unpinProject(projectId: string): Promise<void> {
 }
 
 export async function pinJob(jobId: string): Promise<void> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.pinJob(jobId);
+  }
+
   const currentUser = await requireCurrentUser();
   const { error } = await supabase.from("user_pinned_jobs").upsert(
     {
@@ -1585,6 +1662,12 @@ export async function pinJob(jobId: string): Promise<void> {
 }
 
 export async function unpinJob(jobId: string): Promise<void> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.unpinJob(jobId);
+  }
+
   const currentUser = await requireCurrentUser();
   const { error } = await supabase
     .from("user_pinned_jobs")
@@ -1598,6 +1681,12 @@ export async function unpinJob(jobId: string): Promise<void> {
 }
 
 export async function fetchProject(projectId: string): Promise<ProjectRecord> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchProject(projectId);
+  }
+
   const { data, error } = await supabase
     .from("projects")
     .select("*")
@@ -1609,6 +1698,12 @@ export async function fetchProject(projectId: string): Promise<ProjectRecord> {
 }
 
 export async function fetchProjectMemberships(projectId: string): Promise<ProjectMembershipRecord[]> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchProjectMemberships(projectId);
+  }
+
   const { data, error } = await supabase
     .from("project_memberships")
     .select("*")
@@ -1619,6 +1714,12 @@ export async function fetchProjectMemberships(projectId: string): Promise<Projec
 }
 
 export async function fetchProjectInvites(projectId: string): Promise<ProjectInviteSummary[]> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchProjectInvites(projectId);
+  }
+
   const { data, error } = await supabase
     .from("project_invites")
     .select("*")
@@ -1639,6 +1740,12 @@ export async function fetchProjectInvites(projectId: string): Promise<ProjectInv
 }
 
 export async function fetchJobsByProject(projectId: string): Promise<JobRecord[]> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchJobsByProject(projectId);
+  }
+
   const { data: membershipRows, error: membershipError } = await supabase
     .from("project_jobs")
     .select("*")
@@ -1695,6 +1802,12 @@ export async function searchAccessibleParts(query: string): Promise<JobRecord[]>
 }
 
 export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregate> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchPartDetail(jobId);
+  }
+
   const [jobAggregate, partSummaries, projectMemberships] = await Promise.all([
     fetchJobAggregate(jobId),
     fetchJobPartSummariesByJobIds([jobId]),
@@ -1753,6 +1866,12 @@ export async function createProject(input: {
   name: string;
   description?: string;
 }): Promise<string> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.createProject(input);
+  }
+
   if (isProjectCollaborationSchemaUnavailable()) {
     throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
   }
@@ -1809,6 +1928,12 @@ export async function updateProject(input: {
   name: string;
   description?: string;
 }): Promise<string> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.updateProject(input);
+  }
+
   const { data, error } = await supabase.rpc("api_update_project", {
     p_project_id: input.projectId,
     p_name: input.name,
@@ -1827,6 +1952,12 @@ export async function deleteProject(projectId: string): Promise<string> {
 }
 
 export async function archiveProject(projectId: string): Promise<string> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.archiveProject(projectId);
+  }
+
   const { data, error } = await supabase.rpc("api_archive_project", {
     p_project_id: projectId,
   });
@@ -1835,6 +1966,12 @@ export async function archiveProject(projectId: string): Promise<string> {
 }
 
 export async function unarchiveProject(projectId: string): Promise<string> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.unarchiveProject(projectId);
+  }
+
   const { data, error } = await supabase.rpc("api_unarchive_project", {
     p_project_id: projectId,
   });
@@ -1843,6 +1980,12 @@ export async function unarchiveProject(projectId: string): Promise<string> {
 }
 
 export async function dissolveProject(projectId: string): Promise<string> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.dissolveProject(projectId);
+  }
+
   const { data, error } = await supabase.rpc("api_dissolve_project", {
     p_project_id: projectId,
   });
@@ -1855,6 +1998,12 @@ export async function inviteProjectMember(input: {
   email: string;
   role?: ProjectRole;
 }): Promise<ProjectInviteSummary> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.inviteProjectMember(input);
+  }
+
   const { data, error } = await supabase.rpc("api_invite_project_member", {
     p_project_id: input.projectId,
     p_email: input.email,
@@ -1889,6 +2038,12 @@ export async function acceptProjectInvite(token: string): Promise<string> {
 }
 
 export async function removeProjectMember(projectMembershipId: string): Promise<string> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.removeProjectMember(projectMembershipId);
+  }
+
   const { data, error } = await supabase.rpc("api_remove_project_member", {
     p_project_membership_id: projectMembershipId,
   });
@@ -1937,6 +2092,12 @@ export async function createClientDraft(input: ClientDraftInput): Promise<string
 }
 
 export async function updateClientPartRequest(input: ClientPartRequestUpdateInput): Promise<string> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.updateClientPartRequest(input);
+  }
+
   const { data, error } = await supabase.rpc("api_update_client_part_request", {
     p_job_id: input.jobId,
     p_description: input.description ?? null,
@@ -2001,6 +2162,12 @@ export async function assignJobToProject(input: {
   jobId: string;
   projectId: string;
 }): Promise<string> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.assignJobToProject(input);
+  }
+
   const { data, error } = await supabase.rpc("api_assign_job_to_project", {
     p_job_id: input.jobId,
     p_project_id: input.projectId,
@@ -2010,6 +2177,12 @@ export async function assignJobToProject(input: {
 }
 
 export async function removeJobFromProject(jobId: string, projectId: string): Promise<string> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.removeJobFromProject(jobId, projectId);
+  }
+
   const { data, error } = await supabase.rpc("api_remove_job_from_project", {
     p_job_id: jobId,
     p_project_id: projectId,
@@ -2019,6 +2192,12 @@ export async function removeJobFromProject(jobId: string, projectId: string): Pr
 }
 
 export async function archiveJob(jobId: string): Promise<string> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.archiveJob(jobId);
+  }
+
   const { data, error } = await supabase.rpc("api_archive_job", {
     p_job_id: jobId,
   });
@@ -2027,6 +2206,12 @@ export async function archiveJob(jobId: string): Promise<string> {
 }
 
 export async function unarchiveJob(jobId: string): Promise<string> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.unarchiveJob(jobId);
+  }
+
   const { data, error } = await supabase.rpc("api_unarchive_job", {
     p_job_id: jobId,
   });
@@ -2035,6 +2220,12 @@ export async function unarchiveJob(jobId: string): Promise<string> {
 }
 
 export async function deleteArchivedJob(jobId: string): Promise<string> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.deleteArchivedJob(jobId);
+  }
+
   const { data, error } = await supabase.rpc("api_delete_archived_job", {
     p_job_id: jobId,
   });
@@ -2043,6 +2234,12 @@ export async function deleteArchivedJob(jobId: string): Promise<string> {
 }
 
 export async function setJobSelectedVendorQuoteOffer(jobId: string, offerId: string | null): Promise<string> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.setJobSelectedVendorQuoteOffer(jobId, offerId);
+  }
+
   const { data, error } = await supabase.rpc("api_set_job_selected_vendor_quote_offer", {
     p_job_id: jobId,
     p_vendor_quote_offer_id: offerId,

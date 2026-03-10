@@ -31,3 +31,6 @@ worker/state/
 worker/tmp/
 worker/.env
 .turbo/
+playwright/.auth/
+playwright-report/
+test-results/

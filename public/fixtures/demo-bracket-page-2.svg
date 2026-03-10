@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900">
+  <rect width="1200" height="900" fill="#f8fafc" />
+  <rect x="72" y="72" width="1056" height="756" rx="24" fill="white" stroke="#cbd5e1" stroke-width="4" />
+  <text x="120" y="150" fill="#0f172a" font-family="Helvetica, Arial, sans-serif" font-size="42" font-weight="700">
+    FX Fixture Drawing
+  </text>
+  <text x="120" y="196" fill="#475569" font-family="Helvetica, Arial, sans-serif" font-size="24">
+    Hole pattern and tolerance detail
+  </text>
+  <rect x="180" y="250" width="420" height="250" rx="18" fill="#f8fafc" stroke="#475569" stroke-width="6" />
+  <circle cx="300" cy="330" r="34" fill="white" stroke="#0f172a" stroke-width="6" />
+  <circle cx="480" cy="330" r="34" fill="white" stroke="#0f172a" stroke-width="6" />
+  <circle cx="300" cy="430" r="34" fill="white" stroke="#0f172a" stroke-width="6" />
+  <circle cx="480" cy="430" r="34" fill="white" stroke="#0f172a" stroke-width="6" />
+  <line x1="300" y1="330" x2="480" y2="330" stroke="#ef4444" stroke-width="4" marker-start="url(#arrow)" marker-end="url(#arrow)" />
+  <text x="344" y="316" fill="#ef4444" font-family="Helvetica, Arial, sans-serif" font-size="24">1.250</text>
+  <line x1="300" y1="330" x2="300" y2="430" stroke="#ef4444" stroke-width="4" marker-start="url(#arrow)" marker-end="url(#arrow)" />
+  <text x="320" y="390" fill="#ef4444" font-family="Helvetica, Arial, sans-serif" font-size="24">0.750</text>
+  <rect x="700" y="250" width="300" height="280" rx="18" fill="#eff6ff" stroke="#2563eb" stroke-width="6" />
+  <text x="730" y="310" fill="#1d4ed8" font-family="Helvetica, Arial, sans-serif" font-size="28" font-weight="700">Tolerance block</text>
+  <text x="730" y="360" fill="#1e3a8a" font-family="Helvetica, Arial, sans-serif" font-size="22">X.X  ± .1</text>
+  <text x="730" y="402" fill="#1e3a8a" font-family="Helvetica, Arial, sans-serif" font-size="22">X.XX ± .03</text>
+  <text x="730" y="444" fill="#1e3a8a" font-family="Helvetica, Arial, sans-serif" font-size="22">X.XXX ± .005</text>
+  <text x="120" y="640" fill="#0f172a" font-family="Helvetica, Arial, sans-serif" font-size="28" font-weight="700">Inspection</text>
+  <text x="120" y="692" fill="#334155" font-family="Helvetica, Arial, sans-serif" font-size="22">Critical hole spacing to be verified after anodize.</text>
+  <text x="120" y="728" fill="#334155" font-family="Helvetica, Arial, sans-serif" font-size="22">Threaded features: 4x 10-32 UNC-2B.</text>
+  <text x="1040" y="790" fill="#475569" font-family="Helvetica, Arial, sans-serif" font-size="26">Page 2</text>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#ef4444" />
+    </marker>
+  </defs>
+</svg>

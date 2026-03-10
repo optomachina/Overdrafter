@@ -10,6 +10,7 @@ import {
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppErrorBoundary } from "@/components/debug/AppErrorBoundary";
 import { DiagnosticsBootstrap } from "@/components/debug/DiagnosticsBootstrap";
+import { FixturePanel } from "@/components/debug/FixturePanel";
 import { captureDiagnosticError } from "@/lib/diagnostics";
 import Index from "./pages/Index";
 import SignIn from "./pages/SignIn";
@@ -77,6 +78,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <DiagnosticsBootstrap />
+        <FixturePanel />
         <AppErrorBoundary>
           <Routes>
             <Route path="/" element={<Index />} />
