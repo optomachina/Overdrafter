@@ -358,7 +358,7 @@ export function ChatWorkspaceLayout({
         <div className="flex min-h-screen">
           <aside
             className={cn(
-              "hidden shrink-0 overflow-visible border-r border-white/[0.08] shadow-[1px_0_0_0_rgba(255,255,255,0.02)] transition-[width] duration-200 ease-out md:block",
+              "sticky top-0 hidden shrink-0 self-start overflow-visible border-r border-white/[0.08] shadow-[1px_0_0_0_rgba(255,255,255,0.02)] transition-[width] duration-200 ease-out md:block",
             )}
             style={{
               width: desktopSidebarCollapsed ? DESKTOP_SIDEBAR_COLLAPSED_WIDTH : DESKTOP_SIDEBAR_EXPANDED_WIDTH,
