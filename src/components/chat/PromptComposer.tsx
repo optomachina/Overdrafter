@@ -46,6 +46,8 @@ function getErrorMessage(error: unknown): string {
 
 export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerProps>(
   ({ isSignedIn, placeholder = "Ask anything", onRequireAuth, onSubmit }, ref) => {
+    const MIN_TEXTAREA_HEIGHT = 40;
+    const MAX_TEXTAREA_HEIGHT = 200;
     const [prompt, setPrompt] = useState("");
     const [files, setFiles] = useState<File[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -66,7 +68,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       }
 
       textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+      textarea.style.height = `${Math.max(Math.min(textarea.scrollHeight, MAX_TEXTAREA_HEIGHT), MIN_TEXTAREA_HEIGHT)}px`;
     };
 
     useEffect(() => {
@@ -194,7 +196,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
               rows={1}
               placeholder={placeholder}
               disabled={isSubmitting}
-              className="max-h-[200px] min-h-[24px] flex-1 resize-none bg-transparent px-2 py-2 text-[15px] text-white outline-none placeholder:text-white/45"
+              className="h-10 max-h-[200px] min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-[15px] leading-6 text-white outline-none placeholder:text-white/45"
             />
 
             <Button
