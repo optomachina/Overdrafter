@@ -54,7 +54,6 @@ const ClientPart = () => {
     currentPartName,
     currentProjectOptions,
     displayPartTitle,
-    dmriflesBatchProjectId,
     drawingFile,
     drawingPreview,
     drawingPreviewPageUrls,
@@ -82,7 +81,6 @@ const ClientPart = () => {
     handleUnarchivePart,
     handleUnpinPart,
     handleUnpinProject,
-    isDmriflesWorkspace,
     isDrawingPreviewLoading,
     isPartArchiveBusy,
     isPartOptionsOpen,
@@ -159,8 +157,8 @@ const ClientPart = () => {
             onUnpinProject={handleUnpinProject}
             onPinPart={handlePinPart}
             onUnpinPart={handleUnpinPart}
-            onAssignPartToProject={isDmriflesWorkspace ? undefined : handleAssignPartToProject}
-            onRemovePartFromProject={isDmriflesWorkspace ? undefined : handleRemovePartFromProject}
+            onAssignPartToProject={handleAssignPartToProject}
+            onRemovePartFromProject={handleRemovePartFromProject}
             onCreateProjectFromSelection={
               projectCollaborationUnavailable ? undefined : handleCreateProjectFromSelection
             }
@@ -212,10 +210,6 @@ const ClientPart = () => {
                           {project.project.name}
                         </Badge>
                       ))
-                    ) : dmriflesBatchProjectId ? (
-                      <Badge className="border border-white/10 bg-white/6 text-white/75">
-                        {summary?.importedBatch}
-                      </Badge>
                     ) : (
                       <Badge className="border border-white/10 bg-white/6 text-white/75">Standalone part</Badge>
                     )}
@@ -283,17 +277,8 @@ const ClientPart = () => {
                     >
                       Open project
                     </Button>
-                  ) : dmriflesBatchProjectId ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
-                      onClick={() => navigate(`/projects/${dmriflesBatchProjectId}`)}
-                    >
-                      Open batch
-                    </Button>
                   ) : null}
-                  {!isDmriflesWorkspace && !projectCollaborationUnavailable ? (
+                  {!projectCollaborationUnavailable ? (
                     <Button
                       type="button"
                       variant="outline"
@@ -345,7 +330,7 @@ const ClientPart = () => {
                       singleRemoveLabel="Remove from project"
                       isMoveBusy={assignJobMutation.isPending || removeJobMutation.isPending}
                       onAddToProject={
-                        !isDmriflesWorkspace && !projectCollaborationUnavailable
+                        !projectCollaborationUnavailable
                           ? (projectId) => {
                               assignJobMutation.mutate(projectId);
                               setIsPartOptionsOpen(false);
@@ -353,7 +338,7 @@ const ClientPart = () => {
                           : undefined
                       }
                       onRemoveFromProject={
-                        !isDmriflesWorkspace && !projectCollaborationUnavailable
+                        !projectCollaborationUnavailable
                           ? (projectId) => {
                               removeJobMutation.mutate(projectId);
                               setIsPartOptionsOpen(false);

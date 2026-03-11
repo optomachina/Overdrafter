@@ -9,12 +9,10 @@ import { Button } from "@/components/ui/button";
 import {
   fetchAccessibleJobs,
   fetchClientQuoteWorkspaceByJobIds,
-  fetchJobPartSummariesByJobIds,
   fetchJobsByProject,
   fetchProject,
 } from "@/features/quotes/api";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
-import { buildDmriflesProjects } from "@/features/quotes/client-workspace";
 import {
   buildClientQuoteSelectionOptions,
   buildVendorLabelMap,
@@ -29,53 +27,24 @@ const ClientProjectReview = () => {
   const navigate = useNavigate();
   const { user } = useAppSession();
   const [showCheckoutPlaceholder, setShowCheckoutPlaceholder] = useState(false);
-  const isSeededProject = projectId.startsWith("seed-");
 
   const accessibleJobsQuery = useQuery({
     queryKey: ["review-accessible-jobs"],
     queryFn: fetchAccessibleJobs,
     enabled: Boolean(user),
   });
-  const partSummariesQuery = useQuery({
-    queryKey: ["review-part-summaries", (accessibleJobsQuery.data ?? []).map((job) => job.id)],
-    queryFn: () => fetchJobPartSummariesByJobIds((accessibleJobsQuery.data ?? []).map((job) => job.id)),
-    enabled: Boolean(user) && (accessibleJobsQuery.data ?? []).length > 0,
-  });
   const projectQuery = useQuery({
     queryKey: ["review-project", projectId],
     queryFn: () => fetchProject(projectId),
-    enabled: Boolean(user) && !isSeededProject,
+    enabled: Boolean(user),
   });
   const projectJobsQuery = useQuery({
     queryKey: ["review-project-jobs", projectId],
     queryFn: () => fetchJobsByProject(projectId),
-    enabled: Boolean(user) && !isSeededProject,
+    enabled: Boolean(user),
   });
 
-  const seededProject = useMemo(() => {
-    if (!isSeededProject) {
-      return null;
-    }
-
-    const summariesByJobId = new Map(
-      (partSummariesQuery.data ?? []).map((summary) => [summary.jobId, summary]),
-    );
-
-    return buildDmriflesProjects(accessibleJobsQuery.data ?? [], summariesByJobId).find(
-      (candidate) => candidate.id === projectId,
-    ) ?? null;
-  }, [accessibleJobsQuery.data, isSeededProject, partSummariesQuery.data, projectId]);
-
-  const projectJobs = useMemo(() => {
-    if (seededProject) {
-      const jobsById = new Map((accessibleJobsQuery.data ?? []).map((job) => [job.id, job]));
-      return seededProject.jobIds
-        .map((jobId) => jobsById.get(jobId))
-        .filter((job): job is NonNullable<typeof job> => Boolean(job));
-    }
-
-    return projectJobsQuery.data ?? [];
-  }, [accessibleJobsQuery.data, projectJobsQuery.data, seededProject]);
+  const projectJobs = useMemo(() => projectJobsQuery.data ?? [], [projectJobsQuery.data]);
 
   const workspaceQuery = useQuery({
     queryKey: ["project-review-workspace", projectJobs.map((job) => job.id)],
@@ -131,7 +100,7 @@ const ClientProjectReview = () => {
               <div>
                 <p className="text-xs uppercase tracking-[0.18em] text-white/35">Review</p>
                 <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
-                  {seededProject?.name ?? projectQuery.data?.name ?? "Project"}
+                  {projectQuery.data?.name ?? "Project"}
                 </h1>
                 <p className="mt-2 text-sm text-white/55">
                   Final review of selected vendors, delivery timing, and project totals before checkout.

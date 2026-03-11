@@ -32,12 +32,7 @@ import { formatPartLabel, getClientItemPresentation } from "@/features/quotes/cl
 import {
   buildSidebarProjectIdsByJobId,
   buildSidebarProjects,
-  findImportedBatchProjectId,
-  findSeededProjectById,
-  DMRIFLES_EMAIL,
-  buildSeedProjectId,
   resolveWorkspaceProjectIdsForJob,
-  syncImportedBatchProjects,
 } from "@/features/quotes/client-workspace";
 import {
   invalidateClientWorkspaceQueries,
@@ -93,16 +88,12 @@ export function useClientPartController() {
   const [isRenamingPart, setIsRenamingPart] = useState(false);
   const [isPartPinBusy, setIsPartPinBusy] = useState(false);
   const [isPartArchiveBusy, setIsPartArchiveBusy] = useState(false);
-  const normalizedEmail = user?.email?.toLowerCase() ?? "";
-  const isDmriflesWorkspace = normalizedEmail === DMRIFLES_EMAIL;
   const registerArchiveUndo = useArchiveUndo();
-  const [hasAttemptedDmriflesProjectSync, setHasAttemptedDmriflesProjectSync] = useState(false);
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const {
     accessibleProjectsQuery,
     accessibleJobsQuery,
     accessibleJobsById,
-    partSummariesQuery,
     projectJobMembershipsQuery,
     sidebarPinsQuery,
     archivedProjectsQuery,
@@ -117,15 +108,12 @@ export function useClientPartController() {
     () => buildSidebarProjectIdsByJobId(projectJobMembershipsQuery.data ?? []),
     [projectJobMembershipsQuery.data],
   );
-  const { remoteProjects, sidebarProjects } = useMemo(
+  const { sidebarProjects } = useMemo(
     () =>
       buildSidebarProjects({
-        isDmriflesWorkspace,
-        jobs: accessibleJobsQuery.data ?? [],
-        summariesByJobId,
         accessibleProjects: accessibleProjectsQuery.data ?? [],
       }),
-    [accessibleJobsQuery.data, accessibleProjectsQuery.data, isDmriflesWorkspace, summariesByJobId],
+    [accessibleProjectsQuery.data],
   );
 
   const newJobFilePicker = useClientJobFilePicker({
@@ -263,10 +251,7 @@ export function useClientPartController() {
   }) =>
     resolveWorkspaceProjectIdsForJob({
       job,
-      isDmriflesWorkspace,
-      summariesByJobId,
       sidebarProjectIdsByJobId,
-      remoteProjects,
     });
 
   useWarmClientWorkspaceNavigation({
@@ -280,63 +265,11 @@ export function useClientPartController() {
     activeJobId: jobId,
   });
 
-  const syncDmriflesProjectsMutation = useMutation({
-    mutationFn: async () =>
-      syncImportedBatchProjects({
-        jobs: accessibleJobsQuery.data ?? [],
-        partSummariesByJobId: summariesByJobId,
-        projects: (accessibleProjectsQuery.data ?? []).map((project) => ({
-          id: project.project.id,
-          name: project.project.name,
-        })),
-        resolveProjectIdsForJob: (targetJobId: string) =>
-          sidebarProjectIdsByJobId.get(targetJobId) ?? [],
-      }),
-    onSuccess: async (mutated) => {
-      setHasAttemptedDmriflesProjectSync(true);
-
-      if (!mutated) {
-        return;
-      }
-
-      await invalidateClientWorkspaceQueries(queryClient, { jobId });
-    },
-    onError: () => {
-      setHasAttemptedDmriflesProjectSync(true);
-    },
-  });
-
   useEffect(() => {
     if (projectCollaborationUnavailable) {
       setShowMoveDialog(false);
     }
   }, [projectCollaborationUnavailable]);
-
-  useEffect(() => {
-    if (
-      !user ||
-      !isDmriflesWorkspace ||
-      projectCollaborationUnavailable ||
-      hasAttemptedDmriflesProjectSync ||
-      syncDmriflesProjectsMutation.isPending ||
-      accessibleProjectsQuery.isLoading ||
-      accessibleJobsQuery.isLoading ||
-      partSummariesQuery.isLoading
-    ) {
-      return;
-    }
-
-    syncDmriflesProjectsMutation.mutate();
-  }, [
-    accessibleJobsQuery.isLoading,
-    accessibleProjectsQuery.isLoading,
-    hasAttemptedDmriflesProjectSync,
-    isDmriflesWorkspace,
-    partSummariesQuery.isLoading,
-    projectCollaborationUnavailable,
-    syncDmriflesProjectsMutation,
-    user,
-  ]);
 
   useEffect(() => {
     if (!user) {
@@ -353,9 +286,6 @@ export function useClientPartController() {
       ),
     [accessibleProjectsQuery.data, partDetail?.projectIds],
   );
-  const dmriflesBatchProjectId =
-    findImportedBatchProjectId(summary?.importedBatch, remoteProjects) ??
-    (summary?.importedBatch ? buildSeedProjectId(summary.importedBatch) : null);
   const extraction = partDetail?.part
     ? normalizeDrawingExtraction(partDetail.part.extraction, partDetail.part.id)
     : null;
@@ -760,27 +690,6 @@ export function useClientPartController() {
 
   const handleArchiveProject = async (projectId: string) => {
     try {
-      if (projectId.startsWith("seed-")) {
-        const batchJobs =
-          findSeededProjectById({
-            projectId,
-            jobs: accessibleJobsQuery.data ?? [],
-            summariesByJobId,
-          })?.jobIds ?? [];
-
-        await Promise.all(batchJobs.map((jobId) => archiveJob(jobId)));
-        await invalidateClientWorkspaceQueries(queryClient, { projectId });
-        registerArchiveUndo({
-          label: "Project",
-          undo: async () => {
-            await Promise.all(batchJobs.map((jobId) => unarchiveJob(jobId)));
-            await invalidateClientWorkspaceQueries(queryClient, { projectId });
-          },
-        });
-        toast.success("Project archived. Press Ctrl+Z to undo.");
-        return;
-      }
-
       await archiveProject(projectId);
       await invalidateClientWorkspaceQueries(queryClient, { projectId });
       registerArchiveUndo({
@@ -966,7 +875,6 @@ export function useClientPartController() {
     currentPartName,
     currentProjectOptions,
     displayPartTitle,
-    dmriflesBatchProjectId,
     drawingFile,
     drawingPreview,
     drawingPreviewPageUrls,
@@ -994,7 +902,6 @@ export function useClientPartController() {
     handleUnarchivePart,
     handleUnpinPart,
     handleUnpinProject,
-    isDmriflesWorkspace,
     isDrawingPreviewLoading,
     isPartArchiveBusy,
     isPartOptionsOpen,

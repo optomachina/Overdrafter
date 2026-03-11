@@ -36,22 +36,22 @@ export function EmailVerificationPrompt({
       <div className="grid gap-3 sm:grid-cols-2">
         <Button
           type="button"
-          className="rounded-full"
+          className="h-auto min-h-12 w-full min-w-0 rounded-full px-4 py-3 text-center whitespace-normal leading-tight"
           onClick={onRefreshSession}
           disabled={isRefreshing || isResending}
         >
           {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          I already clicked the email
+          <span className="min-w-0 text-center leading-tight">I already clicked the email</span>
         </Button>
         <Button
           type="button"
           variant="outline"
-          className="rounded-full border-white/10 bg-white/5"
+          className="h-auto min-h-12 w-full min-w-0 rounded-full border-white/10 bg-white/5 px-4 py-3 text-center whitespace-normal leading-tight"
           onClick={onResend}
           disabled={isRefreshing || isResending}
         >
           {isResending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Resend email
+          <span className="min-w-0 text-center leading-tight">Resend email</span>
         </Button>
       </div>
 

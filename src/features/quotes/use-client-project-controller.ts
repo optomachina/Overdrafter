@@ -40,10 +40,7 @@ import { getClientItemPresentation, matchesClientJobSearch } from "@/features/qu
 import {
   buildSidebarProjectIdsByJobId,
   buildSidebarProjects,
-  findSeededProjectById,
-  DMRIFLES_EMAIL,
   resolveWorkspaceProjectIdsForJob,
-  syncImportedBatchProjects,
 } from "@/features/quotes/client-workspace";
 import {
   invalidateClientWorkspaceQueries,
@@ -131,17 +128,12 @@ export function useClientProjectController() {
   const [requestDraftsByJobId, setRequestDraftsByJobId] = useState<Record<string, ClientPartRequestUpdateInput>>({});
   const [quoteQuantityInputsByJobId, setQuoteQuantityInputsByJobId] = useState<Record<string, string>>({});
   const isMobile = useIsMobile();
-  const normalizedEmail = user?.email?.toLowerCase() ?? "";
-  const isDmriflesWorkspace = normalizedEmail === DMRIFLES_EMAIL;
-  const isSeededProject = projectId.startsWith("seed-");
   const registerArchiveUndo = useArchiveUndo();
-  const [hasAttemptedDmriflesProjectSync, setHasAttemptedDmriflesProjectSync] = useState(false);
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const {
     accessibleProjectsQuery,
     accessibleJobsQuery,
     accessibleJobsById,
-    partSummariesQuery,
     projectJobMembershipsQuery: sidebarProjectJobMembershipsQuery,
     sidebarPinsQuery,
     archivedProjectsQuery,
@@ -156,37 +148,15 @@ export function useClientProjectController() {
     () => buildSidebarProjectIdsByJobId(sidebarProjectJobMembershipsQuery.data ?? []),
     [sidebarProjectJobMembershipsQuery.data],
   );
-  const { remoteProjects, remoteProjectsByName, sidebarProjects } = useMemo(
+  const { sidebarProjects } = useMemo(
     () =>
       buildSidebarProjects({
-        isDmriflesWorkspace,
-        jobs: accessibleJobsQuery.data ?? [],
-        summariesByJobId,
         accessibleProjects: accessibleProjectsQuery.data ?? [],
       }),
-    [accessibleJobsQuery.data, accessibleProjectsQuery.data, isDmriflesWorkspace, summariesByJobId],
+    [accessibleProjectsQuery.data],
   );
-  const seededProject = useMemo(() => {
-    if (!isSeededProject) {
-      return null;
-    }
-
-    return findSeededProjectById({
-      projectId,
-      jobs: accessibleJobsQuery.data ?? [],
-      summariesByJobId,
-    });
-  }, [accessibleJobsQuery.data, isSeededProject, projectId, summariesByJobId]);
-  const redirectedSeedProjectId = useMemo(() => {
-    if (!isSeededProject) {
-      return null;
-    }
-
-    const batchName = projectId.replace(/^seed-/i, "").toUpperCase();
-    return remoteProjectsByName.get(batchName) ?? null;
-  }, [isSeededProject, projectId, remoteProjectsByName]);
   const canLoadRemoteProjectData =
-    Boolean(user) && !isSeededProject && !accessibleProjectsQuery.isLoading && !projectCollaborationUnavailable;
+    Boolean(user) && !accessibleProjectsQuery.isLoading && !projectCollaborationUnavailable;
   const projectQuery = useQuery({
     queryKey: workspaceQueryKeys.project(projectId),
     queryFn: () => fetchProject(projectId),
@@ -209,16 +179,7 @@ export function useClientProjectController() {
     queryFn: () => fetchProjectInvites(projectId),
     enabled: canLoadRemoteProjectData && showMembers,
   });
-  const projectJobs = useMemo(() => {
-    if (seededProject) {
-      const jobsById = new Map((accessibleJobsQuery.data ?? []).map((job) => [job.id, job]));
-      return seededProject.jobIds
-        .map((jobId) => jobsById.get(jobId))
-        .filter((job): job is NonNullable<typeof job> => Boolean(job));
-    }
-
-    return projectJobsQuery.data ?? [];
-  }, [accessibleJobsQuery.data, projectJobsQuery.data, seededProject]);
+  const projectJobs = useMemo(() => projectJobsQuery.data ?? [], [projectJobsQuery.data]);
   const projectJobIds = useMemo(() => stableJobIds(projectJobs.map((job) => job.id)), [projectJobs]);
   const projectWorkspaceItemsQuery = useQuery({
     queryKey: workspaceQueryKeys.clientQuoteWorkspace(projectJobIds),
@@ -311,10 +272,8 @@ export function useClientProjectController() {
   );
   const projectSummary =
     accessibleProjectsQuery.data?.find((project) => project.project.id === projectId) ?? null;
-  const canRenameProject =
-    !isSeededProject && ["owner", "editor"].includes(projectSummary?.currentUserRole ?? "editor");
-  const canManageMembers =
-    !isSeededProject && (projectSummary?.currentUserRole ?? "editor") === "owner";
+  const canRenameProject = ["owner", "editor"].includes(projectSummary?.currentUserRole ?? "editor");
+  const canManageMembers = (projectSummary?.currentUserRole ?? "editor") === "owner";
   const canDissolveProject = canManageMembers;
   const focusedDraft = focusedJob ? requestDraftsByJobId[focusedJob.id] ?? null : null;
   const focusedQuoteQuantityInput = focusedJob ? quoteQuantityInputsByJobId[focusedJob.id] ?? "" : "";
@@ -362,7 +321,7 @@ export function useClientProjectController() {
     onFilesSelected: async (files) => {
       const result = await createJobsFromUploadFiles({
         files,
-        projectId: isSeededProject ? null : projectId,
+        projectId,
       });
 
       await invalidateClientWorkspaceQueries(queryClient, { projectId });
@@ -446,31 +405,6 @@ export function useClientProjectController() {
     },
   });
 
-  const syncDmriflesProjectsMutation = useMutation({
-    mutationFn: async () =>
-      syncImportedBatchProjects({
-        jobs: accessibleJobsQuery.data ?? [],
-        partSummariesByJobId: summariesByJobId,
-        projects: (accessibleProjectsQuery.data ?? []).map((project) => ({
-          id: project.project.id,
-          name: project.project.name,
-        })),
-        resolveProjectIdsForJob: (jobId: string) => sidebarProjectIdsByJobId.get(jobId) ?? [],
-      }),
-    onSuccess: async (mutated) => {
-      setHasAttemptedDmriflesProjectSync(true);
-
-      if (!mutated) {
-        return;
-      }
-
-      await invalidateClientWorkspaceQueries(queryClient, { projectId });
-    },
-    onError: () => {
-      setHasAttemptedDmriflesProjectSync(true);
-    },
-  });
-
   const dissolveProjectMutation = useMutation({
     mutationFn: () => dissolveProject(projectId),
     onSuccess: async () => {
@@ -518,10 +452,7 @@ export function useClientProjectController() {
   }) => {
     return resolveWorkspaceProjectIdsForJob({
       job,
-      isDmriflesWorkspace,
-      summariesByJobId,
       sidebarProjectIdsByJobId,
-      remoteProjects,
     });
   };
 
@@ -619,40 +550,6 @@ export function useClientProjectController() {
       setProjectName(projectQuery.data.name);
     }
   }, [projectQuery.data]);
-
-  useEffect(() => {
-    if (!redirectedSeedProjectId) {
-      return;
-    }
-
-    navigate(`/projects/${redirectedSeedProjectId}`, { replace: true });
-  }, [navigate, redirectedSeedProjectId]);
-
-  useEffect(() => {
-    if (
-      !user ||
-      !isDmriflesWorkspace ||
-      projectCollaborationUnavailable ||
-      hasAttemptedDmriflesProjectSync ||
-      syncDmriflesProjectsMutation.isPending ||
-      accessibleProjectsQuery.isLoading ||
-      accessibleJobsQuery.isLoading ||
-      partSummariesQuery.isLoading
-    ) {
-      return;
-    }
-
-    syncDmriflesProjectsMutation.mutate();
-  }, [
-    accessibleJobsQuery.isLoading,
-    accessibleProjectsQuery.isLoading,
-    hasAttemptedDmriflesProjectSync,
-    isDmriflesWorkspace,
-    partSummariesQuery.isLoading,
-    projectCollaborationUnavailable,
-    syncDmriflesProjectsMutation,
-    user,
-  ]);
 
   useEffect(() => {
     if (!user) {
@@ -759,31 +656,6 @@ export function useClientProjectController() {
 
   const handleArchiveProject = async (targetProjectId: string) => {
     try {
-      if (targetProjectId.startsWith("seed-")) {
-        const batchJobs = (
-          findSeededProjectById({
-            projectId: targetProjectId,
-            jobs: accessibleJobsQuery.data ?? [],
-            summariesByJobId,
-          })?.jobIds ?? []
-        );
-
-        await Promise.all(batchJobs.map((jobId) => archiveJob(jobId)));
-        await invalidateClientWorkspaceQueries(queryClient, { projectId: targetProjectId });
-        registerArchiveUndo({
-          label: "Project",
-          undo: async () => {
-            await Promise.all(batchJobs.map((jobId) => unarchiveJob(jobId)));
-            await invalidateClientWorkspaceQueries(queryClient, { projectId: targetProjectId });
-          },
-        });
-        toast.success("Project archived. Press Ctrl+Z to undo.");
-        if (targetProjectId === projectId) {
-          navigate("/");
-        }
-        return;
-      }
-
       await archiveProject(targetProjectId);
       await invalidateClientWorkspaceQueries(queryClient, { projectId: targetProjectId });
       registerArchiveUndo({

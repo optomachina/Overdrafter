@@ -32,14 +32,8 @@ import { getClientItemPresentation } from "@/features/quotes/client-presentation
 import {
   buildSidebarProjectIdsByJobId,
   buildSidebarProjects,
-  buildSeedProjectId,
-  DMRIFLES_EMAIL,
-  findSeededProjectById,
-  findImportedBatchProjectId,
   PROJECT_STORAGE_PREFIX,
   resolveWorkspaceProjectIdsForJob,
-  resolveImportedBatch,
-  syncImportedBatchProjects,
 } from "@/features/quotes/client-workspace";
 import {
   invalidateClientWorkspaceQueries,
@@ -73,17 +67,13 @@ export function useClientHomeController() {
   const authIntent = searchParams.get("auth");
   const focusComposerIntent = searchParams.get("focusComposer");
   const authDialogMode = authIntent === "signup" ? "sign-up" : "sign-in";
-  const normalizedEmail = user?.email?.toLowerCase() ?? "";
-  const isDmriflesWorkspace = normalizedEmail === DMRIFLES_EMAIL;
   const defaultAccountName = useMemo(() => getDefaultAccountName(user), [user]);
   const registerArchiveUndo = useArchiveUndo();
-  const [hasAttemptedDmriflesProjectSync, setHasAttemptedDmriflesProjectSync] = useState(false);
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const {
     accessibleProjectsQuery,
     accessibleJobsQuery,
     accessibleJobsById,
-    partSummariesQuery,
     projectJobMembershipsQuery,
     sidebarPinsQuery,
     archivedProjectsQuery,
@@ -130,12 +120,9 @@ export function useClientHomeController() {
   const { remoteProjects, sidebarProjects } = useMemo(
     () =>
       buildSidebarProjects({
-        isDmriflesWorkspace,
-        jobs: accessibleJobsQuery.data ?? [],
-        summariesByJobId,
         accessibleProjects: accessibleProjectsQuery.data ?? [],
       }),
-    [accessibleJobsQuery.data, accessibleProjectsQuery.data, isDmriflesWorkspace, summariesByJobId],
+    [accessibleProjectsQuery.data],
   );
 
   const bootstrapAccountMutation = useMutation({
@@ -201,37 +188,9 @@ export function useClientHomeController() {
   const resolveSidebarProjectIdsForJob = (job: { id: string; project_id: string | null; source: string }) => {
     return resolveWorkspaceProjectIdsForJob({
       job,
-      isDmriflesWorkspace,
-      summariesByJobId,
       sidebarProjectIdsByJobId,
-      remoteProjects,
     });
   };
-
-  const syncDmriflesProjectsMutation = useMutation({
-    mutationFn: async () =>
-      syncImportedBatchProjects({
-        jobs: accessibleJobsQuery.data ?? [],
-        partSummariesByJobId: summariesByJobId,
-        projects: (accessibleProjectsQuery.data ?? []).map((project) => ({
-          id: project.project.id,
-          name: project.project.name,
-        })),
-        resolveProjectIdsForJob: (jobId: string) => sidebarProjectIdsByJobId.get(jobId) ?? [],
-      }),
-    onSuccess: async (mutated) => {
-      setHasAttemptedDmriflesProjectSync(true);
-
-      if (!mutated) {
-        return;
-      }
-
-      await invalidateClientWorkspaceQueries(queryClient);
-    },
-    onError: () => {
-      setHasAttemptedDmriflesProjectSync(true);
-    },
-  });
 
   useEffect(() => {
     if (authIntent === "signin" || authIntent === "signup") {
@@ -293,7 +252,6 @@ export function useClientHomeController() {
     if (
       !user ||
       !activeMembership?.organizationId ||
-      isDmriflesWorkspace ||
       projectCollaborationUnavailable ||
       accessibleProjectsQuery.isLoading ||
       migrateLegacyProjectsMutation.isPending
@@ -308,35 +266,8 @@ export function useClientHomeController() {
     accessibleProjectsQuery.data,
     accessibleProjectsQuery.isLoading,
     activeMembership?.organizationId,
-    isDmriflesWorkspace,
     projectCollaborationUnavailable,
     migrateLegacyProjectsMutation,
-    user,
-  ]);
-
-  useEffect(() => {
-    if (
-      !user ||
-      !isDmriflesWorkspace ||
-      projectCollaborationUnavailable ||
-      hasAttemptedDmriflesProjectSync ||
-      syncDmriflesProjectsMutation.isPending ||
-      accessibleProjectsQuery.isLoading ||
-      accessibleJobsQuery.isLoading ||
-      partSummariesQuery.isLoading
-    ) {
-      return;
-    }
-
-    syncDmriflesProjectsMutation.mutate();
-  }, [
-    accessibleJobsQuery.isLoading,
-    accessibleProjectsQuery.isLoading,
-    hasAttemptedDmriflesProjectSync,
-    isDmriflesWorkspace,
-    partSummariesQuery.isLoading,
-    projectCollaborationUnavailable,
-    syncDmriflesProjectsMutation,
     user,
   ]);
 
@@ -443,27 +374,6 @@ export function useClientHomeController() {
 
   const handleArchiveProject = async (projectId: string) => {
     try {
-      if (projectId.startsWith("seed-")) {
-        const batchJobs =
-          findSeededProjectById({
-            projectId,
-            jobs: accessibleJobsQuery.data ?? [],
-            summariesByJobId,
-          })?.jobIds ?? [];
-
-        await Promise.all(batchJobs.map((jobId) => archiveJob(jobId)));
-        await invalidateClientWorkspaceQueries(queryClient);
-        registerArchiveUndo({
-          label: "Project",
-          undo: async () => {
-            await Promise.all(batchJobs.map((jobId) => unarchiveJob(jobId)));
-            await invalidateClientWorkspaceQueries(queryClient);
-          },
-        });
-        toast.success("Project archived. Press Ctrl+Z to undo.");
-        return;
-      }
-
       await archiveProject(projectId);
       await invalidateClientWorkspaceQueries(queryClient);
       registerArchiveUndo({
