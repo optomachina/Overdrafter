@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
@@ -59,6 +59,8 @@ function removeLocalSupabaseSession() {
 export function useAppSession() {
   const location = useLocation();
   const queryClient = useQueryClient();
+  const pendingAuthTransitionRef = useRef(false);
+  const anonymousRetryTimeoutRef = useRef<number | null>(null);
   const fixtureSession = getFixtureSessionDataForSearch(location.search);
   const isFixtureSession = fixtureSession !== null;
   const sessionQueryKey = isFixtureSession
@@ -71,6 +73,13 @@ export function useAppSession() {
     }
 
     let refreshTimeoutId: number | null = null;
+
+    const clearAnonymousRetryTimeout = () => {
+      if (anonymousRetryTimeoutRef.current !== null && typeof window !== "undefined") {
+        window.clearTimeout(anonymousRetryTimeoutRef.current);
+        anonymousRetryTimeoutRef.current = null;
+      }
+    };
 
     const scheduleSessionRefresh = () => {
       // Supabase fires auth callbacks while holding an internal lock.
@@ -94,26 +103,20 @@ export function useAppSession() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (!session) {
+        pendingAuthTransitionRef.current = false;
+        clearAnonymousRetryTimeout();
         queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
         return;
       }
 
-      // Avoid priming an incomplete user+membership snapshot on startup.
-      // Let fetchAppSessionData hydrate both values together for INITIAL_SESSION.
-      if (event === "INITIAL_SESSION") {
-        scheduleSessionRefresh();
-        return;
-      }
-
+      pendingAuthTransitionRef.current = true;
       const currentSession = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
-      if (!currentSession || currentSession.user?.id !== session.user.id) {
-        scheduleSessionRefresh();
-        return;
-      }
-
       queryClient.setQueryData<AppSessionData>(APP_SESSION_QUERY_KEY, (current) => ({
         user: session.user,
-        memberships: current?.memberships ?? EMPTY_MEMBERSHIPS,
+        memberships:
+          current?.user?.id === session.user.id
+            ? current.memberships
+            : currentSession?.memberships ?? EMPTY_MEMBERSHIPS,
         isVerifiedAuth: hasVerifiedAuth(session.user),
         authState: "authenticated",
       }));
@@ -124,6 +127,7 @@ export function useAppSession() {
       if (refreshTimeoutId !== null && typeof window !== "undefined") {
         window.clearTimeout(refreshTimeoutId);
       }
+      clearAnonymousRetryTimeout();
 
       subscription.unsubscribe();
     };
@@ -131,7 +135,41 @@ export function useAppSession() {
 
   const sessionQuery = useQuery({
     queryKey: sessionQueryKey,
-    queryFn: () => (fixtureSession ? Promise.resolve(fixtureSession) : fetchAppSessionData()),
+    queryFn: async () => {
+      if (fixtureSession) {
+        return fixtureSession;
+      }
+
+      const result = await fetchAppSessionData();
+      const currentSession = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
+
+      if (result.authState === "authenticated" || result.authState === "invalid_session") {
+        pendingAuthTransitionRef.current = false;
+        return result;
+      }
+
+      if (
+        result.authState === "anonymous" &&
+        pendingAuthTransitionRef.current &&
+        currentSession?.authState === "authenticated" &&
+        currentSession.user
+      ) {
+        pendingAuthTransitionRef.current = false;
+
+        if (typeof window === "undefined") {
+          void queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY });
+        } else if (anonymousRetryTimeoutRef.current === null) {
+          anonymousRetryTimeoutRef.current = window.setTimeout(() => {
+            anonymousRetryTimeoutRef.current = null;
+            void queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY });
+          }, 0);
+        }
+
+        return currentSession;
+      }
+
+      return result;
+    },
     initialData: fixtureSession ?? undefined,
     staleTime: fixtureSession ? Infinity : WORKSPACE_SHARED_STALE_TIME_MS,
   });

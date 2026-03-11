@@ -1,14 +1,16 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getSupabaseAuthStorageKey, useAppSession } from "@/hooks/use-app-session";
 import type { AppSessionData } from "@/features/quotes/types";
+import type { Session } from "@supabase/supabase-js";
 
 const fetchAppSessionDataMock = vi.fn<() => Promise<AppSessionData>>();
 const onAuthStateChangeMock = vi.fn();
 const adminSignOutMock = vi.fn();
+let authStateChangeCallbacks: Array<(event: string, session: Session | null) => void> = [];
 
 vi.mock("@/features/quotes/api", () => ({
   fetchAppSessionData: () => fetchAppSessionDataMock(),
@@ -32,6 +34,7 @@ function SessionProbe() {
     <div>
       <span data-testid="email">{session.user?.email ?? "anonymous"}</span>
       <span data-testid="auth-state">{session.authState}</span>
+      {session.user ? null : <button type="button">Log in</button>}
     </div>
   );
 }
@@ -88,12 +91,17 @@ describe("useAppSession", () => {
   beforeEach(() => {
     vi.stubEnv("VITE_SUPABASE_URL", "https://test-project.supabase.co");
     vi.stubEnv("VITE_ENABLE_FIXTURE_MODE", "0");
-    onAuthStateChangeMock.mockReturnValue({
-      data: {
-        subscription: {
-          unsubscribe: vi.fn(),
+    authStateChangeCallbacks = [];
+    onAuthStateChangeMock.mockImplementation((callback: (event: string, session: Session | null) => void) => {
+      authStateChangeCallbacks.push(callback);
+
+      return {
+        data: {
+          subscription: {
+            unsubscribe: vi.fn(),
+          },
         },
-      },
+      };
     });
     storageMock = createStorageMock();
     Object.defineProperty(window, "localStorage", {
@@ -109,15 +117,48 @@ describe("useAppSession", () => {
     vi.unstubAllEnvs();
   });
 
-  it("does not clear a stored token while a valid signed-in session is still resolving", async () => {
-    const tokenKey = getSupabaseAuthStorageKey();
-    storageMock.setItem(tokenKey, JSON.stringify({ access_token: "token-1" }));
+  it("hydrates the user immediately from a signed-in auth event before the session refetch completes", async () => {
     const deferred = deferredPromise<AppSessionData>();
-    fetchAppSessionDataMock.mockReturnValueOnce(deferred.promise);
+    fetchAppSessionDataMock
+      .mockResolvedValueOnce({
+        user: null,
+        memberships: [],
+        isVerifiedAuth: false,
+        authState: "anonymous",
+      })
+      .mockReturnValueOnce(deferred.promise);
 
     renderProbe();
 
-    expect(storageMock.getItem(tokenKey)).toContain("token-1");
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
+    });
+    expect(screen.getByRole("button", { name: "Log in" })).toBeInTheDocument();
+
+    act(() => {
+      authStateChangeCallbacks.forEach((callback) =>
+        callback("SIGNED_IN", {
+          access_token: "token-1",
+          refresh_token: "refresh-token-1",
+          expires_in: 3600,
+          token_type: "bearer",
+          user: {
+            id: "user-1",
+            email: "client@example.com",
+            app_metadata: {},
+            user_metadata: {},
+            aud: "authenticated",
+            created_at: "2026-03-11T00:00:00.000Z",
+          },
+        } as Session),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+    });
+    expect(screen.queryByRole("button", { name: "Log in" })).not.toBeInTheDocument();
 
     deferred.resolve({
       user: {
@@ -130,10 +171,8 @@ describe("useAppSession", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
     });
-
-    expect(storageMock.getItem(tokenKey)).toContain("token-1");
   });
 
   it("clears a stored token only when the session is explicitly invalid", async () => {
@@ -155,5 +194,75 @@ describe("useAppSession", () => {
     await waitFor(() => {
       expect(storageMock.getItem(tokenKey)).toBeNull();
     });
+  });
+
+  it("keeps the authenticated UI during one transient anonymous refetch after sign-in", async () => {
+    fetchAppSessionDataMock
+      .mockResolvedValueOnce({
+        user: null,
+        memberships: [],
+        isVerifiedAuth: false,
+        authState: "anonymous",
+      })
+      .mockResolvedValueOnce({
+        user: null,
+        memberships: [],
+        isVerifiedAuth: false,
+        authState: "anonymous",
+      })
+      .mockResolvedValueOnce({
+        user: {
+          id: "user-1",
+          email: "client@example.com",
+        } as AppSessionData["user"],
+        memberships: [
+          {
+            id: "membership-1",
+            role: "client",
+            organizationId: "org-1",
+            organizationName: "Client Org",
+            organizationSlug: "client-org",
+          },
+        ],
+        isVerifiedAuth: true,
+        authState: "authenticated",
+      });
+
+    renderProbe();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Log in" })).toBeInTheDocument();
+    });
+
+    act(() => {
+      authStateChangeCallbacks.forEach((callback) =>
+        callback("SIGNED_IN", {
+          access_token: "token-1",
+          refresh_token: "refresh-token-1",
+          expires_in: 3600,
+          token_type: "bearer",
+          user: {
+            id: "user-1",
+            email: "client@example.com",
+            app_metadata: {},
+            user_metadata: {},
+            aud: "authenticated",
+            created_at: "2026-03-11T00:00:00.000Z",
+          },
+        } as Session),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.queryByRole("button", { name: "Log in" })).not.toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(3);
+    });
+
+    expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
   });
 });
