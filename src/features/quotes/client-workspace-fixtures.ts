@@ -186,6 +186,7 @@ function createSession(input: {
     user: input.user,
     memberships,
     isVerifiedAuth: Boolean(input.user),
+    authState: input.user ? "authenticated" : "anonymous",
   };
 }
 

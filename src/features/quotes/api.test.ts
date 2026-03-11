@@ -1062,6 +1062,24 @@ describe("quotes api helpers", () => {
       user: null,
       memberships: [],
       isVerifiedAuth: false,
+      authState: "invalid_session",
+    });
+  });
+
+  it("returns an anonymous app session without invalid-session state when no auth session exists", async () => {
+    supabaseMock.authGetUser.mockResolvedValue({
+      data: { user: null },
+      error: {
+        name: "AuthSessionMissingError",
+        message: "Auth session missing!",
+      },
+    });
+
+    await expect(fetchAppSessionData()).resolves.toEqual({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "anonymous",
     });
   });
 

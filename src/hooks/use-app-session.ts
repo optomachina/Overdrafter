@@ -14,15 +14,16 @@ const EMPTY_APP_SESSION: AppSessionData = {
   user: null,
   memberships: [],
   isVerifiedAuth: false,
+  authState: "anonymous",
 };
-const SUPABASE_AUTH_STORAGE_KEY = (() => {
+export function getSupabaseAuthStorageKey() {
   try {
     const authUrl = new URL(import.meta.env.VITE_SUPABASE_URL);
     return `sb-${authUrl.hostname.split(".")[0]}-auth-token`;
   } catch {
     return "supabase.auth.token";
   }
-})();
+}
 
 type SupabaseAuthSessionStorage = {
   access_token?: string;
@@ -30,7 +31,8 @@ type SupabaseAuthSessionStorage = {
 
 function getStoredAccessToken(): string | null {
   try {
-    const rawSession = window.localStorage.getItem(SUPABASE_AUTH_STORAGE_KEY);
+    const storageKey = getSupabaseAuthStorageKey();
+    const rawSession = window.localStorage.getItem(storageKey);
 
     if (!rawSession) {
       return null;
@@ -45,9 +47,10 @@ function getStoredAccessToken(): string | null {
 
 function removeLocalSupabaseSession() {
   try {
-    window.localStorage.removeItem(SUPABASE_AUTH_STORAGE_KEY);
-    window.localStorage.removeItem(`${SUPABASE_AUTH_STORAGE_KEY}-code-verifier`);
-    window.localStorage.removeItem(`${SUPABASE_AUTH_STORAGE_KEY}-user`);
+    const storageKey = getSupabaseAuthStorageKey();
+    window.localStorage.removeItem(storageKey);
+    window.localStorage.removeItem(`${storageKey}-code-verifier`);
+    window.localStorage.removeItem(`${storageKey}-user`);
   } catch {
     // Ignore storage removal failures in unsupported or private contexts.
   }
@@ -112,6 +115,7 @@ export function useAppSession() {
         user: session.user,
         memberships: current?.memberships ?? EMPTY_MEMBERSHIPS,
         isVerifiedAuth: hasVerifiedAuth(session.user),
+        authState: "authenticated",
       }));
       scheduleSessionRefresh();
     });
@@ -135,7 +139,7 @@ export function useAppSession() {
   const memberships = sessionQuery.data?.memberships ?? EMPTY_MEMBERSHIPS;
 
   useEffect(() => {
-    if (isFixtureSession || sessionQuery.isLoading || sessionQuery.data?.user) {
+    if (isFixtureSession || sessionQuery.isLoading || sessionQuery.data?.authState !== "invalid_session") {
       return;
     }
 
@@ -145,7 +149,7 @@ export function useAppSession() {
 
     removeLocalSupabaseSession();
     queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
-  }, [isFixtureSession, queryClient, sessionQuery.data?.user, sessionQuery.isLoading]);
+  }, [isFixtureSession, queryClient, sessionQuery.data?.authState, sessionQuery.isLoading]);
 
   const signOut = async () => {
     if (isFixtureSession) {
@@ -173,6 +177,7 @@ export function useAppSession() {
     user: sessionQuery.data?.user ?? null,
     memberships,
     isVerifiedAuth: sessionQuery.data?.isVerifiedAuth ?? false,
+    authState: sessionQuery.data?.authState ?? "anonymous",
     activeOrganizationId: activeMembership?.organizationId ?? null,
     activeMembership,
     signOut,

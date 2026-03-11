@@ -577,14 +577,23 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
   } = await supabase.auth.getUser();
 
   if (userError) {
+    const authErrorName =
+      typeof (userError as { name?: unknown })?.name === "string"
+        ? (userError as { name: string }).name
+        : userError instanceof Error
+          ? userError.name
+          : "";
+
     if (
-      (isAuthError(userError) && userError.name === "AuthSessionMissingError") ||
+      (isAuthError(userError) && authErrorName === "AuthSessionMissingError") ||
+      authErrorName === "AuthSessionMissingError" ||
       isDeletedAuthUserError(userError)
     ) {
       return {
         user: null,
         memberships: [],
         isVerifiedAuth: false,
+        authState: isDeletedAuthUserError(userError) ? "invalid_session" : "anonymous",
       };
     }
 
@@ -596,6 +605,7 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
       user: null,
       memberships: [],
       isVerifiedAuth: false,
+      authState: "anonymous",
     };
   }
 
@@ -623,6 +633,7 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
     user,
     memberships,
     isVerifiedAuth: hasVerifiedAuth(user),
+    authState: "authenticated",
   };
 }
 
