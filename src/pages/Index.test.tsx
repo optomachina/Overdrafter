@@ -4,7 +4,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
+import type { JobRecord } from "@/features/quotes/types";
 import Index from "./Index";
 
 const mockUseAppSession = vi.fn();
@@ -61,84 +61,6 @@ function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
   } as JobRecord;
 }
 
-function makeSummary(overrides: Partial<JobPartSummary> = {}): JobPartSummary {
-  return {
-    jobId: "job-1",
-    partNumber: "1093-03242",
-    revision: "3",
-    description: "Imported part",
-    quantity: 1,
-    importedBatch: "QB00001",
-    ...overrides,
-  };
-}
-
-function buildDmriflesFixtures() {
-  const qb00001 = [
-    "1093-03242",
-    "1093-03247",
-    "1093-03258",
-    "1093-03266",
-    "1093-03292",
-    "1093-03548",
-    "1093-05974",
-    "1093-06156",
-    "1093-10569",
-    "1093-10570",
-  ];
-  const qb00002 = ["1093-05589"];
-  const qb00003 = ["1093-05907", "1093-10435"];
-  const jobs: JobRecord[] = [];
-  const summaries: JobPartSummary[] = [];
-  let index = 0;
-
-  const pushBatch = (
-    batch: string,
-    partNumbers: string[],
-    statusResolver: (partNumber: string) => JobRecord["status"],
-  ) => {
-    partNumbers.forEach((partNumber) => {
-      index += 1;
-      const revision =
-        partNumber === "1093-05589"
-          ? "2"
-          : partNumber === "1093-03258" || partNumber === "1093-10569" || partNumber === "1093-10570" || partNumber === "1093-10435"
-            ? "A"
-            : "1";
-      const jobId = `job-${index}`;
-
-      jobs.push(
-        makeJob({
-          id: jobId,
-          title: partNumber === "1093-05589" ? "Test" : `${partNumber} rev ${revision}`,
-          description: partNumber === "1093-05589" ? "Imported spreadsheet quote" : `Description ${partNumber}`,
-          status: statusResolver(partNumber),
-          source:
-            partNumber === "1093-05589"
-              ? "client_home"
-              : `spreadsheet_import:${batch.toLowerCase()}:${partNumber.toLowerCase()}:${revision.toLowerCase()}`,
-          created_at: `2026-03-03T19:${String(index).padStart(2, "0")}:00Z`,
-        }),
-      );
-      summaries.push(
-        makeSummary({
-          jobId,
-          partNumber,
-          revision,
-          description: `Description ${partNumber}`,
-          importedBatch: batch,
-        }),
-      );
-    });
-  };
-
-  pushBatch("QB00001", qb00001, () => "published");
-  pushBatch("QB00002", qb00002, () => "published");
-  pushBatch("QB00003", qb00003, (partNumber) => (partNumber === "1093-05907" ? "published" : "quoting"));
-
-  return { jobs, summaries };
-}
-
 function renderIndex() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -190,33 +112,48 @@ describe("Index client home", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders DMRifles seeded projects on the new client home", async () => {
-    const { jobs, summaries } = buildDmriflesFixtures();
-
+  it("renders accessible projects on the new client home", async () => {
     mockUseAppSession.mockReturnValue({
-      user: { id: "user-1", email: "dmrifles@gmail.com" },
+      user: { id: "user-1", email: "client@example.com" },
       activeMembership: {
         id: "membership-1",
         role: "client",
-        organizationId: "org-dmrifles",
-        organizationName: "DMRifles",
-        organizationSlug: "dmrifles",
+        organizationId: "org-1",
+        organizationName: "Client Org",
+        organizationSlug: "client-org",
       },
       isLoading: false,
       isVerifiedAuth: true,
       signOut: vi.fn(),
     });
-    mockFetchAccessibleProjects.mockResolvedValue([]);
-    mockFetchAccessibleJobs.mockResolvedValue(jobs);
+    mockFetchAccessibleProjects.mockResolvedValue([
+      {
+        project: {
+          id: "project-1",
+          name: "Bracket Project",
+          organization_id: "org-1",
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+        },
+        partCount: 1,
+        inviteCount: 0,
+        currentUserRole: "owner",
+      },
+    ]);
+    mockFetchAccessibleJobs.mockResolvedValue([
+      makeJob({
+        id: "job-1",
+        project_id: "project-1",
+        title: "Bracket",
+      }),
+    ]);
     mockFetchUngroupedParts.mockResolvedValue([]);
-    mockFetchJobPartSummariesByJobIds.mockResolvedValue(summaries);
+    mockFetchJobPartSummariesByJobIds.mockResolvedValue([]);
 
     renderIndex();
 
     await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: /qb00001/i }).length).toBeGreaterThan(0);
-      expect(screen.getAllByRole("button", { name: /qb00002/i }).length).toBeGreaterThan(0);
-      expect(screen.getAllByRole("button", { name: /qb00003/i }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole("button", { name: /bracket project/i }).length).toBeGreaterThan(0);
     });
     expect(screen.getByRole("button", { name: /new project/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /open account menu/i })).toBeInTheDocument();

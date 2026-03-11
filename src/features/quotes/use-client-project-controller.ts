@@ -938,17 +938,17 @@ export function useClientProjectController() {
         ? await createJobsFromUploadFiles({
             files: input.files,
             prompt: input.prompt,
-            projectId: isSeededProject ? null : projectId,
+            projectId,
           })
         : {
-            projectId: isSeededProject ? null : projectId,
+            projectId,
             jobIds: [
               await (() => {
                 const requestIntake = parseRequestIntake(input.prompt);
                 return createClientDraft({
                   title: input.prompt.trim().split("\n")[0].slice(0, 120) || "Untitled part",
                   description: input.prompt.trim() || undefined,
-                  projectId: isSeededProject ? undefined : projectId,
+                  projectId,
                   requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
                   requestedByDate: requestIntake.requestedByDate,
                 });
@@ -1036,15 +1036,12 @@ export function useClientProjectController() {
     handleUnarchivePart,
     handleUnpinPart,
     handleUnpinProject,
-    isDmriflesWorkspace,
     isMobile,
     isSearchOpen,
-    isSeededProject,
     lastBulkAction,
     mobileDrawerOpen,
     navigate,
     newJobFilePicker,
-    partSummariesQuery,
     prefetchPart,
     prefetchProject,
     projectCollaborationUnavailable,
@@ -1061,7 +1058,6 @@ export function useClientProjectController() {
     resolveSidebarProjectIdsForJob,
     search,
     saveRequestMutation,
-    seededProject,
     selectedOptionsByJobId,
     setActiveFilter,
     setIsSearchOpen,

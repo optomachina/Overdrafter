@@ -5,6 +5,7 @@ import {
   fetchJobsByProject,
   fetchPartDetail,
   fetchProject,
+  isProjectNotFoundError,
 } from "@/features/quotes/api";
 
 export const WORKSPACE_SHARED_STALE_TIME_MS = 30_000;
@@ -90,18 +91,38 @@ export async function prefetchProjectPage(
   const projectKey = workspaceQueryKeys.project(projectId);
   const projectJobsKey = workspaceQueryKeys.projectJobs(projectId);
 
-  const [, prefetchedJobs] = await Promise.all([
-    maybePrefetchQuery(queryClient, {
-      queryKey: projectKey,
-      queryFn: () => fetchProject(projectId),
-      staleTime: WORKSPACE_DETAIL_STALE_TIME_MS,
-    }),
-    maybePrefetchQuery<JobRecord[]>(queryClient, {
-      queryKey: projectJobsKey,
-      queryFn: () => fetchJobsByProject(projectId),
-      staleTime: WORKSPACE_DETAIL_STALE_TIME_MS,
-    }),
-  ]);
+  if (shouldPrefetchQuery(queryClient, projectKey, WORKSPACE_DETAIL_STALE_TIME_MS)) {
+    try {
+      const project = await fetchProject(projectId);
+      queryClient.setQueryData(projectKey, project);
+    } catch (error) {
+      if (!isProjectNotFoundError(error)) {
+        throw error;
+      }
+
+      queryClient.removeQueries({ queryKey: projectKey, exact: true });
+      queryClient.removeQueries({ queryKey: projectJobsKey, exact: true });
+      return;
+    }
+  }
+
+  let prefetchedJobs: JobRecord[] | undefined;
+
+  try {
+    prefetchedJobs = await maybePrefetchQuery<JobRecord[]>(queryClient, {
+        queryKey: projectJobsKey,
+        queryFn: () => fetchJobsByProject(projectId),
+        staleTime: WORKSPACE_DETAIL_STALE_TIME_MS,
+      });
+  } catch (error) {
+    if (!isProjectNotFoundError(error)) {
+      throw error;
+    }
+
+    queryClient.removeQueries({ queryKey: projectKey, exact: true });
+    queryClient.removeQueries({ queryKey: projectJobsKey, exact: true });
+    return;
+  }
 
   const jobs = prefetchedJobs ?? queryClient.getQueryData<JobRecord[]>(projectJobsKey) ?? [];
   const projectJobIds = stableJobIds(jobs.map((job) => job.id));

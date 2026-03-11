@@ -134,6 +134,19 @@ export function useAppSession() {
 
   const memberships = sessionQuery.data?.memberships ?? EMPTY_MEMBERSHIPS;
 
+  useEffect(() => {
+    if (isFixtureSession || sessionQuery.isLoading || sessionQuery.data?.user) {
+      return;
+    }
+
+    if (!getStoredAccessToken()) {
+      return;
+    }
+
+    removeLocalSupabaseSession();
+    queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
+  }, [isFixtureSession, queryClient, sessionQuery.data?.user, sessionQuery.isLoading]);
+
   const signOut = async () => {
     if (isFixtureSession) {
       queryClient.setQueryData(sessionQueryKey, EMPTY_APP_SESSION);

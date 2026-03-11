@@ -1,4 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
+import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   prefetchPartPage,
@@ -11,11 +12,13 @@ const {
   fetchJobsByProject,
   fetchPartDetail,
   fetchProject,
+  isProjectNotFoundError,
 } = vi.hoisted(() => ({
   fetchClientQuoteWorkspaceByJobIds: vi.fn(),
   fetchJobsByProject: vi.fn(),
   fetchPartDetail: vi.fn(),
   fetchProject: vi.fn(),
+  isProjectNotFoundError: vi.fn(),
 }));
 
 vi.mock("@/features/quotes/api", () => ({
@@ -23,6 +26,7 @@ vi.mock("@/features/quotes/api", () => ({
   fetchJobsByProject,
   fetchPartDetail,
   fetchProject,
+  isProjectNotFoundError,
 }));
 
 describe("workspace navigation prefetch", () => {
@@ -85,6 +89,21 @@ describe("workspace navigation prefetch", () => {
 
     expect(fetchProject).not.toHaveBeenCalled();
     expect(fetchJobsByProject).not.toHaveBeenCalled();
+    expect(fetchClientQuoteWorkspaceByJobIds).not.toHaveBeenCalled();
+  });
+
+  it("evicts stale project queries when the prefetched project no longer exists", async () => {
+    const notFound = new Error("Project not found.");
+    fetchProject.mockRejectedValue(notFound);
+    fetchJobsByProject.mockResolvedValue([{ id: "job-2", title: "Job Two" }]);
+    isProjectNotFoundError.mockReturnValue(true);
+
+    await prefetchProjectPage(queryClient, "project-missing");
+
+    await waitFor(() => {
+      expect(queryClient.getQueryState(workspaceQueryKeys.project("project-missing"))).toBeUndefined();
+      expect(queryClient.getQueryState(workspaceQueryKeys.projectJobs("project-missing"))).toBeUndefined();
+    });
     expect(fetchClientQuoteWorkspaceByJobIds).not.toHaveBeenCalled();
   });
 });

@@ -152,10 +152,13 @@ export function useWarmClientWorkspaceNavigation({
 
     const projectIdsToWarm: string[] = [];
     const jobIdsToWarm: string[] = [];
+    const availableProjectIdSet = new Set(
+      projects.filter((project) => !isVirtualProjectId(project.id)).map((project) => project.id),
+    );
 
     if (canPrefetchProjects) {
       pinnedProjectIds
-        .filter((projectId) => !isVirtualProjectId(projectId))
+        .filter((projectId) => availableProjectIdSet.has(projectId))
         .forEach((projectId) => pushUnique(projectIdsToWarm, projectId, MAX_WARM_PROJECTS));
       projects
         .filter((project) => !isVirtualProjectId(project.id))

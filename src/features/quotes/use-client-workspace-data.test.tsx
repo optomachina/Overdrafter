@@ -61,6 +61,18 @@ function WarmNavigationProbe() {
   return null;
 }
 
+function WarmNavigationWithStalePinsProbe() {
+  useWarmClientWorkspaceNavigation({
+    enabled: true,
+    canPrefetchProjects: true,
+    projects: [{ id: "project-1" }],
+    pinnedProjectIds: ["project-1", "project-missing"],
+    jobs: [],
+  });
+
+  return null;
+}
+
 describe("useWarmClientWorkspaceNavigation", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -75,6 +87,16 @@ describe("useWarmClientWorkspaceNavigation", () => {
 
     expect(prefetchProjectPage).not.toHaveBeenCalled();
     expect(prefetchPartPage).toHaveBeenCalledWith(expect.anything(), "job-1");
+  });
+
+  it("ignores pinned project ids that are not in the accessible project list", () => {
+    vi.useFakeTimers();
+
+    render(<WarmNavigationWithStalePinsProbe />, { wrapper: QueryProvider });
+    vi.advanceTimersByTime(200);
+
+    expect(prefetchProjectPage).toHaveBeenCalledTimes(1);
+    expect(prefetchProjectPage).toHaveBeenCalledWith(expect.anything(), "project-1");
   });
 });
 

@@ -148,6 +148,7 @@ function emptySingleResponse<T>(data: T | null = null): Promise<PostgrestSingleR
 
 const PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE =
   "Projects are unavailable in this environment until the shared workspace schema is applied.";
+const PROJECT_NOT_FOUND_MESSAGE = "Project not found.";
 
 type ProjectCollaborationSchemaAvailability = "unknown" | "available" | "unavailable";
 
@@ -183,6 +184,24 @@ function ensureData<T>(data: T | null, error: { message: string } | null | undef
   }
 
   return data;
+}
+
+function isNoRowsError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const value = error as { code?: unknown; details?: unknown };
+  return value.code === "PGRST116" && value.details === "The result contains 0 rows";
+}
+
+function isDeletedAuthUserError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const value = error as { code?: unknown; message?: unknown };
+  return value.code === "user_not_found" || value.message === "User from sub claim in JWT does not exist";
 }
 
 function markProjectCollaborationSchemaAvailability(next: Exclude<ProjectCollaborationSchemaAvailability, "unknown">) {
@@ -312,6 +331,10 @@ async function requireCurrentUser() {
   }
 
   return user;
+}
+
+export function isProjectNotFoundError(error: unknown): boolean {
+  return error instanceof Error && error.message === PROJECT_NOT_FOUND_MESSAGE;
 }
 
 function asObject(value: Json | null | undefined): Record<string, unknown> {
@@ -554,7 +577,10 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
   } = await supabase.auth.getUser();
 
   if (userError) {
-    if (isAuthError(userError) && userError.name === "AuthSessionMissingError") {
+    if (
+      (isAuthError(userError) && userError.name === "AuthSessionMissingError") ||
+      isDeletedAuthUserError(userError)
+    ) {
       return {
         user: null,
         memberships: [],
@@ -1692,7 +1718,11 @@ export async function fetchProject(projectId: string): Promise<ProjectRecord> {
     .select("*")
     .eq("id", projectId)
     .is("archived_at", null)
-    .single();
+    .maybeSingle();
+
+  if (isNoRowsError(error) || (!error && data === null)) {
+    throw new Error(PROJECT_NOT_FOUND_MESSAGE);
+  }
 
   return ensureProjectCollaborationData(data, error) as ProjectRecord;
 }

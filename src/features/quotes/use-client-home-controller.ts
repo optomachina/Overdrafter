@@ -568,7 +568,6 @@ export function useClientHomeController() {
     handleUnpinPart,
     handleUnpinProject,
     isAuthDialogOpen,
-    isDmriflesWorkspace,
     isRefreshingVerification,
     isResendingVerification,
     isSearchOpen,

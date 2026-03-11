@@ -1,26 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
-const apiMock = vi.hoisted(() => ({
-  assignJobToProject: vi.fn(),
-  createProject: vi.fn(),
-}));
-
-vi.mock("@/features/quotes/api", () => apiMock);
-
 import {
-  buildDmriflesProjects,
-  findImportedBatchProjectId,
-  isDmriflesSystemProject,
-  matchesDefaultDmriflesSeed,
+  buildSidebarProjectIdsByJobId,
+  buildSidebarProjects,
   resolveImportedBatch,
   resolveImportedBatchFromSource,
-  syncImportedBatchProjects,
+  resolveWorkspaceProjectIdsForJob,
 } from "./client-workspace";
 
 function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
   return {
     id: "job-1",
     organization_id: "org-1",
+    project_id: null,
     created_by: null,
     title: "Sample job",
     description: null,
@@ -66,96 +58,43 @@ describe("client workspace helpers", () => {
     expect(resolveImportedBatch(makeJob({ source: "client" }), makeSummary({ importedBatch: null }))).toBeNull();
   });
 
-  it("builds DMRifles system projects from imported batch truth", () => {
-    const jobs = [
-      ...Array.from({ length: 10 }, (_, index) =>
-        makeJob({
-          id: `qb1-${index}`,
-          title: `QB1-${index}`,
-          created_at: `2026-03-03T00:00:${String(index).padStart(2, "0")}Z`,
-        }),
-      ),
-      makeJob({
-        id: "qb2-1",
-        title: "QB2",
-        created_at: "2026-03-03T00:01:00Z",
-      }),
-      makeJob({
-        id: "qb3-1",
-        title: "QB3-1",
-        created_at: "2026-03-03T00:02:00Z",
-      }),
-      makeJob({
-        id: "qb3-2",
-        title: "QB3-2",
-        created_at: "2026-03-03T00:02:01Z",
-      }),
-      makeJob({
-        id: "stray",
-        title: "Stray",
-        created_at: "2026-03-03T00:03:00Z",
-        source: "client",
-      }),
-    ];
-
-    const summaries = new Map<string, JobPartSummary>(
-      jobs.map((job, index) => [
-        job.id,
-        makeSummary({
-          jobId: job.id,
-          importedBatch:
-            index < 10 ? "QB00001" : index === 10 ? "QB00002" : index < 13 ? "QB00003" : null,
-        }),
-      ]),
-    );
-
-    const projects = buildDmriflesProjects(jobs, summaries);
-
-    expect(projects.map((project) => [project.name, project.jobIds.length])).toEqual([
-      ["QB00001", 10],
-      ["QB00002", 1],
-      ["QB00003", 2],
-    ]);
-    expect(matchesDefaultDmriflesSeed(projects)).toBe(true);
-    expect(projects.every((project) => isDmriflesSystemProject(project))).toBe(true);
-    expect(projects.flatMap((project) => project.jobIds)).not.toContain("stray");
-  });
-
-  it("finds a real project id for an imported batch name", () => {
-    expect(
-      findImportedBatchProjectId("QB00002", [
-        { id: "project-1", name: "QB00001" },
-        { id: "project-2", name: "QB00002" },
-      ]),
-    ).toBe("project-2");
-  });
-
-  it("creates real projects and memberships for imported batches", async () => {
-    apiMock.createProject.mockResolvedValueOnce("project-qb1");
-    apiMock.assignJobToProject.mockResolvedValue(undefined);
-
-    const mutated = await syncImportedBatchProjects({
-      jobs: [
-        makeJob({ id: "job-1", source: "spreadsheet_import:qb00001:1093-03242:3" }),
-        makeJob({ id: "job-2", source: "spreadsheet_import:qb00001:1093-03243:3" }),
+  it("maps only real accessible projects into the sidebar", () => {
+    const result = buildSidebarProjects({
+      accessibleProjects: [
+        {
+          project: {
+            id: "project-1",
+            name: "Bracket Project",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-02T00:00:00Z",
+          },
+          partCount: 2,
+          inviteCount: 1,
+          currentUserRole: "owner",
+        },
       ],
-      partSummariesByJobId: new Map([
-        ["job-1", makeSummary({ jobId: "job-1", importedBatch: "QB00001" })],
-        ["job-2", makeSummary({ jobId: "job-2", importedBatch: "QB00001" })],
-      ]),
-      projects: [],
-      resolveProjectIdsForJob: () => [],
     });
 
-    expect(mutated).toBe(true);
-    expect(apiMock.createProject).toHaveBeenCalledWith({ name: "QB00001" });
-    expect(apiMock.assignJobToProject).toHaveBeenNthCalledWith(1, {
-      jobId: "job-1",
-      projectId: "project-qb1",
-    });
-    expect(apiMock.assignJobToProject).toHaveBeenNthCalledWith(2, {
-      jobId: "job-2",
-      projectId: "project-qb1",
-    });
+    expect(result.sidebarProjects).toEqual([
+      expect.objectContaining({
+        id: "project-1",
+        name: "Bracket Project",
+        partCount: 2,
+      }),
+    ]);
+  });
+
+  it("resolves project ids for a job from actual memberships and project_id only", () => {
+    const memberships = buildSidebarProjectIdsByJobId([
+      { job_id: "job-1", project_id: "project-1" },
+      { job_id: "job-1", project_id: "project-2" },
+    ]);
+
+    expect(
+      resolveWorkspaceProjectIdsForJob({
+        job: makeJob({ id: "job-1", project_id: "project-1" }),
+        sidebarProjectIdsByJobId: memberships,
+      }),
+    ).toEqual(["project-1", "project-2"]);
   });
 });

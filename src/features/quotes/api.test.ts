@@ -26,10 +26,12 @@ const supabaseMock = vi.hoisted(() => {
   const projectsEq = vi.fn();
   const projectsIn = vi.fn();
   const projectsSingle = vi.fn();
+  const projectsMaybeSingle = vi.fn();
   const projectsQuery = {
     eq: projectsEq,
     in: projectsIn,
     is: projectsIs,
+    maybeSingle: projectsMaybeSingle,
     not: projectsNot,
     order: projectsOrder,
     single: projectsSingle,
@@ -171,6 +173,7 @@ const supabaseMock = vi.hoisted(() => {
     projectsNot,
     projectsQuery,
     projectsSelect,
+    projectsMaybeSingle,
     projectsSingle,
     pinnedJobsDelete,
     pinnedJobsDeleteEqFirst,
@@ -247,6 +250,8 @@ import {
   deleteArchivedJob,
   enqueueDebugVendorQuote,
   fetchAccessibleProjects,
+  fetchAppSessionData,
+  fetchProject,
   fetchWorkerReadiness,
   findDuplicateUploadSelections,
   fetchSidebarPins,
@@ -1041,6 +1046,32 @@ describe("quotes api helpers", () => {
     await expect(fetchAccessibleProjects()).resolves.toEqual([]);
 
     expect(supabaseMock.from).toHaveBeenCalledWith("projects");
+  });
+
+  it("returns an anonymous app session when the stored JWT references a deleted user", async () => {
+    supabaseMock.authGetUser.mockResolvedValue({
+      data: { user: null },
+      error: {
+        code: "user_not_found",
+        message: "User from sub claim in JWT does not exist",
+        name: "AuthApiError",
+      },
+    });
+
+    await expect(fetchAppSessionData()).resolves.toEqual({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+    });
+  });
+
+  it("surfaces a clean not-found error when a project row is missing", async () => {
+    supabaseMock.projectsMaybeSingle.mockResolvedValue({
+      data: null,
+      error: null,
+    });
+
+    await expect(fetchProject("project-missing")).rejects.toThrow("Project not found.");
   });
 
   it("still returns pinned jobs when project pin tables are unavailable", async () => {

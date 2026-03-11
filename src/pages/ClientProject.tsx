@@ -107,10 +107,8 @@ const ClientProject = () => {
     handleUnarchivePart,
     handleUnpinPart,
     handleUnpinProject,
-    isDmriflesWorkspace,
     isMobile,
     isSearchOpen,
-    isSeededProject,
     lastBulkAction,
     mobileDrawerOpen,
     navigate,
@@ -131,7 +129,6 @@ const ClientProject = () => {
     resolveSidebarProjectIdsForJob,
     search,
     saveRequestMutation,
-    seededProject,
     selectedOptionsByJobId,
     setActiveFilter,
     setIsSearchOpen,
@@ -312,8 +309,8 @@ const ClientProject = () => {
             onUnpinProject={handleUnpinProject}
             onPinPart={handlePinPart}
             onUnpinPart={handleUnpinPart}
-            onAssignPartToProject={isDmriflesWorkspace ? undefined : handleAssignPartToProject}
-            onRemovePartFromProject={isDmriflesWorkspace ? undefined : handleRemovePartFromProject}
+            onAssignPartToProject={handleAssignPartToProject}
+            onRemovePartFromProject={handleRemovePartFromProject}
             onCreateProjectFromSelection={
               projectCollaborationUnavailable ? undefined : handleCreateProjectFromSelection
             }
@@ -347,12 +344,10 @@ const ClientProject = () => {
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-white/35">Project workspace</p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
-                {seededProject?.name ?? projectQuery.data?.name ?? "Project"}
+                {projectQuery.data?.name ?? "Project"}
               </h1>
               <p className="mt-2 text-sm text-white/55">
-                {isSeededProject
-                  ? "Read-only imported batch project."
-                  : "Dense procurement workspace tuned for fast quote selection."}
+                Dense procurement workspace tuned for fast quote selection.
               </p>
               {sharedRequestSummary ? (
                 <RequestSummaryBadges
@@ -365,7 +360,7 @@ const ClientProject = () => {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {!isSeededProject && !projectCollaborationUnavailable ? (
+              {!projectCollaborationUnavailable ? (
                 <Button type="button" className="rounded-full" onClick={() => setShowAddPart(true)}>
                   <FolderPlus className="mr-2 h-4 w-4" />
                   Add part

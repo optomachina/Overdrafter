@@ -38,7 +38,6 @@ const ClientHome = () => {
     handleUnpinPart,
     handleUnpinProject,
     isAuthDialogOpen,
-    isDmriflesWorkspace,
     isSearchOpen,
     navigate,
     newJobFilePicker,
@@ -142,8 +141,8 @@ const ClientHome = () => {
               onUnpinProject={handleUnpinProject}
               onPinPart={handlePinPart}
               onUnpinPart={handleUnpinPart}
-              onAssignPartToProject={isDmriflesWorkspace ? undefined : handleAssignPartToProject}
-              onRemovePartFromProject={isDmriflesWorkspace ? undefined : handleRemovePartFromProject}
+              onAssignPartToProject={handleAssignPartToProject}
+              onRemovePartFromProject={handleRemovePartFromProject}
               onCreateProjectFromSelection={projectCollaborationUnavailable ? undefined : handleCreateProjectFromSelection}
               onRenameProject={handleRenameProject}
               onArchivePart={handleArchivePart}
