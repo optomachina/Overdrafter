@@ -3,7 +3,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import type { PromptComposerHandle } from "@/components/chat/PromptComposer";
-import type { WorkspaceSidebarProject } from "@/components/chat/WorkspaceSidebar";
 import { supabase } from "@/integrations/supabase/client";
 import { getDefaultAccountName } from "@/lib/account-profile";
 import { isEmailConfirmationRequired } from "@/lib/auth-status";
@@ -31,11 +30,14 @@ import {
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {
-  buildDmriflesProjects,
+  buildSidebarProjectIdsByJobId,
+  buildSidebarProjects,
   buildSeedProjectId,
   DMRIFLES_EMAIL,
+  findSeededProjectById,
   findImportedBatchProjectId,
   PROJECT_STORAGE_PREFIX,
+  resolveWorkspaceProjectIdsForJob,
   resolveImportedBatch,
   syncImportedBatchProjects,
 } from "@/features/quotes/client-workspace";
@@ -121,66 +123,20 @@ export function useClientHomeController() {
     },
   });
 
-  const sidebarProjectIdsByJobId = useMemo(() => {
-    const next = new Map<string, string[]>();
-
-    (projectJobMembershipsQuery.data ?? []).forEach((membership) => {
-      const projectIds = next.get(membership.job_id) ?? [];
-
-      if (!projectIds.includes(membership.project_id)) {
-        projectIds.push(membership.project_id);
-      }
-
-      next.set(membership.job_id, projectIds);
-    });
-
-    return next;
-  }, [projectJobMembershipsQuery.data]);
-
-  const seededProjects = useMemo(() => {
-    if (!isDmriflesWorkspace) {
-      return [] as WorkspaceSidebarProject[];
-    }
-
-    const summaryMap = new Map((partSummariesQuery.data ?? []).map((summary) => [summary.jobId, summary]));
-
-    return buildDmriflesProjects(accessibleJobsQuery.data ?? [], summaryMap).map((project) => ({
-      id: project.id,
-      name: project.name,
-      partCount: project.jobIds.length,
-      roleLabel: "batch",
-      isReadOnly: true,
-      canManage: false,
-      createdAt: project.createdAt,
-      updatedAt: project.createdAt,
-    }));
-  }, [accessibleJobsQuery.data, isDmriflesWorkspace, partSummariesQuery.data]);
-
-  const remoteProjects = useMemo(
+  const sidebarProjectIdsByJobId = useMemo(
+    () => buildSidebarProjectIdsByJobId(projectJobMembershipsQuery.data ?? []),
+    [projectJobMembershipsQuery.data],
+  );
+  const { remoteProjects, sidebarProjects } = useMemo(
     () =>
-      (accessibleProjectsQuery.data ?? []).map((project) => ({
-        id: project.project.id,
-        name: project.project.name,
-        partCount: project.partCount,
-        inviteCount: project.inviteCount,
-        roleLabel: project.currentUserRole,
-        canRename: project.currentUserRole === "owner" || project.currentUserRole === "editor",
-        canDelete: project.currentUserRole === "owner",
-        createdAt: project.project.created_at,
-        updatedAt: project.project.updated_at,
-      })),
-    [accessibleProjectsQuery.data],
+      buildSidebarProjects({
+        isDmriflesWorkspace,
+        jobs: accessibleJobsQuery.data ?? [],
+        summariesByJobId,
+        accessibleProjects: accessibleProjectsQuery.data ?? [],
+      }),
+    [accessibleJobsQuery.data, accessibleProjectsQuery.data, isDmriflesWorkspace, summariesByJobId],
   );
-  const remoteProjectsByName = useMemo(
-    () => new Map(remoteProjects.map((project) => [project.name.trim().toUpperCase(), project.id])),
-    [remoteProjects],
-  );
-  const sidebarProjects = isDmriflesWorkspace
-    ? [
-        ...seededProjects.filter((project) => !remoteProjectsByName.has(project.name.trim().toUpperCase())),
-        ...remoteProjects,
-      ]
-    : remoteProjects;
 
   const bootstrapAccountMutation = useMutation({
     mutationFn: (organizationName: string) => createSelfServiceOrganization(organizationName),
@@ -243,22 +199,13 @@ export function useClientHomeController() {
   });
 
   const resolveSidebarProjectIdsForJob = (job: { id: string; project_id: string | null; source: string }) => {
-    const projectIds = [
-      ...new Set([...(sidebarProjectIdsByJobId.get(job.id) ?? []), ...(job.project_id ? [job.project_id] : [])]),
-    ];
-
-    if (!isDmriflesWorkspace) {
-      return projectIds;
-    }
-
-    const importedBatch = resolveImportedBatch(job, summariesByJobId.get(job.id));
-    if (!importedBatch) {
-      return projectIds;
-    }
-
-    const importedBatchProjectId =
-      findImportedBatchProjectId(importedBatch, remoteProjects) ?? buildSeedProjectId(importedBatch);
-    return [...new Set([...projectIds, importedBatchProjectId])];
+    return resolveWorkspaceProjectIdsForJob({
+      job,
+      isDmriflesWorkspace,
+      summariesByJobId,
+      sidebarProjectIdsByJobId,
+      remoteProjects,
+    });
   };
 
   const syncDmriflesProjectsMutation = useMutation({
@@ -498,9 +445,11 @@ export function useClientHomeController() {
     try {
       if (projectId.startsWith("seed-")) {
         const batchJobs =
-          buildDmriflesProjects(accessibleJobsQuery.data ?? [], summariesByJobId).find(
-            (project) => project.id === projectId,
-          )?.jobIds ?? [];
+          findSeededProjectById({
+            projectId,
+            jobs: accessibleJobsQuery.data ?? [],
+            summariesByJobId,
+          })?.jobIds ?? [];
 
         await Promise.all(batchJobs.map((jobId) => archiveJob(jobId)));
         await invalidateClientWorkspaceQueries(queryClient);

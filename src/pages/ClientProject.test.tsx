@@ -4,13 +4,14 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import ClientPart from "./ClientPart";
+import ClientProject from "./ClientProject";
 
 const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage } = vi.hoisted(() => ({
   api: {
     archiveJob: vi.fn(),
     archiveProject: vi.fn(),
     assignJobToProject: vi.fn(),
+    createClientDraft: vi.fn(),
     createJobsFromUploadFiles: vi.fn(),
     createProject: vi.fn(),
     deleteArchivedJob: vi.fn(),
@@ -19,15 +20,21 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage } = vi.hoi
     fetchAccessibleProjects: vi.fn(),
     fetchArchivedJobs: vi.fn(),
     fetchArchivedProjects: vi.fn(),
+    fetchClientQuoteWorkspaceByJobIds: vi.fn(),
     fetchJobPartSummariesByJobIds: vi.fn(),
-    fetchPartDetail: vi.fn(),
+    fetchJobsByProject: vi.fn(),
+    fetchProject: vi.fn(),
+    fetchProjectInvites: vi.fn(),
     fetchProjectJobMembershipsByJobIds: vi.fn(),
+    fetchProjectMemberships: vi.fn(),
     fetchSidebarPins: vi.fn(),
+    inviteProjectMember: vi.fn(),
     isProjectCollaborationSchemaUnavailable: vi.fn(),
     pinJob: vi.fn(),
     pinProject: vi.fn(),
     reconcileJobParts: vi.fn(),
     removeJobFromProject: vi.fn(),
+    removeProjectMember: vi.fn(),
     requestExtraction: vi.fn(),
     setJobSelectedVendorQuoteOffer: vi.fn(),
     unarchiveJob: vi.fn(),
@@ -42,8 +49,6 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage } = vi.hoi
   prefetchProjectPage: vi.fn(),
   prefetchPartPage: vi.fn(),
 }));
-
-let lastSidebarProps: Record<string, unknown> | null = null;
 
 vi.mock("@/features/quotes/api", () => api);
 
@@ -62,6 +67,8 @@ vi.mock("@/features/quotes/workspace-navigation", async () => {
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
 }));
+
+let lastSidebarProps: Record<string, unknown> | null = null;
 
 vi.mock("@/components/chat/ChatWorkspaceLayout", () => ({
   ChatWorkspaceLayout: ({
@@ -100,12 +107,16 @@ vi.mock("@/components/chat/WorkspaceAccountMenu", () => ({
   WorkspaceAccountMenu: () => <div>Account Menu</div>,
 }));
 
+vi.mock("@/components/chat/ProjectMembersDialog", () => ({
+  ProjectMembersDialog: () => null,
+}));
+
 vi.mock("@/components/chat/SearchPartsDialog", () => ({
   SearchPartsDialog: () => null,
 }));
 
-vi.mock("@/components/chat/PartActionsMenu", () => ({
-  PartDropdownMenuActions: () => null,
+vi.mock("@/components/chat/PromptComposer", () => ({
+  PromptComposer: () => <div>Composer</div>,
 }));
 
 vi.mock("@/components/quotes/ClientQuoteAssetPanels", () => ({
@@ -113,20 +124,8 @@ vi.mock("@/components/quotes/ClientQuoteAssetPanels", () => ({
   ClientDrawingPreviewPanel: () => <div>Drawing</div>,
 }));
 
-vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
-  ClientQuoteComparisonChart: () => <div>Chart</div>,
-}));
-
-vi.mock("@/components/quotes/DrawingPreviewDialog", () => ({
-  DrawingPreviewDialog: () => null,
-}));
-
 vi.mock("@/components/quotes/ClientPartRequestEditor", () => ({
-  ClientPartRequestEditor: ({ onSave }: { onSave: () => void }) => (
-    <button type="button" onClick={onSave}>
-      Save Request
-    </button>
-  ),
+  ClientPartRequestEditor: () => <div>Request Editor</div>,
 }));
 
 function renderWithClient(initialEntry: string) {
@@ -136,24 +135,34 @@ function renderWithClient(initialEntry: string) {
     },
   });
 
-  return {
-    queryClient,
-    ...render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={[initialEntry]}>
-          <Routes>
-            <Route path="/parts/:jobId" element={<ClientPart />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    ),
-  };
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <Routes>
+          <Route path="/projects/:projectId" element={<ClientProject />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
 }
 
-describe("ClientPart", () => {
+describe("ClientProject", () => {
   beforeEach(() => {
     lastSidebarProps = null;
     vi.clearAllMocks();
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation(() => ({
+        matches: false,
+        media: "",
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
 
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
@@ -162,12 +171,25 @@ describe("ClientPart", () => {
     });
 
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
-    api.fetchAccessibleProjects.mockResolvedValue([]);
+    api.fetchAccessibleProjects.mockResolvedValue([
+      {
+        project: {
+          id: "project-1",
+          name: "Bracket Project",
+          organization_id: "org-1",
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-02T00:00:00Z",
+        },
+        partCount: 1,
+        inviteCount: 0,
+        currentUserRole: "owner",
+      },
+    ]);
     api.fetchAccessibleJobs.mockResolvedValue([
       {
         id: "job-1",
         organization_id: "org-1",
-        project_id: null,
+        project_id: "project-1",
         created_by: "user-1",
         title: "Bracket",
         description: null,
@@ -180,6 +202,7 @@ describe("ClientPart", () => {
         archived_at: null,
         created_at: "2026-03-01T00:00:00Z",
         updated_at: "2026-03-01T00:00:00Z",
+        selected_vendor_quote_offer_id: null,
       },
     ]);
     api.fetchJobPartSummariesByJobIds.mockResolvedValue([
@@ -192,24 +215,26 @@ describe("ClientPart", () => {
         importedBatch: null,
         requestedQuoteQuantities: [10],
         requestedByDate: "2026-04-15",
-        selectedSupplier: "Vendor A",
-        selectedPriceUsd: 100,
-        selectedLeadTimeBusinessDays: 7,
+        selectedSupplier: null,
+        selectedPriceUsd: null,
+        selectedLeadTimeBusinessDays: null,
       },
     ]);
-    api.fetchProjectJobMembershipsByJobIds.mockResolvedValue([]);
+    api.fetchProjectJobMembershipsByJobIds.mockResolvedValue([
+      { project_id: "project-1", job_id: "job-1" },
+    ]);
     api.fetchSidebarPins.mockResolvedValue({ projectIds: [], jobIds: [] });
     api.fetchArchivedProjects.mockResolvedValue([]);
     api.fetchArchivedJobs.mockResolvedValue([]);
-    api.updateClientPartRequest.mockResolvedValue(undefined);
-    api.fetchPartDetail.mockResolvedValue({
-      job: {
+    api.fetchProject.mockResolvedValue({ id: "project-1", name: "Bracket Project" });
+    api.fetchJobsByProject.mockResolvedValue([
+      {
         id: "job-1",
         organization_id: "org-1",
-        project_id: null,
+        project_id: "project-1",
         created_by: "user-1",
         title: "Bracket",
-        description: "Need this soon",
+        description: null,
         status: "quoted",
         source: "client_home",
         active_pricing_policy_id: null,
@@ -219,68 +244,52 @@ describe("ClientPart", () => {
         archived_at: null,
         created_at: "2026-03-01T00:00:00Z",
         updated_at: "2026-03-01T00:00:00Z",
-        selected_vendor_quote_offer_id: "offer-1",
+        selected_vendor_quote_offer_id: null,
       },
-      files: [],
-      summary: {
-        jobId: "job-1",
-        partNumber: "BRKT-001",
-        revision: "A",
-        description: "Bracket",
-        quantity: 10,
-        importedBatch: null,
-        requestedQuoteQuantities: [10],
-        requestedByDate: "2026-04-15",
-        selectedSupplier: "Vendor A",
-        selectedPriceUsd: 100,
-        selectedLeadTimeBusinessDays: 7,
-      },
-      packages: [],
-      part: {
-        id: "part-1",
-        job_id: "job-1",
-        organization_id: "org-1",
-        name: "Bracket",
-        normalized_key: "bracket",
-        cad_file_id: null,
-        drawing_file_id: null,
-        quantity: 10,
-        created_at: "2026-03-01T00:00:00Z",
-        updated_at: "2026-03-01T00:00:00Z",
-        cadFile: null,
-        drawingFile: null,
-        extraction: null,
-        approvedRequirement: null,
-        vendorQuotes: [],
-      },
-      projectIds: [],
-      drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
-      latestQuoteRun: null,
-      revisionSiblings: [
-        {
-          jobId: "job-2",
-          revision: "B",
-          title: "BRKT-001 rev B",
+    ]);
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([
+      {
+        job: {
+          id: "job-1",
+          title: "Bracket",
+          requested_by_date: "2026-04-15",
+          requested_quote_quantities: [10],
         },
-      ],
-    });
+        part: null,
+        summary: {
+          jobId: "job-1",
+          partNumber: "BRKT-001",
+          revision: "A",
+          description: "Bracket",
+          quantity: 10,
+          importedBatch: null,
+          requestedQuoteQuantities: [10],
+          requestedByDate: "2026-04-15",
+          selectedSupplier: null,
+          selectedPriceUsd: null,
+          selectedLeadTimeBusinessDays: null,
+        },
+        drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+      },
+    ]);
+    api.fetchProjectMemberships.mockResolvedValue([]);
+    api.fetchProjectInvites.mockResolvedValue([]);
   });
 
-  it("uses revision siblings from the main part detail aggregate", async () => {
-    renderWithClient("/parts/job-1");
+  it("renders a normal project route without changing its header content", async () => {
+    renderWithClient("/projects/project-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "A" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Bracket Project" })).toBeInTheDocument();
     });
 
-    expect(screen.getByRole("button", { name: /prev rev/i })).toBeInTheDocument();
-    expect(api.fetchPartDetail).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/dense procurement workspace/i)).toBeInTheDocument();
   });
 
-  it("passes the collaboration gate through sidebar project prefetch", async () => {
+  it("passes collaboration-disabled project prefetch through to the sidebar callback", async () => {
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(true);
 
-    renderWithClient("/parts/job-1");
+    renderWithClient("/projects/project-1");
 
     await waitFor(() => {
       expect(screen.getByText("Sidebar")).toBeInTheDocument();
@@ -293,23 +302,56 @@ describe("ClientPart", () => {
     });
   });
 
-  it("invalidates shared and part-specific queries when saving request details", async () => {
-    const { queryClient } = renderWithClient("/parts/job-1");
-    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+  it("keeps seeded projects local-only and skips remote project queries", async () => {
+    mockUseAppSession.mockReturnValue({
+      user: { id: "user-1", email: "dmrifles@gmail.com" },
+      activeMembership: null,
+      signOut: vi.fn(),
+    });
+    api.fetchAccessibleProjects.mockResolvedValue([]);
+    api.fetchAccessibleJobs.mockResolvedValue([
+      {
+        id: "job-1",
+        organization_id: "org-1",
+        project_id: null,
+        created_by: "user-1",
+        title: "Bracket",
+        description: null,
+        status: "quoted",
+        source: "spreadsheet_import:qb00001:file.csv",
+        active_pricing_policy_id: null,
+        tags: [],
+        requested_quote_quantities: [10],
+        requested_by_date: "2026-04-15",
+        archived_at: null,
+        created_at: "2026-03-01T00:00:00Z",
+        updated_at: "2026-03-01T00:00:00Z",
+        selected_vendor_quote_offer_id: null,
+      },
+    ]);
+    api.fetchJobPartSummariesByJobIds.mockResolvedValue([
+      {
+        jobId: "job-1",
+        partNumber: "BRKT-001",
+        revision: "A",
+        description: "Bracket",
+        quantity: 10,
+        importedBatch: "QB00001",
+        requestedQuoteQuantities: [10],
+        requestedByDate: "2026-04-15",
+        selectedSupplier: null,
+        selectedPriceUsd: null,
+        selectedLeadTimeBusinessDays: null,
+      },
+    ]);
+
+    renderWithClient("/projects/seed-qb00001");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Save Request" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "QB00001" })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
-
-    await waitFor(() => {
-      expect(api.updateClientPartRequest).toHaveBeenCalled();
-    });
-
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["client-jobs"] });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["client-part-summaries"] });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["part-detail"] });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["part-detail", "job-1"] });
+    expect(api.fetchProject).not.toHaveBeenCalled();
+    expect(api.fetchJobsByProject).not.toHaveBeenCalled();
   });
 });

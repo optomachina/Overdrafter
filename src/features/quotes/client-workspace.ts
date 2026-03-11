@@ -1,3 +1,4 @@
+import type { WorkspaceSidebarProject } from "@/components/chat/WorkspaceSidebar";
 import { assignJobToProject, createProject } from "@/features/quotes/api";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
 
@@ -16,6 +17,23 @@ export type ClientJobProject = {
 type NamedProject = {
   id: string;
   name: string;
+};
+
+type SidebarProjectMembership = {
+  job_id: string;
+  project_id: string;
+};
+
+type AccessibleSidebarProject = {
+  project: {
+    id: string;
+    name: string;
+    created_at: string;
+    updated_at: string;
+  };
+  partCount: number;
+  inviteCount: number;
+  currentUserRole: string;
 };
 
 export function buildSeedProjectId(name: string): string {
@@ -92,6 +110,124 @@ export function findImportedBatchProjectId(
   const normalizedBatch = importedBatch.trim().toUpperCase();
   const match = projects.find((project) => project.name.trim().toUpperCase() === normalizedBatch);
   return match?.id ?? null;
+}
+
+export function buildSidebarProjectIdsByJobId(
+  memberships: SidebarProjectMembership[],
+): Map<string, string[]> {
+  const next = new Map<string, string[]>();
+
+  memberships.forEach((membership) => {
+    const projectIds = next.get(membership.job_id) ?? [];
+
+    if (!projectIds.includes(membership.project_id)) {
+      projectIds.push(membership.project_id);
+    }
+
+    next.set(membership.job_id, projectIds);
+  });
+
+  return next;
+}
+
+export function buildRemoteSidebarProjects(
+  accessibleProjects: AccessibleSidebarProject[],
+): WorkspaceSidebarProject[] {
+  return accessibleProjects.map((project) => ({
+    id: project.project.id,
+    name: project.project.name,
+    partCount: project.partCount,
+    inviteCount: project.inviteCount,
+    roleLabel: project.currentUserRole,
+    canRename: project.currentUserRole === "owner" || project.currentUserRole === "editor",
+    canDelete: project.currentUserRole === "owner",
+    createdAt: project.project.created_at,
+    updatedAt: project.project.updated_at,
+  }));
+}
+
+export function buildSidebarProjects(input: {
+  isDmriflesWorkspace: boolean;
+  jobs: JobRecord[];
+  summariesByJobId: Map<string, JobPartSummary>;
+  accessibleProjects: AccessibleSidebarProject[];
+}): {
+  seededProjects: WorkspaceSidebarProject[];
+  remoteProjects: WorkspaceSidebarProject[];
+  remoteProjectsByName: Map<string, string>;
+  sidebarProjects: WorkspaceSidebarProject[];
+} {
+  const remoteProjects = buildRemoteSidebarProjects(input.accessibleProjects);
+  const remoteProjectsByName = new Map(
+    remoteProjects.map((project) => [project.name.trim().toUpperCase(), project.id]),
+  );
+  const seededProjects = input.isDmriflesWorkspace
+    ? buildDmriflesProjects(input.jobs, input.summariesByJobId).map((project) => ({
+        id: project.id,
+        name: project.name,
+        partCount: project.jobIds.length,
+        roleLabel: "batch",
+        isReadOnly: true,
+        canManage: false,
+        createdAt: project.createdAt,
+        updatedAt: project.createdAt,
+      }))
+    : [];
+
+  return {
+    seededProjects,
+    remoteProjects,
+    remoteProjectsByName,
+    sidebarProjects: input.isDmriflesWorkspace
+      ? [
+          ...seededProjects.filter(
+            (project) => !remoteProjectsByName.has(project.name.trim().toUpperCase()),
+          ),
+          ...remoteProjects,
+        ]
+      : remoteProjects,
+  };
+}
+
+export function resolveWorkspaceProjectIdsForJob(input: {
+  job: Pick<JobRecord, "id" | "project_id" | "source">;
+  isDmriflesWorkspace: boolean;
+  summariesByJobId: Map<string, JobPartSummary>;
+  sidebarProjectIdsByJobId: Map<string, string[]>;
+  remoteProjects: Array<Pick<WorkspaceSidebarProject, "id" | "name">>;
+}): string[] {
+  const projectIds = [
+    ...new Set([
+      ...(input.sidebarProjectIdsByJobId.get(input.job.id) ?? []),
+      ...(input.job.project_id ? [input.job.project_id] : []),
+    ]),
+  ];
+
+  if (!input.isDmriflesWorkspace) {
+    return projectIds;
+  }
+
+  const importedBatch = resolveImportedBatch(input.job, input.summariesByJobId.get(input.job.id));
+  if (!importedBatch) {
+    return projectIds;
+  }
+
+  const importedBatchProjectId =
+    findImportedBatchProjectId(importedBatch, input.remoteProjects) ?? buildSeedProjectId(importedBatch);
+
+  return [...new Set([...projectIds, importedBatchProjectId])];
+}
+
+export function findSeededProjectById(input: {
+  projectId: string;
+  jobs: JobRecord[];
+  summariesByJobId: Map<string, JobPartSummary>;
+}): ClientJobProject | null {
+  return (
+    buildDmriflesProjects(input.jobs, input.summariesByJobId).find(
+      (project) => project.id === input.projectId,
+    ) ?? null
+  );
 }
 
 export async function syncImportedBatchProjects(input: {
