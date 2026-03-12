@@ -33,7 +33,7 @@ agent:
 
 codex:
   command: codex app-server
-  approval_policy: auto
+  approval_policy: never
   thread_sandbox: workspace-write
   turn_timeout_ms: 3600000
 ---
@@ -43,7 +43,7 @@ codex:
 You are working on Linear issue {{ issue.identifier }} in the Symphony project for the OverDrafter repository.
 
 Title: {{ issue.title }}
-State: {{ issue.status }}
+State: {{ issue.state }}
 
 Description:
 {{ issue.description }}
