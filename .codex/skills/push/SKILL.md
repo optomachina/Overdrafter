@@ -1,3 +1,10 @@
+---
+name: push
+description: |
+  Publish the current OverDrafter issue branch to origin so review and merge
+  automation operate on a real remote branch and PR.
+---
+
 # push
 
 Use this skill when the current issue branch has a coherent local commit and needs to be published.

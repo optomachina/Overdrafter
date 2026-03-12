@@ -1,3 +1,10 @@
+---
+name: linear
+description: |
+  Keep OverDrafter Linear issues aligned with the real repo, branch, PR, and
+  merge state during Symphony execution.
+---
+
 # linear
 
 Use this skill when an OverDrafter issue needs an explicit tracker update in the Symphony Linear project.
