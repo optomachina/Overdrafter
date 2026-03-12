@@ -62,12 +62,13 @@ Operate with these repo rules:
 - Work only in the OverDrafter repo cloned into the current issue workspace.
 - Run `./scripts/symphony-preflight.sh` before substantial work and before handoff.
 - Use the repo-local skills in `.codex/skills/`.
+- Use `push` as the publish skill. It is responsible for both pushing the branch and ensuring a PR exists.
 - Keep the diff tightly scoped to the current issue.
 - Update docs when repo workflow or product behavior changes.
 
 State behavior:
 
-- `Todo`, `In Progress`, `Rework`: the workspace hook will switch to an issue branch before Codex starts. After that, implement the issue, run targeted verification, commit, push, and open or update a PR before handing off to `Human Review`.
+- `Todo`, `In Progress`, `Rework`: the workspace hook will switch to an issue branch before Codex starts. After that, implement the issue, run targeted verification, commit, and use the `push` skill to publish the branch and ensure the PR exists before handing off to `Human Review`.
 - `Human Review`: do not implement new changes unless review feedback explicitly moves the issue back to `Rework`.
 - `Merging`: do not implement new code. Use the `land` skill to land the reviewed PR safely. If no PR exists, stop and report that the issue was moved to `Merging` too early.
 - `Done`: only after the PR is actually merged.
