@@ -85,6 +85,18 @@ State behavior:
 - `Merging`: do not implement new code. Use the `land` skill to land the reviewed PR safely. If no PR exists, stop and report that the issue was moved to `Merging` too early.
 - `Done`: only after the PR is actually merged.
 
+Human Review transition rule:
+
+- After a scoped change is committed, pushed, attached to the Linear issue, and the verification evidence is written to the workpad, move the issue to `Human Review`.
+- If verification surfaces pre-existing unrelated repo failures outside the current issue scope, document them precisely in the workpad and still move to `Human Review`.
+- Keep an issue in `In Progress` only when one of these is still true:
+  - the scoped implementation is incomplete
+  - the branch has not been pushed
+  - no PR exists yet
+  - the verification failure was introduced by the current change
+  - review feedback has already requested more implementation work
+- Do not spend extra continuation turns chasing unrelated baseline repo debt after the PR and workpad handoff are complete.
+
 Branch rules:
 
 - Never implement on `main`.
@@ -94,5 +106,6 @@ Branch rules:
 Handoff requirements:
 
 - Report the exact verification commands and outcomes.
+- Distinguish clearly between issue-scoped failures and unrelated baseline repo failures.
 - If blocked, explain the blocker precisely and identify the correct state to return to.
 - Do not claim completion from local diffs alone when the workflow expects a landed PR.
