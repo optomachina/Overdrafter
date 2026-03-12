@@ -11,6 +11,10 @@ fail() {
 [ -n "$target_branch" ] || fail "Usage: ./scripts/symphony-ensure-branch.sh <branch-name>"
 [ "$target_branch" != "main" ] || fail "Refusing to use main as an issue branch."
 
+normalized_branch=$(printf '%s' "$target_branch" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._/-' '-')
+[ -n "$normalized_branch" ] || fail "Derived branch name is empty."
+[ "$normalized_branch" != "main" ] || fail "Refusing to use main as an issue branch."
+
 root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root_dir"
 
@@ -22,20 +26,20 @@ git diff --cached --quiet || fail "Index is dirty; clean or commit changes befor
 git fetch origin
 
 current_branch=$(git branch --show-current 2>/dev/null || true)
-if [ "$current_branch" = "$target_branch" ]; then
-  printf '%s\n' "$target_branch"
+if [ "$current_branch" = "$normalized_branch" ]; then
+  printf '%s\n' "$normalized_branch"
   exit 0
 fi
 
-if git show-ref --verify --quiet "refs/heads/$target_branch"; then
-  git switch "$target_branch" >/dev/null
-  printf '%s\n' "$target_branch"
+if git show-ref --verify --quiet "refs/heads/$normalized_branch"; then
+  git switch "$normalized_branch" >/dev/null
+  printf '%s\n' "$normalized_branch"
   exit 0
 fi
 
-if git show-ref --verify --quiet "refs/remotes/origin/$target_branch"; then
-  git switch -c "$target_branch" --track "origin/$target_branch" >/dev/null
-  printf '%s\n' "$target_branch"
+if git show-ref --verify --quiet "refs/remotes/origin/$normalized_branch"; then
+  git switch -c "$normalized_branch" --track "origin/$normalized_branch" >/dev/null
+  printf '%s\n' "$normalized_branch"
   exit 0
 fi
 
@@ -46,5 +50,5 @@ else
 fi
 
 git pull --ff-only origin main >/dev/null
-git switch -c "$target_branch" >/dev/null
-printf '%s\n' "$target_branch"
+git switch -c "$normalized_branch" >/dev/null
+printf '%s\n' "$normalized_branch"

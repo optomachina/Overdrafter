@@ -33,6 +33,8 @@ hooks:
     )
   before_run: |
     ./scripts/symphony-preflight.sh
+    issue_id="$(basename "$PWD")"
+    ./scripts/symphony-ensure-branch.sh "$issue_id"
   timeout_ms: 3600000
 
 agent:
@@ -52,8 +54,6 @@ You are working on Linear issue {{ issue.identifier }} in the Symphony project f
 
 Title: {{ issue.title }}
 State: {{ issue.state }}
-Preferred branch: {{ issue.branch_name }}
-
 Description:
 {{ issue.description }}
 
@@ -67,7 +67,7 @@ Operate with these repo rules:
 
 State behavior:
 
-- `Todo`, `In Progress`, `Rework`: create or switch to the issue branch before any edits, then implement the issue, run targeted verification, commit, push, and open or update a PR before handing off to `Human Review`.
+- `Todo`, `In Progress`, `Rework`: the workspace hook will switch to an issue branch before Codex starts. After that, implement the issue, run targeted verification, commit, push, and open or update a PR before handing off to `Human Review`.
 - `Human Review`: do not implement new changes unless review feedback explicitly moves the issue back to `Rework`.
 - `Merging`: do not implement new code. Use the `land` skill to land the reviewed PR safely. If no PR exists, stop and report that the issue was moved to `Merging` too early.
 - `Done`: only after the PR is actually merged.
@@ -75,9 +75,8 @@ State behavior:
 Branch rules:
 
 - Never implement on `main`.
-- Before editing on `Todo`, `In Progress`, or `Rework`, run `./scripts/symphony-ensure-branch.sh "<target-branch>"`.
-- Prefer the Linear branch suggestion shown above. If it is blank, derive a focused branch name from the issue identifier and title.
-- If the issue already has a remote branch, reuse it instead of inventing a second branch.
+- The `before_run` hook switches from `main` to a deterministic issue branch named from the Linear identifier, for example `OVD-29`.
+- If a matching remote or local issue branch already exists, reuse it instead of inventing a second branch.
 
 Handoff requirements:
 
