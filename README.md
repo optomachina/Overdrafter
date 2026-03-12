@@ -11,7 +11,6 @@ This repo now contains the portal layer for a curated CNC quote workflow:
 
 If your current workspace does not contain this `README.md`, plus root `PRD.md`, `PLAN.md`, `AGENTS.md`,
 `package.json`, `worker/`, and `supabase/`, you are not in the correct OverDrafter repo root.
-
 ## Symphony Automation
 
 OverDrafter includes a repo-local Symphony workflow contract in `WORKFLOW.md`, repo-local skills in
@@ -19,7 +18,6 @@ OverDrafter includes a repo-local Symphony workflow contract in `WORKFLOW.md`, r
 
 When launching Symphony, point the service at this repo's `WORKFLOW.md` explicitly. Do not rely on
 Symphony's default local `./WORKFLOW.md` from the separate `openai/symphony` checkout.
-
 ## What Was Implemented
 
 ### Web app
