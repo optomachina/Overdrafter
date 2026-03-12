@@ -13,13 +13,17 @@
     "seed:dev": "node ./scripts/seed-dev.mjs",
     "generate:favicon": "node scripts/generate-favicons.mjs",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
+    "typecheck:worker": "./worker/node_modules/.bin/tsc --noEmit -p worker/tsconfig.json",
     "preview": "vite preview",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "e2e:prepare": "npm run db:reset && npm run seed:dev && node ./e2e/setup-auth.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "verify:worker": "./worker/node_modules/.bin/tsc --noEmit -p worker/tsconfig.json && ./worker/node_modules/.bin/tsc -p worker/tsconfig.json",
+    "verify": "eslint . && tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vitest run && vite build && ./worker/node_modules/.bin/tsc --noEmit -p worker/tsconfig.json && ./worker/node_modules/.bin/tsc -p worker/tsconfig.json"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

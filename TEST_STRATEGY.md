@@ -34,10 +34,11 @@ This document defines how OverDrafter should be verified locally, in CI, and dur
 ## Verification lanes
 
 ### Lane A — Fast local verification
-- lint
-- typecheck
+- `npm run lint`
+- `npm run typecheck`
 - relevant unit/component tests
-- build when needed
+- `npm run build` when needed
+- `npm run verify:worker` when worker changes are in scope
 
 ### Lane B — Feature verification
 - all fast local verification
@@ -45,10 +46,10 @@ This document defines how OverDrafter should be verified locally, in CI, and dur
 - targeted UI smoke checks
 
 ### Lane C — Release-confidence verification
-- full verify command
+- `npm run verify` from the repo root
 - CI-equivalent checks
 - broader smoke or E2E coverage
-- worker verification if affected
+- worker verification is included in the root `verify` command
 - migration validation if affected
 
 ## Change-type expectations
@@ -79,7 +80,4 @@ This document defines how OverDrafter should be verified locally, in CI, and dur
 
 ## CI policy
 Minimum CI target:
-- lint
-- typecheck
-- automated tests
-- build
+- `npm run verify`

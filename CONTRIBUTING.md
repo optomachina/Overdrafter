@@ -80,11 +80,14 @@ Skip a worktree only for small, clearly safe edits.
 See `TEST_STRATEGY.md` for the full policy.
 
 Typical nontrivial change:
-- run lint
-- run typecheck
-- run relevant tests
-- run build if affected
+- run `npm run verify` before handoff
+- use narrower commands early in the loop when helpful
 - run broader verification for high-risk changes
+
+Canonical local commands:
+- repo gate: `npm run verify`
+- root app loop: `npm run lint`, `npm run typecheck`, `npm run test`, `npm run build`
+- worker loop: `npm run verify:worker` from repo root or `npm --prefix worker run verify`
 
 Do not rely on “it compiles” as your only signal.
 

@@ -8,6 +8,7 @@ This repo now contains the portal layer for a curated CNC quote workflow:
 
 `npm` is the authoritative package manager for both the repo root and `worker/`. Use the committed
 `package-lock.json` files and do not introduce Bun, pnpm, or Yarn lockfiles unless the repo policy changes.
+For nontrivial local changes, `npm run verify` is the canonical repo-level verification gate.
 
 If your current workspace does not contain this `README.md`, plus root `PRD.md`, `PLAN.md`, `AGENTS.md`,
 `package.json`, `worker/`, and `supabase/`, you are not in the correct OverDrafter repo root.
@@ -129,6 +130,22 @@ Optional worker environment variables:
 - `WORKER_MODE=simulate|live`
 - `WORKER_NAME=quote-worker-1`
 - `WORKER_POLL_INTERVAL_MS=5000`
+
+## Local Verification
+
+Install dependencies in both packages before using the repo-wide verification gate:
+
+```bash
+npm install
+npm --prefix worker install
+npm run verify
+```
+
+Use narrower commands when you are iterating on one area:
+
+- root app: `npm run lint`, `npm run typecheck`, `npm run test`, `npm run build`
+- worker from repo root: `npm run verify:worker`
+- worker in `worker/`: `npm run typecheck`, `npm run build`, or `npm run verify`
 
 ## Debugging Workflows
 
