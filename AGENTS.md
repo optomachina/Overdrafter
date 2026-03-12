@@ -23,6 +23,17 @@ If you find a conflict:
 - prefer the higher-priority document
 - update or flag the lower-priority document if it has drifted
 
+## Workspace identity check
+
+Before doing issue work, confirm you are in the actual OverDrafter repository rather than a different local clone or an unrelated workspace.
+
+Minimum fingerprints of the correct repo root:
+- `README.md` starts with `# OverDrafter`
+- root contains `PRD.md`, `PLAN.md`, `AGENTS.md`, and `package.json`
+- root contains `worker/` and `supabase/`
+
+If those fingerprints do not match, stop and fix the workspace selection before making changes or reporting blockers.
+
 ## Core repo expectations
 
 - Preserve product intent. Do not “improve” the product by silently changing requirements.
@@ -34,8 +45,10 @@ If you find a conflict:
 
 ## Package manager policy
 
-- One package manager must be treated as authoritative.
-- Until the repo is explicitly cleaned up, inspect the lockfiles and scripts before changing dependency-related files.
+- `npm` is the authoritative package manager for this repository.
+- Use the committed `package-lock.json` files at the repo root and in `worker/` as the lockfile source of truth.
+- Do not introduce Bun, pnpm, or Yarn lockfiles without an explicit repo-wide decision.
+- Inspect the lockfiles and scripts before changing dependency-related files.
 - Do not change lockfiles casually.
 - Do not add dependencies without a clear reason tied to the task.
 

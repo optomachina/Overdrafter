@@ -2,6 +2,9 @@
 
 This package is the long-running orchestration worker for the curated CNC quote platform.
 
+Use `npm` as the authoritative package manager here. Install and run worker dependencies from `worker/`
+with `npm`, and do not add alternate lockfiles unless the repo policy changes.
+
 ## Responsibilities
 
 - Claim queue items from `public.work_queue`

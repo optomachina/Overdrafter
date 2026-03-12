@@ -6,6 +6,12 @@ This repo now contains the portal layer for a curated CNC quote workflow:
 - Supabase schema, RLS, storage, and RPCs for jobs, extractions, quote runs, and published packages
 - A separate `worker/` package for queue processing, hybrid extraction, and vendor adapter orchestration
 
+`npm` is the authoritative package manager for both the repo root and `worker/`. Use the committed
+`package-lock.json` files and do not introduce Bun, pnpm, or Yarn lockfiles unless the repo policy changes.
+
+If your current workspace does not contain this `README.md`, plus root `PRD.md`, `PLAN.md`, `AGENTS.md`,
+`package.json`, `worker/`, and `supabase/`, you are not in the correct OverDrafter repo root.
+
 ## What Was Implemented
 
 ### Web app
