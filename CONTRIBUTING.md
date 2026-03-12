@@ -37,6 +37,23 @@ For meaningful work:
 - check whether the task affects product behavior, architecture, testing, or repo workflow
 - identify which docs may need updates
 
+Before you start editing, confirm you are in the real OverDrafter repo root.
+Minimum check:
+- `README.md` starts with `# OverDrafter`
+- root contains `PRD.md`, `PLAN.md`, `AGENTS.md`, and `package.json`
+- root contains `worker/` and `supabase/`
+
+If that check fails, stop and correct the workspace instead of trying to interpret the ticket from the wrong repo.
+
+If you are using Symphony, launch it against this repo's `WORKFLOW.md` and keep the repo-local
+skills in `.codex/skills/` and `scripts/symphony-preflight.sh` in sync with that workflow.
+
+## Package manager
+
+- Use `npm` for both the repo root and the `worker/` package.
+- Treat the committed `package-lock.json` files as authoritative.
+- Do not introduce Bun, pnpm, or Yarn lockfiles unless the repo docs are intentionally changed first.
+
 ## Recommended branch naming
 
 - `feature/...`
