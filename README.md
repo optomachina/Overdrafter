@@ -11,6 +11,26 @@ This repo now contains the portal layer for a curated CNC quote workflow:
 
 If your current workspace does not contain this `README.md`, plus root `PRD.md`, `PLAN.md`, `AGENTS.md`,
 `package.json`, `worker/`, and `supabase/`, you are not in the correct OverDrafter repo root.
+
+## Canonical Docs
+
+Read these first when you need product, planning, architecture, or workflow truth:
+
+- `PRD.md` — canonical product requirements and long-term product direction
+- `PLAN.md` — canonical execution plan for the current repo hardening phase
+- `ARCHITECTURE.md` — canonical subsystem boundaries
+- `TEST_STRATEGY.md` — canonical verification expectations
+- `ACCEPTANCE_CRITERIA.md` — canonical completion criteria for the hardening phase
+- `AGENTS.md` — canonical operating manual for contributors and coding agents
+- `CONTRIBUTING.md` — contributor workflow guidance aligned to the source-of-truth hierarchy
+
+Supporting and historical docs are labeled in-place:
+
+- `docs/reconstruction-prd.md` is retained as source material and is superseded by `PRD.md`
+- `AwesomeNewPlan_DeleteMeLater.md` is retained as a superseded transitional checklist
+- `REPO_MAP.md` is a supporting orientation guide, not a planning authority
+- `ROADMAP.md` is an archived placeholder, not an active roadmap
+
 ## Symphony Automation
 
 OverDrafter includes a repo-local Symphony workflow contract in `WORKFLOW.md`, repo-local skills in

@@ -1,6 +1,12 @@
 # OverDrafter Reconstruction PRD
 
-Last updated: March 6, 2026
+Last updated: March 12, 2026
+
+## Status
+
+Source material only. This document is a reverse-engineered reconstruction of product intent from the repository state as of early March 2026.
+
+`PRD.md` is now the canonical product requirements document for OverDrafter. Use this file only for historical context, provenance, or to understand how the canonical PRD was derived. Do not treat this document as the active source of truth when it conflicts with `PRD.md`.
 
 ## 1. Document purpose
 

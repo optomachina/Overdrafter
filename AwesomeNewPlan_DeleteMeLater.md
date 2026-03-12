@@ -1,6 +1,19 @@
 # OverDrafter Repository Hardening Plan
 
-Last updated: March 11, 2026
+Last updated: March 12, 2026
+
+## Status
+
+Superseded temporary planning checklist. This file captured transitional repository-hardening work before the canonical root planning docs were established.
+
+Use these canonical docs instead:
+- `PLAN.md` for the active execution plan
+- `PRD.md` for product intent
+- `ARCHITECTURE.md` for system boundaries
+- `TEST_STRATEGY.md` for verification policy
+- `ACCEPTANCE_CRITERIA.md` for hardening-phase completion criteria
+
+This file is retained as source material only. It should not be treated as an active checklist or current source of truth.
 
 ## Purpose
 
