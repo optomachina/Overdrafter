@@ -18,6 +18,8 @@ OverDrafter includes a repo-local Symphony workflow contract in `WORKFLOW.md`, r
 
 When launching Symphony, point the service at this repo's `WORKFLOW.md` explicitly. Do not rely on
 Symphony's default local `./WORKFLOW.md` from the separate `openai/symphony` checkout.
+For active implementation states, Symphony should immediately switch to the issue branch with
+`./scripts/symphony-ensure-branch.sh`, not edit `main`.
 ## What Was Implemented
 
 ### Web app

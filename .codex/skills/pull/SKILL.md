@@ -1,3 +1,10 @@
+---
+name: pull
+description: |
+  Sync the current OverDrafter issue workspace with the latest upstream main
+  state without destroying in-progress work.
+---
+
 # pull
 
 Use this skill when an issue workspace needs to sync from the default branch before starting work or before rebasing a PR branch.

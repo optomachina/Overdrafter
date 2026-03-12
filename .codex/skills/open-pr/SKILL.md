@@ -1,3 +1,10 @@
+---
+name: open-pr
+description: |
+  Create or refresh the GitHub pull request for the current OverDrafter issue
+  branch before handoff to Human Review.
+---
+
 # open-pr
 
 Use this skill when an OverDrafter issue branch is committed, pushed, and ready for Human Review.

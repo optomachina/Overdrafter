@@ -46,6 +46,8 @@ Minimum check:
 If that check fails, stop and correct the workspace instead of trying to interpret the ticket from the wrong repo.
 If you are using Symphony, launch it against this repo's `WORKFLOW.md` and keep the repo-local
 skills in `.codex/skills/` and `scripts/symphony-preflight.sh` in sync with that workflow.
+Symphony issue runs must create or switch to the issue branch before any edits; they must not make
+implementation changes on `main`.
 ## Package manager
 
 - Use `npm` for both the repo root and the `worker/` package.

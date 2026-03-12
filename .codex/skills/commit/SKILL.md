@@ -1,3 +1,10 @@
+---
+name: commit
+description: |
+  Create a focused git commit for the current OverDrafter issue branch after
+  verification and scope checks are complete.
+---
+
 # commit
 
 Use this skill when an OverDrafter issue is implemented and ready to be captured in git.

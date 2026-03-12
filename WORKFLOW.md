@@ -18,10 +18,18 @@ hooks:
   after_create: |
     git clone https://github.com/optomachina/Overdrafter.git .
     ./scripts/symphony-preflight.sh
-    npm ci
+    NPM_BIN="$(command -v npm || true)"
+    if [ -z "$NPM_BIN" ] && [ -x /opt/homebrew/bin/npm ]; then
+      NPM_BIN=/opt/homebrew/bin/npm
+    fi
+    if [ -z "$NPM_BIN" ]; then
+      echo "Symphony bootstrap failed: npm is not available in PATH." >&2
+      exit 1
+    fi
+    "$NPM_BIN" ci
     (
       cd worker
-      npm ci
+      "$NPM_BIN" ci
     )
   before_run: |
     ./scripts/symphony-preflight.sh
@@ -44,6 +52,7 @@ You are working on Linear issue {{ issue.identifier }} in the Symphony project f
 
 Title: {{ issue.title }}
 State: {{ issue.state }}
+Preferred branch: {{ issue.branch_name }}
 
 Description:
 {{ issue.description }}
@@ -58,10 +67,17 @@ Operate with these repo rules:
 
 State behavior:
 
-- `Todo`, `In Progress`, `Rework`: implement the issue, run targeted verification, commit, push, and open or update a PR before handing off to `Human Review`.
+- `Todo`, `In Progress`, `Rework`: create or switch to the issue branch before any edits, then implement the issue, run targeted verification, commit, push, and open or update a PR before handing off to `Human Review`.
 - `Human Review`: do not implement new changes unless review feedback explicitly moves the issue back to `Rework`.
 - `Merging`: do not implement new code. Use the `land` skill to land the reviewed PR safely. If no PR exists, stop and report that the issue was moved to `Merging` too early.
 - `Done`: only after the PR is actually merged.
+
+Branch rules:
+
+- Never implement on `main`.
+- Before editing on `Todo`, `In Progress`, or `Rework`, run `./scripts/symphony-ensure-branch.sh "<target-branch>"`.
+- Prefer the Linear branch suggestion shown above. If it is blank, derive a focused branch name from the issue identifier and title.
+- If the issue already has a remote branch, reuse it instead of inventing a second branch.
 
 Handoff requirements:
 
