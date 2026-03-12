@@ -44,7 +44,8 @@ Minimum check:
 - root contains `worker/` and `supabase/`
 
 If that check fails, stop and correct the workspace instead of trying to interpret the ticket from the wrong repo.
-
+If you are using Symphony, launch it against this repo's `WORKFLOW.md` and keep the repo-local
+skills in `.codex/skills/` and `scripts/symphony-preflight.sh` in sync with that workflow.
 ## Package manager
 
 - Use `npm` for both the repo root and the `worker/` package.
