@@ -21,6 +21,22 @@ At a high level, the product does four things:
 
 Enable a CNC buyer to go from “I have a part and a drawing” to “I selected a vetted quote option” in one workspace, while giving internal estimators full control over review, sourcing, pricing, and publication.
 
+## Long-term product direction
+
+OverDrafter’s current implementation is a curated CNC quote platform, but the intended long-term direction is broader: a manufacturing operating system that unifies file intake, part and assembly organization, revision control, engineering-service workflows, sourcing, quote comparison, purchasing handoff, and fulfillment visibility in one system.
+
+The product should evolve from “upload files and receive curated quote options” toward “manage the full lifecycle of manufactured parts and projects from design package to ordered result.” That direction includes:
+
+- a stronger part- and project-centric workspace model
+- revision-aware file management for CAD, drawings, and related artifacts
+- explicit support for engineering-service requests such as modeling, redrafting, FEA, DFM, and DFA
+- richer quote orchestration, vendor comparison, and selection workflows
+- downstream review, purchasing, shipping, and fulfillment states
+- cross-platform access across web, desktop, and mobile surfaces
+- CAD-native integrations and plugins for direct submission and synchronization from authoring tools
+
+This long-term direction does not change the current implementation boundaries or current execution phase. It exists to clarify the intended destination so future planning, architecture, and prioritization can align toward the same product shape over time.
+
 ## Core jobs to be done
 
 ### For clients
