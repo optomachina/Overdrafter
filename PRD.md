@@ -1,89 +1,101 @@
-OverDrafter Product Requirements Document
+# OverDrafter Product Requirements Document
 
 Last updated: March 11, 2026
 
-Document purpose
+## Document purpose
 
-This Product Requirements Document (PRD) defines the intended behaviour of OverDrafter.  It is intended to be the single canonical product specification for the application.  The content below consolidates stable requirements derived from the existing repository and product reconstruction work.  Future development should align with this document and evolve it rather than scattering requirements across ad‑hoc notes.
+This is the canonical product requirements document for OverDrafter. It captures stable product intent based on the current repository, reconstructed documentation, and the present direction of the application. It replaces the role of a purely reconstructive product document by becoming the active source of truth for product behavior and product boundaries.
 
-Product summary
+## Product summary
 
-OverDrafter is a multi‑role CNC quoting platform that turns uploaded CAD and drawing files into client‑selectable quote packages.  At a high level, the product:
-	1.	Allows clients to create part requests and organise them into projects.
-	2.	Enables an internal estimating team to review extracted specifications, approve requirements and compare vendor quote results.
-	3.	Runs asynchronous extraction and quote orchestration through a worker and queue.
-	4.	Publishes curated client‑facing quote packages so that a customer can choose the best option.
+OverDrafter is a multi-role CNC quoting platform that turns uploaded CAD and drawing files into client-selectable quote packages. The product combines client intake, internal estimating and review, asynchronous extraction and quote orchestration, and curated quote publication in a single workflow-oriented system.
 
-Vision statement
+At a high level, the product does four things:
 
-Enable a CNC buyer to go from “I have a part and a drawing” to “I selected a vetted quote option” in one workspace, while giving internal estimators full control over review, sourcing, pricing and publication.
+1. Lets clients submit parts and organize them into projects.
+2. Lets internal estimators review extracted requirements and compare sourcing options.
+3. Runs asynchronous extraction and quote orchestration through a worker and queue-backed process.
+4. Publishes curated quote packages for client review and selection.
 
-Core jobs to be done
+## Vision
 
-For clients
-	•	Upload part packages quickly and track them by project.
-	•	Organise parts into projects and share them with collaborators.
-	•	Review published quote options and select the best option.
+Enable a CNC buyer to go from “I have a part and a drawing” to “I selected a vetted quote option” in one workspace, while giving internal estimators full control over review, sourcing, pricing, and publication.
 
-For internal estimators
-	•	Turn uploaded files into structured part requirements.
-	•	Compare automated and manual vendor quotes.
-	•	Apply pricing policy and publish curated client packages.
-	•	Keep the workflow auditable and operationally visible.
+## Core jobs to be done
 
-For internal admins
-	•	Possess all estimator capabilities.
-	•	Manage workspace access and role assignments.
+### For clients
+- Upload a part package quickly.
+- Submit a prompt and files in one flow.
+- Organize parts into projects.
+- Share projects with collaborators.
+- Review published quote options.
+- Select the best quote option for their needs.
 
-For project collaborators
-	•	Access a specific project by invitation.
-	•	View and manage only project‑scoped parts without seeing unrelated workspace data.
+### For internal estimators
+- Turn uploaded files into structured part requirements.
+- Review and correct extracted specifications.
+- Compare automated and manual vendor quotes.
+- Apply internal pricing policy.
+- Publish curated quote packages to clients.
+- Maintain operational visibility over the quoting pipeline.
 
-Product goals
+### For internal admins
+- Perform all estimator actions.
+- Manage workspace access and role assignments.
+- Maintain the integrity of internal operational workflows.
 
-Primary goals
-	•	Reduce friction in part intake.
-	•	Preserve a strong internal review checkpoint before quoting and publishing.
-	•	Centralise vendor comparison in one canonical job record.
-	•	Provide a clean client experience for collaboration and selection.
-	•	Maintain secure access boundaries between workspaces, projects and internal‑only data.
+### For project collaborators
+- Access only the projects they are invited to.
+- View and participate in project-scoped work without seeing unrelated workspace data.
 
-Secondary goals
-	•	Support mixed sourcing models: browser automation, imported spreadsheets and manual intake.
-	•	Support long‑running asynchronous work via queues and workers.
-	•	Keep an audit trail for sensitive actions.
-	•	Make the app usable for both one‑off parts and grouped project workflows.
+## Product goals
 
-Non‑goals
+### Primary goals
+- Reduce friction in part intake.
+- Preserve a strong internal review checkpoint before quotes are run or published.
+- Centralize vendor comparison in one canonical record of quoting work.
+- Provide a clean client experience for collaboration and quote selection.
+- Maintain secure access boundaries between workspaces, projects, collaborators, and internal-only data.
 
-The current product does not aim to own:
-	•	Direct ordering, procurement or purchase order issuance.
-	•	Billing, subscriptions or payment processing.
-	•	ERP/CRM synchronisation.
-	•	Real‑time chat or threaded messaging.
-	•	Full manufacturing execution.
-	•	Native mobile applications.
-	•	Public marketing CMS functionality.
+### Secondary goals
+- Support mixed sourcing models including browser automation, imported spreadsheets, and manual quote intake.
+- Support long-running asynchronous processing.
+- Preserve auditability for sensitive workflow actions.
+- Make the app usable for both one-off parts and grouped project workflows.
 
-These may be future opportunities but are not core to the current product.
+## Non-goals
 
-Product principles
-	•	Fast, lightweight intake: uploading a part should be quick and simple.
-	•	Explicit internal review: internal estimators must approve requirements before quotes are run or published.
-	•	Traceable options: all published client options must be traceable to vendor quotes and pricing policy.
-	•	Modelled state transitions: all important workflow transitions should be persisted in the database.
-	•	Fail closed: automation failures must not progress a part forward and must remain reviewable.
-	•	No data leakage: internal sourcing data must never leak into client‑facing surfaces.
-	•	Tenancy concept: workspace is the user‑facing concept; organization and organization_membership remain backend implementation details.
-	•	Single workspace per company: assume one workspace per user/company for version 1 and avoid premature multi‑workspace user experience.
+The current product should not be treated as owning:
+- direct ordering or purchase-order issuance
+- subscription billing or payments
+- ERP/CRM synchronization
+- real-time chat or threaded messaging as a core workflow surface
+- full manufacturing execution
+- native mobile applications
+- public marketing CMS functionality
 
-Core product flows (high level)
-	1.	Client account bootstrap: a signed‑in user with no existing access is automatically bootstrapped into a workspace.  Most users become client.  An allow‑listed email may bootstrap as internal_admin.  For version 1 assume one workspace per user/company.
-	2.	Client part intake: clients use a single entry point (e.g., a chat‑like composer) to upload CAD and drawing files and optionally provide a prompt.  The system validates uploads, creates a draft and queues extraction.
-	3.	Job/part reconciliation: the backend groups uploaded files into parts, pairs CAD and drawing files where possible and prepares extraction jobs.
-	4.	Extraction and estimation: a worker extracts specifications from files, internal estimators approve part requirements and the system orchestrates vendor quotes (automated and manual).  Estimators compare results and apply pricing policy.
-	5.	Publication: curated quote packages are published for clients to review and select.  Clients can choose the option that best fits their needs.
+## Product principles
 
-Future work
+### 1. Intake must feel fast
+Submitting a part should feel lightweight and direct. Prompt text and file upload should live in one coherent intake path.
 
-This document captures the stable product requirements as of March 11 2026.  Future enhancements—such as advanced collaboration, integration with other systems or new pricing models—should be added here and prioritised separately.  When adding new sections, include acceptance criteria and update related plan documents accordingly.
+### 2. Internal review must be explicit
+The system should not silently promote extracted or automated results directly to client-facing outputs without review checkpoints.
+
+### 3. Client-facing options must be traceable
+Published packages should be traceable to source quotes, internal review, and pricing policy decisions.
+
+### 4. Important workflow state must be modeled
+The database and backend should explicitly represent important operational states and transitions.
+
+### 5. Automation must fail closed
+If extraction or sourcing automation fails, the system must preserve visibility and prevent silent progression.
+
+### 6. Internal-only data must stay internal
+Internal sourcing context, operational notes, and sensitive quote context must not leak into client-facing views.
+
+### 7. Workspace is the tenancy concept
+The product should expose `workspace` as the user-facing tenancy boundary. Lower-level backend tenancy concepts should stay implementation details.
+
+### 8. Version 1 should assume one workspace per company
+Avoid premature multi-workspace UX unless a real operating need appears.

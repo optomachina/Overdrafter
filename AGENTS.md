@@ -1,94 +1,182 @@
-# Agent Instructions
+# AGENTS.md
 
-## Debugging Workflows
+Last updated: March 11, 2026
 
-This repo has three supported debugging lanes. Use the lightest lane that fits the task.
+## Purpose
 
-### 1. Production-Realistic Local Workflow
-Use this lane when the task requires real Supabase-backed behavior.
+This file is the operating manual for contributors and coding agents working in the OverDrafter repository. It defines how work should be executed, verified, and documented. Durable instructions belong here instead of being re-explained in prompts.
 
-Commands:
-- `npm run db:start`
-- `npm run db:reset`
-- `npm run seed:dev`
-- `npm run dev`
+## Source-of-truth hierarchy
 
-Requirements:
-- Docker Desktop must be running because local Supabase uses Docker.
-- If `supabase start` fails with `Cannot connect to the Docker daemon`, do not keep retrying setup steps blindly. Treat Docker as unavailable.
+Use this order when documents overlap:
 
-Seeded local users:
-- `client.demo@overdrafter.local`
-- `estimator.demo@overdrafter.local`
-- `admin.demo@overdrafter.local`
+1. `PRD.md`
+2. `PLAN.md`
+3. `ARCHITECTURE.md`
+4. `TEST_STRATEGY.md`
+5. `ACCEPTANCE_CRITERIA.md`
+6. specialized docs for a specific area
+7. `README.md`
 
-Shared password:
-- `Overdrafter123!`
+If you find a conflict:
+- do not guess
+- prefer the higher-priority document
+- update or flag the lower-priority document if it has drifted
 
-Use this lane for:
-- real auth behavior
-- RLS and membership behavior
-- seeded local quote/project/job states
-- true Supabase query and mutation behavior
+## Core repo expectations
 
-### 2. Fast E2E Workflow
-Use this lane for browser regression coverage and reproducible automated repros.
+- Preserve product intent. Do not “improve” the product by silently changing requirements.
+- Prefer small, isolated changes.
+- For nontrivial work, use an isolated branch or worktree.
+- Do not rely on memory of prior chats when the repo should contain the instruction.
+- When behavior changes, update documentation that describes the behavior.
+- Do not declare work complete based only on a successful build.
 
-Commands:
-- `npm run e2e:prepare`
-- `npm run e2e`
+## Package manager policy
 
-Rules:
-- `npm run e2e:prepare` is the intended command for reset + reseed + Playwright auth setup.
-- Do not manually substitute repeated `db:reset` + `seed:dev` + login steps if `e2e:prepare` fits the task.
-- Assume Playwright captures trace, video, screenshot, and diagnostics JSON on failure.
+- One package manager must be treated as authoritative.
+- Until the repo is explicitly cleaned up, inspect the lockfiles and scripts before changing dependency-related files.
+- Do not change lockfiles casually.
+- Do not add dependencies without a clear reason tied to the task.
 
-### 3. Fixture-Mode Workflow
-Use this lane when the task is UI-focused and does not require real Supabase state.
+## Branch and worktree policy
 
-Command:
-- `VITE_ENABLE_FIXTURE_MODE=1 npm run dev`
+Use isolated work for:
+- behavior changes
+- schema or migration changes
+- changes touching multiple files
+- risky refactors
+- concurrent efforts
 
-Rules:
-- This lane does not require Docker or local Supabase data.
-- Use normal app URLs with `?fixture=<scenarioId>&debug=1`.
+Direct local edits are acceptable only for:
+- trivial one-file fixes
+- typo or copy changes
+- clearly safe non-behavioral edits
 
-Supported scenarios:
-- `landing-anonymous`
-- `client-empty`
-- `client-needs-attention`
-- `client-quoted`
-- `client-published`
+Recommended naming:
+- `feature/...`
+- `fix/...`
+- `refactor/...`
+- `spike/...`
+- `docs/...`
 
-Use this lane for:
-- client workspace UI tuning
-- deterministic repros
-- debugging when Docker is unavailable
-- tasks that do not require real auth, RLS, or Supabase mutations
+One problem per branch/worktree whenever practical.
 
-## Default Agent Behavior
+## Verification policy
 
-- Before recommending commands, explicitly state which debugging lane you are using and why.
-- Do not tell the user to run `db:start`, `db:reset`, and `seed:dev` every time.
-- Prefer the lightest viable lane:
-  - fixture mode first for UI-only work
-  - fast E2E for regression verification
-  - production-realistic only when real backend behavior matters
-- If Docker is unavailable, prefer fixture mode unless the task explicitly requires real Supabase behavior.
-- If the task requires real backend behavior and Docker is unavailable, say that Docker is a blocker instead of pretending fixture mode is equivalent.
+Before calling work complete, run the narrowest sufficient verification early, then the broader required verification before handoff.
 
-## Diagnostics
+Expected verification layers are defined in `TEST_STRATEGY.md`.
 
-When debugging locally, prefer URLs with `?debug=1`.
+At minimum, for most nontrivial changes, expect to run:
+- lint
+- typecheck
+- relevant tests
+- build when the change affects wiring, routes, or bundling
 
-Diagnostics are available through:
-- `window.__OVERDRAFTER_DEBUG__?.getSnapshot()`
-- `window.__OVERDRAFTER_DEBUG__?.exportJson()`
+If the repo later standardizes a `verify` command, use that as the default local gate.
 
-When guiding the user or writing repro steps, prefer the existing diagnostics surface over inventing a new one.
+## Testing policy
 
-## Source Of Truth
+Follow `TEST_STRATEGY.md`.
 
-- Human-facing setup and examples live in `README.md`
-- Detailed workflow usage lives in `docs/debugging-workflows.md`
-- `AGENTS.md` should remain focused on agent decision rules and workflow selection
+High-level rules:
+- bug fixes should be test-first when practical
+- behavior changes should carry test evidence or an explicit rationale for omission
+- auth, access control, async workflows, quote logic, and publication paths are high-risk areas
+- cosmetic-only changes may not need automated tests, but still require appropriate verification
+
+## Migration and schema policy
+
+For schema, migration, or data-boundary changes:
+- inspect the related schema and migration files before editing
+- make the change intentionally and minimally
+- document migration implications in the PR
+- include rollback notes where meaningful
+- do not mix unrelated schema work into a feature branch
+
+If a directory-specific override exists for database-related files, follow it.
+
+## Documentation update policy
+
+When you change:
+- product behavior
+- workflow expectations
+- test expectations
+- repo operating rules
+- architecture boundaries
+
+you must update the relevant doc in the same change or explicitly state why no documentation update is needed.
+
+Common doc targets:
+- `PRD.md`
+- `PLAN.md`
+- `ARCHITECTURE.md`
+- `TEST_STRATEGY.md`
+- `ACCEPTANCE_CRITERIA.md`
+- `README.md`
+- `CONTRIBUTING.md`
+
+## Protected and generated paths
+
+Treat these with care:
+- lockfiles
+- generated build output
+- environment/config secrets
+- migration history
+- large generated assets
+- files produced by external tools
+
+Do not edit generated output directly unless the task explicitly requires it.
+If generated artifacts are committed accidentally, prefer removing them from tracked state rather than maintaining them manually.
+
+## Task completion standard
+
+A task is not complete until:
+1. the requested change is implemented
+2. relevant verification has been run
+3. the diff is coherent
+4. docs are updated if needed
+5. important risks or follow-ups are noted
+6. the result matches the source-of-truth docs
+
+## Pull request expectations
+
+PRs should include:
+- problem
+- scope
+- verification evidence
+- tests added or updated
+- migration notes where applicable
+- rollback/risk notes where applicable
+- docs updated or reason none were needed
+
+See `.github/pull_request_template.md`.
+
+## When to stop and flag
+
+Stop and surface the issue instead of improvising when:
+- source-of-truth docs conflict materially
+- the task implies a product decision not documented anywhere
+- a migration is risky or unclear
+- access-control behavior is ambiguous
+- a requested shortcut would bypass a protected workflow boundary
+
+## Preferred workflow for agents
+
+1. read the relevant source-of-truth docs
+2. inspect the local area you will change
+3. make a short plan for nontrivial work
+4. implement in a focused way
+5. verify
+6. update docs if needed
+7. summarize what changed and what was verified
+
+## Directory-local overrides
+
+If present, local override files take precedence for their directory:
+- `supabase/AGENTS.override.md`
+- `worker/AGENTS.override.md`
+- `src/features/quotes/AGENTS.override.md`
+
+If no override exists, follow this root file.
