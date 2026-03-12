@@ -18,10 +18,19 @@ hooks:
   after_create: |
     git clone https://github.com/optomachina/Overdrafter.git .
     ./scripts/symphony-preflight.sh
-    NPM_BIN="$(command -v npm || true)"
-    if [ -z "$NPM_BIN" ] && [ -x /opt/homebrew/bin/npm ]; then
-      NPM_BIN=/opt/homebrew/bin/npm
-    fi
+    NPM_BIN=""
+    for candidate in /opt/homebrew/bin/npm npm /usr/local/bin/npm; do
+      if [ "$candidate" = "npm" ]; then
+        resolved_candidate="$(command -v npm || true)"
+      else
+        resolved_candidate="$candidate"
+      fi
+
+      if [ -n "$resolved_candidate" ] && [ -x "$resolved_candidate" ] && "$resolved_candidate" --version >/dev/null 2>&1; then
+        NPM_BIN="$resolved_candidate"
+        break
+      fi
+    done
     if [ -z "$NPM_BIN" ]; then
       echo "Symphony bootstrap failed: npm is not available in PATH." >&2
       exit 1
@@ -42,9 +51,12 @@ agent:
   max_retry_backoff_ms: 300000
 
 codex:
-  command: codex app-server
+  command: codex --config shell_environment_policy.inherit=all --model gpt-5.3-codex app-server
   approval_policy: never
   thread_sandbox: workspace-write
+  turn_sandbox_policy:
+    type: workspaceWrite
+    networkAccess: true
   turn_timeout_ms: 3600000
 ---
 
