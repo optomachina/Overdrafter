@@ -13,18 +13,16 @@ What is intentionally not included?
 
 ## Verification
 
-List the exact commands run locally.
+List the exact commands run locally. Prefer `npm run verify` unless a narrower command set was the right fit for the change.
 
-- [ ] lint
-- [ ] typecheck
-- [ ] tests
-- [ ] build
+- [ ] `npm run verify`
+- [ ] narrower commands were used intentionally and are listed below
 - [ ] other relevant verification
 
 Commands run:
 
 ```bash
-# paste commands here
+# npm run verify
 ```
 
 ## Tests

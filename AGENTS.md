@@ -82,12 +82,13 @@ Before calling work complete, run the narrowest sufficient verification early, t
 Expected verification layers are defined in `TEST_STRATEGY.md`.
 
 At minimum, for most nontrivial changes, expect to run:
-- lint
-- typecheck
-- relevant tests
-- build when the change affects wiring, routes, or bundling
+- `npm run verify`
+- narrower commands early in the loop when helpful
 
-If the repo later standardizes a `verify` command, use that as the default local gate.
+Canonical local commands:
+- repo gate: `npm run verify`
+- root app loop: `npm run lint`, `npm run typecheck`, `npm run test`, `npm run build`
+- worker loop: `npm run verify:worker` from repo root or `npm --prefix worker run verify`
 
 ## Testing policy
 
