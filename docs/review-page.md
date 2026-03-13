@@ -46,4 +46,5 @@
 ## Procurement Handoff Surface
 - The route now holds structured client-side state for shipping, billing, contact, PO, and special-instruction details.
 - The handoff summary explicitly reports what details are still missing before manual release coordination.
+- This review layer is the intended entry point to the future downstream lifecycle defined in `docs/fulfillment-state-model.md`.
 - The route still stops short of payment collection, PO submission, or direct order placement.
