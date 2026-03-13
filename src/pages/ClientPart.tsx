@@ -21,6 +21,7 @@ import {
   ClientDrawingPreviewPanel,
 } from "@/components/quotes/ClientQuoteAssetPanels";
 import { ClientQuoteComparisonChart } from "@/components/quotes/ClientQuoteComparisonChart";
+import { ClientWorkspaceStateSummary, ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { DrawingPreviewDialog } from "@/components/quotes/DrawingPreviewDialog";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
@@ -37,6 +38,10 @@ import {
 } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useClientPartController } from "@/features/quotes/use-client-part-controller";
+import {
+  buildClientWorkspaceState,
+  getClientQuoteOptionStateReasons,
+} from "@/features/quotes/client-workspace-state";
 import { formatCurrency, formatLeadTime, formatStatusLabel } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
 
@@ -58,8 +63,6 @@ const ClientPart = () => {
     drawingPreview,
     drawingPreviewPageUrls,
     effectiveRequestDraft,
-    eligibleQuoteCount,
-    extraction,
     handleArchivePart,
     handleArchiveProject,
     handleAssignPartToProject,
@@ -132,6 +135,18 @@ const ClientPart = () => {
   if (!user) {
     return null;
   }
+
+  const workspaceState =
+    partDetail?.job && partDetail.part
+      ? buildClientWorkspaceState({
+          job: partDetail.job,
+          summary,
+          part: partDetail.part,
+          options: rankedQuoteOptions,
+          selectedOption: selectedQuoteOption,
+          requestedByDate: requestSummaryRequestedByDate,
+        })
+      : null;
 
   return (
     <>
@@ -371,12 +386,14 @@ const ClientPart = () => {
                 <ClientCadPreviewPanel cadFile={cadFile} />
               </div>
 
+              {workspaceState ? <ClientWorkspaceStateSummary state={workspaceState} /> : null}
+
               <section className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <p className="text-xs uppercase tracking-[0.18em] text-white/35">Quote comparison</p>
                     <p className="mt-2 text-sm text-white/55">
-                      Presets only rank eligible quotes, ignore excluded vendors, and honor the requested due date.
+                      Ready, warning, and blocked reasons update as due dates, exclusions, and quote responses change.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -425,12 +442,6 @@ const ClientPart = () => {
                         onSelect={handleSelectQuoteOption}
                       />
                     </div>
-
-                    {requestSummaryRequestedByDate && eligibleQuoteCount === 0 ? (
-                      <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                        No eligible quote currently meets the requested due date of {requestSummaryRequestedByDate}.
-                      </div>
-                    ) : null}
 
                     <div className="mt-4 space-y-3">
                       {rankedQuoteOptions.map((option) => {
@@ -501,6 +512,30 @@ const ClientPart = () => {
                                   {option.process ? ` · ${option.process}` : ""}
                                   {option.material ? ` · ${option.material}` : ""}
                                 </p>
+                                {(() => {
+                                  const optionReasons = getClientQuoteOptionStateReasons({
+                                    option,
+                                    requestedByDate: requestSummaryRequestedByDate,
+                                    preset: activePreset ?? null,
+                                  });
+
+                                  if (optionReasons.length === 0) {
+                                    return null;
+                                  }
+
+                                  return (
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                      {optionReasons.map((reason) => (
+                                        <ClientWorkspaceToneBadge
+                                          key={`${option.key}:${reason.id}`}
+                                          tone={reason.tone}
+                                          label={reason.label}
+                                          className="tracking-normal normal-case"
+                                        />
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                               <div className="flex flex-wrap items-center gap-3 lg:justify-end">
                                 <div className="text-left lg:text-right">
@@ -553,13 +588,6 @@ const ClientPart = () => {
                         onSave={handleSaveRequest}
                         onUploadRevision={attachFilesPicker.openFilePicker}
                         isSaving={saveRequestMutation.isPending}
-                        footer={
-                          extraction?.warnings.length ? (
-                            <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                              {extraction.warnings.join(" ")}
-                            </div>
-                          ) : null
-                        }
                       />
                     ) : (
                       <p className="text-sm text-white/45">Part details are still loading.</p>

@@ -31,6 +31,7 @@ import {
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { buildActivityLogEntries } from "@/features/quotes/activity-log";
 import { formatPartLabel, getClientItemPresentation } from "@/features/quotes/client-presentation";
+import { describeClientPresetUnavailableReason } from "@/features/quotes/client-workspace-state";
 import {
   buildSidebarProjectIdsByJobId,
   buildSidebarProjects,
@@ -719,9 +720,11 @@ export function useClientPartController() {
 
     if (!nextOption?.persistedOfferId) {
       toast.error(
-        requestSummaryRequestedByDate
-          ? "No eligible quote meets the requested due date for this preset."
-          : "No eligible quote is available for this preset.",
+        describeClientPresetUnavailableReason({
+          options: quoteOptions,
+          preset,
+          requestedByDate: requestSummaryRequestedByDate,
+        }),
       );
       return;
     }

@@ -1040,6 +1040,7 @@ export function useClientProjectController() {
     resolveSidebarProjectIdsForJob,
     search,
     saveRequestMutation,
+    optionsByJobId,
     selectedOptionsByJobId,
     setActiveFilter,
     setIsSearchOpen,
