@@ -14,7 +14,7 @@
     "generate:favicon": "node scripts/generate-favicons.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
-    "typecheck:worker": "./worker/node_modules/.bin/tsc --noEmit -p worker/tsconfig.json",
+    "typecheck:worker": "npm --prefix worker run typecheck",
     "preview": "vite preview",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
@@ -22,8 +22,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "verify:worker": "./worker/node_modules/.bin/tsc --noEmit -p worker/tsconfig.json && ./worker/node_modules/.bin/tsc -p worker/tsconfig.json",
-    "verify": "eslint . && tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vitest run && vite build && ./worker/node_modules/.bin/tsc --noEmit -p worker/tsconfig.json && ./worker/node_modules/.bin/tsc -p worker/tsconfig.json"
+    "verify:worker": "npm --prefix worker run verify",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run build && npm run verify:worker"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
