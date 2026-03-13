@@ -31,7 +31,7 @@ This document classifies OverDrafter capabilities by planning horizon so future 
 | richer RFQ metadata | Next | directly supports better quoting and review |
 | service request taxonomy | Next | adjacent product expansion |
 | assembly-aware project workflow | Later | project-scoped assembly context only; does not replace `Project` as the top-level container |
-| DFM / DFA status model | Later | depends on richer review workflow |
+| DFM / DFA status model | Later | product target is defined now in `docs/manufacturing-review-status-model.md`, but implementation still depends on richer RFQ metadata and service-line-item foundations |
 | fulfillment state tracking | Later | define the visibility-first taxonomy now, but delay implementation until review-route and metadata maturity exist |
 | immutable version history | Later | start of PDM foundation |
 | official revisions | Later | part of PDM foundation |
