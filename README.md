@@ -33,6 +33,11 @@ If a lower-priority doc disagrees with one of the files above, the higher-priori
 - `AwesomeNewPlan_DeleteMeLater.md` is an archived transitional checklist and is superseded by `PLAN.md` and the canonical root docs.
 - `REPO_MAP.md` is a non-canonical orientation aid for navigating the repo layout.
 - `ROADMAP.md` is currently a placeholder and is not an active planning surface.
+
+Important specialized planning docs include:
+
+- `docs/service-request-taxonomy.md` for service-type modeling and line-item boundaries
+- `docs/assembly-workspace-foundation.md` for project-scoped assembly workspace planning and backlog placement
 ## Symphony Automation
 
 OverDrafter includes a repo-local Symphony workflow contract in `WORKFLOW.md`, repo-local skills in

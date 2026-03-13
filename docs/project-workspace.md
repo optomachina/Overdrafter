@@ -68,3 +68,8 @@
 - No quote options for a line item
 - No selected quote on a row
 - Missing preview assets
+
+## Future Assembly-Aware Extension
+- The project workspace remains the umbrella route even when assemblies are introduced.
+- Future assembly trees should appear as project-scoped context rather than replacing the project table with an assembly-only top-level container.
+- Standalone parts and project-level documents must remain valid siblings to assembly-grouped content in the same workspace.

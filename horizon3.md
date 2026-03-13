@@ -31,6 +31,8 @@ Make OverDrafter capable of managing controlled file history, part and assembly 
 - cross-file linkage
 - affected-items awareness
 
+This theme extends the project-scoped assembly workspace foundation defined in [docs/assembly-workspace-foundation.md](./docs/assembly-workspace-foundation.md). It should not re-open the question of whether `Project` or `Assembly` is the top-level container.
+
 ### 4. Comparison and auditability
 - metadata diff
 - file diff groundwork
@@ -60,6 +62,8 @@ Make OverDrafter capable of managing controlled file history, part and assembly 
 - assembly membership
 - part dependency awareness
 - revision impact display
+
+This epic assumes the Horizon 2 assembly workspace foundation is already defined. Its job is deeper structural and revision-aware modeling, not first-pass workspace information architecture.
 
 ### Epic: revision compare
 - metadata comparison
