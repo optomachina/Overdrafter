@@ -1,6 +1,10 @@
 # OverDrafter Reconstruction PRD
 
-Last updated: March 6, 2026
+Last updated: March 13, 2026
+
+> Status: Source material only. `PRD.md` became the canonical product requirements document on March 11, 2026.
+>
+> Use this file for historical reconstruction context and traceability only. If this file conflicts with `PRD.md`, `PRD.md` wins.
 
 ## 1. Document purpose
 
