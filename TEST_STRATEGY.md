@@ -80,4 +80,7 @@ This document defines how OverDrafter should be verified locally, in CI, and dur
 
 ## CI policy
 Minimum CI target:
-- `npm run verify`
+- lint
+- typecheck
+- automated tests
+- build
