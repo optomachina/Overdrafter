@@ -78,4 +78,24 @@ describe("activity log mapping", () => {
     expect(grouped.get("job-a")?.map((event) => event.id)).toEqual(["event-a", "event-c"]);
     expect(grouped.get("job-b")?.map((event) => event.id)).toEqual(["event-b"]);
   });
+
+  it("includes requested services when a part request update changes service intent", () => {
+    const entries = buildActivityLogEntries([
+      createEvent({
+        id: "event-request-update",
+        jobId: "job-1",
+        eventType: "client.part_request_updated",
+        payload: {
+          requestedServiceKinds: ["dfm_review", "manufacturing_quote"],
+          primaryServiceKind: "dfm_review",
+          quantity: 12,
+          requestedByDate: "2026-03-24",
+        },
+      }),
+    ]);
+
+    expect(entries[0]?.detail).toContain("12 units");
+    expect(entries[0]?.detail).toContain("DFM review");
+    expect(entries[0]?.detail).toContain("Manufacturing quote");
+  });
 });

@@ -67,6 +67,7 @@ import type { PostgrestSingleResponse, PostgrestResponse } from "@supabase/supab
 import { buildAutoProjectName, groupUploadFiles, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { buildDraftTitleFromPrompt } from "@/features/quotes/file-validation";
 import { normalizeRequestedQuoteQuantities, parseRequestIntake } from "@/features/quotes/request-intake";
+import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import { getImportedVendorOffers, normalizeDrawingPreview } from "@/features/quotes/utils";
 import { toast } from "sonner";
@@ -172,6 +173,9 @@ type JobSelectedOfferRow = {
   selected_vendor_quote_offer_id: string | null;
   requested_quote_quantities: number[];
   requested_by_date: string | null;
+  requested_service_kinds: string[] | null;
+  primary_service_kind: string | null;
+  service_notes: string | null;
 };
 
 type HashedUploadFile = {
@@ -501,6 +505,9 @@ function buildJobPartSummary(
   input: {
     row: ApprovedRequirementJoinRow;
     existing: JobPartSummary | undefined;
+    requestedServiceKinds: string[];
+    primaryServiceKind: string | null;
+    serviceNotes: string | null;
     requestedQuoteQuantities: number[];
     requestedByDate: string | null;
   },
@@ -514,12 +521,27 @@ function buildJobPartSummary(
     typeof specSnapshot.importedBatch === "string" && specSnapshot.importedBatch.trim().length > 0
       ? specSnapshot.importedBatch.trim().toUpperCase()
       : null;
+  const serviceIntent = normalizeRequestedServiceIntent({
+    requestedServiceKinds:
+      (Array.isArray(specSnapshot.requestedServiceKinds) ? specSnapshot.requestedServiceKinds : [])
+        .filter((value): value is string => typeof value === "string")
+        .concat(input.requestedServiceKinds),
+    primaryServiceKind:
+      (typeof specSnapshot.primaryServiceKind === "string" ? specSnapshot.primaryServiceKind : null) ??
+      input.primaryServiceKind,
+    serviceNotes:
+      (typeof specSnapshot.serviceNotes === "string" ? specSnapshot.serviceNotes : null) ??
+      input.serviceNotes,
+  });
 
   return {
     jobId: input.row.job_id,
     partNumber: input.row.approved_part_requirements?.part_number ?? null,
     revision: input.row.approved_part_requirements?.revision ?? null,
     description: input.row.approved_part_requirements?.description ?? null,
+    requestedServiceKinds: serviceIntent.requestedServiceKinds,
+    primaryServiceKind: serviceIntent.primaryServiceKind,
+    serviceNotes: serviceIntent.serviceNotes,
     quantity: input.row.quantity ?? null,
     requestedQuoteQuantities:
       normalizedQuoteQuantities.length > 0 ? normalizedQuoteQuantities : input.requestedQuoteQuantities,
@@ -536,13 +558,24 @@ async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
   if (jobIds.length === 0) {
     return {
       selectedOffersByJobId: new Map<string, VendorQuoteOfferRecord>(),
-      requestByJobId: new Map<string, { requestedQuoteQuantities: number[]; requestedByDate: string | null }>(),
+      requestByJobId: new Map<
+        string,
+        {
+          requestedServiceKinds: string[];
+          primaryServiceKind: string | null;
+          serviceNotes: string | null;
+          requestedQuoteQuantities: number[];
+          requestedByDate: string | null;
+        }
+      >(),
     };
   }
 
   const { data: jobsData, error: jobsError } = await supabase
     .from("jobs")
-    .select("id, selected_vendor_quote_offer_id, requested_quote_quantities, requested_by_date")
+    .select(
+      "id, selected_vendor_quote_offer_id, requested_service_kinds, primary_service_kind, service_notes, requested_quote_quantities, requested_by_date",
+    )
     .in("id", jobIds);
 
   const jobsWithSelection = ensureData(jobsData, jobsError) as JobSelectedOfferRow[];
@@ -557,6 +590,11 @@ async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
         jobsWithSelection.map((job) => [
           job.id,
           {
+            ...normalizeRequestedServiceIntent({
+              requestedServiceKinds: job.requested_service_kinds ?? [],
+              primaryServiceKind: job.primary_service_kind ?? null,
+              serviceNotes: job.service_notes ?? null,
+            }),
             requestedQuoteQuantities: normalizeRequestedQuoteQuantities(job.requested_quote_quantities ?? []),
             requestedByDate: job.requested_by_date ?? null,
           },
@@ -588,6 +626,11 @@ async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
       jobsWithSelection.map((job) => [
         job.id,
         {
+          ...normalizeRequestedServiceIntent({
+            requestedServiceKinds: job.requested_service_kinds ?? [],
+            primaryServiceKind: job.primary_service_kind ?? null,
+            serviceNotes: job.service_notes ?? null,
+          }),
           requestedQuoteQuantities: normalizeRequestedQuoteQuantities(job.requested_quote_quantities ?? []),
           requestedByDate: job.requested_by_date ?? null,
         },
@@ -718,7 +761,9 @@ export async function fetchJobPartSummariesByOrganization(
       .order("created_at", { ascending: true }),
     supabase
       .from("jobs")
-      .select("id, selected_vendor_quote_offer_id, requested_quote_quantities, requested_by_date")
+      .select(
+        "id, selected_vendor_quote_offer_id, requested_service_kinds, primary_service_kind, service_notes, requested_quote_quantities, requested_by_date",
+      )
       .eq("organization_id", organizationId),
   ]);
 
@@ -735,6 +780,9 @@ export async function fetchJobPartSummariesByOrganization(
   for (const row of approvedRequirements) {
     const selectedOffer = selectedOffersByJobId.get(row.job_id) ?? null;
     const requestDefaults = requestByJobId.get(row.job_id) ?? {
+      requestedServiceKinds: [],
+      primaryServiceKind: null,
+      serviceNotes: null,
       requestedQuoteQuantities: [],
       requestedByDate: null,
     };
@@ -742,6 +790,9 @@ export async function fetchJobPartSummariesByOrganization(
       ...buildJobPartSummary({
         row,
         existing: summariesByJobId.get(row.job_id),
+        requestedServiceKinds: requestDefaults.requestedServiceKinds,
+        primaryServiceKind: requestDefaults.primaryServiceKind,
+        serviceNotes: requestDefaults.serviceNotes,
         requestedQuoteQuantities: requestDefaults.requestedQuoteQuantities,
         requestedByDate: requestDefaults.requestedByDate,
       }),
@@ -770,6 +821,12 @@ export async function fetchJobPartSummariesByOrganization(
       partNumber: parsedReference?.partNumber ?? existingSummary?.partNumber ?? null,
       revision: parsedReference?.revision ?? existingSummary?.revision ?? null,
       description: existingSummary?.description ?? null,
+      requestedServiceKinds:
+        existingSummary?.requestedServiceKinds ?? requestByJobId.get(row.job_id)?.requestedServiceKinds ?? [],
+      primaryServiceKind:
+        existingSummary?.primaryServiceKind ?? requestByJobId.get(row.job_id)?.primaryServiceKind ?? null,
+      serviceNotes:
+        existingSummary?.serviceNotes ?? requestByJobId.get(row.job_id)?.serviceNotes ?? null,
       quantity: existingSummary?.quantity ?? null,
       requestedQuoteQuantities: existingSummary?.requestedQuoteQuantities ?? requestByJobId.get(row.job_id)?.requestedQuoteQuantities ?? [],
       requestedByDate: existingSummary?.requestedByDate ?? requestByJobId.get(row.job_id)?.requestedByDate ?? null,
@@ -821,6 +878,9 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
   for (const row of approvedRequirements) {
     const selectedOffer = selectedOffersByJobId.get(row.job_id) ?? null;
     const requestDefaults = requestByJobId.get(row.job_id) ?? {
+      requestedServiceKinds: [],
+      primaryServiceKind: null,
+      serviceNotes: null,
       requestedQuoteQuantities: [],
       requestedByDate: null,
     };
@@ -828,6 +888,9 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
       ...buildJobPartSummary({
         row,
         existing: summariesByJobId.get(row.job_id),
+        requestedServiceKinds: requestDefaults.requestedServiceKinds,
+        primaryServiceKind: requestDefaults.primaryServiceKind,
+        serviceNotes: requestDefaults.serviceNotes,
         requestedQuoteQuantities: requestDefaults.requestedQuoteQuantities,
         requestedByDate: requestDefaults.requestedByDate,
       }),
@@ -856,6 +919,12 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
       partNumber: parsedReference?.partNumber ?? existingSummary?.partNumber ?? null,
       revision: parsedReference?.revision ?? existingSummary?.revision ?? null,
       description: existingSummary?.description ?? null,
+      requestedServiceKinds:
+        existingSummary?.requestedServiceKinds ?? requestByJobId.get(row.job_id)?.requestedServiceKinds ?? [],
+      primaryServiceKind:
+        existingSummary?.primaryServiceKind ?? requestByJobId.get(row.job_id)?.primaryServiceKind ?? null,
+      serviceNotes:
+        existingSummary?.serviceNotes ?? requestByJobId.get(row.job_id)?.serviceNotes ?? null,
       quantity: existingSummary?.quantity ?? null,
       requestedQuoteQuantities: existingSummary?.requestedQuoteQuantities ?? requestByJobId.get(row.job_id)?.requestedQuoteQuantities ?? [],
       requestedByDate: existingSummary?.requestedByDate ?? requestByJobId.get(row.job_id)?.requestedByDate ?? null,
@@ -2181,6 +2250,9 @@ export async function createClientDraft(input: ClientDraftInput): Promise<string
     p_description: input.description ?? null,
     p_project_id: input.projectId ?? null,
     p_tags: input.tags ?? [],
+    p_requested_service_kinds: input.requestedServiceKinds ?? [],
+    p_primary_service_kind: input.primaryServiceKind ?? null,
+    p_service_notes: input.serviceNotes ?? null,
     p_requested_quote_quantities: input.requestedQuoteQuantities ?? [],
     p_requested_by_date: input.requestedByDate ?? null,
   });
@@ -2207,6 +2279,9 @@ export async function createClientDraft(input: ClientDraftInput): Promise<string
       description: input.description,
       source: "client_home",
       tags: input.tags,
+      requestedServiceKinds: input.requestedServiceKinds,
+      primaryServiceKind: input.primaryServiceKind,
+      serviceNotes: input.serviceNotes,
       requestedQuoteQuantities: input.requestedQuoteQuantities,
       requestedByDate: input.requestedByDate,
     });
@@ -2224,6 +2299,9 @@ export async function updateClientPartRequest(input: ClientPartRequestUpdateInpu
 
   const { data, error } = await callRpc("api_update_client_part_request", {
     p_job_id: input.jobId,
+    p_requested_service_kinds: input.requestedServiceKinds,
+    p_primary_service_kind: input.primaryServiceKind ?? null,
+    p_service_notes: input.serviceNotes ?? null,
     p_description: input.description ?? null,
     p_part_number: input.partNumber ?? null,
     p_revision: input.revision ?? null,
@@ -2269,6 +2347,9 @@ export async function createJobsFromUploadFiles(input: {
       description: input.prompt?.trim() || undefined,
       projectId: targetProjectId,
       tags: [],
+      requestedServiceKinds: requestIntake.requestedServiceKinds,
+      primaryServiceKind: requestIntake.primaryServiceKind,
+      serviceNotes: requestIntake.serviceNotes,
       requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
       requestedByDate: requestIntake.requestedByDate,
     });
@@ -2412,6 +2493,9 @@ export async function createJob(input: {
   description?: string;
   source: string;
   tags?: string[];
+  requestedServiceKinds?: string[];
+  primaryServiceKind?: string | null;
+  serviceNotes?: string | null;
   requestedQuoteQuantities?: number[];
   requestedByDate?: string | null;
 }): Promise<string> {
@@ -2421,6 +2505,9 @@ export async function createJob(input: {
     p_description: input.description ?? null,
     p_source: input.source,
     p_tags: input.tags ?? [],
+    p_requested_service_kinds: input.requestedServiceKinds ?? [],
+    p_primary_service_kind: input.primaryServiceKind ?? null,
+    p_service_notes: input.serviceNotes ?? null,
     p_requested_quote_quantities: input.requestedQuoteQuantities ?? [],
     p_requested_by_date: input.requestedByDate ?? null,
   });

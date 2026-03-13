@@ -157,6 +157,7 @@ const ClientProjectReview = () => {
                         <div>
                           <p className="text-sm font-semibold text-white">{presentation.title}</p>
                           <RequestSummaryBadges
+                            requestedServiceKinds={item.summary?.requestedServiceKinds ?? []}
                             quantity={item.summary?.quantity ?? item.part?.quantity ?? null}
                             requestedQuoteQuantities={item.summary?.requestedQuoteQuantities ?? []}
                             requestedByDate={item.summary?.requestedByDate ?? null}

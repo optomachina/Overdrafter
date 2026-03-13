@@ -238,6 +238,9 @@ export type Database = {
           source: string;
           active_pricing_policy_id: string | null;
           tags: string[];
+          requested_service_kinds: string[];
+          primary_service_kind: string | null;
+          service_notes: string | null;
           requested_quote_quantities: number[];
           requested_by_date: string | null;
           archived_at: string | null;
@@ -256,6 +259,9 @@ export type Database = {
           source?: string;
           active_pricing_policy_id?: string | null;
           tags?: string[];
+          requested_service_kinds?: string[];
+          primary_service_kind?: string | null;
+          service_notes?: string | null;
           requested_quote_quantities?: number[];
           requested_by_date?: string | null;
           archived_at?: string | null;
@@ -812,6 +818,9 @@ export type Database = {
           p_description?: string | null;
           p_source?: string | null;
           p_tags?: string[] | null;
+          p_requested_service_kinds?: string[] | null;
+          p_primary_service_kind?: string | null;
+          p_service_notes?: string | null;
           p_requested_quote_quantities?: number[] | null;
           p_requested_by_date?: string | null;
         };
@@ -823,6 +832,9 @@ export type Database = {
           p_description?: string | null;
           p_project_id?: string | null;
           p_tags?: string[] | null;
+          p_requested_service_kinds?: string[] | null;
+          p_primary_service_kind?: string | null;
+          p_service_notes?: string | null;
           p_requested_quote_quantities?: number[] | null;
           p_requested_by_date?: string | null;
         };
@@ -831,6 +843,9 @@ export type Database = {
       api_update_client_part_request: {
         Args: {
           p_job_id: string;
+          p_requested_service_kinds?: string[] | null;
+          p_primary_service_kind?: string | null;
+          p_service_notes?: string | null;
           p_description?: string | null;
           p_part_number?: string | null;
           p_revision?: string | null;

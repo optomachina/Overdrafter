@@ -225,6 +225,9 @@ const ClientPart = () => {
                     ) : null}
                   </div>
                   <RequestSummaryBadges
+                    requestedServiceKinds={
+                      effectiveRequestDraft?.requestedServiceKinds ?? summary?.requestedServiceKinds ?? []
+                    }
                     quantity={requestSummaryQuantity}
                     requestedQuoteQuantities={requestQuantities}
                     requestedByDate={requestSummaryRequestedByDate}

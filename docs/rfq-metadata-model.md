@@ -17,6 +17,9 @@ This document defines the next RFQ metadata envelope for OverDrafter. It separat
 
 Current request editing covers:
 
+- requested services
+- primary service
+- service notes
 - part number
 - description
 - revision
@@ -31,6 +34,7 @@ Current request editing covers:
 
 Current persistence split:
 
+- `jobs.requested_service_kinds`, `jobs.primary_service_kind`, and `jobs.service_notes` hold transitional draft-stage service intent
 - `jobs.requested_quote_quantities` and `jobs.requested_by_date` hold request timing and quantity state
 - `approved_part_requirements` holds canonical line-item requirement fields
 - `approved_part_requirements.spec_snapshot` is the extension bucket used by the current client request editor
@@ -111,6 +115,9 @@ The current client request editor and `updateClientPartRequest(...)` call in [sr
 
 That means the current client-safe write path can continue to edit only:
 
+- `requestedServiceKinds`
+- `primaryServiceKind`
+- `serviceNotes`
 - `description`
 - `partNumber`
 - `revision`
@@ -122,6 +129,8 @@ That means the current client-safe write path can continue to edit only:
 - `quantity`
 - `requestedQuoteQuantities`
 - `requestedByDate`
+
+This service-intent trio is a transitional bridge so active intake and internal review surfaces can capture the taxonomy before dedicated service request line items land.
 
 The new metadata sections for shipping, certifications, sourcing, and release are explicit targets for follow-on schema and UI work. They are not silently added to the current RPC.
 

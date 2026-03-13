@@ -28,6 +28,7 @@ import type {
   ProjectInviteStatus,
 } from "@/integrations/supabase/types";
 import type { ProjectJobRecord } from "@/features/quotes/types";
+import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
 import { FIXTURE_STORAGE_BUCKET } from "@/lib/stored-file";
 
 export const CLIENT_WORKSPACE_FIXTURE_SCENARIOS = [
@@ -254,12 +255,21 @@ function createJobRecord(input: {
   title: string;
   description: string;
   status: JobRecord["status"];
+  requestedServiceKinds?: string[];
+  primaryServiceKind?: string | null;
+  serviceNotes?: string | null;
   requestedQuoteQuantities?: number[];
   requestedByDate?: string | null;
   projectId?: string | null;
   selectedVendorQuoteOfferId?: string | null;
   tags?: string[];
 }): JobRecord {
+  const serviceIntent = normalizeRequestedServiceIntent({
+    requestedServiceKinds: input.requestedServiceKinds ?? [],
+    primaryServiceKind: input.primaryServiceKind ?? null,
+    serviceNotes: input.serviceNotes ?? null,
+  });
+
   return {
     id: input.id,
     organization_id: FIXTURE_ORGANIZATION_ID,
@@ -272,6 +282,9 @@ function createJobRecord(input: {
     source: "fixture_mode",
     active_pricing_policy_id: "fixture-pricing-policy",
     tags: input.tags ?? [],
+    requested_service_kinds: serviceIntent.requestedServiceKinds,
+    primary_service_kind: serviceIntent.primaryServiceKind,
+    service_notes: serviceIntent.serviceNotes,
     requested_quote_quantities: input.requestedQuoteQuantities ?? [],
     requested_by_date: input.requestedByDate ?? null,
     archived_at: null,
@@ -339,6 +352,9 @@ function createPartAggregate(input: {
   description: string;
   material: string;
   finish?: string | null;
+  requestedServiceKinds?: string[];
+  primaryServiceKind?: string | null;
+  serviceNotes?: string | null;
   requestedQuoteQuantities: number[];
   requestedByDate: string | null;
   vendorQuotes?: VendorQuoteAggregate[];
@@ -370,6 +386,11 @@ function createPartAggregate(input: {
     input.vendorQuotes ?? [],
     input.vendorQuotes?.flatMap((quote) => quote.offers)[0]?.id ?? null,
   );
+  const serviceIntent = normalizeRequestedServiceIntent({
+    requestedServiceKinds: input.requestedServiceKinds ?? [],
+    primaryServiceKind: input.primaryServiceKind ?? null,
+    serviceNotes: input.serviceNotes ?? null,
+  });
 
   return {
     part: {
@@ -423,6 +444,9 @@ function createPartAggregate(input: {
         requested_by_date: input.requestedByDate,
         applicable_vendors: ["xometry", "protolabs", "fictiv"],
         spec_snapshot: {
+          requestedServiceKinds: serviceIntent.requestedServiceKinds,
+          primaryServiceKind: serviceIntent.primaryServiceKind,
+          serviceNotes: serviceIntent.serviceNotes,
           description: input.description,
           partNumber: input.partNumber,
           revision: input.revision,
@@ -439,6 +463,9 @@ function createPartAggregate(input: {
       partNumber: input.partNumber,
       revision: input.revision,
       description: input.description,
+      requestedServiceKinds: serviceIntent.requestedServiceKinds,
+      primaryServiceKind: serviceIntent.primaryServiceKind,
+      serviceNotes: serviceIntent.serviceNotes,
       quantity: input.quantity,
       requestedQuoteQuantities: input.requestedQuoteQuantities,
       requestedByDate: input.requestedByDate,
@@ -1683,12 +1710,21 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       summary.description = input.description;
       summary.partNumber = input.partNumber;
       summary.revision = input.revision;
+      summary.requestedServiceKinds = [...input.requestedServiceKinds];
+      summary.primaryServiceKind = input.primaryServiceKind;
+      summary.serviceNotes = input.serviceNotes;
       summary.quantity = input.quantity;
       summary.requestedQuoteQuantities = [...input.requestedQuoteQuantities];
       summary.requestedByDate = input.requestedByDate;
+      workspaceItem.job.requested_service_kinds = [...input.requestedServiceKinds];
+      workspaceItem.job.primary_service_kind = input.primaryServiceKind;
+      workspaceItem.job.service_notes = input.serviceNotes;
       workspaceItem.job.requested_quote_quantities = [...input.requestedQuoteQuantities];
       workspaceItem.job.requested_by_date = input.requestedByDate;
       workspaceItem.job.description = input.description;
+      partDetail.job.requested_service_kinds = [...input.requestedServiceKinds];
+      partDetail.job.primary_service_kind = input.primaryServiceKind;
+      partDetail.job.service_notes = input.serviceNotes;
       partDetail.job.requested_quote_quantities = [...input.requestedQuoteQuantities];
       partDetail.job.requested_by_date = input.requestedByDate;
       partDetail.job.description = input.description;
@@ -1702,6 +1738,12 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
         workspaceItem.part.approvedRequirement.quantity = input.quantity;
         workspaceItem.part.approvedRequirement.quote_quantities = [...input.requestedQuoteQuantities];
         workspaceItem.part.approvedRequirement.requested_by_date = input.requestedByDate;
+        workspaceItem.part.approvedRequirement.spec_snapshot = {
+          ...(workspaceItem.part.approvedRequirement.spec_snapshot as Record<string, unknown>),
+          requestedServiceKinds: [...input.requestedServiceKinds],
+          primaryServiceKind: input.primaryServiceKind,
+          serviceNotes: input.serviceNotes,
+        };
       }
 
       if (workspaceItem.part) {
@@ -1724,6 +1766,8 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
           eventType: "client.part_request_updated",
           minutesAfterStart: 90,
           payload: {
+            requestedServiceKinds: input.requestedServiceKinds,
+            primaryServiceKind: input.primaryServiceKind,
             quantity: input.quantity,
             requestedByDate: input.requestedByDate,
           },

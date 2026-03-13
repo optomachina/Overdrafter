@@ -1,4 +1,5 @@
 import { normalizeRequestedQuoteQuantities } from "@/features/quotes/request-intake";
+import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
 import type { ApprovedPartRequirement, JobPartSummary } from "@/features/quotes/types";
 
 export type RequestedQuantityFilterValue = number | "all";
@@ -35,6 +36,7 @@ export function normalizeApprovedRequirementDraft(
 
   return {
     ...requirement,
+    ...normalizeRequestedServiceIntent(requirement),
     quantity,
     quoteQuantities: normalizeRequestedQuoteQuantities(
       [quantity, ...requirement.quoteQuantities],
@@ -92,12 +94,19 @@ export function groupByRequestedQuantity<T extends { requestedQuantity: number }
 
 export function getSharedRequestMetadata(
   summaries: Array<JobPartSummary | null | undefined>,
-): { requestedQuoteQuantities: number[]; requestedByDate: string | null } | null {
+): {
+  requestedServiceKinds: ApprovedPartRequirement["requestedServiceKinds"];
+  primaryServiceKind: ApprovedPartRequirement["primaryServiceKind"];
+  serviceNotes: string | null;
+  requestedQuoteQuantities: number[];
+  requestedByDate: string | null;
+} | null {
   if (summaries.length === 0 || summaries.some((summary) => !summary)) {
     return null;
   }
 
   const normalized = summaries.map((summary) => ({
+    ...normalizeRequestedServiceIntent(summary!),
     requestedQuoteQuantities: normalizeRequestedQuoteQuantities(
       summary!.requestedQuoteQuantities,
       summary!.quantity,
@@ -108,6 +117,10 @@ export function getSharedRequestMetadata(
   const first = normalized[0];
   const matches = normalized.every(
     (summary) =>
+      summary.primaryServiceKind === first.primaryServiceKind &&
+      summary.serviceNotes === first.serviceNotes &&
+      summary.requestedServiceKinds.length === first.requestedServiceKinds.length &&
+      summary.requestedServiceKinds.every((serviceKind, index) => serviceKind === first.requestedServiceKinds[index]) &&
       summary.requestedByDate === first.requestedByDate &&
       summary.requestedQuoteQuantities.length === first.requestedQuoteQuantities.length &&
       summary.requestedQuoteQuantities.every((quantity, index) => quantity === first.requestedQuoteQuantities[index]),
@@ -117,7 +130,7 @@ export function getSharedRequestMetadata(
     return null;
   }
 
-  return first.requestedQuoteQuantities.length > 0 || first.requestedByDate
+  return first.requestedServiceKinds.length > 0 || first.requestedQuoteQuantities.length > 0 || first.requestedByDate
     ? first
     : null;
 }

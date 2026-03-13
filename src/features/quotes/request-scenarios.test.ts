@@ -13,6 +13,9 @@ function makeRequirement(
 ): ApprovedPartRequirement {
   return {
     partId: "part-1",
+    requestedServiceKinds: ["manufacturing_quote"],
+    primaryServiceKind: "manufacturing_quote",
+    serviceNotes: null,
     description: null,
     partNumber: "PN-100",
     revision: "A",
@@ -33,6 +36,9 @@ function makeSummary(overrides: Partial<JobPartSummary> = {}): JobPartSummary {
     partNumber: "PN-100",
     revision: "A",
     description: null,
+    requestedServiceKinds: ["manufacturing_quote"],
+    primaryServiceKind: "manufacturing_quote",
+    serviceNotes: null,
     quantity: 10,
     requestedQuoteQuantities: [10, 100],
     requestedByDate: "2026-04-15",
@@ -103,6 +109,9 @@ describe("request-scenarios", () => {
         makeSummary({ jobId: "job-2" }),
       ]),
     ).toEqual({
+      requestedServiceKinds: ["manufacturing_quote"],
+      primaryServiceKind: "manufacturing_quote",
+      serviceNotes: null,
       requestedQuoteQuantities: [10, 100],
       requestedByDate: "2026-04-15",
     });

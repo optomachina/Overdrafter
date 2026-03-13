@@ -88,6 +88,7 @@ const ClientPartReview = () => {
                   Confirm the selected quote and capture shipping, billing, and PO handoff details before OverDrafter follow-up.
                 </p>
                 <RequestSummaryBadges
+                  requestedServiceKinds={workspaceQuery.data.summary?.requestedServiceKinds ?? []}
                   quantity={workspaceQuery.data.summary?.quantity ?? workspaceQuery.data.part?.quantity ?? null}
                   requestedQuoteQuantities={workspaceQuery.data.summary?.requestedQuoteQuantities ?? []}
                   requestedByDate={workspaceQuery.data.summary?.requestedByDate ?? null}
