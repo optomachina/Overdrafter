@@ -14,16 +14,17 @@ Use this document when:
 - deciding whether a field belongs to a project, a part, or a request line item
 - preserving current quote workflows while introducing mixed-service projects
 
-## Current observed model
+## Current transition model
 
-Today the request shape is quote-centric:
+The active intake and review surfaces now capture a transitional service-intent bridge:
 
-- `src/features/quotes/types.ts` defines `ClientPartRequestUpdateInput` around part metadata, `quantity`, `requestedQuoteQuantities`, and `requestedByDate`
-- `src/features/quotes/request-intake.ts` only parses quote quantities and a requested date from prompt text
-- `src/features/quotes/request-scenarios.ts` and project workspace summaries assume shared quote quantities and due date are the common request metadata
-- `src/components/quotes/ClientPartRequestEditor.tsx` exposes a manufacturing-oriented request form rather than a service-aware one
+- `src/features/quotes/request-intake.ts` parses canonical service kinds in addition to quote quantities and requested date
+- `src/features/quotes/types.ts` carries `requestedServiceKinds`, `primaryServiceKind`, and `serviceNotes` through the current client-safe request edit path
+- `src/components/quotes/ClientPartRequestEditor.tsx` and `src/pages/InternalJobDetail.tsx` expose the same service-aware fields while keeping quote-specific inputs conditional
+- `jobs.requested_service_kinds`, `jobs.primary_service_kind`, and `jobs.service_notes` preserve draft-stage intent until an approved requirement snapshot exists
+- `approved_part_requirements.spec_snapshot` mirrors the same service intent for internal review and downstream summaries
 
-That model is acceptable for the current curated quote workflow, but it should not become the long-term shape for all work requests.
+This is intentionally a bridge rather than the final line-item model.
 
 ## Canonical service types
 
@@ -152,6 +153,15 @@ The existing curated quote workflow should continue to function during the trans
 - project-level shared request summaries should only show quote quantities and requested date when every selected line item is compatible with that summary
 
 This allows service expansion without breaking the current client project and client part workflows.
+
+## Transitional implementation note
+
+Until dedicated service request line items exist, the existing part request edit flow may carry multiple requested service kinds on one request envelope:
+
+- treat `requestedServiceKinds` plus `primaryServiceKind` as a capture bridge, not the final source-of-truth model
+- preserve `manufacturing_quote` as the default when no explicit service signal exists
+- hide quote-only inputs when the selected services are not quote-compatible
+- keep `serviceNotes` scoped to intent clarification, not as a substitute for future status or dependency modeling
 
 ## Follow-on implementation targets
 

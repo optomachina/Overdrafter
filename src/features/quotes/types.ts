@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import type { RequestedServiceIntent } from "@/features/quotes/service-intent";
 import type {
   AppRole,
   ClientOptionKind,
@@ -84,9 +85,6 @@ export type DrawingExtractionData = {
   status: ExtractionStatus;
 };
 
-// Service kinds stay string-based until the service taxonomy work defines
-// the canonical enum set. This keeps RFQ metadata extensible without
-// remodeling the envelope shape again.
 export type RfqServiceScope = {
   requestedServiceKinds: string[];
   primaryServiceKind: string | null;
@@ -210,6 +208,9 @@ export type RfqLineItemMetadata = {
 };
 
 export const CLIENT_PART_REQUEST_MVP_FIELDS = [
+  "requestedServiceKinds",
+  "primaryServiceKind",
+  "serviceNotes",
   "description",
   "partNumber",
   "revision",
@@ -221,9 +222,9 @@ export const CLIENT_PART_REQUEST_MVP_FIELDS = [
   "quantity",
   "requestedQuoteQuantities",
   "requestedByDate",
-] as const satisfies ReadonlyArray<keyof RfqLineItemRequestFields>;
+] as const satisfies ReadonlyArray<keyof ClientPartRequestEditableFields>;
 
-export type ClientPartRequestEditableFields = RfqLineItemRequestFields;
+export type ClientPartRequestEditableFields = RfqLineItemRequestFields & RequestedServiceIntent;
 
 export type ApprovedPartRequirement = Omit<ClientPartRequestEditableFields, "requestedQuoteQuantities"> & {
   partId: string;
@@ -323,6 +324,9 @@ export type ClientDraftInput = {
   description?: string;
   projectId?: string | null;
   tags?: string[];
+  requestedServiceKinds?: string[];
+  primaryServiceKind?: string | null;
+  serviceNotes?: string | null;
   requestedQuoteQuantities?: number[];
   requestedByDate?: string | null;
 };
@@ -355,6 +359,9 @@ export type JobPartSummary = {
   partNumber: string | null;
   revision: string | null;
   description: string | null;
+  requestedServiceKinds: string[];
+  primaryServiceKind: string | null;
+  serviceNotes: string | null;
   quantity: number | null;
   requestedQuoteQuantities: number[];
   requestedByDate: string | null;

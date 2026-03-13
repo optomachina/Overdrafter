@@ -163,6 +163,9 @@ describe("quotes utils", () => {
 
     expect(buildRequirementDraft(part)).toEqual({
       partId: "part-1",
+      requestedServiceKinds: ["manufacturing_quote"],
+      primaryServiceKind: "manufacturing_quote",
+      serviceNotes: null,
       description: "Optic bracket",
       partNumber: "1093-03242",
       revision: "B",
@@ -288,6 +291,9 @@ describe("quotes utils", () => {
     });
 
     expect(buildRequirementDraft(part)).toMatchObject({
+      requestedServiceKinds: ["manufacturing_quote"],
+      primaryServiceKind: "manufacturing_quote",
+      serviceNotes: null,
       description: "Approved bracket",
       partNumber: "PN-001",
       revision: "C",

@@ -744,6 +744,9 @@ describe("quotes api helpers", () => {
       p_description: "Upload test",
       p_project_id: null,
       p_tags: [],
+      p_requested_service_kinds: [],
+      p_primary_service_kind: null,
+      p_service_notes: null,
       p_requested_quote_quantities: [],
       p_requested_by_date: null,
     });
@@ -753,6 +756,9 @@ describe("quotes api helpers", () => {
       p_description: "Upload test",
       p_source: "client_home",
       p_tags: [],
+      p_requested_service_kinds: [],
+      p_primary_service_kind: null,
+      p_service_notes: null,
       p_requested_quote_quantities: [],
       p_requested_by_date: null,
     });
@@ -779,6 +785,9 @@ describe("quotes api helpers", () => {
       p_description: "I need 10 of these by April 15",
       p_project_id: null,
       p_tags: [],
+      p_requested_service_kinds: [],
+      p_primary_service_kind: null,
+      p_service_notes: null,
       p_requested_quote_quantities: [10],
       p_requested_by_date: "2026-04-15",
     });
@@ -847,6 +856,9 @@ describe("quotes api helpers", () => {
       p_description: "I need 10 of these by April 15",
       p_project_id: "project-1",
       p_tags: [],
+      p_requested_service_kinds: ["manufacturing_quote"],
+      p_primary_service_kind: "manufacturing_quote",
+      p_service_notes: null,
       p_requested_quote_quantities: [10],
       p_requested_by_date: "2026-04-15",
     });
@@ -855,6 +867,9 @@ describe("quotes api helpers", () => {
       p_description: "I need 10 of these by April 15",
       p_project_id: "project-1",
       p_tags: [],
+      p_requested_service_kinds: ["manufacturing_quote"],
+      p_primary_service_kind: "manufacturing_quote",
+      p_service_notes: null,
       p_requested_quote_quantities: [10],
       p_requested_by_date: "2026-04-15",
     });

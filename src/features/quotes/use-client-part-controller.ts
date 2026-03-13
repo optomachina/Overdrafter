@@ -306,12 +306,18 @@ export function useClientPartController() {
     }
 
     const requirement = buildRequirementDraft(partDetail.part, {
+      requested_service_kinds: partDetail.job.requested_service_kinds ?? [],
+      primary_service_kind: partDetail.job.primary_service_kind ?? null,
+      service_notes: partDetail.job.service_notes ?? null,
       requested_quote_quantities: partDetail.job.requested_quote_quantities ?? [],
       requested_by_date: partDetail.job.requested_by_date ?? null,
     });
 
     return {
       jobId,
+      requestedServiceKinds: requirement.requestedServiceKinds,
+      primaryServiceKind: requirement.primaryServiceKind,
+      serviceNotes: requirement.serviceNotes,
       description: requirement.description ?? null,
       partNumber: requirement.partNumber ?? null,
       revision: requirement.revision ?? null,
@@ -326,8 +332,11 @@ export function useClientPartController() {
     } satisfies ClientPartRequestUpdateInput;
   }, [
     jobId,
+    partDetail?.job.primary_service_kind,
     partDetail?.job.requested_by_date,
     partDetail?.job.requested_quote_quantities,
+    partDetail?.job.requested_service_kinds,
+    partDetail?.job.service_notes,
     partDetail?.part,
   ]);
   const effectiveRequestDraft = requestDraft ?? fallbackRequestDraft;

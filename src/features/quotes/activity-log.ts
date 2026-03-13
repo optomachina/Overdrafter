@@ -1,4 +1,8 @@
 import type { ActivityLogEntry } from "@/components/quotes/ActivityLog";
+import {
+  formatRequestedServiceKindLabel,
+  normalizeRequestedServiceKinds,
+} from "@/features/quotes/service-intent";
 import type { ClientActivityEvent } from "@/features/quotes/types";
 
 type ActivityPayload = Record<string, unknown>;
@@ -27,6 +31,21 @@ function pluralize(count: number, singular: string, plural = `${singular}s`): st
 
 function describeRequestedDate(requestedByDate: string | null): string {
   return requestedByDate ? ` Requested by ${requestedByDate}.` : "";
+}
+
+function describeRequestedServices(payload: ActivityPayload): string {
+  const requestedServiceKinds = normalizeRequestedServiceKinds(
+    Array.isArray(payload.requestedServiceKinds)
+      ? payload.requestedServiceKinds.filter((value): value is string => typeof value === "string")
+      : [],
+    readString(payload, "primaryServiceKind"),
+  );
+
+  if (requestedServiceKinds.length === 0) {
+    return "";
+  }
+
+  return ` Services: ${requestedServiceKinds.map((serviceKind) => formatRequestedServiceKindLabel(serviceKind)).join(", ")}.`;
 }
 
 export function groupClientActivityEventsByJobId(events: ClientActivityEvent[]): Map<string, ClientActivityEvent[]> {
@@ -89,14 +108,15 @@ export function buildActivityLogEntries(events: ClientActivityEvent[]): Activity
         case "client.part_request_updated": {
           const quantity = readNumber(payload, "quantity");
           const requestedByDate = readString(payload, "requestedByDate");
+          const serviceDetail = describeRequestedServices(payload);
 
           return {
             id: event.id,
             label: "Part request updated",
             detail:
               quantity === null
-                ? `The request details were updated.${describeRequestedDate(requestedByDate)}`
-                : `The request was updated to ${pluralize(quantity, "unit")}.${describeRequestedDate(requestedByDate)}`,
+                ? `The request details were updated.${serviceDetail}${describeRequestedDate(requestedByDate)}`
+                : `The request was updated to ${pluralize(quantity, "unit")}.${serviceDetail}${describeRequestedDate(requestedByDate)}`,
             occurredAt: event.occurredAt,
             tone: "default",
           };

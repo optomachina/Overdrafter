@@ -183,6 +183,9 @@ const ClientProject = () => {
             ) : null}
           </div>
           <RequestSummaryBadges
+            requestedServiceKinds={
+              focusedDraft?.requestedServiceKinds ?? focusedSummary?.requestedServiceKinds ?? []
+            }
             quantity={focusedDraft?.quantity ?? focusedSummary?.quantity ?? null}
             requestedQuoteQuantities={parseRequestedQuoteQuantitiesInput(
               focusedQuoteQuantityInput,
@@ -351,6 +354,7 @@ const ClientProject = () => {
               </p>
               {sharedRequestSummary ? (
                 <RequestSummaryBadges
+                  requestedServiceKinds={sharedRequestSummary.requestedServiceKinds}
                   quantity={sharedRequestSummary.requestedQuoteQuantities[0] ?? null}
                   requestedQuoteQuantities={sharedRequestSummary.requestedQuoteQuantities}
                   requestedByDate={sharedRequestSummary.requestedByDate}

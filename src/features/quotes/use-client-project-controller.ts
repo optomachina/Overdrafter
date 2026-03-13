@@ -484,12 +484,18 @@ export function useClientProjectController() {
         }
 
         const requirement = buildRequirementDraft(item.part, {
+          requested_service_kinds: item.job.requested_service_kinds ?? [],
+          primary_service_kind: item.job.primary_service_kind ?? null,
+          service_notes: item.job.service_notes ?? null,
           requested_quote_quantities: item.job.requested_quote_quantities ?? [],
           requested_by_date: item.job.requested_by_date ?? null,
         });
 
         next[item.job.id] = {
           jobId: item.job.id,
+          requestedServiceKinds: requirement.requestedServiceKinds,
+          primaryServiceKind: requirement.primaryServiceKind,
+          serviceNotes: requirement.serviceNotes,
           description: requirement.description ?? null,
           partNumber: requirement.partNumber ?? null,
           revision: requirement.revision ?? null,
@@ -516,6 +522,9 @@ export function useClientProjectController() {
         }
 
         const requirement = buildRequirementDraft(item.part, {
+          requested_service_kinds: item.job.requested_service_kinds ?? [],
+          primary_service_kind: item.job.primary_service_kind ?? null,
+          service_notes: item.job.service_notes ?? null,
           requested_quote_quantities: item.job.requested_quote_quantities ?? [],
           requested_by_date: item.job.requested_by_date ?? null,
         });
@@ -931,6 +940,9 @@ export function useClientProjectController() {
                   title: input.prompt.trim().split("\n")[0].slice(0, 120) || "Untitled part",
                   description: input.prompt.trim() || undefined,
                   projectId,
+                  requestedServiceKinds: requestIntake.requestedServiceKinds,
+                  primaryServiceKind: requestIntake.primaryServiceKind,
+                  serviceNotes: requestIntake.serviceNotes,
                   requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
                   requestedByDate: requestIntake.requestedByDate,
                 });

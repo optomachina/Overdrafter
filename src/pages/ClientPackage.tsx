@@ -288,6 +288,7 @@ const ClientPackage = () => {
       </section>
 
       <RequestSummaryBadges
+        requestedServiceKinds={data.job.requested_service_kinds ?? []}
         quantity={requestSummaryQuantity}
         requestedQuoteQuantities={requestQuantities}
         requestedByDate={data.job.requested_by_date}

@@ -1,9 +1,14 @@
 import { Loader2, Upload } from "lucide-react";
 import type { ReactNode } from "react";
+import { RequestServiceIntentFields } from "@/components/quotes/RequestServiceIntentFields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  requestedServicesRequireMaterial,
+  requestedServicesSupportQuoteFields,
+} from "@/features/quotes/service-intent";
 import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
 
 type ClientPartRequestEditorProps = {
@@ -31,8 +36,20 @@ export function ClientPartRequestEditor({
   isSaving = false,
   footer = null,
 }: ClientPartRequestEditorProps) {
+  const showQuoteFields = requestedServicesSupportQuoteFields(draft.requestedServiceKinds);
+  const materialRequired = requestedServicesRequireMaterial(draft.requestedServiceKinds);
+
   return (
     <div className="space-y-4">
+      <RequestServiceIntentFields
+        value={{
+          requestedServiceKinds: draft.requestedServiceKinds,
+          primaryServiceKind: draft.primaryServiceKind,
+          serviceNotes: draft.serviceNotes,
+        }}
+        onChange={(next) => onChange(next)}
+      />
+
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="client-request-part-number">Part number</Label>
@@ -68,6 +85,7 @@ export function ClientPartRequestEditor({
             value={draft.material}
             onChange={(event) => onChange({ material: event.target.value })}
             className="border-white/10 bg-black/20 text-white"
+            placeholder={showQuoteFields ? "e.g. 6061-T6 aluminum" : "Optional for non-quote services"}
           />
         </div>
         <div className="space-y-2">
@@ -104,30 +122,34 @@ export function ClientPartRequestEditor({
             className="border-white/10 bg-black/20 text-white"
           />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="client-request-qty">Qty</Label>
-          <Input
-            id="client-request-qty"
-            value={numberFieldValue(draft.quantity)}
-            onChange={(event) =>
-              onChange({
-                quantity: Math.max(1, Number.parseInt(event.target.value || "1", 10) || 1),
-              })
-            }
-            className="border-white/10 bg-black/20 text-white"
-            inputMode="numeric"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="client-request-quote-quantities">Quote quantities</Label>
-          <Input
-            id="client-request-quote-quantities"
-            value={quoteQuantityInput}
-            onChange={(event) => onQuoteQuantityInputChange(event.target.value)}
-            className="border-white/10 bg-black/20 text-white"
-            placeholder="10 / 25 / 50"
-          />
-        </div>
+        {showQuoteFields ? (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="client-request-qty">Qty</Label>
+              <Input
+                id="client-request-qty"
+                value={numberFieldValue(draft.quantity)}
+                onChange={(event) =>
+                  onChange({
+                    quantity: Math.max(1, Number.parseInt(event.target.value || "1", 10) || 1),
+                  })
+                }
+                className="border-white/10 bg-black/20 text-white"
+                inputMode="numeric"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="client-request-quote-quantities">Quote quantities</Label>
+              <Input
+                id="client-request-quote-quantities"
+                value={quoteQuantityInput}
+                onChange={(event) => onQuoteQuantityInputChange(event.target.value)}
+                className="border-white/10 bg-black/20 text-white"
+                placeholder="10 / 25 / 50"
+              />
+            </div>
+          </>
+        ) : null}
         <div className="space-y-2">
           <Label htmlFor="client-request-date">Need by</Label>
           <Input
@@ -162,7 +184,12 @@ export function ClientPartRequestEditor({
           <Upload className="mr-2 h-4 w-4" />
           Upload revised file
         </Button>
-        <Button type="button" className="rounded-full" onClick={onSave} disabled={isSaving || !draft.material.trim()}>
+        <Button
+          type="button"
+          className="rounded-full"
+          onClick={onSave}
+          disabled={isSaving || (materialRequired && !draft.material.trim())}
+        >
           {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Save request details
         </Button>

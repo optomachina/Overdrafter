@@ -17,6 +17,7 @@ import { AppShell } from "@/components/app/AppShell";
 import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
 import { ManualQuoteIntakeCard } from "@/components/quotes/ManualQuoteIntakeCard";
+import { RequestServiceIntentFields } from "@/components/quotes/RequestServiceIntentFields";
 import { RequestedQuantityFilter } from "@/components/quotes/RequestedQuantityFilter";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import { XometryDebugCard } from "@/components/quotes/XometryDebugCard";
@@ -52,6 +53,7 @@ import {
   resolveRequestedQuantitySelection,
   type RequestedQuantityFilterValue,
 } from "@/features/quotes/request-scenarios";
+import { requestedServicesSupportQuoteFields } from "@/features/quotes/service-intent";
 import type { ApprovedPartRequirement } from "@/features/quotes/types";
 import {
   buildRequirementDraft,
@@ -186,6 +188,9 @@ const InternalJobDetail = () => {
     }
 
     const jobRequestDefaults = {
+      requested_service_kinds: jobQuery.data.job.requested_service_kinds ?? [],
+      primary_service_kind: jobQuery.data.job.primary_service_kind ?? null,
+      service_notes: jobQuery.data.job.service_notes ?? null,
       requested_quote_quantities: jobQuery.data.job.requested_quote_quantities ?? [],
       requested_by_date: jobQuery.data.job.requested_by_date ?? null,
     };
@@ -486,6 +491,9 @@ const InternalJobDetail = () => {
               const draft =
                 drafts[part.id] ??
                 buildRequirementDraft(part, {
+                  requested_service_kinds: job.job.requested_service_kinds ?? [],
+                  primary_service_kind: job.job.primary_service_kind ?? null,
+                  service_notes: job.job.service_notes ?? null,
                   requested_quote_quantities: job.job.requested_quote_quantities ?? [],
                   requested_by_date: job.job.requested_by_date ?? null,
                 });
@@ -493,6 +501,7 @@ const InternalJobDetail = () => {
               const cadPreviewable = part.cadFile ? isStepPreviewableFile(part.cadFile.original_name) : false;
               const quoteQuantityInput =
                 quoteQuantityInputs[part.id] ?? formatRequestedQuoteQuantitiesInput(draft.quoteQuantities);
+              const showQuoteFields = requestedServicesSupportQuoteFields(draft.requestedServiceKinds);
 
               return (
                 <div key={part.id} className="rounded-3xl border border-white/8 bg-black/20 p-5">
@@ -514,6 +523,7 @@ const InternalJobDetail = () => {
                         </Badge>
                       </div>
                       <RequestSummaryBadges
+                        requestedServiceKinds={draft.requestedServiceKinds}
                         quantity={draft.quantity}
                         requestedQuoteQuantities={draft.quoteQuantities}
                         requestedByDate={draft.requestedByDate}
@@ -575,6 +585,25 @@ const InternalJobDetail = () => {
                     </div>
 
                     <div className="grid gap-4 md:grid-cols-2">
+                      <div className="md:col-span-2">
+                        <RequestServiceIntentFields
+                          value={{
+                            requestedServiceKinds: draft.requestedServiceKinds,
+                            primaryServiceKind: draft.primaryServiceKind,
+                            serviceNotes: draft.serviceNotes,
+                          }}
+                          onChange={(next) =>
+                            updateDraft(part.id, (current) =>
+                              normalizeApprovedRequirementDraft({
+                                ...current,
+                                ...next,
+                              }),
+                            )
+                          }
+                          disabled={writeActionsDisabled}
+                          tone="internal"
+                        />
+                      </div>
                       <div className="space-y-2">
                         <Label>Description</Label>
                         <Input
@@ -619,56 +648,70 @@ const InternalJobDetail = () => {
                       </div>
                       <div className="space-y-2">
                         <Label>Quantity</Label>
-                        <Input
-                          type="number"
-                          min={1}
-                          className="border-white/10 bg-black/20"
-                          value={draft.quantity}
-                          disabled={writeActionsDisabled}
-                          onChange={(event) => {
-                            const nextDraft = normalizeApprovedRequirementDraft({
-                              ...draft,
-                              quantity: Number(event.target.value || 1),
-                            });
-                            setQuoteQuantityInputs((current) => ({
-                              ...current,
-                              [part.id]: formatRequestedQuoteQuantitiesInput(nextDraft.quoteQuantities),
-                            }));
-                            updateDraft(part.id, () => nextDraft);
-                          }}
-                        />
+                        {showQuoteFields ? (
+                          <Input
+                            type="number"
+                            min={1}
+                            className="border-white/10 bg-black/20"
+                            value={draft.quantity}
+                            disabled={writeActionsDisabled}
+                            onChange={(event) => {
+                              const nextDraft = normalizeApprovedRequirementDraft({
+                                ...draft,
+                                quantity: Number(event.target.value || 1),
+                              });
+                              setQuoteQuantityInputs((current) => ({
+                                ...current,
+                                [part.id]: formatRequestedQuoteQuantitiesInput(nextDraft.quoteQuantities),
+                              }));
+                              updateDraft(part.id, () => nextDraft);
+                            }}
+                          />
+                        ) : (
+                          <p className="rounded-2xl border border-white/8 bg-white/5 px-4 py-3 text-sm text-white/45">
+                            Hidden for non-quote services.
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-2">
                         <Label>Quote quantities</Label>
-                        <Input
-                          className="border-white/10 bg-black/20"
-                          value={quoteQuantityInput}
-                          disabled={writeActionsDisabled}
-                          placeholder="1/10/100"
-                          onChange={(event) =>
-                            setQuoteQuantityInputs((current) => ({
-                              ...current,
-                              [part.id]: event.target.value,
-                            }))
-                          }
-                          onBlur={() => {
-                            const nextDraft = normalizeApprovedRequirementDraft({
-                              ...draft,
-                              quoteQuantities: parseRequestedQuoteQuantitiesInput(
-                                quoteQuantityInputs[part.id] ?? "",
-                                draft.quantity,
-                              ),
-                            });
-                            setQuoteQuantityInputs((current) => ({
-                              ...current,
-                              [part.id]: formatRequestedQuoteQuantitiesInput(nextDraft.quoteQuantities),
-                            }));
-                            updateDraft(part.id, () => nextDraft);
-                          }}
-                        />
-                        <p className="text-xs text-white/45">
-                          Use slash-delimited quantities like 1/10/100.
-                        </p>
+                        {showQuoteFields ? (
+                          <>
+                            <Input
+                              className="border-white/10 bg-black/20"
+                              value={quoteQuantityInput}
+                              disabled={writeActionsDisabled}
+                              placeholder="1/10/100"
+                              onChange={(event) =>
+                                setQuoteQuantityInputs((current) => ({
+                                  ...current,
+                                  [part.id]: event.target.value,
+                                }))
+                              }
+                              onBlur={() => {
+                                const nextDraft = normalizeApprovedRequirementDraft({
+                                  ...draft,
+                                  quoteQuantities: parseRequestedQuoteQuantitiesInput(
+                                    quoteQuantityInputs[part.id] ?? "",
+                                    draft.quantity,
+                                  ),
+                                });
+                                setQuoteQuantityInputs((current) => ({
+                                  ...current,
+                                  [part.id]: formatRequestedQuoteQuantitiesInput(nextDraft.quoteQuantities),
+                                }));
+                                updateDraft(part.id, () => nextDraft);
+                              }}
+                            />
+                            <p className="text-xs text-white/45">
+                              Use slash-delimited quantities like 1/10/100.
+                            </p>
+                          </>
+                        ) : (
+                          <p className="rounded-2xl border border-white/8 bg-white/5 px-4 py-3 text-sm text-white/45">
+                            Hidden for non-quote services.
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-2">
                         <Label>Requested by</Label>
