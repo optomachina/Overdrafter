@@ -3,16 +3,20 @@ import { useQuery } from "@tanstack/react-query";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { Loader2, MoveLeft, MoveRight } from "lucide-react";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
+import { ProcurementHandoffPanel } from "@/components/quotes/ProcurementHandoffPanel";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  fetchAccessibleJobs,
   fetchClientQuoteWorkspaceByJobIds,
   fetchJobsByProject,
   fetchProject,
 } from "@/features/quotes/api";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import {
+  createDefaultProcurementHandoffState,
+  summarizeProcurementHandoff,
+} from "@/features/quotes/procurement-handoff";
 import {
   buildClientQuoteSelectionOptions,
   buildVendorLabelMap,
@@ -26,13 +30,8 @@ const ClientProjectReview = () => {
   const { projectId = "" } = useParams();
   const navigate = useNavigate();
   const { user } = useAppSession();
-  const [showCheckoutPlaceholder, setShowCheckoutPlaceholder] = useState(false);
-
-  const accessibleJobsQuery = useQuery({
-    queryKey: ["review-accessible-jobs"],
-    queryFn: fetchAccessibleJobs,
-    enabled: Boolean(user),
-  });
+  const [handoffState, setHandoffState] = useState(createDefaultProcurementHandoffState);
+  const [showHandoffSummary, setShowHandoffSummary] = useState(false);
   const projectQuery = useQuery({
     queryKey: ["review-project", projectId],
     queryFn: () => fetchProject(projectId),
@@ -79,6 +78,7 @@ const ClientProjectReview = () => {
     () => summarizeSelectedQuoteOptions(selectedLineItems.map((lineItem) => lineItem.selectedOption)),
     [selectedLineItems],
   );
+  const handoffSummary = useMemo(() => summarizeProcurementHandoff(handoffState), [handoffState]);
 
   if (!user) {
     return <Navigate to="/?auth=signin" replace />;
@@ -103,7 +103,7 @@ const ClientProjectReview = () => {
                   {projectQuery.data?.name ?? "Project"}
                 </h1>
                 <p className="mt-2 text-sm text-white/55">
-                  Final review of selected vendors, delivery timing, and project totals before checkout.
+                  Final review of selected vendors, delivery timing, project totals, and procurement handoff details before OverDrafter follow-up.
                 </p>
               </div>
 
@@ -117,8 +117,8 @@ const ClientProjectReview = () => {
                   <MoveLeft className="mr-2 h-4 w-4" />
                   Back to edit
                 </Button>
-                <Button type="button" className="rounded-full" onClick={() => setShowCheckoutPlaceholder(true)}>
-                  Continue
+                <Button type="button" className="rounded-full" onClick={() => setShowHandoffSummary(true)}>
+                  Review handoff
                   <MoveRight className="ml-2 h-4 w-4" />
                 </Button>
               </div>
@@ -190,18 +190,30 @@ const ClientProjectReview = () => {
               </div>
             </section>
 
-            <section className="rounded-[26px] border border-white/8 bg-[#262626] p-6">
-              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Shipping / payment / PO</p>
-              <p className="mt-4 text-sm text-white/70">
-                Placeholder surface for shipping method, billing, and purchase-order collection until checkout services are wired.
-              </p>
-            </section>
+            <ProcurementHandoffPanel
+              scopeLabel="project"
+              value={handoffState}
+              onChange={setHandoffState}
+            />
 
-            {showCheckoutPlaceholder ? (
+            {showHandoffSummary ? (
               <section className="rounded-[26px] border border-white/8 bg-[#262626] p-6">
-                <p className="text-sm text-white/70">
-                  Checkout backend wiring is not available in this workspace yet. This route preserves the review step and future payment / PO handoff.
+                <p className="text-xs uppercase tracking-[0.18em] text-white/35">Release check</p>
+                <h2 className="mt-2 text-xl font-semibold text-white">
+                  {handoffSummary.ready ? "Ready for OverDrafter follow-up" : "More procurement detail is still needed"}
+                </h2>
+                <p className="mt-3 text-sm text-white/70">
+                  This route prepares a project-level procurement handoff only. Payment collection and order placement remain outside the app.
                 </p>
+                {handoffSummary.missingFields.length > 0 ? (
+                  <p className="mt-4 text-sm text-amber-100">
+                    Missing: {handoffSummary.missingFields.join(", ")}.
+                  </p>
+                ) : (
+                  <p className="mt-4 text-sm text-emerald-100">
+                    Shipping, billing, and contact details are ready for manual project release coordination.
+                  </p>
+                )}
               </section>
             ) : null}
           </>
