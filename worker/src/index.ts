@@ -110,6 +110,30 @@ function summarizeError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function logWorkerAuditEvent(
+  supabase: SupabaseClient,
+  input: {
+    organizationId: string;
+    jobId: string;
+    packageId?: string | null;
+    eventType: string;
+    payload?: Record<string, unknown>;
+  },
+) {
+  const { error } = await supabase.from("audit_events").insert({
+    organization_id: input.organizationId,
+    actor_user_id: null,
+    job_id: input.jobId,
+    package_id: input.packageId ?? null,
+    event_type: input.eventType,
+    payload: input.payload ?? {},
+  });
+
+  if (error) {
+    throw error;
+  }
+}
+
 function buildFailureRawPayload(
   vendor: VendorName,
   retryCount: number,
@@ -297,13 +321,26 @@ async function syncJobStatusAfterVendorUpdate(
   jobId: string,
   quoteRunId: string,
 ) {
-  const { data: results, error } = await supabase
-    .from("vendor_quote_results")
-    .select("status")
-    .eq("quote_run_id", quoteRunId);
+  const [
+    { data: results, error: resultsError },
+    { data: job, error: jobError },
+    { data: quoteRun, error: quoteRunError },
+  ] = await Promise.all([
+    supabase.from("vendor_quote_results").select("status").eq("quote_run_id", quoteRunId),
+    supabase.from("jobs").select("organization_id, status").eq("id", jobId).single(),
+    supabase.from("quote_runs").select("status").eq("id", quoteRunId).single(),
+  ]);
 
-  if (error || !results) {
-    throw error ?? new Error("Unable to refresh job status.");
+  if (resultsError || !results) {
+    throw resultsError ?? new Error("Unable to refresh job status.");
+  }
+
+  if (jobError || !job) {
+    throw jobError ?? new Error("Unable to load job status.");
+  }
+
+  if (quoteRunError || !quoteRun) {
+    throw quoteRunError ?? new Error("Unable to load quote run status.");
   }
 
   const statuses = results.map((row) => row.status);
@@ -314,26 +351,75 @@ async function syncJobStatusAfterVendorUpdate(
   const hasSuccess = statuses.some(
     (status) => status === "instant_quote_received" || status === "official_quote_received",
   );
+  const successfulVendorQuotes = statuses.filter(
+    (status) => status === "instant_quote_received" || status === "official_quote_received",
+  ).length;
+  const manualReviewVendorQuotes = statuses.filter(
+    (status) => status === "manual_review_pending" || status === "manual_vendor_followup",
+  ).length;
+  const failedVendorQuotes = statuses.filter((status) => status === "failed").length;
+  const nextQuoteRunStatus = hasPending ? "running" : hasSuccess || hasManual ? "completed" : "failed";
+  const nextJobStatus = hasPending
+    ? "quoting"
+    : hasManual
+      ? "awaiting_vendor_manual_review"
+      : hasSuccess
+        ? "internal_review"
+        : "quoting";
 
   await supabase
     .from("quote_runs")
     .update({
-      status: hasPending ? "running" : hasSuccess || hasManual ? "completed" : "failed",
+      status: nextQuoteRunStatus,
     })
     .eq("id", quoteRunId);
 
   await supabase
     .from("jobs")
     .update({
-      status: hasPending
-        ? "quoting"
-        : hasManual
-          ? "awaiting_vendor_manual_review"
-          : hasSuccess
-            ? "internal_review"
-            : "quoting",
+      status: nextJobStatus,
     })
     .eq("id", jobId);
+
+  if (quoteRun.status === nextQuoteRunStatus && job.status === nextJobStatus) {
+    return;
+  }
+
+  const basePayload = {
+    quoteRunId,
+    successfulVendorQuotes,
+    manualReviewVendorQuotes,
+    failedVendorQuotes,
+  };
+
+  if (nextQuoteRunStatus === "failed") {
+    await logWorkerAuditEvent(supabase, {
+      organizationId: job.organization_id,
+      jobId,
+      eventType: "worker.quote_run_failed",
+      payload: basePayload,
+    });
+    return;
+  }
+
+  if (nextJobStatus === "awaiting_vendor_manual_review") {
+    await logWorkerAuditEvent(supabase, {
+      organizationId: job.organization_id,
+      jobId,
+      eventType: "worker.quote_run_attention_needed",
+      payload: basePayload,
+    });
+    return;
+  }
+
+  if (nextJobStatus === "internal_review") {
+    await logWorkerAuditEvent(supabase, {
+      organizationId: job.organization_id,
+      jobId,
+      eventType: "worker.quote_run_completed",
+      payload: basePayload,
+    });
+  }
 }
 
 async function persistDrawingPreviewAssets(
@@ -464,12 +550,33 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
     });
 
     await supabase.from("jobs").update({ status: "needs_spec_review" }).eq("id", task.job_id);
+    await logWorkerAuditEvent(supabase, {
+      organizationId: context.part.organization_id,
+      jobId: task.job_id,
+      eventType: "worker.extraction_completed",
+      payload: {
+        partId: context.part.id,
+        extractionStatus: extraction.status,
+        warningCount: extraction.warnings.length,
+        previewAssetCount: previewAssets.length,
+      },
+    });
     await markTaskCompleted(supabase, task.id, {
       ...task.payload,
       extractionStatus: extraction.status,
       warningCount: extraction.warnings.length,
       previewAssetCount: previewAssets.length,
     });
+  } catch (error) {
+    await logWorkerAuditEvent(supabase, {
+      organizationId: context.part.organization_id,
+      jobId: task.job_id,
+      eventType: "worker.extraction_failed",
+      payload: {
+        partId: context.part.id,
+      },
+    });
+    throw error;
   } finally {
     await cleanupPaths([runDir]);
   }

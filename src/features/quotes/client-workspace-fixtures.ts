@@ -5,6 +5,7 @@ import type {
   AppSessionData,
   ArchivedJobSummary,
   ArchivedProjectSummary,
+  ClientActivityEvent,
   ClientPartRequestUpdateInput,
   ClientQuoteWorkspaceItem,
   DrawingPreviewData,
@@ -83,6 +84,7 @@ export type ClientWorkspaceGateway = {
   fetchJobsByProject: (projectId: string) => Promise<JobRecord[]>;
   fetchPartDetail: (jobId: string) => Promise<PartDetailAggregate>;
   fetchClientQuoteWorkspaceByJobIds: (jobIds: string[]) => Promise<ClientQuoteWorkspaceItem[]>;
+  fetchClientActivityEventsByJobIds: (jobIds: string[], limitPerJob?: number) => Promise<ClientActivityEvent[]>;
   createProject: (input: { name: string; description?: string }) => Promise<string>;
   updateProject: (input: { projectId: string; name: string; description?: string }) => Promise<string>;
   archiveProject: (projectId: string) => Promise<string>;
@@ -109,6 +111,7 @@ type FixtureState = {
   projectJobMemberships: ProjectJobRecord[];
   partDetailsByJobId: Record<string, PartDetailAggregate>;
   workspaceByJobId: Record<string, ClientQuoteWorkspaceItem>;
+  clientActivityByJobId: Record<string, ClientActivityEvent[]>;
   sidebarPins: {
     projectIds: string[];
     jobIds: string[];
@@ -122,6 +125,28 @@ const FIXTURE_TIMESTAMP = "2026-03-10T17:00:00.000Z";
 const FIXTURE_PASSWORD_LABEL = "Overdrafter123!";
 
 const scenarioStateCache = new Map<FixtureScenarioId, FixtureState>();
+
+function fixtureTimestampOffset(minutes: number): string {
+  return new Date(Date.parse(FIXTURE_TIMESTAMP) + minutes * 60_000).toISOString();
+}
+
+function createClientActivityEvent(input: {
+  id: string;
+  jobId: string;
+  eventType: string;
+  minutesAfterStart: number;
+  packageId?: string | null;
+  payload?: ClientActivityEvent["payload"];
+}): ClientActivityEvent {
+  return {
+    id: input.id,
+    jobId: input.jobId,
+    packageId: input.packageId ?? null,
+    eventType: input.eventType,
+    payload: input.payload ?? {},
+    occurredAt: fixtureTimestampOffset(input.minutesAfterStart),
+  };
+}
 
 function cloneValue<T>(value: T): T {
   if (typeof structuredClone === "function") {
@@ -578,6 +603,41 @@ function buildNeedsAttentionScenario(): FixtureState {
     latestQuoteRun: null,
     revisionSiblings: [],
   };
+  const clientActivityByJobId = {
+    [job.id]: [
+      createClientActivityEvent({
+        id: "fx-event-needs-attention-created",
+        jobId: job.id,
+        eventType: "job.created",
+        minutesAfterStart: 0,
+      }),
+      createClientActivityEvent({
+        id: "fx-event-needs-attention-request",
+        jobId: job.id,
+        eventType: "client.part_request_updated",
+        minutesAfterStart: 6,
+        payload: {
+          quantity: 12,
+          requestedByDate: "2026-03-24",
+        },
+      }),
+      createClientActivityEvent({
+        id: "fx-event-needs-attention-extract-requested",
+        jobId: job.id,
+        eventType: "job.extraction_requested",
+        minutesAfterStart: 11,
+      }),
+      createClientActivityEvent({
+        id: "fx-event-needs-attention-extract-complete",
+        jobId: job.id,
+        eventType: "worker.extraction_completed",
+        minutesAfterStart: 15,
+        payload: {
+          warningCount: 1,
+        },
+      }),
+    ],
+  };
 
   return {
     session,
@@ -603,6 +663,7 @@ function buildNeedsAttentionScenario(): FixtureState {
         latestQuoteRun: null,
       },
     },
+    clientActivityByJobId,
     sidebarPins: {
       projectIds: [],
       jobIds: [],
@@ -646,6 +707,7 @@ function buildQuotedScenario(): FixtureState {
   const partSummariesByJobId: Record<string, JobPartSummary> = {};
   const partDetailsByJobId: Record<string, PartDetailAggregate> = {};
   const workspaceByJobId: Record<string, ClientQuoteWorkspaceItem> = {};
+  const clientActivityByJobId: Record<string, ClientActivityEvent[]> = {};
   const projectJobMemberships: ProjectJobRecord[] = [];
 
   const lineItems: Array<{
@@ -812,6 +874,45 @@ function buildQuotedScenario(): FixtureState {
       drawingPreview,
       latestQuoteRun,
     };
+    clientActivityByJobId[job.id] = [
+      createClientActivityEvent({
+        id: `${job.id}-created`,
+        jobId: job.id,
+        eventType: "job.created",
+        minutesAfterStart: 0,
+      }),
+      createClientActivityEvent({
+        id: `${job.id}-extract-requested`,
+        jobId: job.id,
+        eventType: "job.extraction_requested",
+        minutesAfterStart: 3,
+      }),
+      createClientActivityEvent({
+        id: `${job.id}-extract-complete`,
+        jobId: job.id,
+        eventType: "worker.extraction_completed",
+        minutesAfterStart: 7,
+        payload: {
+          warningCount: 0,
+        },
+      }),
+      createClientActivityEvent({
+        id: `${job.id}-quote-started`,
+        jobId: job.id,
+        eventType: "job.quote_run_started",
+        minutesAfterStart: 18,
+      }),
+      createClientActivityEvent({
+        id: `${job.id}-quote-complete`,
+        jobId: job.id,
+        eventType: "worker.quote_run_completed",
+        minutesAfterStart: 31,
+        payload: {
+          successfulVendorQuotes: lineItem.offers.length,
+          failedVendorQuotes: 0,
+        },
+      }),
+    ];
   });
 
   return {
@@ -824,6 +925,7 @@ function buildQuotedScenario(): FixtureState {
     projectJobMemberships,
     partDetailsByJobId,
     workspaceByJobId,
+    clientActivityByJobId,
     sidebarPins: {
       projectIds: [project.id],
       jobIds: ["fx-job-quoted-a"],
@@ -972,6 +1074,46 @@ function buildPublishedScenario(): FixtureState {
       latestQuoteRun,
     },
   };
+  state.clientActivityByJobId = {
+    [job.id]: [
+      createClientActivityEvent({
+        id: "fx-job-published-created",
+        jobId: job.id,
+        eventType: "job.created",
+        minutesAfterStart: 0,
+      }),
+      createClientActivityEvent({
+        id: "fx-job-published-quote-started",
+        jobId: job.id,
+        eventType: "job.quote_run_started",
+        minutesAfterStart: 14,
+      }),
+      createClientActivityEvent({
+        id: "fx-job-published-quote-completed",
+        jobId: job.id,
+        eventType: "worker.quote_run_completed",
+        minutesAfterStart: 26,
+        payload: {
+          successfulVendorQuotes: publishedOffers.length,
+          failedVendorQuotes: 0,
+        },
+      }),
+      createClientActivityEvent({
+        id: "fx-job-published-package-published",
+        jobId: job.id,
+        packageId: packageRecord.id,
+        eventType: "job.quote_package_published",
+        minutesAfterStart: 34,
+      }),
+      createClientActivityEvent({
+        id: "fx-job-published-selected",
+        jobId: job.id,
+        packageId: packageRecord.id,
+        eventType: "client.quote_option_selected",
+        minutesAfterStart: 41,
+      }),
+    ],
+  };
   state.sidebarPins = {
     projectIds: [publishedProject.id],
     jobIds: [job.id],
@@ -1012,6 +1154,7 @@ function buildEmptyScenario(): FixtureState {
     projectJobMemberships: [],
     partDetailsByJobId: {},
     workspaceByJobId: {},
+    clientActivityByJobId: {},
     sidebarPins: {
       projectIds: [],
       jobIds: [],
@@ -1258,6 +1401,25 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
           .map((jobId) => getState(scenarioId).workspaceByJobId[jobId])
           .filter((item): item is ClientQuoteWorkspaceItem => Boolean(item)),
       ),
+    fetchClientActivityEventsByJobIds: async (jobIds, limitPerJob = 6) => {
+      const state = getState(scenarioId);
+
+      return cloneValue(
+        jobIds
+          .flatMap((jobId) => state.clientActivityByJobId[jobId] ?? [])
+          .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
+          .reduce<ClientActivityEvent[]>((accumulator, event) => {
+            const eventsForJob = accumulator.filter((candidate) => candidate.jobId === event.jobId).length;
+
+            if (eventsForJob >= limitPerJob) {
+              return accumulator;
+            }
+
+            accumulator.push(event);
+            return accumulator;
+          }, []),
+      );
+    },
     createProject: async (input) => {
       const state = getState(scenarioId);
       const projectId = `fixture-project-${Date.now().toString(36)}`;
@@ -1553,6 +1715,21 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       if (partDetail.part) {
         partDetail.part.quantity = input.quantity;
       }
+
+      const existingEvents = state.clientActivityByJobId[input.jobId] ?? [];
+      state.clientActivityByJobId[input.jobId] = [
+        createClientActivityEvent({
+          id: `fixture-event-request-update-${Date.now().toString(36)}`,
+          jobId: input.jobId,
+          eventType: "client.part_request_updated",
+          minutesAfterStart: 90,
+          payload: {
+            quantity: input.quantity,
+            requestedByDate: input.requestedByDate,
+          },
+        }),
+        ...existingEvents,
+      ];
 
       return input.jobId;
     },

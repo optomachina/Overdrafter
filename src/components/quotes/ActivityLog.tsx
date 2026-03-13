@@ -6,6 +6,7 @@ export type ActivityLogEntry = {
   id: string;
   label: string;
   detail?: string | null;
+  occurredAt?: string | null;
   tone?: "default" | "active" | "attention";
 };
 
@@ -40,6 +41,16 @@ function toneIcon(tone: ActivityLogEntry["tone"]) {
   }
 }
 
+function formatOccurredAt(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+
+  return Number.isNaN(parsed.valueOf()) ? null : parsed.toLocaleString();
+}
+
 export function ActivityLog({
   entries,
   className,
@@ -52,7 +63,7 @@ export function ActivityLog({
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-white/35">{title}</p>
           <p className="mt-2 text-sm text-white/55">
-            High-level processing status for extraction, quote matching, and selection filters.
+            Recent workflow milestones backed by curated audit and worker events.
           </p>
         </div>
       </div>
@@ -63,6 +74,7 @@ export function ActivityLog({
         <div className="mt-4 space-y-3">
           {entries.map((entry) => {
             const Icon = toneIcon(entry.tone);
+            const occurredAtLabel = formatOccurredAt(entry.occurredAt);
 
             return (
               <Collapsible key={entry.id}>
@@ -72,7 +84,14 @@ export function ActivityLog({
                       <div className="rounded-full border border-white/10 bg-white/6 p-2 text-white/70">
                         <Icon className="h-3.5 w-3.5" />
                       </div>
-                      <p className="text-sm font-medium">{entry.label}</p>
+                      <div>
+                        <p className="text-sm font-medium">{entry.label}</p>
+                        {occurredAtLabel ? (
+                          <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-white/40">
+                            {occurredAtLabel}
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
                     {entry.detail ? <ChevronDown className="h-4 w-4 text-white/45" /> : null}
                   </CollapsibleTrigger>

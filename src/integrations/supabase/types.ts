@@ -983,6 +983,13 @@ export type Database = {
         };
         Returns: string;
       };
+      api_list_client_activity_events: {
+        Args: {
+          p_job_ids: string[];
+          p_limit_per_job?: number | null;
+        };
+        Returns: Json;
+      };
     };
     Enums: {
       app_role: AppRole;
