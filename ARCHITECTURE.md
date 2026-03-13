@@ -1,6 +1,6 @@
 # OverDrafter Architecture
 
-Last updated: March 11, 2026
+Last updated: March 13, 2026
 
 ## Purpose
 
@@ -9,6 +9,8 @@ This document defines the major architectural boundaries in OverDrafter. It exis
 ## System overview
 
 OverDrafter is a workflow system for manufactured-part quoting. It connects client intake, internal estimation, asynchronous file processing, sourcing workflows, and curated quote publication within a single workspace-oriented product model.
+
+The next-phase domain model should expand that quote-centric shape into an explicit service-request model. Projects remain collaboration containers, parts remain technical entities, and service request line items become the authoritative unit of requested work.
 
 ## Subsystems
 
@@ -21,7 +23,7 @@ OverDrafter is a workflow system for manufactured-part quoting. It connects clie
 - quote comparison and package publication surfaces
 
 ### 2. Backend data and domain layer
-- persistence of workspaces, projects, parts, jobs, files, quotes, and packages
+- persistence of workspaces, projects, parts, jobs, files, quotes, packages, and service request records
 - role-aware data access
 - workflow state transitions
 - auditability for sensitive actions
@@ -36,6 +38,7 @@ OverDrafter is a workflow system for manufactured-part quoting. It connects clie
 - receiving uploaded files and prompt text
 - creating draft/intake/job records
 - reconciling uploaded files into candidate part groupings
+- identifying or collecting the requested service type before service-specific parsing runs
 
 ### 5. Extraction and asynchronous worker layer
 - extracting structured part requirements from files
@@ -58,6 +61,15 @@ OverDrafter is a workflow system for manufactured-part quoting. It connects clie
 - project grouping
 - collaborator invitation and access
 - project-scoped visibility boundaries
+
+## Request-model boundary
+
+- projects are the grouping and collaboration boundary, not the only place where service intent lives
+- parts preserve technical identity, revision, and manufacturing context
+- service request line items hold the requested work type, scheduling, status, and service-specific detail
+- quote-specific fields such as requested quote quantities belong to `manufacturing_quote` line items rather than to a universal project request blob
+
+See `docs/service-request-taxonomy.md` for the canonical service types and mixed-service modeling rules.
 
 ## Key cross-cutting concerns
 - authorization

@@ -1,6 +1,6 @@
 # OverDrafter Product Requirements Document
 
-Last updated: March 11, 2026
+Last updated: March 13, 2026
 
 ## Document purpose
 
@@ -36,6 +36,25 @@ The product should evolve from “upload files and receive curated quote options
 - CAD-native integrations and plugins for direct submission and synchronization from authoring tools
 
 This long-term direction does not change the current implementation boundaries or current execution phase. It exists to clarify the intended destination so future planning, architecture, and prioritization can align toward the same product shape over time.
+
+## Next-phase service taxonomy
+
+Near-term domain work should treat service requests as an explicit taxonomy rather than as freeform notes attached to quote fields.
+
+The canonical next-phase service types are:
+
+- `manufacturing_quote`
+- `cad_modeling`
+- `drawing_redraft`
+- `fea_analysis`
+- `dfm_review`
+- `dfa_review`
+- `assembly_support`
+- `sourcing_only`
+
+Projects should act as containers and rollups for these requests, while the authoritative unit of requested work becomes a service request line item that can attach to a part, a project, and later an assembly. This keeps mixed-service projects coherent without breaking the current quote workflow, which should continue to map to a default `manufacturing_quote` request.
+
+See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-service representation, and reuse-versus-replace guidance against the current quote-shaped request model.
 
 ## Core jobs to be done
 
