@@ -1,6 +1,6 @@
 # Horizon 3 — Introduce Revision Control and PDM Foundations
 
-Last updated: March 11, 2026
+Last updated: March 13, 2026
 
 ## Purpose
 
@@ -9,6 +9,8 @@ This horizon establishes the file lifecycle and revision-management foundation n
 ## Goal
 
 Make OverDrafter capable of managing controlled file history, part and assembly relationships, official revisions, and traceable design-package changes.
+
+See `docs/revision-version-bridge.md` for the current-state inventory and compatibility constraints between today’s revision text model and future immutable version entities.
 
 ## Themes
 
