@@ -199,7 +199,7 @@ describe("client review pages", () => {
     ]);
   });
 
-  it("renders the part review summary and navigates back", async () => {
+  it("renders the part review summary with structured procurement handoff state", async () => {
     renderWithClient(
       <Routes>
         <Route path="/parts/:jobId/review" element={<ClientPartReview />} />
@@ -213,11 +213,32 @@ describe("client review pages", () => {
     });
 
     expect(screen.getByText("Vendor A")).toBeInTheDocument();
+    expect(screen.getByText("Procurement handoff")).toBeInTheDocument();
+    expect(screen.queryByText(/Checkout backend wiring is not available/i)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/ship-to contact/i), {
+      target: { value: "Jamie Buyer" },
+    });
+    fireEvent.change(screen.getByLabelText(/ship-to location/i), {
+      target: { value: "Phoenix, AZ" },
+    });
+    fireEvent.change(screen.getByLabelText(/billing contact name/i), {
+      target: { value: "Jordan Procure" },
+    });
+    fireEvent.change(screen.getByLabelText(/billing contact email/i), {
+      target: { value: "buyer@example.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /PO required/i }));
+    fireEvent.click(screen.getByRole("button", { name: /review handoff/i }));
+
+    expect(await screen.findByText(/manual release coordination/i)).toBeInTheDocument();
+    expect(screen.getByText("Jamie Buyer · Phoenix, AZ")).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: /back to edit/i }));
     expect(await screen.findByText("Part Edit")).toBeInTheDocument();
   });
 
-  it("renders the project review summary", async () => {
+  it("renders the project review summary with the same procurement handoff model", async () => {
     renderWithClient(
       <Routes>
         <Route path="/projects/:projectId/review" element={<ClientProjectReview />} />
@@ -231,5 +252,10 @@ describe("client review pages", () => {
 
     expect(screen.getByText("Bracket RFQ")).toBeInTheDocument();
     expect(screen.getByText("$100.00")).toBeInTheDocument();
+    expect(screen.getByText("Procurement handoff")).toBeInTheDocument();
+    expect(
+      screen.getByText(/captures shipping, billing, and PO context for OverDrafter follow-up/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Placeholder surface for shipping method, billing, and purchase-order collection/i)).not.toBeInTheDocument();
   });
 });
