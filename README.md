@@ -33,7 +33,6 @@ If a lower-priority doc disagrees with one of the files above, the higher-priori
 - `AwesomeNewPlan_DeleteMeLater.md` is an archived transitional checklist and is superseded by `PLAN.md` and the canonical root docs.
 - `REPO_MAP.md` is a non-canonical orientation aid for navigating the repo layout.
 - `ROADMAP.md` is currently a placeholder and is not an active planning surface.
-
 ## Symphony Automation
 
 OverDrafter includes a repo-local Symphony workflow contract in `WORKFLOW.md`, repo-local skills in
@@ -44,6 +43,22 @@ Symphony's default local `./WORKFLOW.md` from the separate `openai/symphony` che
 For active implementation states, Symphony should switch off `main` in `hooks.before_run` using
 `./scripts/symphony-ensure-branch.sh`, which derives a deterministic branch from the Linear issue
 identifier.
+
+## Active Repo Layout
+
+The active runtime and ownership model for this repository is:
+
+- `src/` - the production React + Vite web application
+- `worker/` - the separate TypeScript worker package
+- `supabase/` - migrations, local config, and Edge Functions
+- `public/` - static assets served by the Vite app
+- `scripts/` - repo automation, seed helpers, and Symphony guard scripts
+- `e2e/` - Playwright coverage for end-to-end flows
+
+There is no active tracked `apps/` or `packages/` source layout in this repository. If those directories
+appear in old diffs or stale local artifacts, do not treat them as canonical runtime roots. Use
+`REPO_MAP.md` for the current directory map.
+
 ## What Was Implemented
 
 ### Web app
@@ -52,11 +67,11 @@ identifier.
 - Job intake at `/jobs/new`
 - Internal review and compare view at `/internal/jobs/:jobId`
 - Client package view at `/client/packages/:packageId`
-- Supabase-backed service layer in [`src/features/quotes/api.ts`](/Users/blainewilson/Documents/GitHub/overdrafter-cad-opus/src/features/quotes/api.ts)
+- Supabase-backed service layer in [`src/features/quotes/api.ts`](src/features/quotes/api.ts)
 
 ### Supabase
 
-- Domain schema and enums in [`supabase/migrations/20260303101500_curated_cnc_quote_platform.sql`](/Users/blainewilson/Documents/GitHub/overdrafter-cad-opus/supabase/migrations/20260303101500_curated_cnc_quote_platform.sql)
+- Domain schema and enums in [`supabase/migrations/20260303101500_curated_cnc_quote_platform.sql`](supabase/migrations/20260303101500_curated_cnc_quote_platform.sql)
 - Buckets for `job-files` and `quote-artifacts`
 - RLS for internal vs client access
 - RPCs for:
