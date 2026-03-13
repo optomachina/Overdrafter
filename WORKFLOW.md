@@ -82,7 +82,7 @@ State behavior:
 
 - `Todo`, `In Progress`, `Rework`: the workspace hook will switch to an issue branch before Codex starts. After that, implement the issue, run targeted verification, commit, and use the `push` skill to publish the branch and ensure the PR exists before handing off to `Human Review`.
 - `Human Review`: do not implement new changes unless review feedback explicitly moves the issue back to `Rework`.
-- `Merging`: do not implement new code. Use the `land` skill to land the reviewed PR safely. If no PR exists, stop and report that the issue was moved to `Merging` too early.
+- `Merging`: do not implement new code. Use the `land` skill to land the reviewed PR safely. If no PR exists, stop and report that the issue was moved to `Merging` too early. If required checks are failing, move the issue back to `Rework`. If the PR is merely waiting on in-flight checks, keep it in `Merging`.
 - `Done`: only after the PR is actually merged.
 
 Human Review transition rule:

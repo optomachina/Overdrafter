@@ -48,6 +48,10 @@ gh pr ready
 python3 .codex/skills/land/land_watch.py
 ```
 
+   - If `land_watch.py` reports failing required checks, stop landing work, summarize the failing checks in the workpad, and move the issue back to `Rework`.
+   - If the PR is only waiting on in-flight checks, remain in `Merging` and prefer auto-merge when available.
+   - If the PR is blocked because it was moved to `Merging` too early, move it back to `Human Review`.
+
 9. Land the PR:
 
 ```bash
@@ -70,3 +74,4 @@ gh pr merge --auto --squash --delete-branch
 - Do not write new product code while landing.
 - Do not land a PR without a real review handoff.
 - Do not mark the issue `Done` until GitHub shows the PR merged.
+- Do not leave an issue in `Merging` when required checks are red and implementation changes are needed; move it back to `Rework`.
