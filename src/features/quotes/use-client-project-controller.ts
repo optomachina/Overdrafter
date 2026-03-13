@@ -55,6 +55,7 @@ import {
   parseRequestIntake,
   parseRequestedQuoteQuantitiesInput,
 } from "@/features/quotes/request-intake";
+import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadata";
 import { getSharedRequestMetadata } from "@/features/quotes/request-scenarios";
 import {
   applyBulkPresetSelection,
@@ -491,23 +492,7 @@ export function useClientProjectController() {
           requested_by_date: item.job.requested_by_date ?? null,
         });
 
-        next[item.job.id] = {
-          jobId: item.job.id,
-          requestedServiceKinds: requirement.requestedServiceKinds,
-          primaryServiceKind: requirement.primaryServiceKind,
-          serviceNotes: requirement.serviceNotes,
-          description: requirement.description ?? null,
-          partNumber: requirement.partNumber ?? null,
-          revision: requirement.revision ?? null,
-          material: requirement.material,
-          finish: requirement.finish ?? null,
-          tightestToleranceInch: requirement.tightestToleranceInch ?? null,
-          process: requirement.process ?? null,
-          notes: requirement.notes ?? null,
-          quantity: requirement.quantity,
-          requestedQuoteQuantities: requirement.quoteQuantities,
-          requestedByDate: requirement.requestedByDate ?? null,
-        };
+        next[item.job.id] = buildClientPartRequestUpdateInput(item.job.id, requirement);
       });
 
       return next;

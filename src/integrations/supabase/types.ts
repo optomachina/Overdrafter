@@ -857,6 +857,10 @@ export type Database = {
           p_quantity: number;
           p_requested_quote_quantities?: number[] | null;
           p_requested_by_date?: string | null;
+          p_shipping?: Json | null;
+          p_certifications?: Json | null;
+          p_sourcing?: Json | null;
+          p_release?: Json | null;
         };
         Returns: string;
       };

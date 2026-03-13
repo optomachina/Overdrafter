@@ -207,6 +207,8 @@ export type RfqLineItemMetadata = {
   release: RfqLineItemReleaseContext;
 };
 
+export type RfqLineItemExtendedMetadata = Omit<RfqLineItemMetadata, "request">;
+
 export const CLIENT_PART_REQUEST_MVP_FIELDS = [
   "requestedServiceKinds",
   "primaryServiceKind",
@@ -226,11 +228,12 @@ export const CLIENT_PART_REQUEST_MVP_FIELDS = [
 
 export type ClientPartRequestEditableFields = RfqLineItemRequestFields & RequestedServiceIntent;
 
-export type ApprovedPartRequirement = Omit<ClientPartRequestEditableFields, "requestedQuoteQuantities"> & {
-  partId: string;
-  quoteQuantities: number[];
-  applicableVendors: VendorName[];
-};
+export type ApprovedPartRequirement = Omit<ClientPartRequestEditableFields, "requestedQuoteQuantities"> &
+  RfqLineItemExtendedMetadata & {
+    partId: string;
+    quoteQuantities: number[];
+    applicableVendors: VendorName[];
+  };
 
 export type VendorQuoteResult = {
   vendor: VendorName;
@@ -453,7 +456,8 @@ export type PartDetailAggregate = {
 
 export type ClientPartRequestUpdateInput = {
   jobId: string;
-} & ClientPartRequestEditableFields;
+} & ClientPartRequestEditableFields &
+  RfqLineItemExtendedMetadata;
 
 export type ClientQuoteWorkspaceItem = {
   job: JobRecord;

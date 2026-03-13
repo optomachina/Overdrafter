@@ -1,5 +1,6 @@
 import { Loader2, Upload } from "lucide-react";
 import type { ReactNode } from "react";
+import { RfqLineItemMetadataFields } from "@/components/quotes/RfqLineItemMetadataFields";
 import { RequestServiceIntentFields } from "@/components/quotes/RequestServiceIntentFields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -170,6 +171,27 @@ export function ClientPartRequestEditor({
             placeholder="Optional drawing callouts, schedule constraints, or packaging notes."
           />
         </div>
+      </div>
+
+      <div className="space-y-3 rounded-[1.75rem] border border-white/8 bg-white/5 p-4">
+        <div>
+          <p className="text-sm font-medium text-white">RFQ details</p>
+          <p className="mt-1 text-xs text-white/50">
+            Shipping, certification, sourcing, and release status details stay client-safe here. Internal
+            review-only controls remain on the estimator side.
+          </p>
+        </div>
+        <RfqLineItemMetadataFields
+          idPrefix="client-request"
+          value={{
+            shipping: draft.shipping,
+            certifications: draft.certifications,
+            sourcing: draft.sourcing,
+            release: draft.release,
+          }}
+          onChange={onChange}
+          mode="client"
+        />
       </div>
 
       {footer}

@@ -14,6 +14,7 @@ import type {
   QuoteRunAggregate,
 } from "@/features/quotes/types";
 import type { ClientOptionKind, Json, VendorName } from "@/integrations/supabase/types";
+import { readRfqLineItemExtendedMetadata } from "@/features/quotes/rfq-metadata";
 import { normalizeRequestedQuoteQuantities } from "@/features/quotes/request-intake";
 import {
   normalizeRequestedServiceIntent,
@@ -222,6 +223,7 @@ export function buildRequirementDraft(
   });
   const process = readSpecSnapshotString(approved?.spec_snapshot, "process");
   const notes = readSpecSnapshotString(approved?.spec_snapshot, "notes");
+  const metadata = readRfqLineItemExtendedMetadata(approved?.spec_snapshot);
   const showQuoteFields = requestedServicesSupportQuoteFields(serviceIntent.requestedServiceKinds);
   const materialRequired = requestedServicesRequireMaterial(serviceIntent.requestedServiceKinds);
   const quantity = approved?.quantity ?? part.quantity ?? jobRequest?.requested_quote_quantities?.[0] ?? 1;
@@ -255,6 +257,10 @@ export function buildRequirementDraft(
     quantity,
     quoteQuantities,
     requestedByDate: approved?.requested_by_date ?? jobRequest?.requested_by_date ?? null,
+    shipping: metadata.shipping,
+    certifications: metadata.certifications,
+    sourcing: metadata.sourcing,
+    release: metadata.release,
     applicableVendors:
       approved?.applicable_vendors?.length
         ? approved.applicable_vendors

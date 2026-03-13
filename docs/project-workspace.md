@@ -56,7 +56,7 @@
 - Vendor exclusion toggles
 - Revised upload action for the focused line item
 - Activity log
-- The current drawer reuses the same MVP-safe request edit subset as the part page. The broader project-vs-line-item RFQ contract is defined in [docs/rfq-metadata-model.md](/Users/blainewilson/code/overdrafter-symphony-workspaces/OVD-38/docs/rfq-metadata-model.md) for follow-on schema and UI work.
+- The drawer reuses the same client-safe RFQ metadata subset as the part page, including shipping, certification, sourcing, and release-status sections. Internal-only release review controls remain restricted to internal review surfaces. The broader project-vs-line-item RFQ contract is defined in [docs/rfq-metadata-model.md](./rfq-metadata-model.md).
 
 ## State Notes
 - Selected quote totals update immediately via local optimistic overrides, then reconcile against the persisted server value.
