@@ -152,6 +152,48 @@ In particular:
 
 may remain visible in the client activity log, but they do not notify client users in the first slice. They are internal operational action items first.
 
+## First web notification surface
+
+The first in-product notification center surface for the web app is the `Notifications` panel inside the existing workspace account menu.
+
+This panel is the target for the first browser slice because it already exists across the current browser workspace shell and gives users one stable place to:
+
+- request browser permission
+- review notification preferences
+- see recent notification records
+- distinguish seen versus unseen items
+
+The current panel is intentionally scoped to the first browser slice rather than every future client:
+
+- it reuses the cross-surface notification taxonomy from this document
+- it does not attempt full inbox management, batching, archive views, or mobile-first affordances yet
+- it is designed so later desktop, mobile, or native inbox surfaces can reuse the same notification types and channel concepts
+
+## Browser permission and opt-in behavior
+
+Use the following browser-delivery behavior in the first web slice:
+
+1. Browser permission is requested only from the notification center, not on initial page load.
+2. Permission and product opt-in are separate.
+3. A granted browser permission alone does not mean every notification type should start delivering.
+4. Each supported notification type has independent `in_app` and `browser` delivery toggles at the user level.
+5. Enabling browser delivery for a type arms future deliveries only. It must not backfill a burst of older notifications that were already present before opt-in.
+6. If browser permission is denied, the center should explain that delivery must be re-enabled in browser site settings.
+7. If the Notification API is unavailable, the center should show browser delivery as unsupported instead of pretending permission can be requested.
+
+## Seen and unseen state
+
+Until server-backed notification records exist, the first web slice keeps seen state in browser-local storage keyed to the signed-in user.
+
+That temporary behavior must follow these rules:
+
+- `unseen` means the notification is still contributing to the account-menu badge and center emphasis on this browser
+- opening the notification center marks the currently visible items as seen
+- users may manually mark an item seen or unseen from the center
+- browser-local seen state is a temporary continuity layer for the web app only; it is not yet the final cross-device model
+
+When durable notification persistence is added later, browser-local seen state should be replaced by stored notification records with canonical `seen_at` and `read_at` fields.
+
 ## High-signal thresholds
 
 Apply these thresholds across all channels:
