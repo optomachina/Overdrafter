@@ -56,6 +56,24 @@ The product should evolve from “upload files and receive curated quote options
 
 This long-term direction does not change the current implementation boundaries or current execution phase. It exists to clarify the intended destination so future planning, architecture, and prioritization can align toward the same product shape over time.
 
+## Fulfillment-aware downstream boundary
+
+After quote selection, the intended long-term downstream lifecycle is:
+
+- review / procurement handoff
+- approved
+- ordered
+- in production
+- inspecting
+- shipped
+- delivered
+
+Those states exist to provide shared visibility and explicit workflow modeling after quote selection. They do not mean the current product owns PO issuance, payment collection, vendor communication, shipment booking, billing systems, or ERP synchronization.
+
+In the near term, the active foundation for this lifecycle is the existing review and procurement handoff route. `approved` is the first meaningful follow-on state once that handoff model and related metadata mature. `ordered` and later fulfillment states should remain visibility-oriented placeholders until the product deliberately expands beyond manual procurement follow-up.
+
+See `docs/fulfillment-state-model.md` for the canonical downstream state meanings and planning boundary.
+
 ## Next-phase service taxonomy
 
 Near-term domain work should treat service requests as an explicit taxonomy rather than as freeform notes attached to quote fields.
