@@ -41,6 +41,8 @@ For next-phase implementation work, use the canonical service codes from that do
 - identify child-part dependencies
 - see `docs/assembly-workspace-spike.md` for the current repo-grounded spike artifact
 
+Use [docs/assembly-workspace-foundation.md](./docs/assembly-workspace-foundation.md) as the planning boundary for this theme. Assembly-aware workspace work must stay project-scoped and must not replace `Project` as the top-level container.
+
 ### 4. Deeper manufacturing review
 - DFM status
 - DFA status
@@ -68,8 +70,11 @@ For next-phase implementation work, use the canonical service codes from that do
 ### Epic: assembly workspace foundation
 - assembly uploads
 - assembly tree display
+- project-scoped dependency display
 - parent-child file grouping
 - assembly-scoped request summaries
+
+This epic owns workspace-level assembly context only. Version graphs, official revisions, and deeper PDM relationship modeling belong in Horizon 3.
 
 ### Epic: review status model
 - explicit DFM / DFA fields
