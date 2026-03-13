@@ -29,6 +29,7 @@ import { ClientWorkspaceStateSummary, ClientWorkspaceToneBadge } from "@/compone
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import {
   Dialog,
   DialogContent,
@@ -162,6 +163,11 @@ const ClientProject = () => {
     user,
     workspaceItemsByJobId,
   } = useClientProjectController();
+  const notificationCenter = useWorkspaceNotifications({
+    jobIds: (accessibleJobsQuery.data ?? []).map((job) => job.id),
+    role: activeMembership?.role,
+    userId: user?.id,
+  });
 
   const workspaceStatesByJobId = useMemo(
     () =>
@@ -401,6 +407,7 @@ const ClientProject = () => {
           <WorkspaceAccountMenu
             user={user}
             activeMembership={activeMembership}
+            notificationCenter={notificationCenter}
             onSignOut={signOut}
             onSignedOut={() => navigate("/", { replace: true })}
             archivedProjects={archivedProjectsQuery.data}
