@@ -32,6 +32,11 @@ const RFQ_MATERIAL_PROVISIONING_VALUES = [
   "customer_supplied",
   "tbd",
 ] as const;
+const LEGACY_INTERNAL_ONLY_CLIENT_SPEC_SNAPSHOT_KEYS = [
+  "requestedByDateOverride",
+  "reviewDisposition",
+  "quoteBlockedUntilRelease",
+] as const;
 
 export const RFQ_INSPECTION_LEVEL_OPTIONS: Array<LabeledValue<RfqInspectionLevel>> = [
   { value: "standard", label: "Standard" },
@@ -234,10 +239,14 @@ export function sanitizeClientVisibleRfqLineItemExtendedMetadata(
 export function sanitizeClientVisibleSpecSnapshot(
   specSnapshot: Json | null | undefined,
 ): Json {
-  const snapshot = asObject(specSnapshot);
+  const snapshot = { ...asObject(specSnapshot) };
   const metadata = sanitizeClientVisibleRfqLineItemExtendedMetadata(
     readRfqLineItemExtendedMetadata(specSnapshot),
   );
+
+  LEGACY_INTERNAL_ONLY_CLIENT_SPEC_SNAPSHOT_KEYS.forEach((key) => {
+    delete snapshot[key];
+  });
 
   return {
     ...snapshot,

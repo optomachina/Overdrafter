@@ -96,16 +96,19 @@ describe("rfq-metadata", () => {
   });
 
   it("strips internal-only release review fields from client-visible snapshots", () => {
-    expect(
-      sanitizeClientVisibleSpecSnapshot({
-        release: {
-          releaseStatus: "pre_release",
-          reviewDisposition: "needs_review",
-          quoteBlockedUntilRelease: true,
-          notes: "Awaiting sign-off",
-        },
-      }),
-    ).toMatchObject({
+    const sanitized = sanitizeClientVisibleSpecSnapshot({
+      requestedByDateOverride: "2026-04-25",
+      reviewDisposition: "needs_review",
+      quoteBlockedUntilRelease: true,
+      release: {
+        releaseStatus: "pre_release",
+        reviewDisposition: "needs_review",
+        quoteBlockedUntilRelease: true,
+        notes: "Awaiting sign-off",
+      },
+    });
+
+    expect(sanitized).toMatchObject({
       release: {
         releaseStatus: "pre_release",
         reviewDisposition: null,
@@ -113,6 +116,9 @@ describe("rfq-metadata", () => {
         notes: "Awaiting sign-off",
       },
     });
+    expect(sanitized).not.toHaveProperty("requestedByDateOverride");
+    expect(sanitized).not.toHaveProperty("reviewDisposition");
+    expect(sanitized).not.toHaveProperty("quoteBlockedUntilRelease");
   });
 
   it("builds client request drafts from the richer requirement shape", () => {

@@ -48,7 +48,7 @@
   - client page calls `updateClientPartRequest(...)`
   - backend persists through `api_update_client_part_request`
 - Revised files still attach to the same job/line item via the existing upload and reconcile flow.
-- The editor now exposes the approved client-safe subset of the broader RFQ model defined in [docs/rfq-metadata-model.md](/Users/blainewilson/code/overdrafter-symphony-workspaces/OVD-38/docs/rfq-metadata-model.md). Internal-only release review fields still stay on internal surfaces and are stripped from client fetches.
+- The editor now exposes the approved client-safe subset of the broader RFQ model defined in [docs/rfq-metadata-model.md](./rfq-metadata-model.md). Internal-only release review fields still stay on internal surfaces and are stripped from client fetches.
 
 ## Empty States
 - No quotes yet
