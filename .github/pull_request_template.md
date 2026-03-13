@@ -13,7 +13,7 @@ What is intentionally not included?
 
 ## Verification
 
-List the exact commands run locally. Prefer `npm run verify` unless a narrower command set was the right fit for the change.
+List the exact commands run locally and whether they passed. Prefer `npm run verify` unless a narrower command set was the right fit for the change. If unrelated baseline failures surfaced, describe them separately from current-change failures.
 
 - [ ] `npm run verify`
 - [ ] narrower commands were used intentionally and are listed below
@@ -24,6 +24,14 @@ Commands run:
 ```bash
 # npm run verify
 ```
+
+Results:
+
+- [ ] all listed verification passed
+- [ ] unrelated baseline failure(s) are described below
+- [ ] narrower verification was intentionally sufficient and is justified below
+
+Baseline failures or exceptions:
 
 ## Tests
 
