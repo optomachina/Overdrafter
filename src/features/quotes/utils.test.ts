@@ -59,9 +59,10 @@ function makeOffer(
   return {
     id: "offer-1",
     vendor_quote_result_id: "quote-1",
+    organization_id: "org-1",
     offer_key: "lane-a",
     supplier: "Vendor A",
-    lane_label: null,
+    lane_label: "Lane A",
     sourcing: null,
     tier: null,
     quote_ref: null,
@@ -80,6 +81,7 @@ function makeOffer(
     thread_match_notes: null,
     notes: null,
     sort_rank: 1,
+    raw_payload: {},
     created_at: "2026-03-03T00:00:00Z",
     updated_at: "2026-03-03T00:00:00Z",
     ...overrides,
@@ -273,8 +275,13 @@ describe("quotes utils", () => {
         material: "7075 aluminum",
         finish: "Black anodize",
         tightest_tolerance_inch: 0.01,
+        approved_by: "user-1",
         quantity: 9,
+        quote_quantities: [9],
+        requested_by_date: null,
         applicable_vendors: ["partsbadger"],
+        spec_snapshot: {},
+        approved_at: "2026-03-03T00:00:00Z",
         created_at: "2026-03-03T00:00:00Z",
         updated_at: "2026-03-03T00:00:00Z",
       } as PartAggregate["approvedRequirement"],
@@ -302,7 +309,7 @@ describe("quotes utils", () => {
         makeOffer({ id: "offer-1", offer_key: "lane-a", total_price_usd: 110, sort_rank: 1 }),
         makeOffer({ id: "offer-3", offer_key: "lane-b", total_price_usd: 90, sort_rank: 1 }),
       ],
-    } as VendorQuoteAggregate;
+    } as unknown as VendorQuoteAggregate;
 
     expect(getImportedVendorOffers(quote).map((offer) => [offer.offerId, offer.requestedQuantity])).toEqual([
       ["lane-b", 1],
@@ -313,6 +320,19 @@ describe("quotes utils", () => {
 
   it("falls back to raw payload offers and filters out invalid price rows", () => {
     const quote = {
+      id: "quote-1",
+      quote_run_id: "run-1",
+      part_id: "part-1",
+      organization_id: "org-1",
+      vendor: "xometry",
+      requested_quantity: 1,
+      status: "official_quote_received",
+      unit_price_usd: null,
+      total_price_usd: null,
+      lead_time_business_days: null,
+      quote_url: null,
+      dfm_issues: [],
+      notes: [],
       raw_payload: {
         source: "manual-quote-intake",
         offers: [
@@ -321,6 +341,8 @@ describe("quotes utils", () => {
           { offerId: "fast", supplier: "C", totalPriceUsd: 150, unitPriceUsd: 75 },
         ],
       },
+      created_at: "2026-03-03T00:00:00Z",
+      updated_at: "2026-03-03T00:00:00Z",
     } as VendorQuoteResultRecord;
 
     expect(hasManualQuoteIntakeSource(quote)).toBe(true);

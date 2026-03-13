@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
+import type { ActivityLogEntry } from "@/components/quotes/ActivityLog";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAppSession } from "@/hooks/use-app-session";
 import {
@@ -277,7 +278,7 @@ export function useClientProjectController() {
   const canDissolveProject = canManageMembers;
   const focusedDraft = focusedJob ? requestDraftsByJobId[focusedJob.id] ?? null : null;
   const focusedQuoteQuantityInput = focusedJob ? quoteQuantityInputsByJobId[focusedJob.id] ?? "" : "";
-  const focusedActivityEntries = useMemo(() => {
+  const focusedActivityEntries = useMemo<ActivityLogEntry[]>(() => {
     if (!focusedWorkspaceItem) {
       return [];
     }

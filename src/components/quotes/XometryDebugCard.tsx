@@ -36,11 +36,20 @@ type XometryDebugCardProps = {
 };
 
 type RawPayload = Record<string, unknown>;
+type XometryDebugState = {
+  label: string;
+  tone: "green" | "sky" | "amber" | "red";
+  description: string;
+};
 
 function asObject(value: unknown): RawPayload {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as RawPayload)
     : {};
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -97,7 +106,7 @@ function deriveDebugState(input: {
   selectedQuote: VendorQuoteAggregate | null;
   selectedPartHasXometry: boolean;
   selectedQueueTask: WorkQueueRecord | undefined;
-}) {
+}): XometryDebugState {
   if (!input.latestQuoteRun) {
     return {
       label: "Blocked: start quote run",
@@ -304,9 +313,28 @@ export function XometryDebugCard({
   });
   const rawPayload = asObject(selectedQuote?.raw_payload);
   const artifacts = selectedQuote?.artifacts ?? [];
+  const noteItems = asStringArray(selectedQuote?.notes);
   const screenshotArtifacts = artifacts.filter((artifact) => artifact.artifact_type === "screenshot");
   const htmlArtifacts = artifacts.filter((artifact) => artifact.artifact_type === "html_snapshot");
   const traceArtifacts = artifacts.filter((artifact) => artifact.artifact_type === "trace");
+  const diagnosticItems: Array<[string, unknown]> = [
+    ["Failure code", rawPayload.failureCode ?? "None"],
+    ["Detected flow", rawPayload.detectedFlow ?? "Unknown"],
+    ["Selected material", rawPayload.selectedMaterial ?? "Not selected"],
+    ["Selected finish", rawPayload.selectedFinish ?? "Not selected"],
+    ["Price source", rawPayload.priceSource ?? "Unknown"],
+    ["Lead time source", rawPayload.leadTimeSource ?? "Unknown"],
+    ["URL", rawPayload.url ?? selectedQuote?.quote_url ?? "Not available"],
+    [
+      "Attempted selectors",
+      Array.isArray(rawPayload.attemptedSelectors) ? rawPayload.attemptedSelectors.join(", ") : "None",
+    ],
+  ];
+  const artifactGroups: Array<[string, typeof artifacts]> = [
+    ["Screenshots", screenshotArtifacts],
+    ["HTML snapshots", htmlArtifacts],
+    ["Trace", traceArtifacts],
+  ];
   const submitBlocked =
     disabled ||
     !latestQuoteRun ||
@@ -494,16 +522,7 @@ export function XometryDebugCard({
           </CollapsibleTrigger>
           <CollapsibleContent className="space-y-4 pt-4">
             <div className="grid gap-3 md:grid-cols-2">
-              {[
-                ["Failure code", rawPayload.failureCode ?? "None"],
-                ["Detected flow", rawPayload.detectedFlow ?? "Unknown"],
-                ["Selected material", rawPayload.selectedMaterial ?? "Not selected"],
-                ["Selected finish", rawPayload.selectedFinish ?? "Not selected"],
-                ["Price source", rawPayload.priceSource ?? "Unknown"],
-                ["Lead time source", rawPayload.leadTimeSource ?? "Unknown"],
-                ["URL", rawPayload.url ?? selectedQuote?.quote_url ?? "Not available"],
-                ["Attempted selectors", Array.isArray(rawPayload.attemptedSelectors) ? rawPayload.attemptedSelectors.join(", ") : "None"],
-              ].map(([label, value]) => (
+              {diagnosticItems.map(([label, value]) => (
                 <div key={label} className="rounded-2xl border border-white/8 bg-black/20 p-4">
                   <p className="text-xs uppercase tracking-[0.2em] text-white/40">{label}</p>
                   <p className="mt-2 break-words text-sm text-white/80">{String(value)}</p>
@@ -523,8 +542,8 @@ export function XometryDebugCard({
             <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-white/40">Notes</p>
               <div className="mt-3 space-y-2 text-sm text-white/70">
-                {(selectedQuote?.notes ?? []).length > 0 ? (
-                  (selectedQuote?.notes ?? []).map((note) => <p key={note}>{note}</p>)
+                {noteItems.length > 0 ? (
+                  noteItems.map((note) => <p key={note}>{note}</p>)
                 ) : (
                   <p>No notes recorded.</p>
                 )}
@@ -539,16 +558,12 @@ export function XometryDebugCard({
                 </Badge>
               </div>
               <Separator className="my-4 bg-white/10" />
-              {[
-                ["Screenshots", screenshotArtifacts],
-                ["HTML snapshots", htmlArtifacts],
-                ["Trace", traceArtifacts],
-              ].map(([label, items]) => (
+              {artifactGroups.map(([label, items]) => (
                 <div key={label} className="mb-4 last:mb-0">
                   <p className="text-sm font-medium text-white">{label}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {(items as typeof artifacts).length > 0 ? (
-                      (items as typeof artifacts).map((artifact) => (
+                    {items.length > 0 ? (
+                      items.map((artifact) => (
                         <Button
                           key={artifact.id}
                           type="button"
