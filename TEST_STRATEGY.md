@@ -80,9 +80,7 @@ This document defines how OverDrafter should be verified locally, in CI, and dur
 
 ## CI policy
 Minimum CI target:
-- `npm run lint`
-- `npm run typecheck`
-- `npm test`
-- `npm run build`
-- `npm run verify:worker` when CI is representing the full repo verification gate
+- install dependencies for both the repo root and `worker/`
+- `npm run verify` from the repo root when CI is representing the full repo verification gate
+- the root `verify` command should cover `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, and `npm run verify:worker`
 - prefer canonical package scripts over direct tool invocations so CI stays aligned with local verification

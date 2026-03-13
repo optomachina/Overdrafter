@@ -29,17 +29,5 @@ jobs:
       - name: Install worker dependencies
         run: npm --prefix worker ci
 
-      - name: Run lint
-        run: npm run lint
-
-      - name: Run typecheck
-        run: npm run typecheck
-
-      - name: Run tests
-        run: npm test
-
-      - name: Build app
-        run: npm run build
-
-      - name: Verify worker
-        run: npm run verify:worker
+      - name: Run repo verification
+        run: npm run verify
