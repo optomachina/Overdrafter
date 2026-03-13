@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  test-and-build:
+  verify:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,12 +19,27 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            worker/package-lock.json
 
-      - name: Install dependencies
+      - name: Install root dependencies
         run: npm ci
+
+      - name: Install worker dependencies
+        run: npm --prefix worker ci
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run typecheck
+        run: npm run typecheck
 
       - name: Run tests
         run: npm test
 
       - name: Build app
         run: npm run build
+
+      - name: Verify worker
+        run: npm run verify:worker
