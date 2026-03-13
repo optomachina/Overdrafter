@@ -39,6 +39,7 @@ For next-phase implementation work, use the canonical service codes from that do
 - parse part relationships
 - surface assembly tree context
 - identify child-part dependencies
+- see `docs/assembly-workspace-spike.md` for the current repo-grounded spike artifact
 
 ### 4. Deeper manufacturing review
 - DFM status
