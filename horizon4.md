@@ -45,6 +45,8 @@ Allow users to review, monitor, approve, and coordinate work across browser, des
 - notification center UI
 - seen/unseen state
 
+The cross-surface notification taxonomy for browser, center, desktop, and mobile reuse now lives in `docs/notification-taxonomy.md`.
+
 ### Epic: desktop shell
 - package the web experience for desktop
 - support system notifications
