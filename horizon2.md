@@ -39,6 +39,9 @@ For next-phase implementation work, use the canonical service codes from that do
 - parse part relationships
 - surface assembly tree context
 - identify child-part dependencies
+- see `docs/assembly-workspace-spike.md` for the current repo-grounded spike artifact
+
+Use [docs/assembly-workspace-foundation.md](./docs/assembly-workspace-foundation.md) as the planning boundary for this theme. Assembly-aware workspace work must stay project-scoped and must not replace `Project` as the top-level container.
 
 ### 4. Deeper manufacturing review
 - DFM status
@@ -48,13 +51,9 @@ For next-phase implementation work, use the canonical service codes from that do
 - engineering-review checkpoints
 
 ### 5. Fulfillment-aware states
-- review
-- approved
-- ordered
-- in production
-- inspecting
-- shipped
-- delivered
+- treat the post-selection lifecycle as `review / procurement handoff -> approved -> ordered -> in production -> inspecting -> shipped -> delivered`
+- use those states for visibility and workflow modeling rather than as proof that OverDrafter executed the order or fulfillment step
+- keep `ordered` and later states placeholder-only until review handoff and supporting metadata are mature enough to support coherent status transitions
 
 ## Candidate epics
 
@@ -71,8 +70,11 @@ For next-phase implementation work, use the canonical service codes from that do
 ### Epic: assembly workspace foundation
 - assembly uploads
 - assembly tree display
+- project-scoped dependency display
 - parent-child file grouping
 - assembly-scoped request summaries
+
+This epic owns workspace-level assembly context only. Version graphs, official revisions, and deeper PDM relationship modeling belong in Horizon 3.
 
 ### Epic: review status model
 - define the future status vocabulary in `docs/manufacturing-review-status-model.md`
@@ -93,8 +95,12 @@ Revision-aware carry-forward, supersession, and immutable review history remain 
 
 ### Epic: fulfillment state model
 - downstream state taxonomy
-- visible status strip
+- visible status strip and project/part rollups
 - audit events for transitions
+- manual or externally confirmed downstream updates before direct integrations exist
+- explicit separation between state visibility and unsupported ordering, payment, shipping, or billing ownership
+
+This epic should remain planning-level until the review-route and metadata foundation are mature enough to support a coherent `approved` boundary.
 
 ## Out of scope for this horizon
 

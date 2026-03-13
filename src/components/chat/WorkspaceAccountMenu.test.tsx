@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@supabase/supabase-js";
+import type { WorkspaceNotificationsController } from "@/features/notifications/use-workspace-notifications";
 import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary } from "@/features/quotes/types";
 import { WorkspaceAccountMenu } from "./WorkspaceAccountMenu";
 
@@ -99,6 +100,85 @@ const archivedJobs: ArchivedJobSummary[] = [
     projectNames: ["Archived Project"],
   },
 ];
+
+function makeNotificationCenter(
+  overrides: Partial<WorkspaceNotificationsController> = {},
+): WorkspaceNotificationsController {
+  return {
+    allItems: [
+      {
+        id: "client.quote_package_ready:package-1",
+        sourceEventId: "event-1",
+        notificationType: "client.quote_package_ready",
+        occurredAt: "2026-03-13T12:00:00.000Z",
+        jobId: "job-1",
+        packageId: "package-1",
+        title: "Quote package ready",
+        detail: "Curated quote options are available for review in this workspace.",
+        tone: "active",
+        isSeen: false,
+      },
+    ],
+    browserPermission: "default",
+    isLoading: false,
+    isRequestingPermission: false,
+    items: [
+      {
+        id: "client.quote_package_ready:package-1",
+        sourceEventId: "event-1",
+        notificationType: "client.quote_package_ready",
+        occurredAt: "2026-03-13T12:00:00.000Z",
+        jobId: "job-1",
+        packageId: "package-1",
+        title: "Quote package ready",
+        detail: "Curated quote options are available for review in this workspace.",
+        tone: "active",
+        isSeen: false,
+      },
+    ],
+    markAllSeen: vi.fn(),
+    requestBrowserPermission: vi.fn().mockResolvedValue(undefined),
+    setChannelEnabled: vi.fn(),
+    setItemSeen: vi.fn(),
+    supportedTypes: ["client.quote_package_ready"],
+    typeDefinitions: {
+      "client.quote_package_ready": {
+        label: "Quote package ready",
+        description: "Notify me when curated quote options are published to a project or part I can access.",
+      },
+      "internal.extraction_attention_required": {
+        label: "Extraction needs attention",
+        description: "Notify me when file extraction stalls and internal review needs to intervene.",
+      },
+      "internal.quote_responses_ready": {
+        label: "Quote responses ready",
+        description: "Notify me when vendor responses are ready for internal review.",
+      },
+      "internal.quote_follow_up_required": {
+        label: "Vendor follow-up required",
+        description: "Notify me when quote collection still needs manual vendor follow-up.",
+      },
+      "internal.quote_collection_failed": {
+        label: "Quote collection failed",
+        description: "Notify me when quote collection ends without a publishable result.",
+      },
+      "internal.client_selection_received": {
+        label: "Client selection received",
+        description: "Notify me when a client records a quote-package selection that changes downstream work.",
+      },
+    },
+    typePreferences: {
+      "client.quote_package_ready": { inApp: true, browser: false },
+      "internal.extraction_attention_required": { inApp: true, browser: false },
+      "internal.quote_responses_ready": { inApp: true, browser: false },
+      "internal.quote_follow_up_required": { inApp: true, browser: false },
+      "internal.quote_collection_failed": { inApp: true, browser: false },
+      "internal.client_selection_received": { inApp: true, browser: false },
+    },
+    unseenCount: 1,
+    ...overrides,
+  };
+}
 
 async function openMainMenu() {
   fireEvent.pointerDown(screen.getByRole("button", { name: /open account menu/i }), { button: 0 });
@@ -251,6 +331,98 @@ describe("WorkspaceAccountMenu", () => {
     expect(screen.getByText("Wilson Works")).toBeInTheDocument();
     expect(screen.getByText("Role")).toBeInTheDocument();
     expect(screen.getAllByText("Client").length).toBeGreaterThan(0);
+  });
+
+  it("opens the notifications panel and marks current items seen", async () => {
+    const notificationCenter = makeNotificationCenter();
+    render(
+      <WorkspaceAccountMenu
+        user={makeUser()}
+        activeMembership={membership}
+        notificationCenter={notificationCenter}
+        onSignOut={vi.fn()}
+      />,
+    );
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: /notifications/i }));
+
+    expect(await screen.findByText("Browser permission")).toBeInTheDocument();
+    expect(screen.getAllByText("Quote package ready").length).toBeGreaterThan(0);
+    expect(notificationCenter.markAllSeen).toHaveBeenCalledTimes(1);
+  });
+
+  it("requests browser permission and updates notification preferences from the panel", async () => {
+    const notificationCenter = makeNotificationCenter();
+    render(
+      <WorkspaceAccountMenu
+        user={makeUser()}
+        activeMembership={membership}
+        notificationCenter={notificationCenter}
+        onSignOut={vi.fn()}
+      />,
+    );
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: /notifications/i }));
+
+    fireEvent.click(await screen.findByRole("button", { name: /allow browser notifications/i }));
+    await waitFor(() => {
+      expect(notificationCenter.requestBrowserPermission).toHaveBeenCalledTimes(1);
+    });
+
+    const inAppSwitch = screen.getByRole("switch", { name: "Quote package ready In-app center" });
+    fireEvent.click(inAppSwitch);
+    expect(notificationCenter.setChannelEnabled).toHaveBeenCalledWith("client.quote_package_ready", "inApp", false);
+  });
+
+  it("lets the user toggle seen state for an individual notification", async () => {
+    const notificationCenter = makeNotificationCenter({
+      allItems: [
+        {
+          id: "client.quote_package_ready:package-1",
+          sourceEventId: "event-1",
+          notificationType: "client.quote_package_ready",
+          occurredAt: "2026-03-13T12:00:00.000Z",
+          jobId: "job-1",
+          packageId: "package-1",
+          title: "Quote package ready",
+          detail: "Curated quote options are available for review in this workspace.",
+          tone: "active",
+          isSeen: true,
+        },
+      ],
+      items: [
+        {
+          id: "client.quote_package_ready:package-1",
+          sourceEventId: "event-1",
+          notificationType: "client.quote_package_ready",
+          occurredAt: "2026-03-13T12:00:00.000Z",
+          jobId: "job-1",
+          packageId: "package-1",
+          title: "Quote package ready",
+          detail: "Curated quote options are available for review in this workspace.",
+          tone: "active",
+          isSeen: true,
+        },
+      ],
+      unseenCount: 0,
+    });
+
+    render(
+      <WorkspaceAccountMenu
+        user={makeUser()}
+        activeMembership={membership}
+        notificationCenter={notificationCenter}
+        onSignOut={vi.fn()}
+      />,
+    );
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: /notifications/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mark unseen" }));
+
+    expect(notificationCenter.setItemSeen).toHaveBeenCalledWith("client.quote_package_ready:package-1", false);
   });
 
   it("opens diagnostics from the report bug action", async () => {

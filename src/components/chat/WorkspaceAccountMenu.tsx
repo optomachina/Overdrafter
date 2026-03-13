@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Archive,
   ArrowUpRight,
+  Bell,
   Box,
   Bug,
   ChevronRight,
@@ -43,6 +44,17 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
+import {
+  WORKSPACE_NOTIFICATION_TYPE_DEFINITIONS,
+} from "@/features/notifications/use-workspace-notifications";
+import type {
+  BrowserNotificationPermissionState,
+  WorkspaceNotificationChannel,
+  WorkspaceNotificationItem,
+  WorkspaceNotificationsController,
+  WorkspaceNotificationType,
+} from "@/features/notifications/use-workspace-notifications";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary } from "@/features/quotes/types";
 import { getAccountDisplayProfile } from "@/lib/account-profile";
@@ -52,6 +64,7 @@ import { cn } from "@/lib/utils";
 type WorkspaceAccountMenuProps = {
   user: User;
   activeMembership?: AppMembership | null;
+  notificationCenter?: WorkspaceNotificationsController | null;
   onSignOut: () => Promise<void> | void;
   onSignedOut?: () => void;
   archivedProjects?: ArchivedProjectSummary[];
@@ -62,6 +75,7 @@ type WorkspaceAccountMenuProps = {
 };
 
 type AccountPanelId =
+  | "notifications"
   | "settings"
   | "archive"
   | "help-center"
@@ -98,6 +112,8 @@ const MENU_ICON_CLASS = "h-[22px] w-[22px] shrink-0 text-white/[0.92]";
 const PANEL_SHEET_CLASS =
   "chatgpt-shell w-[min(100vw,30rem)] border-l border-white/[0.08] bg-[#2a2a2a] p-0 text-white sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-full [&>button]:bg-white/[0.06] [&>button]:p-2 [&>button]:text-white/72 [&>button]:hover:bg-white/[0.1] [&>button]:hover:text-white";
 const PANEL_CARD_CLASS = "rounded-[22px] border border-white/[0.08] bg-black/20 p-4";
+const NOTIFICATION_BADGE_CLASS =
+  "rounded-full border border-[#10a37f]/30 bg-[#10a37f]/10 px-2.5 py-1 text-[11px] font-medium text-[#7be0c0]";
 
 type ArchiveListItem =
   | {
@@ -287,9 +303,66 @@ function formatArchivedAt(value: string | null) {
   }).format(new Date(value))}`;
 }
 
+function formatNotificationTimestamp(value: string) {
+  const date = new Date(value);
+  const now = new Date();
+  const isSameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: isSameDay ? undefined : "short",
+    day: isSameDay ? undefined : "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function getNotificationToneClasses(tone: WorkspaceNotificationItem["tone"]) {
+  switch (tone) {
+    case "attention":
+      return "border-amber-400/25 bg-amber-500/10 text-amber-100";
+    case "active":
+      return "border-[#10a37f]/30 bg-[#10a37f]/12 text-[#9ef0d6]";
+    case "default":
+    default:
+      return "border-white/[0.08] bg-white/[0.06] text-white/72";
+  }
+}
+
+function getBrowserPermissionLabel(permission: BrowserNotificationPermissionState) {
+  switch (permission) {
+    case "granted":
+      return "Allowed";
+    case "denied":
+      return "Blocked";
+    case "default":
+      return "Not requested";
+    case "unsupported":
+    default:
+      return "Unavailable";
+  }
+}
+
+function getBrowserPermissionDescription(permission: BrowserNotificationPermissionState) {
+  switch (permission) {
+    case "granted":
+      return "This browser can receive notification deliveries when a channel is opted in below.";
+    case "denied":
+      return "Browser notifications are blocked for this site. Re-enable them in browser site settings.";
+    case "default":
+      return "Request browser permission here, then opt individual notification types into browser delivery.";
+    case "unsupported":
+    default:
+      return "This browser environment does not expose the Notification API.";
+  }
+}
+
 export function WorkspaceAccountMenu({
   user,
   activeMembership = null,
+  notificationCenter = null,
   onSignOut,
   onSignedOut,
   archivedProjects = [],
@@ -307,6 +380,28 @@ export function WorkspaceAccountMenu({
   const [pendingDeleteJobIds, setPendingDeleteJobIds] = useState<string[]>([]);
   const [jobPendingDeleteConfirmation, setJobPendingDeleteConfirmation] = useState<ArchivedJobSummary | null>(null);
   const roleLabel = getRoleLabel(activeMembership?.role);
+  const notifications = notificationCenter ?? {
+    allItems: [],
+    browserPermission: "unsupported" as const,
+    isLoading: false,
+    isRequestingPermission: false,
+    items: [],
+    markAllSeen: () => undefined,
+    requestBrowserPermission: async () => undefined,
+    setChannelEnabled: () => undefined,
+    setItemSeen: () => undefined,
+    supportedTypes: [] as WorkspaceNotificationType[],
+    typeDefinitions: WORKSPACE_NOTIFICATION_TYPE_DEFINITIONS,
+    typePreferences: {
+      "client.quote_package_ready": { inApp: true, browser: false },
+      "internal.extraction_attention_required": { inApp: true, browser: false },
+      "internal.quote_responses_ready": { inApp: true, browser: false },
+      "internal.quote_follow_up_required": { inApp: true, browser: false },
+      "internal.quote_collection_failed": { inApp: true, browser: false },
+      "internal.client_selection_received": { inApp: true, browser: false },
+    },
+    unseenCount: 0,
+  };
   const archiveItems = useMemo<ArchiveListItem[]>(
     () =>
       [
@@ -342,6 +437,10 @@ export function WorkspaceAccountMenu({
   const openPanel = (panelId: AccountPanelId) => {
     setMenuOpen(false);
     setActivePanel(panelId);
+
+    if (panelId === "notifications") {
+      notifications.markAllSeen();
+    }
   };
 
   const handleHelpAction = (panelId: HelpItem["id"]) => {
@@ -397,6 +496,186 @@ export function WorkspaceAccountMenu({
 
   const renderPanelBody = () => {
     switch (activePanel) {
+      case "notifications":
+        return (
+          <div className="space-y-4">
+            <div className={PANEL_CARD_CLASS}>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <PanelSectionTitle>Center status</PanelSectionTitle>
+                  <p className="mt-3 text-[20px] font-medium tracking-[-0.01em] text-white">
+                    {notifications.unseenCount > 0
+                      ? `${notifications.unseenCount} unseen ${notifications.unseenCount === 1 ? "notification" : "notifications"}`
+                      : "All caught up"}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-white/58">
+                    The first browser slice tracks durable quote-workflow transitions from this workspace and keeps
+                    seen state on this browser until server-backed notification records exist.
+                  </p>
+                </div>
+                <span className={NOTIFICATION_BADGE_CLASS}>{notifications.items.length} in center</span>
+              </div>
+            </div>
+
+            <div className={PANEL_CARD_CLASS}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <PanelSectionTitle>Browser permission</PanelSectionTitle>
+                  <p className="mt-3 text-[18px] font-medium text-white">
+                    {getBrowserPermissionLabel(notifications.browserPermission)}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-white/58">
+                    {getBrowserPermissionDescription(notifications.browserPermission)}
+                  </p>
+                </div>
+                <span className={NOTIFICATION_BADGE_CLASS}>{getBrowserPermissionLabel(notifications.browserPermission)}</span>
+              </div>
+              {notifications.browserPermission === "default" ? (
+                <Button
+                  type="button"
+                  className="mt-4 rounded-full bg-white text-black hover:bg-white/90"
+                  disabled={notifications.isRequestingPermission}
+                  onClick={() => void notifications.requestBrowserPermission()}
+                >
+                  {notifications.isRequestingPermission ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Requesting permission
+                    </>
+                  ) : (
+                    "Allow browser notifications"
+                  )}
+                </Button>
+              ) : null}
+            </div>
+
+            <div className={PANEL_CARD_CLASS}>
+              <PanelSectionTitle>Preferences</PanelSectionTitle>
+              <div className="mt-4 space-y-3">
+                {notifications.supportedTypes.map((notificationType) => {
+                  const definition = notifications.typeDefinitions[notificationType];
+                  const preference = notifications.typePreferences[notificationType];
+
+                  return (
+                    <div
+                      key={notificationType}
+                      className="rounded-[18px] border border-white/[0.08] bg-white/[0.03] p-4"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <h3 className="text-[16px] font-medium text-white">{definition.label}</h3>
+                          <p className="mt-1 text-sm leading-6 text-white/52">{definition.description}</p>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        {(["inApp", "browser"] as WorkspaceNotificationChannel[]).map((channel) => {
+                          const channelLabel = channel === "inApp" ? "In-app center" : "Browser alerts";
+                          const channelDescription =
+                            channel === "inApp"
+                              ? "Show these updates in the web notification center."
+                              : notifications.browserPermission === "granted"
+                                ? "Send browser deliveries for newly arriving notifications."
+                                : "Requires browser permission before deliveries can be enabled.";
+                          const isDisabled = channel === "browser" && notifications.browserPermission !== "granted";
+
+                          return (
+                            <label
+                              key={`${notificationType}-${channel}`}
+                              className={cn(
+                                "flex items-center justify-between gap-4 rounded-[16px] border border-white/[0.08] px-4 py-3",
+                                isDisabled ? "opacity-60" : "bg-black/10",
+                              )}
+                            >
+                              <span className="min-w-0">
+                                <span className="block text-sm font-medium text-white">{channelLabel}</span>
+                                <span className="mt-1 block text-xs leading-5 text-white/48">{channelDescription}</span>
+                              </span>
+                              <Switch
+                                aria-label={`${definition.label} ${channelLabel}`}
+                                checked={preference?.[channel] ?? false}
+                                disabled={isDisabled}
+                                onCheckedChange={(checked) =>
+                                  notifications.setChannelEnabled(notificationType, channel, checked)
+                                }
+                                className="data-[state=checked]:bg-[#10a37f] data-[state=unchecked]:bg-white/[0.18]"
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className={PANEL_CARD_CLASS}>
+              <div className="flex items-center justify-between gap-3">
+                <PanelSectionTitle>Recent notifications</PanelSectionTitle>
+                {notifications.items.length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-8 rounded-full border border-white/[0.08] px-3 text-xs text-white/72 hover:bg-white/[0.06] hover:text-white"
+                    onClick={() => notifications.markAllSeen()}
+                  >
+                    Mark all seen
+                  </Button>
+                ) : null}
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {notifications.isLoading ? (
+                  <p className="text-sm leading-6 text-white/58">Loading notifications...</p>
+                ) : notifications.supportedTypes.length === 0 ? (
+                  <p className="text-sm leading-6 text-white/58">
+                    Notification preferences will appear here after a workspace role is resolved.
+                  </p>
+                ) : notifications.items.length === 0 ? (
+                  <p className="text-sm leading-6 text-white/58">
+                    No matching notification records are visible yet for this workspace.
+                  </p>
+                ) : (
+                  notifications.items.map((item) => {
+                    return (
+                      <article
+                        key={item.id}
+                        className={cn(
+                          "rounded-[18px] border p-4",
+                          item.isSeen
+                            ? "border-white/[0.08] bg-white/[0.03]"
+                            : "border-[#10a37f]/28 bg-[#10a37f]/[0.08]",
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={cn("rounded-full border px-2.5 py-1 text-[11px] font-medium", getNotificationToneClasses(item.tone))}>
+                                {notifications.typeDefinitions[item.notificationType]?.label ?? item.title}
+                              </span>
+                              {!item.isSeen ? <span className={NOTIFICATION_BADGE_CLASS}>Unseen</span> : null}
+                              <span className="text-xs text-white/42">{formatNotificationTimestamp(item.occurredAt)}</span>
+                            </div>
+                            <h3 className="mt-3 text-[16px] font-medium text-white">{item.title}</h3>
+                            <p className="mt-2 text-sm leading-6 text-white/58">{item.detail}</p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="h-8 rounded-full border border-white/[0.08] px-3 text-xs text-white/72 hover:bg-white/[0.06] hover:text-white"
+                            onClick={() => notifications.setItemSeen(item.id, !item.isSeen)}
+                          >
+                            {item.isSeen ? "Mark unseen" : "Mark seen"}
+                          </Button>
+                        </div>
+                      </article>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        );
       case "settings":
         return (
           <div className="space-y-6">
@@ -431,6 +710,12 @@ export function WorkspaceAccountMenu({
             <div className={PANEL_CARD_CLASS}>
               <PanelSectionTitle>Support</PanelSectionTitle>
               <div className="mt-4 space-y-3">
+                <HelpCenterButton
+                  icon={Bell}
+                  label="Notifications"
+                  description="Review browser permission, preferences, and seen state for workflow alerts."
+                  onClick={() => setActivePanel("notifications")}
+                />
                 <HelpCenterButton
                   icon={CircleHelp}
                   label="Help center"
@@ -673,7 +958,9 @@ export function WorkspaceAccountMenu({
   };
 
   const panelTitle =
-    activePanel === "settings"
+    activePanel === "notifications"
+      ? "Notifications"
+      : activePanel === "settings"
       ? "Settings"
       : activePanel === "archive"
         ? "Archive"
@@ -690,7 +977,9 @@ export function WorkspaceAccountMenu({
                 : "";
 
   const panelDescription =
-    activePanel === "settings"
+    activePanel === "notifications"
+      ? "Browser permission, notification preferences, and seen state for the first web notification slice."
+      : activePanel === "settings"
       ? "Account details and support entry points for the current workspace."
       : activePanel === "archive"
         ? "Archived projects and parts are listed here for reference."
@@ -734,6 +1023,11 @@ export function WorkspaceAccountMenu({
                 v{__APP_VERSION__}
               </p>
             </div>
+            {notifications.unseenCount > 0 ? (
+              <span className={cn(NOTIFICATION_BADGE_CLASS, "hidden shrink-0 md:inline-flex")} aria-label={`${notifications.unseenCount} unseen notifications`}>
+                {notifications.unseenCount}
+              </span>
+            ) : null}
             <div
               className={cn(
                 "pointer-events-none hidden h-8 w-8 items-center justify-center rounded-full bg-white/[0.08] text-white/72 transition group-hover/account:flex group-focus-visible/account:flex md:flex",
@@ -752,6 +1046,14 @@ export function WorkspaceAccountMenu({
           collisionPadding={16}
           className={MENU_CONTENT_CLASS}
         >
+          <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => openPanel("notifications")}>
+            <Bell className={MENU_ICON_CLASS} strokeWidth={1.85} />
+            <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+              <span>Notifications</span>
+              {notifications.unseenCount > 0 ? <span className={NOTIFICATION_BADGE_CLASS}>{notifications.unseenCount} new</span> : null}
+            </span>
+          </DropdownMenuItem>
+
           <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => openPanel("settings")}>
             <Settings className={MENU_ICON_CLASS} strokeWidth={1.85} />
             <span>Settings</span>
@@ -826,7 +1128,7 @@ export function WorkspaceAccountMenu({
               <div className="space-y-4 px-6 py-6">{renderPanelBody()}</div>
             </ScrollArea>
 
-            {activePanel && activePanel !== "settings" ? (
+            {activePanel && activePanel !== "settings" && activePanel !== "notifications" ? (
               <div className="border-t border-white/[0.08] px-6 py-4">
                 <Button
                   type="button"

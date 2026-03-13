@@ -37,6 +37,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import { useClientPartController } from "@/features/quotes/use-client-part-controller";
 import {
   buildClientWorkspaceState,
@@ -132,6 +133,12 @@ const ClientPart = () => {
     user,
   } = useClientPartController();
 
+  const notificationCenter = useWorkspaceNotifications({
+    jobIds: (accessibleJobsQuery.data ?? []).map((job) => job.id),
+    role: activeMembership?.role,
+    userId: user?.id,
+  });
+
   if (!user) {
     return null;
   }
@@ -193,6 +200,7 @@ const ClientPart = () => {
           <WorkspaceAccountMenu
             user={user}
             activeMembership={activeMembership}
+            notificationCenter={notificationCenter}
             onSignOut={signOut}
             onSignedOut={() => navigate("/", { replace: true })}
             archivedProjects={archivedProjectsQuery.data}
