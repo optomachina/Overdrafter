@@ -59,3 +59,4 @@
 ## Extension Points
 - Quote list rows already surface domestic/foreign state, expedite hints, and exclusion toggles.
 - Detail form now stores client-safe RFQ metadata sections in `spec_snapshot`, leaving internal-only release review controls on the estimator path.
+- Future manufacturing review UI should stay on internal-only surfaces and consume derived service-line-item review state such as DFM/DFA summaries, blocker rollups, and engineering checkpoints instead of extending the client-safe request editor with review-only fields.

@@ -75,9 +75,21 @@ For next-phase implementation work, use the canonical service codes from that do
 - assembly-scoped request summaries
 
 ### Epic: review status model
-- explicit DFM / DFA fields
-- review pass / fail / needs attention states
-- review summary components
+- define the future status vocabulary in `docs/manufacturing-review-status-model.md`
+- add service-line-item workflow states such as `needs_input`, `ready_for_review`, `in_review`, `changes_requested`, `blocked`, `approved`, and `waived`
+- add shared dimension states for `dfm`, `dfa`, `compliance`, and `engineering_release`
+- add blocker and checkpoint records instead of relying on freeform notes
+- keep the model internal-only and separate from current quote-run and package-publication state
+- treat implementation as blocked on richer RFQ metadata and service-line-item foundations
+
+### Horizon 2 sequencing note
+
+For manufacturing review specifically, Horizon 2 should define the product target now but defer implementation until:
+
+- richer RFQ metadata is in place
+- service request taxonomy has a stable line-item attachment point
+
+Revision-aware carry-forward, supersession, and immutable review history remain later PDM work rather than Horizon 2 scope.
 
 ### Epic: fulfillment state model
 - downstream state taxonomy
