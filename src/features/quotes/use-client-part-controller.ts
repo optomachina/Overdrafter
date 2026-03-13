@@ -10,6 +10,7 @@ import {
   createJobsFromUploadFiles,
   createProject,
   deleteArchivedJob,
+  fetchClientActivityEventsByJobIds,
   dissolveProject,
   fetchPartDetail,
   isProjectCollaborationSchemaUnavailable,
@@ -28,7 +29,7 @@ import {
   uploadFilesToJob,
 } from "@/features/quotes/api";
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
-import type { ActivityLogEntry } from "@/components/quotes/ActivityLog";
+import { buildActivityLogEntries } from "@/features/quotes/activity-log";
 import { formatPartLabel, getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {
   buildSidebarProjectIdsByJobId,
@@ -137,6 +138,12 @@ export function useClientPartController() {
   const partDetailQuery = useQuery({
     queryKey: workspaceQueryKeys.partDetail(jobId),
     queryFn: () => fetchPartDetail(jobId),
+    enabled: Boolean(user) && Boolean(jobId),
+    ...workspaceDetailQueryOptions,
+  });
+  const activityEventsQuery = useQuery({
+    queryKey: workspaceQueryKeys.clientActivity([jobId]),
+    queryFn: () => fetchClientActivityEventsByJobIds([jobId]),
     enabled: Boolean(user) && Boolean(jobId),
     ...workspaceDetailQueryOptions,
   });
@@ -397,82 +404,10 @@ export function useClientPartController() {
     ].sort((left, right) => (left.revision ?? "").localeCompare(right.revision ?? ""));
   }, [jobId, partDetail?.revisionSiblings, presentation?.title, summary]);
   const selectedRevisionIndex = revisionOptions.findIndex((revision) => revision.jobId === jobId);
-  const activityEntries = useMemo<ActivityLogEntry[]>(() => {
-    const rankingLabel =
-      activePreset === "fastest"
-        ? "Ranking fastest eligible quotes"
-        : activePreset === "domestic"
-          ? "Ranking domestic eligible quotes"
-          : "Ranking cheapest eligible quotes";
-
-    return [
-      {
-        id: "parsing",
-        label: "Parsing drawing notes",
-        detail: drawingFile
-          ? `Drawing ${drawingFile.original_name} is attached${
-              drawingPreview?.pageCount ? ` with ${drawingPreview.pageCount} preview page(s)` : ""
-            }.`
-          : "No drawing PDF is attached yet.",
-        tone: drawingFile ? "active" : "attention",
-      },
-      {
-        id: "metadata",
-        label: "Extracting part details",
-        detail: extraction
-          ? `Material ${extraction.material.normalized ?? extraction.material.raw ?? "pending"}, finish ${
-              extraction.finish.normalized ?? extraction.finish.raw ?? "pending"
-            }, revision ${extraction.revision ?? "pending"}.`
-          : "Extraction is pending or unavailable.",
-        tone: extraction ? "active" : "attention",
-      },
-      {
-        id: "matching",
-        label: "Matching vendor options",
-        detail:
-          rankedQuoteOptions.length > 0
-            ? `${rankedQuoteOptions.length} quote option${
-                rankedQuoteOptions.length === 1 ? "" : "s"
-              } available across anonymized vendors.`
-            : "No quote options are available yet.",
-        tone: rankedQuoteOptions.length > 0 ? "active" : "attention",
-      },
-      requestSummaryRequestedByDate
-        ? {
-            id: "due-date",
-            label: "Filtering late deliveries",
-            detail: `${eligibleQuoteCount} option${
-              eligibleQuoteCount === 1 ? "" : "s"
-            } remain eligible for the requested date ${requestSummaryRequestedByDate}.`,
-            tone: eligibleQuoteCount > 0 ? "active" : "attention",
-          }
-        : {
-            id: "due-date",
-            label: "Filtering late deliveries",
-            detail: "No due date provided, so all selectable vendors remain eligible.",
-            tone: "default",
-          },
-      {
-        id: "ranking",
-        label: rankingLabel,
-        detail: selectedQuoteOption
-          ? `${selectedQuoteOption.vendorLabel} currently leads at ${formatCurrency(
-              selectedQuoteOption.totalPriceUsd,
-            )} total.`
-          : "No selectable quote is currently ranked.",
-        tone: selectedQuoteOption ? "active" : "attention",
-      },
-    ];
-  }, [
-    activePreset,
-    drawingFile,
-    drawingPreview?.pageCount,
-    eligibleQuoteCount,
-    extraction,
-    rankedQuoteOptions.length,
-    requestSummaryRequestedByDate,
-    selectedQuoteOption,
-  ]);
+  const activityEntries = useMemo(
+    () => buildActivityLogEntries(activityEventsQuery.data ?? []),
+    [activityEventsQuery.data],
+  );
 
   useEffect(() => {
     setExcludedVendorKeys(readExcludedVendorKeys(jobId));

@@ -43,6 +43,15 @@ export type ClientSelectionRecord = Database["public"]["Tables"]["client_selecti
 export type AuditEventRecord = Database["public"]["Tables"]["audit_events"]["Row"];
 export type WorkQueueRecord = Database["public"]["Tables"]["work_queue"]["Row"];
 
+export type ClientActivityEvent = {
+  id: string;
+  jobId: string;
+  packageId: string | null;
+  eventType: string;
+  payload: Json;
+  occurredAt: string;
+};
+
 export type EvidenceItem = {
   field: string;
   page: number;

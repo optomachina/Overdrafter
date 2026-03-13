@@ -9,6 +9,7 @@ import type {
   ArchivedProjectSummary,
   ApprovedPartRequirement,
   ClientPackageAggregate,
+  ClientActivityEvent,
   ClientDraftInput,
   ClientPartRequestUpdateInput,
   ClientQuoteWorkspaceItem,
@@ -894,6 +895,34 @@ export async function fetchPublishedPackagesByJobIds(
     .order("published_at", { ascending: false });
 
   return ensureData(data, error);
+}
+
+export async function fetchClientActivityEventsByJobIds(
+  jobIds: string[],
+  limitPerJob = 6,
+): Promise<ClientActivityEvent[]> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchClientActivityEventsByJobIds(jobIds, limitPerJob);
+  }
+
+  if (jobIds.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await callRpc("api_list_client_activity_events", {
+    p_job_ids: jobIds,
+    p_limit_per_job: limitPerJob,
+  });
+
+  const events = ensureData(data, error);
+
+  if (!Array.isArray(events)) {
+    throw new Error("Expected client activity events to be returned as an array.");
+  }
+
+  return events as ClientActivityEvent[];
 }
 
 export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
