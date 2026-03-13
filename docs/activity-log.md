@@ -41,3 +41,4 @@
 - The log is intentionally restrained and high-signal; it is not a chat feed.
 - Vendor names, raw worker errors, and internal sourcing notes remain out of the client event surface.
 - Activity entries should answer what changed and when, with timestamps shown in the UI.
+- Browser and later cross-surface notifications should derive from the same durable event stream, using the delivery rules defined in [docs/notification-taxonomy.md](./notification-taxonomy.md).

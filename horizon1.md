@@ -84,6 +84,8 @@ Turn the existing quote workflow into a more complete, user-legible, and high-si
 - initial notification triggers
 - notification state persistence
 
+The initial shared taxonomy and delivery rules for this epic now live in `docs/notification-taxonomy.md`.
+
 ## Out of scope for this horizon
 
 - native Windows app
