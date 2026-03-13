@@ -13,6 +13,26 @@ For nontrivial local changes, `npm run verify` is the canonical repo-level verif
 If your current workspace does not contain this `README.md`, plus root `PRD.md`, `PLAN.md`, `AGENTS.md`,
 `package.json`, `worker/`, and `supabase/`, you are not in the correct OverDrafter repo root.
 
+## Canonical Docs
+
+Use repo documentation in this order when documents overlap:
+
+1. `PRD.md` - canonical product intent
+2. `PLAN.md` - active execution sequencing
+3. `ARCHITECTURE.md` - system boundaries and subsystem model
+4. `TEST_STRATEGY.md` - verification expectations
+5. `ACCEPTANCE_CRITERIA.md` - hardening-phase definition of done
+6. specialized docs for a specific area
+7. `README.md` - repo entry point and setup guidance
+
+If a lower-priority doc disagrees with one of the files above, the higher-priority doc wins.
+
+## Planning Material Status
+
+- `docs/reconstruction-prd.md` is retained as source material only and is superseded by `PRD.md`.
+- `AwesomeNewPlan_DeleteMeLater.md` is an archived transitional checklist and is superseded by `PLAN.md` and the canonical root docs.
+- `REPO_MAP.md` is a non-canonical orientation aid for navigating the repo layout.
+- `ROADMAP.md` is currently a placeholder and is not an active planning surface.
 ## Symphony Automation
 
 OverDrafter includes a repo-local Symphony workflow contract in `WORKFLOW.md`, repo-local skills in
@@ -35,9 +55,9 @@ The active runtime and ownership model for this repository is:
 - `scripts/` - repo automation, seed helpers, and Symphony guard scripts
 - `e2e/` - Playwright coverage for end-to-end flows
 
-There is no active `apps/` or `packages/` source layout in this repository. If those directories appear
-in old diffs or stale local artifacts, do not treat them as canonical runtime roots. Use `REPO_MAP.md`
-for the current directory map.
+There is no active tracked `apps/` or `packages/` source layout in this repository. If those directories
+appear in old diffs or stale local artifacts, do not treat them as canonical runtime roots. Use
+`REPO_MAP.md` for the current directory map.
 
 ## What Was Implemented
 

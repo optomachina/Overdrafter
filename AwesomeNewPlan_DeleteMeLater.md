@@ -1,6 +1,10 @@
 # OverDrafter Repository Hardening Plan
 
-Last updated: March 11, 2026
+Last updated: March 13, 2026
+
+> Status: Archived transitional planning checklist. This file is retained as source material for the hardening effort.
+>
+> `PLAN.md` is the active execution plan. The root canonical docs replace this file as the source of truth for current repository guidance.
 
 ## Purpose
 

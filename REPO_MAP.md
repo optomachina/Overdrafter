@@ -2,17 +2,21 @@
 
 Last updated: March 13, 2026
 
+> Status: Non-canonical support document. Use this file for orientation only.
+>
+> Canonical repo guidance lives in `PRD.md`, `PLAN.md`, `ARCHITECTURE.md`, `TEST_STRATEGY.md`, `ACCEPTANCE_CRITERIA.md`, and `AGENTS.md`. If this map conflicts with those docs, the canonical docs win.
+
 ## Canonical docs
 
-- `PRD.md` — product intent
-- `PLAN.md` — active execution sequencing
-- `ARCHITECTURE.md` — system boundaries
-- `TEST_STRATEGY.md` — verification policy
-- `ACCEPTANCE_CRITERIA.md` — definition of done for hardening phase
-- `AGENTS.md` — operating manual for contributors and agents
-- `CONTRIBUTING.md` — contribution workflow
+- `PRD.md` - product intent
+- `PLAN.md` - active execution sequencing
+- `ARCHITECTURE.md` - system boundaries
+- `TEST_STRATEGY.md` - verification policy
+- `ACCEPTANCE_CRITERIA.md` - hardening-phase definition of done
+- `AGENTS.md` - operating manual for contributors and agents
+- `README.md` - repo setup and entry-point guidance
 
-## What lives where
+## Repo layout
 
 ### Active runtime roots
 
@@ -43,6 +47,8 @@ Last updated: March 13, 2026
 - `supabase/migrations/` - canonical schema history.
 - `supabase/functions/` - deployed Edge Functions.
 - `.github/` - CI and pull request workflow configuration.
+- `.codex/skills/` - repo-local Codex skills used by the Symphony workflow.
+- `docs/` - supporting documentation and historical source material, not root canonical docs.
 - `scripts/` - seed helpers and Symphony guard scripts.
 
 ### Tests and verification
@@ -56,12 +62,9 @@ Last updated: March 13, 2026
 ### Inactive or non-canonical layout clues
 
 - There is no active `apps/` source layout in this repository.
-- There is no `packages/` directory in this repository.
+- There is no tracked `packages/` source layout in this repository.
 - Historical generated output such as `apps/web/.next/` is not part of the runtime model and should not be committed.
 
 ## How to use this map
 
-Use this file when:
-- the repo starts getting too large for `README.md`
-- contributors need a fast orientation pass
-- agent sessions need a quick directory overview before making edits
+Use this file when you need a quick directory-level orientation before editing. Do not use it to resolve product intent, execution priority, or workflow policy questions; those belong to the canonical docs.
