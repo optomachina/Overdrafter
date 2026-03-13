@@ -67,6 +67,7 @@ import type { PostgrestSingleResponse, PostgrestResponse } from "@supabase/supab
 import { buildAutoProjectName, groupUploadFiles, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { buildDraftTitleFromPrompt } from "@/features/quotes/file-validation";
 import { normalizeRequestedQuoteQuantities, parseRequestIntake } from "@/features/quotes/request-intake";
+import { sanitizeClientVisibleSpecSnapshot } from "@/features/quotes/rfq-metadata";
 import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import { getImportedVendorOffers, normalizeDrawingPreview } from "@/features/quotes/utils";
@@ -398,6 +399,19 @@ function asObject(value: Json | null | undefined): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function sanitizeApprovedRequirementForClient(
+  requirement: ApprovedPartRequirementRecord | null,
+): ApprovedPartRequirementRecord | null {
+  if (!requirement) {
+    return null;
+  }
+
+  return {
+    ...requirement,
+    spec_snapshot: sanitizeClientVisibleSpecSnapshot(requirement.spec_snapshot),
+  };
 }
 
 function sanitizeStorageFileName(fileName: string): string {
@@ -1298,7 +1312,9 @@ export async function fetchClientQuoteWorkspaceByJobIds(
   const filesByJobId = new Map<string, JobFileRecord[]>();
   const partsByJobId = new Map<string, PartRecord[]>();
   const extractionByPartId = new Map(extractions.map((item) => [item.part_id, item]));
-  const approvedByPartId = new Map(approvedRequirements.map((item) => [item.part_id, item]));
+  const approvedByPartId = new Map(
+    approvedRequirements.map((item) => [item.part_id, sanitizeApprovedRequirementForClient(item)]),
+  );
   const previewAssetsByPartId = new Map<string, DrawingPreviewAssetRecord[]>();
   const fileById = new Map(files.map((file) => [file.id, file]));
   const projectIdsByJobId = new Map<string, string[]>();
@@ -2313,6 +2329,10 @@ export async function updateClientPartRequest(input: ClientPartRequestUpdateInpu
     p_quantity: input.quantity,
     p_requested_quote_quantities: input.requestedQuoteQuantities,
     p_requested_by_date: input.requestedByDate ?? null,
+    p_shipping: input.shipping,
+    p_certifications: input.certifications,
+    p_sourcing: input.sourcing,
+    p_release: input.release,
   });
 
   return ensureData(data, error);

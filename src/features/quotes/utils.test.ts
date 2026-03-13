@@ -177,6 +177,30 @@ describe("quotes utils", () => {
       quantity: 3,
       quoteQuantities: [3],
       requestedByDate: null,
+      shipping: {
+        requestedByDateOverride: null,
+        packagingNotes: null,
+        shippingNotes: null,
+      },
+      certifications: {
+        requiredCertifications: [],
+        materialCertificationRequired: null,
+        certificateOfConformanceRequired: null,
+        inspectionLevel: null,
+        notes: null,
+      },
+      sourcing: {
+        regionPreferenceOverride: null,
+        preferredSuppliers: [],
+        materialProvisioning: null,
+        notes: null,
+      },
+      release: {
+        releaseStatus: null,
+        reviewDisposition: null,
+        quoteBlockedUntilRelease: null,
+        notes: null,
+      },
       applicableVendors: ["xometry", "fictiv", "protolabs"],
     });
   });
@@ -283,7 +307,23 @@ describe("quotes utils", () => {
         quote_quantities: [9],
         requested_by_date: null,
         applicable_vendors: ["partsbadger"],
-        spec_snapshot: {},
+        spec_snapshot: {
+          shipping: {
+            packagingNotes: "Ship in trays",
+          },
+          certifications: {
+            requiredCertifications: ["AS9100"],
+            certificateOfConformanceRequired: true,
+          },
+          sourcing: {
+            regionPreferenceOverride: "domestic_preferred",
+          },
+          release: {
+            releaseStatus: "pre_release",
+            reviewDisposition: "needs_review",
+            quoteBlockedUntilRelease: true,
+          },
+        },
         approved_at: "2026-03-03T00:00:00Z",
         created_at: "2026-03-03T00:00:00Z",
         updated_at: "2026-03-03T00:00:00Z",
@@ -303,6 +343,21 @@ describe("quotes utils", () => {
       quantity: 9,
       quoteQuantities: [9],
       requestedByDate: null,
+      shipping: expect.objectContaining({
+        packagingNotes: "Ship in trays",
+      }),
+      certifications: expect.objectContaining({
+        requiredCertifications: ["AS9100"],
+        certificateOfConformanceRequired: true,
+      }),
+      sourcing: expect.objectContaining({
+        regionPreferenceOverride: "domestic_preferred",
+      }),
+      release: expect.objectContaining({
+        releaseStatus: "pre_release",
+        reviewDisposition: "needs_review",
+        quoteBlockedUntilRelease: true,
+      }),
       applicableVendors: ["partsbadger"],
     });
   });

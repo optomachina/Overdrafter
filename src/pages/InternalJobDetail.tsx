@@ -17,6 +17,7 @@ import { AppShell } from "@/components/app/AppShell";
 import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
 import { ManualQuoteIntakeCard } from "@/components/quotes/ManualQuoteIntakeCard";
+import { RfqLineItemMetadataFields } from "@/components/quotes/RfqLineItemMetadataFields";
 import { RequestServiceIntentFields } from "@/components/quotes/RequestServiceIntentFields";
 import { RequestedQuantityFilter } from "@/components/quotes/RequestedQuantityFilter";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
@@ -783,6 +784,38 @@ const InternalJobDetail = () => {
                           Extracted: {extraction.tightestTolerance.raw || "Not found"}
                         </p>
                       </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-white/8 bg-white/5 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-white">RFQ metadata</p>
+                        <p className="mt-1 text-xs text-white/50">
+                          Shared client-safe metadata plus internal release controls live on the same line-item model.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <RfqLineItemMetadataFields
+                        idPrefix={`internal-${part.id}`}
+                        value={{
+                          shipping: draft.shipping,
+                          certifications: draft.certifications,
+                          sourcing: draft.sourcing,
+                          release: draft.release,
+                        }}
+                        mode="internal"
+                        disabled={writeActionsDisabled}
+                        onChange={(next) =>
+                          updateDraft(part.id, (current) =>
+                            normalizeApprovedRequirementDraft({
+                              ...current,
+                              ...next,
+                            }),
+                          )
+                        }
+                      />
                     </div>
                   </div>
 

@@ -28,6 +28,7 @@ import type {
   ProjectInviteStatus,
 } from "@/integrations/supabase/types";
 import type { ProjectJobRecord } from "@/features/quotes/types";
+import { normalizeRfqLineItemExtendedMetadata } from "@/features/quotes/rfq-metadata";
 import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
 import { FIXTURE_STORAGE_BUCKET } from "@/lib/stored-file";
 
@@ -1707,6 +1708,8 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
         `Fixture part detail ${input.jobId} was not found.`,
       );
 
+      const metadata = normalizeRfqLineItemExtendedMetadata(input);
+
       summary.description = input.description;
       summary.partNumber = input.partNumber;
       summary.revision = input.revision;
@@ -1735,6 +1738,7 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
         workspaceItem.part.approvedRequirement.revision = input.revision;
         workspaceItem.part.approvedRequirement.material = input.material;
         workspaceItem.part.approvedRequirement.finish = input.finish;
+        workspaceItem.part.approvedRequirement.tightest_tolerance_inch = input.tightestToleranceInch;
         workspaceItem.part.approvedRequirement.quantity = input.quantity;
         workspaceItem.part.approvedRequirement.quote_quantities = [...input.requestedQuoteQuantities];
         workspaceItem.part.approvedRequirement.requested_by_date = input.requestedByDate;
@@ -1743,6 +1747,12 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
           requestedServiceKinds: [...input.requestedServiceKinds],
           primaryServiceKind: input.primaryServiceKind,
           serviceNotes: input.serviceNotes,
+          process: input.process,
+          notes: input.notes,
+          shipping: metadata.shipping,
+          certifications: metadata.certifications,
+          sourcing: metadata.sourcing,
+          release: metadata.release,
         };
       }
 

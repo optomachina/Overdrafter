@@ -1,4 +1,5 @@
 import { normalizeRequestedQuoteQuantities } from "@/features/quotes/request-intake";
+import { normalizeRfqLineItemExtendedMetadata } from "@/features/quotes/rfq-metadata";
 import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
 import type { ApprovedPartRequirement, JobPartSummary } from "@/features/quotes/types";
 
@@ -37,6 +38,7 @@ export function normalizeApprovedRequirementDraft(
   return {
     ...requirement,
     ...normalizeRequestedServiceIntent(requirement),
+    ...normalizeRfqLineItemExtendedMetadata(requirement),
     quantity,
     quoteQuantities: normalizeRequestedQuoteQuantities(
       [quantity, ...requirement.quoteQuantities],

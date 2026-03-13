@@ -31,6 +31,10 @@ Current request editing covers:
 - quantity
 - quote quantities
 - due date
+- shipping packaging / delivery notes
+- certification requirements
+- line-item sourcing preferences
+- release status
 
 Current persistence split:
 
@@ -111,9 +115,9 @@ This level is where per-part certification requirements, sourcing exceptions, re
 
 ## MVP-safe edit boundary
 
-The current client request editor and `updateClientPartRequest(...)` call in [src/features/quotes/api.ts](/Users/blainewilson/code/overdrafter-symphony-workspaces/OVD-38/src/features/quotes/api.ts) intentionally remain limited to `ClientPartRequestEditableFields`.
+The current client request editor and `updateClientPartRequest(...)` call in [src/features/quotes/api.ts](/Users/blainewilson/code/overdrafter-symphony-workspaces/OVD-38/src/features/quotes/api.ts) now extend beyond `ClientPartRequestEditableFields`, but only for the approved client-safe line-item sections.
 
-That means the current client-safe write path can continue to edit only:
+The client-safe write path can edit:
 
 - `requestedServiceKinds`
 - `primaryServiceKind`
@@ -129,10 +133,23 @@ That means the current client-safe write path can continue to edit only:
 - `quantity`
 - `requestedQuoteQuantities`
 - `requestedByDate`
+- `shipping.packagingNotes`
+- `shipping.shippingNotes`
+- `certifications.requiredCertifications`
+- `certifications.materialCertificationRequired`
+- `certifications.certificateOfConformanceRequired`
+- `certifications.inspectionLevel`
+- `certifications.notes`
+- `sourcing.regionPreferenceOverride`
+- `sourcing.preferredSuppliers`
+- `sourcing.materialProvisioning`
+- `sourcing.notes`
+- `release.releaseStatus`
+- `release.notes`
 
 This service-intent trio is a transitional bridge so active intake and internal review surfaces can capture the taxonomy before dedicated service request line items land.
 
-The new metadata sections for shipping, certifications, sourcing, and release are explicit targets for follow-on schema and UI work. They are not silently added to the current RPC.
+Internal review can consume the full line-item metadata model, including internal-only release review controls such as `release.reviewDisposition` and `release.quoteBlockedUntilRelease`. Those fields must not be writable through the client-safe request update path and should be stripped from client-facing fetches.
 
 ## Persistence guidance for follow-on work
 

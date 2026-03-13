@@ -25,6 +25,30 @@ function makeRequirement(
     quantity: 10,
     quoteQuantities: [1, 10, 100],
     requestedByDate: null,
+    shipping: {
+      requestedByDateOverride: null,
+      packagingNotes: null,
+      shippingNotes: null,
+    },
+    certifications: {
+      requiredCertifications: [],
+      materialCertificationRequired: null,
+      certificateOfConformanceRequired: null,
+      inspectionLevel: null,
+      notes: null,
+    },
+    sourcing: {
+      regionPreferenceOverride: null,
+      preferredSuppliers: [],
+      materialProvisioning: null,
+      notes: null,
+    },
+    release: {
+      releaseStatus: null,
+      reviewDisposition: null,
+      quoteBlockedUntilRelease: null,
+      notes: null,
+    },
     applicableVendors: ["xometry", "fictiv"],
     ...overrides,
   };
@@ -66,9 +90,24 @@ describe("request-scenarios", () => {
         makeRequirement({
           quantity: 25,
           quoteQuantities: [10, 25, 25, 100],
+          certifications: {
+            requiredCertifications: [" AS9100 ", "AS9100", "ITAR"],
+            materialCertificationRequired: true,
+            certificateOfConformanceRequired: null,
+            inspectionLevel: "fai",
+            notes: "  Certs required  ",
+          },
         }),
-      ).quoteQuantities,
-    ).toEqual([25, 10, 100]);
+      ),
+    ).toMatchObject({
+      quoteQuantities: [25, 10, 100],
+      certifications: {
+        requiredCertifications: ["AS9100", "ITAR"],
+        materialCertificationRequired: true,
+        inspectionLevel: "fai",
+        notes: "Certs required",
+      },
+    });
   });
 
   it("resolves requested quantity selection from preferred quantity and preserves all", () => {

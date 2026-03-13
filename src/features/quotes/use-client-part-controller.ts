@@ -47,6 +47,7 @@ import {
   formatRequestedQuoteQuantitiesInput,
   parseRequestedQuoteQuantitiesInput,
 } from "@/features/quotes/request-intake";
+import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadata";
 import {
   buildClientQuoteSelectionOptions,
   buildVendorLabelMap,
@@ -314,23 +315,7 @@ export function useClientPartController() {
       requested_by_date: partDetail.job.requested_by_date ?? null,
     });
 
-    return {
-      jobId,
-      requestedServiceKinds: requirement.requestedServiceKinds,
-      primaryServiceKind: requirement.primaryServiceKind,
-      serviceNotes: requirement.serviceNotes,
-      description: requirement.description ?? null,
-      partNumber: requirement.partNumber ?? null,
-      revision: requirement.revision ?? null,
-      material: requirement.material,
-      finish: requirement.finish ?? null,
-      tightestToleranceInch: requirement.tightestToleranceInch ?? null,
-      process: requirement.process ?? null,
-      notes: requirement.notes ?? null,
-      quantity: requirement.quantity,
-      requestedQuoteQuantities: requirement.quoteQuantities,
-      requestedByDate: requirement.requestedByDate ?? null,
-    } satisfies ClientPartRequestUpdateInput;
+    return buildClientPartRequestUpdateInput(jobId, requirement);
   }, [
     jobId,
     partDetail?.job.primary_service_kind,
