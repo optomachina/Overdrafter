@@ -1,6 +1,6 @@
 # Horizon 2 — Expand Manufacturing Workspace Capabilities
 
-Last updated: March 11, 2026
+Last updated: March 13, 2026
 
 ## Purpose
 
@@ -13,17 +13,17 @@ Support not just “quote this part,” but “help move this design package thr
 ## Themes
 
 ### 1. Service selection model
-Support explicit request types such as:
+Support the canonical service taxonomy defined in `docs/service-request-taxonomy.md`, including:
 
-- modeling
-- remodeling
-- drafting
-- redrafting
+- modeling / remodeling
+- drafting / redrafting
 - FEA
 - DFM
 - DFA
 - assembly support
 - sourcing-only workflows
+
+For next-phase implementation work, use the canonical service codes from that doc rather than creating new top-level request types ad hoc.
 
 ### 2. Richer RFQ metadata
 - quantity sets
