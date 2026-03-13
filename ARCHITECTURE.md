@@ -12,19 +12,6 @@ OverDrafter is a workflow system for manufactured-part quoting. It connects clie
 
 The next-phase domain model should expand that quote-centric shape into an explicit service-request model. Projects remain collaboration containers, parts remain technical entities, and service request line items become the authoritative unit of requested work.
 
-## Domain hierarchy
-
-The top-level customer-facing container is `Project`, not `Assembly`.
-
-A project is the commercial and workflow scope for mixed manufacturing requests. It can contain:
-
-- multiple assemblies
-- standalone parts that are not attached to any assembly
-- drawings, PDFs, spec sheets, and other supporting documents
-- quote rounds, curated quote packages, and downstream review or order records
-
-An assembly remains a technical structure nested inside a project. It should model engineering hierarchy such as subassemblies and parts, but it must not define the top-level information architecture for intake, navigation, or collaboration.
-
 ## Subsystems
 
 ### 1. Web application layer
@@ -37,8 +24,7 @@ An assembly remains a technical structure nested inside a project. It should mod
 - quote comparison and package publication surfaces
 
 ### 2. Backend data and domain layer
-- persistence of workspaces, projects, assemblies, parts, jobs, files, quotes, packages, and service request records
-- support for project-scoped mixed content rather than assuming a single assembly per request
+- persistence of workspaces, projects, parts, jobs, files, quotes, packages, and service request records
 - role-aware data access
 - workflow state transitions
 - auditability for sensitive actions
@@ -51,8 +37,8 @@ An assembly remains a technical structure nested inside a project. It should mod
 
 ### 4. Intake and reconciliation layer
 - receiving uploaded files and prompt text
-- creating draft/intake/job records within a project scope
-- reconciling uploaded files into candidate assemblies, standalone parts, and supporting document groupings
+- creating draft/intake/job records
+- reconciling uploaded files into candidate part groupings
 - identifying or collecting the requested service type before service-specific parsing runs
 
 ### 5. Extraction and asynchronous worker layer
@@ -78,13 +64,18 @@ An assembly remains a technical structure nested inside a project. It should mod
 - project-scoped visibility boundaries
 - project-level navigation that does not treat assemblies as the umbrella container
 
-## Request-model boundary
-- projects are the grouping and collaboration boundary, not the only place where service intent lives
-- parts preserve technical identity, revision, and manufacturing context
-- service request line items hold the requested work type, scheduling, status, and service-specific detail
-- quote-specific fields such as requested quote quantities belong to `manufacturing_quote` line items rather than to a universal project request blob
+## Domain hierarchy
 
-See `docs/service-request-taxonomy.md` for the canonical service types and mixed-service modeling rules.
+The top-level customer-facing container is `Project`, not `Assembly`.
+
+A project is the commercial and workflow scope for mixed manufacturing requests. It can contain:
+
+- multiple assemblies
+- standalone parts that are not attached to any assembly
+- drawings, PDFs, spec sheets, and other supporting documents
+- quote rounds, curated quote packages, and downstream review or order records
+
+An assembly remains a technical structure nested inside a project. It should model engineering hierarchy such as subassemblies and parts, but it must not define the top-level information architecture for intake, navigation, or collaboration.
 
 ## Key cross-cutting concerns
 - authorization
