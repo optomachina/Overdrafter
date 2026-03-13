@@ -4,6 +4,7 @@ import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { Loader2, MoveLeft, MoveRight } from "lucide-react";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
 import { ProcurementHandoffPanel } from "@/components/quotes/ProcurementHandoffPanel";
+import { ClientWorkspaceStateSummary, ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,10 @@ import {
   fetchProject,
 } from "@/features/quotes/api";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import {
+  buildClientWorkspaceState,
+  summarizeClientWorkspaceStates,
+} from "@/features/quotes/client-workspace-state";
 import {
   createDefaultProcurementHandoffState,
   summarizeProcurementHandoff,
@@ -70,12 +75,25 @@ const ClientProjectReview = () => {
       return {
         item,
         selectedOption,
+        workspaceState: buildClientWorkspaceState({
+          job: item.job,
+          summary: item.summary,
+          part: item.part,
+          options,
+          selectedOption,
+          requestedByDate: item.summary?.requestedByDate ?? item.job.requested_by_date ?? null,
+          requireSelection: true,
+        }),
       };
     });
   }, [workspaceQuery.data]);
 
   const selectionSummary = useMemo(
     () => summarizeSelectedQuoteOptions(selectedLineItems.map((lineItem) => lineItem.selectedOption)),
+    [selectedLineItems],
+  );
+  const workspaceStateSummary = useMemo(
+    () => summarizeClientWorkspaceStates(selectedLineItems.map((lineItem) => lineItem.workspaceState)),
     [selectedLineItems],
   );
   const handoffSummary = useMemo(() => summarizeProcurementHandoff(handoffState), [handoffState]);
@@ -145,10 +163,25 @@ const ClientProjectReview = () => {
               </div>
             </section>
 
+            <section className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-[22px] border border-emerald-400/20 bg-emerald-500/8 px-4 py-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Ready</p>
+                <p className="mt-2 text-2xl font-semibold text-white">{workspaceStateSummary.ready}</p>
+              </div>
+              <div className="rounded-[22px] border border-amber-400/20 bg-amber-500/8 px-4 py-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Warning</p>
+                <p className="mt-2 text-2xl font-semibold text-white">{workspaceStateSummary.warning}</p>
+              </div>
+              <div className="rounded-[22px] border border-rose-400/20 bg-rose-500/8 px-4 py-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Blocked</p>
+                <p className="mt-2 text-2xl font-semibold text-white">{workspaceStateSummary.blocked}</p>
+              </div>
+            </section>
+
             <section className="rounded-[26px] border border-white/8 bg-[#262626] p-6">
               <p className="text-xs uppercase tracking-[0.18em] text-white/35">Line items</p>
               <div className="mt-4 space-y-3">
-                {selectedLineItems.map(({ item, selectedOption }) => {
+                {selectedLineItems.map(({ item, selectedOption, workspaceState }) => {
                   const presentation = getClientItemPresentation(item.job, item.summary);
 
                   return (
@@ -163,6 +196,13 @@ const ClientProjectReview = () => {
                             requestedByDate={item.summary?.requestedByDate ?? null}
                             className="mt-3"
                           />
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <ClientWorkspaceToneBadge
+                              tone={workspaceState.tone}
+                              className="tracking-normal normal-case"
+                            />
+                            <p className="text-xs text-white/55">{workspaceState.selection.label}</p>
+                          </div>
                         </div>
                         {selectedOption ? (
                           <div className="text-left lg:text-right">
@@ -185,6 +225,11 @@ const ClientProjectReview = () => {
                           <p className="text-sm text-white/45">No quote selected.</p>
                         )}
                       </div>
+                      <ClientWorkspaceStateSummary
+                        state={workspaceState}
+                        className="mt-4"
+                        maxReasons={2}
+                      />
                     </div>
                   );
                 })}

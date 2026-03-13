@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import { buildClientWorkspaceState } from "@/features/quotes/client-workspace-state";
+import { ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { PartContextMenuActions } from "@/components/chat/PartActionsMenu";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { Button } from "@/components/ui/button";
@@ -693,6 +695,10 @@ export function WorkspaceSidebar({
     const summary = summariesByJobId.get(job.id);
     const presentation = getClientItemPresentation(job, summary);
     const selectedQuote = formatSelectedQuote(summary);
+    const workspaceState = buildClientWorkspaceState({
+      job,
+      summary,
+    });
     const currentProjectIds = getProjectIdsForJob(job).filter((projectId) => projectsById.has(projectId));
     const currentProjectIdSet = new Set(currentProjectIds);
     const isPinned = pinnedPartSet.has(job.id);
@@ -790,10 +796,20 @@ export function WorkspaceSidebar({
             >
             <Shapes className="h-4 w-4 shrink-0 text-white/[0.9]" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm leading-5">{presentation.title}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="truncate text-sm leading-5">{presentation.title}</p>
+                <ClientWorkspaceToneBadge
+                  tone={workspaceState.tone}
+                  className="tracking-normal normal-case"
+                />
+              </div>
               {selectedQuote ? (
                 <p className="truncate text-[11px] leading-4 text-emerald-300/90">{selectedQuote}</p>
-              ) : null}
+              ) : (
+                <p className="truncate text-[11px] leading-4 text-white/[0.52]">
+                  {workspaceState.selection.label}
+                </p>
+              )}
               {!nestedInProject && parentProjectNames.length > 0 ? (
                 <p className="truncate text-[12px] leading-4 text-white/[0.38]">{parentProjectNames.join(" · ")}</p>
               ) : null}
