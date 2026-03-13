@@ -43,6 +43,7 @@
   - client page calls `updateClientPartRequest(...)`
   - backend persists through `api_update_client_part_request`
 - Revised files still attach to the same job/line item via the existing upload and reconcile flow.
+- The current editor is intentionally the MVP-safe subset of the broader RFQ model defined in [docs/rfq-metadata-model.md](/Users/blainewilson/code/overdrafter-symphony-workspaces/OVD-38/docs/rfq-metadata-model.md). Shipping constraints, certifications, sourcing preferences, and release context remain follow-on metadata sections rather than silent additions to this form.
 
 ## Empty States
 - No quotes yet
@@ -52,4 +53,4 @@
 
 ## Extension Points
 - Quote list rows already surface domestic/foreign state, expedite hints, and exclusion toggles.
-- Detail form keeps `process` and `notes` in `spec_snapshot`, leaving room for later DFM and compliance fields.
+- Detail form keeps `process` and `notes` in `spec_snapshot`, leaving room for later RFQ metadata promotion and DFM/compliance work.

@@ -25,6 +25,7 @@ OverDrafter is a workflow system for manufactured-part quoting. It connects clie
 - role-aware data access
 - workflow state transitions
 - auditability for sensitive actions
+- RFQ metadata boundaries that distinguish shared RFQ/project context from line-item requirements
 
 ### 3. Storage and file-reference layer
 - storing uploaded CAD files and drawings
