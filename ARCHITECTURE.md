@@ -18,7 +18,8 @@ The next-phase domain model should expand that quote-centric shape into an expli
 - authentication entry points
 - workspace-facing navigation and application shell
 - client intake UI
-- project and part browsing
+- project-first browsing and creation flows
+- assembly and part management inside a project
 - internal estimator interfaces
 - quote comparison and package publication surfaces
 
@@ -61,6 +62,20 @@ The next-phase domain model should expand that quote-centric shape into an expli
 - project grouping
 - collaborator invitation and access
 - project-scoped visibility boundaries
+- project-level navigation that does not treat assemblies as the umbrella container
+
+## Domain hierarchy
+
+The top-level customer-facing container is `Project`, not `Assembly`.
+
+A project is the commercial and workflow scope for mixed manufacturing requests. It can contain:
+
+- multiple assemblies
+- standalone parts that are not attached to any assembly
+- drawings, PDFs, spec sheets, and other supporting documents
+- quote rounds, curated quote packages, and downstream review or order records
+
+An assembly remains a technical structure nested inside a project. It should model engineering hierarchy such as subassemblies and parts, but it must not define the top-level information architecture for intake, navigation, or collaboration.
 
 ## Request-model boundary
 
