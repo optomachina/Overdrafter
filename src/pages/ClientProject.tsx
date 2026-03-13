@@ -753,8 +753,7 @@ const ClientProject = () => {
         currentUserId={user?.id ?? ""}
         memberships={projectMembershipsQuery.data ?? []}
         invites={projectInvitesQuery.data ?? []}
-        canRename={canRenameProject}
-        canDelete={canDissolveProject}
+        canManage={canManageMembers}
         onInvite={handleInviteProjectMember}
         onRemoveMembership={handleRemoveProjectMember}
       />

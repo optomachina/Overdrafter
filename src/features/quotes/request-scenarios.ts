@@ -3,7 +3,7 @@ import type { ApprovedPartRequirement, JobPartSummary } from "@/features/quotes/
 
 export type RequestedQuantityFilterValue = number | "all";
 
-type RequestedQuantitySource = readonly (number | null | undefined)[] | number | null | undefined;
+type RequestedQuantitySource = ReadonlyArray<number | null | undefined> | number | null | undefined;
 
 export function collectRequestedQuantities(
   sources: RequestedQuantitySource[],
@@ -17,7 +17,9 @@ export function collectRequestedQuantities(
       return;
     }
 
-    flattened.push(source);
+    if (typeof source === "number" || source === null || source === undefined) {
+      flattened.push(source as number | null | undefined);
+    }
   });
 
   return normalizeRequestedQuoteQuantities(flattened, fallbackQuantity);

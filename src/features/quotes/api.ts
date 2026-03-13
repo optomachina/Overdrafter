@@ -24,6 +24,7 @@ import type {
   OrganizationMembershipSummary,
   PrepareJobFileUploadResult,
   PublishedQuotePackageRecord,
+  PublishedQuoteOptionRecord,
   ProjectInviteRecord,
   ProjectInviteSummary,
   ProjectJobRecord,
@@ -33,17 +34,18 @@ import type {
   QuoteRunReadiness,
   SidebarPins,
   UploadFilesToJobSummary,
+  ClientSelectionRecord,
+  VendorQuoteArtifactRecord,
+  WorkQueueRecord,
 } from "@/features/quotes/types";
 import type {
   AppRole,
-  ClientSelectionRecord,
+  Database,
   JobFileKind,
   Json,
-  PublishedQuoteOptionRecord,
   ProjectRole,
   VendorName,
   VendorStatus,
-  WorkQueueRecord,
 } from "@/integrations/supabase/types";
 import type {
   ApprovedPartRequirementRecord,
@@ -67,6 +69,56 @@ import { normalizeRequestedQuoteQuantities, parseRequestIntake } from "@/feature
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import { getImportedVendorOffers, normalizeDrawingPreview } from "@/features/quotes/utils";
 import { toast } from "sonner";
+
+const untypedSupabase = supabase as typeof supabase & {
+  from: (relation: string) => unknown;
+  rpc: (fn: string, args?: Record<string, unknown>) => Promise<PostgrestSingleResponse<unknown>>;
+};
+
+type RpcName = keyof Database["public"]["Functions"];
+
+function callRpc<Name extends RpcName>(
+  fn: Name,
+  args: Database["public"]["Functions"][Name]["Args"],
+): Promise<PostgrestSingleResponse<Database["public"]["Functions"][Name]["Returns"]>> {
+  return untypedSupabase.rpc(fn, args) as Promise<
+    PostgrestSingleResponse<Database["public"]["Functions"][Name]["Returns"]>
+  >;
+}
+
+function upsertUntyped(
+  relation: string,
+  values: Record<string, unknown>,
+  options?: { onConflict?: string; ignoreDuplicates?: boolean },
+): Promise<{ error: unknown }> {
+  return (
+    untypedSupabase.from(relation) as unknown as {
+      upsert: (
+        nextValues: Record<string, unknown>,
+        nextOptions?: { onConflict?: string; ignoreDuplicates?: boolean },
+      ) => Promise<{ error: unknown }>;
+    }
+  ).upsert(values, options);
+}
+
+function insertUntyped(
+  relation: string,
+  values: Record<string, unknown>,
+): {
+  select: (columns: string) => {
+    single: () => Promise<PostgrestSingleResponse<unknown>>;
+  };
+} {
+  return (
+    untypedSupabase.from(relation) as unknown as {
+      insert: (nextValues: Record<string, unknown>) => {
+        select: (columns: string) => {
+          single: () => Promise<PostgrestSingleResponse<unknown>>;
+        };
+      };
+    }
+  ).insert(values);
+}
 
 const CAD_EXTENSIONS = new Set([
   "step",
@@ -851,7 +903,7 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
     .eq("id", jobId)
     .single();
 
-  const job = ensureData(jobData, jobError);
+  const job = ensureData(jobData as JobRecord | null, jobError);
 
   const [
     filesResult,
@@ -1270,7 +1322,7 @@ export async function fetchClientPackage(packageId: string): Promise<ClientPacka
     .eq("id", packageId)
     .single();
 
-  const pkg = ensureData(packageData, packageError);
+  const pkg = ensureData(packageData as PublishedQuotePackageRecord | null, packageError);
 
   const [jobResult, optionsResult, selectionResult] = await Promise.all([
     supabase.from("jobs").select("*").eq("id", pkg.job_id).single(),
@@ -1296,7 +1348,7 @@ export async function fetchClientPackage(packageId: string): Promise<ClientPacka
 }
 
 export async function createSelfServiceOrganization(organizationName: string): Promise<string> {
-  const { data, error } = await supabase.rpc("api_create_self_service_organization", {
+  const { data, error } = await callRpc("api_create_self_service_organization", {
     p_organization_name: organizationName,
   });
 
@@ -1306,7 +1358,7 @@ export async function createSelfServiceOrganization(organizationName: string): P
 export async function fetchOrganizationMemberships(
   organizationId: string,
 ): Promise<OrganizationMembershipSummary[]> {
-  const { data, error } = await supabase.rpc("api_list_organization_memberships", {
+  const { data, error } = await callRpc("api_list_organization_memberships", {
     p_organization_id: organizationId,
   });
 
@@ -1317,7 +1369,7 @@ export async function updateOrganizationMembershipRole(input: {
   membershipId: string;
   role: AppRole;
 }): Promise<string> {
-  const { data, error } = await supabase.rpc("api_update_organization_membership_role", {
+  const { data, error } = await callRpc("api_update_organization_membership_role", {
     p_membership_id: input.membershipId,
     p_role: input.role,
   });
@@ -1625,7 +1677,8 @@ export async function pinProject(projectId: string): Promise<void> {
   }
 
   const currentUser = await requireCurrentUser();
-  const { error } = await supabase.from("user_pinned_projects").upsert(
+  const { error } = await upsertUntyped(
+    "user_pinned_projects",
     {
       user_id: currentUser.id,
       project_id: projectId,
@@ -1682,7 +1735,8 @@ export async function pinJob(jobId: string): Promise<void> {
   }
 
   const currentUser = await requireCurrentUser();
-  const { error } = await supabase.from("user_pinned_jobs").upsert(
+  const { error } = await upsertUntyped(
+    "user_pinned_jobs",
     {
       user_id: currentUser.id,
       job_id: jobId,
@@ -1917,7 +1971,7 @@ export async function createProject(input: {
     throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
   }
 
-  const { data, error } = await supabase.rpc("api_create_project", {
+  const { data, error } = await callRpc("api_create_project", {
     p_name: input.name,
     p_description: input.description ?? null,
   });
@@ -1931,7 +1985,7 @@ export async function createProject(input: {
     // Backward-compatible fallback for environments that still expose the
     // older one-argument function signature.
     if (!input.description) {
-      const fallbackResult = await supabase.rpc("api_create_project", {
+      const fallbackResult = await callRpc("api_create_project", {
         p_name: input.name,
       });
 
@@ -1975,7 +2029,7 @@ export async function updateProject(input: {
     return fixtureGateway.updateProject(input);
   }
 
-  const { data, error } = await supabase.rpc("api_update_project", {
+  const { data, error } = await callRpc("api_update_project", {
     p_project_id: input.projectId,
     p_name: input.name,
     p_description: input.description ?? null,
@@ -1985,7 +2039,7 @@ export async function updateProject(input: {
 }
 
 export async function deleteProject(projectId: string): Promise<string> {
-  const { data, error } = await supabase.rpc("api_delete_project", {
+  const { data, error } = await callRpc("api_delete_project", {
     p_project_id: projectId,
   });
 
@@ -1999,7 +2053,7 @@ export async function archiveProject(projectId: string): Promise<string> {
     return fixtureGateway.archiveProject(projectId);
   }
 
-  const { data, error } = await supabase.rpc("api_archive_project", {
+  const { data, error } = await callRpc("api_archive_project", {
     p_project_id: projectId,
   });
 
@@ -2013,7 +2067,7 @@ export async function unarchiveProject(projectId: string): Promise<string> {
     return fixtureGateway.unarchiveProject(projectId);
   }
 
-  const { data, error } = await supabase.rpc("api_unarchive_project", {
+  const { data, error } = await callRpc("api_unarchive_project", {
     p_project_id: projectId,
   });
 
@@ -2027,7 +2081,7 @@ export async function dissolveProject(projectId: string): Promise<string> {
     return fixtureGateway.dissolveProject(projectId);
   }
 
-  const { data, error } = await supabase.rpc("api_dissolve_project", {
+  const { data, error } = await callRpc("api_dissolve_project", {
     p_project_id: projectId,
   });
 
@@ -2045,7 +2099,7 @@ export async function inviteProjectMember(input: {
     return fixtureGateway.inviteProjectMember(input);
   }
 
-  const { data, error } = await supabase.rpc("api_invite_project_member", {
+  const { data, error } = await callRpc("api_invite_project_member", {
     p_project_id: input.projectId,
     p_email: input.email,
     p_role: input.role ?? "editor",
@@ -2071,7 +2125,7 @@ export async function inviteProjectMember(input: {
 }
 
 export async function acceptProjectInvite(token: string): Promise<string> {
-  const { data, error } = await supabase.rpc("api_accept_project_invite", {
+  const { data, error } = await callRpc("api_accept_project_invite", {
     p_token: token,
   });
 
@@ -2085,7 +2139,7 @@ export async function removeProjectMember(projectMembershipId: string): Promise<
     return fixtureGateway.removeProjectMember(projectMembershipId);
   }
 
-  const { data, error } = await supabase.rpc("api_remove_project_member", {
+  const { data, error } = await callRpc("api_remove_project_member", {
     p_project_membership_id: projectMembershipId,
   });
 
@@ -2093,7 +2147,7 @@ export async function removeProjectMember(projectMembershipId: string): Promise<
 }
 
 export async function createClientDraft(input: ClientDraftInput): Promise<string> {
-  const { data, error } = await supabase.rpc("api_create_client_draft", {
+  const { data, error } = await callRpc("api_create_client_draft", {
     p_title: input.title,
     p_description: input.description ?? null,
     p_project_id: input.projectId ?? null,
@@ -2139,7 +2193,7 @@ export async function updateClientPartRequest(input: ClientPartRequestUpdateInpu
     return fixtureGateway.updateClientPartRequest(input);
   }
 
-  const { data, error } = await supabase.rpc("api_update_client_part_request", {
+  const { data, error } = await callRpc("api_update_client_part_request", {
     p_job_id: input.jobId,
     p_description: input.description ?? null,
     p_part_number: input.partNumber ?? null,
@@ -2209,7 +2263,7 @@ export async function assignJobToProject(input: {
     return fixtureGateway.assignJobToProject(input);
   }
 
-  const { data, error } = await supabase.rpc("api_assign_job_to_project", {
+  const { data, error } = await callRpc("api_assign_job_to_project", {
     p_job_id: input.jobId,
     p_project_id: input.projectId,
   });
@@ -2224,7 +2278,7 @@ export async function removeJobFromProject(jobId: string, projectId: string): Pr
     return fixtureGateway.removeJobFromProject(jobId, projectId);
   }
 
-  const { data, error } = await supabase.rpc("api_remove_job_from_project", {
+  const { data, error } = await callRpc("api_remove_job_from_project", {
     p_job_id: jobId,
     p_project_id: projectId,
   });
@@ -2239,7 +2293,7 @@ export async function archiveJob(jobId: string): Promise<string> {
     return fixtureGateway.archiveJob(jobId);
   }
 
-  const { data, error } = await supabase.rpc("api_archive_job", {
+  const { data, error } = await callRpc("api_archive_job", {
     p_job_id: jobId,
   });
 
@@ -2253,7 +2307,7 @@ export async function unarchiveJob(jobId: string): Promise<string> {
     return fixtureGateway.unarchiveJob(jobId);
   }
 
-  const { data, error } = await supabase.rpc("api_unarchive_job", {
+  const { data, error } = await callRpc("api_unarchive_job", {
     p_job_id: jobId,
   });
 
@@ -2267,7 +2321,7 @@ export async function deleteArchivedJob(jobId: string): Promise<string> {
     return fixtureGateway.deleteArchivedJob(jobId);
   }
 
-  const { data, error } = await supabase.rpc("api_delete_archived_job", {
+  const { data, error } = await callRpc("api_delete_archived_job", {
     p_job_id: jobId,
   });
 
@@ -2281,7 +2335,7 @@ export async function setJobSelectedVendorQuoteOffer(jobId: string, offerId: str
     return fixtureGateway.setJobSelectedVendorQuoteOffer(jobId, offerId);
   }
 
-  const { data, error } = await supabase.rpc("api_set_job_selected_vendor_quote_offer", {
+  const { data, error } = await callRpc("api_set_job_selected_vendor_quote_offer", {
     p_job_id: jobId,
     p_vendor_quote_offer_id: offerId,
   });
@@ -2332,7 +2386,7 @@ export async function createJob(input: {
   requestedQuoteQuantities?: number[];
   requestedByDate?: string | null;
 }): Promise<string> {
-  const { data, error } = await supabase.rpc("api_create_job", {
+  const { data, error } = await callRpc("api_create_job", {
     p_organization_id: input.organizationId,
     p_title: input.title,
     p_description: input.description ?? null,
@@ -2364,7 +2418,7 @@ export async function uploadFilesToJob(jobId: string, files: File[]): Promise<Up
     seenHashes.add(contentSha256);
 
     const fileKind = inferFileKind(file.name);
-    const { data, error } = await supabase.rpc("api_prepare_job_file_upload", {
+    const { data, error } = await callRpc("api_prepare_job_file_upload", {
       p_job_id: jobId,
       p_original_name: file.name,
       p_file_kind: fileKind,
@@ -2394,7 +2448,7 @@ export async function uploadFilesToJob(jobId: string, files: File[]): Promise<Up
       throw storageError;
     }
 
-    const { error: finalizeError } = await supabase.rpc("api_finalize_job_file_upload", {
+    const { error: finalizeError } = await callRpc("api_finalize_job_file_upload", {
       p_job_id: jobId,
       p_storage_bucket: prepareResult.storageBucket,
       p_storage_path: prepareResult.storagePath,
@@ -2460,7 +2514,7 @@ export async function uploadManualQuoteEvidence(
 }
 
 export async function reconcileJobParts(jobId: string): Promise<Record<string, number>> {
-  const { data, error } = await supabase.rpc("api_reconcile_job_parts", {
+  const { data, error } = await callRpc("api_reconcile_job_parts", {
     p_job_id: jobId,
   });
 
@@ -2468,7 +2522,7 @@ export async function reconcileJobParts(jobId: string): Promise<Record<string, n
 }
 
 export async function requestExtraction(jobId: string): Promise<number> {
-  const { data, error } = await supabase.rpc("api_request_extraction", {
+  const { data, error } = await callRpc("api_request_extraction", {
     p_job_id: jobId,
   });
 
@@ -2479,7 +2533,7 @@ export async function approveJobRequirements(
   jobId: string,
   requirements: ApprovedPartRequirement[],
 ): Promise<number> {
-  const { data, error } = await supabase.rpc("api_approve_job_requirements", {
+  const { data, error } = await callRpc("api_approve_job_requirements", {
     p_job_id: jobId,
     p_requirements: requirements,
   });
@@ -2491,7 +2545,7 @@ export async function startQuoteRun(
   jobId: string,
   autoPublishRequested = false,
 ): Promise<string> {
-  const { data, error } = await supabase.rpc("api_start_quote_run", {
+  const { data, error } = await callRpc("api_start_quote_run", {
     p_job_id: jobId,
     p_auto_publish_requested: autoPublishRequested,
   });
@@ -2506,7 +2560,7 @@ export async function enqueueDebugVendorQuote(input: {
   vendor: VendorName;
   requestedQuantity: number;
 }): Promise<string> {
-  const { data: quoteResult, error: quoteResultError } = await supabase
+  const { data: quoteResultData, error: quoteResultError } = await untypedSupabase
     .from("vendor_quote_results")
     .select("id, organization_id, status")
     .eq("quote_run_id", input.quoteRunId)
@@ -2519,13 +2573,13 @@ export async function enqueueDebugVendorQuote(input: {
     throw quoteResultError;
   }
 
+  const quoteResult = quoteResultData as Pick<VendorQuoteResultRecord, "id" | "organization_id" | "status"> | null;
+
   if (!quoteResult) {
     throw new Error("No matching vendor quote lane exists for this part and quantity.");
   }
 
-  const resolvedQuoteResult = quoteResult;
-
-  const { data: queueRows, error: queueError } = await supabase
+  const { data: queueRows, error: queueError } = await untypedSupabase
     .from("work_queue")
     .select("id, status, payload")
     .eq("job_id", input.jobId)
@@ -2554,10 +2608,8 @@ export async function enqueueDebugVendorQuote(input: {
     throw new Error("A Xometry quote task is already queued or running for this part and quantity.");
   }
 
-  const { data: insertedTask, error: insertError } = await supabase
-    .from("work_queue")
-    .insert({
-      organization_id: resolvedQuoteResult.organization_id,
+  const { data: insertedTaskData, error: insertError } = await (insertUntyped("work_queue", {
+      organization_id: quoteResult.organization_id,
       job_id: input.jobId,
       part_id: input.partId,
       quote_run_id: input.quoteRunId,
@@ -2567,15 +2619,15 @@ export async function enqueueDebugVendorQuote(input: {
         quoteRunId: input.quoteRunId,
         partId: input.partId,
         vendor: input.vendor,
-        vendorQuoteResultId: resolvedQuoteResult.id,
+        vendorQuoteResultId: quoteResult.id,
         requestedQuantity: input.requestedQuantity,
         source: "xometry-debug-submit",
       },
     })
     .select("id")
-    .single();
+    .single() as Promise<PostgrestSingleResponse<Pick<WorkQueueRecord, "id">>>);
 
-  return ensureData(insertedTask?.id ?? null, insertError);
+  return ensureData(insertedTaskData?.id ?? null, insertError);
 }
 
 export async function fetchWorkerReadiness(): Promise<WorkerReadinessSnapshot> {
@@ -2636,7 +2688,7 @@ export async function fetchWorkerReadiness(): Promise<WorkerReadinessSnapshot> {
 export async function getQuoteRunReadiness(
   quoteRunId: string,
 ): Promise<QuoteRunReadiness> {
-  const { data, error } = await supabase.rpc("api_get_quote_run_readiness", {
+  const { data, error } = await callRpc("api_get_quote_run_readiness", {
     p_quote_run_id: quoteRunId,
   });
 
@@ -2660,7 +2712,7 @@ export async function publishQuotePackage(input: {
   clientSummary?: string;
   force?: boolean;
 }): Promise<string> {
-  const { data, error } = await supabase.rpc("api_publish_quote_package", {
+  const { data, error } = await callRpc("api_publish_quote_package", {
     p_job_id: input.jobId,
     p_quote_run_id: input.quoteRunId,
     p_client_summary: input.clientSummary ?? null,
@@ -2681,7 +2733,7 @@ export async function recordManualVendorQuote(input: {
   offers: ManualQuoteOfferInput[];
   artifacts?: ManualQuoteArtifactInput[];
 }): Promise<ManualQuoteRecordResult> {
-  const { data, error } = await supabase.rpc("api_record_manual_vendor_quote", {
+  const { data, error } = await callRpc("api_record_manual_vendor_quote", {
     p_job_id: input.jobId,
     p_part_id: input.partId,
     p_vendor: input.vendor,
@@ -2701,7 +2753,7 @@ export async function selectQuoteOption(input: {
   optionId: string;
   note?: string;
 }): Promise<string> {
-  const { data, error } = await supabase.rpc("api_select_quote_option", {
+  const { data, error } = await callRpc("api_select_quote_option", {
     p_package_id: input.packageId,
     p_option_id: input.optionId,
     p_note: input.note ?? null,

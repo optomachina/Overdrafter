@@ -51,7 +51,7 @@ describe("client workspace fixtures", () => {
     expect(gateway).not.toBeNull();
 
     await gateway!.setJobSelectedVendorQuoteOffer("fx-job-quoted-a", "fx-offer-quoted-a-protolabs");
-    let summaries = await gateway!.fetchJobPartSummariesByJobIds(["fx-job-quoted-a"]);
+    const summaries = await gateway!.fetchJobPartSummariesByJobIds(["fx-job-quoted-a"]);
     expect(summaries[0]?.selectedSupplier).toBe("Proto Labs");
 
     await gateway!.archiveJob("fx-job-quoted-a");

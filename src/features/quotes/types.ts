@@ -16,6 +16,8 @@ import type {
   VendorStatus,
 } from "@/integrations/supabase/types";
 
+export type { ProjectRole };
+
 export type OrganizationRecord = Database["public"]["Tables"]["organizations"]["Row"];
 export type MembershipRecord = Database["public"]["Tables"]["organization_memberships"]["Row"];
 export type ProjectRecord = Database["public"]["Tables"]["projects"]["Row"];

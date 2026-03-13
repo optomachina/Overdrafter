@@ -123,6 +123,7 @@ function makePart(overrides: Partial<PartAggregate> = {}): PartAggregate {
       requested_by_date: null,
       applicable_vendors: ["xometry"],
       spec_snapshot: {},
+      approved_at: "2026-03-07T15:00:00.000Z",
       created_at: "2026-03-07T15:00:00.000Z",
       updated_at: "2026-03-07T15:00:00.000Z",
     },

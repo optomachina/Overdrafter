@@ -28,6 +28,7 @@ import {
   uploadFilesToJob,
 } from "@/features/quotes/api";
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
+import type { ActivityLogEntry } from "@/components/quotes/ActivityLog";
 import { formatPartLabel, getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {
   buildSidebarProjectIdsByJobId,
@@ -396,7 +397,7 @@ export function useClientPartController() {
     ].sort((left, right) => (left.revision ?? "").localeCompare(right.revision ?? ""));
   }, [jobId, partDetail?.revisionSiblings, presentation?.title, summary]);
   const selectedRevisionIndex = revisionOptions.findIndex((revision) => revision.jobId === jobId);
-  const activityEntries = useMemo(() => {
+  const activityEntries = useMemo<ActivityLogEntry[]>(() => {
     const rankingLabel =
       activePreset === "fastest"
         ? "Ranking fastest eligible quotes"

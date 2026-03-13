@@ -71,7 +71,7 @@ export function formatVendorName(vendor: VendorName): string {
   }
 }
 
-function asObject(value: Json | null | undefined): Record<string, unknown> {
+function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
