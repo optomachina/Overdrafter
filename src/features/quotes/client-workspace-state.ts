@@ -63,21 +63,21 @@ function summarizeQuoteStatus(job: JobRecord): ClientWorkspaceSelectionState {
   switch (job.status) {
     case "extracting":
       return {
-        tone: "warning",
-        label: "Extraction in progress",
-        detail: "Part details are still being extracted from the uploaded files.",
+        tone: "ready",
+        label: "Processing in background",
+        detail: "Extraction and preview generation are running, but this part is already available to review.",
       };
     case "needs_spec_review":
       return {
-        tone: "warning",
-        label: "Review needed",
-        detail: "Part details still need review before quoting can move forward.",
+        tone: "ready",
+        label: "Ready for quote prep",
+        detail: "Extraction finished and OverDrafter is applying the part data for quoting.",
       };
     case "ready_to_quote":
       return {
-        tone: "blocked",
-        label: "Quote run not started",
-        detail: "OverDrafter still needs to start quote collection for this part.",
+        tone: "ready",
+        label: "Quote prep complete",
+        detail: "This part is ready for the next quote step.",
       };
     case "quoting":
       return {
@@ -118,9 +118,9 @@ function summarizeQuoteStatus(job: JobRecord): ClientWorkspaceSelectionState {
     case "uploaded":
     default:
       return {
-        tone: "blocked",
-        label: "Files received",
-        detail: "This part is waiting for extraction and quote preparation.",
+        tone: "ready",
+        label: "Upload received",
+        detail: "Files are available now while OverDrafter prepares previews and quote data in the background.",
       };
   }
 }
@@ -308,10 +308,10 @@ export function buildClientWorkspaceState(input: {
     });
   }
 
-  if (options.length === 0 && !part?.cadFile && !summary?.selectedSupplier) {
+  if (part && options.length === 0 && !part.cadFile && !summary?.selectedSupplier) {
     reasons.push({
       id: "cad-missing",
-      tone: "blocked",
+      tone: "warning",
       label: "CAD file needed for quote comparison",
       detail: "Upload a CAD file before this part can move into quote comparison.",
     });

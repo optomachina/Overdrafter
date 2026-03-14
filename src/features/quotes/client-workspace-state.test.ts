@@ -159,6 +159,56 @@ function buildOptions(vendorQuotes: VendorQuoteAggregate[]): ClientQuoteSelectio
 }
 
 describe("client workspace state", () => {
+  it("treats upload and prep statuses as non-blocking ready states", () => {
+    expect(
+      buildClientWorkspaceState({
+        job: makeJob({ status: "uploaded" }),
+        summary: makeSummary(),
+      }),
+    ).toMatchObject({
+      tone: "ready",
+      selection: {
+        label: "Upload received",
+      },
+    });
+
+    expect(
+      buildClientWorkspaceState({
+        job: makeJob({ status: "extracting" }),
+        summary: makeSummary(),
+      }),
+    ).toMatchObject({
+      tone: "ready",
+      selection: {
+        label: "Processing in background",
+      },
+    });
+
+    expect(
+      buildClientWorkspaceState({
+        job: makeJob({ status: "needs_spec_review" }),
+        summary: makeSummary(),
+      }),
+    ).toMatchObject({
+      tone: "ready",
+      selection: {
+        label: "Ready for quote prep",
+      },
+    });
+
+    expect(
+      buildClientWorkspaceState({
+        job: makeJob({ status: "ready_to_quote" }),
+        summary: makeSummary(),
+      }),
+    ).toMatchObject({
+      tone: "ready",
+      selection: {
+        label: "Quote prep complete",
+      },
+    });
+  });
+
   it("surfaces extraction warnings and quote failures as warnings when options still exist", () => {
     const options = buildOptions([
       makeQuoteAggregate(),
@@ -289,9 +339,9 @@ describe("client workspace state", () => {
     ]);
 
     expect(counts).toEqual({
-      ready: 1,
+      ready: 2,
       warning: 1,
-      blocked: 1,
+      blocked: 0,
     });
   });
 });
