@@ -115,3 +115,4 @@ Preferred CI shape:
 - run lint, typecheck, tests, build, and worker verification in separate parallel jobs
 - keep one final aggregate gate job for branch protection
 - cancel superseded runs for the same branch or PR to avoid stale feedback
+- run PR validation from `pull_request`, and reserve `push` runs for `main` or merge-queue events so feature branches do not double-report the same checks
