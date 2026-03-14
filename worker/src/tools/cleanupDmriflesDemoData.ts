@@ -348,7 +348,8 @@ async function loadWorkspaceState(supabase: SupabaseClient, organizationId: stri
 
 async function main() {
   // Only load dotenv for CLI execution so pure helper imports stay testable from the root package.
-  await import("dotenv/config");
+  const { config: loadDotenv } = await import("dotenv");
+  loadDotenv();
   const args = parseArgs();
   const config = loadConfig();
   const supabase = createServiceClient(config);

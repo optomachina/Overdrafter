@@ -118,7 +118,13 @@ vi.mock("sonner", () => ({
 }));
 
 import {
+  fetchArchivedJobs,
+  fetchClientActivityEventsByJobIds,
+  fetchJobPartSummariesByJobIds,
   fetchPartDetail,
+  resetClientActivityFeedAvailabilityForTests,
+  resetClientIntakeSchemaAvailabilityForTests,
+  resetJobArchivingSchemaAvailabilityForTests,
   fetchProjectJobMembershipsByJobIds,
   resetProjectCollaborationSchemaAvailabilityForTests,
 } from "./api";
@@ -144,6 +150,9 @@ function findFilter(
 describe("quotes api schema drift handling", () => {
   beforeEach(() => {
     supabaseMock.reset();
+    resetClientActivityFeedAvailabilityForTests();
+    resetClientIntakeSchemaAvailabilityForTests();
+    resetJobArchivingSchemaAvailabilityForTests();
     resetProjectCollaborationSchemaAvailabilityForTests();
   });
 
@@ -285,5 +294,163 @@ describe("quotes api schema drift handling", () => {
         pages: [],
       },
     });
+  });
+
+  it("keeps part summaries loading when request service-intent columns are missing", async () => {
+    supabaseMock.setResolver("jobs", (state) => {
+      if (state.selected?.includes("requested_service_kinds")) {
+        return response(null, {
+          code: "42703",
+          message: 'column jobs.requested_service_kinds does not exist',
+          details: null,
+          hint: null,
+        });
+      }
+
+      return response([
+        {
+          id: "job-1",
+          selected_vendor_quote_offer_id: null,
+          requested_quote_quantities: [5],
+          requested_by_date: "2026-04-01",
+        },
+      ]);
+    });
+
+    supabaseMock.setResolver("parts", (state) => {
+      if (state.selected?.includes("approved_part_requirements")) {
+        return response([
+          {
+            job_id: "job-1",
+            quantity: 5,
+            approved_part_requirements: {
+              part_number: "1093-05589",
+              revision: "A",
+              description: "Bracket",
+              quote_quantities: [5],
+              requested_by_date: "2026-04-01",
+              spec_snapshot: null,
+            },
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled parts query: ${JSON.stringify(state)}`);
+    });
+
+    supabaseMock.setResolver("job_files", () => response([]));
+
+    await expect(fetchJobPartSummariesByJobIds(["job-1"])).resolves.toEqual([
+      expect.objectContaining({
+        jobId: "job-1",
+        partNumber: "1093-05589",
+        revision: "A",
+        requestedServiceKinds: ["manufacturing_quote"],
+      }),
+    ]);
+  });
+
+  it("keeps archived jobs loading when request service-intent columns are missing", async () => {
+    supabaseMock.setResolver("jobs", (state) => {
+      const archivedFilter = findFilter(state, "archived_at", "not");
+
+      if (archivedFilter) {
+        return response([
+          {
+            id: "job-1",
+            organization_id: "org-1",
+            project_id: null,
+            created_by: "user-1",
+            title: "1093-05589",
+            description: "Bracket",
+            status: "uploaded",
+            source: "client_home",
+            active_pricing_policy_id: null,
+            tags: [],
+            requested_quote_quantities: [5],
+            requested_by_date: "2026-04-01",
+            archived_at: "2026-03-01T00:00:00Z",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        ]);
+      }
+
+      if (state.selected?.includes("requested_service_kinds")) {
+        return response(null, {
+          code: "42703",
+          message: 'column jobs.requested_service_kinds does not exist',
+          details: null,
+          hint: null,
+        });
+      }
+
+      if (findFilter(state, "id", "in")) {
+        return response([
+          {
+            id: "job-1",
+            selected_vendor_quote_offer_id: null,
+            requested_quote_quantities: [5],
+            requested_by_date: "2026-04-01",
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled jobs query: ${JSON.stringify(state)}`);
+    });
+
+    supabaseMock.setResolver("parts", (state) => {
+      if (state.selected?.includes("approved_part_requirements")) {
+        return response([
+          {
+            job_id: "job-1",
+            quantity: 5,
+            approved_part_requirements: {
+              part_number: "1093-05589",
+              revision: "A",
+              description: "Bracket",
+              quote_quantities: [5],
+              requested_by_date: "2026-04-01",
+              spec_snapshot: null,
+            },
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled parts query: ${JSON.stringify(state)}`);
+    });
+
+    supabaseMock.setResolver("job_files", () => response([]));
+    supabaseMock.setResolver("project_jobs", () => response([]));
+
+    await expect(fetchArchivedJobs()).resolves.toEqual([
+      expect.objectContaining({
+        job: expect.objectContaining({
+          id: "job-1",
+        }),
+        summary: expect.objectContaining({
+          jobId: "job-1",
+          partNumber: "1093-05589",
+        }),
+        projectNames: [],
+      }),
+    ]);
+  });
+
+  it("degrades client activity queries to an empty list when the activity RPC is unavailable", async () => {
+    supabaseMock.rpc.mockResolvedValue({
+      data: null,
+      error: {
+        code: "PGRST202",
+        message:
+          "Could not find the function public.api_list_client_activity_events(p_job_ids, p_limit_per_job) in the schema cache",
+        details: null,
+        hint: null,
+      },
+    });
+
+    await expect(fetchClientActivityEventsByJobIds(["job-1"])).resolves.toEqual([]);
+    await expect(fetchClientActivityEventsByJobIds(["job-1"])).resolves.toEqual([]);
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(1);
   });
 });

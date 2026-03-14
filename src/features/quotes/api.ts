@@ -186,6 +186,29 @@ type JobSelectedOfferRow = {
   service_notes: string | null;
 };
 
+type JobRequestMetadata = {
+  requestedServiceKinds: string[];
+  primaryServiceKind: string | null;
+  serviceNotes: string | null;
+  requestedQuoteQuantities: number[];
+  requestedByDate: string | null;
+};
+
+type JobSelectionState = {
+  selectedOffersByJobId: Map<string, VendorQuoteOfferRecord>;
+  requestByJobId: Map<string, JobRequestMetadata>;
+};
+
+type JobSelectionScope =
+  | {
+      kind: "jobIds";
+      jobIds: string[];
+    }
+  | {
+      kind: "organizationId";
+      organizationId: string;
+    };
+
 type HashedUploadFile = {
   file: File;
   contentSha256: string;
@@ -223,6 +246,7 @@ const CLIENT_INTAKE_DRIFT_MESSAGE =
 
 type ProjectCollaborationSchemaAvailability = "unknown" | "available" | "unavailable";
 type JobArchivingSchemaAvailability = "unknown" | "available" | "unavailable";
+type ClientActivityFeedAvailability = "unknown" | "available" | "unavailable";
 type ClientIntakeSchemaAvailability = "unknown" | "available" | "legacy" | "unavailable";
 type ClientIntakeCompatibilitySnapshot = {
   supportsCurrentCreateJob?: boolean | null;
@@ -240,6 +264,7 @@ type ClientIntakeCompatibilitySnapshot = {
 
 let projectCollaborationSchemaAvailability: ProjectCollaborationSchemaAvailability = "unknown";
 let jobArchivingSchemaAvailability: JobArchivingSchemaAvailability = "unknown";
+let clientActivityFeedAvailability: ClientActivityFeedAvailability = "unknown";
 let clientIntakeSchemaAvailability: ClientIntakeSchemaAvailability = "unknown";
 let clientIntakeSchemaMessage = CLIENT_INTAKE_DRIFT_MESSAGE;
 
@@ -274,6 +299,12 @@ const DRAWING_PREVIEW_ASSET_IDENTIFIERS = [
   "public.drawing_preview_assets",
   "drawing_preview_assets",
   "page_number",
+] as const;
+const CLIENT_ACTIVITY_IDENTIFIERS = ["api_list_client_activity_events"] as const;
+const JOB_SELECTION_COLUMN_SETS = [
+  "id, selected_vendor_quote_offer_id, requested_service_kinds, primary_service_kind, service_notes, requested_quote_quantities, requested_by_date",
+  "id, selected_vendor_quote_offer_id, requested_quote_quantities, requested_by_date",
+  "id, selected_vendor_quote_offer_id",
 ] as const;
 const CLIENT_INTAKE_IDENTIFIERS = [
   "api_create_job",
@@ -345,6 +376,10 @@ function markJobArchivingSchemaAvailability(next: Exclude<JobArchivingSchemaAvai
   jobArchivingSchemaAvailability = next;
 }
 
+function markClientActivityFeedAvailability(next: Exclude<ClientActivityFeedAvailability, "unknown">) {
+  clientActivityFeedAvailability = next;
+}
+
 function markClientIntakeSchemaAvailability(
   next: Exclude<ClientIntakeSchemaAvailability, "unknown">,
   message = CLIENT_INTAKE_DRIFT_MESSAGE,
@@ -409,6 +444,10 @@ function isMissingDrawingPreviewSchemaError(error: unknown): boolean {
   return isMissingSchemaIdentifierError(error, DRAWING_PREVIEW_ASSET_IDENTIFIERS);
 }
 
+function isMissingClientActivitySchemaError(error: unknown): boolean {
+  return isMissingSchemaIdentifierError(error, CLIENT_ACTIVITY_IDENTIFIERS);
+}
+
 function isMissingClientIntakeSchemaError(error: unknown): boolean {
   return isMissingSchemaIdentifierError(error, CLIENT_INTAKE_IDENTIFIERS);
 }
@@ -470,12 +509,24 @@ function isJobArchivingSchemaUnavailable(): boolean {
   return jobArchivingSchemaAvailability === "unavailable";
 }
 
+function isClientActivityFeedUnavailable(): boolean {
+  if (getActiveClientWorkspaceGateway()) {
+    return false;
+  }
+
+  return clientActivityFeedAvailability === "unavailable";
+}
+
 export function resetProjectCollaborationSchemaAvailabilityForTests(): void {
   projectCollaborationSchemaAvailability = "unknown";
 }
 
 export function resetJobArchivingSchemaAvailabilityForTests(): void {
   jobArchivingSchemaAvailability = "unknown";
+}
+
+export function resetClientActivityFeedAvailabilityForTests(): void {
+  clientActivityFeedAvailability = "unknown";
 }
 
 export function resetClientIntakeSchemaAvailabilityForTests(): void {
@@ -808,37 +859,46 @@ function buildJobPartSummary(
   };
 }
 
-async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
-  if (jobIds.length === 0) {
-    return {
-      selectedOffersByJobId: new Map<string, VendorQuoteOfferRecord>(),
-      requestByJobId: new Map<
-        string,
-        {
-          requestedServiceKinds: string[];
-          primaryServiceKind: string | null;
-          serviceNotes: string | null;
-          requestedQuoteQuantities: number[];
-          requestedByDate: string | null;
-        }
-      >(),
-    };
-  }
+function buildNormalizedJobRequestMetadata(job: Partial<JobSelectedOfferRow> | null | undefined): JobRequestMetadata {
+  return {
+    ...normalizeRequestedServiceIntent({
+      requestedServiceKinds: job?.requested_service_kinds ?? [],
+      primaryServiceKind: job?.primary_service_kind ?? null,
+      serviceNotes: job?.service_notes ?? null,
+    }),
+    requestedQuoteQuantities: normalizeRequestedQuoteQuantities(job?.requested_quote_quantities ?? []),
+    requestedByDate: job?.requested_by_date ?? null,
+  };
+}
 
-  const selectionColumnSets = [
-    "id, selected_vendor_quote_offer_id, requested_service_kinds, primary_service_kind, service_notes, requested_quote_quantities, requested_by_date",
-    "id, selected_vendor_quote_offer_id, requested_quote_quantities, requested_by_date",
-    "id, selected_vendor_quote_offer_id",
-  ] as const;
+function emptyJobSelectionState(): JobSelectionState {
+  return {
+    selectedOffersByJobId: new Map<string, VendorQuoteOfferRecord>(),
+    requestByJobId: new Map<string, JobRequestMetadata>(),
+  };
+}
+
+async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
+  return fetchJobSelectionState({
+    kind: "jobIds",
+    jobIds,
+  });
+}
+
+async function fetchJobSelectionRows(scope: JobSelectionScope): Promise<JobSelectedOfferRow[]> {
+  const applyScope = (columns: (typeof JOB_SELECTION_COLUMN_SETS)[number]) => {
+    const query = supabase.from("jobs").select(columns);
+
+    return scope.kind === "jobIds"
+      ? query.in("id", scope.jobIds)
+      : query.eq("organization_id", scope.organizationId);
+  };
 
   let jobsWithSelection: JobSelectedOfferRow[] = [];
   let selectionQueryError: unknown = null;
 
-  for (const [index, columnSet] of selectionColumnSets.entries()) {
-    const { data: jobsData, error: jobsError } = await supabase
-      .from("jobs")
-      .select(columnSet)
-      .in("id", jobIds);
+  for (const [index, columnSet] of JOB_SELECTION_COLUMN_SETS.entries()) {
+    const { data: jobsData, error: jobsError } = await applyScope(columnSet);
 
     if (!jobsError) {
       jobsWithSelection = ensureData(jobsData as unknown as JobSelectedOfferRow[] | null, null);
@@ -849,36 +909,32 @@ async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
       break;
     }
 
-    if (!isMissingClientIntakeSchemaError(jobsError) || index === selectionColumnSets.length - 1) {
+    if (!isMissingClientIntakeSchemaError(jobsError) || index === JOB_SELECTION_COLUMN_SETS.length - 1) {
       selectionQueryError = jobsError;
       break;
     }
   }
-
   if (selectionQueryError) {
     throw selectionQueryError;
   }
+  return jobsWithSelection;
+}
 
+async function fetchJobSelectionState(scope: JobSelectionScope): Promise<JobSelectionState> {
+  if (scope.kind === "jobIds" && scope.jobIds.length === 0) {
+    return emptyJobSelectionState();
+  }
+
+  const jobsWithSelection = await fetchJobSelectionRows(scope);
   const offerIds = jobsWithSelection
     .map((job) => job.selected_vendor_quote_offer_id)
     .filter((value): value is string => Boolean(value));
 
   if (offerIds.length === 0) {
     return {
-      selectedOffersByJobId: new Map<string, VendorQuoteOfferRecord>(),
+      ...emptyJobSelectionState(),
       requestByJobId: new Map(
-        jobsWithSelection.map((job) => [
-          job.id,
-          {
-            ...normalizeRequestedServiceIntent({
-              requestedServiceKinds: job.requested_service_kinds ?? [],
-              primaryServiceKind: job.primary_service_kind ?? null,
-              serviceNotes: job.service_notes ?? null,
-            }),
-            requestedQuoteQuantities: normalizeRequestedQuoteQuantities(job.requested_quote_quantities ?? []),
-            requestedByDate: job.requested_by_date ?? null,
-          },
-        ]),
+        jobsWithSelection.map((job) => [job.id, buildNormalizedJobRequestMetadata(job)]),
       ),
     };
   }
@@ -903,20 +959,16 @@ async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
       }),
     ),
     requestByJobId: new Map(
-      jobsWithSelection.map((job) => [
-        job.id,
-        {
-          ...normalizeRequestedServiceIntent({
-            requestedServiceKinds: job.requested_service_kinds ?? [],
-            primaryServiceKind: job.primary_service_kind ?? null,
-            serviceNotes: job.service_notes ?? null,
-          }),
-          requestedQuoteQuantities: normalizeRequestedQuoteQuantities(job.requested_quote_quantities ?? []),
-          requestedByDate: job.requested_by_date ?? null,
-        },
-      ]),
+      jobsWithSelection.map((job) => [job.id, buildNormalizedJobRequestMetadata(job)]),
     ),
   };
+}
+
+async function fetchJobSelectionStateByOrganization(organizationId: string) {
+  return fetchJobSelectionState({
+    kind: "organizationId",
+    organizationId,
+  });
 }
 
 export async function fetchProjectJobMembershipsByJobIds(jobIds: string[]): Promise<ProjectJobRecord[]> {
@@ -1086,7 +1138,7 @@ export async function fetchJobsByOrganization(organizationId: string): Promise<J
 export async function fetchJobPartSummariesByOrganization(
   organizationId: string,
 ): Promise<JobPartSummary[]> {
-  const [partsResult, filesResult, jobsResult] = await Promise.all([
+  const [partsResult, filesResult, jobSelectionState] = await Promise.all([
     supabase
       .from("parts")
       .select(
@@ -1099,12 +1151,7 @@ export async function fetchJobPartSummariesByOrganization(
       .select("job_id, normalized_name, original_name, file_kind")
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: true }),
-    supabase
-      .from("jobs")
-      .select(
-        "id, selected_vendor_quote_offer_id, requested_service_kinds, primary_service_kind, service_notes, requested_quote_quantities, requested_by_date",
-      )
-      .eq("organization_id", organizationId),
+    fetchJobSelectionStateByOrganization(organizationId),
   ]);
 
   const approvedRequirements = ensureData(
@@ -1112,8 +1159,7 @@ export async function fetchJobPartSummariesByOrganization(
     partsResult.error,
   );
   const fileRows = ensureData(filesResult.data as unknown as JobFileSummaryRow[] | null, filesResult.error);
-  const jobs = ensureData(jobsResult.data, jobsResult.error) as JobSelectedOfferRow[];
-  const { selectedOffersByJobId, requestByJobId } = await fetchJobSelectionStateByJobIds(jobs.map((job) => job.id));
+  const { selectedOffersByJobId, requestByJobId } = jobSelectionState;
 
   const summariesByJobId = new Map<string, JobPartSummary>();
 
@@ -1320,12 +1366,29 @@ export async function fetchClientActivityEventsByJobIds(
     return [];
   }
 
+  if (isClientActivityFeedUnavailable()) {
+    return [];
+  }
+
   const { data, error } = await callRpc("api_list_client_activity_events", {
     p_job_ids: jobIds,
     p_limit_per_job: limitPerJob,
   });
 
-  const events = ensureData(data, error);
+  if (error) {
+    if (
+      isMissingFunctionError(error, "api_list_client_activity_events") ||
+      isMissingClientActivitySchemaError(error)
+    ) {
+      markClientActivityFeedAvailability("unavailable");
+      return [];
+    }
+
+    throw error;
+  }
+
+  markClientActivityFeedAvailability("available");
+  const events = ensureData(data, null);
 
   if (!Array.isArray(events)) {
     throw new Error("Expected client activity events to be returned as an array.");
