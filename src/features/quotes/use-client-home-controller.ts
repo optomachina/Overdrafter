@@ -17,7 +17,6 @@ import {
   createSelfServiceOrganization,
   deleteArchivedJob,
   dissolveProject,
-  getClientIntakeCompatibilityMessage,
   isProjectCollaborationSchemaUnavailable,
   pinJob,
   pinProject,
@@ -60,7 +59,6 @@ export function useClientHomeController() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const composerRef = useRef<PromptComposerHandle>(null);
-  const clientIntakeCompatibilityNoticeShownRef = useRef(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, activeMembership, isLoading, isVerifiedAuth, signOut } = useAppSession();
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
@@ -129,6 +127,10 @@ export function useClientHomeController() {
   );
 
   const bootstrapAccountMutation = useMutation({
+    mutationKey: ["client-home", "bootstrap-account"],
+    meta: {
+      suppressDiagnosticErrorMessages: ["already has an organization membership"],
+    },
     mutationFn: (organizationName: string) => createSelfServiceOrganization(organizationName),
     retry: false,
     onSuccess: async () => {
@@ -142,6 +144,7 @@ export function useClientHomeController() {
   });
 
   const migrateLegacyProjectsMutation = useMutation({
+    mutationKey: ["client-home", "migrate-legacy-projects"],
     mutationFn: async () => {
       if (!activeMembership?.organizationId || !user?.email) {
         return;
@@ -231,33 +234,13 @@ export function useClientHomeController() {
   }, [authIntent, searchParams, setSearchParams, user]);
 
   useEffect(() => {
-    if (!user || !activeMembership || !isVerifiedAuth || clientIntakeCompatibilityNoticeShownRef.current) {
+    if (!user || !activeMembership || !isVerifiedAuth) {
       return;
     }
 
-    let isCancelled = false;
-
     void checkClientIntakeCompatibility()
-      .then((status) => {
-        if (isCancelled || status !== "legacy" || clientIntakeCompatibilityNoticeShownRef.current) {
-          return;
-        }
-
-        clientIntakeCompatibilityNoticeShownRef.current = true;
-        toast.error(getClientIntakeCompatibilityMessage());
-      })
-      .catch((error: unknown) => {
-        if (isCancelled || clientIntakeCompatibilityNoticeShownRef.current) {
-          return;
-        }
-
-        clientIntakeCompatibilityNoticeShownRef.current = true;
-        toast.error(error instanceof Error ? error.message : getClientIntakeCompatibilityMessage());
-      });
-
-    return () => {
-      isCancelled = true;
-    };
+      .then(() => undefined)
+      .catch(() => undefined);
   }, [activeMembership, isVerifiedAuth, user]);
 
   useEffect(() => {

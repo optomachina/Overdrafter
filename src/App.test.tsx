@@ -81,6 +81,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import App from "./App";
+import { shouldCaptureMutationDiagnostic } from "@/lib/react-query-diagnostics";
 
 describe("App routes", () => {
   beforeEach(() => {
@@ -154,5 +155,27 @@ describe("App routes", () => {
     render(<App />);
 
     expect(screen.getByText("Not Found Page")).toBeInTheDocument();
+  });
+
+  it("suppresses known benign mutation diagnostics when the mutation meta opts out", () => {
+    expect(
+      shouldCaptureMutationDiagnostic({
+        error: new Error("Your account already has an organization membership."),
+        meta: {
+          suppressDiagnosticErrorMessages: ["already has an organization membership"],
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("still captures mutation diagnostics when the error does not match the suppression list", () => {
+    expect(
+      shouldCaptureMutationDiagnostic({
+        error: new Error("Permission denied"),
+        meta: {
+          suppressDiagnosticErrorMessages: ["already has an organization membership"],
+        },
+      }),
+    ).toBe(true);
   });
 });

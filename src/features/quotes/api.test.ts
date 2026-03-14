@@ -244,8 +244,10 @@ function createMockFile(contents: string, name: string, options: { type?: string
 }
 
 import {
+  ClientIntakeCompatibilityError,
   checkClientIntakeCompatibility,
   createClientDraft,
+  createJob,
   createJobsFromUploadFiles,
   createProject,
   deleteArchivedJob,
@@ -811,6 +813,90 @@ describe("quotes api helpers", () => {
     expect(getClientIntakeCompatibilityMessage()).toContain("20260313143000_add_request_service_intent.sql");
   });
 
+  it("reports available intake compatibility when the probe RPC confirms the current schema", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        supportsCurrentCreateJob: true,
+        supportsLegacyCreateJobV2: true,
+        supportsLegacyCreateJobV1: true,
+        supportsLegacyCreateJobV0: true,
+        supportsCurrentCreateClientDraft: true,
+        supportsLegacyCreateClientDraftV1: true,
+        supportsLegacyCreateClientDraftV0: true,
+        hasRequestedServiceKindsColumn: true,
+        hasPrimaryServiceKindColumn: true,
+        hasServiceNotesColumn: true,
+        missing: [],
+      },
+      error: null,
+    });
+
+    await expect(checkClientIntakeCompatibility()).resolves.toBe("available");
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_get_client_intake_compatibility", {});
+  });
+
+  it("throws a compatibility error when job creation is blocked by client intake schema drift", async () => {
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "PGRST202",
+          message:
+            "Could not find the function public.api_create_job(p_description, p_organization_id, p_primary_service_kind, p_requested_by_date, p_requested_quote_quantities, p_requested_service_kinds, p_service_notes, p_source, p_tags, p_title) in the schema cache",
+          details: null,
+          hint: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "42703",
+          message: 'column "primary_service_kind" of relation "jobs" does not exist',
+          details: null,
+          hint: null,
+        },
+      });
+
+    const promise = createJob({
+      organizationId: "org-123",
+      title: "Bracket",
+      description: "Upload test",
+      source: "client_home",
+      tags: [],
+      requestedServiceKinds: ["manufacturing_quote"],
+      primaryServiceKind: "manufacturing_quote",
+      serviceNotes: "Need options",
+      requestedQuoteQuantities: [1, 10],
+      requestedByDate: "2026-04-15",
+    });
+
+    await expect(promise).rejects.toBeInstanceOf(ClientIntakeCompatibilityError);
+    await expect(promise).rejects.toMatchObject({
+      message: expect.stringContaining("20260313143000_add_request_service_intent.sql"),
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(1, "api_create_job", {
+      p_organization_id: "org-123",
+      p_title: "Bracket",
+      p_description: "Upload test",
+      p_source: "client_home",
+      p_tags: [],
+      p_requested_service_kinds: ["manufacturing_quote"],
+      p_primary_service_kind: "manufacturing_quote",
+      p_service_notes: "Need options",
+      p_requested_quote_quantities: [1, 10],
+      p_requested_by_date: "2026-04-15",
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_create_job", {
+      p_organization_id: "org-123",
+      p_title: "Bracket",
+      p_description: "Upload test",
+      p_source: "client_home",
+      p_tags: [],
+      p_requested_quote_quantities: [1, 10],
+      p_requested_by_date: "2026-04-15",
+    });
+  });
+
   it("passes structured request fields to api_create_client_draft", async () => {
     supabaseMock.rpc.mockResolvedValue({
       data: "job-structured-1",
@@ -1142,6 +1228,23 @@ describe("quotes api helpers", () => {
       memberships: [],
       isVerifiedAuth: false,
       authState: "anonymous",
+    });
+  });
+
+  it("returns an invalid session when Supabase reports an invalid refresh token", async () => {
+    supabaseMock.authGetUser.mockResolvedValue({
+      data: { user: null },
+      error: {
+        name: "AuthApiError",
+        message: "Invalid Refresh Token: Refresh Token Not Found",
+      },
+    });
+
+    await expect(fetchAppSessionData()).resolves.toEqual({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "invalid_session",
     });
   });
 

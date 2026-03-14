@@ -102,6 +102,22 @@ describe("diagnostics", () => {
     });
   });
 
+  it("ignores the known stale Supabase refresh-token console error", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    installDiagnostics();
+
+    console.error({
+      name: "AuthApiError",
+      message: "Invalid Refresh Token: Refresh Token Not Found",
+    });
+
+    expect(getDiagnosticsSnapshot().events).toHaveLength(1);
+    expect(getDiagnosticsSnapshot().events[0]).toMatchObject({
+      source: "diagnostics.install",
+      message: "Diagnostics listeners installed.",
+    });
+  });
+
   it("builds a focused clipboard payload with context and recent event details", () => {
     updateDiagnosticsContext({
       route: "/internal/jobs/job-42",

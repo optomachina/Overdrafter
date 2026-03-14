@@ -8,7 +8,7 @@ import ClientHome from "./ClientHome";
 import ClientPart from "./ClientPart";
 import ClientProject from "./ClientProject";
 
-const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUseClientJobFilePicker, api } =
+const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUseClientJobFilePicker, api, toastMock } =
   vi.hoisted(() => ({
     mockUseAppSession: vi.fn(),
     mockOpenFilePicker: vi.fn(),
@@ -57,6 +57,10 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       updateProject: vi.fn(),
       uploadFilesToJob: vi.fn(),
     },
+    toastMock: {
+      error: vi.fn(),
+      success: vi.fn(),
+    },
   }));
 
 vi.mock("@/hooks/use-app-session", () => ({
@@ -64,6 +68,10 @@ vi.mock("@/hooks/use-app-session", () => ({
 }));
 
 vi.mock("@/features/quotes/api", () => api);
+
+vi.mock("sonner", () => ({
+  toast: toastMock,
+}));
 
 vi.mock("@/features/quotes/use-client-job-file-picker", () => ({
   useClientJobFilePicker: (...args: unknown[]) => mockUseClientJobFilePicker(...args),
@@ -404,6 +412,30 @@ describe("top-level create actions", () => {
 
     expect(mockOpenFilePicker).toHaveBeenCalledTimes(2);
     expect(screen.queryByText("Create project")).not.toBeInTheDocument();
+  });
+
+  it("does not toast when the startup compatibility probe reports a legacy schema", async () => {
+    api.checkClientIntakeCompatibility.mockResolvedValueOnce("legacy");
+
+    renderWithClient(<ClientHome />);
+
+    await waitFor(() => {
+      expect(api.checkClientIntakeCompatibility).toHaveBeenCalledTimes(1);
+    });
+
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
+  it("does not toast when the startup compatibility probe fails transiently", async () => {
+    api.checkClientIntakeCompatibility.mockRejectedValueOnce(new Error("temporary connectivity issue"));
+
+    renderWithClient(<ClientHome />);
+
+    await waitFor(() => {
+      expect(api.checkClientIntakeCompatibility).toHaveBeenCalledTimes(1);
+    });
+
+    expect(toastMock.error).not.toHaveBeenCalled();
   });
 
   it("uses the file picker for ClientProject new project", async () => {
