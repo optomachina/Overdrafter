@@ -52,6 +52,7 @@ OverDrafter uses a layered review stack:
 - Codex CLI is the local implementation agent.
 - Codex GitHub review is the PR review layer.
 - CI provides the repeatable verification layer.
+- GitHub Actions fans CI out into parallel lint, typecheck, test, build, and worker lanes, then reports a final aggregate `ci` gate for branch protection.
 
 Recommended developer flow:
 

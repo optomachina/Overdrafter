@@ -100,6 +100,7 @@ OverDrafter uses Codex as a review layer on top of the existing Linear and Symph
 - Codex CLI is the local implementation and pre-PR review tool.
 - Codex GitHub review is the native GitHub PR review layer backed by your subscription.
 - CI remains the automated verification layer.
+- GitHub Actions should fan CI out into parallel lanes and keep a single aggregate `ci` gate as the protected required check.
 
 Before opening a PR for nontrivial work:
 

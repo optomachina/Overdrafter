@@ -84,3 +84,9 @@ Minimum CI target:
 - typecheck
 - automated tests
 - build
+- worker verification when the worker package remains part of the repo gate
+
+Preferred CI shape:
+- run lint, typecheck, tests, build, and worker verification in separate parallel jobs
+- keep one final aggregate gate job for branch protection
+- cancel superseded runs for the same branch or PR to avoid stale feedback
