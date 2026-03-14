@@ -268,6 +268,12 @@ function summarizeConsoleArgs(args: unknown[]) {
     .slice(0, 1000);
 }
 
+function isIgnoredConsoleError(args: unknown[]) {
+  const summary = summarizeConsoleArgs(args).toLowerCase();
+
+  return summary.includes("invalid refresh token") && summary.includes("refresh token not found");
+}
+
 function deriveCounts(events: DiagnosticEvent[]) {
   return events.reduce<Record<DiagnosticLevel, number>>(
     (counts, event) => {
@@ -393,16 +399,18 @@ export function installDiagnostics() {
   const originalConsoleWarn = console.warn.bind(console);
 
   console.error = (...args: unknown[]) => {
-    appendEvent({
-      level: "error",
-      category: "console",
-      source: "console.error",
-      message: summarizeConsoleArgs(args) || "console.error",
-      handled: true,
-      details: {
-        args: args.map((arg) => toJsonValue(arg)),
-      },
-    });
+    if (!isIgnoredConsoleError(args)) {
+      appendEvent({
+        level: "error",
+        category: "console",
+        source: "console.error",
+        message: summarizeConsoleArgs(args) || "console.error",
+        handled: true,
+        details: {
+          args: args.map((arg) => toJsonValue(arg)),
+        },
+      });
+    }
 
     originalConsoleError(...args);
   };
