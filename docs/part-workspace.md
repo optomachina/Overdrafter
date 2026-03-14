@@ -3,6 +3,7 @@
 ## Scope
 - Refactors the client part route at `src/pages/ClientPart.tsx` without changing `ChatWorkspaceLayout`, `WorkspaceSidebar`, `WorkspaceAccountMenu`, or `AppShell`.
 - Keeps existing sidebar actions, search, archive, project membership, and file attach flows intact.
+- Basic client part flows must remain available when optional project-collaboration schema is missing. In that mode, part loading and archive/unarchive continue to work, while project labels and project-management affordances degrade cleanly instead of blocking the workspace.
 
 ## Layout
 - Header with part title, project/batch badges, request summary badges, and actions for project membership, file attach, and review.
