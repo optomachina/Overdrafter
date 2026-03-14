@@ -10,12 +10,14 @@ import {
   archiveJob,
   archiveProject,
   assignJobToProject,
+  checkClientIntakeCompatibility,
   createClientDraft,
   createJobsFromUploadFiles,
   createProject,
   createSelfServiceOrganization,
   deleteArchivedJob,
   dissolveProject,
+  getClientIntakeCompatibilityMessage,
   isProjectCollaborationSchemaUnavailable,
   pinJob,
   pinProject,
@@ -58,6 +60,7 @@ export function useClientHomeController() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const composerRef = useRef<PromptComposerHandle>(null);
+  const clientIntakeCompatibilityNoticeShownRef = useRef(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, activeMembership, isLoading, isVerifiedAuth, signOut } = useAppSession();
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
@@ -226,6 +229,36 @@ export function useClientHomeController() {
       setSearchParams(nextSearchParams, { replace: true });
     }
   }, [authIntent, searchParams, setSearchParams, user]);
+
+  useEffect(() => {
+    if (!user || !activeMembership || !isVerifiedAuth || clientIntakeCompatibilityNoticeShownRef.current) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    void checkClientIntakeCompatibility()
+      .then((status) => {
+        if (isCancelled || status !== "legacy" || clientIntakeCompatibilityNoticeShownRef.current) {
+          return;
+        }
+
+        clientIntakeCompatibilityNoticeShownRef.current = true;
+        toast.error(getClientIntakeCompatibilityMessage());
+      })
+      .catch((error: unknown) => {
+        if (isCancelled || clientIntakeCompatibilityNoticeShownRef.current) {
+          return;
+        }
+
+        clientIntakeCompatibilityNoticeShownRef.current = true;
+        toast.error(error instanceof Error ? error.message : getClientIntakeCompatibilityMessage());
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeMembership, isVerifiedAuth, user]);
 
   useEffect(() => {
     if (

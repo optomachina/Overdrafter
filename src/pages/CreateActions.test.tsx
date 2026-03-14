@@ -18,6 +18,7 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       archiveJob: vi.fn(),
       archiveProject: vi.fn(),
       assignJobToProject: vi.fn(),
+      checkClientIntakeCompatibility: vi.fn().mockResolvedValue("available"),
       createClientDraft: vi.fn(),
       createJobsFromUploadFiles: vi.fn(),
       createProject: vi.fn(),
@@ -37,6 +38,7 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       fetchProjectJobMembershipsByJobIds: vi.fn(),
       fetchProjectMemberships: vi.fn(),
       fetchSidebarPins: vi.fn(),
+      getClientIntakeCompatibilityMessage: vi.fn(() => "compatibility ok"),
       inviteProjectMember: vi.fn(),
       isProjectCollaborationSchemaUnavailable: vi.fn(),
       pinJob: vi.fn(),
@@ -306,6 +308,8 @@ describe("top-level create actions", () => {
     mockOpenFilePicker.mockReset();
     mockHandleFileInputChange.mockReset();
     mockUseClientJobFilePicker.mockReset();
+    api.checkClientIntakeCompatibility.mockResolvedValue("available");
+    api.getClientIntakeCompatibilityMessage.mockReturnValue("compatibility ok");
     mockUseClientJobFilePicker.mockImplementation(() => ({
       accept: ".step,.pdf",
       inputRef: { current: null },
