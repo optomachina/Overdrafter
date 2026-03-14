@@ -191,6 +191,7 @@ PRs should include:
 - docs updated or reason none were needed
 
 See `.github/pull_request_template.md`.
+For recurring Codex and Symphony issue motions, use `docs/recurring-workflows.md` as the concise cross-reference for planning, verification-lane selection, skill usage, and handoff evidence.
 
 ## When to stop and flag
 

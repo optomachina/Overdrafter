@@ -56,6 +56,7 @@
 - Vendor exclusion toggles
 - Revised upload action for the focused line item
 - Activity log
+- The drawer reuses the same client-safe RFQ metadata subset as the part page, including shipping, certification, sourcing, and release-status sections. Internal-only release review controls remain restricted to internal review surfaces. The broader project-vs-line-item RFQ contract is defined in [docs/rfq-metadata-model.md](./rfq-metadata-model.md).
 
 ## State Notes
 - Selected quote totals update immediately via local optimistic overrides, then reconcile against the persisted server value.
@@ -67,3 +68,8 @@
 - No quote options for a line item
 - No selected quote on a row
 - Missing preview assets
+
+## Future Assembly-Aware Extension
+- The project workspace remains the umbrella route even when assemblies are introduced.
+- Future assembly trees should appear as project-scoped context rather than replacing the project table with an assembly-only top-level container.
+- Standalone parts and project-level documents must remain valid siblings to assembly-grouped content in the same workspace.

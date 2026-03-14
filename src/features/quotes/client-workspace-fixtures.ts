@@ -5,6 +5,7 @@ import type {
   AppSessionData,
   ArchivedJobSummary,
   ArchivedProjectSummary,
+  ClientActivityEvent,
   ClientPartRequestUpdateInput,
   ClientQuoteWorkspaceItem,
   DrawingPreviewData,
@@ -27,6 +28,11 @@ import type {
   ProjectInviteStatus,
 } from "@/integrations/supabase/types";
 import type { ProjectJobRecord } from "@/features/quotes/types";
+import {
+  normalizeRfqLineItemExtendedMetadata,
+  sanitizeClientVisibleRfqLineItemExtendedMetadata,
+} from "@/features/quotes/rfq-metadata";
+import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
 import { FIXTURE_STORAGE_BUCKET } from "@/lib/stored-file";
 
 export const CLIENT_WORKSPACE_FIXTURE_SCENARIOS = [
@@ -83,6 +89,7 @@ export type ClientWorkspaceGateway = {
   fetchJobsByProject: (projectId: string) => Promise<JobRecord[]>;
   fetchPartDetail: (jobId: string) => Promise<PartDetailAggregate>;
   fetchClientQuoteWorkspaceByJobIds: (jobIds: string[]) => Promise<ClientQuoteWorkspaceItem[]>;
+  fetchClientActivityEventsByJobIds: (jobIds: string[], limitPerJob?: number) => Promise<ClientActivityEvent[]>;
   createProject: (input: { name: string; description?: string }) => Promise<string>;
   updateProject: (input: { projectId: string; name: string; description?: string }) => Promise<string>;
   archiveProject: (projectId: string) => Promise<string>;
@@ -109,6 +116,7 @@ type FixtureState = {
   projectJobMemberships: ProjectJobRecord[];
   partDetailsByJobId: Record<string, PartDetailAggregate>;
   workspaceByJobId: Record<string, ClientQuoteWorkspaceItem>;
+  clientActivityByJobId: Record<string, ClientActivityEvent[]>;
   sidebarPins: {
     projectIds: string[];
     jobIds: string[];
@@ -122,6 +130,28 @@ const FIXTURE_TIMESTAMP = "2026-03-10T17:00:00.000Z";
 const FIXTURE_PASSWORD_LABEL = "Overdrafter123!";
 
 const scenarioStateCache = new Map<FixtureScenarioId, FixtureState>();
+
+function fixtureTimestampOffset(minutes: number): string {
+  return new Date(Date.parse(FIXTURE_TIMESTAMP) + minutes * 60_000).toISOString();
+}
+
+function createClientActivityEvent(input: {
+  id: string;
+  jobId: string;
+  eventType: string;
+  minutesAfterStart: number;
+  packageId?: string | null;
+  payload?: ClientActivityEvent["payload"];
+}): ClientActivityEvent {
+  return {
+    id: input.id,
+    jobId: input.jobId,
+    packageId: input.packageId ?? null,
+    eventType: input.eventType,
+    payload: input.payload ?? {},
+    occurredAt: fixtureTimestampOffset(input.minutesAfterStart),
+  };
+}
 
 function cloneValue<T>(value: T): T {
   if (typeof structuredClone === "function") {
@@ -229,12 +259,21 @@ function createJobRecord(input: {
   title: string;
   description: string;
   status: JobRecord["status"];
+  requestedServiceKinds?: string[];
+  primaryServiceKind?: string | null;
+  serviceNotes?: string | null;
   requestedQuoteQuantities?: number[];
   requestedByDate?: string | null;
   projectId?: string | null;
   selectedVendorQuoteOfferId?: string | null;
   tags?: string[];
 }): JobRecord {
+  const serviceIntent = normalizeRequestedServiceIntent({
+    requestedServiceKinds: input.requestedServiceKinds ?? [],
+    primaryServiceKind: input.primaryServiceKind ?? null,
+    serviceNotes: input.serviceNotes ?? null,
+  });
+
   return {
     id: input.id,
     organization_id: FIXTURE_ORGANIZATION_ID,
@@ -247,6 +286,9 @@ function createJobRecord(input: {
     source: "fixture_mode",
     active_pricing_policy_id: "fixture-pricing-policy",
     tags: input.tags ?? [],
+    requested_service_kinds: serviceIntent.requestedServiceKinds,
+    primary_service_kind: serviceIntent.primaryServiceKind,
+    service_notes: serviceIntent.serviceNotes,
     requested_quote_quantities: input.requestedQuoteQuantities ?? [],
     requested_by_date: input.requestedByDate ?? null,
     archived_at: null,
@@ -314,6 +356,9 @@ function createPartAggregate(input: {
   description: string;
   material: string;
   finish?: string | null;
+  requestedServiceKinds?: string[];
+  primaryServiceKind?: string | null;
+  serviceNotes?: string | null;
   requestedQuoteQuantities: number[];
   requestedByDate: string | null;
   vendorQuotes?: VendorQuoteAggregate[];
@@ -345,6 +390,11 @@ function createPartAggregate(input: {
     input.vendorQuotes ?? [],
     input.vendorQuotes?.flatMap((quote) => quote.offers)[0]?.id ?? null,
   );
+  const serviceIntent = normalizeRequestedServiceIntent({
+    requestedServiceKinds: input.requestedServiceKinds ?? [],
+    primaryServiceKind: input.primaryServiceKind ?? null,
+    serviceNotes: input.serviceNotes ?? null,
+  });
 
   return {
     part: {
@@ -398,6 +448,9 @@ function createPartAggregate(input: {
         requested_by_date: input.requestedByDate,
         applicable_vendors: ["xometry", "protolabs", "fictiv"],
         spec_snapshot: {
+          requestedServiceKinds: serviceIntent.requestedServiceKinds,
+          primaryServiceKind: serviceIntent.primaryServiceKind,
+          serviceNotes: serviceIntent.serviceNotes,
           description: input.description,
           partNumber: input.partNumber,
           revision: input.revision,
@@ -414,6 +467,9 @@ function createPartAggregate(input: {
       partNumber: input.partNumber,
       revision: input.revision,
       description: input.description,
+      requestedServiceKinds: serviceIntent.requestedServiceKinds,
+      primaryServiceKind: serviceIntent.primaryServiceKind,
+      serviceNotes: serviceIntent.serviceNotes,
       quantity: input.quantity,
       requestedQuoteQuantities: input.requestedQuoteQuantities,
       requestedByDate: input.requestedByDate,
@@ -578,6 +634,41 @@ function buildNeedsAttentionScenario(): FixtureState {
     latestQuoteRun: null,
     revisionSiblings: [],
   };
+  const clientActivityByJobId = {
+    [job.id]: [
+      createClientActivityEvent({
+        id: "fx-event-needs-attention-created",
+        jobId: job.id,
+        eventType: "job.created",
+        minutesAfterStart: 0,
+      }),
+      createClientActivityEvent({
+        id: "fx-event-needs-attention-request",
+        jobId: job.id,
+        eventType: "client.part_request_updated",
+        minutesAfterStart: 6,
+        payload: {
+          quantity: 12,
+          requestedByDate: "2026-03-24",
+        },
+      }),
+      createClientActivityEvent({
+        id: "fx-event-needs-attention-extract-requested",
+        jobId: job.id,
+        eventType: "job.extraction_requested",
+        minutesAfterStart: 11,
+      }),
+      createClientActivityEvent({
+        id: "fx-event-needs-attention-extract-complete",
+        jobId: job.id,
+        eventType: "worker.extraction_completed",
+        minutesAfterStart: 15,
+        payload: {
+          warningCount: 1,
+        },
+      }),
+    ],
+  };
 
   return {
     session,
@@ -603,6 +694,7 @@ function buildNeedsAttentionScenario(): FixtureState {
         latestQuoteRun: null,
       },
     },
+    clientActivityByJobId,
     sidebarPins: {
       projectIds: [],
       jobIds: [],
@@ -646,6 +738,7 @@ function buildQuotedScenario(): FixtureState {
   const partSummariesByJobId: Record<string, JobPartSummary> = {};
   const partDetailsByJobId: Record<string, PartDetailAggregate> = {};
   const workspaceByJobId: Record<string, ClientQuoteWorkspaceItem> = {};
+  const clientActivityByJobId: Record<string, ClientActivityEvent[]> = {};
   const projectJobMemberships: ProjectJobRecord[] = [];
 
   const lineItems: Array<{
@@ -812,6 +905,45 @@ function buildQuotedScenario(): FixtureState {
       drawingPreview,
       latestQuoteRun,
     };
+    clientActivityByJobId[job.id] = [
+      createClientActivityEvent({
+        id: `${job.id}-created`,
+        jobId: job.id,
+        eventType: "job.created",
+        minutesAfterStart: 0,
+      }),
+      createClientActivityEvent({
+        id: `${job.id}-extract-requested`,
+        jobId: job.id,
+        eventType: "job.extraction_requested",
+        minutesAfterStart: 3,
+      }),
+      createClientActivityEvent({
+        id: `${job.id}-extract-complete`,
+        jobId: job.id,
+        eventType: "worker.extraction_completed",
+        minutesAfterStart: 7,
+        payload: {
+          warningCount: 0,
+        },
+      }),
+      createClientActivityEvent({
+        id: `${job.id}-quote-started`,
+        jobId: job.id,
+        eventType: "job.quote_run_started",
+        minutesAfterStart: 18,
+      }),
+      createClientActivityEvent({
+        id: `${job.id}-quote-complete`,
+        jobId: job.id,
+        eventType: "worker.quote_run_completed",
+        minutesAfterStart: 31,
+        payload: {
+          successfulVendorQuotes: lineItem.offers.length,
+          failedVendorQuotes: 0,
+        },
+      }),
+    ];
   });
 
   return {
@@ -824,6 +956,7 @@ function buildQuotedScenario(): FixtureState {
     projectJobMemberships,
     partDetailsByJobId,
     workspaceByJobId,
+    clientActivityByJobId,
     sidebarPins: {
       projectIds: [project.id],
       jobIds: ["fx-job-quoted-a"],
@@ -972,6 +1105,46 @@ function buildPublishedScenario(): FixtureState {
       latestQuoteRun,
     },
   };
+  state.clientActivityByJobId = {
+    [job.id]: [
+      createClientActivityEvent({
+        id: "fx-job-published-created",
+        jobId: job.id,
+        eventType: "job.created",
+        minutesAfterStart: 0,
+      }),
+      createClientActivityEvent({
+        id: "fx-job-published-quote-started",
+        jobId: job.id,
+        eventType: "job.quote_run_started",
+        minutesAfterStart: 14,
+      }),
+      createClientActivityEvent({
+        id: "fx-job-published-quote-completed",
+        jobId: job.id,
+        eventType: "worker.quote_run_completed",
+        minutesAfterStart: 26,
+        payload: {
+          successfulVendorQuotes: publishedOffers.length,
+          failedVendorQuotes: 0,
+        },
+      }),
+      createClientActivityEvent({
+        id: "fx-job-published-package-published",
+        jobId: job.id,
+        packageId: packageRecord.id,
+        eventType: "job.quote_package_published",
+        minutesAfterStart: 34,
+      }),
+      createClientActivityEvent({
+        id: "fx-job-published-selected",
+        jobId: job.id,
+        packageId: packageRecord.id,
+        eventType: "client.quote_option_selected",
+        minutesAfterStart: 41,
+      }),
+    ],
+  };
   state.sidebarPins = {
     projectIds: [publishedProject.id],
     jobIds: [job.id],
@@ -1012,6 +1185,7 @@ function buildEmptyScenario(): FixtureState {
     projectJobMemberships: [],
     partDetailsByJobId: {},
     workspaceByJobId: {},
+    clientActivityByJobId: {},
     sidebarPins: {
       projectIds: [],
       jobIds: [],
@@ -1258,6 +1432,25 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
           .map((jobId) => getState(scenarioId).workspaceByJobId[jobId])
           .filter((item): item is ClientQuoteWorkspaceItem => Boolean(item)),
       ),
+    fetchClientActivityEventsByJobIds: async (jobIds, limitPerJob = 6) => {
+      const state = getState(scenarioId);
+
+      return cloneValue(
+        jobIds
+          .flatMap((jobId) => state.clientActivityByJobId[jobId] ?? [])
+          .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
+          .reduce<ClientActivityEvent[]>((accumulator, event) => {
+            const eventsForJob = accumulator.filter((candidate) => candidate.jobId === event.jobId).length;
+
+            if (eventsForJob >= limitPerJob) {
+              return accumulator;
+            }
+
+            accumulator.push(event);
+            return accumulator;
+          }, []),
+      );
+    },
     createProject: async (input) => {
       const state = getState(scenarioId);
       const projectId = `fixture-project-${Date.now().toString(36)}`;
@@ -1518,15 +1711,28 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
         `Fixture part detail ${input.jobId} was not found.`,
       );
 
+      const metadata = sanitizeClientVisibleRfqLineItemExtendedMetadata(
+        normalizeRfqLineItemExtendedMetadata(input),
+      );
+
       summary.description = input.description;
       summary.partNumber = input.partNumber;
       summary.revision = input.revision;
+      summary.requestedServiceKinds = [...input.requestedServiceKinds];
+      summary.primaryServiceKind = input.primaryServiceKind;
+      summary.serviceNotes = input.serviceNotes;
       summary.quantity = input.quantity;
       summary.requestedQuoteQuantities = [...input.requestedQuoteQuantities];
       summary.requestedByDate = input.requestedByDate;
+      workspaceItem.job.requested_service_kinds = [...input.requestedServiceKinds];
+      workspaceItem.job.primary_service_kind = input.primaryServiceKind;
+      workspaceItem.job.service_notes = input.serviceNotes;
       workspaceItem.job.requested_quote_quantities = [...input.requestedQuoteQuantities];
       workspaceItem.job.requested_by_date = input.requestedByDate;
       workspaceItem.job.description = input.description;
+      partDetail.job.requested_service_kinds = [...input.requestedServiceKinds];
+      partDetail.job.primary_service_kind = input.primaryServiceKind;
+      partDetail.job.service_notes = input.serviceNotes;
       partDetail.job.requested_quote_quantities = [...input.requestedQuoteQuantities];
       partDetail.job.requested_by_date = input.requestedByDate;
       partDetail.job.description = input.description;
@@ -1537,9 +1743,22 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
         workspaceItem.part.approvedRequirement.revision = input.revision;
         workspaceItem.part.approvedRequirement.material = input.material;
         workspaceItem.part.approvedRequirement.finish = input.finish;
+        workspaceItem.part.approvedRequirement.tightest_tolerance_inch = input.tightestToleranceInch;
         workspaceItem.part.approvedRequirement.quantity = input.quantity;
         workspaceItem.part.approvedRequirement.quote_quantities = [...input.requestedQuoteQuantities];
         workspaceItem.part.approvedRequirement.requested_by_date = input.requestedByDate;
+        workspaceItem.part.approvedRequirement.spec_snapshot = {
+          ...(workspaceItem.part.approvedRequirement.spec_snapshot as Record<string, unknown>),
+          requestedServiceKinds: [...input.requestedServiceKinds],
+          primaryServiceKind: input.primaryServiceKind,
+          serviceNotes: input.serviceNotes,
+          process: input.process,
+          notes: input.notes,
+          shipping: metadata.shipping,
+          certifications: metadata.certifications,
+          sourcing: metadata.sourcing,
+          release: metadata.release,
+        };
       }
 
       if (workspaceItem.part) {
@@ -1553,6 +1772,23 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       if (partDetail.part) {
         partDetail.part.quantity = input.quantity;
       }
+
+      const existingEvents = state.clientActivityByJobId[input.jobId] ?? [];
+      state.clientActivityByJobId[input.jobId] = [
+        createClientActivityEvent({
+          id: `fixture-event-request-update-${Date.now().toString(36)}`,
+          jobId: input.jobId,
+          eventType: "client.part_request_updated",
+          minutesAfterStart: 90,
+          payload: {
+            requestedServiceKinds: input.requestedServiceKinds,
+            primaryServiceKind: input.primaryServiceKind,
+            quantity: input.quantity,
+            requestedByDate: input.requestedByDate,
+          },
+        }),
+        ...existingEvents,
+      ];
 
       return input.jobId;
     },

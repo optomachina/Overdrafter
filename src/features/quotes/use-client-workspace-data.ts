@@ -233,6 +233,7 @@ export async function invalidateClientWorkspaceQueries(
     queryClient.invalidateQueries({ queryKey: ["client-projects"] }),
     queryClient.invalidateQueries({ queryKey: ["client-part-summaries"] }),
     queryClient.invalidateQueries({ queryKey: ["client-project-job-memberships"] }),
+    queryClient.invalidateQueries({ queryKey: ["client-activity"] }),
     queryClient.invalidateQueries({ queryKey: ["client-ungrouped-parts"] }),
     queryClient.invalidateQueries({ queryKey: ["sidebar-pins"] }),
     queryClient.invalidateQueries({ queryKey: ["archived-projects"] }),
@@ -257,6 +258,9 @@ export async function invalidateClientWorkspaceQueries(
       ? [
           queryClient.invalidateQueries({
             queryKey: workspaceQueryKeys.clientQuoteWorkspace(jobIds),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: workspaceQueryKeys.clientActivity(jobIds),
           }),
         ]
       : []),

@@ -1,6 +1,6 @@
 # OverDrafter Capability Map
 
-Last updated: March 11, 2026
+Last updated: March 13, 2026
 
 ## Purpose
 
@@ -30,12 +30,12 @@ This document classifies OverDrafter capabilities by planning horizon so future 
 | browser notifications | Next | useful extension of current web product |
 | richer RFQ metadata | Next | directly supports better quoting and review |
 | service request taxonomy | Next | adjacent product expansion |
-| assembly-aware project workflow | Later | depends on stronger data model and UI |
-| DFM / DFA status model | Later | depends on richer review workflow |
-| fulfillment state tracking | Later | downstream expansion after selection/review path matures |
+| assembly-aware project workflow | Later | project-scoped assembly context only; does not replace `Project` as the top-level container |
+| DFM / DFA status model | Later | product target is defined now in `docs/manufacturing-review-status-model.md`, but implementation still depends on richer RFQ metadata and service-line-item foundations |
+| fulfillment state tracking | Later | define the visibility-first taxonomy now, but delay implementation until review-route and metadata maturity exist |
 | immutable version history | Later | start of PDM foundation |
 | official revisions | Later | part of PDM foundation |
-| part/assembly relationship graph | Later | depends on stronger revision model |
+| part/assembly relationship graph | Later | follows the assembly workspace foundation and depends on a stronger revision model |
 | revision comparison | Later | depends on version graph |
 | Windows app | Later | after web flows are stable |
 | macOS app | Later | after web flows are stable |

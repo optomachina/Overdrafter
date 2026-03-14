@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import type { RequestedServiceIntent } from "@/features/quotes/service-intent";
 import type {
   AppRole,
   ClientOptionKind,
@@ -43,6 +44,15 @@ export type ClientSelectionRecord = Database["public"]["Tables"]["client_selecti
 export type AuditEventRecord = Database["public"]["Tables"]["audit_events"]["Row"];
 export type WorkQueueRecord = Database["public"]["Tables"]["work_queue"]["Row"];
 
+export type ClientActivityEvent = {
+  id: string;
+  jobId: string;
+  packageId: string | null;
+  eventType: string;
+  payload: Json;
+  occurredAt: string;
+};
+
 export type EvidenceItem = {
   field: string;
   page: number;
@@ -75,8 +85,79 @@ export type DrawingExtractionData = {
   status: ExtractionStatus;
 };
 
-export type ApprovedPartRequirement = {
-  partId: string;
+export type RfqServiceScope = {
+  requestedServiceKinds: string[];
+  primaryServiceKind: string | null;
+  serviceNotes: string | null;
+};
+
+export type RfqShippingPriority =
+  | "standard"
+  | "expedite_if_needed"
+  | "expedite_required";
+
+export type RfqSourcingRegionPreference =
+  | "best_value"
+  | "domestic_preferred"
+  | "domestic_only"
+  | "foreign_allowed";
+
+export type RfqSupplierSelectionMode =
+  | "open_market"
+  | "preferred_suppliers"
+  | "customer_nominated_suppliers";
+
+export type RfqReleaseStatus =
+  | "unknown"
+  | "prototype"
+  | "pre_release"
+  | "released";
+
+export type RfqReviewDisposition =
+  | "draft"
+  | "needs_review"
+  | "approved_for_quote"
+  | "hold";
+
+export type RfqInspectionLevel = "standard" | "fai" | "custom";
+
+export type RfqProjectShippingConstraints = {
+  requestedByDate: string | null;
+  shippingPriority: RfqShippingPriority | null;
+  shipToRegion: string | null;
+  constraintsNotes: string | null;
+};
+
+export type RfqProjectCertificationDefaults = {
+  requiredCertifications: string[];
+  traceabilityRequired: boolean | null;
+  inspectionLevel: RfqInspectionLevel | null;
+  notes: string | null;
+};
+
+export type RfqProjectSourcingPreferences = {
+  regionPreference: RfqSourcingRegionPreference | null;
+  supplierSelectionMode: RfqSupplierSelectionMode | null;
+  allowSplitAward: boolean | null;
+  notes: string | null;
+};
+
+export type RfqProjectReleaseContext = {
+  releaseStatus: RfqReleaseStatus | null;
+  reviewDisposition: RfqReviewDisposition | null;
+  reviewOwner: string | null;
+  notes: string | null;
+};
+
+export type RfqProjectMetadata = {
+  serviceScope: RfqServiceScope;
+  shipping: RfqProjectShippingConstraints;
+  certifications: RfqProjectCertificationDefaults;
+  sourcing: RfqProjectSourcingPreferences;
+  release: RfqProjectReleaseContext;
+};
+
+export type RfqLineItemRequestFields = {
   description: string | null;
   partNumber: string | null;
   revision: string | null;
@@ -86,10 +167,73 @@ export type ApprovedPartRequirement = {
   process?: string | null;
   notes?: string | null;
   quantity: number;
-  quoteQuantities: number[];
+  requestedQuoteQuantities: number[];
   requestedByDate: string | null;
-  applicableVendors: VendorName[];
 };
+
+export type RfqLineItemShippingConstraints = {
+  requestedByDateOverride: string | null;
+  packagingNotes: string | null;
+  shippingNotes: string | null;
+};
+
+export type RfqLineItemCertificationRequirements = {
+  requiredCertifications: string[];
+  materialCertificationRequired: boolean | null;
+  certificateOfConformanceRequired: boolean | null;
+  inspectionLevel: RfqInspectionLevel | null;
+  notes: string | null;
+};
+
+export type RfqLineItemSourcingPreferences = {
+  regionPreferenceOverride: RfqSourcingRegionPreference | null;
+  preferredSuppliers: string[];
+  materialProvisioning: "supplier_to_source" | "customer_supplied" | "tbd" | null;
+  notes: string | null;
+};
+
+export type RfqLineItemReleaseContext = {
+  releaseStatus: RfqReleaseStatus | null;
+  reviewDisposition: RfqReviewDisposition | null;
+  quoteBlockedUntilRelease: boolean | null;
+  notes: string | null;
+};
+
+export type RfqLineItemMetadata = {
+  request: RfqLineItemRequestFields;
+  shipping: RfqLineItemShippingConstraints;
+  certifications: RfqLineItemCertificationRequirements;
+  sourcing: RfqLineItemSourcingPreferences;
+  release: RfqLineItemReleaseContext;
+};
+
+export type RfqLineItemExtendedMetadata = Omit<RfqLineItemMetadata, "request">;
+
+export const CLIENT_PART_REQUEST_MVP_FIELDS = [
+  "requestedServiceKinds",
+  "primaryServiceKind",
+  "serviceNotes",
+  "description",
+  "partNumber",
+  "revision",
+  "material",
+  "finish",
+  "tightestToleranceInch",
+  "process",
+  "notes",
+  "quantity",
+  "requestedQuoteQuantities",
+  "requestedByDate",
+] as const satisfies ReadonlyArray<keyof ClientPartRequestEditableFields>;
+
+export type ClientPartRequestEditableFields = RfqLineItemRequestFields & RequestedServiceIntent;
+
+export type ApprovedPartRequirement = Omit<ClientPartRequestEditableFields, "requestedQuoteQuantities"> &
+  RfqLineItemExtendedMetadata & {
+    partId: string;
+    quoteQuantities: number[];
+    applicableVendors: VendorName[];
+  };
 
 export type VendorQuoteResult = {
   vendor: VendorName;
@@ -183,6 +327,9 @@ export type ClientDraftInput = {
   description?: string;
   projectId?: string | null;
   tags?: string[];
+  requestedServiceKinds?: string[];
+  primaryServiceKind?: string | null;
+  serviceNotes?: string | null;
   requestedQuoteQuantities?: number[];
   requestedByDate?: string | null;
 };
@@ -215,6 +362,9 @@ export type JobPartSummary = {
   partNumber: string | null;
   revision: string | null;
   description: string | null;
+  requestedServiceKinds: string[];
+  primaryServiceKind: string | null;
+  serviceNotes: string | null;
   quantity: number | null;
   requestedQuoteQuantities: number[];
   requestedByDate: string | null;
@@ -306,18 +456,8 @@ export type PartDetailAggregate = {
 
 export type ClientPartRequestUpdateInput = {
   jobId: string;
-  description: string | null;
-  partNumber: string | null;
-  revision: string | null;
-  material: string;
-  finish: string | null;
-  tightestToleranceInch: number | null;
-  process?: string | null;
-  notes?: string | null;
-  quantity: number;
-  requestedQuoteQuantities: number[];
-  requestedByDate: string | null;
-};
+} & ClientPartRequestEditableFields &
+  RfqLineItemExtendedMetadata;
 
 export type ClientQuoteWorkspaceItem = {
   job: JobRecord;

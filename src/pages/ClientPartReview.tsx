@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { Loader2, MoveLeft, MoveRight } from "lucide-react";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
+import { ProcurementHandoffPanel } from "@/components/quotes/ProcurementHandoffPanel";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,10 @@ import {
   fetchClientQuoteWorkspaceByJobIds,
 } from "@/features/quotes/api";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import {
+  createDefaultProcurementHandoffState,
+  summarizeProcurementHandoff,
+} from "@/features/quotes/procurement-handoff";
 import {
   buildClientQuoteSelectionOptions,
   buildVendorLabelMap,
@@ -22,7 +27,8 @@ const ClientPartReview = () => {
   const { jobId = "" } = useParams();
   const navigate = useNavigate();
   const { user } = useAppSession();
-  const [showCheckoutPlaceholder, setShowCheckoutPlaceholder] = useState(false);
+  const [handoffState, setHandoffState] = useState(createDefaultProcurementHandoffState);
+  const [showHandoffSummary, setShowHandoffSummary] = useState(false);
 
   const workspaceQuery = useQuery({
     queryKey: ["part-review", jobId],
@@ -49,6 +55,8 @@ const ClientPartReview = () => {
 
     return getSelectedOption(options, workspaceItem.job.selected_vendor_quote_offer_id);
   }, [workspaceQuery.data]);
+
+  const handoffSummary = useMemo(() => summarizeProcurementHandoff(handoffState), [handoffState]);
 
   if (!user) {
     return <Navigate to="/?auth=signin" replace />;
@@ -77,9 +85,10 @@ const ClientPartReview = () => {
                   {getClientItemPresentation(workspaceQuery.data.job, workspaceQuery.data.summary).title}
                 </h1>
                 <p className="mt-2 text-sm text-white/55">
-                  Confirm the selected quote before continuing to payment, PO, or order placement.
+                  Confirm the selected quote and capture shipping, billing, and PO handoff details before OverDrafter follow-up.
                 </p>
                 <RequestSummaryBadges
+                  requestedServiceKinds={workspaceQuery.data.summary?.requestedServiceKinds ?? []}
                   quantity={workspaceQuery.data.summary?.quantity ?? workspaceQuery.data.part?.quantity ?? null}
                   requestedQuoteQuantities={workspaceQuery.data.summary?.requestedQuoteQuantities ?? []}
                   requestedByDate={workspaceQuery.data.summary?.requestedByDate ?? null}
@@ -97,8 +106,8 @@ const ClientPartReview = () => {
                   <MoveLeft className="mr-2 h-4 w-4" />
                   Back to edit
                 </Button>
-                <Button type="button" className="rounded-full" onClick={() => setShowCheckoutPlaceholder(true)}>
-                  Continue
+                <Button type="button" className="rounded-full" onClick={() => setShowHandoffSummary(true)}>
+                  Review handoff
                   <MoveRight className="ml-2 h-4 w-4" />
                 </Button>
               </div>
@@ -139,26 +148,39 @@ const ClientPartReview = () => {
             </section>
 
             <section className="rounded-[26px] border border-white/8 bg-[#262626] p-6">
-              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Order details</p>
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-4">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">RFQ context</p>
-                  <p className="mt-2 text-sm text-white/70">{workspaceQuery.data.job.description ?? "No freeform request text provided."}</p>
-                </div>
-                <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-4">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Shipping / payment / PO</p>
-                  <p className="mt-2 text-sm text-white/70">
-                    Placeholder surface for shipping method, payment details, and purchase-order submission.
-                  </p>
-                </div>
+              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Request context</p>
+              <div className="mt-4 rounded-2xl border border-white/8 bg-black/20 px-4 py-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">RFQ context</p>
+                <p className="mt-2 text-sm text-white/70">
+                  {workspaceQuery.data.job.description ?? "No freeform request text provided."}
+                </p>
               </div>
             </section>
 
-            {showCheckoutPlaceholder ? (
+            <ProcurementHandoffPanel
+              scopeLabel="part"
+              value={handoffState}
+              onChange={setHandoffState}
+            />
+
+            {showHandoffSummary ? (
               <section className="rounded-[26px] border border-white/8 bg-[#262626] p-6">
-                <p className="text-sm text-white/70">
-                  Checkout backend wiring is not available in this workspace yet. This handoff is reserved for payment, PO, and final order placement.
+                <p className="text-xs uppercase tracking-[0.18em] text-white/35">Release check</p>
+                <h2 className="mt-2 text-xl font-semibold text-white">
+                  {handoffSummary.ready ? "Ready for OverDrafter follow-up" : "More procurement detail is still needed"}
+                </h2>
+                <p className="mt-3 text-sm text-white/70">
+                  This route packages the selected quote with procurement handoff details. No payment is collected and no order is placed here.
                 </p>
+                {handoffSummary.missingFields.length > 0 ? (
+                  <p className="mt-4 text-sm text-amber-100">
+                    Missing: {handoffSummary.missingFields.join(", ")}.
+                  </p>
+                ) : (
+                  <p className="mt-4 text-sm text-emerald-100">
+                    Shipping, billing, and contact details are ready for manual release coordination.
+                  </p>
+                )}
               </section>
             ) : null}
           </>

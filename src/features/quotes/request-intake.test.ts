@@ -17,6 +17,9 @@ describe("request intake parsing", () => {
     vi.setSystemTime(new Date("2026-03-07T10:00:00-07:00"));
 
     expect(parseRequestIntake("I need 10 of these by April 15")).toEqual({
+      requestedServiceKinds: ["manufacturing_quote"],
+      primaryServiceKind: "manufacturing_quote",
+      serviceNotes: null,
       requestedQuoteQuantities: [10],
       requestedByDate: "2026-04-15",
     });
@@ -27,6 +30,9 @@ describe("request intake parsing", () => {
     vi.setSystemTime(new Date("2026-03-07T10:00:00-07:00"));
 
     expect(parseRequestIntake("Please quote 1/10/100 by next Friday")).toEqual({
+      requestedServiceKinds: ["manufacturing_quote"],
+      primaryServiceKind: "manufacturing_quote",
+      serviceNotes: null,
       requestedQuoteQuantities: [1, 10, 100],
       requestedByDate: "2026-03-13",
     });
@@ -37,6 +43,9 @@ describe("request intake parsing", () => {
     vi.setSystemTime(new Date("2026-03-07T10:00:00-07:00"));
 
     expect(parseRequestIntake("need by 4/15")).toEqual({
+      requestedServiceKinds: ["manufacturing_quote"],
+      primaryServiceKind: "manufacturing_quote",
+      serviceNotes: null,
       requestedQuoteQuantities: [],
       requestedByDate: "2026-04-15",
     });
@@ -47,7 +56,20 @@ describe("request intake parsing", () => {
     vi.setSystemTime(new Date("2026-03-07T10:00:00-07:00"));
 
     expect(parseRequestIntake("PN 1093-00001 rev A. Quote 10/25/25 ASAP")).toEqual({
+      requestedServiceKinds: ["manufacturing_quote"],
+      primaryServiceKind: "manufacturing_quote",
+      serviceNotes: null,
       requestedQuoteQuantities: [10, 25],
+      requestedByDate: null,
+    });
+  });
+
+  it("captures mixed-service prompts without forcing a quote-only default", () => {
+    expect(parseRequestIntake("Need DFM review, drawing redraft, and a quote for this bracket")).toEqual({
+      requestedServiceKinds: ["dfm_review", "drawing_redraft", "manufacturing_quote"],
+      primaryServiceKind: "dfm_review",
+      serviceNotes: null,
+      requestedQuoteQuantities: [],
       requestedByDate: null,
     });
   });

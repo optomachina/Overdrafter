@@ -3,16 +3,25 @@ import { useQuery } from "@tanstack/react-query";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { Loader2, MoveLeft, MoveRight } from "lucide-react";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
+import { ProcurementHandoffPanel } from "@/components/quotes/ProcurementHandoffPanel";
+import { ClientWorkspaceStateSummary, ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  fetchAccessibleJobs,
   fetchClientQuoteWorkspaceByJobIds,
   fetchJobsByProject,
   fetchProject,
 } from "@/features/quotes/api";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import {
+  buildClientWorkspaceState,
+  summarizeClientWorkspaceStates,
+} from "@/features/quotes/client-workspace-state";
+import {
+  createDefaultProcurementHandoffState,
+  summarizeProcurementHandoff,
+} from "@/features/quotes/procurement-handoff";
 import {
   buildClientQuoteSelectionOptions,
   buildVendorLabelMap,
@@ -26,13 +35,8 @@ const ClientProjectReview = () => {
   const { projectId = "" } = useParams();
   const navigate = useNavigate();
   const { user } = useAppSession();
-  const [showCheckoutPlaceholder, setShowCheckoutPlaceholder] = useState(false);
-
-  const accessibleJobsQuery = useQuery({
-    queryKey: ["review-accessible-jobs"],
-    queryFn: fetchAccessibleJobs,
-    enabled: Boolean(user),
-  });
+  const [handoffState, setHandoffState] = useState(createDefaultProcurementHandoffState);
+  const [showHandoffSummary, setShowHandoffSummary] = useState(false);
   const projectQuery = useQuery({
     queryKey: ["review-project", projectId],
     queryFn: () => fetchProject(projectId),
@@ -71,6 +75,15 @@ const ClientProjectReview = () => {
       return {
         item,
         selectedOption,
+        workspaceState: buildClientWorkspaceState({
+          job: item.job,
+          summary: item.summary,
+          part: item.part,
+          options,
+          selectedOption,
+          requestedByDate: item.summary?.requestedByDate ?? item.job.requested_by_date ?? null,
+          requireSelection: true,
+        }),
       };
     });
   }, [workspaceQuery.data]);
@@ -79,6 +92,11 @@ const ClientProjectReview = () => {
     () => summarizeSelectedQuoteOptions(selectedLineItems.map((lineItem) => lineItem.selectedOption)),
     [selectedLineItems],
   );
+  const workspaceStateSummary = useMemo(
+    () => summarizeClientWorkspaceStates(selectedLineItems.map((lineItem) => lineItem.workspaceState)),
+    [selectedLineItems],
+  );
+  const handoffSummary = useMemo(() => summarizeProcurementHandoff(handoffState), [handoffState]);
 
   if (!user) {
     return <Navigate to="/?auth=signin" replace />;
@@ -103,7 +121,7 @@ const ClientProjectReview = () => {
                   {projectQuery.data?.name ?? "Project"}
                 </h1>
                 <p className="mt-2 text-sm text-white/55">
-                  Final review of selected vendors, delivery timing, and project totals before checkout.
+                  Final review of selected vendors, delivery timing, project totals, and procurement handoff details before OverDrafter follow-up.
                 </p>
               </div>
 
@@ -117,8 +135,8 @@ const ClientProjectReview = () => {
                   <MoveLeft className="mr-2 h-4 w-4" />
                   Back to edit
                 </Button>
-                <Button type="button" className="rounded-full" onClick={() => setShowCheckoutPlaceholder(true)}>
-                  Continue
+                <Button type="button" className="rounded-full" onClick={() => setShowHandoffSummary(true)}>
+                  Review handoff
                   <MoveRight className="ml-2 h-4 w-4" />
                 </Button>
               </div>
@@ -145,10 +163,25 @@ const ClientProjectReview = () => {
               </div>
             </section>
 
+            <section className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-[22px] border border-emerald-400/20 bg-emerald-500/8 px-4 py-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Ready</p>
+                <p className="mt-2 text-2xl font-semibold text-white">{workspaceStateSummary.ready}</p>
+              </div>
+              <div className="rounded-[22px] border border-amber-400/20 bg-amber-500/8 px-4 py-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Warning</p>
+                <p className="mt-2 text-2xl font-semibold text-white">{workspaceStateSummary.warning}</p>
+              </div>
+              <div className="rounded-[22px] border border-rose-400/20 bg-rose-500/8 px-4 py-4">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Blocked</p>
+                <p className="mt-2 text-2xl font-semibold text-white">{workspaceStateSummary.blocked}</p>
+              </div>
+            </section>
+
             <section className="rounded-[26px] border border-white/8 bg-[#262626] p-6">
               <p className="text-xs uppercase tracking-[0.18em] text-white/35">Line items</p>
               <div className="mt-4 space-y-3">
-                {selectedLineItems.map(({ item, selectedOption }) => {
+                {selectedLineItems.map(({ item, selectedOption, workspaceState }) => {
                   const presentation = getClientItemPresentation(item.job, item.summary);
 
                   return (
@@ -157,11 +190,19 @@ const ClientProjectReview = () => {
                         <div>
                           <p className="text-sm font-semibold text-white">{presentation.title}</p>
                           <RequestSummaryBadges
+                            requestedServiceKinds={item.summary?.requestedServiceKinds ?? []}
                             quantity={item.summary?.quantity ?? item.part?.quantity ?? null}
                             requestedQuoteQuantities={item.summary?.requestedQuoteQuantities ?? []}
                             requestedByDate={item.summary?.requestedByDate ?? null}
                             className="mt-3"
                           />
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <ClientWorkspaceToneBadge
+                              tone={workspaceState.tone}
+                              className="tracking-normal normal-case"
+                            />
+                            <p className="text-xs text-white/55">{workspaceState.selection.label}</p>
+                          </div>
                         </div>
                         {selectedOption ? (
                           <div className="text-left lg:text-right">
@@ -184,24 +225,41 @@ const ClientProjectReview = () => {
                           <p className="text-sm text-white/45">No quote selected.</p>
                         )}
                       </div>
+                      <ClientWorkspaceStateSummary
+                        state={workspaceState}
+                        className="mt-4"
+                        maxReasons={2}
+                      />
                     </div>
                   );
                 })}
               </div>
             </section>
 
-            <section className="rounded-[26px] border border-white/8 bg-[#262626] p-6">
-              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Shipping / payment / PO</p>
-              <p className="mt-4 text-sm text-white/70">
-                Placeholder surface for shipping method, billing, and purchase-order collection until checkout services are wired.
-              </p>
-            </section>
+            <ProcurementHandoffPanel
+              scopeLabel="project"
+              value={handoffState}
+              onChange={setHandoffState}
+            />
 
-            {showCheckoutPlaceholder ? (
+            {showHandoffSummary ? (
               <section className="rounded-[26px] border border-white/8 bg-[#262626] p-6">
-                <p className="text-sm text-white/70">
-                  Checkout backend wiring is not available in this workspace yet. This route preserves the review step and future payment / PO handoff.
+                <p className="text-xs uppercase tracking-[0.18em] text-white/35">Release check</p>
+                <h2 className="mt-2 text-xl font-semibold text-white">
+                  {handoffSummary.ready ? "Ready for OverDrafter follow-up" : "More procurement detail is still needed"}
+                </h2>
+                <p className="mt-3 text-sm text-white/70">
+                  This route prepares a project-level procurement handoff only. Payment collection and order placement remain outside the app.
                 </p>
+                {handoffSummary.missingFields.length > 0 ? (
+                  <p className="mt-4 text-sm text-amber-100">
+                    Missing: {handoffSummary.missingFields.join(", ")}.
+                  </p>
+                ) : (
+                  <p className="mt-4 text-sm text-emerald-100">
+                    Shipping, billing, and contact details are ready for manual project release coordination.
+                  </p>
+                )}
               </section>
             ) : null}
           </>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
+import { buildActivityLogEntries, groupClientActivityEventsByJobId } from "@/features/quotes/activity-log";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAppSession } from "@/hooks/use-app-session";
 import {
@@ -13,6 +14,7 @@ import {
   createProject,
   deleteArchivedJob,
   dissolveProject,
+  fetchClientActivityEventsByJobIds,
   fetchClientQuoteWorkspaceByJobIds,
   fetchJobsByProject,
   fetchProject,
@@ -53,6 +55,7 @@ import {
   parseRequestIntake,
   parseRequestedQuoteQuantitiesInput,
 } from "@/features/quotes/request-intake";
+import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadata";
 import { getSharedRequestMetadata } from "@/features/quotes/request-scenarios";
 import {
   applyBulkPresetSelection,
@@ -188,9 +191,19 @@ export function useClientProjectController() {
     enabled: Boolean(user) && projectJobIds.length > 0,
     ...workspaceDetailQueryOptions,
   });
+  const projectActivityQuery = useQuery({
+    queryKey: workspaceQueryKeys.clientActivity(projectJobIds),
+    queryFn: () => fetchClientActivityEventsByJobIds(projectJobIds),
+    enabled: Boolean(user) && projectJobIds.length > 0,
+    ...workspaceDetailQueryOptions,
+  });
   const workspaceItemsByJobId = useMemo(
     () => new Map((projectWorkspaceItemsQuery.data ?? []).map((item) => [item.job.id, item])),
     [projectWorkspaceItemsQuery.data],
+  );
+  const activityEventsByJobId = useMemo(
+    () => groupClientActivityEventsByJobId(projectActivityQuery.data ?? []),
+    [projectActivityQuery.data],
   );
   const currentSelectedOfferIdsByJobId = useMemo(
     () =>
@@ -279,42 +292,12 @@ export function useClientProjectController() {
   const focusedDraft = focusedJob ? requestDraftsByJobId[focusedJob.id] ?? null : null;
   const focusedQuoteQuantityInput = focusedJob ? quoteQuantityInputsByJobId[focusedJob.id] ?? "" : "";
   const focusedActivityEntries = useMemo<ActivityLogEntry[]>(() => {
-    if (!focusedWorkspaceItem) {
+    if (!focusedJob) {
       return [];
     }
 
-    return [
-      {
-        id: "parsing",
-        label: "Parsing drawing notes",
-        detail: focusedWorkspaceItem.part?.drawingFile
-          ? `Drawing ${focusedWorkspaceItem.part.drawingFile.original_name} attached for ${focusedWorkspaceItem.job.title}.`
-          : "No drawing PDF is attached to this line item.",
-        tone: focusedWorkspaceItem.part?.drawingFile ? "active" : "attention",
-      },
-      {
-        id: "matching",
-        label: "Matching vendor options",
-        detail:
-          focusedQuoteOptions.length > 0
-            ? `${focusedQuoteOptions.length} quote option${
-                focusedQuoteOptions.length === 1 ? "" : "s"
-              } available for review.`
-            : "No quote options available for this line item yet.",
-        tone: focusedQuoteOptions.length > 0 ? "active" : "attention",
-      },
-      {
-        id: "selection",
-        label: "Ranking cheapest eligible quotes",
-        detail: focusedSelectedOption
-          ? `${focusedSelectedOption.vendorLabel} selected at ${formatCurrency(
-              focusedSelectedOption.totalPriceUsd,
-            )} total.`
-          : "No quote has been selected for this line item.",
-        tone: focusedSelectedOption ? "active" : "attention",
-      },
-    ];
-  }, [focusedQuoteOptions.length, focusedSelectedOption, focusedWorkspaceItem]);
+    return buildActivityLogEntries(activityEventsByJobId.get(focusedJob.id) ?? []);
+  }, [activityEventsByJobId, focusedJob]);
 
   const newJobFilePicker = useClientJobFilePicker({
     isSignedIn: Boolean(user),
@@ -503,24 +486,14 @@ export function useClientProjectController() {
         }
 
         const requirement = buildRequirementDraft(item.part, {
+          requested_service_kinds: item.job.requested_service_kinds ?? [],
+          primary_service_kind: item.job.primary_service_kind ?? null,
+          service_notes: item.job.service_notes ?? null,
           requested_quote_quantities: item.job.requested_quote_quantities ?? [],
           requested_by_date: item.job.requested_by_date ?? null,
         });
 
-        next[item.job.id] = {
-          jobId: item.job.id,
-          description: requirement.description ?? null,
-          partNumber: requirement.partNumber ?? null,
-          revision: requirement.revision ?? null,
-          material: requirement.material,
-          finish: requirement.finish ?? null,
-          tightestToleranceInch: requirement.tightestToleranceInch ?? null,
-          process: requirement.process ?? null,
-          notes: requirement.notes ?? null,
-          quantity: requirement.quantity,
-          requestedQuoteQuantities: requirement.quoteQuantities,
-          requestedByDate: requirement.requestedByDate ?? null,
-        };
+        next[item.job.id] = buildClientPartRequestUpdateInput(item.job.id, requirement);
       });
 
       return next;
@@ -535,6 +508,9 @@ export function useClientProjectController() {
         }
 
         const requirement = buildRequirementDraft(item.part, {
+          requested_service_kinds: item.job.requested_service_kinds ?? [],
+          primary_service_kind: item.job.primary_service_kind ?? null,
+          service_notes: item.job.service_notes ?? null,
           requested_quote_quantities: item.job.requested_quote_quantities ?? [],
           requested_by_date: item.job.requested_by_date ?? null,
         });
@@ -950,6 +926,9 @@ export function useClientProjectController() {
                   title: input.prompt.trim().split("\n")[0].slice(0, 120) || "Untitled part",
                   description: input.prompt.trim() || undefined,
                   projectId,
+                  requestedServiceKinds: requestIntake.requestedServiceKinds,
+                  primaryServiceKind: requestIntake.primaryServiceKind,
+                  serviceNotes: requestIntake.serviceNotes,
                   requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
                   requestedByDate: requestIntake.requestedByDate,
                 });
@@ -1059,6 +1038,7 @@ export function useClientProjectController() {
     resolveSidebarProjectIdsForJob,
     search,
     saveRequestMutation,
+    optionsByJobId,
     selectedOptionsByJobId,
     setActiveFilter,
     setIsSearchOpen,

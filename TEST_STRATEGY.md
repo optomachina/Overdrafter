@@ -1,6 +1,6 @@
 # OverDrafter Test Strategy
 
-Last updated: March 11, 2026
+Last updated: March 13, 2026
 
 ## Purpose
 
@@ -52,7 +52,20 @@ This document defines how OverDrafter should be verified locally, in CI, and dur
 - worker verification is included in the root `verify` command
 - migration validation if affected
 
+## Debugging lane selection
+
+Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick the fastest lane that still exercises the behavior under test:
+
+- production-realistic lane for auth, RLS, memberships, routing, and real Supabase-backed behavior
+- fast E2E lane for repeatable browser regressions, smoke coverage, and saved-session flows
+- UI tuning lane for deterministic client workspace states that do not need live Supabase data
+
 ## Change-type expectations
+
+### Docs-only or repo-workflow documentation changes
+- verify that referenced commands, paths, branch rules, issue states, and skill names still match the repo
+- rerun `./scripts/symphony-preflight.sh`
+- run broader app or worker verification only when the change also updates scripts, commands, or behavior
 
 ### Cosmetic or copy-only changes
 - lint
@@ -78,6 +91,15 @@ This document defines how OverDrafter should be verified locally, in CI, and dur
 - run tests touching the affected data flow
 - include migration notes in the PR
 
+## Verification evidence
+
+Before handoff, PR creation, or a Linear workpad update, record:
+
+- the exact commands run
+- the outcome of each command
+- any unrelated baseline failures separately from issue-scoped failures
+- why a narrower verification lane was sufficient when `npm run verify` was not used
+
 ## CI policy
 Minimum CI target:
 - lint
@@ -85,6 +107,9 @@ Minimum CI target:
 - automated tests
 - build
 - worker verification when the worker package remains part of the repo gate
+- install dependencies for both the repo root and `worker/`
+- use canonical package scripts so CI remains aligned with local verification
+- keep the root `verify` command covering the full repo gate for local release-confidence checks
 
 Preferred CI shape:
 - run lint, typecheck, tests, build, and worker verification in separate parallel jobs

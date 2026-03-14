@@ -39,10 +39,16 @@
   - qty
   - quote quantities
   - due date
+  - packaging notes
+  - shipping notes
+  - certification requirements
+  - sourcing preferences
+  - release status
 - Save path:
   - client page calls `updateClientPartRequest(...)`
   - backend persists through `api_update_client_part_request`
 - Revised files still attach to the same job/line item via the existing upload and reconcile flow.
+- The editor now exposes the approved client-safe subset of the broader RFQ model defined in [docs/rfq-metadata-model.md](./rfq-metadata-model.md). Internal-only release review fields still stay on internal surfaces and are stripped from client fetches.
 
 ## Empty States
 - No quotes yet
@@ -52,4 +58,5 @@
 
 ## Extension Points
 - Quote list rows already surface domestic/foreign state, expedite hints, and exclusion toggles.
-- Detail form keeps `process` and `notes` in `spec_snapshot`, leaving room for later DFM and compliance fields.
+- Detail form now stores client-safe RFQ metadata sections in `spec_snapshot`, leaving internal-only release review controls on the estimator path.
+- Future manufacturing review UI should stay on internal-only surfaces and consume derived service-line-item review state such as DFM/DFA summaries, blocker rollups, and engineering checkpoints instead of extending the client-safe request editor with review-only fields.

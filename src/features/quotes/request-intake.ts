@@ -1,4 +1,10 @@
 import { addDays, addWeeks, format, isBefore, parse, startOfDay } from "date-fns";
+import {
+  DEFAULT_REQUESTED_SERVICE_KIND,
+  normalizeRequestedServiceIntent,
+  type RequestedServiceIntent,
+  type RequestedServiceKind,
+} from "@/features/quotes/service-intent";
 
 const MONTH_NAME_PATTERN =
   "(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
@@ -39,6 +45,9 @@ const WEEKDAY_BY_NAME: Record<string, number> = {
 };
 
 export type ParsedRequestIntake = {
+  requestedServiceKinds: string[];
+  primaryServiceKind: string | null;
+  serviceNotes: string | null;
   requestedQuoteQuantities: number[];
   requestedByDate: string | null;
 };
@@ -48,6 +57,78 @@ type DateMatch = {
   start: number;
   end: number;
 };
+
+type ServiceKeywordRule = {
+  serviceKind: Exclude<RequestedServiceKind, "manufacturing_quote">;
+  patterns: RegExp[];
+};
+
+const QUOTE_SERVICE_PATTERNS = [
+  /\b(?:rfq|quote|quotes|quoted|pricing|price\s+quote)\b/i,
+  /\b(?:machine|machining|manufacture|manufacturing)\b/i,
+];
+
+const SERVICE_KEYWORD_RULES: ServiceKeywordRule[] = [
+  {
+    serviceKind: "cad_modeling",
+    patterns: [
+      /\bcad\s+(?:model|modeling|modelling|remodel(?:ing)?|rebuild)\b/i,
+      /\b(?:3d|three[-\s]?dimensional)\s+model(?:ing)?\b/i,
+      /\bmodel\s+this\s+(?:part|component)\b/i,
+    ],
+  },
+  {
+    serviceKind: "drawing_redraft",
+    patterns: [
+      /\bdrawing\s+(?:redraft|redraw|cleanup|clean[-\s]?up|reissue)\b/i,
+      /\bredraft\b/i,
+      /\b(?:release\s+package|manufacturing\s+drawing)\b/i,
+    ],
+  },
+  {
+    serviceKind: "fea_analysis",
+    patterns: [
+      /\bfea\b/i,
+      /\bfinite\s+element\b/i,
+      /\bstress\s+analysis\b/i,
+      /\bsimulation\b/i,
+    ],
+  },
+  {
+    serviceKind: "dfm_review",
+    patterns: [
+      /\bdfm\b/i,
+      /\bdesign\s+for\s+manufactur(?:e|ability)\b/i,
+      /\bmanufacturability\s+review\b/i,
+    ],
+  },
+  {
+    serviceKind: "dfa_review",
+    patterns: [
+      /\bdfa\b/i,
+      /\bdesign\s+for\s+assembly\b/i,
+      /\bassembly\s+review\b/i,
+    ],
+  },
+  {
+    serviceKind: "assembly_support",
+    patterns: [
+      /\bassembly\s+support\b/i,
+      /\bbom\b/i,
+      /\bfit(?:[-\s]?up)?\b/i,
+      /\bsequence\s+review\b/i,
+    ],
+  },
+  {
+    serviceKind: "sourcing_only",
+    patterns: [
+      /\bsourcing\s+only\b/i,
+      /\bsource\s+only\b/i,
+      /\bprocurement\s+support\b/i,
+      /\bsupplier\s+sourcing\b/i,
+    ],
+  },
+];
 
 function replaceRangeWithSpaces(value: string, start: number, end: number) {
   return `${value.slice(0, start)}${" ".repeat(Math.max(0, end - start))}${value.slice(end)}`;
@@ -238,6 +319,41 @@ function collectQuantityCandidates(value: string): number[] {
   return matches;
 }
 
+function parseServiceIntent(prompt: string): RequestedServiceIntent {
+  const trimmedPrompt = prompt.trim();
+
+  if (!trimmedPrompt) {
+    return normalizeRequestedServiceIntent({
+      requestedServiceKinds: [DEFAULT_REQUESTED_SERVICE_KIND],
+      primaryServiceKind: DEFAULT_REQUESTED_SERVICE_KIND,
+    });
+  }
+
+  const detectedServices = SERVICE_KEYWORD_RULES.flatMap((rule) => {
+    const positions = rule.patterns
+      .map((pattern) => trimmedPrompt.search(pattern))
+      .filter((position) => position >= 0);
+
+    if (positions.length === 0) {
+      return [];
+    }
+
+    return [{ serviceKind: rule.serviceKind, position: Math.min(...positions) }];
+  }).sort((left, right) => left.position - right.position);
+
+  const requestedServiceKinds: RequestedServiceKind[] = detectedServices.map((service) => service.serviceKind);
+  const hasQuoteSignal = QUOTE_SERVICE_PATTERNS.some((pattern) => pattern.test(trimmedPrompt));
+
+  if (hasQuoteSignal || requestedServiceKinds.length === 0) {
+    requestedServiceKinds.push(DEFAULT_REQUESTED_SERVICE_KIND);
+  }
+
+  return normalizeRequestedServiceIntent({
+    requestedServiceKinds,
+    primaryServiceKind: detectedServices[0]?.serviceKind ?? DEFAULT_REQUESTED_SERVICE_KIND,
+  });
+}
+
 export function normalizeRequestedQuoteQuantities(
   values: readonly unknown[] | null | undefined,
   fallbackQuantity?: number | null,
@@ -304,6 +420,9 @@ export function parseRequestIntake(prompt: string, now = new Date()): ParsedRequ
 
   if (!trimmedPrompt) {
     return {
+      requestedServiceKinds: [DEFAULT_REQUESTED_SERVICE_KIND],
+      primaryServiceKind: DEFAULT_REQUESTED_SERVICE_KIND,
+      serviceNotes: null,
       requestedQuoteQuantities: [],
       requestedByDate: null,
     };
@@ -313,8 +432,10 @@ export function parseRequestIntake(prompt: string, now = new Date()): ParsedRequ
   const quantitySource = dateMatch
     ? replaceRangeWithSpaces(trimmedPrompt, dateMatch.start, dateMatch.end)
     : trimmedPrompt;
+  const serviceIntent = parseServiceIntent(trimmedPrompt);
 
   return {
+    ...serviceIntent,
     requestedQuoteQuantities: normalizeRequestedQuoteQuantities(collectQuantityCandidates(quantitySource)),
     requestedByDate: dateMatch?.requestedByDate ?? null,
   };

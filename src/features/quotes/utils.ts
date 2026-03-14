@@ -14,7 +14,13 @@ import type {
   QuoteRunAggregate,
 } from "@/features/quotes/types";
 import type { ClientOptionKind, Json, VendorName } from "@/integrations/supabase/types";
+import { readRfqLineItemExtendedMetadata } from "@/features/quotes/rfq-metadata";
 import { normalizeRequestedQuoteQuantities } from "@/features/quotes/request-intake";
+import {
+  normalizeRequestedServiceIntent,
+  requestedServicesRequireMaterial,
+  requestedServicesSupportQuoteFields,
+} from "@/features/quotes/service-intent";
 
 export const DEFAULT_APPLICABLE_VENDORS: VendorName[] = [
   "xometry",
@@ -83,6 +89,16 @@ function readSpecSnapshotString(
 ): string | null {
   const value = asObject(specSnapshot)[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readSpecSnapshotStringArray(
+  specSnapshot: Json | null | undefined,
+  key: string,
+): string[] {
+  const value = asObject(specSnapshot)[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
 }
 
 function asArray<T>(value: unknown): T[] {
@@ -186,12 +202,30 @@ export function buildRequirementDraft(
   jobRequest?: {
     requested_quote_quantities: number[];
     requested_by_date: string | null;
+    requested_service_kinds?: string[] | null;
+    primary_service_kind?: string | null;
+    service_notes?: string | null;
   } | null,
 ): ApprovedPartRequirement {
   const normalizedExtraction = normalizeDrawingExtraction(part.extraction, part.id);
   const approved = part.approvedRequirement;
+  const serviceIntent = normalizeRequestedServiceIntent({
+    requestedServiceKinds: readSpecSnapshotStringArray(approved?.spec_snapshot, "requestedServiceKinds")
+      .concat(jobRequest?.requested_service_kinds ?? []),
+    primaryServiceKind:
+      readSpecSnapshotString(approved?.spec_snapshot, "primaryServiceKind") ??
+      jobRequest?.primary_service_kind ??
+      null,
+    serviceNotes:
+      readSpecSnapshotString(approved?.spec_snapshot, "serviceNotes") ??
+      jobRequest?.service_notes ??
+      null,
+  });
   const process = readSpecSnapshotString(approved?.spec_snapshot, "process");
   const notes = readSpecSnapshotString(approved?.spec_snapshot, "notes");
+  const metadata = readRfqLineItemExtendedMetadata(approved?.spec_snapshot);
+  const showQuoteFields = requestedServicesSupportQuoteFields(serviceIntent.requestedServiceKinds);
+  const materialRequired = requestedServicesRequireMaterial(serviceIntent.requestedServiceKinds);
   const quantity = approved?.quantity ?? part.quantity ?? jobRequest?.requested_quote_quantities?.[0] ?? 1;
   const quoteQuantities = normalizeRequestedQuoteQuantities(
     approved?.quote_quantities ?? jobRequest?.requested_quote_quantities ?? [],
@@ -200,6 +234,9 @@ export function buildRequirementDraft(
 
   return {
     partId: part.id,
+    requestedServiceKinds: serviceIntent.requestedServiceKinds,
+    primaryServiceKind: serviceIntent.primaryServiceKind,
+    serviceNotes: serviceIntent.serviceNotes,
     description: approved?.description ?? normalizedExtraction.description,
     partNumber: approved?.part_number ?? normalizedExtraction.partNumber,
     revision: approved?.revision ?? normalizedExtraction.revision,
@@ -207,7 +244,7 @@ export function buildRequirementDraft(
       approved?.material ??
       normalizedExtraction.material.normalized ??
       normalizedExtraction.material.raw ??
-      "Unknown material",
+      (materialRequired ? "Unknown material" : ""),
     finish:
       approved?.finish ??
       normalizedExtraction.finish.normalized ??
@@ -220,6 +257,10 @@ export function buildRequirementDraft(
     quantity,
     quoteQuantities,
     requestedByDate: approved?.requested_by_date ?? jobRequest?.requested_by_date ?? null,
+    shipping: metadata.shipping,
+    certifications: metadata.certifications,
+    sourcing: metadata.sourcing,
+    release: metadata.release,
     applicableVendors:
       approved?.applicable_vendors?.length
         ? approved.applicable_vendors

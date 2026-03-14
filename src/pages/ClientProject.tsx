@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   Archive,
   FolderPlus,
@@ -24,9 +25,11 @@ import {
   ClientCadPreviewPanel,
   ClientDrawingPreviewPanel,
 } from "@/components/quotes/ClientQuoteAssetPanels";
+import { ClientWorkspaceStateSummary, ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import {
   Dialog,
   DialogContent,
@@ -56,6 +59,11 @@ import {
   useClientProjectController,
 } from "@/features/quotes/use-client-project-controller";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import {
+  buildClientWorkspaceState,
+  getClientQuoteOptionStateReasons,
+  summarizeClientWorkspaceStates,
+} from "@/features/quotes/client-workspace-state";
 import { parseRequestedQuoteQuantitiesInput } from "@/features/quotes/request-intake";
 import { formatCurrency, formatLeadTime, formatStatusLabel } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
@@ -129,6 +137,7 @@ const ClientProject = () => {
     resolveSidebarProjectIdsForJob,
     search,
     saveRequestMutation,
+    optionsByJobId,
     selectedOptionsByJobId,
     setActiveFilter,
     setIsSearchOpen,
@@ -154,6 +163,46 @@ const ClientProject = () => {
     user,
     workspaceItemsByJobId,
   } = useClientProjectController();
+  const notificationCenter = useWorkspaceNotifications({
+    jobIds: (accessibleJobsQuery.data ?? []).map((job) => job.id),
+    role: activeMembership?.role,
+    userId: user?.id,
+  });
+
+  const workspaceStatesByJobId = useMemo(
+    () =>
+      new Map(
+        projectJobs.map((job) => {
+          const workspaceItem = workspaceItemsByJobId.get(job.id) ?? null;
+          const summary = workspaceItem?.summary ?? summariesByJobId.get(job.id) ?? null;
+          const requestDraft = requestDraftsByJobId[job.id] ?? null;
+          const requestedByDate =
+            requestDraft?.requestedByDate ??
+            summary?.requestedByDate ??
+            workspaceItem?.job.requested_by_date ??
+            job.requested_by_date ??
+            null;
+
+          return [
+            job.id,
+            buildClientWorkspaceState({
+              job,
+              summary,
+              part: workspaceItem?.part ?? null,
+              options: optionsByJobId[job.id] ?? [],
+              selectedOption: selectedOptionsByJobId[job.id] ?? null,
+              requestedByDate,
+            }),
+          ] as const;
+        }),
+      ),
+    [optionsByJobId, projectJobs, requestDraftsByJobId, selectedOptionsByJobId, summariesByJobId, workspaceItemsByJobId],
+  );
+  const projectStateSummary = useMemo(
+    () => summarizeClientWorkspaceStates(Array.from(workspaceStatesByJobId.values())),
+    [workspaceStatesByJobId],
+  );
+  const focusedWorkspaceState = focusedJob ? workspaceStatesByJobId.get(focusedJob.id) ?? null : null;
 
   const renderDetailDrawer = () => {
     if (!focusedJob || !focusedWorkspaceItem) {
@@ -183,6 +232,9 @@ const ClientProject = () => {
             ) : null}
           </div>
           <RequestSummaryBadges
+            requestedServiceKinds={
+              focusedDraft?.requestedServiceKinds ?? focusedSummary?.requestedServiceKinds ?? []
+            }
             quantity={focusedDraft?.quantity ?? focusedSummary?.quantity ?? null}
             requestedQuoteQuantities={parseRequestedQuoteQuantitiesInput(
               focusedQuoteQuantityInput,
@@ -192,6 +244,8 @@ const ClientProject = () => {
             className="mt-4"
           />
         </div>
+
+        {focusedWorkspaceState ? <ClientWorkspaceStateSummary state={focusedWorkspaceState} /> : null}
 
         <ClientDrawingPreviewPanel
           drawingFile={focusedWorkspaceItem.part?.drawingFile ?? null}
@@ -227,6 +281,30 @@ const ClientProject = () => {
                         Qty {option.requestedQuantity} ·{" "}
                         {option.resolvedDeliveryDate ?? formatLeadTime(option.leadTimeBusinessDays)}
                       </p>
+                      {(() => {
+                        const optionReasons = getClientQuoteOptionStateReasons({
+                          option,
+                          requestedByDate:
+                            focusedDraft?.requestedByDate ?? focusedSummary?.requestedByDate ?? null,
+                        });
+
+                        if (optionReasons.length === 0) {
+                          return null;
+                        }
+
+                        return (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {optionReasons.map((reason) => (
+                              <ClientWorkspaceToneBadge
+                                key={`${option.key}:${reason.id}`}
+                                tone={reason.tone}
+                                label={reason.label}
+                                className="tracking-normal normal-case"
+                              />
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-semibold text-white">
@@ -329,6 +407,7 @@ const ClientProject = () => {
           <WorkspaceAccountMenu
             user={user}
             activeMembership={activeMembership}
+            notificationCenter={notificationCenter}
             onSignOut={signOut}
             onSignedOut={() => navigate("/", { replace: true })}
             archivedProjects={archivedProjectsQuery.data}
@@ -351,6 +430,7 @@ const ClientProject = () => {
               </p>
               {sharedRequestSummary ? (
                 <RequestSummaryBadges
+                  requestedServiceKinds={sharedRequestSummary.requestedServiceKinds}
                   quantity={sharedRequestSummary.requestedQuoteQuantities[0] ?? null}
                   requestedQuoteQuantities={sharedRequestSummary.requestedQuoteQuantities}
                   requestedByDate={sharedRequestSummary.requestedByDate}
@@ -478,6 +558,21 @@ const ClientProject = () => {
             </div>
           </div>
 
+          <section className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-[22px] border border-emerald-400/20 bg-emerald-500/8 px-4 py-4">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Ready</p>
+              <p className="mt-2 text-2xl font-semibold text-white">{projectStateSummary.ready}</p>
+            </div>
+            <div className="rounded-[22px] border border-amber-400/20 bg-amber-500/8 px-4 py-4">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Warning</p>
+              <p className="mt-2 text-2xl font-semibold text-white">{projectStateSummary.warning}</p>
+            </div>
+            <div className="rounded-[22px] border border-rose-400/20 bg-rose-500/8 px-4 py-4">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Blocked</p>
+              <p className="mt-2 text-2xl font-semibold text-white">{projectStateSummary.blocked}</p>
+            </div>
+          </section>
+
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
             <div className="space-y-4">
               <div className="flex flex-col gap-3 rounded-[26px] border border-white/8 bg-[#262626] p-4">
@@ -542,6 +637,7 @@ const ClientProject = () => {
                           const summary = workspaceItem?.summary ?? summariesByJobId.get(job.id) ?? null;
                           const draft = requestDraftsByJobId[job.id] ?? null;
                           const selectedOption = selectedOptionsByJobId[job.id] ?? null;
+                          const workspaceState = workspaceStatesByJobId.get(job.id) ?? null;
                           const presentation = getClientItemPresentation(job, summary);
                           const sourceIcon =
                             selectedOption?.domesticStatus === "domestic" ? (
@@ -608,9 +704,24 @@ const ClientProject = () => {
                                   : "—"}
                               </TableCell>
                               <TableCell>
-                                <Badge className="border border-white/10 bg-white/6 text-white/70">
-                                  {formatStatusLabel(job.status)}
-                                </Badge>
+                                {workspaceState ? (
+                                  <div className="space-y-2">
+                                    <ClientWorkspaceToneBadge
+                                      tone={workspaceState.tone}
+                                      className="tracking-normal normal-case"
+                                    />
+                                    <p className="text-xs text-white/55">
+                                      {workspaceState.selection.label}
+                                    </p>
+                                    <p className="text-xs text-white/35">
+                                      {workspaceState.reasons[0]?.label ?? formatStatusLabel(job.status)}
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <Badge className="border border-white/10 bg-white/6 text-white/70">
+                                    {formatStatusLabel(job.status)}
+                                  </Badge>
+                                )}
                               </TableCell>
                             </TableRow>
                           );

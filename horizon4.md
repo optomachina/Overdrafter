@@ -44,6 +44,11 @@ Allow users to review, monitor, approve, and coordinate work across browser, des
 - browser permission flow
 - notification center UI
 - seen/unseen state
+- first web target: the `Notifications` panel inside the existing workspace account menu
+- first preference model: per-notification-type `in_app` and `browser` toggles
+- temporary continuity rule: seen state may live in browser-local storage until durable notification records exist
+
+The cross-surface notification taxonomy for browser, center, desktop, and mobile reuse now lives in `docs/notification-taxonomy.md`.
 
 ### Epic: desktop shell
 - package the web experience for desktop

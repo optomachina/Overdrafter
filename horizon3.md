@@ -1,6 +1,6 @@
 # Horizon 3 — Introduce Revision Control and PDM Foundations
 
-Last updated: March 11, 2026
+Last updated: March 13, 2026
 
 ## Purpose
 
@@ -9,6 +9,8 @@ This horizon establishes the file lifecycle and revision-management foundation n
 ## Goal
 
 Make OverDrafter capable of managing controlled file history, part and assembly relationships, official revisions, and traceable design-package changes.
+
+See `docs/revision-version-bridge.md` for the current-state inventory and compatibility constraints between today’s revision text model and future immutable version entities.
 
 ## Themes
 
@@ -30,6 +32,8 @@ Make OverDrafter capable of managing controlled file history, part and assembly 
 - assembly membership
 - cross-file linkage
 - affected-items awareness
+
+This theme extends the project-scoped assembly workspace foundation defined in [docs/assembly-workspace-foundation.md](./docs/assembly-workspace-foundation.md). It should not re-open the question of whether `Project` or `Assembly` is the top-level container.
 
 ### 4. Comparison and auditability
 - metadata diff
@@ -60,6 +64,8 @@ Make OverDrafter capable of managing controlled file history, part and assembly 
 - assembly membership
 - part dependency awareness
 - revision impact display
+
+This epic assumes the Horizon 2 assembly workspace foundation is already defined. Its job is deeper structural and revision-aware modeling, not first-pass workspace information architecture.
 
 ### Epic: revision compare
 - metadata comparison

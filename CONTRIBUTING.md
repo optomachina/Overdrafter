@@ -48,6 +48,16 @@ If you are using Symphony, launch it against this repo's `WORKFLOW.md` and keep 
 skills in `.codex/skills/` and `scripts/symphony-preflight.sh` in sync with that workflow.
 Symphony issue runs must switch to an issue branch in the workspace hook before any edits; they
 must not make implementation changes on `main`.
+
+## Recurring workflows
+
+Use `docs/recurring-workflows.md` as the concise operating guide for repeated issue motions.
+
+- use the root docs for stable rules and policy
+- use `WORKFLOW.md` for Symphony state and handoff rules
+- use the repo-local skills in `.codex/skills/` for `pull`, `commit`, `push`, `linear`, and `land`
+- do not rely on custom prompt snippets when the repo already documents the workflow locally
+
 ## Package manager
 
 - Use `npm` for both the repo root and the `worker/` package.
@@ -78,6 +88,7 @@ Skip a worktree only for small, clearly safe edits.
 ## Verification expectations
 
 See `TEST_STRATEGY.md` for the full policy.
+Use `docs/recurring-workflows.md` and `docs/debugging-workflows.md` when you need to map a change type to a verification lane or debugging setup.
 
 Typical nontrivial change:
 - run `npm run verify` before handoff

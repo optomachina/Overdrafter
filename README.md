@@ -32,6 +32,11 @@ If a lower-priority doc disagrees with one of the files above, the higher-priori
 - `docs/reconstruction-prd.md` is retained as source material only and is superseded by `PRD.md`.
 - `REPO_MAP.md` is a non-canonical orientation aid for navigating the repo layout.
 - `ROADMAP.md` is currently a placeholder and is not an active planning surface.
+
+Important specialized planning docs include:
+
+- `docs/service-request-taxonomy.md` for service-type modeling and line-item boundaries
+- `docs/assembly-workspace-foundation.md` for project-scoped assembly workspace planning and backlog placement
 ## Symphony Automation
 
 OverDrafter includes a repo-local Symphony workflow contract in `WORKFLOW.md`, repo-local skills in
@@ -98,6 +103,8 @@ Maintainership guidance:
 - treat Codex findings as reviewer input, not merge authority
 - fix or explicitly disposition material findings in the PR
 - use CI failures as normal debugging input; do not expect repo-managed Codex autofix or diagnosis here
+
+For recurring planning, verification, and handoff motions, use `docs/recurring-workflows.md`.
 
 ## Active Repo Layout
 
@@ -333,55 +340,15 @@ For a longer walkthrough, see `docs/debugging-workflows.md`.
 - use fast E2E when you want repeatable browser coverage with saved sessions
 - use fixture mode when you want to tune client workspace UI without Docker or Supabase state
 
-### Codex Handoff Snippet
+### Recurring Codex Workflows
 
-Use this snippet in other Codex threads when you want the agent to work with the debugging workflows correctly:
+Use `docs/recurring-workflows.md` instead of relying on pasted handoff snippets. It connects:
 
-```md
-This repo has three supported debugging workflows. Use the lightest one that fits the task.
-
-1. Production-realistic local workflow
-- Requires Docker Desktop and local Supabase.
-- Commands:
-  - `npm run db:start`
-  - `npm run db:reset`
-  - `npm run seed:dev`
-  - `npm run dev`
-- Seeded users:
-  - `client.demo@overdrafter.local`
-  - `estimator.demo@overdrafter.local`
-  - `admin.demo@overdrafter.local`
-- Shared password: `Overdrafter123!`
-- Use this lane for real auth, RLS, memberships, seeded quote data, and true Supabase-backed behavior.
-
-2. Fast E2E workflow
-- Commands:
-  - `npm run e2e:prepare`
-  - `npm run e2e`
-- `e2e:prepare` resets and reseeds local data, then writes Playwright auth state under `playwright/.auth/`.
-- Playwright captures trace, video, screenshot, and diagnostics JSON on failure.
-
-3. Fixture-mode workflow
-- Does not require Docker or Supabase data.
-- Command:
-  - `VITE_ENABLE_FIXTURE_MODE=1 npm run dev`
-- Use normal app URLs with `?fixture=<scenarioId>&debug=1`.
-- Supported scenarios:
-  - `landing-anonymous`
-  - `client-empty`
-  - `client-needs-attention`
-  - `client-quoted`
-  - `client-published`
-- Use this lane for client workspace UI tuning and deterministic local repros.
-
-Diagnostics:
-- Add `?debug=1` to local URLs when debugging.
-- Diagnostics can be read from `window.__OVERDRAFTER_DEBUG__?.getSnapshot()` or `window.__OVERDRAFTER_DEBUG__?.exportJson()`.
-
-Default rule:
-- Do not tell me to run `db:start`, `db:reset`, and `seed:dev` every time.
-- If Docker is unavailable, prefer fixture mode unless the task explicitly requires real Supabase behavior.
-```
+- recurring issue flow and handoff expectations from `WORKFLOW.md`
+- change-type verification guidance from `TEST_STRATEGY.md`
+- debugging lane selection from `docs/debugging-workflows.md`
+- PR evidence expectations from `.github/pull_request_template.md`
+- repo-local procedural skills in `.codex/skills/`
 
 ## Current State
 

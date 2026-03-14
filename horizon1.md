@@ -70,7 +70,7 @@ Turn the existing quote workflow into a more complete, user-legible, and high-si
 - stable part review route
 - stable project review route
 - selected summary and procurement context
-- placeholder shipping / billing / PO fields
+- structured shipping / billing / PO handoff fields without direct checkout ownership
 
 ### Epic: quote decision improvements
 - better option normalization
@@ -83,6 +83,8 @@ Turn the existing quote workflow into a more complete, user-legible, and high-si
 - opt-in notification settings
 - initial notification triggers
 - notification state persistence
+
+The initial shared taxonomy and delivery rules for this epic now live in `docs/notification-taxonomy.md`.
 
 ## Out of scope for this horizon
 

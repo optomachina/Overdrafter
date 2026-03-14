@@ -1,5 +1,7 @@
 # Debugging Workflows
 
+Last updated: March 13, 2026
+
 This repo supports three local debugging lanes. They share the same app code, but optimize for different feedback loops.
 
 ## Prerequisites
@@ -153,3 +155,13 @@ Pick the fastest lane that still exercises the behavior you are debugging:
 - use production-realistic for auth, role, data, and permission bugs
 - use fast E2E for regression coverage and reproducible browser failures
 - use fixture mode for layout, state, and interaction tuning on client workspace screens
+
+## Change-Type Mapping
+
+Use this alongside `TEST_STRATEGY.md` and `docs/recurring-workflows.md`:
+
+- docs-only changes usually do not need a debugging lane unless you are validating commands, fixture URLs, or diagnostics instructions
+- client workspace layout and interaction tuning usually start in the UI tuning lane
+- Supabase-backed auth, membership, permission, and routing issues belong in the production-realistic lane
+- browser regressions, smoke coverage, and saved-session flows belong in the fast E2E lane
+- if the change crosses categories, start with the cheapest lane that reproduces the issue and escalate only when the lighter lane cannot prove the fix

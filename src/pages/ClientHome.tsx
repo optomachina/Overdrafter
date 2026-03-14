@@ -7,6 +7,7 @@ import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { SignInDialog } from "@/components/SignInDialog";
 import { Button } from "@/components/ui/button";
+import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import { useClientHomeController } from "@/features/quotes/use-client-home-controller";
 
 const suggestionRows = [
@@ -55,6 +56,11 @@ const ClientHome = () => {
     user,
     accessibleJobsQuery,
   } = useClientHomeController();
+  const notificationCenter = useWorkspaceNotifications({
+    jobIds: (accessibleJobsQuery.data ?? []).map((job) => job.id),
+    role: activeMembership?.role,
+    userId: user?.id,
+  });
 
   const renderCenteredContent = () => {
     return (
@@ -186,6 +192,7 @@ const ClientHome = () => {
             <WorkspaceAccountMenu
               user={user}
               activeMembership={activeMembership}
+              notificationCenter={notificationCenter}
               onSignOut={signOut}
               onSignedOut={() => navigate("/", { replace: true })}
               archivedProjects={archivedProjectsQuery.data}
