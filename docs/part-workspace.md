@@ -27,6 +27,10 @@
 
 ## Editable Metadata
 - Shared request form component: `src/components/quotes/ClientPartRequestEditor.tsx`
+- Explicit workpack editor:
+  - service requests are now shown as a stacked workpack
+  - the workpack is edited through a planner dialog that can add, remove, reorder, and edit service request cards
+  - quote quantities stay attached only to quote-compatible service requests
 - Editable fields:
   - part number
   - description

@@ -21,6 +21,7 @@ import { RfqLineItemMetadataFields } from "@/components/quotes/RfqLineItemMetada
 import { RequestServiceIntentFields } from "@/components/quotes/RequestServiceIntentFields";
 import { RequestedQuantityFilter } from "@/components/quotes/RequestedQuantityFilter";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
+import { ServiceRequestStack } from "@/components/quotes/ServiceRequestStack";
 import { XometryDebugCard } from "@/components/quotes/XometryDebugCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -529,6 +530,11 @@ const InternalJobDetail = () => {
                         requestedQuoteQuantities={draft.quoteQuantities}
                         requestedByDate={draft.requestedByDate}
                         className="mt-3"
+                      />
+                      <ServiceRequestStack
+                        items={job.serviceRequests ?? []}
+                        title="Job workpack"
+                        className="mt-4"
                       />
                     </div>
                     {extraction.warnings.length > 0 ? (

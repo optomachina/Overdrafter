@@ -27,6 +27,7 @@ import {
 } from "@/components/quotes/ClientQuoteAssetPanels";
 import { ClientWorkspaceStateSummary, ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
+import { ServiceRequestStack } from "@/components/quotes/ServiceRequestStack";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
@@ -72,6 +73,7 @@ const ClientProject = () => {
   const {
     accessibleJobsQuery,
     activeFilter,
+    activeServiceFilter,
     activeMembership,
     archivedJobsQuery,
     archivedProjectsQuery,
@@ -139,7 +141,9 @@ const ClientProject = () => {
     saveRequestMutation,
     optionsByJobId,
     selectedOptionsByJobId,
+    serviceFilterOptions,
     setActiveFilter,
+    setActiveServiceFilter,
     setIsSearchOpen,
     setMobileDrawerOpen,
     setProjectName,
@@ -246,6 +250,15 @@ const ClientProject = () => {
         </div>
 
         {focusedWorkspaceState ? <ClientWorkspaceStateSummary state={focusedWorkspaceState} /> : null}
+
+        <ServiceRequestStack
+          items={
+            focusedDraft?.serviceRequests ??
+            focusedWorkspaceItem.serviceRequests ??
+            focusedSummary?.serviceRequests ??
+            []
+          }
+        />
 
         <ClientDrawingPreviewPanel
           drawingFile={focusedWorkspaceItem.part?.drawingFile ?? null}
@@ -602,6 +615,27 @@ const ClientProject = () => {
                     ))}
                   </div>
                 </div>
+
+                {serviceFilterOptions.length > 1 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {serviceFilterOptions.map((option) => (
+                      <Button
+                        key={option.id}
+                        type="button"
+                        variant={activeServiceFilter === option.id ? "default" : "outline"}
+                        className={cn(
+                          "rounded-full border-white/10",
+                          activeServiceFilter === option.id
+                            ? "bg-white text-black hover:bg-white/90"
+                            : "bg-transparent text-white hover:bg-white/6",
+                        )}
+                        onClick={() => setActiveServiceFilter(option.id)}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
 
                 <p className="text-sm text-white/45">{filteredJobs.length} visible parts</p>
               </div>

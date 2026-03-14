@@ -43,9 +43,15 @@ import {
 } from "@/features/quotes/use-client-workspace-data";
 import { prefetchPartPage, prefetchProjectPage } from "@/features/quotes/workspace-navigation";
 import { parseRequestIntake } from "@/features/quotes/request-intake";
+import {
+  buildRequestedServiceIntentFromServiceRequests,
+  getPrimaryQuoteServiceRequest,
+  normalizeServiceRequestInputs,
+} from "@/features/quotes/service-requests";
 import { buildProjectNameFromLabels } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { useAppSession } from "@/hooks/use-app-session";
+import type { ServiceRequestLineItemInput } from "@/features/quotes/types";
 
 function createProjectStorageKey(organizationId?: string, userEmail?: string): string | null {
   if (!organizationId || !userEmail) {
@@ -509,32 +515,53 @@ export function useClientHomeController() {
     prompt,
     files,
     clear,
+    serviceRequests,
   }: {
     prompt: string;
     files: File[];
     clear: () => void;
+    serviceRequests: ServiceRequestLineItemInput[];
   }) => {
     if (!activeMembership) {
       throw new Error("Your workspace is still being prepared. Please wait a moment and try again.");
     }
+
+    const parsedRequestIntake = parseRequestIntake(prompt);
+    const normalizedServiceRequests = normalizeServiceRequestInputs(serviceRequests, {
+      requestedServiceKinds: parsedRequestIntake.requestedServiceKinds,
+      primaryServiceKind: parsedRequestIntake.primaryServiceKind,
+      serviceNotes: parsedRequestIntake.serviceNotes,
+      requestedQuoteQuantities: parsedRequestIntake.requestedQuoteQuantities,
+      requestedByDate: parsedRequestIntake.requestedByDate,
+    });
+    const normalizedServiceIntent = buildRequestedServiceIntentFromServiceRequests(normalizedServiceRequests, {
+      requestedServiceKinds: parsedRequestIntake.requestedServiceKinds,
+      primaryServiceKind: parsedRequestIntake.primaryServiceKind,
+      serviceNotes: parsedRequestIntake.serviceNotes,
+    });
+    const quoteDefaults = getPrimaryQuoteServiceRequest(normalizedServiceRequests);
 
     const result =
       files.length > 0
         ? await createJobsFromUploadFiles({
             files,
             prompt,
+            serviceRequests: normalizedServiceRequests,
           })
         : {
             projectId: null,
             jobIds: [
               await (() => {
-                const requestIntake = parseRequestIntake(prompt);
                 return createClientDraft({
                   title: prompt.trim().split("\n")[0].slice(0, 120) || "Untitled part",
                   description: prompt.trim() || undefined,
                   tags: [],
-                  requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
-                  requestedByDate: requestIntake.requestedByDate,
+                  requestedServiceKinds: normalizedServiceIntent.requestedServiceKinds,
+                  primaryServiceKind: normalizedServiceIntent.primaryServiceKind,
+                  serviceNotes: normalizedServiceIntent.serviceNotes,
+                  requestedQuoteQuantities: quoteDefaults.requestedQuoteQuantities,
+                  requestedByDate: quoteDefaults.requestedByDate,
+                  serviceRequests: normalizedServiceRequests,
                 });
               })(),
             ],

@@ -48,6 +48,7 @@ import {
   parseRequestedQuoteQuantitiesInput,
 } from "@/features/quotes/request-intake";
 import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadata";
+import { normalizeServiceRequestInputs } from "@/features/quotes/service-requests";
 import {
   buildClientQuoteSelectionOptions,
   buildVendorLabelMap,
@@ -316,7 +317,17 @@ export function useClientPartController() {
       requested_by_date: partDetail.job.requested_by_date ?? null,
     });
 
-    return buildClientPartRequestUpdateInput(jobId, requirement);
+    return buildClientPartRequestUpdateInput(
+      jobId,
+      requirement,
+      normalizeServiceRequestInputs(partDetail.serviceRequests, {
+        requestedServiceKinds: partDetail.job.requested_service_kinds ?? [],
+        primaryServiceKind: partDetail.job.primary_service_kind ?? null,
+        serviceNotes: partDetail.job.service_notes ?? null,
+        requestedQuoteQuantities: partDetail.job.requested_quote_quantities ?? [],
+        requestedByDate: partDetail.job.requested_by_date ?? null,
+      }),
+    );
   }, [
     jobId,
     partDetail?.job.primary_service_kind,
@@ -325,6 +336,7 @@ export function useClientPartController() {
     partDetail?.job.requested_service_kinds,
     partDetail?.job.service_notes,
     partDetail?.part,
+    partDetail?.serviceRequests,
   ]);
   const effectiveRequestDraft = requestDraft ?? fallbackRequestDraft;
   const currentPartName =

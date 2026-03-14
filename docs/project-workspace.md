@@ -51,11 +51,13 @@
 ## Detail Drawer
 - Inline drawing preview
 - CAD/isometric preview
+- Workpack stack showing explicit service request line items for the focused part
 - Editable metadata/RFQ form
 - Manual quote option selection
 - Vendor exclusion toggles
 - Revised upload action for the focused line item
 - Activity log
+- Workpack editing now happens through a service-request planner dialog that lets the user add, remove, reorder, and edit explicit service request cards while preserving the existing quote metadata form for the active quote-compatible request.
 - The drawer reuses the same client-safe RFQ metadata subset as the part page, including shipping, certification, sourcing, and release-status sections. Internal-only release review controls remain restricted to internal review surfaces. The broader project-vs-line-item RFQ contract is defined in [docs/rfq-metadata-model.md](./rfq-metadata-model.md).
 
 ## State Notes

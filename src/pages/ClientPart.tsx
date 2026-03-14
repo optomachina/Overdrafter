@@ -24,6 +24,7 @@ import { ClientQuoteComparisonChart } from "@/components/quotes/ClientQuoteCompa
 import { ClientWorkspaceStateSummary, ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { DrawingPreviewDialog } from "@/components/quotes/DrawingPreviewDialog";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
+import { ServiceRequestStack } from "@/components/quotes/ServiceRequestStack";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -406,6 +407,15 @@ const ClientPart = () => {
               </div>
 
               {workspaceState ? <ClientWorkspaceStateSummary state={workspaceState} /> : null}
+
+              <ServiceRequestStack
+                items={
+                  effectiveRequestDraft?.serviceRequests ??
+                  partDetail.serviceRequests ??
+                  summary?.serviceRequests ??
+                  []
+                }
+              />
 
               <section className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

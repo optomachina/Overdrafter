@@ -1,11 +1,18 @@
 import { Loader2, Upload } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { RfqLineItemMetadataFields } from "@/components/quotes/RfqLineItemMetadataFields";
-import { RequestServiceIntentFields } from "@/components/quotes/RequestServiceIntentFields";
+import { ServiceRequestPlannerDialog } from "@/components/quotes/ServiceRequestPlannerDialog";
+import { ServiceRequestStack } from "@/components/quotes/ServiceRequestStack";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { formatRequestedQuoteQuantitiesInput } from "@/features/quotes/request-intake";
+import {
+  buildRequestedServiceIntentFromServiceRequests,
+  getPrimaryQuoteServiceRequest,
+  normalizeServiceRequestInputs,
+} from "@/features/quotes/service-requests";
 import {
   requestedServicesRequireMaterial,
   requestedServicesSupportQuoteFields,
@@ -37,19 +44,31 @@ export function ClientPartRequestEditor({
   isSaving = false,
   footer = null,
 }: ClientPartRequestEditorProps) {
+  const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const showQuoteFields = requestedServicesSupportQuoteFields(draft.requestedServiceKinds);
   const materialRequired = requestedServicesRequireMaterial(draft.requestedServiceKinds);
+  const effectiveServiceRequests = normalizeServiceRequestInputs(draft.serviceRequests, {
+    requestedServiceKinds: draft.requestedServiceKinds,
+    primaryServiceKind: draft.primaryServiceKind,
+    serviceNotes: draft.serviceNotes,
+    requestedQuoteQuantities: draft.requestedQuoteQuantities,
+    requestedByDate: draft.requestedByDate,
+  });
 
   return (
     <div className="space-y-4">
-      <RequestServiceIntentFields
-        value={{
-          requestedServiceKinds: draft.requestedServiceKinds,
-          primaryServiceKind: draft.primaryServiceKind,
-          serviceNotes: draft.serviceNotes,
-        }}
-        onChange={(next) => onChange(next)}
-      />
+      <ServiceRequestStack items={effectiveServiceRequests} />
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+          onClick={() => setIsPlannerOpen(true)}
+        >
+          Edit workpack
+        </Button>
+      </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
@@ -216,6 +235,46 @@ export function ClientPartRequestEditor({
           Save request details
         </Button>
       </div>
+
+      <ServiceRequestPlannerDialog
+        open={isPlannerOpen}
+        onOpenChange={setIsPlannerOpen}
+        value={effectiveServiceRequests}
+        onChange={(next) => {
+          const normalizedServiceRequests = normalizeServiceRequestInputs(next, {
+            requestedServiceKinds: draft.requestedServiceKinds,
+            primaryServiceKind: draft.primaryServiceKind,
+            serviceNotes: draft.serviceNotes,
+            requestedQuoteQuantities: draft.requestedQuoteQuantities,
+            requestedByDate: draft.requestedByDate,
+          });
+          const serviceIntent = buildRequestedServiceIntentFromServiceRequests(normalizedServiceRequests, {
+            requestedServiceKinds: draft.requestedServiceKinds,
+            primaryServiceKind: draft.primaryServiceKind,
+            serviceNotes: draft.serviceNotes,
+          });
+          const quoteDefaults = getPrimaryQuoteServiceRequest(normalizedServiceRequests);
+
+          onChange({
+            serviceRequests: normalizedServiceRequests,
+            requestedServiceKinds: serviceIntent.requestedServiceKinds,
+            primaryServiceKind: serviceIntent.primaryServiceKind,
+            serviceNotes: serviceIntent.serviceNotes,
+            requestedByDate: quoteDefaults.requestedByDate ?? draft.requestedByDate,
+            requestedQuoteQuantities:
+              quoteDefaults.requestedQuoteQuantities.length > 0
+                ? quoteDefaults.requestedQuoteQuantities
+                : draft.requestedQuoteQuantities,
+          });
+
+          if (quoteDefaults.requestedQuoteQuantities.length > 0) {
+            onQuoteQuantityInputChange(
+              formatRequestedQuoteQuantitiesInput(quoteDefaults.requestedQuoteQuantities),
+            );
+          }
+        }}
+        onConfirm={() => setIsPlannerOpen(false)}
+      />
     </div>
   );
 }

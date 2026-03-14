@@ -769,6 +769,19 @@ describe("quotes api helpers", () => {
       p_service_notes: null,
       p_requested_quote_quantities: [],
       p_requested_by_date: null,
+      p_service_requests: [
+        {
+          id: null,
+          serviceType: "manufacturing_quote",
+          scope: "job",
+          requestedByDate: null,
+          serviceNotes: null,
+          detailPayload: {
+            requestedQuoteQuantities: [],
+          },
+          displayOrder: 0,
+        },
+      ],
     });
     expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_create_client_draft", {
       p_title: "Bracket",
@@ -795,6 +808,19 @@ describe("quotes api helpers", () => {
       p_service_notes: null,
       p_requested_quote_quantities: [],
       p_requested_by_date: null,
+      p_service_requests: [
+        {
+          id: null,
+          serviceType: "manufacturing_quote",
+          scope: "job",
+          requestedByDate: null,
+          serviceNotes: null,
+          detailPayload: {
+            requestedQuoteQuantities: [],
+          },
+          displayOrder: 0,
+        },
+      ],
     });
   });
 
@@ -885,6 +911,19 @@ describe("quotes api helpers", () => {
       p_service_notes: "Need options",
       p_requested_quote_quantities: [1, 10],
       p_requested_by_date: "2026-04-15",
+      p_service_requests: [
+        {
+          id: null,
+          serviceType: "manufacturing_quote",
+          scope: "job",
+          requestedByDate: "2026-04-15",
+          serviceNotes: "Need options",
+          detailPayload: {
+            requestedQuoteQuantities: [1, 10],
+          },
+          displayOrder: 0,
+        },
+      ],
     });
     expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_create_job", {
       p_organization_id: "org-123",
@@ -923,6 +962,19 @@ describe("quotes api helpers", () => {
       p_service_notes: null,
       p_requested_quote_quantities: [10],
       p_requested_by_date: "2026-04-15",
+      p_service_requests: [
+        {
+          id: null,
+          serviceType: "manufacturing_quote",
+          scope: "job",
+          requestedByDate: "2026-04-15",
+          serviceNotes: null,
+          detailPayload: {
+            requestedQuoteQuantities: [10],
+          },
+          displayOrder: 0,
+        },
+      ],
     });
   });
 
@@ -994,6 +1046,19 @@ describe("quotes api helpers", () => {
       p_service_notes: null,
       p_requested_quote_quantities: [10],
       p_requested_by_date: "2026-04-15",
+      p_service_requests: [
+        {
+          id: null,
+          serviceType: "manufacturing_quote",
+          scope: "job",
+          requestedByDate: "2026-04-15",
+          serviceNotes: null,
+          detailPayload: {
+            requestedQuoteQuantities: [10],
+          },
+          displayOrder: 0,
+        },
+      ],
     });
     expect(supabaseMock.rpc).toHaveBeenNthCalledWith(7, "api_create_client_draft", {
       p_title: "beta",
@@ -1005,6 +1070,19 @@ describe("quotes api helpers", () => {
       p_service_notes: null,
       p_requested_quote_quantities: [10],
       p_requested_by_date: "2026-04-15",
+      p_service_requests: [
+        {
+          id: null,
+          serviceType: "manufacturing_quote",
+          scope: "job",
+          requestedByDate: "2026-04-15",
+          serviceNotes: null,
+          detailPayload: {
+            requestedQuoteQuantities: [10],
+          },
+          displayOrder: 0,
+        },
+      ],
     });
   });
 

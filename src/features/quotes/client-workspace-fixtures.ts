@@ -1714,6 +1714,21 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       const metadata = sanitizeClientVisibleRfqLineItemExtendedMetadata(
         normalizeRfqLineItemExtendedMetadata(input),
       );
+      const serviceRequests = (input.serviceRequests ?? []).map((serviceRequest, index) => ({
+        id: serviceRequest.id ?? `fixture-service-request-${input.jobId}-${serviceRequest.serviceType}-${index}`,
+        organizationId: workspaceItem.job.organization_id,
+        projectId: workspaceItem.job.project_id,
+        jobId: input.jobId,
+        partId: workspaceItem.part?.id ?? partDetail.part?.id ?? null,
+        serviceType: serviceRequest.serviceType,
+        scope: serviceRequest.scope ?? "job",
+        requestedByDate: serviceRequest.requestedByDate ?? null,
+        serviceNotes: serviceRequest.serviceNotes ?? null,
+        detailPayload: serviceRequest.detailPayload ?? {},
+        displayOrder: serviceRequest.displayOrder ?? index,
+        createdAt: FIXTURE_TIMESTAMP,
+        updatedAt: FIXTURE_TIMESTAMP,
+      }));
 
       summary.description = input.description;
       summary.partNumber = input.partNumber;
@@ -1724,6 +1739,7 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       summary.quantity = input.quantity;
       summary.requestedQuoteQuantities = [...input.requestedQuoteQuantities];
       summary.requestedByDate = input.requestedByDate;
+      summary.serviceRequests = serviceRequests;
       workspaceItem.job.requested_service_kinds = [...input.requestedServiceKinds];
       workspaceItem.job.primary_service_kind = input.primaryServiceKind;
       workspaceItem.job.service_notes = input.serviceNotes;
@@ -1736,6 +1752,8 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       partDetail.job.requested_quote_quantities = [...input.requestedQuoteQuantities];
       partDetail.job.requested_by_date = input.requestedByDate;
       partDetail.job.description = input.description;
+      workspaceItem.serviceRequests = serviceRequests;
+      partDetail.serviceRequests = serviceRequests;
 
       if (workspaceItem.part?.approvedRequirement) {
         workspaceItem.part.approvedRequirement.description = input.description;

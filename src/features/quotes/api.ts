@@ -35,6 +35,9 @@ import type {
   PartDetailAggregate,
   ProjectRecord,
   QuoteRunReadiness,
+  ServiceRequestLineItem,
+  ServiceRequestLineItemInput,
+  ServiceRequestLineItemRecord,
   SidebarPins,
   UploadFilesToJobSummary,
   VendorQuoteArtifactRecord,
@@ -69,6 +72,13 @@ import { buildDraftTitleFromPrompt } from "@/features/quotes/file-validation";
 import { normalizeRequestedQuoteQuantities, parseRequestIntake } from "@/features/quotes/request-intake";
 import { sanitizeClientVisibleSpecSnapshot } from "@/features/quotes/rfq-metadata";
 import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
+import {
+  buildRequestedServiceIntentFromServiceRequests,
+  buildServiceRequestInputsFromIntent,
+  getPrimaryQuoteServiceRequest,
+  mapServiceRequestRecord,
+  normalizeServiceRequestInputs,
+} from "@/features/quotes/service-requests";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import { getImportedVendorOffers, normalizeDrawingPreview } from "@/features/quotes/utils";
 import { toast } from "sonner";
@@ -186,6 +196,20 @@ type JobSelectedOfferRow = {
   service_notes: string | null;
 };
 
+type ServiceRequestSelectionState = {
+  serviceRequestsByJobId: Map<string, ServiceRequestLineItem[]>;
+  requestByJobId: Map<
+    string,
+    {
+      requestedServiceKinds: string[];
+      primaryServiceKind: string | null;
+      serviceNotes: string | null;
+      requestedQuoteQuantities: number[];
+      requestedByDate: string | null;
+    }
+  >;
+};
+
 type HashedUploadFile = {
   file: File;
   contentSha256: string;
@@ -272,6 +296,11 @@ const CLIENT_INTAKE_IDENTIFIERS = [
   "requested_service_kinds",
   "primary_service_kind",
   "service_notes",
+] as const;
+const SERVICE_REQUEST_LINE_ITEM_IDENTIFIERS = [
+  "public.service_request_line_items",
+  "service_request_line_items",
+  "service_request_scope",
 ] as const;
 
 export class ClientIntakeCompatibilityError extends Error {
@@ -393,6 +422,23 @@ function isMissingDrawingPreviewSchemaError(error: unknown): boolean {
 
 function isMissingClientIntakeSchemaError(error: unknown): boolean {
   return isMissingSchemaIdentifierError(error, CLIENT_INTAKE_IDENTIFIERS);
+}
+
+function isMissingServiceRequestLineItemSchemaError(error: unknown): boolean {
+  if (isMissingSchemaIdentifierError(error, SERVICE_REQUEST_LINE_ITEM_IDENTIFIERS)) {
+    return true;
+  }
+
+  const metadata = getSchemaErrorMetadata(error);
+
+  if (!metadata) {
+    return false;
+  }
+
+  return (
+    SERVICE_REQUEST_LINE_ITEM_IDENTIFIERS.some((identifier) => metadata.blob.includes(identifier)) &&
+    metadata.blob.includes("unexpected table")
+  );
 }
 
 function formatClientIntakeDriftMessage(missing: readonly string[] = []): string {
@@ -729,6 +775,7 @@ function buildJobPartSummary(
   input: {
     row: ApprovedRequirementJoinRow;
     existing: JobPartSummary | undefined;
+    serviceRequests: ServiceRequestLineItem[];
     requestedServiceKinds: string[];
     primaryServiceKind: string | null;
     serviceNotes: string | null;
@@ -775,13 +822,67 @@ function buildJobPartSummary(
     selectedSupplier: input.existing?.selectedSupplier ?? null,
     selectedPriceUsd: input.existing?.selectedPriceUsd ?? null,
     selectedLeadTimeBusinessDays: input.existing?.selectedLeadTimeBusinessDays ?? null,
+    serviceRequests: input.serviceRequests,
   };
 }
 
-async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
+export async function fetchServiceRequestLineItemsByJobIds(
+  jobIds: string[],
+): Promise<Map<string, ServiceRequestLineItem[]>> {
+  if (jobIds.length === 0) {
+    return new Map();
+  }
+
+  let data: unknown;
+  let error: unknown = null;
+
+  try {
+    const response = await supabase
+      .from("service_request_line_items")
+      .select("*")
+      .in("job_id", jobIds)
+      .order("display_order", { ascending: true });
+    data = response.data;
+    error = response.error;
+  } catch (queryError) {
+    if (isMissingServiceRequestLineItemSchemaError(queryError)) {
+      return new Map();
+    }
+
+    throw queryError;
+  }
+
+  if (isMissingServiceRequestLineItemSchemaError(error)) {
+    return new Map();
+  }
+
+  const rows = ensureData(
+    data as ServiceRequestLineItemRecord[] | null,
+    error as { message: string } | null | undefined,
+  );
+  const mappedRows = rows.map(mapServiceRequestRecord);
+  const serviceRequestsByJobId = new Map<string, ServiceRequestLineItem[]>();
+
+  mappedRows.forEach((serviceRequest) => {
+    if (!serviceRequest.jobId) {
+      return;
+    }
+
+    const current = serviceRequestsByJobId.get(serviceRequest.jobId) ?? [];
+    current.push(serviceRequest);
+    serviceRequestsByJobId.set(serviceRequest.jobId, current);
+  });
+
+  return serviceRequestsByJobId;
+}
+
+async function fetchJobSelectionStateByJobIds(jobIds: string[]): Promise<ServiceRequestSelectionState & {
+  selectedOffersByJobId: Map<string, VendorQuoteOfferRecord>;
+}> {
   if (jobIds.length === 0) {
     return {
       selectedOffersByJobId: new Map<string, VendorQuoteOfferRecord>(),
+      serviceRequestsByJobId: new Map<string, ServiceRequestLineItem[]>(),
       requestByJobId: new Map<
         string,
         {
@@ -795,14 +896,17 @@ async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
     };
   }
 
-  const { data: jobsData, error: jobsError } = await supabase
-    .from("jobs")
-    .select(
-      "id, selected_vendor_quote_offer_id, requested_service_kinds, primary_service_kind, service_notes, requested_quote_quantities, requested_by_date",
-    )
-    .in("id", jobIds);
+  const [jobsResult, serviceRequestsByJobId] = await Promise.all([
+    supabase
+      .from("jobs")
+      .select(
+        "id, selected_vendor_quote_offer_id, requested_service_kinds, primary_service_kind, service_notes, requested_quote_quantities, requested_by_date",
+      )
+      .in("id", jobIds),
+    fetchServiceRequestLineItemsByJobIds(jobIds),
+  ]);
 
-  const jobsWithSelection = ensureData(jobsData, jobsError) as JobSelectedOfferRow[];
+  const jobsWithSelection = ensureData(jobsResult.data, jobsResult.error) as JobSelectedOfferRow[];
   const offerIds = jobsWithSelection
     .map((job) => job.selected_vendor_quote_offer_id)
     .filter((value): value is string => Boolean(value));
@@ -810,18 +914,38 @@ async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
   if (offerIds.length === 0) {
     return {
       selectedOffersByJobId: new Map<string, VendorQuoteOfferRecord>(),
+      serviceRequestsByJobId,
       requestByJobId: new Map(
         jobsWithSelection.map((job) => [
           job.id,
-          {
-            ...normalizeRequestedServiceIntent({
-              requestedServiceKinds: job.requested_service_kinds ?? [],
-              primaryServiceKind: job.primary_service_kind ?? null,
-              serviceNotes: job.service_notes ?? null,
-            }),
-            requestedQuoteQuantities: normalizeRequestedQuoteQuantities(job.requested_quote_quantities ?? []),
-            requestedByDate: job.requested_by_date ?? null,
-          },
+          (() => {
+            const serviceRequests =
+              serviceRequestsByJobId.get(job.id) ??
+              buildServiceRequestInputsFromIntent({
+                requestedServiceKinds: job.requested_service_kinds ?? [],
+                primaryServiceKind: job.primary_service_kind ?? null,
+                serviceNotes: job.service_notes ?? null,
+                requestedQuoteQuantities: job.requested_quote_quantities ?? [],
+                requestedByDate: job.requested_by_date ?? null,
+              });
+            const serviceIntent = buildRequestedServiceIntentFromServiceRequests(serviceRequests, {
+              ...normalizeRequestedServiceIntent({
+                requestedServiceKinds: job.requested_service_kinds ?? [],
+                primaryServiceKind: job.primary_service_kind ?? null,
+                serviceNotes: job.service_notes ?? null,
+              }),
+            });
+            const quoteDefaults = getPrimaryQuoteServiceRequest(serviceRequests);
+
+            return {
+              ...serviceIntent,
+              requestedQuoteQuantities:
+                quoteDefaults.requestedQuoteQuantities.length > 0
+                  ? quoteDefaults.requestedQuoteQuantities
+                  : normalizeRequestedQuoteQuantities(job.requested_quote_quantities ?? []),
+              requestedByDate: quoteDefaults.requestedByDate ?? job.requested_by_date ?? null,
+            };
+          })(),
         ]),
       ),
     };
@@ -846,18 +970,38 @@ async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
         return offer ? [[job.id, offer] as const] : [];
       }),
     ),
+    serviceRequestsByJobId,
     requestByJobId: new Map(
       jobsWithSelection.map((job) => [
         job.id,
-        {
-          ...normalizeRequestedServiceIntent({
-            requestedServiceKinds: job.requested_service_kinds ?? [],
-            primaryServiceKind: job.primary_service_kind ?? null,
-            serviceNotes: job.service_notes ?? null,
-          }),
-          requestedQuoteQuantities: normalizeRequestedQuoteQuantities(job.requested_quote_quantities ?? []),
-          requestedByDate: job.requested_by_date ?? null,
-        },
+        (() => {
+          const serviceRequests =
+            serviceRequestsByJobId.get(job.id) ??
+            buildServiceRequestInputsFromIntent({
+              requestedServiceKinds: job.requested_service_kinds ?? [],
+              primaryServiceKind: job.primary_service_kind ?? null,
+              serviceNotes: job.service_notes ?? null,
+              requestedQuoteQuantities: job.requested_quote_quantities ?? [],
+              requestedByDate: job.requested_by_date ?? null,
+            });
+          const serviceIntent = buildRequestedServiceIntentFromServiceRequests(serviceRequests, {
+            ...normalizeRequestedServiceIntent({
+              requestedServiceKinds: job.requested_service_kinds ?? [],
+              primaryServiceKind: job.primary_service_kind ?? null,
+              serviceNotes: job.service_notes ?? null,
+            }),
+          });
+          const quoteDefaults = getPrimaryQuoteServiceRequest(serviceRequests);
+
+          return {
+            ...serviceIntent,
+            requestedQuoteQuantities:
+              quoteDefaults.requestedQuoteQuantities.length > 0
+                ? quoteDefaults.requestedQuoteQuantities
+                : normalizeRequestedQuoteQuantities(job.requested_quote_quantities ?? []),
+            requestedByDate: quoteDefaults.requestedByDate ?? job.requested_by_date ?? null,
+          };
+        })(),
       ]),
     ),
   };
@@ -1017,7 +1161,9 @@ export async function fetchJobPartSummariesByOrganization(
   );
   const fileRows = ensureData(filesResult.data as unknown as JobFileSummaryRow[] | null, filesResult.error);
   const jobs = ensureData(jobsResult.data, jobsResult.error) as JobSelectedOfferRow[];
-  const { selectedOffersByJobId, requestByJobId } = await fetchJobSelectionStateByJobIds(jobs.map((job) => job.id));
+  const { selectedOffersByJobId, requestByJobId, serviceRequestsByJobId } = await fetchJobSelectionStateByJobIds(
+    jobs.map((job) => job.id),
+  );
 
   const summariesByJobId = new Map<string, JobPartSummary>();
 
@@ -1034,6 +1180,7 @@ export async function fetchJobPartSummariesByOrganization(
       ...buildJobPartSummary({
         row,
         existing: summariesByJobId.get(row.job_id),
+        serviceRequests: serviceRequestsByJobId.get(row.job_id) ?? [],
         requestedServiceKinds: requestDefaults.requestedServiceKinds,
         primaryServiceKind: requestDefaults.primaryServiceKind,
         serviceNotes: requestDefaults.serviceNotes,
@@ -1078,6 +1225,7 @@ export async function fetchJobPartSummariesByOrganization(
       selectedSupplier: existingSummary?.selectedSupplier ?? null,
       selectedPriceUsd: existingSummary?.selectedPriceUsd ?? null,
       selectedLeadTimeBusinessDays: existingSummary?.selectedLeadTimeBusinessDays ?? null,
+      serviceRequests: existingSummary?.serviceRequests ?? serviceRequestsByJobId.get(row.job_id) ?? [],
     });
   }
 
@@ -1116,7 +1264,7 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
     partsResult.error,
   );
   const fileRows = ensureData(filesResult.data as unknown as JobFileSummaryRow[] | null, filesResult.error);
-  const { selectedOffersByJobId, requestByJobId } = jobSelectionState;
+  const { selectedOffersByJobId, requestByJobId, serviceRequestsByJobId } = jobSelectionState;
   const summariesByJobId = new Map<string, JobPartSummary>();
 
   for (const row of approvedRequirements) {
@@ -1132,6 +1280,7 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
       ...buildJobPartSummary({
         row,
         existing: summariesByJobId.get(row.job_id),
+        serviceRequests: serviceRequestsByJobId.get(row.job_id) ?? [],
         requestedServiceKinds: requestDefaults.requestedServiceKinds,
         primaryServiceKind: requestDefaults.primaryServiceKind,
         serviceNotes: requestDefaults.serviceNotes,
@@ -1176,6 +1325,7 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
       selectedSupplier: existingSummary?.selectedSupplier ?? null,
       selectedPriceUsd: existingSummary?.selectedPriceUsd ?? null,
       selectedLeadTimeBusinessDays: existingSummary?.selectedLeadTimeBusinessDays ?? null,
+      serviceRequests: existingSummary?.serviceRequests ?? serviceRequestsByJobId.get(row.job_id) ?? [],
     });
   }
 
@@ -1247,13 +1397,8 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
 
   const job = ensureData(jobData as JobRecord | null, jobError);
 
-  const [
-    filesResult,
-    partsResult,
-    quoteRunsResult,
-    packagesResult,
-    workQueueResult,
-  ] = await Promise.all([
+  const [filesResult, partsResult, quoteRunsResult, packagesResult, workQueueResult, serviceRequestsByJobId] =
+    await Promise.all([
     supabase.from("job_files").select("*").eq("job_id", jobId).order("created_at", { ascending: true }),
     supabase.from("parts").select("*").eq("job_id", jobId).order("created_at", { ascending: true }),
     supabase.from("quote_runs").select("*").eq("job_id", jobId).order("created_at", { ascending: false }),
@@ -1267,6 +1412,7 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
       .select("*")
       .eq("job_id", jobId)
       .order("created_at", { ascending: false }),
+    fetchServiceRequestLineItemsByJobIds([jobId]),
   ]);
 
   const files = ensureData(filesResult.data, filesResult.error) as JobFileRecord[];
@@ -1430,6 +1576,7 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
     job,
     files,
     parts: partsWithRelations,
+    serviceRequests: serviceRequestsByJobId.get(jobId) ?? [],
     quoteRuns: quoteRunsWithResults,
     packages: packagesWithOptions,
     pricingPolicy,
@@ -1473,7 +1620,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     return [];
   }
 
-  const [jobsResult, filesResult, partsResult, summaries, projectMemberships, latestQuoteRunsByJobId] =
+  const [jobsResult, filesResult, partsResult, summaries, projectMemberships, latestQuoteRunsByJobId, serviceRequestsByJobId] =
     await Promise.all([
       supabase.from("jobs").select("*").in("id", jobIds).is("archived_at", null),
       supabase.from("job_files").select("*").in("job_id", jobIds).order("created_at", { ascending: true }),
@@ -1481,6 +1628,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
       fetchJobPartSummariesByJobIds(jobIds),
       fetchProjectJobMembershipsByJobIds(jobIds),
       fetchLatestQuoteRunsByJobIds(jobIds),
+      fetchServiceRequestLineItemsByJobIds(jobIds),
     ]);
 
   const jobs = ensureData(jobsResult.data, jobsResult.error) as JobRecord[];
@@ -1645,6 +1793,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
         files: jobFiles,
         summary: summariesByJobId.get(jobId) ?? null,
         part: partWithRelations,
+        serviceRequests: summariesByJobId.get(jobId)?.serviceRequests ?? serviceRequestsByJobId.get(jobId) ?? [],
         projectIds: projectIdsByJobId.get(jobId) ?? [],
         drawingPreview:
           primaryPart === null
@@ -2289,6 +2438,7 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
     summary,
     packages: jobAggregate.packages.map((pkg) => pkg as PublishedQuotePackageRecord),
     part,
+    serviceRequests: jobAggregate.serviceRequests,
     projectIds: projectMemberships.map((membership) => membership.project_id),
     drawingPreview: normalizeDrawingPreview(part?.extraction ?? null, previewAssets),
     latestQuoteRun: jobAggregate.quoteRuns[0] ?? null,
@@ -2496,7 +2646,33 @@ type CreateJobInput = {
   serviceNotes?: string | null;
   requestedQuoteQuantities?: number[];
   requestedByDate?: string | null;
+  serviceRequests?: ServiceRequestLineItemInput[];
 };
+
+function buildServiceRequestRpcInput(input: {
+  serviceRequests?: ServiceRequestLineItemInput[];
+  requestedServiceKinds?: string[];
+  primaryServiceKind?: string | null;
+  serviceNotes?: string | null;
+  requestedQuoteQuantities?: number[];
+  requestedByDate?: string | null;
+}) {
+  return normalizeServiceRequestInputs(input.serviceRequests, {
+    requestedServiceKinds: input.requestedServiceKinds ?? [],
+    primaryServiceKind: input.primaryServiceKind ?? null,
+    serviceNotes: input.serviceNotes ?? null,
+    requestedQuoteQuantities: input.requestedQuoteQuantities ?? [],
+    requestedByDate: input.requestedByDate ?? null,
+  }).map((serviceRequest) => ({
+    id: serviceRequest.id ?? null,
+    serviceType: serviceRequest.serviceType,
+    scope: serviceRequest.scope ?? "job",
+    requestedByDate: serviceRequest.requestedByDate ?? null,
+    serviceNotes: serviceRequest.serviceNotes ?? null,
+    detailPayload: serviceRequest.detailPayload ?? {},
+    displayOrder: serviceRequest.displayOrder ?? 0,
+  }));
+}
 
 function buildCurrentCreateJobArgs(input: CreateJobInput) {
   return {
@@ -2510,6 +2686,7 @@ function buildCurrentCreateJobArgs(input: CreateJobInput) {
     p_service_notes: input.serviceNotes ?? null,
     p_requested_quote_quantities: input.requestedQuoteQuantities ?? [],
     p_requested_by_date: input.requestedByDate ?? null,
+    p_service_requests: buildServiceRequestRpcInput(input),
   };
 }
 
@@ -2569,6 +2746,7 @@ type CreateClientDraftRpcInput = {
   serviceNotes?: string | null;
   requestedQuoteQuantities?: number[];
   requestedByDate?: string | null;
+  serviceRequests?: ServiceRequestLineItemInput[];
 };
 
 async function callLegacyCreateClientDraft(
@@ -2622,6 +2800,7 @@ export async function createClientDraft(input: ClientDraftInput): Promise<string
     p_service_notes: input.serviceNotes ?? null,
     p_requested_quote_quantities: input.requestedQuoteQuantities ?? [],
     p_requested_by_date: input.requestedByDate ?? null,
+    p_service_requests: buildServiceRequestRpcInput(input),
   });
 
   if (!error) {
@@ -2656,6 +2835,7 @@ export async function createClientDraft(input: ClientDraftInput): Promise<string
         serviceNotes: input.serviceNotes,
         requestedQuoteQuantities: input.requestedQuoteQuantities,
         requestedByDate: input.requestedByDate,
+        serviceRequests: input.serviceRequests,
       });
     }
 
@@ -2689,6 +2869,7 @@ export async function createClientDraft(input: ClientDraftInput): Promise<string
       serviceNotes: input.serviceNotes,
       requestedQuoteQuantities: input.requestedQuoteQuantities,
       requestedByDate: input.requestedByDate,
+      serviceRequests: input.serviceRequests,
     });
   }
 
@@ -2726,6 +2907,7 @@ export async function updateClientPartRequest(input: ClientPartRequestUpdateInpu
     p_certifications: input.certifications,
     p_sourcing: input.sourcing,
     p_release: input.release,
+    p_service_requests: buildServiceRequestRpcInput(input),
   });
 
   return ensureData(data, error);
@@ -2735,9 +2917,23 @@ export async function createJobsFromUploadFiles(input: {
   files: File[];
   prompt?: string;
   projectId?: string | null;
+  serviceRequests?: ServiceRequestLineItemInput[];
 }): Promise<{ jobIds: string[]; projectId: string | null }> {
   const groups = groupUploadFiles(input.files);
   const requestIntake = parseRequestIntake(input.prompt ?? "");
+  const serviceRequests = normalizeServiceRequestInputs(input.serviceRequests, {
+    requestedServiceKinds: requestIntake.requestedServiceKinds,
+    primaryServiceKind: requestIntake.primaryServiceKind,
+    serviceNotes: requestIntake.serviceNotes,
+    requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
+    requestedByDate: requestIntake.requestedByDate,
+  });
+  const normalizedServiceIntent = buildRequestedServiceIntentFromServiceRequests(serviceRequests, {
+    requestedServiceKinds: requestIntake.requestedServiceKinds,
+    primaryServiceKind: requestIntake.primaryServiceKind,
+    serviceNotes: requestIntake.serviceNotes,
+  });
+  const quoteDefaults = getPrimaryQuoteServiceRequest(serviceRequests);
 
   if (groups.length === 0) {
     return { jobIds: [], projectId: input.projectId ?? null };
@@ -2760,11 +2956,12 @@ export async function createJobsFromUploadFiles(input: {
       description: input.prompt?.trim() || undefined,
       projectId: targetProjectId,
       tags: [],
-      requestedServiceKinds: requestIntake.requestedServiceKinds,
-      primaryServiceKind: requestIntake.primaryServiceKind,
-      serviceNotes: requestIntake.serviceNotes,
-      requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
-      requestedByDate: requestIntake.requestedByDate,
+      requestedServiceKinds: normalizedServiceIntent.requestedServiceKinds,
+      primaryServiceKind: normalizedServiceIntent.primaryServiceKind,
+      serviceNotes: normalizedServiceIntent.serviceNotes,
+      requestedQuoteQuantities: quoteDefaults.requestedQuoteQuantities,
+      requestedByDate: quoteDefaults.requestedByDate,
+      serviceRequests,
     });
 
     await uploadFilesToJob(jobId, group.files);

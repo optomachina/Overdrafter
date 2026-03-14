@@ -47,6 +47,7 @@ export type QueueTaskType =
   | "publish_package"
   | "repair_adapter_candidate";
 export type QueueTaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+export type ServiceRequestScope = "project" | "job" | "part";
 
 type BaseRow = {
   id: string;
@@ -269,6 +270,38 @@ export type Database = {
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["jobs"]["Insert"]>;
+      };
+      service_request_line_items: {
+        Row: BaseRow & {
+          organization_id: string;
+          project_id: string | null;
+          job_id: string | null;
+          part_id: string | null;
+          service_type: string;
+          scope: ServiceRequestScope;
+          requested_by_date: string | null;
+          service_notes: string | null;
+          detail_payload: Json;
+          display_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          project_id?: string | null;
+          job_id?: string | null;
+          part_id?: string | null;
+          service_type: string;
+          scope?: ServiceRequestScope;
+          requested_by_date?: string | null;
+          service_notes?: string | null;
+          detail_payload?: Json;
+          display_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["service_request_line_items"]["Insert"]>;
       };
       job_files: {
         Row: BaseRow & {
@@ -827,6 +860,7 @@ export type Database = {
           p_service_notes?: string | null;
           p_requested_quote_quantities?: number[] | null;
           p_requested_by_date?: string | null;
+          p_service_requests?: Json | null;
         };
         Returns: string;
       };
@@ -836,6 +870,19 @@ export type Database = {
           p_description?: string | null;
           p_project_id?: string | null;
           p_tags?: string[] | null;
+          p_requested_service_kinds?: string[] | null;
+          p_primary_service_kind?: string | null;
+          p_service_notes?: string | null;
+          p_requested_quote_quantities?: number[] | null;
+          p_requested_by_date?: string | null;
+          p_service_requests?: Json | null;
+        };
+        Returns: string;
+      };
+      api_replace_job_service_request_line_items: {
+        Args: {
+          p_job_id: string;
+          p_items?: Json | null;
           p_requested_service_kinds?: string[] | null;
           p_primary_service_kind?: string | null;
           p_service_notes?: string | null;
@@ -865,6 +912,7 @@ export type Database = {
           p_certifications?: Json | null;
           p_sourcing?: Json | null;
           p_release?: Json | null;
+          p_service_requests?: Json | null;
         };
         Returns: string;
       };
@@ -1025,6 +1073,7 @@ export type Database = {
       quote_run_status: QuoteRunStatus;
       queue_task_type: QueueTaskType;
       queue_task_status: QueueTaskStatus;
+      service_request_scope: ServiceRequestScope;
     };
     CompositeTypes: Record<string, never>;
   };

@@ -260,6 +260,7 @@ export function sanitizeClientVisibleSpecSnapshot(
 export function buildClientPartRequestUpdateInput(
   jobId: string,
   requirement: ApprovedPartRequirement,
+  serviceRequests: ClientPartRequestUpdateInput["serviceRequests"] = [],
 ): ClientPartRequestUpdateInput {
   return {
     jobId,
@@ -281,6 +282,7 @@ export function buildClientPartRequestUpdateInput(
     certifications: requirement.certifications,
     sourcing: requirement.sourcing,
     release: requirement.release,
+    serviceRequests,
   };
 }
 

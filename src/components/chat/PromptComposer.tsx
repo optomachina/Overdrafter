@@ -15,6 +15,10 @@ import {
   ALLOWED_QUOTE_UPLOAD_EXTENSIONS,
   validateQuoteFiles,
 } from "@/features/quotes/file-validation";
+import { parseRequestIntake } from "@/features/quotes/request-intake";
+import { buildServiceRequestInputsFromIntent } from "@/features/quotes/service-requests";
+import type { ServiceRequestLineItemInput } from "@/features/quotes/types";
+import { ServiceRequestPlannerDialog } from "@/components/quotes/ServiceRequestPlannerDialog";
 
 export type PromptComposerHandle = {
   focus: () => void;
@@ -24,7 +28,12 @@ type PromptComposerProps = {
   isSignedIn: boolean;
   placeholder?: string;
   onRequireAuth?: () => void;
-  onSubmit: (input: { prompt: string; files: File[]; clear: () => void }) => Promise<void>;
+  onSubmit: (input: {
+    prompt: string;
+    files: File[];
+    clear: () => void;
+    serviceRequests: ServiceRequestLineItemInput[];
+  }) => Promise<void>;
 };
 
 function getErrorMessage(error: unknown): string {
@@ -51,6 +60,8 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     const [prompt, setPrompt] = useState("");
     const [files, setFiles] = useState<File[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isPlannerOpen, setIsPlannerOpen] = useState(false);
+    const [serviceRequests, setServiceRequests] = useState<ServiceRequestLineItemInput[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -101,6 +112,19 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       }
     };
 
+    const submitWithPlanner = async () => {
+      setIsSubmitting(true);
+
+      try {
+        await onSubmit({ prompt, files, clear, serviceRequests });
+        setIsPlannerOpen(false);
+      } catch (error) {
+        toast.error(getErrorMessage(error));
+      } finally {
+        setIsSubmitting(false);
+      }
+    };
+
     const handleSubmit = async () => {
       if (!prompt.trim() && files.length === 0) {
         toast.error("Please enter details or upload files.");
@@ -112,15 +136,17 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
         return;
       }
 
-      setIsSubmitting(true);
-
-      try {
-        await onSubmit({ prompt, files, clear });
-      } catch (error) {
-        toast.error(getErrorMessage(error));
-      } finally {
-        setIsSubmitting(false);
-      }
+      const requestIntake = parseRequestIntake(prompt);
+      setServiceRequests(
+        buildServiceRequestInputsFromIntent({
+          requestedServiceKinds: requestIntake.requestedServiceKinds,
+          primaryServiceKind: requestIntake.primaryServiceKind,
+          serviceNotes: requestIntake.serviceNotes,
+          requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
+          requestedByDate: requestIntake.requestedByDate,
+        }),
+      );
+      setIsPlannerOpen(true);
     };
 
     return (
@@ -212,6 +238,17 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
             </Button>
           </div>
         </div>
+
+        <ServiceRequestPlannerDialog
+          open={isPlannerOpen}
+          onOpenChange={setIsPlannerOpen}
+          value={serviceRequests}
+          onChange={setServiceRequests}
+          onConfirm={() => {
+            void submitWithPlanner();
+          }}
+          isSubmitting={isSubmitting}
+        />
       </div>
     );
   },

@@ -56,6 +56,12 @@ import {
   parseRequestedQuoteQuantitiesInput,
 } from "@/features/quotes/request-intake";
 import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadata";
+import {
+  buildRequestedServiceIntentFromServiceRequests,
+  getPrimaryQuoteServiceRequest,
+  normalizeServiceRequestInputs,
+} from "@/features/quotes/service-requests";
+import { formatRequestedServiceKindLabel } from "@/features/quotes/service-intent";
 import { getSharedRequestMetadata } from "@/features/quotes/request-scenarios";
 import {
   applyBulkPresetSelection,
@@ -69,7 +75,7 @@ import {
   type ClientQuoteSelectionOption,
   type QuotePreset,
 } from "@/features/quotes/selection";
-import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
+import type { ClientPartRequestUpdateInput, ServiceRequestLineItemInput } from "@/features/quotes/types";
 import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
@@ -117,6 +123,7 @@ export function useClientProjectController() {
   const { user, activeMembership, signOut } = useAppSession();
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<JobFilter>("all");
+  const [activeServiceFilter, setActiveServiceFilter] = useState<string>("all");
   const [focusedJobId, setFocusedJobId] = useState<string | null>(null);
   const [showAddPart, setShowAddPart] = useState(false);
   const [showRename, setShowRename] = useState(false);
@@ -264,12 +271,42 @@ export function useClientProjectController() {
     () => summarizeSelectedQuoteOptions(projectJobIds.map((jobId) => selectedOptionsByJobId[jobId])),
     [projectJobIds, selectedOptionsByJobId],
   );
+  const serviceFilterOptions = useMemo(() => {
+    const serviceTypes = new Set<string>();
+
+    projectWorkspaceItemsQuery.data?.forEach((item) => {
+      (item.serviceRequests ?? item.summary?.serviceRequests ?? []).forEach((serviceRequest) => {
+        serviceTypes.add(serviceRequest.serviceType);
+      });
+    });
+
+    return [
+      { id: "all", label: "All services" },
+      ...Array.from(serviceTypes).map((serviceType) => ({
+        id: serviceType,
+        label: formatRequestedServiceKindLabel(serviceType),
+      })),
+    ];
+  }, [projectWorkspaceItemsQuery.data]);
   const filteredJobs = useMemo(
     () =>
       projectJobs.filter(
-        (job) => matchesJobFilter(job.status, activeFilter) && matchesClientJobSearch(job, search),
+        (job) => {
+          if (!matchesJobFilter(job.status, activeFilter) || !matchesClientJobSearch(job, search)) {
+            return false;
+          }
+
+          if (activeServiceFilter === "all") {
+            return true;
+          }
+
+          const workspaceItem = workspaceItemsByJobId.get(job.id);
+          const serviceRequests = workspaceItem?.serviceRequests ?? workspaceItem?.summary?.serviceRequests ?? [];
+
+          return serviceRequests.some((serviceRequest) => serviceRequest.serviceType === activeServiceFilter);
+        },
       ),
-    [activeFilter, projectJobs, search],
+    [activeFilter, activeServiceFilter, projectJobs, search, workspaceItemsByJobId],
   );
   const focusedJob = useMemo(
     () => filteredJobs.find((job) => job.id === focusedJobId) ?? null,
@@ -493,7 +530,17 @@ export function useClientProjectController() {
           requested_by_date: item.job.requested_by_date ?? null,
         });
 
-        next[item.job.id] = buildClientPartRequestUpdateInput(item.job.id, requirement);
+        next[item.job.id] = buildClientPartRequestUpdateInput(
+          item.job.id,
+          requirement,
+          normalizeServiceRequestInputs(item.serviceRequests, {
+            requestedServiceKinds: item.job.requested_service_kinds ?? [],
+            primaryServiceKind: item.job.primary_service_kind ?? null,
+            serviceNotes: item.job.service_notes ?? null,
+            requestedQuoteQuantities: item.job.requested_quote_quantities ?? [],
+            requestedByDate: item.job.requested_by_date ?? null,
+          }),
+        );
       });
 
       return next;
@@ -909,28 +956,44 @@ export function useClientProjectController() {
     prompt: string;
     files: File[];
     clear: () => void;
+    serviceRequests: ServiceRequestLineItemInput[];
   }) => {
+    const parsedRequestIntake = parseRequestIntake(input.prompt);
+    const normalizedServiceRequests = normalizeServiceRequestInputs(input.serviceRequests, {
+      requestedServiceKinds: parsedRequestIntake.requestedServiceKinds,
+      primaryServiceKind: parsedRequestIntake.primaryServiceKind,
+      serviceNotes: parsedRequestIntake.serviceNotes,
+      requestedQuoteQuantities: parsedRequestIntake.requestedQuoteQuantities,
+      requestedByDate: parsedRequestIntake.requestedByDate,
+    });
+    const normalizedServiceIntent = buildRequestedServiceIntentFromServiceRequests(normalizedServiceRequests, {
+      requestedServiceKinds: parsedRequestIntake.requestedServiceKinds,
+      primaryServiceKind: parsedRequestIntake.primaryServiceKind,
+      serviceNotes: parsedRequestIntake.serviceNotes,
+    });
+    const quoteDefaults = getPrimaryQuoteServiceRequest(normalizedServiceRequests);
     const result =
       input.files.length > 0
         ? await createJobsFromUploadFiles({
             files: input.files,
             prompt: input.prompt,
             projectId,
+            serviceRequests: normalizedServiceRequests,
           })
         : {
             projectId,
             jobIds: [
               await (() => {
-                const requestIntake = parseRequestIntake(input.prompt);
                 return createClientDraft({
                   title: input.prompt.trim().split("\n")[0].slice(0, 120) || "Untitled part",
                   description: input.prompt.trim() || undefined,
                   projectId,
-                  requestedServiceKinds: requestIntake.requestedServiceKinds,
-                  primaryServiceKind: requestIntake.primaryServiceKind,
-                  serviceNotes: requestIntake.serviceNotes,
-                  requestedQuoteQuantities: requestIntake.requestedQuoteQuantities,
-                  requestedByDate: requestIntake.requestedByDate,
+                  requestedServiceKinds: normalizedServiceIntent.requestedServiceKinds,
+                  primaryServiceKind: normalizedServiceIntent.primaryServiceKind,
+                  serviceNotes: normalizedServiceIntent.serviceNotes,
+                  requestedQuoteQuantities: quoteDefaults.requestedQuoteQuantities,
+                  requestedByDate: quoteDefaults.requestedByDate,
+                  serviceRequests: normalizedServiceRequests,
                 });
               })(),
             ],
@@ -974,6 +1037,7 @@ export function useClientProjectController() {
   return {
     accessibleJobsQuery,
     activeFilter,
+    activeServiceFilter,
     activeMembership,
     archivedJobsQuery,
     archivedProjectsQuery,
@@ -1033,6 +1097,7 @@ export function useClientProjectController() {
     projectName,
     projectQuery,
     projectSelectionSummary,
+    serviceFilterOptions,
     projectWorkspaceItemsQuery,
     requestDraftsByJobId,
     resolveSidebarProjectIdsForJob,
@@ -1041,6 +1106,7 @@ export function useClientProjectController() {
     optionsByJobId,
     selectedOptionsByJobId,
     setActiveFilter,
+    setActiveServiceFilter,
     setIsSearchOpen,
     setMobileDrawerOpen,
     setProjectName,

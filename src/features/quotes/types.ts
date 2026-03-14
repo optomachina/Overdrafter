@@ -13,6 +13,7 @@ import type {
   QuoteRunStatus,
   QueueTaskStatus,
   QueueTaskType,
+  ServiceRequestScope,
   VendorName,
   VendorStatus,
 } from "@/integrations/supabase/types";
@@ -29,6 +30,7 @@ export type UserPinnedProjectRecord = Database["public"]["Tables"]["user_pinned_
 export type UserPinnedJobRecord = Database["public"]["Tables"]["user_pinned_jobs"]["Row"];
 export type PricingPolicyRecord = Database["public"]["Tables"]["pricing_policies"]["Row"];
 export type JobRecord = Database["public"]["Tables"]["jobs"]["Row"];
+export type ServiceRequestLineItemRecord = Database["public"]["Tables"]["service_request_line_items"]["Row"];
 export type JobFileRecord = Database["public"]["Tables"]["job_files"]["Row"];
 export type PartRecord = Database["public"]["Tables"]["parts"]["Row"];
 export type DrawingExtractionRecord = Database["public"]["Tables"]["drawing_extractions"]["Row"];
@@ -89,6 +91,32 @@ export type RfqServiceScope = {
   requestedServiceKinds: string[];
   primaryServiceKind: string | null;
   serviceNotes: string | null;
+};
+
+export type ServiceRequestLineItem = {
+  id: string;
+  organizationId: string;
+  projectId: string | null;
+  jobId: string | null;
+  partId: string | null;
+  serviceType: string;
+  scope: ServiceRequestScope;
+  requestedByDate: string | null;
+  serviceNotes: string | null;
+  detailPayload: Json;
+  displayOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ServiceRequestLineItemInput = {
+  id?: string;
+  serviceType: string;
+  scope?: ServiceRequestScope;
+  requestedByDate?: string | null;
+  serviceNotes?: string | null;
+  detailPayload?: Json;
+  displayOrder?: number;
 };
 
 export type RfqShippingPriority =
@@ -332,6 +360,7 @@ export type ClientDraftInput = {
   serviceNotes?: string | null;
   requestedQuoteQuantities?: number[];
   requestedByDate?: string | null;
+  serviceRequests?: ServiceRequestLineItemInput[];
 };
 
 export type ProjectInviteSummary = {
@@ -372,6 +401,7 @@ export type JobPartSummary = {
   selectedSupplier: string | null;
   selectedPriceUsd: number | null;
   selectedLeadTimeBusinessDays: number | null;
+  serviceRequests?: ServiceRequestLineItem[];
 };
 
 export type AppSessionData = {
@@ -421,6 +451,7 @@ export type JobAggregate = {
   job: JobRecord;
   files: JobFileRecord[];
   parts: PartAggregate[];
+  serviceRequests?: ServiceRequestLineItem[];
   quoteRuns: QuoteRunAggregate[];
   packages: PublishedPackageAggregate[];
   pricingPolicy: PricingPolicyRecord | null;
@@ -444,6 +475,7 @@ export type PartDetailAggregate = {
   summary: JobPartSummary | null;
   packages: PublishedQuotePackageRecord[];
   part: PartAggregate | null;
+  serviceRequests?: ServiceRequestLineItem[];
   projectIds: string[];
   drawingPreview: DrawingPreviewData;
   latestQuoteRun: QuoteRunRecord | null;
@@ -457,13 +489,16 @@ export type PartDetailAggregate = {
 export type ClientPartRequestUpdateInput = {
   jobId: string;
 } & ClientPartRequestEditableFields &
-  RfqLineItemExtendedMetadata;
+  RfqLineItemExtendedMetadata & {
+    serviceRequests?: ServiceRequestLineItemInput[];
+  };
 
 export type ClientQuoteWorkspaceItem = {
   job: JobRecord;
   files: JobFileRecord[];
   summary: JobPartSummary | null;
   part: PartAggregate | null;
+  serviceRequests?: ServiceRequestLineItem[];
   projectIds: string[];
   drawingPreview: DrawingPreviewData;
   latestQuoteRun: QuoteRunRecord | null;

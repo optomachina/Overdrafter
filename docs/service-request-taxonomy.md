@@ -16,15 +16,20 @@ Use this document when:
 
 ## Current transition model
 
-The active intake and review surfaces now capture a transitional service-intent bridge:
+The active intake and review surfaces now capture service intent in two layers:
 
 - `src/features/quotes/request-intake.ts` parses canonical service kinds in addition to quote quantities and requested date
-- `src/features/quotes/types.ts` carries `requestedServiceKinds`, `primaryServiceKind`, and `serviceNotes` through the current client-safe request edit path
+- `public.service_request_line_items` is now the first-class persisted workpack model for job-scoped service requests
+- `src/features/quotes/types.ts` still carries `requestedServiceKinds`, `primaryServiceKind`, and `serviceNotes` as a compatibility mirror through the current client-safe request edit path
 - `src/components/quotes/ClientPartRequestEditor.tsx` and `src/pages/InternalJobDetail.tsx` expose the same service-aware fields while keeping quote-specific inputs conditional
 - `jobs.requested_service_kinds`, `jobs.primary_service_kind`, and `jobs.service_notes` preserve draft-stage intent until an approved requirement snapshot exists
 - `approved_part_requirements.spec_snapshot` mirrors the same service intent for internal review and downstream summaries
 
-This is intentionally a bridge rather than the final line-item model.
+This remains intentionally transitional:
+
+- explicit service request line items are now the source of truth for job-scoped workpacks
+- `jobs.*service*` fields remain as a compatibility mirror for existing routes and summaries
+- assembly-scoped requests, dependency edges, and deeper review-state modeling are still follow-on work
 
 ## Canonical service types
 
