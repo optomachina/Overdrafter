@@ -1,4 +1,6 @@
-import { defineConfig } from "vitest/config";
+/// <reference types="vitest/config" />
+
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
