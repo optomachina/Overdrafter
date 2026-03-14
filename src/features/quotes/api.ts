@@ -244,6 +244,8 @@ const PROJECT_COLLABORATION_IDENTIFIERS = [
   "public.jobs",
   "public.project_memberships",
   "public.project_invites",
+  "public.project_jobs",
+  "project_jobs",
   "public.user_pinned_projects",
   "api_archive_job",
   "api_unarchive_job",
@@ -257,6 +259,11 @@ const PROJECT_COLLABORATION_IDENTIFIERS = [
   "api_remove_project_member",
   "api_assign_job_to_project",
   "api_remove_job_from_project",
+] as const;
+const DRAWING_PREVIEW_ASSET_IDENTIFIERS = [
+  "public.drawing_preview_assets",
+  "drawing_preview_assets",
+  "page_number",
 ] as const;
 const CLIENT_INTAKE_IDENTIFIERS = [
   "api_create_job",
@@ -309,9 +316,9 @@ function markClientIntakeSchemaAvailability(
   clientIntakeSchemaMessage = message;
 }
 
-function isMissingProjectCollaborationSchemaError(error: unknown): boolean {
+function getSchemaErrorMetadata(error: unknown) {
   if (!error) {
-    return false;
+    return null;
   }
 
   const value = error as {
@@ -324,53 +331,45 @@ function isMissingProjectCollaborationSchemaError(error: unknown): boolean {
   const message = typeof value.message === "string" ? value.message : error instanceof Error ? error.message : "";
   const details = typeof value.details === "string" ? value.details : "";
   const hint = typeof value.hint === "string" ? value.hint : "";
-  const blob = `${message} ${details} ${hint}`.toLowerCase();
+  return {
+    code,
+    blob: `${message} ${details} ${hint}`.toLowerCase(),
+  };
+}
 
-  if (!PROJECT_COLLABORATION_IDENTIFIERS.some((identifier) => blob.includes(identifier))) {
+function isMissingSchemaIdentifierError(error: unknown, identifiers: readonly string[]): boolean {
+  const metadata = getSchemaErrorMetadata(error);
+
+  if (!metadata) {
+    return false;
+  }
+
+  if (!identifiers.some((identifier) => metadata.blob.includes(identifier))) {
     return false;
   }
 
   return (
-    code === "42P01" ||
-    code === "42883" ||
-    code === "PGRST202" ||
-    code === "PGRST205" ||
-    blob.includes("does not exist") ||
-    blob.includes("schema cache")
+    metadata.code === "42P01" ||
+    metadata.code === "42703" ||
+    metadata.code === "42883" ||
+    metadata.code === "PGRST202" ||
+    metadata.code === "PGRST204" ||
+    metadata.code === "PGRST205" ||
+    metadata.blob.includes("does not exist") ||
+    metadata.blob.includes("schema cache")
   );
 }
 
+function isMissingProjectCollaborationSchemaError(error: unknown): boolean {
+  return isMissingSchemaIdentifierError(error, PROJECT_COLLABORATION_IDENTIFIERS);
+}
+
+function isMissingDrawingPreviewSchemaError(error: unknown): boolean {
+  return isMissingSchemaIdentifierError(error, DRAWING_PREVIEW_ASSET_IDENTIFIERS);
+}
+
 function isMissingClientIntakeSchemaError(error: unknown): boolean {
-  if (!error) {
-    return false;
-  }
-
-  const value = error as {
-    code?: unknown;
-    message?: unknown;
-    details?: unknown;
-    hint?: unknown;
-  };
-  const code = typeof value.code === "string" ? value.code : "";
-  const message = typeof value.message === "string" ? value.message : error instanceof Error ? error.message : "";
-  const details = typeof value.details === "string" ? value.details : "";
-  const hint = typeof value.hint === "string" ? value.hint : "";
-  const blob = `${message} ${details} ${hint}`.toLowerCase();
-
-  if (!CLIENT_INTAKE_IDENTIFIERS.some((identifier) => blob.includes(identifier))) {
-    return false;
-  }
-
-  return (
-    code === "42703" ||
-    code === "42883" ||
-    code === "42P01" ||
-    code === "PGRST202" ||
-    code === "PGRST204" ||
-    code === "PGRST205" ||
-    blob.includes("does not exist") ||
-    blob.includes("schema cache")
-  );
+  return isMissingSchemaIdentifierError(error, CLIENT_INTAKE_IDENTIFIERS);
 }
 
 function formatClientIntakeDriftMessage(missing: readonly string[] = []): string {
@@ -852,6 +851,22 @@ export async function fetchProjectJobMembershipsByJobIds(jobIds: string[]): Prom
   }
 
   return ensureData(data, error) as ProjectJobRecord[];
+}
+
+async function fetchDrawingPreviewAssetsByPartId(partId: string): Promise<DrawingPreviewAssetRecord[]> {
+  const { data, error } = await supabase
+    .from("drawing_preview_assets")
+    .select("*")
+    .eq("part_id", partId)
+    .order("page_number", {
+      ascending: true,
+    });
+
+  if (isMissingDrawingPreviewSchemaError(error)) {
+    return [];
+  }
+
+  return ensureData(data, error) as DrawingPreviewAssetRecord[];
 }
 
 export async function fetchAppSessionData(): Promise<AppSessionData> {
@@ -2208,12 +2223,7 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
   }
 
   const part = jobAggregate.parts[0] ?? null;
-  const previewAssets =
-    part !== null
-      ? ((await supabase.from("drawing_preview_assets").select("*").eq("part_id", part.id).order("page_number", {
-          ascending: true,
-        })).data as DrawingPreviewAssetRecord[] | null) ?? []
-      : [];
+  const previewAssets = part !== null ? await fetchDrawingPreviewAssetsByPartId(part.id) : [];
 
   const summary = partSummaries[0] ?? null;
   const [allSummaries, activeJobs] = await Promise.all([
