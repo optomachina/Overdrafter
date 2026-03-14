@@ -213,6 +213,8 @@ function emptySingleResponse<T>(data: T | null = null): Promise<PostgrestSingleR
 
 const PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE =
   "Projects are unavailable in this environment until the shared workspace schema is applied.";
+const JOB_ARCHIVING_UNAVAILABLE_MESSAGE =
+  "Part archiving is unavailable in this environment until the archive schema is applied.";
 const PROJECT_NOT_FOUND_MESSAGE = "Project not found.";
 const CLIENT_INTAKE_EXPECTED_MIGRATION = "20260313143000_add_request_service_intent.sql";
 const CLIENT_INTAKE_DRIFT_MESSAGE =
@@ -220,6 +222,7 @@ const CLIENT_INTAKE_DRIFT_MESSAGE =
   `\`${CLIENT_INTAKE_EXPECTED_MIGRATION}\`, and refresh the PostgREST schema cache.`;
 
 type ProjectCollaborationSchemaAvailability = "unknown" | "available" | "unavailable";
+type JobArchivingSchemaAvailability = "unknown" | "available" | "unavailable";
 type ClientIntakeSchemaAvailability = "unknown" | "available" | "legacy" | "unavailable";
 type ClientIntakeCompatibilitySnapshot = {
   supportsCurrentCreateJob?: boolean | null;
@@ -236,6 +239,7 @@ type ClientIntakeCompatibilitySnapshot = {
 };
 
 let projectCollaborationSchemaAvailability: ProjectCollaborationSchemaAvailability = "unknown";
+let jobArchivingSchemaAvailability: JobArchivingSchemaAvailability = "unknown";
 let clientIntakeSchemaAvailability: ClientIntakeSchemaAvailability = "unknown";
 let clientIntakeSchemaMessage = CLIENT_INTAKE_DRIFT_MESSAGE;
 
@@ -247,9 +251,6 @@ const PROJECT_COLLABORATION_IDENTIFIERS = [
   "public.project_jobs",
   "project_jobs",
   "public.user_pinned_projects",
-  "api_archive_job",
-  "api_unarchive_job",
-  "api_delete_archived_job",
   "api_unarchive_project",
   "api_create_project",
   "api_update_project",
@@ -259,6 +260,15 @@ const PROJECT_COLLABORATION_IDENTIFIERS = [
   "api_remove_project_member",
   "api_assign_job_to_project",
   "api_remove_job_from_project",
+  "projects.archived_at",
+  "project_row.archived_at",
+] as const;
+const JOB_ARCHIVING_IDENTIFIERS = [
+  "api_archive_job",
+  "api_unarchive_job",
+  "api_delete_archived_job",
+  "jobs.archived_at",
+  "job_row.archived_at",
 ] as const;
 const DRAWING_PREVIEW_ASSET_IDENTIFIERS = [
   "public.drawing_preview_assets",
@@ -331,6 +341,10 @@ function markProjectCollaborationSchemaAvailability(next: Exclude<ProjectCollabo
   projectCollaborationSchemaAvailability = next;
 }
 
+function markJobArchivingSchemaAvailability(next: Exclude<JobArchivingSchemaAvailability, "unknown">) {
+  jobArchivingSchemaAvailability = next;
+}
+
 function markClientIntakeSchemaAvailability(
   next: Exclude<ClientIntakeSchemaAvailability, "unknown">,
   message = CLIENT_INTAKE_DRIFT_MESSAGE,
@@ -385,6 +399,10 @@ function isMissingSchemaIdentifierError(error: unknown, identifiers: readonly st
 
 function isMissingProjectCollaborationSchemaError(error: unknown): boolean {
   return isMissingSchemaIdentifierError(error, PROJECT_COLLABORATION_IDENTIFIERS);
+}
+
+function isMissingJobArchivingSchemaError(error: unknown): boolean {
+  return isMissingSchemaIdentifierError(error, JOB_ARCHIVING_IDENTIFIERS);
 }
 
 function isMissingDrawingPreviewSchemaError(error: unknown): boolean {
@@ -444,8 +462,20 @@ export function isProjectCollaborationSchemaUnavailable(): boolean {
   return projectCollaborationSchemaAvailability === "unavailable";
 }
 
+function isJobArchivingSchemaUnavailable(): boolean {
+  if (getActiveClientWorkspaceGateway()) {
+    return false;
+  }
+
+  return jobArchivingSchemaAvailability === "unavailable";
+}
+
 export function resetProjectCollaborationSchemaAvailabilityForTests(): void {
   projectCollaborationSchemaAvailability = "unknown";
+}
+
+export function resetJobArchivingSchemaAvailabilityForTests(): void {
+  jobArchivingSchemaAvailability = "unknown";
 }
 
 export function resetClientIntakeSchemaAvailabilityForTests(): void {
@@ -795,14 +825,40 @@ async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
     };
   }
 
-  const { data: jobsData, error: jobsError } = await supabase
-    .from("jobs")
-    .select(
-      "id, selected_vendor_quote_offer_id, requested_service_kinds, primary_service_kind, service_notes, requested_quote_quantities, requested_by_date",
-    )
-    .in("id", jobIds);
+  const selectionColumnSets = [
+    "id, selected_vendor_quote_offer_id, requested_service_kinds, primary_service_kind, service_notes, requested_quote_quantities, requested_by_date",
+    "id, selected_vendor_quote_offer_id, requested_quote_quantities, requested_by_date",
+    "id, selected_vendor_quote_offer_id",
+  ] as const;
 
-  const jobsWithSelection = ensureData(jobsData, jobsError) as JobSelectedOfferRow[];
+  let jobsWithSelection: JobSelectedOfferRow[] = [];
+  let selectionQueryError: unknown = null;
+
+  for (const [index, columnSet] of selectionColumnSets.entries()) {
+    const { data: jobsData, error: jobsError } = await supabase
+      .from("jobs")
+      .select(columnSet)
+      .in("id", jobIds);
+
+    if (!jobsError) {
+      jobsWithSelection = ensureData(jobsData as unknown as JobSelectedOfferRow[] | null, null);
+      if (index > 0) {
+        markClientIntakeSchemaAvailability("legacy");
+      }
+      selectionQueryError = null;
+      break;
+    }
+
+    if (!isMissingClientIntakeSchemaError(jobsError) || index === selectionColumnSets.length - 1) {
+      selectionQueryError = jobsError;
+      break;
+    }
+  }
+
+  if (selectionQueryError) {
+    throw selectionQueryError;
+  }
+
   const offerIds = jobsWithSelection
     .map((job) => job.selected_vendor_quote_offer_id)
     .filter((value): value is string => Boolean(value));
@@ -898,6 +954,46 @@ async function fetchDrawingPreviewAssetsByPartId(partId: string): Promise<Drawin
   }
 
   return ensureData(data, error) as DrawingPreviewAssetRecord[];
+}
+
+async function invokeJobArchivingFallback(
+  action: "archive" | "unarchive" | "delete",
+  jobId: string,
+): Promise<string> {
+  const { data, error } = await supabase.functions.invoke("job-archive-fallback", {
+    body: {
+      action,
+      jobId,
+    },
+  });
+
+  if (error) {
+    if (error instanceof FunctionsHttpError && error.context instanceof Response) {
+      let message = error.message;
+
+      try {
+        const body = (await error.context.clone().json()) as { error?: unknown; message?: unknown };
+        message =
+          typeof body.error === "string"
+            ? body.error
+            : typeof body.message === "string"
+              ? body.message
+              : error.message;
+      } catch {
+        // Keep the original edge-function error when the body is not valid JSON.
+      }
+
+      throw new Error(message);
+    }
+
+    throw error;
+  }
+
+  if (!data || typeof data !== "object" || !("jobId" in data) || typeof data.jobId !== "string") {
+    throw new Error("Expected a jobId from job-archive-fallback.");
+  }
+
+  return data.jobId;
 }
 
 export async function fetchAppSessionData(): Promise<AppSessionData> {
@@ -1473,17 +1569,17 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     return [];
   }
 
-  const [jobsResult, filesResult, partsResult, summaries, projectMemberships, latestQuoteRunsByJobId] =
-    await Promise.all([
-      supabase.from("jobs").select("*").in("id", jobIds).is("archived_at", null),
-      supabase.from("job_files").select("*").in("job_id", jobIds).order("created_at", { ascending: true }),
-      supabase.from("parts").select("*").in("job_id", jobIds).order("created_at", { ascending: true }),
-      fetchJobPartSummariesByJobIds(jobIds),
-      fetchProjectJobMembershipsByJobIds(jobIds),
-      fetchLatestQuoteRunsByJobIds(jobIds),
-    ]);
+  const [jobs, filesResult, partsResult, summaries, projectMemberships, latestQuoteRunsByJobId] = await Promise.all([
+    fetchJobsByIds(jobIds, {
+      archived: false,
+    }),
+    supabase.from("job_files").select("*").in("job_id", jobIds).order("created_at", { ascending: true }),
+    supabase.from("parts").select("*").in("job_id", jobIds).order("created_at", { ascending: true }),
+    fetchJobPartSummariesByJobIds(jobIds),
+    fetchProjectJobMembershipsByJobIds(jobIds),
+    fetchLatestQuoteRunsByJobIds(jobIds),
+  ]);
 
-  const jobs = ensureData(jobsResult.data, jobsResult.error) as JobRecord[];
   const files = ensureData(filesResult.data, filesResult.error) as JobFileRecord[];
   const parts = ensureData(partsResult.data, partsResult.error) as PartRecord[];
   const partIds = parts.map((part) => part.id);
@@ -1722,6 +1818,15 @@ export async function updateOrganizationMembershipRole(input: {
 }
 
 async function fetchAllAccessibleJobs(options: { archived?: boolean } = {}): Promise<JobRecord[]> {
+  if (isJobArchivingSchemaUnavailable()) {
+    if (options.archived) {
+      return [];
+    }
+
+    const fallbackResult = await supabase.from("jobs").select("*").order("created_at", { ascending: false });
+    return ensureData(fallbackResult.data, fallbackResult.error);
+  }
+
   const query = supabase
     .from("jobs")
     .select("*")
@@ -1730,6 +1835,19 @@ async function fetchAllAccessibleJobs(options: { archived?: boolean } = {}): Pro
   const { data, error } = await (options.archived
     ? query.not("archived_at", "is", null)
     : query.is("archived_at", null));
+
+  if (isMissingJobArchivingSchemaError(error)) {
+    markJobArchivingSchemaAvailability("unavailable");
+
+    if (options.archived) {
+      return [];
+    }
+
+    const fallbackResult = await supabase.from("jobs").select("*").order("created_at", { ascending: false });
+    return ensureData(fallbackResult.data, fallbackResult.error) as JobRecord[];
+  }
+
+  markJobArchivingSchemaAvailability("available");
   return ensureData(data, error);
 }
 
@@ -1835,10 +1953,32 @@ async function fetchJobsByIds(jobIds: string[], options: { archived: boolean }):
     return [];
   }
 
+  if (isJobArchivingSchemaUnavailable()) {
+    if (options.archived) {
+      return [];
+    }
+
+    const fallbackResult = await supabase.from("jobs").select("*").in("id", jobIds);
+    return ensureData(fallbackResult.data, fallbackResult.error) as JobRecord[];
+  }
+
   const query = supabase.from("jobs").select("*").in("id", jobIds);
   const { data, error } = await (options.archived
     ? query.not("archived_at", "is", null)
     : query.is("archived_at", null));
+
+  if (isMissingJobArchivingSchemaError(error)) {
+    markJobArchivingSchemaAvailability("unavailable");
+
+    if (options.archived) {
+      return [];
+    }
+
+    const fallbackResult = await supabase.from("jobs").select("*").in("id", jobIds);
+    return ensureData(fallbackResult.data, fallbackResult.error) as JobRecord[];
+  }
+
+  markJobArchivingSchemaAvailability("available");
   return ensureData(data, error) as JobRecord[];
 }
 
@@ -1909,6 +2049,10 @@ export async function fetchArchivedJobs(): Promise<ArchivedJobSummary[]> {
 
   if (fixtureGateway) {
     return fixtureGateway.fetchArchivedJobs();
+  }
+
+  if (isJobArchivingSchemaUnavailable()) {
+    return [];
   }
 
   const jobs = await fetchAllAccessibleJobs({ archived: true });
@@ -2197,17 +2341,12 @@ export async function fetchJobsByProject(projectId: string): Promise<JobRecord[]
     return [];
   }
 
-  const { data, error } = await supabase
-    .from("jobs")
-    .select("*")
-    .in(
-      "id",
-      memberships.map((membership) => membership.job_id),
-    )
-    .is("archived_at", null)
-    .order("created_at", { ascending: false });
-
-  return ensureData(data, error);
+  return fetchJobsByIds(
+    memberships.map((membership) => membership.job_id),
+    {
+      archived: false,
+    },
+  );
 }
 
 export async function fetchUngroupedParts(): Promise<JobRecord[]> {
@@ -2219,6 +2358,17 @@ export async function fetchUngroupedParts(): Promise<JobRecord[]> {
     .is("project_id", null)
     .is("archived_at", null)
     .order("created_at", { ascending: false });
+
+  if (isMissingJobArchivingSchemaError(error)) {
+    markJobArchivingSchemaAvailability("unavailable");
+    const fallbackResult = await supabase
+      .from("jobs")
+      .select("*")
+      .eq("created_by", currentUser.id)
+      .is("project_id", null)
+      .order("created_at", { ascending: false });
+    return ensureData(fallbackResult.data, fallbackResult.error);
+  }
 
   return ensureData(data, error);
 }
@@ -2820,7 +2970,32 @@ export async function archiveJob(jobId: string): Promise<string> {
     p_job_id: jobId,
   });
 
-  return ensureProjectCollaborationData(data, error);
+  if (!error) {
+    markJobArchivingSchemaAvailability("available");
+    return ensureData(data, null);
+  }
+
+  if (isMissingFunctionError(error, "api_archive_job") || isMissingProjectCollaborationSchemaError(error)) {
+    try {
+      const archivedJobId = await invokeJobArchivingFallback("archive", jobId);
+      markJobArchivingSchemaAvailability("available");
+      return archivedJobId;
+    } catch (fallbackError) {
+      if (isMissingJobArchivingSchemaError(fallbackError)) {
+        markJobArchivingSchemaAvailability("unavailable");
+        throw new Error(JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
+      }
+
+      throw fallbackError;
+    }
+  }
+
+  if (isMissingJobArchivingSchemaError(error)) {
+    markJobArchivingSchemaAvailability("unavailable");
+    throw new Error(JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
+  }
+
+  throw error;
 }
 
 export async function unarchiveJob(jobId: string): Promise<string> {
@@ -2834,7 +3009,32 @@ export async function unarchiveJob(jobId: string): Promise<string> {
     p_job_id: jobId,
   });
 
-  return ensureProjectCollaborationData(data, error);
+  if (!error) {
+    markJobArchivingSchemaAvailability("available");
+    return ensureData(data, null);
+  }
+
+  if (isMissingFunctionError(error, "api_unarchive_job")) {
+    try {
+      const restoredJobId = await invokeJobArchivingFallback("unarchive", jobId);
+      markJobArchivingSchemaAvailability("available");
+      return restoredJobId;
+    } catch (fallbackError) {
+      if (isMissingJobArchivingSchemaError(fallbackError)) {
+        markJobArchivingSchemaAvailability("unavailable");
+        throw new Error(JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
+      }
+
+      throw fallbackError;
+    }
+  }
+
+  if (isMissingJobArchivingSchemaError(error)) {
+    markJobArchivingSchemaAvailability("unavailable");
+    throw new Error(JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
+  }
+
+  throw error;
 }
 
 export async function deleteArchivedJob(jobId: string): Promise<string> {
@@ -2848,7 +3048,32 @@ export async function deleteArchivedJob(jobId: string): Promise<string> {
     p_job_id: jobId,
   });
 
-  return ensureProjectCollaborationData(data, error);
+  if (!error) {
+    markJobArchivingSchemaAvailability("available");
+    return ensureData(data, null);
+  }
+
+  if (isMissingFunctionError(error, "api_delete_archived_job")) {
+    try {
+      const deletedJobId = await invokeJobArchivingFallback("delete", jobId);
+      markJobArchivingSchemaAvailability("available");
+      return deletedJobId;
+    } catch (fallbackError) {
+      if (isMissingJobArchivingSchemaError(fallbackError)) {
+        markJobArchivingSchemaAvailability("unavailable");
+        throw new Error(JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
+      }
+
+      throw fallbackError;
+    }
+  }
+
+  if (isMissingJobArchivingSchemaError(error)) {
+    markJobArchivingSchemaAvailability("unavailable");
+    throw new Error(JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
+  }
+
+  throw error;
 }
 
 export async function setJobSelectedVendorQuoteOffer(jobId: string, offerId: string | null): Promise<string> {

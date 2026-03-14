@@ -64,6 +64,42 @@ const supabaseMock = vi.hoisted(() => {
   jobsIn.mockImplementation(() => jobsQuery);
   const jobsSelect = vi.fn(() => jobsQuery);
 
+  const partsOrder = vi.fn();
+  const partsEq = vi.fn();
+  const partsIn = vi.fn();
+  const partsQuery = {
+    eq: partsEq,
+    in: partsIn,
+    order: partsOrder,
+  };
+  partsEq.mockImplementation(() => partsQuery);
+  partsIn.mockImplementation(() => partsQuery);
+  const partsSelect = vi.fn(() => partsQuery);
+
+  const jobFilesOrder = vi.fn();
+  const jobFilesEq = vi.fn();
+  const jobFilesIn = vi.fn();
+  const jobFilesQuery = {
+    eq: jobFilesEq,
+    in: jobFilesIn,
+    order: jobFilesOrder,
+  };
+  jobFilesEq.mockImplementation(() => jobFilesQuery);
+  jobFilesIn.mockImplementation(() => jobFilesQuery);
+  const jobFilesSelect = vi.fn(() => jobFilesQuery);
+
+  const projectJobsOrder = vi.fn();
+  const projectJobsEq = vi.fn();
+  const projectJobsIn = vi.fn();
+  const projectJobsQuery = {
+    eq: projectJobsEq,
+    in: projectJobsIn,
+    order: projectJobsOrder,
+  };
+  projectJobsEq.mockImplementation(() => projectJobsQuery);
+  projectJobsIn.mockImplementation(() => projectJobsQuery);
+  const projectJobsSelect = vi.fn(() => projectJobsQuery);
+
   const pinnedProjectsOrder = vi.fn();
   const pinnedProjectsEq = vi.fn(() => ({ order: pinnedProjectsOrder }));
   const pinnedProjectsSelect = vi.fn(() => ({ eq: pinnedProjectsEq }));
@@ -120,6 +156,24 @@ const supabaseMock = vi.hoisted(() => {
       };
     }
 
+    if (table === "parts") {
+      return {
+        select: partsSelect,
+      };
+    }
+
+    if (table === "job_files") {
+      return {
+        select: jobFilesSelect,
+      };
+    }
+
+    if (table === "project_jobs") {
+      return {
+        select: projectJobsSelect,
+      };
+    }
+
     if (table === "user_pinned_projects") {
       return {
         select: pinnedProjectsSelect,
@@ -166,6 +220,16 @@ const supabaseMock = vi.hoisted(() => {
     jobsQuery,
     jobsSelect,
     jobsSingle,
+    jobFilesEq,
+    jobFilesIn,
+    jobFilesOrder,
+    jobFilesQuery,
+    jobFilesSelect,
+    partsEq,
+    partsIn,
+    partsOrder,
+    partsQuery,
+    partsSelect,
     projectsOrder,
     projectsEq,
     projectsIn,
@@ -175,6 +239,11 @@ const supabaseMock = vi.hoisted(() => {
     projectsSelect,
     projectsMaybeSingle,
     projectsSingle,
+    projectJobsEq,
+    projectJobsIn,
+    projectJobsOrder,
+    projectJobsQuery,
+    projectJobsSelect,
     pinnedJobsDelete,
     pinnedJobsDeleteEqFirst,
     pinnedJobsDeleteEqSecond,
@@ -250,10 +319,14 @@ import {
   createJob,
   createJobsFromUploadFiles,
   createProject,
+  archiveJob,
   deleteArchivedJob,
   enqueueDebugVendorQuote,
   fetchAccessibleProjects,
+  fetchAccessibleJobs,
+  fetchArchivedJobs,
   fetchAppSessionData,
+  fetchJobPartSummariesByJobIds,
   fetchProject,
   fetchWorkerReadiness,
   findDuplicateUploadSelections,
@@ -263,6 +336,7 @@ import {
   pinJob,
   pinProject,
   resetClientIntakeSchemaAvailabilityForTests,
+  resetJobArchivingSchemaAvailabilityForTests,
   resetProjectCollaborationSchemaAvailabilityForTests,
   unarchiveJob,
   unpinJob,
@@ -276,6 +350,7 @@ describe("quotes api helpers", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-03T12:34:56.000Z"));
     resetClientIntakeSchemaAvailabilityForTests();
+    resetJobArchivingSchemaAvailabilityForTests();
     resetProjectCollaborationSchemaAvailabilityForTests();
     supabaseMock.projectsOrder.mockImplementation(() => supabaseMock.projectsQuery);
     supabaseMock.projectsIs.mockImplementation(() => supabaseMock.projectsQuery);
@@ -289,6 +364,15 @@ describe("quotes api helpers", () => {
     supabaseMock.jobsEq.mockImplementation(() => supabaseMock.jobsQuery);
     supabaseMock.jobsIn.mockImplementation(() => supabaseMock.jobsQuery);
     supabaseMock.jobsSelect.mockImplementation(() => supabaseMock.jobsQuery);
+    supabaseMock.partsEq.mockImplementation(() => supabaseMock.partsQuery);
+    supabaseMock.partsIn.mockImplementation(() => supabaseMock.partsQuery);
+    supabaseMock.partsSelect.mockImplementation(() => supabaseMock.partsQuery);
+    supabaseMock.jobFilesEq.mockImplementation(() => supabaseMock.jobFilesQuery);
+    supabaseMock.jobFilesIn.mockImplementation(() => supabaseMock.jobFilesQuery);
+    supabaseMock.jobFilesSelect.mockImplementation(() => supabaseMock.jobFilesQuery);
+    supabaseMock.projectJobsEq.mockImplementation(() => supabaseMock.projectJobsQuery);
+    supabaseMock.projectJobsIn.mockImplementation(() => supabaseMock.projectJobsQuery);
+    supabaseMock.projectJobsSelect.mockImplementation(() => supabaseMock.projectJobsQuery);
     supabaseMock.authGetUser.mockResolvedValue({
       data: {
         user: {
@@ -340,7 +424,7 @@ describe("quotes api helpers", () => {
     });
   });
 
-  it("surfaces the project-collaboration compatibility message when the unarchive RPC is missing from schema cache", async () => {
+  it("falls back to the archive edge function when the unarchive RPC is missing from schema cache", async () => {
     supabaseMock.rpc.mockResolvedValueOnce({
       data: null,
       error: {
@@ -350,10 +434,21 @@ describe("quotes api helpers", () => {
         hint: null,
       },
     });
+    supabaseMock.functionsInvoke.mockResolvedValueOnce({
+      data: {
+        jobId: "job-123",
+      },
+      error: null,
+    });
 
-    await expect(unarchiveJob("job-123")).rejects.toThrow(
-      "Projects are unavailable in this environment until the shared workspace schema is applied.",
-    );
+    await expect(unarchiveJob("job-123")).resolves.toBe("job-123");
+
+    expect(supabaseMock.functionsInvoke).toHaveBeenCalledWith("job-archive-fallback", {
+      body: {
+        action: "unarchive",
+        jobId: "job-123",
+      },
+    });
   });
 
   it("deletes an archived job through the dedicated RPC", async () => {
@@ -364,6 +459,227 @@ describe("quotes api helpers", () => {
     expect(supabaseMock.rpc).toHaveBeenCalledWith("api_delete_archived_job", {
       p_job_id: "job-123",
     });
+  });
+
+  it("archives a job through the fallback when shared project tables are unavailable", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "42P01",
+        message: 'relation "public.project_jobs" does not exist',
+        details: null,
+        hint: null,
+      },
+    });
+    supabaseMock.functionsInvoke.mockResolvedValueOnce({
+      data: {
+        jobId: "job-123",
+      },
+      error: null,
+    });
+
+    await expect(archiveJob("job-123")).resolves.toBe("job-123");
+
+    expect(supabaseMock.functionsInvoke).toHaveBeenCalledWith("job-archive-fallback", {
+      body: {
+        action: "archive",
+        jobId: "job-123",
+      },
+    });
+  });
+
+  it("falls back to legacy job selection columns when service-intent fields are absent", async () => {
+    supabaseMock.jobsIn
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "42703",
+          message: 'column jobs.requested_service_kinds does not exist',
+          details: null,
+          hint: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: "job-1",
+            selected_vendor_quote_offer_id: null,
+            requested_quote_quantities: [5],
+            requested_by_date: "2026-04-01",
+          },
+        ],
+        error: null,
+      });
+    supabaseMock.partsOrder.mockResolvedValueOnce({
+      data: [
+        {
+          job_id: "job-1",
+          quantity: 5,
+          approved_part_requirements: null,
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.jobFilesOrder.mockResolvedValueOnce({
+      data: [
+        {
+          job_id: "job-1",
+          normalized_name: "1234-56789-A.step",
+          original_name: "1234-56789-A.step",
+          file_kind: "cad",
+        },
+      ],
+      error: null,
+    });
+
+    await expect(fetchJobPartSummariesByJobIds(["job-1"])).resolves.toEqual([
+      expect.objectContaining({
+        jobId: "job-1",
+        partNumber: "1234-56789",
+        revision: null,
+        requestedServiceKinds: ["manufacturing_quote"],
+        primaryServiceKind: "manufacturing_quote",
+        serviceNotes: null,
+        requestedQuoteQuantities: [5],
+        requestedByDate: "2026-04-01",
+      }),
+    ]);
+  });
+
+  it("falls back to unfiltered job reads when the archive column is missing", async () => {
+    supabaseMock.jobsOrder
+      .mockImplementationOnce(() => supabaseMock.jobsQuery)
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: "job-1",
+            organization_id: "org-1",
+            project_id: null,
+            selected_vendor_quote_offer_id: null,
+            created_by: "user-1",
+            title: "Bracket",
+            description: null,
+            status: "uploaded",
+            source: "client_home",
+            active_pricing_policy_id: null,
+            tags: [],
+            requested_quote_quantities: [1],
+            requested_by_date: null,
+            archived_at: null,
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        ],
+        error: null,
+      });
+    supabaseMock.jobsIs.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "42703",
+        message: 'column jobs.archived_at does not exist',
+        details: null,
+        hint: null,
+      },
+    });
+
+    await expect(fetchAccessibleJobs()).resolves.toEqual([
+      expect.objectContaining({
+        id: "job-1",
+        title: "Bracket",
+      }),
+    ]);
+  });
+
+  it("keeps archived job summaries renderable when project tables are unavailable", async () => {
+    supabaseMock.jobsOrder.mockImplementationOnce(() => supabaseMock.jobsQuery);
+    supabaseMock.jobsNot.mockResolvedValueOnce({
+      data: [
+        {
+          id: "job-1",
+          organization_id: "org-1",
+          project_id: null,
+          selected_vendor_quote_offer_id: null,
+          created_by: "user-1",
+          title: "Bracket",
+          description: null,
+          status: "uploaded",
+          source: "client_home",
+          active_pricing_policy_id: null,
+          tags: [],
+          requested_quote_quantities: [5],
+          requested_by_date: "2026-04-01",
+          archived_at: "2026-03-02T00:00:00Z",
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-02T00:00:00Z",
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.jobsIn
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "42703",
+          message: 'column jobs.requested_service_kinds does not exist',
+          details: null,
+          hint: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: "job-1",
+            selected_vendor_quote_offer_id: null,
+            requested_quote_quantities: [5],
+            requested_by_date: "2026-04-01",
+          },
+        ],
+        error: null,
+      });
+    supabaseMock.partsOrder.mockResolvedValueOnce({
+      data: [
+        {
+          job_id: "job-1",
+          quantity: 5,
+          approved_part_requirements: null,
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.jobFilesOrder.mockResolvedValueOnce({
+      data: [
+        {
+          job_id: "job-1",
+          normalized_name: "1234-56789-A.step",
+          original_name: "1234-56789-A.step",
+          file_kind: "cad",
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.projectJobsIn.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "42P01",
+        message: 'relation "public.project_jobs" does not exist',
+        details: null,
+        hint: null,
+      },
+    });
+
+    await expect(fetchArchivedJobs()).resolves.toEqual([
+      expect.objectContaining({
+        job: expect.objectContaining({
+          id: "job-1",
+        }),
+        summary: expect.objectContaining({
+          jobId: "job-1",
+          partNumber: "1234-56789",
+          revision: null,
+        }),
+        projectNames: [],
+      }),
+    ]);
   });
 
   it("uploads job files through prepare/finalize RPCs and returns a summary", async () => {
