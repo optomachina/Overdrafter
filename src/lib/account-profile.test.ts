@@ -50,6 +50,8 @@ describe("account-profile", () => {
       identities: [
         {
           id: "identity-1",
+          identity_id: "identity-1",
+          user_id: "user-1",
           provider: "google",
           identity_data: {
             given_name: "Blaine",

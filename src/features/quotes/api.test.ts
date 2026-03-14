@@ -300,7 +300,7 @@ describe("quotes api helpers", () => {
             data?.constructor?.name === "ArrayBuffer";
           const bytes =
             isArrayBuffer
-              ? Buffer.from(new Uint8Array(data))
+              ? Buffer.from(new Uint8Array(data as ArrayBuffer))
               : ArrayBuffer.isView(data)
                 ? Buffer.from(data.buffer, data.byteOffset, data.byteLength)
                 : Buffer.alloc(0);

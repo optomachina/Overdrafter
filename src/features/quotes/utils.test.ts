@@ -321,7 +321,7 @@ describe("quotes utils", () => {
           { offerId: "fast", supplier: "C", totalPriceUsd: 150, unitPriceUsd: 75 },
         ],
       },
-    } as VendorQuoteResultRecord;
+    } as unknown as VendorQuoteResultRecord;
 
     expect(hasManualQuoteIntakeSource(quote)).toBe(true);
     expect(getImportedVendorOffers(quote).map((offer) => [offer.offerId, offer.requestedQuantity])).toEqual([

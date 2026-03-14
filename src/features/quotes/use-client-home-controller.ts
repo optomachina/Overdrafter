@@ -66,7 +66,7 @@ export function useClientHomeController() {
   const [isResendingVerification, setIsResendingVerification] = useState(false);
   const authIntent = searchParams.get("auth");
   const focusComposerIntent = searchParams.get("focusComposer");
-  const authDialogMode = authIntent === "signup" ? "sign-up" : "sign-in";
+  const authDialogMode: "sign-in" | "sign-up" = authIntent === "signup" ? "sign-up" : "sign-in";
   const defaultAccountName = useMemo(() => getDefaultAccountName(user), [user]);
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();

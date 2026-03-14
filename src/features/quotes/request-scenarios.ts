@@ -17,7 +17,7 @@ export function collectRequestedQuantities(
       return;
     }
 
-    flattened.push(source);
+    flattened.push(source as number | null | undefined);
   });
 
   return normalizeRequestedQuoteQuantities(flattened, fallbackQuantity);

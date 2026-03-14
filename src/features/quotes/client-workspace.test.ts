@@ -13,17 +13,21 @@ function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
     id: "job-1",
     organization_id: "org-1",
     project_id: null,
-    created_by: null,
+    selected_vendor_quote_offer_id: null,
+    created_by: "user-1",
     title: "Sample job",
     description: null,
     status: "uploaded",
     source: "client",
     tags: [],
     active_pricing_policy_id: null,
+    requested_quote_quantities: [1],
+    requested_by_date: null,
+    archived_at: null,
     created_at: "2026-03-03T00:00:00Z",
     updated_at: "2026-03-03T00:00:00Z",
     ...overrides,
-  } as JobRecord;
+  };
 }
 
 function makeSummary(overrides: Partial<JobPartSummary> = {}): JobPartSummary {
@@ -33,7 +37,12 @@ function makeSummary(overrides: Partial<JobPartSummary> = {}): JobPartSummary {
     revision: "3",
     description: "Imported part",
     quantity: 1,
+    requestedQuoteQuantities: [1],
+    requestedByDate: null,
     importedBatch: "QB00001",
+    selectedSupplier: null,
+    selectedPriceUsd: null,
+    selectedLeadTimeBusinessDays: null,
     ...overrides,
   };
 }

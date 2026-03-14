@@ -64,6 +64,7 @@ import {
   formatCurrency,
   normalizeDrawingExtraction,
 } from "@/features/quotes/utils";
+import type { ActivityLogEntry } from "@/components/quotes/ActivityLog";
 import type { VendorName } from "@/integrations/supabase/types";
 
 export function useClientPartController() {
@@ -396,7 +397,7 @@ export function useClientPartController() {
     ].sort((left, right) => (left.revision ?? "").localeCompare(right.revision ?? ""));
   }, [jobId, partDetail?.revisionSiblings, presentation?.title, summary]);
   const selectedRevisionIndex = revisionOptions.findIndex((revision) => revision.jobId === jobId);
-  const activityEntries = useMemo(() => {
+  const activityEntries = useMemo<ActivityLogEntry[]>(() => {
     const rankingLabel =
       activePreset === "fastest"
         ? "Ranking fastest eligible quotes"

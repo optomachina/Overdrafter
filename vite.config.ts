@@ -66,7 +66,7 @@ export default defineConfig(({ mode }) => ({
     react(),
     {
       name: "html-favicon-version",
-      transformIndexHtml(html) {
+      transformIndexHtml(html: string) {
         return html.replace(/__FAVICON_VERSION__/g, faviconVersion);
       },
     },

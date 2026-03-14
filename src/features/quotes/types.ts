@@ -8,13 +8,15 @@ import type {
   JobStatus,
   Json,
   ProjectInviteStatus,
-  ProjectRole,
+  ProjectRole as SupabaseProjectRole,
   QuoteRunStatus,
   QueueTaskStatus,
   QueueTaskType,
   VendorName,
   VendorStatus,
 } from "@/integrations/supabase/types";
+
+export type ProjectRole = SupabaseProjectRole;
 
 export type OrganizationRecord = Database["public"]["Tables"]["organizations"]["Row"];
 export type MembershipRecord = Database["public"]["Tables"]["organization_memberships"]["Row"];

@@ -2,6 +2,16 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
+type TablesWithRelationships<T extends Record<string, { Row: unknown; Insert: unknown; Update: unknown }>> = {
+  [K in keyof T]: T[K] & { Relationships: [] };
+};
+
+type ClientDatabase = Omit<Database, 'public'> & {
+  public: Omit<Database['public'], 'Tables'> & {
+    Tables: TablesWithRelationships<Database['public']['Tables']>;
+  };
+};
+
 const TEST_SUPABASE_URL = 'https://example.supabase.co';
 const TEST_SUPABASE_PUBLISHABLE_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV4YW1wbGUiLCJyb2xlIjoiYW5vbiIsImlhdCI6MCwiZXhwIjo0MTAyNDQ0ODAwfQ.test-signature';
@@ -43,7 +53,7 @@ const safeStorage =
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+export const supabase = createClient<ClientDatabase>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
     storage: safeStorage,
     persistSession: true,
