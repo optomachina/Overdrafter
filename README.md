@@ -30,7 +30,6 @@ If a lower-priority doc disagrees with one of the files above, the higher-priori
 ## Planning Material Status
 
 - `docs/reconstruction-prd.md` is retained as source material only and is superseded by `PRD.md`.
-- `AwesomeNewPlan_DeleteMeLater.md` is an archived transitional checklist and is superseded by `PLAN.md` and the canonical root docs.
 - `REPO_MAP.md` is a non-canonical orientation aid for navigating the repo layout.
 - `ROADMAP.md` is currently a placeholder and is not an active planning surface.
 ## Symphony Automation
@@ -43,6 +42,61 @@ Symphony's default local `./WORKFLOW.md` from the separate `openai/symphony` che
 For active implementation states, Symphony should switch off `main` in `hooks.before_run` using
 `./scripts/symphony-ensure-branch.sh`, which derives a deterministic branch from the Linear issue
 identifier.
+
+## Code Review Workflow
+
+OverDrafter uses a layered review stack:
+
+- Linear is the issue and status source of truth.
+- Symphony is the orchestration and planning layer.
+- Codex CLI is the local implementation agent.
+- Codex GitHub review is the PR review layer.
+- CI provides the repeatable verification layer.
+
+Recommended developer flow:
+
+1. Pick the Linear issue and confirm scope and acceptance criteria.
+2. Create an isolated branch or worktree.
+3. Implement locally with Codex CLI when helpful.
+4. Run local verification and a local Codex `/review` before push.
+5. Open a GitHub pull request.
+6. Let native GitHub Codex automatic review post advisory findings on the PR.
+7. Resolve findings and rerun local verification as needed.
+8. Merge only after human approval and passing CI.
+
+### Local Codex usage
+
+Before opening a PR, use Codex CLI to catch review issues locally:
+
+```text
+/review
+```
+
+Run it against your working tree, a commit, or a base branch diff as appropriate for the task. Use
+it alongside `npm run verify`, not instead of verification.
+
+### GitHub Codex review
+
+GitHub Codex review in this repo is the native subscription-backed review flow configured in GitHub
+and OpenAI, not a repo-managed API-key workflow. The review should apply the root `AGENTS.md` policy
+plus the closest `AGENTS.override.md` for changed files. Maintainers can request a fresh manual pass
+with `@codex review` when a PR has materially changed.
+
+### GitHub secrets and settings
+
+Required repository settings:
+
+- enable Codex code review for the repository in your OpenAI/Codex GitHub configuration
+- enable automatic reviews so Codex reviews every PR through the native GitHub integration
+- keep branch protection and human approval requirements in place
+- keep GitHub Actions permissions at the repository default of read unless a workflow needs a scoped write permission for non-Codex CI work
+- do not add `OPENAI_API_KEY` to this repo unless the repo policy intentionally changes away from the subscription-only path
+
+Maintainership guidance:
+
+- treat Codex findings as reviewer input, not merge authority
+- fix or explicitly disposition material findings in the PR
+- use CI failures as normal debugging input; do not expect repo-managed Codex autofix or diagnosis here
 
 ## Active Repo Layout
 

@@ -1,6 +1,6 @@
 # OverDrafter Execution Plan
 
-Last updated: March 11, 2026
+Last updated: March 13, 2026
 
 ## Purpose
 
@@ -24,6 +24,13 @@ This phase is complete when:
 - PR structure is standardized
 - package manager ambiguity is removed
 - test expectations are documented and enforceable
+
+Operational workflow alignment for this phase:
+- Linear is the planning and status source of truth.
+- Symphony is the orchestration and planning layer for issue execution.
+- Codex CLI is the local implementation and pre-PR review agent.
+- Codex GitHub review is the PR review layer.
+- CI is the repeatable automation layer for verification.
 
 ## Milestones
 
@@ -72,4 +79,6 @@ This phase is complete when:
 - define branch naming convention
 - define worktree usage guidance
 - require local verification evidence
+- require local Codex `/review` evidence before PR handoff
 - require migration notes and rollback/risk notes where applicable
+- add native GitHub Codex PR review as an advisory review layer
