@@ -89,6 +89,13 @@ function callRpc<Name extends RpcName>(
   >;
 }
 
+function callUntypedRpc(
+  fn: string,
+  args?: Record<string, unknown>,
+): Promise<PostgrestSingleResponse<unknown>> {
+  return untypedSupabase.rpc(fn, args);
+}
+
 function upsertUntyped(
   relation: string,
   values: Record<string, unknown>,
@@ -207,10 +214,30 @@ function emptySingleResponse<T>(data: T | null = null): Promise<PostgrestSingleR
 const PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE =
   "Projects are unavailable in this environment until the shared workspace schema is applied.";
 const PROJECT_NOT_FOUND_MESSAGE = "Project not found.";
+const CLIENT_INTAKE_EXPECTED_MIGRATION = "20260313143000_add_request_service_intent.sql";
+const CLIENT_INTAKE_DRIFT_MESSAGE =
+  "This environment is missing the latest client intake schema. Apply the latest Supabase migrations, including " +
+  `\`${CLIENT_INTAKE_EXPECTED_MIGRATION}\`, and refresh the PostgREST schema cache.`;
 
 type ProjectCollaborationSchemaAvailability = "unknown" | "available" | "unavailable";
+type ClientIntakeSchemaAvailability = "unknown" | "available" | "legacy" | "unavailable";
+type ClientIntakeCompatibilitySnapshot = {
+  supportsCurrentCreateJob?: boolean | null;
+  supportsLegacyCreateJobV2?: boolean | null;
+  supportsLegacyCreateJobV1?: boolean | null;
+  supportsLegacyCreateJobV0?: boolean | null;
+  supportsCurrentCreateClientDraft?: boolean | null;
+  supportsLegacyCreateClientDraftV1?: boolean | null;
+  supportsLegacyCreateClientDraftV0?: boolean | null;
+  hasRequestedServiceKindsColumn?: boolean | null;
+  hasPrimaryServiceKindColumn?: boolean | null;
+  hasServiceNotesColumn?: boolean | null;
+  missing?: string[] | null;
+};
 
 let projectCollaborationSchemaAvailability: ProjectCollaborationSchemaAvailability = "unknown";
+let clientIntakeSchemaAvailability: ClientIntakeSchemaAvailability = "unknown";
+let clientIntakeSchemaMessage = CLIENT_INTAKE_DRIFT_MESSAGE;
 
 const PROJECT_COLLABORATION_IDENTIFIERS = [
   "public.projects",
@@ -230,6 +257,14 @@ const PROJECT_COLLABORATION_IDENTIFIERS = [
   "api_remove_project_member",
   "api_assign_job_to_project",
   "api_remove_job_from_project",
+] as const;
+const CLIENT_INTAKE_IDENTIFIERS = [
+  "api_create_job",
+  "api_create_client_draft",
+  "api_get_client_intake_compatibility",
+  "requested_service_kinds",
+  "primary_service_kind",
+  "service_notes",
 ] as const;
 
 function ensureData<T>(data: T | null, error: { message: string } | null | undefined): T {
@@ -266,6 +301,14 @@ function markProjectCollaborationSchemaAvailability(next: Exclude<ProjectCollabo
   projectCollaborationSchemaAvailability = next;
 }
 
+function markClientIntakeSchemaAvailability(
+  next: Exclude<ClientIntakeSchemaAvailability, "unknown">,
+  message = CLIENT_INTAKE_DRIFT_MESSAGE,
+) {
+  clientIntakeSchemaAvailability = next;
+  clientIntakeSchemaMessage = message;
+}
+
 function isMissingProjectCollaborationSchemaError(error: unknown): boolean {
   if (!error) {
     return false;
@@ -297,6 +340,63 @@ function isMissingProjectCollaborationSchemaError(error: unknown): boolean {
   );
 }
 
+function isMissingClientIntakeSchemaError(error: unknown): boolean {
+  if (!error) {
+    return false;
+  }
+
+  const value = error as {
+    code?: unknown;
+    message?: unknown;
+    details?: unknown;
+    hint?: unknown;
+  };
+  const code = typeof value.code === "string" ? value.code : "";
+  const message = typeof value.message === "string" ? value.message : error instanceof Error ? error.message : "";
+  const details = typeof value.details === "string" ? value.details : "";
+  const hint = typeof value.hint === "string" ? value.hint : "";
+  const blob = `${message} ${details} ${hint}`.toLowerCase();
+
+  if (!CLIENT_INTAKE_IDENTIFIERS.some((identifier) => blob.includes(identifier))) {
+    return false;
+  }
+
+  return (
+    code === "42703" ||
+    code === "42883" ||
+    code === "42P01" ||
+    code === "PGRST202" ||
+    code === "PGRST204" ||
+    code === "PGRST205" ||
+    blob.includes("does not exist") ||
+    blob.includes("schema cache")
+  );
+}
+
+function formatClientIntakeDriftMessage(missing: readonly string[] = []): string {
+  const normalizedMissing = missing
+    .filter((item): item is string => Boolean(item))
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (normalizedMissing.length === 0) {
+    return CLIENT_INTAKE_DRIFT_MESSAGE;
+  }
+
+  return `${CLIENT_INTAKE_DRIFT_MESSAGE} Missing: ${normalizedMissing.join(", ")}.`;
+}
+
+function toClientIntakeCompatibilityError(
+  error: unknown,
+  missing: readonly string[] = [],
+): Error {
+  if (error instanceof Error && !isMissingClientIntakeSchemaError(error) && missing.length === 0) {
+    return error;
+  }
+
+  return new Error(formatClientIntakeDriftMessage(missing));
+}
+
 function ensureProjectCollaborationData<T>(data: T | null, error: { message: string } | null | undefined): T {
   if (isMissingProjectCollaborationSchemaError(error)) {
     markProjectCollaborationSchemaAvailability("unavailable");
@@ -318,6 +418,11 @@ export function resetProjectCollaborationSchemaAvailabilityForTests(): void {
   projectCollaborationSchemaAvailability = "unknown";
 }
 
+export function resetClientIntakeSchemaAvailabilityForTests(): void {
+  clientIntakeSchemaAvailability = "unknown";
+  clientIntakeSchemaMessage = CLIENT_INTAKE_DRIFT_MESSAGE;
+}
+
 function isMissingFunctionError(error: unknown, functionName: string): boolean {
   if (!error || typeof error !== "object") {
     return false;
@@ -332,6 +437,81 @@ function isMissingFunctionError(error: unknown, functionName: string): boolean {
   const blob = `${message} ${details} ${hint}`.toLowerCase();
 
   return (code === "42883" || code === "PGRST202") && blob.includes(functionPattern);
+}
+
+function supportsCurrentClientIntakeCompatibility(snapshot: ClientIntakeCompatibilitySnapshot): boolean {
+  return (
+    snapshot.supportsCurrentCreateJob === true &&
+    snapshot.supportsCurrentCreateClientDraft === true &&
+    snapshot.hasRequestedServiceKindsColumn === true &&
+    snapshot.hasPrimaryServiceKindColumn === true &&
+    snapshot.hasServiceNotesColumn === true
+  );
+}
+
+function supportsLegacyClientIntakeCompatibility(snapshot: ClientIntakeCompatibilitySnapshot): boolean {
+  const hasLegacyCreateJob =
+    snapshot.supportsLegacyCreateJobV2 === true ||
+    snapshot.supportsLegacyCreateJobV1 === true ||
+    snapshot.supportsLegacyCreateJobV0 === true;
+  const hasLegacyCreateClientDraft =
+    snapshot.supportsLegacyCreateClientDraftV1 === true ||
+    snapshot.supportsLegacyCreateClientDraftV0 === true;
+
+  return hasLegacyCreateJob && hasLegacyCreateClientDraft;
+}
+
+export async function checkClientIntakeCompatibility(): Promise<"available" | "legacy"> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return "available";
+  }
+
+  if (clientIntakeSchemaAvailability === "available" || clientIntakeSchemaAvailability === "legacy") {
+    return clientIntakeSchemaAvailability;
+  }
+
+  if (clientIntakeSchemaAvailability === "unavailable") {
+    throw new Error(clientIntakeSchemaMessage);
+  }
+
+  const { data, error } = await callRpc("api_get_client_intake_compatibility", {});
+
+  if (error) {
+    if (isMissingFunctionError(error, "api_get_client_intake_compatibility")) {
+      markClientIntakeSchemaAvailability("legacy");
+      return "legacy";
+    }
+
+    if (isMissingClientIntakeSchemaError(error)) {
+      const compatibilityError = toClientIntakeCompatibilityError(error);
+      markClientIntakeSchemaAvailability("unavailable", compatibilityError.message);
+      throw compatibilityError;
+    }
+
+    throw error;
+  }
+
+  const snapshot = (data ?? {}) as ClientIntakeCompatibilitySnapshot;
+
+  if (supportsCurrentClientIntakeCompatibility(snapshot)) {
+    markClientIntakeSchemaAvailability("available");
+    return "available";
+  }
+
+  if (supportsLegacyClientIntakeCompatibility(snapshot)) {
+    markClientIntakeSchemaAvailability("legacy", formatClientIntakeDriftMessage(snapshot.missing ?? []));
+    return "legacy";
+  }
+
+  const compatibilityError = toClientIntakeCompatibilityError(null, snapshot.missing ?? []);
+  markClientIntakeSchemaAvailability("unavailable", compatibilityError.message);
+  throw compatibilityError;
+}
+
+export function getClientIntakeCompatibilityMessage(): string {
+  return clientIntakeSchemaMessage;
 }
 
 async function createProjectViaEdgeFunction(input: {
@@ -2260,6 +2440,132 @@ export async function removeProjectMember(projectMembershipId: string): Promise<
   return ensureProjectCollaborationData(data, error);
 }
 
+type CreateJobInput = {
+  organizationId: string;
+  title: string;
+  description?: string;
+  source: string;
+  tags?: string[];
+  requestedServiceKinds?: string[];
+  primaryServiceKind?: string | null;
+  serviceNotes?: string | null;
+  requestedQuoteQuantities?: number[];
+  requestedByDate?: string | null;
+};
+
+function buildCurrentCreateJobArgs(input: CreateJobInput) {
+  return {
+    p_organization_id: input.organizationId,
+    p_title: input.title,
+    p_description: input.description ?? null,
+    p_source: input.source,
+    p_tags: input.tags ?? [],
+    p_requested_service_kinds: input.requestedServiceKinds ?? [],
+    p_primary_service_kind: input.primaryServiceKind ?? null,
+    p_service_notes: input.serviceNotes ?? null,
+    p_requested_quote_quantities: input.requestedQuoteQuantities ?? [],
+    p_requested_by_date: input.requestedByDate ?? null,
+  };
+}
+
+async function callLegacyCreateJob(input: CreateJobInput): Promise<PostgrestSingleResponse<unknown>> {
+  const attempts: Array<Record<string, unknown>> = [
+    {
+      p_organization_id: input.organizationId,
+      p_title: input.title,
+      p_description: input.description ?? null,
+      p_source: input.source,
+      p_tags: input.tags ?? [],
+      p_requested_quote_quantities: input.requestedQuoteQuantities ?? [],
+      p_requested_by_date: input.requestedByDate ?? null,
+    },
+    {
+      p_organization_id: input.organizationId,
+      p_title: input.title,
+      p_description: input.description ?? null,
+      p_source: input.source,
+      p_tags: input.tags ?? [],
+    },
+    {
+      p_organization_id: input.organizationId,
+      p_title: input.title,
+      p_description: input.description ?? null,
+      p_source: input.source,
+    },
+  ];
+
+  let lastResponse: PostgrestSingleResponse<unknown> = {
+    data: null,
+    error: null,
+    count: null,
+    status: 200,
+    statusText: "OK",
+  };
+
+  for (const args of attempts) {
+    const response = await callUntypedRpc("api_create_job", args);
+    lastResponse = response;
+
+    if (!response.error || !isMissingFunctionError(response.error, "api_create_job")) {
+      return response;
+    }
+  }
+
+  return lastResponse;
+}
+
+type CreateClientDraftRpcInput = {
+  title: string;
+  description?: string;
+  projectId?: string | null;
+  tags?: string[];
+  requestedServiceKinds?: string[];
+  primaryServiceKind?: string | null;
+  serviceNotes?: string | null;
+  requestedQuoteQuantities?: number[];
+  requestedByDate?: string | null;
+};
+
+async function callLegacyCreateClientDraft(
+  input: CreateClientDraftRpcInput,
+): Promise<PostgrestSingleResponse<unknown>> {
+  const attempts: Array<Record<string, unknown>> = [
+    {
+      p_title: input.title,
+      p_description: input.description ?? null,
+      p_project_id: input.projectId ?? null,
+      p_tags: input.tags ?? [],
+      p_requested_quote_quantities: input.requestedQuoteQuantities ?? [],
+      p_requested_by_date: input.requestedByDate ?? null,
+    },
+    {
+      p_title: input.title,
+      p_description: input.description ?? null,
+      p_project_id: input.projectId ?? null,
+      p_tags: input.tags ?? [],
+    },
+  ];
+
+  let lastResponse: PostgrestSingleResponse<unknown> = {
+    data: null,
+    error: null,
+    count: null,
+    status: 200,
+    statusText: "OK",
+  };
+
+  for (const args of attempts) {
+    const response = await callUntypedRpc("api_create_client_draft", args);
+    lastResponse = response;
+
+    if (!response.error || !isMissingFunctionError(response.error, "api_create_client_draft")) {
+      return response;
+    }
+  }
+
+  return lastResponse;
+}
+
 export async function createClientDraft(input: ClientDraftInput): Promise<string> {
   const { data, error } = await callRpc("api_create_client_draft", {
     p_title: input.title,
@@ -2277,9 +2583,47 @@ export async function createClientDraft(input: ClientDraftInput): Promise<string
     return ensureData(data, null);
   }
 
+  if (isMissingFunctionError(error, "api_create_client_draft")) {
+    const legacyResponse = await callLegacyCreateClientDraft(input);
+
+    if (!legacyResponse.error) {
+      return ensureData(legacyResponse.data as string | null, null);
+    }
+
+    if (!input.projectId && isMissingFunctionError(legacyResponse.error, "api_create_client_draft")) {
+      const appSession = await fetchAppSessionData();
+      const fallbackMembership =
+        appSession.memberships.find((membership) => membership.role === "client") ??
+        appSession.memberships[0];
+
+      if (!fallbackMembership) {
+        throw legacyResponse.error;
+      }
+
+      return createJob({
+        organizationId: fallbackMembership.organizationId,
+        title: input.title,
+        description: input.description,
+        source: "client_home",
+        tags: input.tags,
+        requestedServiceKinds: input.requestedServiceKinds,
+        primaryServiceKind: input.primaryServiceKind,
+        serviceNotes: input.serviceNotes,
+        requestedQuoteQuantities: input.requestedQuoteQuantities,
+        requestedByDate: input.requestedByDate,
+      });
+    }
+
+    if (isMissingClientIntakeSchemaError(legacyResponse.error)) {
+      throw toClientIntakeCompatibilityError(legacyResponse.error);
+    }
+
+    throw legacyResponse.error;
+  }
+
   // Backward-compatible fallback for environments that have not applied
   // the shared-project migration with api_create_client_draft yet.
-  if (!input.projectId && isMissingFunctionError(error, "api_create_client_draft")) {
+  if (!input.projectId && isMissingClientIntakeSchemaError(error)) {
     const appSession = await fetchAppSessionData();
     const fallbackMembership =
       appSession.memberships.find((membership) => membership.role === "client") ??
@@ -2301,6 +2645,10 @@ export async function createClientDraft(input: ClientDraftInput): Promise<string
       requestedQuoteQuantities: input.requestedQuoteQuantities,
       requestedByDate: input.requestedByDate,
     });
+  }
+
+  if (isMissingClientIntakeSchemaError(error)) {
+    throw toClientIntakeCompatibilityError(error);
   }
 
   throw error;
@@ -2507,32 +2855,32 @@ export async function updateCurrentUserPassword(password: string): Promise<void>
   }
 }
 
-export async function createJob(input: {
-  organizationId: string;
-  title: string;
-  description?: string;
-  source: string;
-  tags?: string[];
-  requestedServiceKinds?: string[];
-  primaryServiceKind?: string | null;
-  serviceNotes?: string | null;
-  requestedQuoteQuantities?: number[];
-  requestedByDate?: string | null;
-}): Promise<string> {
-  const { data, error } = await callRpc("api_create_job", {
-    p_organization_id: input.organizationId,
-    p_title: input.title,
-    p_description: input.description ?? null,
-    p_source: input.source,
-    p_tags: input.tags ?? [],
-    p_requested_service_kinds: input.requestedServiceKinds ?? [],
-    p_primary_service_kind: input.primaryServiceKind ?? null,
-    p_service_notes: input.serviceNotes ?? null,
-    p_requested_quote_quantities: input.requestedQuoteQuantities ?? [],
-    p_requested_by_date: input.requestedByDate ?? null,
-  });
+export async function createJob(input: CreateJobInput): Promise<string> {
+  const { data, error } = await callRpc("api_create_job", buildCurrentCreateJobArgs(input));
 
-  return ensureData(data, error);
+  if (!error) {
+    return ensureData(data, null);
+  }
+
+  if (isMissingFunctionError(error, "api_create_job")) {
+    const legacyResponse = await callLegacyCreateJob(input);
+
+    if (!legacyResponse.error) {
+      return ensureData(legacyResponse.data as string | null, null);
+    }
+
+    if (isMissingClientIntakeSchemaError(legacyResponse.error)) {
+      throw toClientIntakeCompatibilityError(legacyResponse.error);
+    }
+
+    throw legacyResponse.error;
+  }
+
+  if (isMissingClientIntakeSchemaError(error)) {
+    throw toClientIntakeCompatibilityError(error);
+  }
+
+  throw error;
 }
 
 export async function uploadFilesToJob(jobId: string, files: File[]): Promise<UploadFilesToJobSummary> {
