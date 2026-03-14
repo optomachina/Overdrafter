@@ -811,6 +811,10 @@ export type Database = {
         };
         Returns: string;
       };
+      api_get_client_intake_compatibility: {
+        Args: Record<string, never>;
+        Returns: Json;
+      };
       api_create_job: {
         Args: {
           p_organization_id: string;

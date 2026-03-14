@@ -244,6 +244,7 @@ function createMockFile(contents: string, name: string, options: { type?: string
 }
 
 import {
+  checkClientIntakeCompatibility,
   createClientDraft,
   createJobsFromUploadFiles,
   createProject,
@@ -255,9 +256,11 @@ import {
   fetchWorkerReadiness,
   findDuplicateUploadSelections,
   fetchSidebarPins,
+  getClientIntakeCompatibilityMessage,
   inferFileKind,
   pinJob,
   pinProject,
+  resetClientIntakeSchemaAvailabilityForTests,
   resetProjectCollaborationSchemaAvailabilityForTests,
   unarchiveJob,
   unpinJob,
@@ -270,6 +273,7 @@ describe("quotes api helpers", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-03T12:34:56.000Z"));
+    resetClientIntakeSchemaAvailabilityForTests();
     resetProjectCollaborationSchemaAvailabilityForTests();
     supabaseMock.projectsOrder.mockImplementation(() => supabaseMock.projectsQuery);
     supabaseMock.projectsIs.mockImplementation(() => supabaseMock.projectsQuery);
@@ -694,6 +698,20 @@ describe("quotes api helpers", () => {
   it("falls back to api_create_job when api_create_client_draft is unavailable", async () => {
     supabaseMock.rpc.mockImplementation((fn: string) => {
       if (fn === "api_create_client_draft") {
+        const attempt = supabaseMock.rpc.mock.calls.filter(([name]) => name === "api_create_client_draft").length;
+
+        if (attempt === 1) {
+          return Promise.resolve({
+            data: null,
+            error: {
+              code: "42883",
+              message: "function public.api_create_client_draft does not exist",
+              details: null,
+              hint: null,
+            },
+          });
+        }
+
         return Promise.resolve({
           data: null,
           error: {
@@ -750,7 +768,21 @@ describe("quotes api helpers", () => {
       p_requested_quote_quantities: [],
       p_requested_by_date: null,
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_create_job", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_create_client_draft", {
+      p_title: "Bracket",
+      p_description: "Upload test",
+      p_project_id: null,
+      p_tags: [],
+      p_requested_quote_quantities: [],
+      p_requested_by_date: null,
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(3, "api_create_client_draft", {
+      p_title: "Bracket",
+      p_description: "Upload test",
+      p_project_id: null,
+      p_tags: [],
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(4, "api_create_job", {
       p_organization_id: "org-123",
       p_title: "Bracket",
       p_description: "Upload test",
@@ -762,6 +794,21 @@ describe("quotes api helpers", () => {
       p_requested_quote_quantities: [],
       p_requested_by_date: null,
     });
+  });
+
+  it("reports legacy intake compatibility when the probe RPC is missing", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "42883",
+        message: "function public.api_get_client_intake_compatibility does not exist",
+        details: null,
+        hint: null,
+      },
+    });
+
+    await expect(checkClientIntakeCompatibility()).resolves.toBe("legacy");
+    expect(getClientIntakeCompatibilityMessage()).toContain("20260313143000_add_request_service_intent.sql");
   });
 
   it("passes structured request fields to api_create_client_draft", async () => {

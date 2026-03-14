@@ -17,10 +17,14 @@ const signUpMock = vi.fn();
 const authGetUserMock = vi.fn();
 const adminSignOutMock = vi.fn();
 const navigateMock = vi.fn();
+const checkClientIntakeCompatibilityMock = vi.fn();
+const getClientIntakeCompatibilityMessageMock = vi.fn();
 let authStateChangeCallbacks: Array<(event: string, session: Session | null) => void> = [];
 
 vi.mock("@/features/quotes/api", () => ({
+  checkClientIntakeCompatibility: (...args: unknown[]) => checkClientIntakeCompatibilityMock(...args),
   fetchAppSessionData: () => fetchAppSessionDataMock(),
+  getClientIntakeCompatibilityMessage: (...args: unknown[]) => getClientIntakeCompatibilityMessageMock(...args),
   requestPasswordReset: (...args: unknown[]) => requestPasswordResetMock(...args),
   resendSignupConfirmation: (...args: unknown[]) => resendSignupConfirmationMock(...args),
   updateCurrentUserPassword: (...args: unknown[]) => updateCurrentUserPasswordMock(...args),
@@ -200,6 +204,8 @@ describe("ClientHome auth flow", () => {
   beforeEach(() => {
     authStateChangeCallbacks = [];
     navigateMock.mockReset();
+    checkClientIntakeCompatibilityMock.mockResolvedValue("available");
+    getClientIntakeCompatibilityMessageMock.mockReturnValue("compatibility ok");
     signUpMock.mockResolvedValue({ data: { session: null }, error: null });
     authGetUserMock.mockResolvedValue({ data: { user: null }, error: null });
     requestPasswordResetMock.mockResolvedValue(undefined);
