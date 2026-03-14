@@ -1,6 +1,6 @@
 # OverDrafter Architecture
 
-Last updated: March 13, 2026
+Last updated: March 14, 2026
 
 ## Purpose
 
@@ -39,12 +39,14 @@ The next-phase domain model should expand that quote-centric shape into an expli
 - receiving uploaded files and prompt text
 - creating draft/intake/job records
 - reconciling uploaded files into candidate part groupings
+- exposing newly uploaded parts in the client workspace immediately, before extraction finishes
 - identifying or collecting the requested service type before service-specific parsing runs
 
 ### 5. Extraction and asynchronous worker layer
 - extracting structured part requirements from files
+- generating previews and auto-approving extracted requirements for normal quote preparation
 - running long-lived or queued work
-- surfacing processing status and failures
+- surfacing processing status and failures without blocking part navigation
 
 ### 6. Quote orchestration layer
 - initiating automated quote retrieval where supported
@@ -52,8 +54,8 @@ The next-phase domain model should expand that quote-centric shape into an expli
 - normalizing quote outputs into a canonical internal model
 
 ### 7. Internal operations layer
-- estimator review of extracted requirements
-- correction and approval of structured data
+- estimator review of exceptions and manual holds
+- correction of structured data when auto-approved defaults need intervention
 - quote comparison
 - pricing-policy application
 - package curation and publication

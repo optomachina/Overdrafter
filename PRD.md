@@ -1,6 +1,6 @@
 # OverDrafter Product Requirements Document
 
-Last updated: March 13, 2026
+Last updated: March 14, 2026
 
 ## Document purpose
 
@@ -106,7 +106,7 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 
 ### For internal estimators
 - Turn uploaded files into structured part requirements.
-- Review and correct extracted specifications.
+- Correct extracted specifications when an exception or manual hold requires it.
 - Compare automated and manual vendor quotes.
 - Apply internal pricing policy.
 - Publish curated quote packages to clients.
@@ -125,7 +125,7 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 
 ### Primary goals
 - Reduce friction in part intake.
-- Preserve a strong internal review checkpoint before quotes are run or published.
+- Make uploaded parts immediately accessible while preserving internal control over quote-run kickoff and publication.
 - Centralize vendor comparison in one canonical record of quoting work.
 - Provide a clean client experience for collaboration and quote selection.
 - Maintain secure access boundaries between workspaces, projects, collaborators, and internal-only data.
@@ -153,8 +153,8 @@ The current product should not be treated as owning:
 ### 1. Intake must feel fast
 Submitting a part should feel lightweight and direct. Prompt text and file upload should live in one coherent intake path.
 
-### 2. Internal review must be explicit
-The system should not silently promote extracted or automated results directly to client-facing outputs without review checkpoints.
+### 2. Internal review must stay focused
+The system may auto-approve extracted part requirements to keep intake moving, but internal users still control quote-run kickoff and any client-facing publication step.
 
 ### 3. Client-facing options must be traceable
 Published packages should be traceable to source quotes, internal review, and pricing policy decisions.
