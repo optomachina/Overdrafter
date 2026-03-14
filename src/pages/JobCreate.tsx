@@ -1,34 +1,48 @@
 import { ChangeEvent, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FileUp, Loader2, Sparkles, Upload, X } from "lucide-react";
+import {
+  FileUp,
+  LayoutDashboard,
+  Loader2,
+  PlusSquare,
+  Sparkles,
+  Upload,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app/AppShell";
+import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
+import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
+import { CadModelThumbnail } from "@/components/CadModelThumbnail";
+import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
+import { InternalDashboardSidebar } from "@/components/internal/InternalDashboardSidebar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
-import { CadModelThumbnail } from "@/components/CadModelThumbnail";
-import { useAppSession } from "@/hooks/use-app-session";
+import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import {
   createJob,
   inferFileKind,
+  isProjectCollaborationSchemaUnavailable,
   reconcileJobParts,
   requestExtraction,
   resendSignupConfirmation,
   uploadFilesToJob,
 } from "@/features/quotes/api";
-import { isEmailConfirmationRequired } from "@/lib/auth-status";
-import { createCadPreviewSourceFromFile, isStepPreviewableFile } from "@/lib/cad-preview";
-import { supabase } from "@/integrations/supabase/client";
-import { formatStatusLabel } from "@/features/quotes/utils";
 import {
   ALLOWED_QUOTE_UPLOAD_EXTENSIONS,
   validateQuoteFiles,
 } from "@/features/quotes/file-validation";
+import { useClientWorkspaceData } from "@/features/quotes/use-client-workspace-data";
+import { formatStatusLabel } from "@/features/quotes/utils";
+import { useAppSession } from "@/hooks/use-app-session";
+import { supabase } from "@/integrations/supabase/client";
+import { isEmailConfirmationRequired } from "@/lib/auth-status";
+import { createCadPreviewSourceFromFile, isStepPreviewableFile } from "@/lib/cad-preview";
 
 function parseJobTags(input: string): string[] {
   return Array.from(
@@ -46,6 +60,18 @@ const JobCreate = () => {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { user, activeMembership, isVerifiedAuth, signOut } = useAppSession();
+  const useInternalShell = activeMembership?.role !== "client";
+  const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+  const { accessibleJobsQuery, archivedProjectsQuery, archivedJobsQuery } = useClientWorkspaceData({
+    enabled: Boolean(user) && useInternalShell,
+    userId: user?.id,
+    projectCollaborationUnavailable,
+  });
+  const notificationCenter = useWorkspaceNotifications({
+    jobIds: (accessibleJobsQuery.data ?? []).map((job) => job.id),
+    role: activeMembership?.role,
+    userId: user?.id,
+  });
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [tagInput, setTagInput] = useState("");
@@ -70,7 +96,9 @@ const JobCreate = () => {
 
       const uploadSummary = await uploadFilesToJob(jobId, files);
       const summary =
-        uploadSummary.uploadedCount > 0 || uploadSummary.reusedCount > 0 ? await reconcileJobParts(jobId) : null;
+        uploadSummary.uploadedCount > 0 || uploadSummary.reusedCount > 0
+          ? await reconcileJobParts(jobId)
+          : null;
 
       if (uploadSummary.uploadedCount > 0 || uploadSummary.reusedCount > 0) {
         await requestExtraction(jobId);
@@ -108,7 +136,9 @@ const JobCreate = () => {
         name: file.name,
         sizeMb: (file.size / (1024 * 1024)).toFixed(2),
         kind: inferFileKind(file.name),
-        previewSource: isStepPreviewableFile(file.name) ? createCadPreviewSourceFromFile(file) : null,
+        previewSource: isStepPreviewableFile(file.name)
+          ? createCadPreviewSourceFromFile(file)
+          : null,
       })),
     [files],
   );
@@ -189,31 +219,29 @@ const JobCreate = () => {
     return <Navigate to="/" replace />;
   }
 
-  return (
-    <AppShell
-      title="Create CNC Quote Job"
-      subtitle="Create a job, attach CAD and drawing files, match them into parts, and queue structured extraction."
-      actions={
-        <Button
-          className="rounded-full"
-          onClick={() => createJobMutation.mutate()}
-          disabled={!isVerifiedAuth || !title.trim() || files.length === 0 || createJobMutation.isPending}
-        >
-          {createJobMutation.isPending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Creating job
-            </>
-          ) : (
-            <>
-              <Sparkles className="mr-2 h-4 w-4" />
-              Create and queue extraction
-            </>
-          )}
-        </Button>
-      }
+  const submitAction = (
+    <Button
+      className="rounded-full"
+      onClick={() => createJobMutation.mutate()}
+      disabled={!isVerifiedAuth || !title.trim() || files.length === 0 || createJobMutation.isPending}
     >
-      {!isVerifiedAuth && user?.email ? (
+      {createJobMutation.isPending ? (
+        <>
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          Creating job
+        </>
+      ) : (
+        <>
+          <Sparkles className="mr-2 h-4 w-4" />
+          Create and queue extraction
+        </>
+      )}
+    </Button>
+  );
+
+  const pageContent = (
+    <>
+      {!isVerifiedAuth && user.email ? (
         <div className="mb-6">
           <EmailVerificationPrompt
             email={user.email}
@@ -288,7 +316,8 @@ const JobCreate = () => {
             <div>
               <CardTitle>Files</CardTitle>
               <p className="mt-2 text-sm text-white/55">
-                Upload STEP or similar CAD files plus PDF drawings. Matching is filename-based and case-insensitive.
+                Upload STEP or similar CAD files plus PDF drawings. Matching is filename-based and
+                case-insensitive.
               </p>
             </div>
             <Button
@@ -315,7 +344,8 @@ const JobCreate = () => {
               <FileUp className="mx-auto h-10 w-10 text-primary" />
               <p className="mt-4 font-medium">Drop files into the picker above</p>
               <p className="mt-2 text-sm text-white/50">
-                Supported: STEP, STP, IGES, SolidWorks part files, Parasolid, and PDF drawings. STEP uploads get a local 3D preview before submission.
+                Supported: STEP, STP, IGES, SolidWorks part files, Parasolid, and PDF drawings.
+                STEP uploads get a local 3D preview before submission.
               </p>
             </div>
 
@@ -353,7 +383,10 @@ const JobCreate = () => {
                         <div className="min-w-0">
                           <p className="truncate font-medium">{file.name}</p>
                           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-white/50">
-                            <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                            <Badge
+                              variant="secondary"
+                              className="border border-white/10 bg-white/5 text-white/70"
+                            >
                               {formatStatusLabel(file.kind)}
                             </Badge>
                             <span>{file.sizeMb} MB</span>
@@ -387,15 +420,86 @@ const JobCreate = () => {
               <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4 text-sm text-primary">
                 <p className="font-medium">Latest match summary</p>
                 <p className="mt-2">
-                  {matchSummary.totalParts ?? 0} parts identified, {matchSummary.matchedPairs ?? 0} CAD/PDF pairs,
-                  {matchSummary.missingDrawings ?? 0} missing drawings, {matchSummary.missingCad ?? 0} missing CAD files.
+                  {matchSummary.totalParts ?? 0} parts identified,{" "}
+                  {matchSummary.matchedPairs ?? 0} CAD/PDF pairs,{" "}
+                  {matchSummary.missingDrawings ?? 0} missing drawings,{" "}
+                  {matchSummary.missingCad ?? 0} missing CAD files.
                 </p>
               </div>
             ) : null}
           </CardContent>
         </Card>
       </section>
-    </AppShell>
+    </>
+  );
+
+  if (!useInternalShell) {
+    return (
+      <AppShell
+        title="Create CNC Quote Job"
+        subtitle="Create a job, attach CAD and drawing files, match them into parts, and queue structured extraction."
+        actions={submitAction}
+      >
+        {pageContent}
+      </AppShell>
+    );
+  }
+
+  return (
+    <ChatWorkspaceLayout
+      onLogoClick={() => navigate("/")}
+      sidebarRailActions={[
+        {
+          label: "Dashboard",
+          icon: LayoutDashboard,
+          onClick: () => navigate("/"),
+        },
+        {
+          label: "New Job",
+          icon: PlusSquare,
+          onClick: () => navigate("/jobs/new"),
+          isActive: true,
+        },
+      ]}
+      sidebarContent={
+        <InternalDashboardSidebar
+          activeItem="new-job"
+          role={activeMembership.role}
+          onNavigateDashboard={() => navigate("/")}
+          onNavigateNewJob={() => navigate("/jobs/new")}
+        />
+      }
+      sidebarFooter={
+        <WorkspaceAccountMenu
+          user={user}
+          activeMembership={activeMembership}
+          notificationCenter={notificationCenter}
+          onSignOut={signOut}
+          onSignedOut={() => navigate("/", { replace: true })}
+          archivedProjects={archivedProjectsQuery.data}
+          archivedJobs={archivedJobsQuery.data}
+          isArchiveLoading={archivedProjectsQuery.isLoading || archivedJobsQuery.isLoading}
+        />
+      }
+    >
+      <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col px-4 pb-8 pt-4 md:px-6 md:pb-10 md:pt-6">
+        <div className="flex flex-col gap-4 pb-8 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h1 className="text-[2rem] font-medium tracking-[-0.02em] text-white md:text-[2.35rem]">
+              Create CNC Quote Job
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/55">
+              Create a job, attach CAD and drawing files, match them into parts, and queue
+              structured extraction.
+            </p>
+          </div>
+
+          <div className="self-start">{submitAction}</div>
+        </div>
+
+        {pageContent}
+      </div>
+    </ChatWorkspaceLayout>
   );
 };
 

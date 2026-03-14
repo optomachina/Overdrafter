@@ -914,11 +914,9 @@ async function fetchJobSelectionRows(scope: JobSelectionScope): Promise<JobSelec
       break;
     }
   }
-
   if (selectionQueryError) {
     throw selectionQueryError;
   }
-
   return jobsWithSelection;
 }
 

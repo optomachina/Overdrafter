@@ -2,6 +2,7 @@ import "dotenv/config";
 import path from "node:path";
 import type { PostgrestResponse, SupabaseClient } from "@supabase/supabase-js";
 import { buildAdapterRegistry } from "./adapters/index.js";
+import { autoApproveJobRequirements } from "./autoApprove.js";
 import { XOMETRY_AUTOMATION_VERSION } from "./adapters/xometry.js";
 import { loadConfig } from "./config.js";
 import { runHybridExtraction } from "./extraction/hybridExtraction.js";
@@ -548,8 +549,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       jobId: task.job_id,
       previewAssets,
     });
-
-    await supabase.from("jobs").update({ status: "needs_spec_review" }).eq("id", task.job_id);
+    const autoApprovedPartCount = await autoApproveJobRequirements(supabase, task.job_id);
     await logWorkerAuditEvent(supabase, {
       organizationId: context.part.organization_id,
       jobId: task.job_id,
@@ -559,6 +559,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
         extractionStatus: extraction.status,
         warningCount: extraction.warnings.length,
         previewAssetCount: previewAssets.length,
+        autoApprovedPartCount,
       },
     });
     await markTaskCompleted(supabase, task.id, {
@@ -566,6 +567,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       extractionStatus: extraction.status,
       warningCount: extraction.warnings.length,
       previewAssetCount: previewAssets.length,
+      autoApprovedPartCount,
     });
   } catch (error) {
     await logWorkerAuditEvent(supabase, {

@@ -249,6 +249,39 @@ describe("WorkspaceSidebar", () => {
     expect(onPrefetchPart).toHaveBeenCalledWith("job-3");
   });
 
+  it("keeps newly uploaded parts clickable and shows non-blocking status copy", () => {
+    const onSelectPart = vi.fn();
+
+    renderSidebar({
+      onSelectPart,
+      jobs: [
+        makeJob({
+          id: "job-uploaded",
+          project_id: null,
+          status: "uploaded",
+          title: "Uploaded Job",
+        }),
+      ],
+      summariesByJobId: new Map([
+        [
+          "job-uploaded",
+          makeSummary({
+            jobId: "job-uploaded",
+            partNumber: "1093-00999",
+          }),
+        ],
+      ]),
+    });
+
+    const partRow = screen.getByRole("button", { name: /1093-00999/i });
+
+    fireEvent.click(partRow);
+
+    expect(onSelectPart).toHaveBeenCalledWith("job-uploaded");
+    expect(screen.getByText("Upload received")).toBeInTheDocument();
+    expect(screen.queryByText("Blocked")).not.toBeInTheDocument();
+  });
+
   it("shows only ungrouped parts in the flat parts section", () => {
     renderSidebar();
 
