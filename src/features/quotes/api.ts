@@ -267,6 +267,16 @@ const CLIENT_INTAKE_IDENTIFIERS = [
   "service_notes",
 ] as const;
 
+export class ClientIntakeCompatibilityError extends Error {
+  readonly missing: string[];
+
+  constructor(message = CLIENT_INTAKE_DRIFT_MESSAGE, missing: readonly string[] = []) {
+    super(message);
+    this.name = "ClientIntakeCompatibilityError";
+    this.missing = [...missing];
+  }
+}
+
 function ensureData<T>(data: T | null, error: { message: string } | null | undefined): T {
   if (error) {
     throw error;
@@ -295,6 +305,19 @@ function isDeletedAuthUserError(error: unknown): boolean {
 
   const value = error as { code?: unknown; message?: unknown };
   return value.code === "user_not_found" || value.message === "User from sub claim in JWT does not exist";
+}
+
+function isInvalidRefreshTokenError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const value = error as { name?: unknown; message?: unknown };
+  const name = typeof value.name === "string" ? value.name : error instanceof Error ? error.name : "";
+  const message = typeof value.message === "string" ? value.message : error instanceof Error ? error.message : "";
+  const blob = `${name} ${message}`.toLowerCase();
+
+  return blob.includes("invalid refresh token") || blob.includes("refresh token not found");
 }
 
 function markProjectCollaborationSchemaAvailability(next: Exclude<ProjectCollaborationSchemaAvailability, "unknown">) {
@@ -386,15 +409,23 @@ function formatClientIntakeDriftMessage(missing: readonly string[] = []): string
   return `${CLIENT_INTAKE_DRIFT_MESSAGE} Missing: ${normalizedMissing.join(", ")}.`;
 }
 
+export function isClientIntakeCompatibilityError(error: unknown): error is ClientIntakeCompatibilityError {
+  return error instanceof ClientIntakeCompatibilityError;
+}
+
 function toClientIntakeCompatibilityError(
   error: unknown,
   missing: readonly string[] = [],
-): Error {
+): ClientIntakeCompatibilityError | Error {
+  if (isClientIntakeCompatibilityError(error)) {
+    return error;
+  }
+
   if (error instanceof Error && !isMissingClientIntakeSchemaError(error) && missing.length === 0) {
     return error;
   }
 
-  return new Error(formatClientIntakeDriftMessage(missing));
+  return new ClientIntakeCompatibilityError(formatClientIntakeDriftMessage(missing), missing);
 }
 
 function ensureProjectCollaborationData<T>(data: T | null, error: { message: string } | null | undefined): T {
@@ -877,13 +908,17 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
     if (
       (isAuthError(userError) && authErrorName === "AuthSessionMissingError") ||
       authErrorName === "AuthSessionMissingError" ||
-      isDeletedAuthUserError(userError)
+      isDeletedAuthUserError(userError) ||
+      isInvalidRefreshTokenError(userError)
     ) {
       return {
         user: null,
         memberships: [],
         isVerifiedAuth: false,
-        authState: isDeletedAuthUserError(userError) ? "invalid_session" : "anonymous",
+        authState:
+          isDeletedAuthUserError(userError) || isInvalidRefreshTokenError(userError)
+            ? "invalid_session"
+            : "anonymous",
       };
     }
 

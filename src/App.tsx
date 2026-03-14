@@ -12,6 +12,7 @@ import { AppErrorBoundary } from "@/components/debug/AppErrorBoundary";
 import { DiagnosticsBootstrap } from "@/components/debug/DiagnosticsBootstrap";
 import { FixturePanel } from "@/components/debug/FixturePanel";
 import { captureDiagnosticError } from "@/lib/diagnostics";
+import { shouldCaptureMutationDiagnostic } from "@/lib/react-query-diagnostics";
 import Index from "./pages/Index";
 import SignIn from "./pages/SignIn";
 import NotFound from "./pages/NotFound";
@@ -56,6 +57,18 @@ const queryClient = new QueryClient({
   }),
   mutationCache: new MutationCache({
     onError: (error, variables, _context, mutation) => {
+      if (
+        !shouldCaptureMutationDiagnostic({
+          error,
+          meta:
+            mutation.options.meta && typeof mutation.options.meta === "object" && !Array.isArray(mutation.options.meta)
+              ? mutation.options.meta
+              : undefined,
+        })
+      ) {
+        return;
+      }
+
       captureDiagnosticError(error, {
         category: "react-mutation",
         source: "react-query.mutation",
