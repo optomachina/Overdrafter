@@ -68,6 +68,7 @@ import {
   formatCurrency,
   normalizeDrawingExtraction,
 } from "@/features/quotes/utils";
+import type { ActivityLogEntry } from "@/components/quotes/ActivityLog";
 import type { VendorName } from "@/integrations/supabase/types";
 
 export function useClientPartController() {

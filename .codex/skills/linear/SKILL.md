@@ -29,5 +29,5 @@ Keep the Linear issue state, comments, and merge handoff aligned with the actual
 
 ## Preferred updates
 
-- After implementation: add branch name, PR URL, changed files, and verification results.
+- After implementation: add branch name, PR URL, changed files, verification results, and local Codex `/review` disposition.
 - After landing: add the merge result and final PR URL, then move the issue to `Done`.

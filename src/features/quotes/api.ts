@@ -8,6 +8,7 @@ import type {
   ArchivedJobSummary,
   ArchivedProjectSummary,
   ApprovedPartRequirement,
+  ClientSelectionRecord,
   ClientPackageAggregate,
   ClientActivityEvent,
   ClientDraftInput,
@@ -30,12 +31,12 @@ import type {
   ProjectInviteSummary,
   ProjectJobRecord,
   ProjectMembershipRecord,
+  ProjectRole,
   PartDetailAggregate,
   ProjectRecord,
   QuoteRunReadiness,
   SidebarPins,
   UploadFilesToJobSummary,
-  ClientSelectionRecord,
   VendorQuoteArtifactRecord,
   WorkQueueRecord,
 } from "@/features/quotes/types";
@@ -44,7 +45,6 @@ import type {
   Database,
   JobFileKind,
   Json,
-  ProjectRole,
   VendorName,
   VendorStatus,
 } from "@/integrations/supabase/types";
@@ -84,7 +84,7 @@ function callRpc<Name extends RpcName>(
   fn: Name,
   args: Database["public"]["Functions"][Name]["Args"],
 ): Promise<PostgrestSingleResponse<Database["public"]["Functions"][Name]["Returns"]>> {
-  return untypedSupabase.rpc(fn, args) as Promise<
+  return untypedSupabase.rpc(fn, args) as unknown as Promise<
     PostgrestSingleResponse<Database["public"]["Functions"][Name]["Returns"]>
   >;
 }

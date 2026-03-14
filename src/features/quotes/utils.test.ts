@@ -404,7 +404,7 @@ describe("quotes utils", () => {
       },
       created_at: "2026-03-03T00:00:00Z",
       updated_at: "2026-03-03T00:00:00Z",
-    } as VendorQuoteResultRecord;
+    } as unknown as VendorQuoteResultRecord;
 
     expect(hasManualQuoteIntakeSource(quote)).toBe(true);
     expect(getImportedVendorOffers(quote).map((offer) => [offer.offerId, offer.requestedQuantity])).toEqual([

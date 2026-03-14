@@ -30,7 +30,7 @@ function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
     created_at: "2026-03-03T00:00:00Z",
     updated_at: "2026-03-03T00:00:00Z",
     ...overrides,
-  } as JobRecord;
+  };
 }
 
 function makeSummary(overrides: Partial<JobPartSummary> = {}): JobPartSummary {

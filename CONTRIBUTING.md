@@ -102,6 +102,30 @@ Canonical local commands:
 
 Do not rely on “it compiles” as your only signal.
 
+## Code review workflow
+
+OverDrafter uses Codex as a review layer on top of the existing Linear and Symphony workflow.
+
+- Linear remains the issue and status source of truth.
+- Symphony remains the orchestration and planning layer.
+- Codex CLI is the local implementation and pre-PR review tool.
+- Codex GitHub review is the native GitHub PR review layer backed by your subscription.
+- CI remains the automated verification layer.
+- GitHub Actions should fan CI out into parallel lanes and keep a single aggregate `ci` gate as the protected required check.
+
+Before opening a PR for nontrivial work:
+
+1. run the relevant local verification commands
+2. run Codex CLI `/review` against the working tree, commit, or base branch diff
+3. address material findings or be ready to explain why a finding is not actionable
+
+After the PR opens:
+
+- native GitHub Codex review should be treated as advisory review feedback
+- `@codex review` can be used for a fresh manual pass after meaningful updates
+- Codex review does not replace tests, CI, or human approval
+- this repo does not use API-key Codex Actions for review or CI diagnosis
+
 ## Tests
 
 General rules:

@@ -84,6 +84,7 @@ import {
   formatCurrency,
   formatLeadTime,
 } from "@/features/quotes/utils";
+import type { ActivityLogEntry } from "@/components/quotes/ActivityLog";
 import type { VendorName } from "@/integrations/supabase/types";
 
 export type JobFilter = "all" | "needs_attention" | "quoting" | "published";
@@ -290,7 +291,7 @@ export function useClientProjectController() {
   const canDissolveProject = canManageMembers;
   const focusedDraft = focusedJob ? requestDraftsByJobId[focusedJob.id] ?? null : null;
   const focusedQuoteQuantityInput = focusedJob ? quoteQuantityInputsByJobId[focusedJob.id] ?? "" : "";
-  const focusedActivityEntries = useMemo(() => {
+  const focusedActivityEntries = useMemo<ActivityLogEntry[]>(() => {
     if (!focusedJob) {
       return [];
     }

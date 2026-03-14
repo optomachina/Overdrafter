@@ -102,7 +102,17 @@ Before handoff, PR creation, or a Linear workpad update, record:
 
 ## CI policy
 Minimum CI target:
+- lint
+- typecheck
+- automated tests
+- build
+- worker verification when the worker package remains part of the repo gate
 - install dependencies for both the repo root and `worker/`
-- `npm run verify` from the repo root when CI is representing the full repo verification gate
-- the root `verify` command should cover `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, and `npm run verify:worker`
-- prefer canonical package scripts over direct tool invocations so CI stays aligned with local verification
+- use canonical package scripts so CI remains aligned with local verification
+- keep the root `verify` command covering the full repo gate for local release-confidence checks
+
+Preferred CI shape:
+- run lint, typecheck, tests, build, and worker verification in separate parallel jobs
+- keep one final aggregate gate job for branch protection
+- cancel superseded runs for the same branch or PR to avoid stale feedback
+- run PR validation from `pull_request`, and reserve `push` runs for `main` or merge-queue events so feature branches do not double-report the same checks

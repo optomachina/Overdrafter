@@ -6,6 +6,31 @@ Last updated: March 13, 2026
 
 This file is the operating manual for contributors and coding agents working in the OverDrafter repository. It defines how work should be executed, verified, and documented. Durable instructions belong here instead of being re-explained in prompts.
 
+## Review guidelines
+
+- Flag P0/P1 security, auth, data loss, and privacy regressions first.
+- Flag broken API or schema contracts.
+- Flag missing validation on external inputs.
+- Flag risky dependency additions or permission expansions.
+- Flag tests that no longer cover changed critical paths.
+- Prefer minimal, localized fixes over broad refactors.
+- Preserve existing UX and layout contracts unless the task explicitly changes them.
+- Treat undocumented behavior changes as review findings.
+- Do not introduce logging of secrets, tokens, or PII.
+- Preserve existing authentication and authorization boundaries.
+- Require tests for changed critical paths, or document why tests were not feasible.
+- Surface schema, migration, and public API changes explicitly in review output.
+
+For recurring review expectations and GitHub-side Codex guidance, also read `docs/code-review.md`.
+This repo uses subscription-backed local Codex CLI review and native GitHub Codex review, not API-key Codex Actions.
+
+## Repository routing
+
+- Read `README.md`, `ARCHITECTURE.md`, and `TEST_STRATEGY.md` before proposing structural changes.
+- For UI changes, inspect existing component and layout patterns before introducing new ones.
+- For backend or data changes, inspect schema, migrations, and authorization rules first.
+- For PR review, apply the closest matching `AGENTS.override.md` file for the area touched by the diff.
+
 ## Source-of-truth hierarchy
 
 Use this order when documents overlap:

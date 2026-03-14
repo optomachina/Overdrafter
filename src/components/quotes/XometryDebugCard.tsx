@@ -35,12 +35,15 @@ type XometryDebugCardProps = {
   disabled?: boolean;
 };
 
-type RawPayload = Record<string, unknown>;
-type XometryDebugState = {
+type DebugTone = "green" | "sky" | "amber" | "red";
+
+type DebugState = {
   label: string;
-  tone: "green" | "sky" | "amber" | "red";
+  tone: DebugTone;
   description: string;
 };
+
+type RawPayload = Record<string, unknown>;
 
 function asObject(value: unknown): RawPayload {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -49,7 +52,7 @@ function asObject(value: unknown): RawPayload {
 }
 
 function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.map(String) : [];
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -106,7 +109,7 @@ function deriveDebugState(input: {
   selectedQuote: VendorQuoteAggregate | null;
   selectedPartHasXometry: boolean;
   selectedQueueTask: WorkQueueRecord | undefined;
-}): XometryDebugState {
+}): DebugState {
   if (!input.latestQuoteRun) {
     return {
       label: "Blocked: start quote run",
@@ -184,7 +187,7 @@ function deriveDebugState(input: {
   };
 }
 
-function stateBadgeClass(tone: "green" | "sky" | "amber" | "red") {
+function stateBadgeClass(tone: DebugTone) {
   switch (tone) {
     case "green":
       return "border-emerald-500/20 bg-emerald-500/10 text-emerald-300";
@@ -313,27 +316,27 @@ export function XometryDebugCard({
   });
   const rawPayload = asObject(selectedQuote?.raw_payload);
   const artifacts = selectedQuote?.artifacts ?? [];
-  const noteItems = asStringArray(selectedQuote?.notes);
+  const notes = asStringArray(selectedQuote?.notes);
   const screenshotArtifacts = artifacts.filter((artifact) => artifact.artifact_type === "screenshot");
   const htmlArtifacts = artifacts.filter((artifact) => artifact.artifact_type === "html_snapshot");
   const traceArtifacts = artifacts.filter((artifact) => artifact.artifact_type === "trace");
-  const diagnosticItems: Array<[string, unknown]> = [
-    ["Failure code", rawPayload.failureCode ?? "None"],
-    ["Detected flow", rawPayload.detectedFlow ?? "Unknown"],
-    ["Selected material", rawPayload.selectedMaterial ?? "Not selected"],
-    ["Selected finish", rawPayload.selectedFinish ?? "Not selected"],
-    ["Price source", rawPayload.priceSource ?? "Unknown"],
-    ["Lead time source", rawPayload.leadTimeSource ?? "Unknown"],
-    ["URL", rawPayload.url ?? selectedQuote?.quote_url ?? "Not available"],
-    [
-      "Attempted selectors",
-      Array.isArray(rawPayload.attemptedSelectors) ? rawPayload.attemptedSelectors.join(", ") : "None",
-    ],
+  const diagnosticFields: Array<{ label: string; value: string }> = [
+    { label: "Failure code", value: String(rawPayload.failureCode ?? "None") },
+    { label: "Detected flow", value: String(rawPayload.detectedFlow ?? "Unknown") },
+    { label: "Selected material", value: String(rawPayload.selectedMaterial ?? "Not selected") },
+    { label: "Selected finish", value: String(rawPayload.selectedFinish ?? "Not selected") },
+    { label: "Price source", value: String(rawPayload.priceSource ?? "Unknown") },
+    { label: "Lead time source", value: String(rawPayload.leadTimeSource ?? "Unknown") },
+    { label: "URL", value: String(rawPayload.url ?? selectedQuote?.quote_url ?? "Not available") },
+    {
+      label: "Attempted selectors",
+      value: Array.isArray(rawPayload.attemptedSelectors) ? rawPayload.attemptedSelectors.join(", ") : "None",
+    },
   ];
-  const artifactGroups: Array<[string, typeof artifacts]> = [
-    ["Screenshots", screenshotArtifacts],
-    ["HTML snapshots", htmlArtifacts],
-    ["Trace", traceArtifacts],
+  const artifactGroups: Array<{ label: string; items: typeof artifacts }> = [
+    { label: "Screenshots", items: screenshotArtifacts },
+    { label: "HTML snapshots", items: htmlArtifacts },
+    { label: "Trace", items: traceArtifacts },
   ];
   const submitBlocked =
     disabled ||
@@ -522,10 +525,10 @@ export function XometryDebugCard({
           </CollapsibleTrigger>
           <CollapsibleContent className="space-y-4 pt-4">
             <div className="grid gap-3 md:grid-cols-2">
-              {diagnosticItems.map(([label, value]) => (
+              {diagnosticFields.map(({ label, value }) => (
                 <div key={label} className="rounded-2xl border border-white/8 bg-black/20 p-4">
                   <p className="text-xs uppercase tracking-[0.2em] text-white/40">{label}</p>
-                  <p className="mt-2 break-words text-sm text-white/80">{String(value)}</p>
+                  <p className="mt-2 break-words text-sm text-white/80">{value}</p>
                 </div>
               ))}
             </div>
@@ -542,8 +545,8 @@ export function XometryDebugCard({
             <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-white/40">Notes</p>
               <div className="mt-3 space-y-2 text-sm text-white/70">
-                {noteItems.length > 0 ? (
-                  noteItems.map((note) => <p key={note}>{note}</p>)
+                {notes.length > 0 ? (
+                  notes.map((note) => <p key={note}>{note}</p>)
                 ) : (
                   <p>No notes recorded.</p>
                 )}
@@ -558,7 +561,7 @@ export function XometryDebugCard({
                 </Badge>
               </div>
               <Separator className="my-4 bg-white/10" />
-              {artifactGroups.map(([label, items]) => (
+              {artifactGroups.map(({ label, items }) => (
                 <div key={label} className="mb-4 last:mb-0">
                   <p className="text-sm font-medium text-white">{label}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
