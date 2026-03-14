@@ -1,4 +1,4 @@
-import { useState, type SVGProps } from "react";
+import { useState, type ReactElement, type SVGProps } from "react";
 import type { Provider } from "@supabase/supabase-js";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -13,7 +13,7 @@ type SocialAuthProviderConfig = {
   id: SocialAuthProviderId;
   label: string;
   providerName: string;
-  Icon: (props: SVGProps<SVGSVGElement>) => JSX.Element;
+  Icon: (props: SVGProps<SVGSVGElement>) => ReactElement;
 };
 
 const SOCIAL_AUTH_PROVIDERS: SocialAuthProviderConfig[] = [
