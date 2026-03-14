@@ -542,6 +542,56 @@ describe("WorkspaceSidebar", () => {
     expect(onCreateProjectFromSelection).toHaveBeenCalledWith(["job-1", "job-2", "job-3"]);
   });
 
+  it("creates a project from a single part context menu when no addable projects exist", async () => {
+    const onCreateProjectFromSelection = vi.fn();
+
+    renderSidebar({
+      projects: [],
+      jobs: [
+        makeJob({
+          id: "job-3",
+          project_id: null,
+          title: "Job Three",
+          created_at: "2026-03-05T10:00:00.000Z",
+          updated_at: "2026-03-05T10:30:00.000Z",
+        }),
+      ],
+      summariesByJobId: new Map([
+        [
+          "job-3",
+          makeSummary({
+            jobId: "job-3",
+            partNumber: "1093-00003",
+          }),
+        ],
+      ]),
+      onAssignPartToProject: vi.fn(),
+      onCreateProjectFromSelection,
+      resolveProjectIdsForJob: () => [],
+    });
+
+    await act(async () => {
+      fireEvent.contextMenu(screen.getByText(/1093-00003/i));
+    });
+
+    await act(async () => {
+      const addToProjectTrigger = screen.getByText((content, element) => {
+        return content.includes("Add to project") && element?.getAttribute("role") === "menuitem";
+      });
+      fireEvent.pointerMove(addToProjectTrigger);
+      fireEvent.keyDown(addToProjectTrigger, { key: "ArrowRight" });
+    });
+
+    const createProjectItem = await screen.findByText("Create new project");
+
+    await act(async () => {
+      fireEvent.click(createProjectItem);
+    });
+
+    expect(onCreateProjectFromSelection).toHaveBeenCalledTimes(1);
+    expect(onCreateProjectFromSelection).toHaveBeenCalledWith(["job-3"]);
+  });
+
   it("removes a nested part from the specific project it was opened under", async () => {
     const onRemovePartFromProject = vi.fn();
 

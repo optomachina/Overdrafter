@@ -24,6 +24,7 @@ type PartActionProjectOption = {
 export type PartActionsMenuProps = {
   showBatchAction?: boolean;
   isCreateProjectDisabled?: boolean;
+  onCreateProject?: () => void;
   onCreateProjectFromSelection?: () => void;
   onEditPart: () => void;
   onRenamePart?: () => void;
@@ -58,6 +59,7 @@ function renderSharedPartActions(
   {
     showBatchAction = false,
     isCreateProjectDisabled = false,
+    onCreateProject,
     onCreateProjectFromSelection,
     onEditPart,
     onRenamePart,
@@ -98,7 +100,18 @@ function renderSharedPartActions(
               <SubTrigger inset>Add to project</SubTrigger>
               <SubContent className={SUBMENU_CONTENT_CLASS}>
                 {addableProjects.length === 0 ? (
-                  <Item disabled>No other projects available</Item>
+                  onCreateProject ? (
+                    <Item
+                      disabled={isCreateProjectDisabled}
+                      onSelect={() => {
+                        onCreateProject();
+                      }}
+                    >
+                      Create new project
+                    </Item>
+                  ) : (
+                    <Item disabled>No other projects available</Item>
+                  )
                 ) : (
                   addableProjects.map((project) => (
                     <Item

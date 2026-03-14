@@ -347,6 +347,14 @@ const ClientPart = () => {
                         setShowRenameDialog(true);
                         setIsPartOptionsOpen(false);
                       }}
+                      onCreateProject={
+                        !projectCollaborationUnavailable
+                          ? () => {
+                              setIsPartOptionsOpen(false);
+                              void handleCreateProjectFromSelection([jobId]);
+                            }
+                          : undefined
+                      }
                       addableProjects={currentProjectOptions
                         .filter((project) => !(partDetail?.projectIds ?? []).includes(project.project.id))
                         .map((project) => ({ id: project.project.id, name: project.project.name }))}
