@@ -670,7 +670,7 @@ export function WorkspaceSidebar({
 
   const createProjectFromSelection = useCallback(
     async (jobIds: string[]) => {
-      if (!onCreateProjectFromSelection || jobIds.length < 2) {
+      if (!onCreateProjectFromSelection || jobIds.length === 0) {
         return;
       }
 
@@ -824,6 +824,9 @@ export function WorkspaceSidebar({
         <PartContextMenuActions
           showBatchAction={showBatchAction}
           isCreateProjectDisabled={!onCreateProjectFromSelection || isCreatingProjectFromSelection}
+          onCreateProject={() => {
+            void createProjectFromSelection([job.id]);
+          }}
           onCreateProjectFromSelection={() => {
             void createProjectFromSelection(contextSelection);
           }}

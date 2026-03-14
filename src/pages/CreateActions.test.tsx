@@ -117,6 +117,7 @@ vi.mock("@/components/chat/PartActionsMenu", () => ({
   PartDropdownMenuActions: ({
     onEditPart,
     onRenamePart,
+    onCreateProject,
     onArchivePart,
     onTogglePin,
     onAddToProject,
@@ -124,6 +125,7 @@ vi.mock("@/components/chat/PartActionsMenu", () => ({
   }: {
     onEditPart: () => void;
     onRenamePart?: () => void;
+    onCreateProject?: () => void;
     onArchivePart?: () => void;
     onTogglePin: () => void;
     onAddToProject?: (projectId: string) => void;
@@ -132,6 +134,7 @@ vi.mock("@/components/chat/PartActionsMenu", () => ({
     <div>
       <button type="button" onClick={onEditPart}>Edit part</button>
       {onRenamePart ? <button type="button" onClick={onRenamePart}>Rename part</button> : null}
+      {onCreateProject ? <button type="button" onClick={onCreateProject}>Create new project</button> : null}
       {onAddToProject ? <button type="button" onClick={() => onAddToProject("project-2")}>Add to project</button> : null}
       {onRemoveFromProject ? <button type="button" onClick={() => onRemoveFromProject("project-1")}>Remove from project</button> : null}
       {onArchivePart ? <button type="button" onClick={onArchivePart}>Archive part</button> : null}
@@ -496,6 +499,50 @@ describe("top-level create actions", () => {
         }),
       );
     });
+  });
+
+  it("creates a new project from the part header actions when no other project targets exist", async () => {
+    api.createProject.mockResolvedValue("project-2");
+    api.assignJobToProject.mockResolvedValue("job-1");
+    api.fetchAccessibleProjects.mockResolvedValue([]);
+    api.fetchAccessibleJobs.mockResolvedValue([makeJob({ project_id: null })]);
+    api.fetchPartDetail.mockResolvedValue({
+      job: makeJob({ project_id: null }),
+      part: {
+        id: "part-1",
+        normalized_key: "job-one",
+        vendorQuotes: [],
+        extraction: null,
+        quantity: 1,
+        approvedRequirement: null,
+      },
+      summary: makeSummary(),
+      projectIds: [],
+      files: [],
+      drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+      latestQuoteRun: null,
+      revisionSiblings: [],
+    });
+
+    renderWithClient(
+      <Routes>
+        <Route path="/parts/:jobId" element={<ClientPart />} />
+        <Route path="/projects/:projectId" element={<div>Project view</div>} />
+      </Routes>,
+      "/parts/job-1",
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /create new project/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /create new project/i }));
+
+    await waitFor(() => {
+      expect(api.createProject).toHaveBeenCalledWith({ name: "1093-00001 rev A" });
+    });
+    expect(api.assignJobToProject).toHaveBeenCalledWith({ jobId: "job-1", projectId: "project-2" });
+    expect(await screen.findByText("Project view")).toBeInTheDocument();
   });
 
   it("archives the current part from the header options menu", async () => {
