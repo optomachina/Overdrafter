@@ -4,6 +4,8 @@
 - Refactors the client part route at `src/pages/ClientPart.tsx` without changing `ChatWorkspaceLayout`, `WorkspaceSidebar`, `WorkspaceAccountMenu`, or `AppShell`.
 - Keeps existing sidebar actions, search, archive, project membership, and file attach flows intact.
 - Basic client part flows must remain available when optional project-collaboration schema is missing. In that mode, part loading and archive/unarchive continue to work, while project labels and project-management affordances degrade cleanly instead of blocking the workspace.
+- Optional client activity/history surfaces must also degrade cleanly. If the client activity feed RPC is unavailable in an older environment, the part workspace and notification center render with empty activity state instead of failing the page.
+- Raw client read queries must not directly select optional request-intent columns such as `jobs.requested_service_kinds`. Client quote/workspace reads must go through the compatibility accessor in `src/features/quotes/api.ts` so older schemas keep loading with normalized defaults.
 
 ## Layout
 - Header with part title, project/batch badges, request summary badges, and actions for project membership, file attach, and review.

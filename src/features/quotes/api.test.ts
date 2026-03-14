@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 
@@ -345,6 +347,45 @@ import {
   uploadManualQuoteEvidence,
 } from "./api";
 
+function listSourceFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((entry) => {
+    const path = join(dir, entry);
+    const stats = statSync(path);
+
+    if (stats.isDirectory()) {
+      return listSourceFiles(path);
+    }
+
+    if (!path.endsWith(".ts") && !path.endsWith(".tsx")) {
+      return [];
+    }
+
+    if (path.endsWith(".test.ts") || path.endsWith(".test.tsx")) {
+      return [];
+    }
+
+    return [path];
+  });
+}
+
+function countRequestedServiceKindReads(content: string): number {
+  const marker = 'from("jobs").select(';
+  let count = 0;
+  let index = content.indexOf(marker);
+
+  while (index !== -1) {
+    const window = content.slice(index, index + 500);
+
+    if (window.includes("requested_service_kinds")) {
+      count += 1;
+    }
+
+    index = content.indexOf(marker, index + marker.length);
+  }
+
+  return count;
+}
+
 describe("quotes api helpers", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -544,6 +585,69 @@ describe("quotes api helpers", () => {
         requestedByDate: "2026-04-01",
       }),
     ]);
+
+    expect(supabaseMock.jobsSelect).toHaveBeenNthCalledWith(
+      1,
+      "id, selected_vendor_quote_offer_id, requested_service_kinds, primary_service_kind, service_notes, requested_quote_quantities, requested_by_date",
+    );
+    expect(supabaseMock.jobsSelect).toHaveBeenNthCalledWith(
+      2,
+      "id, selected_vendor_quote_offer_id, requested_quote_quantities, requested_by_date",
+    );
+  });
+
+  it("uses the centralized selection accessor without fallback when service-intent columns are available", async () => {
+    supabaseMock.jobsIn.mockResolvedValueOnce({
+      data: [
+        {
+          id: "job-1",
+          selected_vendor_quote_offer_id: null,
+          requested_service_kinds: ["manufacturing_quote"],
+          primary_service_kind: "manufacturing_quote",
+          service_notes: "Anodize after machining",
+          requested_quote_quantities: [7],
+          requested_by_date: "2026-04-03",
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.partsOrder.mockResolvedValueOnce({
+      data: [
+        {
+          job_id: "job-1",
+          quantity: 7,
+          approved_part_requirements: null,
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.jobFilesOrder.mockResolvedValueOnce({
+      data: [
+        {
+          job_id: "job-1",
+          normalized_name: "1234-56789.step",
+          original_name: "1234-56789.step",
+          file_kind: "cad",
+        },
+      ],
+      error: null,
+    });
+
+    await expect(fetchJobPartSummariesByJobIds(["job-1"])).resolves.toEqual([
+      expect.objectContaining({
+        jobId: "job-1",
+        requestedServiceKinds: ["manufacturing_quote"],
+        primaryServiceKind: "manufacturing_quote",
+        serviceNotes: "Anodize after machining",
+        requestedQuoteQuantities: [7],
+        requestedByDate: "2026-04-03",
+      }),
+    ]);
+
+    expect(supabaseMock.jobsSelect).toHaveBeenCalledTimes(1);
+    expect(supabaseMock.jobsSelect).toHaveBeenCalledWith(
+      "id, selected_vendor_quote_offer_id, requested_service_kinds, primary_service_kind, service_notes, requested_quote_quantities, requested_by_date",
+    );
   });
 
   it("falls back to unfiltered job reads when the archive column is missing", async () => {
@@ -1645,5 +1749,32 @@ describe("quotes api helpers", () => {
     expect(supabaseMock.pinnedJobsDelete).toHaveBeenCalled();
     expect(supabaseMock.pinnedJobsDeleteEqFirst).toHaveBeenCalledWith("user_id", "user-1");
     expect(supabaseMock.pinnedJobsDeleteEqSecond).toHaveBeenCalledWith("job_id", "job-123");
+  });
+
+  it("keeps raw requested_service_kinds reads confined to the compatibility accessor", () => {
+    const quotesDir = join(process.cwd(), "src/features/quotes");
+    const sourceFiles = listSourceFiles(quotesDir);
+    const allowedFile = join(quotesDir, "api.ts");
+    const violations: string[] = [];
+
+    for (const path of sourceFiles) {
+      const content = readFileSync(path, "utf8");
+      const count = countRequestedServiceKindReads(content);
+
+      if (count === 0) {
+        continue;
+      }
+
+      if (path !== allowedFile) {
+        violations.push(path);
+        continue;
+      }
+
+      if (count !== 1) {
+        violations.push(`${path} (expected 1 compatibility accessor, found ${count})`);
+      }
+    }
+
+    expect(violations).toEqual([]);
   });
 });
