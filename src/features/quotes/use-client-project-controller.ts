@@ -28,6 +28,7 @@ import {
   removeJobFromProject,
   removeProjectMember,
   requestExtraction,
+  requestQuotes,
   setJobSelectedVendorQuoteOffer,
   unarchiveJob,
   unarchiveProject,
@@ -426,6 +427,48 @@ export function useClientProjectController() {
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to update line item.");
+    },
+  });
+
+  const requestProjectQuotesMutation = useMutation({
+    mutationFn: ({ jobIds, forceRetry = false }: { jobIds: string[]; forceRetry?: boolean }) =>
+      requestQuotes(jobIds, forceRetry),
+    onSuccess: async (results, variables) => {
+      const jobIds = variables.jobIds;
+      await invalidateClientWorkspaceQueries(queryClient, {
+        projectId,
+        clientQuoteWorkspaceJobIds: projectJobIds.length > 0 ? projectJobIds : jobIds,
+      });
+
+      const acceptedCount = results.filter((result) => result.accepted).length;
+      const createdCount = results.filter((result) => result.created).length;
+      const blockedCount = results.length - acceptedCount;
+
+      if (acceptedCount === 0) {
+        toast.error(results[0]?.reason || "No quote requests could be started.");
+        return;
+      }
+
+      if (createdCount === 0) {
+        toast.success(
+          `Quote request${acceptedCount === 1 ? " is" : "s are"} already in progress for ${acceptedCount} part${acceptedCount === 1 ? "" : "s"}.`,
+        );
+        return;
+      }
+
+      if (blockedCount > 0) {
+        toast.success(
+          `Queued ${createdCount} quote request${createdCount === 1 ? "" : "s"} and skipped ${blockedCount} part${blockedCount === 1 ? "" : "s"}.`,
+        );
+        return;
+      }
+
+      toast.success(
+        `Queued ${createdCount} quote request${createdCount === 1 ? "" : "s"} for this project.`,
+      );
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to request project quotes.");
     },
   });
 
@@ -971,6 +1014,15 @@ export function useClientProjectController() {
     void prefetchPartPage(queryClient, jobId);
   };
 
+  const handleRequestProjectQuotes = async (jobIds: string[], forceRetry = false) => {
+    if (jobIds.length === 0) {
+      toast.error("No project parts are ready to request quotes.");
+      return;
+    }
+
+    await requestProjectQuotesMutation.mutateAsync({ jobIds, forceRetry });
+  };
+
   return {
     accessibleJobsQuery,
     activeFilter,
@@ -1008,6 +1060,7 @@ export function useClientProjectController() {
     handleRemovePartFromProject,
     handleRemoveProjectMember,
     handleRenameProject,
+    handleRequestProjectQuotes,
     handleRequestDraftChange,
     handleRevertBulk,
     handleSaveRequest,
@@ -1040,6 +1093,7 @@ export function useClientProjectController() {
     saveRequestMutation,
     optionsByJobId,
     selectedOptionsByJobId,
+    requestProjectQuotesMutation,
     setActiveFilter,
     setIsSearchOpen,
     setMobileDrawerOpen,

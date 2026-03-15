@@ -47,6 +47,8 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       removeJobFromProject: vi.fn(),
       removeProjectMember: vi.fn(),
       requestExtraction: vi.fn(),
+      requestQuote: vi.fn(),
+      requestQuotes: vi.fn(),
       resendSignupConfirmation: vi.fn(),
       setJobSelectedVendorQuoteOffer: vi.fn(),
       unarchiveJob: vi.fn(),
@@ -366,6 +368,7 @@ describe("top-level create actions", () => {
       projectIds: ["project-1"],
       files: [],
       drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+      latestQuoteRequest: null,
       latestQuoteRun: null,
       revisionSiblings: [],
     });
@@ -393,6 +396,7 @@ describe("top-level create actions", () => {
         },
         projectIds: ["project-1"],
         drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+        latestQuoteRequest: null,
         latestQuoteRun: null,
       },
     ]);
@@ -552,6 +556,7 @@ describe("top-level create actions", () => {
       projectIds: [],
       files: [],
       drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+      latestQuoteRequest: null,
       latestQuoteRun: null,
       revisionSiblings: [],
     });

@@ -37,6 +37,11 @@
 - `job.quote_package_published`
 - `client.quote_option_selected`
 
+## Quote request note
+- `job.quote_run_started` remains the durable event emitted when quote collection starts.
+- When the event payload includes `clientTriggered: true`, the client UI should render it as `Quote request accepted` rather than as an internal-only automation milestone.
+- The client-safe detail for that path is: the request was accepted and queued for Xometry.
+
 ## Notes
 - The log is intentionally restrained and high-signal; it is not a chat feed.
 - Vendor names, raw worker errors, and internal sourcing notes remain out of the client event surface.

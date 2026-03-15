@@ -36,6 +36,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage } = vi.hoi
     removeJobFromProject: vi.fn(),
     removeProjectMember: vi.fn(),
     requestExtraction: vi.fn(),
+    requestQuotes: vi.fn(),
     setJobSelectedVendorQuoteOffer: vi.fn(),
     unarchiveJob: vi.fn(),
     unarchiveProject: vi.fn(),
@@ -193,10 +194,13 @@ describe("ClientProject", () => {
         created_by: "user-1",
         title: "Bracket",
         description: null,
-        status: "quoted",
+        status: "ready_to_quote",
         source: "client_home",
         active_pricing_policy_id: null,
         tags: [],
+        requested_service_kinds: ["manufacturing_quote"],
+        primary_service_kind: "manufacturing_quote",
+        service_notes: null,
         requested_quote_quantities: [10],
         requested_by_date: "2026-04-15",
         archived_at: null,
@@ -235,10 +239,13 @@ describe("ClientProject", () => {
         created_by: "user-1",
         title: "Bracket",
         description: null,
-        status: "quoted",
+        status: "ready_to_quote",
         source: "client_home",
         active_pricing_policy_id: null,
         tags: [],
+        requested_service_kinds: ["manufacturing_quote"],
+        primary_service_kind: "manufacturing_quote",
+        service_notes: null,
         requested_quote_quantities: [10],
         requested_by_date: "2026-04-15",
         archived_at: null,
@@ -251,11 +258,77 @@ describe("ClientProject", () => {
       {
         job: {
           id: "job-1",
+          organization_id: "org-1",
+          project_id: "project-1",
+          created_by: "user-1",
           title: "Bracket",
+          description: null,
+          status: "ready_to_quote",
+          source: "client_home",
+          active_pricing_policy_id: null,
+          tags: [],
+          requested_service_kinds: ["manufacturing_quote"],
+          primary_service_kind: "manufacturing_quote",
+          service_notes: null,
           requested_by_date: "2026-04-15",
           requested_quote_quantities: [10],
+          archived_at: null,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+          selected_vendor_quote_offer_id: null,
         },
-        part: null,
+        part: {
+          id: "part-1",
+          job_id: "job-1",
+          organization_id: "org-1",
+          name: "Bracket",
+          normalized_key: "bracket",
+          cad_file_id: "cad-1",
+          drawing_file_id: null,
+          quantity: 10,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+          cadFile: {
+            id: "cad-1",
+            job_id: "job-1",
+            organization_id: "org-1",
+            file_kind: "cad",
+            blob_id: "blob-1",
+            storage_bucket: "job-files",
+            storage_path: "cad.step",
+            normalized_name: "cad.step",
+            original_name: "cad.step",
+            size_bytes: 123,
+            mime_type: "application/step",
+            content_sha256: "hash",
+            matched_part_key: null,
+            uploaded_by: "user-1",
+            created_at: "2026-03-01T00:00:00Z",
+          },
+          drawingFile: null,
+          extraction: null,
+          approvedRequirement: {
+            id: "requirement-1",
+            part_id: "part-1",
+            organization_id: "org-1",
+            approved_by: "user-1",
+            description: "Bracket",
+            part_number: "BRKT-001",
+            revision: "A",
+            material: "6061-T6",
+            finish: null,
+            tightest_tolerance_inch: null,
+            quantity: 10,
+            quote_quantities: [10],
+            requested_by_date: "2026-04-15",
+            applicable_vendors: ["xometry"],
+            spec_snapshot: {},
+            approved_at: "2026-03-01T00:00:00Z",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+          vendorQuotes: [],
+        },
         summary: {
           jobId: "job-1",
           partNumber: "BRKT-001",
@@ -263,17 +336,38 @@ describe("ClientProject", () => {
           description: "Bracket",
           quantity: 10,
           importedBatch: null,
+          requestedServiceKinds: ["manufacturing_quote"],
+          primaryServiceKind: "manufacturing_quote",
+          serviceNotes: null,
           requestedQuoteQuantities: [10],
           requestedByDate: "2026-04-15",
           selectedSupplier: null,
           selectedPriceUsd: null,
           selectedLeadTimeBusinessDays: null,
         },
+        files: [],
+        projectIds: ["project-1"],
         drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+        latestQuoteRequest: null,
+        latestQuoteRun: null,
       },
     ]);
     api.fetchProjectMemberships.mockResolvedValue([]);
     api.fetchProjectInvites.mockResolvedValue([]);
+    api.requestQuotes.mockResolvedValue([
+      {
+        jobId: "job-1",
+        accepted: true,
+        created: true,
+        deduplicated: false,
+        quoteRequestId: "request-1",
+        quoteRunId: "run-1",
+        status: "queued",
+        reasonCode: null,
+        reason: null,
+        requestedVendors: ["xometry"],
+      },
+    ]);
   });
 
   it("renders a normal project route without changing its header content", async () => {
@@ -299,6 +393,20 @@ describe("ClientProject", () => {
 
     expect(prefetchProjectPage).toHaveBeenCalledWith(expect.anything(), "project-2", {
       enabled: false,
+    });
+  });
+
+  it("requests quotes for ready project parts", async () => {
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /request 1 quote/i })).toBeEnabled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /request 1 quote/i }));
+
+    await waitFor(() => {
+      expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
     });
   });
 

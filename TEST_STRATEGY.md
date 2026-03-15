@@ -79,6 +79,13 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - targeted automated tests where practical
 - smoke verification of the affected flow
 
+### Client-triggered quote request changes
+- validate request gating and lifecycle rendering in client part and project workspace tests
+- validate RPC behavior for single-part and bulk quote requests
+- validate authorization and idempotency outcomes
+- validate worker- or queue-adjacent state transitions where the request lifecycle depends on asynchronous vendor updates
+- run `npm run verify:worker` when worker payload or queue integration changes
+
 ### Bug fixes
 - reproduce the bug or define the failure clearly
 - add or update a failing automated test where practical

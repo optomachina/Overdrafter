@@ -631,6 +631,7 @@ function buildNeedsAttentionScenario(): FixtureState {
     part,
     projectIds: [project.id],
     drawingPreview,
+    latestQuoteRequest: null,
     latestQuoteRun: null,
     revisionSiblings: [],
   };
@@ -691,6 +692,7 @@ function buildNeedsAttentionScenario(): FixtureState {
         part,
         projectIds: [project.id],
         drawingPreview,
+        latestQuoteRequest: null,
         latestQuoteRun: null,
       },
     },
@@ -867,6 +869,7 @@ function buildQuotedScenario(): FixtureState {
 
     const latestQuoteRun: QuoteRunRecord = {
       id: `${lineItem.partId}-quote-run`,
+      quote_request_id: null,
       job_id: lineItem.jobId,
       organization_id: FIXTURE_ORGANIZATION_ID,
       initiated_by: user.id,
@@ -893,6 +896,7 @@ function buildQuotedScenario(): FixtureState {
       part,
       projectIds: [project.id],
       drawingPreview,
+      latestQuoteRequest: null,
       latestQuoteRun,
       revisionSiblings: [],
     };
@@ -903,6 +907,7 @@ function buildQuotedScenario(): FixtureState {
       part,
       projectIds: [project.id],
       drawingPreview,
+      latestQuoteRequest: null,
       latestQuoteRun,
     };
     clientActivityByJobId[job.id] = [
@@ -1046,6 +1051,7 @@ function buildPublishedScenario(): FixtureState {
 
   const latestQuoteRun: QuoteRunRecord = {
     id: "fx-part-published-quote-run",
+    quote_request_id: null,
     job_id: job.id,
     organization_id: FIXTURE_ORGANIZATION_ID,
     initiated_by: "fixture-user-client",
@@ -1090,6 +1096,7 @@ function buildPublishedScenario(): FixtureState {
       part,
       projectIds: [publishedProject.id],
       drawingPreview,
+      latestQuoteRequest: null,
       latestQuoteRun,
       revisionSiblings: [],
     },
@@ -1102,6 +1109,7 @@ function buildPublishedScenario(): FixtureState {
       part,
       projectIds: [publishedProject.id],
       drawingPreview,
+      latestQuoteRequest: null,
       latestQuoteRun,
     },
   };

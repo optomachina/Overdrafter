@@ -40,6 +40,7 @@ export type ClientOptionKind = "lowest_cost" | "fastest_delivery" | "balanced";
 export type JobFileKind = "cad" | "drawing" | "artifact" | "other";
 export type ExtractionStatus = "needs_review" | "approved";
 export type QuoteRunStatus = "queued" | "running" | "completed" | "failed" | "published";
+export type QuoteRequestStatus = "queued" | "requesting" | "received" | "failed" | "canceled";
 export type QueueTaskType =
   | "extract_part"
   | "run_vendor_quote"
@@ -452,6 +453,7 @@ export type Database = {
       };
       quote_runs: {
         Row: BaseRow & {
+          quote_request_id: string | null;
           job_id: string;
           organization_id: string;
           initiated_by: string;
@@ -462,6 +464,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
+          quote_request_id?: string | null;
           job_id: string;
           organization_id: string;
           initiated_by: string;
@@ -471,6 +474,36 @@ export type Database = {
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["quote_runs"]["Insert"]>;
+      };
+      quote_requests: {
+        Row: BaseRow & {
+          organization_id: string;
+          job_id: string;
+          requested_by: string;
+          requested_vendors: VendorName[];
+          status: QuoteRequestStatus;
+          failure_reason: string | null;
+          received_at: string | null;
+          failed_at: string | null;
+          canceled_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          job_id: string;
+          requested_by: string;
+          requested_vendors?: VendorName[];
+          status?: QuoteRequestStatus;
+          failure_reason?: string | null;
+          received_at?: string | null;
+          failed_at?: string | null;
+          canceled_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["quote_requests"]["Insert"]>;
       };
       vendor_quote_results: {
         Row: BaseRow & {
@@ -969,6 +1002,20 @@ export type Database = {
         };
         Returns: string;
       };
+      api_request_quote: {
+        Args: {
+          p_job_id: string;
+          p_force_retry?: boolean;
+        };
+        Returns: Json;
+      };
+      api_request_quotes: {
+        Args: {
+          p_job_ids: string[];
+          p_force_retry?: boolean;
+        };
+        Returns: Json;
+      };
       api_get_quote_run_readiness: {
         Args: {
           p_quote_run_id: string;
@@ -1023,6 +1070,7 @@ export type Database = {
       job_file_kind: JobFileKind;
       extraction_status: ExtractionStatus;
       quote_run_status: QuoteRunStatus;
+      quote_request_status: QuoteRequestStatus;
       queue_task_type: QueueTaskType;
       queue_task_status: QueueTaskStatus;
     };

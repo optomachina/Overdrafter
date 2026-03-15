@@ -337,6 +337,8 @@ import {
   inferFileKind,
   pinJob,
   pinProject,
+  requestQuote,
+  requestQuotes,
   resetClientIntakeSchemaAvailabilityForTests,
   resetJobArchivingSchemaAvailabilityForTests,
   resetProjectCollaborationSchemaAvailabilityForTests,
@@ -1749,6 +1751,74 @@ describe("quotes api helpers", () => {
     expect(supabaseMock.pinnedJobsDelete).toHaveBeenCalled();
     expect(supabaseMock.pinnedJobsDeleteEqFirst).toHaveBeenCalledWith("user_id", "user-1");
     expect(supabaseMock.pinnedJobsDeleteEqSecond).toHaveBeenCalledWith("job_id", "job-123");
+  });
+
+  it("requests a quote for a single job through the new RPC", async () => {
+    supabaseMock.rpc.mockResolvedValue({
+      data: {
+        jobId: "job-1",
+        accepted: true,
+        created: true,
+        deduplicated: false,
+        quoteRequestId: "request-1",
+        quoteRunId: "run-1",
+        status: "queued",
+        reasonCode: null,
+        reason: null,
+        requestedVendors: ["xometry"],
+      },
+      error: null,
+    });
+
+    await expect(requestQuote("job-1")).resolves.toMatchObject({
+      jobId: "job-1",
+      status: "queued",
+      quoteRequestId: "request-1",
+    });
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_quote", {
+      p_job_id: "job-1",
+      p_force_retry: false,
+    });
+  });
+
+  it("requests quotes in bulk and normalizes the array response", async () => {
+    supabaseMock.rpc.mockResolvedValue({
+      data: [
+        {
+          jobId: "job-1",
+          accepted: true,
+          created: true,
+          deduplicated: false,
+          quoteRequestId: "request-1",
+          quoteRunId: "run-1",
+          status: "queued",
+          reasonCode: null,
+          reason: null,
+          requestedVendors: ["xometry"],
+        },
+        {
+          jobId: "job-2",
+          accepted: false,
+          created: false,
+          deduplicated: false,
+          quoteRequestId: null,
+          quoteRunId: null,
+          status: "not_requested",
+          reasonCode: "missing_cad",
+          reason: "Upload a CAD model before requesting a quote from Xometry.",
+          requestedVendors: ["xometry"],
+        },
+      ],
+      error: null,
+    });
+
+    await expect(requestQuotes(["job-1", "job-2", "job-1"])).resolves.toHaveLength(2);
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_quotes", {
+      p_job_ids: ["job-1", "job-2"],
+      p_force_retry: false,
+    });
   });
 
   it("keeps raw requested_service_kinds reads confined to the compatibility accessor", () => {

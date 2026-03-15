@@ -43,6 +43,7 @@ import {
   buildClientWorkspaceState,
   getClientQuoteOptionStateReasons,
 } from "@/features/quotes/client-workspace-state";
+import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import { formatCurrency, formatLeadTime, formatStatusLabel } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
 
@@ -78,6 +79,7 @@ const ClientPart = () => {
     handleRemovePartFromProject,
     handleRenamePart,
     handleRenameProject,
+    handleRequestQuote,
     handleSaveRequest,
     handleSelectQuoteOption,
     handleToggleCurrentPartPin,
@@ -89,6 +91,7 @@ const ClientPart = () => {
     isPartArchiveBusy,
     isPartOptionsOpen,
     isPartPinBusy,
+    isRequestingQuote,
     isRenamingPart,
     isSearchOpen,
     jobId,
@@ -152,6 +155,15 @@ const ClientPart = () => {
           options: rankedQuoteOptions,
           selectedOption: selectedQuoteOption,
           requestedByDate: requestSummaryRequestedByDate,
+        })
+      : null;
+  const quoteRequestViewModel =
+    partDetail?.job
+      ? buildQuoteRequestViewModel({
+          job: partDetail.job,
+          part: partDetail.part,
+          latestQuoteRequest: partDetail.latestQuoteRequest,
+          latestQuoteRun: partDetail.latestQuoteRun,
         })
       : null;
 
@@ -227,6 +239,13 @@ const ClientPart = () => {
                     <Badge className="border border-white/10 bg-white/6 text-white/75">
                       {formatStatusLabel(partDetail.job.status)}
                     </Badge>
+                    {quoteRequestViewModel ? (
+                      <ClientWorkspaceToneBadge
+                        tone={quoteRequestViewModel.tone}
+                        label={`Quote ${quoteRequestViewModel.label}`}
+                        className="tracking-normal normal-case"
+                      />
+                    ) : null}
                     {projectMemberships.length > 0 ? (
                       projectMemberships.map((project) => (
                         <Badge key={project.project.id} className="border border-white/10 bg-white/6 text-white/75">
@@ -324,6 +343,23 @@ const ClientPart = () => {
                     <Upload className="mr-2 h-4 w-4" />
                     Attach files
                   </Button>
+                  {quoteRequestViewModel ? (
+                    <Button
+                      type="button"
+                      className="rounded-full"
+                      disabled={isRequestingQuote || quoteRequestViewModel.action.disabled}
+                      onClick={() => {
+                        if (quoteRequestViewModel.action.kind === "none") {
+                          return;
+                        }
+
+                        void handleRequestQuote(quoteRequestViewModel.action.kind === "retry");
+                      }}
+                    >
+                      {isRequestingQuote ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      {quoteRequestViewModel.action.label ?? "Quote"}
+                    </Button>
+                  ) : null}
                   <Button type="button" className="rounded-full" onClick={() => navigate(`/parts/${jobId}/review`)}>
                     Review order
                     <MoveRight className="ml-2 h-4 w-4" />
@@ -406,6 +442,60 @@ const ClientPart = () => {
               </div>
 
               {workspaceState ? <ClientWorkspaceStateSummary state={workspaceState} /> : null}
+
+              {quoteRequestViewModel ? (
+                <section
+                  className={cn(
+                    "rounded-[26px] border p-5",
+                    quoteRequestViewModel.tone === "ready"
+                      ? "border-emerald-400/20 bg-emerald-500/8"
+                      : quoteRequestViewModel.tone === "warning"
+                        ? "border-amber-400/20 bg-amber-500/8"
+                        : "border-rose-400/20 bg-rose-500/8",
+                  )}
+                >
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <ClientWorkspaceToneBadge
+                          tone={quoteRequestViewModel.tone}
+                          label={`Quote ${quoteRequestViewModel.label}`}
+                          className="tracking-normal normal-case"
+                        />
+                        <p className="text-sm font-medium text-white">Xometry request status</p>
+                      </div>
+                      <p className="mt-2 text-sm text-white/75">{quoteRequestViewModel.detail}</p>
+                    </div>
+                    <Button
+                      type="button"
+                      className="rounded-full"
+                      disabled={isRequestingQuote || quoteRequestViewModel.action.disabled}
+                      onClick={() => {
+                        if (quoteRequestViewModel.action.kind === "none") {
+                          return;
+                        }
+
+                        void handleRequestQuote(quoteRequestViewModel.action.kind === "retry");
+                      }}
+                    >
+                      {isRequestingQuote ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      {quoteRequestViewModel.action.label ?? "Quote"}
+                    </Button>
+                  </div>
+                  {quoteRequestViewModel.blockerReasons.length > 0 ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {quoteRequestViewModel.blockerReasons.map((reason) => (
+                        <Badge
+                          key={reason}
+                          className="border border-white/10 bg-black/20 text-white/75"
+                        >
+                          {reason}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
 
               <section className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

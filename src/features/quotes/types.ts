@@ -10,6 +10,7 @@ import type {
   Json,
   ProjectInviteStatus,
   ProjectRole as SupabaseProjectRole,
+  QuoteRequestStatus,
   QuoteRunStatus,
   QueueTaskStatus,
   QueueTaskType,
@@ -34,6 +35,7 @@ export type PartRecord = Database["public"]["Tables"]["parts"]["Row"];
 export type DrawingExtractionRecord = Database["public"]["Tables"]["drawing_extractions"]["Row"];
 export type DrawingPreviewAssetRecord = Database["public"]["Tables"]["drawing_preview_assets"]["Row"];
 export type ApprovedPartRequirementRecord = Database["public"]["Tables"]["approved_part_requirements"]["Row"];
+export type QuoteRequestRecord = Database["public"]["Tables"]["quote_requests"]["Row"];
 export type QuoteRunRecord = Database["public"]["Tables"]["quote_runs"]["Row"];
 export type VendorQuoteResultRecord = Database["public"]["Tables"]["vendor_quote_results"]["Row"];
 export type VendorQuoteOfferRecord = Database["public"]["Tables"]["vendor_quote_offers"]["Row"];
@@ -438,6 +440,23 @@ export type WorkerReadinessSnapshot = {
   url: string | null;
 };
 
+export type ClientQuoteRequestStatus =
+  | "not_requested"
+  | QuoteRequestStatus;
+
+export type QuoteRequestSubmissionResult = {
+  jobId: string;
+  accepted: boolean;
+  created: boolean;
+  deduplicated: boolean;
+  quoteRequestId: string | null;
+  quoteRunId: string | null;
+  status: ClientQuoteRequestStatus;
+  reasonCode: string | null;
+  reason: string | null;
+  requestedVendors: VendorName[];
+};
+
 export type PartDetailAggregate = {
   job: JobRecord;
   files: JobFileRecord[];
@@ -446,6 +465,7 @@ export type PartDetailAggregate = {
   part: PartAggregate | null;
   projectIds: string[];
   drawingPreview: DrawingPreviewData;
+  latestQuoteRequest: QuoteRequestRecord | null;
   latestQuoteRun: QuoteRunRecord | null;
   revisionSiblings: Array<{
     jobId: string;
@@ -466,6 +486,7 @@ export type ClientQuoteWorkspaceItem = {
   part: PartAggregate | null;
   projectIds: string[];
   drawingPreview: DrawingPreviewData;
+  latestQuoteRequest: QuoteRequestRecord | null;
   latestQuoteRun: QuoteRunRecord | null;
 };
 

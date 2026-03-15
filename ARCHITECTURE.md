@@ -49,6 +49,8 @@ The next-phase domain model should expand that quote-centric shape into an expli
 - surfacing processing status and failures without blocking part navigation
 
 ### 6. Quote orchestration layer
+- validating whether a client-facing part package is ready for quote collection
+- recording quote request intent separately from quote run execution
 - initiating automated quote retrieval where supported
 - supporting manual quote entry or imported quote paths
 - normalizing quote outputs into a canonical internal model
@@ -85,8 +87,39 @@ An assembly remains a technical structure nested inside a project. It should mod
 - parts preserve technical identity, revision, and manufacturing context
 - service request line items hold the requested work type, scheduling, status, and service-specific detail
 - quote-specific fields such as requested quote quantities belong to `manufacturing_quote` line items rather than to a universal project request blob
+- quote requests record user intent and lifecycle for starting quote collection
+- quote runs record execution instances launched from a quote request or an internal-only kickoff
+- vendor quote records remain vendor-specific execution output attached to a quote run
 
 See `docs/service-request-taxonomy.md` for the canonical service types and mixed-service modeling rules.
+
+## Client-triggered quote request lifecycle
+
+Phase 1 keeps the existing queue and worker path, but adds a separate client-safe request-intent record:
+
+- client part or project workspace validates the package and calls a quote request RPC
+- the backend creates an idempotent quote request record when no active request already exists
+- the backend creates a linked quote run execution record
+- the backend seeds Xometry-only vendor lanes for that request in phase 1
+- the backend enqueues `run_vendor_quote` work items in `work_queue`
+- the worker claims the task, stages the files, and calls the Xometry adapter
+- vendor result transitions roll up into both request lifecycle state and existing job lifecycle state
+- client UI reads the latest quote request, with quote-run fallback for pre-existing data, to show request status
+
+Phase 1 request lifecycle meanings:
+
+- `not_requested`
+- `queued`
+- `requesting`
+- `received`
+- `failed`
+- `canceled`
+
+Phase 1 vendor boundary:
+
+- client-triggered requests dispatch only to `xometry`
+- existing internal and manual quote ingestion paths remain intact
+- future multi-vendor expansion should add more requested vendors to the request record without collapsing intent and execution into one table
 
 ## Key cross-cutting concerns
 - authorization

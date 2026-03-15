@@ -8,6 +8,18 @@ This document defines what it means for the current repository-hardening phase t
 
 ## Acceptance criteria
 
+### Feature addendum — Client-triggered quote requests
+- A logged-in client user can request a quote from the part workspace for an uploaded part they can edit.
+- A client user can request quotes for the ready parts in a project workspace without using an internal-only surface.
+- Quote request creation is idempotent for active requests. Repeated clicks do not create uncontrolled duplicate active runs.
+- The backend validates ownership, readiness, and required package prerequisites before queueing work.
+- Client-triggered requests dispatch only to Xometry in phase 1.
+- Quote request intent is persisted separately from quote run execution and vendor-specific result records.
+- The worker picks up the queued work and starts vendor quote collection through the existing Xometry adapter boundary.
+- The client UI clearly shows quote request lifecycle state: `not requested`, `queued`, `requesting`, `received`, `failed`, or `canceled`.
+- Cross-org users cannot request or inspect quote request state for jobs they do not own or cannot access.
+- Relevant product, planning, architecture, and test documents are updated in the same change.
+
 ### 1. Canonical root documentation
 - `PRD.md` exists at repo root.
 - `PLAN.md` exists at repo root.

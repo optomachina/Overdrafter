@@ -13,8 +13,8 @@ OverDrafter is a multi-role CNC quoting platform that turns uploaded CAD and dra
 At a high level, the product does four things:
 
 1. Lets clients submit parts and organize them into projects.
-2. Lets internal estimators review extracted requirements and compare sourcing options.
-3. Runs asynchronous extraction and quote orchestration through a worker and queue-backed process.
+2. Lets client users explicitly request quotes for uploaded parts once the package is ready.
+3. Lets internal estimators review extracted requirements and compare sourcing options.
 4. Publishes curated quote packages for client review and selection.
 
 ## Core terminology and container model
@@ -34,6 +34,27 @@ The intended hierarchy is:
 - Quote packages, quote rounds, and downstream order or review records scoped to a project
 
 Customer-facing creation and navigation language should therefore use project-oriented labels such as `Create Project`, `Add Parts`, `Add Assembly`, `Upload Files`, and `Request Quotes`.
+
+## Client-triggered quote request capability
+
+Phase 1 adds an explicit customer-facing `Request Quote` action for uploaded parts. Client users can request a quote for an individual part from the part workspace, or request quotes for the ready parts in a project from the project workspace.
+
+Canonical feature statement:
+
+`Client users can explicitly request quotes for uploaded parts, causing OverDrafter to validate the package, create an idempotent quote request, enqueue work, and dispatch vendor quote generation through the worker pipeline, starting with Xometry as the only enabled vendor in phase 1.`
+
+Phase 1 scope:
+- client-triggered quote requests for a single part
+- project-scoped bulk request for ready parts
+- Xometry as the only automated vendor target for client-triggered requests
+- durable quote request lifecycle visibility in the client UI
+
+Phase 1 non-goals:
+- client-side vendor choice or multi-vendor comparison at request time
+- cancellation UI
+- automatic reruns after a successful request
+- quote comparison across multiple automated vendors triggered by the client request path
+- richer DFM or release-gate workflows beyond the existing request metadata and package validation
 
 ## Vision
 
@@ -101,6 +122,8 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 - Organize parts into projects.
 - Create a project before deciding whether the submitted content includes assemblies, standalone parts, or both.
 - Share projects with collaborators.
+- Explicitly request quote collection when an uploaded part package is ready.
+- See whether quote collection has not started, is queued, is requesting, has received a response, or failed.
 - Review published quote options.
 - Select the best quote option for their needs.
 
@@ -125,7 +148,7 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 
 ### Primary goals
 - Reduce friction in part intake.
-- Make uploaded parts immediately accessible while preserving internal control over quote-run kickoff and publication.
+- Make uploaded parts immediately accessible while letting client users explicitly start quote collection when prerequisites are met.
 - Centralize vendor comparison in one canonical record of quoting work.
 - Provide a clean client experience for collaboration and quote selection.
 - Maintain secure access boundaries between workspaces, projects, collaborators, and internal-only data.
@@ -154,13 +177,16 @@ The current product should not be treated as owning:
 Submitting a part should feel lightweight and direct. Prompt text and file upload should live in one coherent intake path.
 
 ### 2. Internal review must stay focused
-The system may auto-approve extracted part requirements to keep intake moving, but internal users still control quote-run kickoff and any client-facing publication step.
+The system may auto-approve extracted part requirements to keep intake moving. Client users may explicitly trigger quote collection when the package is ready, while internal users still control exception handling, pricing policy, and any client-facing publication step.
 
 ### 3. Client-facing options must be traceable
 Published packages should be traceable to source quotes, internal review, and pricing policy decisions.
 
 ### 4. Important workflow state must be modeled
 The database and backend should explicitly represent important operational states and transitions.
+
+### 9. Quote request intent and quote execution are different records
+The system should distinguish client quote-request intent from quote-run execution. Parts and jobs remain the customer-facing request containers, quote requests record customer intent and lifecycle, quote runs record execution, and vendor quote records hold provider-specific outcomes.
 
 ### 5. Automation must fail closed
 If extraction or sourcing automation fails, the system must preserve visibility and prevent silent progression.

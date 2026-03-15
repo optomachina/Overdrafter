@@ -34,6 +34,7 @@ import type {
   ProjectRole,
   PartDetailAggregate,
   ProjectRecord,
+  QuoteRequestSubmissionResult,
   QuoteRunReadiness,
   SidebarPins,
   UploadFilesToJobSummary,
@@ -54,6 +55,7 @@ import type {
   PartRecord,
   PricingPolicyRecord,
   PublishedPackageAggregate,
+  QuoteRequestRecord,
   QuoteRunAggregate,
   QuoteRunRecord,
   UserPinnedJobRecord,
@@ -301,6 +303,7 @@ const DRAWING_PREVIEW_ASSET_IDENTIFIERS = [
   "page_number",
 ] as const;
 const CLIENT_ACTIVITY_IDENTIFIERS = ["api_list_client_activity_events"] as const;
+const QUOTE_REQUEST_IDENTIFIERS = ["public.quote_requests", "quote_requests", "quote_request_status"] as const;
 const JOB_SELECTION_COLUMN_SETS = [
   "id, selected_vendor_quote_offer_id, requested_service_kinds, primary_service_kind, service_notes, requested_quote_quantities, requested_by_date",
   "id, selected_vendor_quote_offer_id, requested_quote_quantities, requested_by_date",
@@ -427,6 +430,7 @@ function isMissingSchemaIdentifierError(error: unknown, identifiers: readonly st
     metadata.code === "PGRST202" ||
     metadata.code === "PGRST204" ||
     metadata.code === "PGRST205" ||
+    metadata.blob.includes("unexpected table") ||
     metadata.blob.includes("does not exist") ||
     metadata.blob.includes("schema cache")
   );
@@ -446,6 +450,10 @@ function isMissingDrawingPreviewSchemaError(error: unknown): boolean {
 
 function isMissingClientActivitySchemaError(error: unknown): boolean {
   return isMissingSchemaIdentifierError(error, CLIENT_ACTIVITY_IDENTIFIERS);
+}
+
+function isMissingQuoteRequestSchemaError(error: unknown): boolean {
+  return isMissingSchemaIdentifierError(error, QUOTE_REQUEST_IDENTIFIERS);
 }
 
 function isMissingClientIntakeSchemaError(error: unknown): boolean {
@@ -1619,6 +1627,47 @@ async function fetchLatestQuoteRunsByJobIds(jobIds: string[]): Promise<Map<strin
   return latestByJobId;
 }
 
+async function fetchLatestQuoteRequestsByJobIds(jobIds: string[]): Promise<Map<string, QuoteRequestRecord>> {
+  if (jobIds.length === 0) {
+    return new Map();
+  }
+
+  let data: QuoteRequestRecord[] | null = null;
+  let error: { message: string } | null | undefined;
+
+  try {
+    const response = await supabase
+      .from("quote_requests")
+      .select("*")
+      .in("job_id", jobIds)
+      .order("created_at", { ascending: false });
+
+    data = response.data as QuoteRequestRecord[] | null;
+    error = response.error;
+  } catch (queryError) {
+    if (isMissingQuoteRequestSchemaError(queryError)) {
+      return new Map();
+    }
+
+    throw queryError;
+  }
+
+  if (error && isMissingQuoteRequestSchemaError(error)) {
+    return new Map();
+  }
+
+  const requests = ensureData(data, error) as QuoteRequestRecord[];
+  const latestByJobId = new Map<string, QuoteRequestRecord>();
+
+  requests.forEach((request) => {
+    if (!latestByJobId.has(request.job_id)) {
+      latestByJobId.set(request.job_id, request);
+    }
+  });
+
+  return latestByJobId;
+}
+
 export async function fetchClientQuoteWorkspaceByJobIds(
   jobIds: string[],
 ): Promise<ClientQuoteWorkspaceItem[]> {
@@ -1632,7 +1681,15 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     return [];
   }
 
-  const [jobs, filesResult, partsResult, summaries, projectMemberships, latestQuoteRunsByJobId] = await Promise.all([
+  const [
+    jobs,
+    filesResult,
+    partsResult,
+    summaries,
+    projectMemberships,
+    latestQuoteRunsByJobId,
+    latestQuoteRequestsByJobId,
+  ] = await Promise.all([
     fetchJobsByIds(jobIds, {
       archived: false,
     }),
@@ -1641,6 +1698,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     fetchJobPartSummariesByJobIds(jobIds),
     fetchProjectJobMembershipsByJobIds(jobIds),
     fetchLatestQuoteRunsByJobIds(jobIds),
+    fetchLatestQuoteRequestsByJobIds(jobIds),
   ]);
 
   const files = ensureData(filesResult.data, filesResult.error) as JobFileRecord[];
@@ -1812,6 +1870,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
                 extractionByPartId.get(primaryPart.id) ?? null,
                 previewAssetsByPartId.get(primaryPart.id) ?? [],
               ),
+        latestQuoteRequest: latestQuoteRequestsByJobId.get(jobId) ?? null,
         latestQuoteRun: latestQuoteRunsByJobId.get(jobId) ?? null,
       } satisfies ClientQuoteWorkspaceItem,
     ];
@@ -2460,10 +2519,11 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
     return fixtureGateway.fetchPartDetail(jobId);
   }
 
-  const [jobAggregate, partSummaries, projectMemberships] = await Promise.all([
+  const [jobAggregate, partSummaries, projectMemberships, latestQuoteRequestsByJobId] = await Promise.all([
     fetchJobAggregate(jobId),
     fetchJobPartSummariesByJobIds([jobId]),
     fetchProjectJobMembershipsByJobIds([jobId]),
+    fetchLatestQuoteRequestsByJobIds([jobId]),
   ]);
 
   if (jobAggregate.job.archived_at) {
@@ -2504,6 +2564,7 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
     part,
     projectIds: projectMemberships.map((membership) => membership.project_id),
     drawingPreview: normalizeDrawingPreview(part?.extraction ?? null, previewAssets),
+    latestQuoteRequest: latestQuoteRequestsByJobId.get(jobId) ?? null,
     latestQuoteRun: jobAggregate.quoteRuns[0] ?? null,
     revisionSiblings,
   };
@@ -3368,6 +3429,42 @@ export async function startQuoteRun(
   });
 
   return ensureData(data, error);
+}
+
+export async function requestQuote(
+  jobId: string,
+  forceRetry = false,
+): Promise<QuoteRequestSubmissionResult> {
+  const { data, error } = await callRpc("api_request_quote", {
+    p_job_id: jobId,
+    p_force_retry: forceRetry,
+  });
+
+  return ensureData(data, error) as QuoteRequestSubmissionResult;
+}
+
+export async function requestQuotes(
+  jobIds: string[],
+  forceRetry = false,
+): Promise<QuoteRequestSubmissionResult[]> {
+  const distinctJobIds = [...new Set(jobIds.filter(Boolean))];
+
+  if (distinctJobIds.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await callRpc("api_request_quotes", {
+    p_job_ids: distinctJobIds,
+    p_force_retry: forceRetry,
+  });
+
+  const results = ensureData(data, error);
+
+  if (!Array.isArray(results)) {
+    throw new Error("Expected quote request results to be returned as an array.");
+  }
+
+  return results as QuoteRequestSubmissionResult[];
 }
 
 export async function enqueueDebugVendorQuote(input: {
