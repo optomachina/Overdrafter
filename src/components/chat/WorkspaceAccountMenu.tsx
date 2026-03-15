@@ -447,6 +447,7 @@ export function WorkspaceAccountMenu({
   const archivedPartCount = archivedJobs.length;
   const hasPendingDelete = pendingDeleteJobIds.length > 0;
   const bulkDeleteJobIds = deleteConfirmation?.kind === "bulk" ? deleteConfirmation.jobs.map((job) => job.job.id) : [];
+  const deleteAllDisabled = isArchiveLoading || archivedPartCount === 0 || hasPendingDelete;
 
   const openPanel = (panelId: AccountPanelId) => {
     setMenuOpen(false);
@@ -789,35 +790,14 @@ export function WorkspaceAccountMenu({
               </div>
             ) : (
               <>
-                {onDeleteArchivedParts && archivedPartCount > 0 ? (
+                {onDeleteArchivedParts ? (
                   <div className={PANEL_CARD_CLASS}>
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <h3 className="text-[17px] font-medium text-white">
-                          {archivedPartCount} archived {archivedPartCount === 1 ? "part" : "parts"}
-                        </h3>
-                        <p className="mt-1 text-sm text-white/52">
-                          Permanently remove archived parts and their related files from this workspace.
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        disabled={hasPendingDelete}
-                        className="h-9 rounded-full border border-red-500/20 bg-red-500/10 px-3 text-red-100 hover:bg-red-500/18 hover:text-white disabled:opacity-60"
-                        onClick={() => setDeleteConfirmation({ kind: "bulk", jobs: archivedJobs })}
-                      >
-                        {deleteConfirmation?.kind === "bulk" && hasPendingDelete ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <>
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete all
-                          </>
-                        )}
-                      </Button>
-                    </div>
+                    <h3 className="text-[17px] font-medium text-white">
+                      {archivedPartCount} archived {archivedPartCount === 1 ? "part" : "parts"}
+                    </h3>
+                    <p className="mt-1 text-sm text-white/52">
+                      Permanently remove archived parts and their related files from this workspace.
+                    </p>
                   </div>
                 ) : null}
 
@@ -1196,7 +1176,13 @@ export function WorkspaceAccountMenu({
             </ScrollArea>
 
             {activePanel && activePanel !== "settings" && activePanel !== "notifications" ? (
-              <div className="border-t border-white/[0.08] px-6 py-4">
+              <div
+                data-testid={activePanel === "archive" ? "archive-footer-actions" : undefined}
+                className={cn(
+                  "border-t border-white/[0.08] px-6 py-4",
+                  activePanel === "archive" ? "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" : "",
+                )}
+              >
                 <Button
                   type="button"
                   variant="ghost"
@@ -1206,6 +1192,25 @@ export function WorkspaceAccountMenu({
                   <ArrowUpRight className="mr-2 h-4 w-4" />
                   Back to Help center
                 </Button>
+
+                {activePanel === "archive" && onDeleteArchivedParts ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={deleteAllDisabled}
+                    className="h-10 rounded-full border border-red-500/20 bg-red-500/10 px-4 text-red-100 hover:bg-red-500/18 hover:text-white disabled:opacity-60"
+                    onClick={() => setDeleteConfirmation({ kind: "bulk", jobs: archivedJobs })}
+                  >
+                    {deleteConfirmation?.kind === "bulk" && hasPendingDelete ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete all
+                      </>
+                    )}
+                  </Button>
+                ) : null}
               </div>
             ) : null}
           </div>

@@ -530,7 +530,7 @@ describe("quotes api helpers", () => {
     });
   });
 
-  it("surfaces a targeted schema error when the archived delete RPC is unavailable", async () => {
+  it("falls back to the legacy single-delete RPC when the bulk delete RPC is unavailable", async () => {
     supabaseMock.rpc.mockResolvedValueOnce({
       data: null,
       error: {
@@ -540,12 +540,80 @@ describe("quotes api helpers", () => {
         hint: null,
       },
     });
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: "job-123",
+      error: null,
+    });
 
-    await expect(deleteArchivedJob("job-123")).rejects.toThrow(
-      "Archived part deletion is unavailable in this environment until the latest archive delete schema is applied.",
-    );
+    await expect(deleteArchivedJob("job-123")).resolves.toBe("job-123");
 
-    expect(supabaseMock.functionsInvoke).not.toHaveBeenCalledWith("job-archive-fallback", expect.anything());
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_delete_archived_job", {
+      p_job_id: "job-123",
+    });
+  });
+
+  it("falls back to the legacy single-delete contract for bulk deletes when the bulk RPC is unavailable", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "PGRST202",
+        message: "Could not find the function public.api_delete_archived_jobs(p_job_ids) in the schema cache",
+        details: null,
+        hint: null,
+      },
+    });
+    supabaseMock.rpc
+      .mockResolvedValueOnce({ data: "job-123", error: null })
+      .mockResolvedValueOnce({ data: "job-456", error: null });
+
+    await expect(deleteArchivedJobs(["job-123", "job-456"])).resolves.toEqual({
+      deletedJobIds: ["job-123", "job-456"],
+      failures: [],
+    });
+
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_delete_archived_job", {
+      p_job_id: "job-123",
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(3, "api_delete_archived_job", {
+      p_job_id: "job-456",
+    });
+  });
+
+  it("falls back to the edge function when both bulk and legacy delete RPCs are unavailable", async () => {
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "PGRST202",
+          message: "Could not find the function public.api_delete_archived_jobs(p_job_ids) in the schema cache",
+          details: null,
+          hint: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "PGRST202",
+          message: "Could not find the function public.api_delete_archived_job(p_job_id) in the schema cache",
+          details: null,
+          hint: null,
+        },
+      });
+    supabaseMock.functionsInvoke.mockResolvedValueOnce({
+      data: {
+        jobId: "job-123",
+      },
+      error: null,
+    });
+
+    await expect(deleteArchivedJob("job-123")).resolves.toBe("job-123");
+
+    expect(supabaseMock.functionsInvoke).toHaveBeenCalledWith("job-archive-fallback", {
+      body: {
+        action: "delete",
+        jobId: "job-123",
+      },
+    });
   });
 
   it("archives a job through the fallback when shared project tables are unavailable", async () => {

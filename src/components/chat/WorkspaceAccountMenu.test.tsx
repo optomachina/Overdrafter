@@ -310,6 +310,7 @@ describe("WorkspaceAccountMenu", () => {
     const partHeading = screen.getByRole("heading", { name: "Archived Part" });
     const partCard = screen.getByTestId("archived-part-card-job-1");
     const partActions = screen.getByTestId("archived-part-actions-job-1");
+    const footerActions = screen.getByTestId("archive-footer-actions");
     expect(screen.queryByRole("tab", { name: "Projects" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Parts" })).not.toBeInTheDocument();
 
@@ -318,8 +319,11 @@ describe("WorkspaceAccountMenu", () => {
     expect(document.querySelector(".lucide-box")).not.toBeNull();
     expect(partCard).toHaveClass("min-w-0", "overflow-hidden");
     expect(partActions).toHaveClass("absolute", "right-0", "top-0", "opacity-0");
+    expect(footerActions).toHaveClass("sm:flex-row", "sm:justify-between");
     expect(screen.getByRole("button", { name: "Unarchive" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    expect(within(footerActions).getByRole("button", { name: "Back to Help center" })).toBeInTheDocument();
+    expect(within(footerActions).getByRole("button", { name: "Delete all" })).toBeEnabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Unarchive" }));
     await waitFor(() => {
@@ -377,7 +381,7 @@ describe("WorkspaceAccountMenu", () => {
 
     await waitFor(() => {
       expect(screen.queryByRole("heading", { name: "Archived Part Two" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Delete all" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Delete all" })).toBeDisabled();
     });
   });
 
@@ -395,7 +399,9 @@ describe("WorkspaceAccountMenu", () => {
     await waitFor(() => {
       expect(screen.queryByRole("heading", { name: "Archived Part" })).not.toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "Archived Part Two" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Delete all" })).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Archived Project" })).toBeInTheDocument();
+      expect(screen.queryByText("No archived items yet.")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Delete all" })).toBeDisabled();
     });
   });
 
@@ -442,12 +448,23 @@ describe("WorkspaceAccountMenu", () => {
   });
 
   it("shows archive empty states", async () => {
-    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+    render(
+      <WorkspaceAccountMenu
+        user={makeUser()}
+        activeMembership={membership}
+        onSignOut={vi.fn()}
+        onDeleteArchivedParts={vi.fn()}
+      />,
+    );
 
     await openMainMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
     expect(await screen.findByText("No archived items yet.")).toBeInTheDocument();
+    expect(screen.getByTestId("archive-footer-actions")).toContainElement(
+      screen.getByRole("button", { name: "Delete all" }),
+    );
+    expect(screen.getByRole("button", { name: "Delete all" })).toBeDisabled();
   });
 
   it("opens the settings panel from the account menu", async () => {

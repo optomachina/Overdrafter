@@ -235,7 +235,7 @@ const PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE =
 const JOB_ARCHIVING_UNAVAILABLE_MESSAGE =
   "Part archiving is unavailable in this environment until the archive schema is applied.";
 const ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE =
-  "Archived part deletion is unavailable in this environment until the latest archive delete schema is applied.";
+  "Archived part deletion is temporarily unavailable. Please refresh and try again.";
 const PROJECT_NOT_FOUND_MESSAGE = "Project not found.";
 const CLIENT_INTAKE_EXPECTED_MIGRATION = "20260313143000_add_request_service_intent.sql";
 const CLIENT_INTAKE_DRIFT_MESSAGE =
@@ -1161,6 +1161,60 @@ function normalizeArchivedJobDeleteResult(data: Json | null): ArchivedJobDeleteR
     deletedJobIds,
     failures,
   };
+}
+
+function logArchivedDeleteCapabilityIssue(context: {
+  operation: "single" | "bulk";
+  jobIds: string[];
+  reason: string;
+  error: unknown;
+}): void {
+  const message =
+    context.error instanceof Error
+      ? context.error.message
+      : typeof context.error === "object" && context.error !== null && "message" in context.error
+        ? String((context.error as { message?: unknown }).message)
+        : String(context.error);
+
+  console.error("Archived delete capability unavailable", {
+    operation: context.operation,
+    jobIds: context.jobIds,
+    reason: context.reason,
+    message,
+  });
+}
+
+async function deleteArchivedJobLegacy(jobId: string): Promise<string> {
+  const { data, error } = await callRpc("api_delete_archived_job", {
+    p_job_id: jobId,
+  });
+
+  if (!error) {
+    markJobArchivingSchemaAvailability("available");
+    return ensureData(data, null);
+  }
+
+  if (isMissingFunctionError(error, "api_delete_archived_job")) {
+    try {
+      const deletedJobId = await invokeJobArchivingFallback("delete", jobId);
+      markJobArchivingSchemaAvailability("available");
+      return deletedJobId;
+    } catch (fallbackError) {
+      if (isMissingJobArchivingSchemaError(fallbackError)) {
+        markJobArchivingSchemaAvailability("unavailable");
+        throw new Error(JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
+      }
+
+      throw fallbackError;
+    }
+  }
+
+  if (isMissingJobArchivingSchemaError(error)) {
+    markJobArchivingSchemaAvailability("unavailable");
+    throw new Error(JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
+  }
+
+  throw error;
 }
 
 export async function fetchAppSessionData(): Promise<AppSessionData> {
@@ -3377,15 +3431,49 @@ export async function deleteArchivedJobs(jobIds: string[]): Promise<ArchivedJobD
     return normalizeArchivedJobDeleteResult(data);
   }
 
-  if (
-    isMissingFunctionError(error, "api_delete_archived_jobs") ||
-    isMissingFunctionError(error, "api_delete_archived_job")
-  ) {
-    throw new Error(ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE);
-  }
+  const bulkDeleteUnavailable =
+    isMissingFunctionError(error, "api_delete_archived_jobs") || isMissingJobArchivingSchemaError(error);
 
-  if (isMissingJobArchivingSchemaError(error)) {
-    markJobArchivingSchemaAvailability("unavailable");
+  if (bulkDeleteUnavailable) {
+    logArchivedDeleteCapabilityIssue({
+      operation: normalizedIds.length > 1 ? "bulk" : "single",
+      jobIds: normalizedIds,
+      reason: "api_delete_archived_jobs unavailable; falling back to legacy single-delete contract",
+      error,
+    });
+
+    const settled = await Promise.allSettled(
+      normalizedIds.map(async (jobId) => {
+        const deletedJobId = await deleteArchivedJobLegacy(jobId);
+        return deletedJobId;
+      }),
+    );
+
+    const deletedJobIds: string[] = [];
+    const failures = settled.flatMap((result, index) => {
+      if (result.status === "fulfilled") {
+        deletedJobIds.push(result.value);
+        return [];
+      }
+
+      return [
+        {
+          jobId: normalizedIds[index],
+          message:
+            result.reason instanceof Error
+              ? result.reason.message
+              : "Failed to delete archived part.",
+        },
+      ];
+    });
+
+    if (deletedJobIds.length > 0 || failures.length > 0) {
+      return {
+        deletedJobIds,
+        failures,
+      };
+    }
+
     throw new Error(ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE);
   }
 
