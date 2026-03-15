@@ -20,6 +20,7 @@ type DrawingPreviewDialogProps = {
   onOpenChange: (open: boolean) => void;
   fileName: string;
   pageCount: number;
+  pdfUrl?: string | null;
   pages: DrawingPreviewDialogPage[];
   isLoading: boolean;
   state?: DrawingPreviewState;
@@ -32,6 +33,7 @@ export function DrawingPreviewDialog({
   onOpenChange,
   fileName,
   pageCount,
+  pdfUrl = null,
   pages,
   isLoading,
   state = "pending",
@@ -41,6 +43,7 @@ export function DrawingPreviewDialog({
   const [currentPage, setCurrentPage] = useState(1);
   const pageMap = useMemo(() => new Map(pages.map((page) => [page.pageNumber, page.url])), [pages]);
   const currentPageUrl = pageMap.get(currentPage) ?? null;
+  const hasPdfPreview = typeof pdfUrl === "string" && pdfUrl.length > 0;
   const hasMultiplePages = pageCount > 1;
   const emptyStateMessage =
     state === "failed"
@@ -117,9 +120,9 @@ export function DrawingPreviewDialog({
         <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-3">
           <div className="mb-3 flex items-center justify-between px-2">
             <div className="text-sm text-white/55">
-              {pageCount > 0 ? `Page ${currentPage} of ${pageCount}` : "Preview unavailable"}
+              {hasPdfPreview ? "Original PDF" : pageCount > 0 ? `Page ${currentPage} of ${pageCount}` : "Preview unavailable"}
             </div>
-            {hasMultiplePages ? (
+            {hasMultiplePages && !hasPdfPreview ? (
               <div className="flex items-center gap-2">
                 <Button
                   type="button"
@@ -152,6 +155,12 @@ export function DrawingPreviewDialog({
               <div className="flex h-full items-center justify-center text-white/55">
                 <Loader2 className="h-6 w-6 animate-spin" />
               </div>
+            ) : hasPdfPreview ? (
+              <iframe
+                src={pdfUrl}
+                title={`${fileName} PDF preview`}
+                className="h-full w-full border-0 bg-white"
+              />
             ) : currentPageUrl ? (
               <img
                 src={currentPageUrl}

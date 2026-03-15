@@ -27,6 +27,15 @@ describe("error-message", () => {
     expect(getUserFacingErrorMessage({}, "fallback")).toBe("fallback");
   });
 
+  it("falls back when an Error message is just an empty object payload", () => {
+    const error = Object.assign(new Error("{}"), {
+      name: "StorageUnknownError",
+      originalError: {},
+    });
+
+    expect(getUserFacingErrorMessage(error, "fallback")).toBe("fallback");
+  });
+
   it("wraps raw objects as real errors while preserving metadata", () => {
     const error = toUserFacingError(
       {

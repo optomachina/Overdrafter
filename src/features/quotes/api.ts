@@ -886,6 +886,12 @@ async function fetchJobSelectionStateByJobIds(jobIds: string[]) {
 }
 
 async function fetchJobSelectionRows(scope: JobSelectionScope): Promise<JobSelectedOfferRow[]> {
+  const columnSets =
+    clientIntakeSchemaAvailability === "legacy"
+      ? JOB_SELECTION_COLUMN_SETS.slice(1)
+      : clientIntakeSchemaAvailability === "unavailable"
+        ? JOB_SELECTION_COLUMN_SETS.slice(-1)
+        : JOB_SELECTION_COLUMN_SETS;
   const applyScope = (columns: (typeof JOB_SELECTION_COLUMN_SETS)[number]) => {
     const query = supabase.from("jobs").select(columns);
 
@@ -897,22 +903,24 @@ async function fetchJobSelectionRows(scope: JobSelectionScope): Promise<JobSelec
   let jobsWithSelection: JobSelectedOfferRow[] = [];
   let selectionQueryError: unknown = null;
 
-  for (const [index, columnSet] of JOB_SELECTION_COLUMN_SETS.entries()) {
+  for (const [index, columnSet] of columnSets.entries()) {
     const { data: jobsData, error: jobsError } = await applyScope(columnSet);
 
     if (!jobsError) {
       jobsWithSelection = ensureData(jobsData as unknown as JobSelectedOfferRow[] | null, null);
-      if (index > 0) {
+      if (columnSet !== JOB_SELECTION_COLUMN_SETS[0]) {
         markClientIntakeSchemaAvailability("legacy");
       }
       selectionQueryError = null;
       break;
     }
 
-    if (!isMissingClientIntakeSchemaError(jobsError) || index === JOB_SELECTION_COLUMN_SETS.length - 1) {
+    if (!isMissingClientIntakeSchemaError(jobsError) || index === columnSets.length - 1) {
       selectionQueryError = jobsError;
       break;
     }
+
+    markClientIntakeSchemaAvailability("legacy");
   }
   if (selectionQueryError) {
     throw selectionQueryError;

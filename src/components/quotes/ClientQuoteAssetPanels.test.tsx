@@ -87,4 +87,17 @@ describe("ClientDrawingPreviewPanel", () => {
 
     expect(screen.getByRole("img", { name: /drawing\.pdf page 1/i })).toBeInTheDocument();
   });
+
+  it("renders the original PDF when a pdfUrl is provided", () => {
+    render(
+      <ClientDrawingPreviewPanel
+        drawingFile={drawingFile}
+        drawingPreview={emptyPreview}
+        pdfUrl="blob:drawing-pdf"
+        state="ready"
+      />,
+    );
+
+    expect(screen.getByTitle("drawing.pdf PDF preview")).toBeInTheDocument();
+  });
 });

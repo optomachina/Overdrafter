@@ -350,6 +350,60 @@ describe("quotes api schema drift handling", () => {
     ]);
   });
 
+  it("caches the legacy jobs-column fallback after the first schema-drift hit", async () => {
+    const selectedColumns: string[] = [];
+
+    supabaseMock.setResolver("jobs", (state) => {
+      selectedColumns.push(state.selected ?? "");
+
+      if (state.selected?.includes("requested_service_kinds")) {
+        return response(null, {
+          code: "42703",
+          message: 'column jobs.requested_service_kinds does not exist',
+          details: null,
+          hint: null,
+        });
+      }
+
+      return response([
+        {
+          id: "job-1",
+          selected_vendor_quote_offer_id: null,
+          requested_quote_quantities: [5],
+          requested_by_date: "2026-04-01",
+        },
+      ]);
+    });
+
+    supabaseMock.setResolver("parts", (state) => {
+      if (state.selected?.includes("approved_part_requirements")) {
+        return response([
+          {
+            job_id: "job-1",
+            quantity: 5,
+            approved_part_requirements: {
+              part_number: "1093-05589",
+              revision: "A",
+              description: "Bracket",
+              quote_quantities: [5],
+              requested_by_date: "2026-04-01",
+              spec_snapshot: null,
+            },
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled parts query: ${JSON.stringify(state)}`);
+    });
+
+    supabaseMock.setResolver("job_files", () => response([]));
+
+    await fetchJobPartSummariesByJobIds(["job-1"]);
+    await fetchJobPartSummariesByJobIds(["job-1"]);
+
+    expect(selectedColumns.filter((columns) => columns.includes("requested_service_kinds"))).toHaveLength(1);
+  });
+
   it("keeps archived jobs loading when request service-intent columns are missing", async () => {
     supabaseMock.setResolver("jobs", (state) => {
       const archivedFilter = findFilter(state, "archived_at", "not");

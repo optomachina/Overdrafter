@@ -38,10 +38,31 @@ describe("stored-file", () => {
       }),
     ).rejects.toMatchObject({
       name: "StorageApiError",
-      message: '{"name":"StorageApiError","code":"403","status":403,"details":"Access denied"}',
+      message: "Access denied",
       code: "403",
       status: 403,
       details: "Access denied",
+    });
+  });
+
+  it("uses the caller fallback when storage returns an opaque empty-object error", async () => {
+    storageDownload.mockResolvedValue({
+      data: null,
+      error: Object.assign(new Error("{}"), {
+        name: "StorageUnknownError",
+        originalError: {},
+      }),
+    });
+
+    await expect(
+      downloadStoredFileBlob({
+        storage_bucket: "quote-artifacts",
+        storage_path: "preview/page-1.png",
+        original_name: "drawing.pdf",
+      }),
+    ).rejects.toMatchObject({
+      name: "StorageUnknownError",
+      message: "Unable to download drawing.pdf.",
     });
   });
 });

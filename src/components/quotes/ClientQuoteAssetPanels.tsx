@@ -30,6 +30,7 @@ async function downloadStoredFile(file: DownloadableFile) {
 export function ClientDrawingPreviewPanel({
   drawingFile,
   drawingPreview,
+  pdfUrl,
   pages,
   state,
   statusMessage,
@@ -39,6 +40,7 @@ export function ClientDrawingPreviewPanel({
 }: {
   drawingFile: JobFileRecord | null;
   drawingPreview: DrawingPreviewData;
+  pdfUrl?: string | null;
   pages?: DrawingPreviewPage[];
   state?: DrawingPreviewState;
   statusMessage?: string | null;
@@ -53,6 +55,7 @@ export function ClientDrawingPreviewPanel({
     state ?? (!drawingFile ? "missing" : drawingPreview.pages.length > 0 ? "ready" : "pending");
   const resolvedPages = pages ?? localPages;
   const resolvedLoading = pages ? isLoading : isLocalLoading;
+  const hasPdfPreview = typeof pdfUrl === "string" && pdfUrl.length > 0;
 
   useEffect(() => {
     if (pages) {
@@ -179,6 +182,12 @@ export function ClientDrawingPreviewPanel({
         <div className="flex min-h-[320px] items-center justify-center bg-white">
           {resolvedLoading ? (
             <Loader2 className="h-6 w-6 animate-spin text-zinc-500" />
+          ) : hasPdfPreview ? (
+            <iframe
+              src={pdfUrl}
+              title={`${drawingFile?.original_name ?? "Drawing"} PDF preview`}
+              className="min-h-[520px] w-full border-0 bg-white"
+            />
           ) : activePage ? (
             <img
               src={activePage.url}

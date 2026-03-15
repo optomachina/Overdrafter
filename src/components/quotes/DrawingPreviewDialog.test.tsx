@@ -112,4 +112,23 @@ describe("DrawingPreviewDialog", () => {
 
     expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
   });
+
+  it("renders an embedded PDF when pdfUrl is provided", () => {
+    render(
+      <DrawingPreviewDialog
+        open
+        onOpenChange={() => undefined}
+        fileName="drawing.pdf"
+        pageCount={0}
+        pdfUrl="blob:drawing-pdf"
+        pages={[]}
+        isLoading={false}
+        onDownload={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText("Original PDF")).toBeInTheDocument();
+    expect(screen.getByTitle("drawing.pdf PDF preview")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Previous page" })).not.toBeInTheDocument();
+  });
 });

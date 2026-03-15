@@ -80,6 +80,7 @@ export function useClientPartController() {
   const { user, activeMembership, signOut } = useAppSession();
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [showDrawingPreview, setShowDrawingPreview] = useState(false);
+  const [drawingPdfUrl, setDrawingPdfUrl] = useState<string | null>(null);
   const [drawingPreviewPageUrls, setDrawingPreviewPageUrls] = useState<
     Array<{ pageNumber: number; url: string }>
   >([]);
@@ -420,12 +421,12 @@ export function useClientPartController() {
       return "unavailable";
     }
 
-    if ((drawingPreview?.pages.length ?? 0) > 0) {
+    if (drawingPdfUrl) {
       return "ready";
     }
 
     return hasExtractionFailure ? "failed" : "pending";
-  }, [drawingFile, drawingPreview?.pages.length, drawingPreviewLoadError, hasExtractionFailure]);
+  }, [drawingFile, drawingPdfUrl, drawingPreviewLoadError, hasExtractionFailure]);
   const drawingPreviewStatusMessage = useMemo(() => {
     switch (drawingPreviewState) {
       case "missing":
@@ -449,6 +450,7 @@ export function useClientPartController() {
     setPartRenameValue("");
     setShowRenameDialog(false);
     setIsPartOptionsOpen(false);
+    setDrawingPdfUrl(null);
     setDrawingPreviewLoadError(null);
   }, [jobId]);
 
@@ -466,9 +468,10 @@ export function useClientPartController() {
 
   useEffect(() => {
     let isActive = true;
-    const objectUrls: string[] = [];
+    let objectUrl: string | null = null;
 
-    if (!drawingFile || !drawingPreview || (!drawingPreview.thumbnail && drawingPreview.pages.length === 0)) {
+    if (!drawingFile) {
+      setDrawingPdfUrl(null);
       setDrawingPreviewPageUrls([]);
       setIsDrawingPreviewLoading(false);
       setDrawingPreviewLoadError(null);
@@ -478,29 +481,15 @@ export function useClientPartController() {
     setIsDrawingPreviewLoading(true);
     setDrawingPreviewLoadError(null);
 
-    const loadAsset = async (storageBucket: string, storagePath: string) => {
-      const blob = await downloadStoredFileBlob({
-        storage_bucket: storageBucket,
-        storage_path: storagePath,
-        original_name: drawingFile.original_name,
-      });
-      const url = URL.createObjectURL(blob);
-      objectUrls.push(url);
-      return url;
-    };
-
-    void Promise.all(
-      drawingPreview.pages.map(async (page) => ({
-        pageNumber: page.pageNumber,
-        url: await loadAsset(page.storageBucket, page.storagePath),
-      })),
-    )
-      .then((pageUrls) => {
+    void downloadStoredFileBlob(drawingFile)
+      .then((blob) => {
         if (!isActive) {
           return;
         }
 
-        setDrawingPreviewPageUrls(pageUrls);
+        objectUrl = URL.createObjectURL(blob);
+        setDrawingPdfUrl(objectUrl);
+        setDrawingPreviewPageUrls([]);
         setDrawingPreviewLoadError(null);
       })
       .catch((error: unknown) => {
@@ -511,6 +500,7 @@ export function useClientPartController() {
         const message = getUserFacingErrorMessage(error, "Unable to load drawing preview.");
         toast.error(message);
         setDrawingPreviewLoadError(message);
+        setDrawingPdfUrl(null);
         setDrawingPreviewPageUrls([]);
       })
       .finally(() => {
@@ -521,9 +511,11 @@ export function useClientPartController() {
 
     return () => {
       isActive = false;
-      objectUrls.forEach((objectUrl) => URL.revokeObjectURL(objectUrl));
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
     };
-  }, [drawingFile, drawingPreview]);
+  }, [drawingFile]);
 
   const handlePinProject = async (projectId: string) => {
     try {
@@ -852,6 +844,7 @@ export function useClientPartController() {
     displayPartTitle,
     drawingFile,
     drawingPreview,
+    drawingPdfUrl,
     drawingPreviewPageUrls,
     drawingPreviewState,
     drawingPreviewStatusMessage,
