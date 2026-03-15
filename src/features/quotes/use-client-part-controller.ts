@@ -757,8 +757,7 @@ export function useClientPartController() {
       }
 
       if (result.deletedJobIds.length === 0) {
-        toast.error(result.failures[0]?.message ?? "Failed to delete archived parts.");
-        return;
+        throw new Error(result.failures[0]?.message ?? "Failed to delete archived parts.");
       }
 
       toast.error(
@@ -772,6 +771,7 @@ export function useClientPartController() {
         });
       }
       toast.error(error instanceof Error ? error.message : "Failed to delete archived part.");
+      throw error;
     }
   };
 

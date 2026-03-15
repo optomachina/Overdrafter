@@ -597,6 +597,61 @@ describe("quotes api helpers", () => {
     );
   });
 
+  it("returns partial success results for bulk archived deletes", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        deletedJobIds: ["job-123"],
+        failures: [
+          {
+            jobId: "job-999",
+            message: "Part not found, not archived, or you do not have permission to delete it.",
+          },
+        ],
+      },
+      error: null,
+    });
+
+    await expect(deleteArchivedJobs(["job-123", "job-999"])).resolves.toEqual({
+      deletedJobIds: ["job-123"],
+      failures: [
+        {
+          jobId: "job-999",
+          message: "Part not found, not archived, or you do not have permission to delete it.",
+        },
+      ],
+    });
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_delete_archived_jobs", {
+      p_job_ids: ["job-123", "job-999"],
+    });
+  });
+
+  it("throws when the bulk delete RPC omits deletedJobIds", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        failures: [],
+      },
+      error: null,
+    });
+
+    await expect(deleteArchivedJobs(["job-123"])).rejects.toThrow(
+      "api_delete_archived_jobs returned an invalid deletedJobIds field.",
+    );
+  });
+
+  it("throws when the bulk delete RPC omits failures", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        deletedJobIds: ["job-123"],
+      },
+      error: null,
+    });
+
+    await expect(deleteArchivedJobs(["job-123"])).rejects.toThrow(
+      "api_delete_archived_jobs returned an invalid failures field.",
+    );
+  });
+
   it("throws a targeted migration error when both bulk and legacy delete RPCs are unavailable", async () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 

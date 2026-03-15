@@ -790,7 +790,7 @@ export function WorkspaceAccountMenu({
               </div>
             ) : (
               <>
-                {onDeleteArchivedParts ? (
+                {onDeleteArchivedParts && archivedPartCount > 0 ? (
                   <div className={PANEL_CARD_CLASS}>
                     <h3 className="text-[17px] font-medium text-white">
                       {archivedPartCount} archived {archivedPartCount === 1 ? "part" : "parts"}
@@ -850,7 +850,7 @@ export function WorkspaceAccountMenu({
 
                         <div
                           data-testid={`archived-part-actions-${item.job.job.id}`}
-                          className="pointer-events-none absolute right-0 top-0 flex max-w-full items-center gap-2 pl-4 opacity-0 transition group-hover/item:pointer-events-auto group-hover/item:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
+                          className="absolute right-0 top-0 flex max-w-full items-center gap-2 pl-4 opacity-0 transition group-hover/item:opacity-100 focus-within:opacity-100"
                         >
                           {onUnarchivePart ? (
                             <Button

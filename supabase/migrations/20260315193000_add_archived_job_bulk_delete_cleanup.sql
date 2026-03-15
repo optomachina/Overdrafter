@@ -96,6 +96,14 @@ begin
           from public.drawing_preview_assets asset
           join public.parts part on part.id = asset.part_id
           where part.job_id = any(v_deletable_job_ids)
+            and not exists (
+              select 1
+              from public.drawing_preview_assets other_asset
+              join public.parts other_part on other_part.id = other_asset.part_id
+              where other_asset.storage_bucket = asset.storage_bucket
+                and other_asset.storage_path = asset.storage_path
+                and other_part.job_id <> all(v_deletable_job_ids)
+            )
         ) candidate
       ),
       '[]'::jsonb

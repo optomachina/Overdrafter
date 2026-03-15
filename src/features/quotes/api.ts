@@ -1161,21 +1161,27 @@ function normalizeArchivedJobDeleteResult(data: Json | null): ArchivedJobDeleteR
     throw new Error("Expected archived job delete results from api_delete_archived_jobs.");
   }
 
-  const deletedJobIds = Array.isArray(data.deletedJobIds)
-    ? data.deletedJobIds.filter((value): value is string => typeof value === "string")
-    : [];
-  const failures = Array.isArray(data.failures)
-    ? data.failures.flatMap((value) => {
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          return [];
-        }
+  const payload = data as Record<string, unknown>;
 
-        const jobId = typeof value.jobId === "string" ? value.jobId : null;
-        const message = typeof value.message === "string" ? value.message : null;
+  if (!Array.isArray(payload.deletedJobIds)) {
+    throw new Error("api_delete_archived_jobs returned an invalid deletedJobIds field.");
+  }
 
-        return jobId && message ? [{ jobId, message }] : [];
-      })
-    : [];
+  if (!Array.isArray(payload.failures)) {
+    throw new Error("api_delete_archived_jobs returned an invalid failures field.");
+  }
+
+  const deletedJobIds = payload.deletedJobIds.filter((value): value is string => typeof value === "string");
+  const failures = payload.failures.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return [];
+    }
+
+    const jobId = typeof value.jobId === "string" ? value.jobId : null;
+    const message = typeof value.message === "string" ? value.message : null;
+
+    return jobId && message ? [{ jobId, message }] : [];
+  });
 
   return {
     deletedJobIds,
@@ -1224,6 +1230,7 @@ type ArchivedDeleteLegacyCapabilityFailure = {
 };
 
 type ArchivedDeleteLegacyAttempt = ArchivedDeleteLegacySuccess | ArchivedDeleteLegacyFailure;
+const ARCHIVED_DELETE_LEGACY_BATCH_SIZE = 10;
 
 function isArchivedDeleteLegacyCapabilityFailure(
   result: ArchivedDeleteLegacyAttempt,
@@ -3497,7 +3504,12 @@ export async function deleteArchivedJobs(jobIds: string[]): Promise<ArchivedJobD
       error,
     });
 
-    const legacyResults = await Promise.all(normalizedIds.map((jobId) => deleteArchivedJobLegacy(jobId)));
+    const legacyResults: ArchivedDeleteLegacyAttempt[] = [];
+
+    for (let index = 0; index < normalizedIds.length; index += ARCHIVED_DELETE_LEGACY_BATCH_SIZE) {
+      const batchJobIds = normalizedIds.slice(index, index + ARCHIVED_DELETE_LEGACY_BATCH_SIZE);
+      legacyResults.push(...(await Promise.all(batchJobIds.map((jobId) => deleteArchivedJobLegacy(jobId)))));
+    }
 
     const legacyCapabilityFailure = legacyResults.find(isArchivedDeleteLegacyCapabilityFailure);
 

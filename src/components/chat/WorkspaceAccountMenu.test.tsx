@@ -359,8 +359,8 @@ describe("WorkspaceAccountMenu", () => {
 
     const partActions = await screen.findByTestId("archived-part-actions-job-1");
     expect(screen.getByRole("button", { name: "Unarchive" })).not.toHaveFocus();
-    expect(partActions).toHaveClass("pointer-events-none", "opacity-0");
-    expect(partActions).toHaveClass("group-hover/item:opacity-100", "focus-within:opacity-100");
+    expect(partActions).toHaveClass("opacity-0", "group-hover/item:opacity-100", "focus-within:opacity-100");
+    expect(partActions).not.toHaveClass("pointer-events-none");
     expect(partActions).not.toHaveClass("group-focus-within/item:opacity-100");
   });
 
@@ -426,25 +426,26 @@ describe("WorkspaceAccountMenu", () => {
   it("keeps delete failures handled inside the archive menu", async () => {
     const unhandledRejectionListener = vi.fn();
     window.addEventListener("unhandledrejection", unhandledRejectionListener);
+    try {
+      render(<ArchiveMenuStatefulHarness initialJobs={archivedJobs} rejectDelete />);
 
-    render(<ArchiveMenuStatefulHarness initialJobs={archivedJobs} rejectDelete />);
+      await openMainMenu();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
 
-    await openMainMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+      const dialog = await screen.findByRole("alertdialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
 
-    const dialog = await screen.findByRole("alertdialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+      await waitFor(() => {
+        expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+      });
 
-    await waitFor(() => {
-      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
-    });
-
-    await waitFor(() => {
-      expect(unhandledRejectionListener).not.toHaveBeenCalled();
-    });
-
-    window.removeEventListener("unhandledrejection", unhandledRejectionListener);
+      await waitFor(() => {
+        expect(unhandledRejectionListener).not.toHaveBeenCalled();
+      });
+    } finally {
+      window.removeEventListener("unhandledrejection", unhandledRejectionListener);
+    }
   });
 
   it("shows archive empty states", async () => {
@@ -461,6 +462,7 @@ describe("WorkspaceAccountMenu", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
     expect(await screen.findByText("No archived items yet.")).toBeInTheDocument();
+    expect(screen.queryByText("0 archived parts")).not.toBeInTheDocument();
     expect(screen.getByTestId("archive-footer-actions")).toContainElement(
       screen.getByRole("button", { name: "Delete all" }),
     );
