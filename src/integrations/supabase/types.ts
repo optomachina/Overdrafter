@@ -772,6 +772,12 @@ export type Database = {
         };
         Returns: Json;
       };
+      api_list_client_part_metadata: {
+        Args: {
+          p_job_ids: string[];
+        };
+        Returns: Json;
+      };
       api_update_organization_membership_role: {
         Args: {
           p_membership_id: string;

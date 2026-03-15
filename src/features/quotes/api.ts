@@ -8,6 +8,7 @@ import type {
   ArchivedJobSummary,
   ArchivedProjectSummary,
   ApprovedPartRequirement,
+  ClientPartMetadataRecord,
   ClientSelectionRecord,
   ClientPackageAggregate,
   ClientActivityEvent,
@@ -72,7 +73,11 @@ import { normalizeRequestedQuoteQuantities, parseRequestIntake } from "@/feature
 import { sanitizeClientVisibleSpecSnapshot } from "@/features/quotes/rfq-metadata";
 import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
-import { getImportedVendorOffers, normalizeDrawingPreview } from "@/features/quotes/utils";
+import {
+  getImportedVendorOffers,
+  normalizeClientPartMetadata,
+  normalizeDrawingPreview,
+} from "@/features/quotes/utils";
 import { toast } from "sonner";
 
 const untypedSupabase = supabase as typeof supabase & {
@@ -304,6 +309,7 @@ const DRAWING_PREVIEW_ASSET_IDENTIFIERS = [
 ] as const;
 const CLIENT_ACTIVITY_IDENTIFIERS = ["api_list_client_activity_events"] as const;
 const QUOTE_REQUEST_IDENTIFIERS = ["public.quote_requests", "quote_requests", "quote_request_status"] as const;
+const CLIENT_PART_METADATA_IDENTIFIERS = ["api_list_client_part_metadata"] as const;
 const JOB_SELECTION_COLUMN_SETS = [
   "id, selected_vendor_quote_offer_id, requested_service_kinds, primary_service_kind, service_notes, requested_quote_quantities, requested_by_date",
   "id, selected_vendor_quote_offer_id, requested_quote_quantities, requested_by_date",
@@ -454,6 +460,10 @@ function isMissingClientActivitySchemaError(error: unknown): boolean {
 
 function isMissingQuoteRequestSchemaError(error: unknown): boolean {
   return isMissingSchemaIdentifierError(error, QUOTE_REQUEST_IDENTIFIERS);
+}
+
+function isMissingClientPartMetadataSchemaError(error: unknown): boolean {
+  return isMissingSchemaIdentifierError(error, CLIENT_PART_METADATA_IDENTIFIERS);
 }
 
 function isMissingClientIntakeSchemaError(error: unknown): boolean {
@@ -1022,6 +1032,34 @@ async function fetchDrawingPreviewAssetsByPartId(partId: string): Promise<Drawin
   }
 
   return ensureData(data, error) as DrawingPreviewAssetRecord[];
+}
+
+async function fetchClientPartMetadataByJobIds(jobIds: string[]): Promise<ClientPartMetadataRecord[]> {
+  if (jobIds.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await callRpc("api_list_client_part_metadata", {
+    p_job_ids: jobIds,
+  });
+
+  if (error) {
+    if (isMissingClientPartMetadataSchemaError(error)) {
+      return [];
+    }
+
+    throw error;
+  }
+
+  const rows = ensureData(data, null);
+
+  if (!Array.isArray(rows)) {
+    throw new Error("Expected client part metadata to be returned as an array.");
+  }
+
+  return rows
+    .map((row) => normalizeClientPartMetadata(row as Json))
+    .filter((row): row is ClientPartMetadataRecord => Boolean(row));
 }
 
 async function invokeJobArchivingFallback(
