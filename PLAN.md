@@ -40,6 +40,7 @@ Operational workflow alignment for this phase:
 - restrict the client-triggered automation path to Xometry in phase 1
 - persist request lifecycle states: `not_requested`, `queued`, `requesting`, `received`, `failed`, `canceled`
 - expose quote request status and gating reasons in part and project client workspaces
+- evolve the client workspace UI toward an artifact-first part and project surface while keeping chat contextual rather than primary
 - keep quote publication and quote selection flows unchanged
 - document follow-up backlog for multi-vendor expansion, cancellation, richer preflight gating, and successful rerun support
 
