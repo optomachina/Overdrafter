@@ -377,7 +377,8 @@ describe("ClientProject", () => {
       expect(screen.getByRole("heading", { name: "Bracket Project" })).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/dense procurement workspace/i)).toBeInTheDocument();
+    expect(screen.getByText(/artifact-first project workspace/i)).toBeInTheDocument();
+    expect(screen.getByText("Selected part workspace")).toBeInTheDocument();
   });
 
   it("passes collaboration-disabled project prefetch through to the sidebar callback", async () => {

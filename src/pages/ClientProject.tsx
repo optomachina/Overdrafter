@@ -20,13 +20,23 @@ import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
+import { ClientArtifactWorkspace } from "@/components/quotes/ClientArtifactWorkspace";
+import { ClientIntelligencePanel } from "@/components/quotes/ClientIntelligencePanel";
+import { ClientPartHeader } from "@/components/quotes/ClientPartHeader";
 import { ClientPartRequestEditor } from "@/components/quotes/ClientPartRequestEditor";
+import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
 import {
   ClientCadPreviewPanel,
   ClientDrawingPreviewPanel,
 } from "@/components/quotes/ClientQuoteAssetPanels";
 import { ClientWorkspaceStateSummary, ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
+import {
+  ClientDfmPanel,
+  ClientMetadataPanel,
+  ClientQuoteRequestStatusCard,
+  ClientReadOnlyChatPanel,
+} from "@/components/quotes/ClientWorkspacePanelContent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
@@ -61,12 +71,10 @@ import {
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {
   buildClientWorkspaceState,
-  getClientQuoteOptionStateReasons,
   summarizeClientWorkspaceStates,
 } from "@/features/quotes/client-workspace-state";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
-import { parseRequestedQuoteQuantitiesInput } from "@/features/quotes/request-intake";
-import { formatCurrency, formatLeadTime, formatStatusLabel } from "@/features/quotes/utils";
+import { formatCurrency, formatLeadTime, formatStatusLabel, normalizeDrawingExtraction } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
 
 const ClientProject = () => {
@@ -241,212 +249,211 @@ const ClientProject = () => {
   const focusedQuoteRequestViewModel = focusedJob
     ? quoteRequestViewModelsByJobId.get(focusedJob.id) ?? null
     : null;
+  const focusedExtraction =
+    focusedWorkspaceItem?.part ? normalizeDrawingExtraction(focusedWorkspaceItem.part.extraction, focusedWorkspaceItem.part.id) : null;
 
-  const renderDetailDrawer = () => {
+  const renderFocusedWorkspace = () => {
     if (!focusedJob || !focusedWorkspaceItem) {
       return (
-        <div className="rounded-[26px] border border-white/8 bg-[#262626] p-5 text-sm text-white/45">
-          Select a line item to inspect quotes, files, and extracted metadata.
+        <div className="rounded-[30px] border border-white/8 bg-[#262626] p-8">
+          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Selected part workspace</p>
+          <p className="mt-3 text-lg font-medium text-white">Select a project part to inspect its artifacts and quotes.</p>
+          <p className="mt-2 max-w-2xl text-sm text-white/50">
+            The project stays project-first, but the selected line item now opens as an artifact-first workspace with quote and metadata context docked to the side.
+          </p>
         </div>
       );
     }
 
     const focusedPresentation = getClientItemPresentation(focusedJob, focusedSummary);
+    const focusedRequestedByDate =
+      focusedDraft?.requestedByDate ?? focusedSummary?.requestedByDate ?? focusedWorkspaceItem.job.requested_by_date ?? null;
+    const focusedQuantity = focusedDraft?.quantity ?? focusedSummary?.quantity ?? null;
+    const focusedRequestedQuoteQuantities = focusedDraft?.requestedQuoteQuantities ?? focusedSummary?.requestedQuoteQuantities ?? [];
 
-    return (
+    const renderVendorExclusionControls = () => {
+      const visibleOptions = focusedQuoteOptions.slice(0, 6);
+
+      if (visibleOptions.length === 0) {
+        return null;
+      }
+
+      return (
+        <section className="rounded-[24px] border border-white/8 bg-black/20 p-4">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Vendor visibility</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {visibleOptions.map((option) => (
+              <Button
+                key={`${focusedJob.id}:${option.key}`}
+                type="button"
+                variant="outline"
+                className={cn(
+                  "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
+                  option.excluded && "border-amber-400/20 bg-amber-500/10 text-amber-100 hover:bg-amber-500/15",
+                )}
+                onClick={() => handleToggleVendorExclusion(focusedJob.id, option.vendorKey, !option.excluded)}
+              >
+                {option.excluded ? `Include ${option.vendorLabel}` : `Exclude ${option.vendorLabel}`}
+              </Button>
+            ))}
+          </div>
+        </section>
+      );
+    };
+
+    const quoteRailContent = (
       <div className="space-y-4">
-        <div className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
-          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Line item</p>
-          <p className="mt-2 text-xl font-semibold text-white">{focusedPresentation.title}</p>
-          <p className="mt-2 text-sm text-white/55">{focusedPresentation.description}</p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Badge className="border border-white/10 bg-white/6 text-white/70">
-              {formatStatusLabel(focusedJob.status)}
-            </Badge>
-            {focusedSelectedOption ? (
-              <Badge className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">
-                {focusedSelectedOption.vendorLabel}
-              </Badge>
-            ) : null}
-          </div>
+        <section className="rounded-[24px] border border-white/8 bg-black/20 p-4">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Request summary</p>
           <RequestSummaryBadges
-            requestedServiceKinds={
-              focusedDraft?.requestedServiceKinds ?? focusedSummary?.requestedServiceKinds ?? []
-            }
-            quantity={focusedDraft?.quantity ?? focusedSummary?.quantity ?? null}
-            requestedQuoteQuantities={parseRequestedQuoteQuantitiesInput(
-              focusedQuoteQuantityInput,
-              focusedDraft?.quantity ?? focusedSummary?.quantity ?? 1,
-            )}
-            requestedByDate={focusedDraft?.requestedByDate ?? focusedSummary?.requestedByDate ?? null}
-            className="mt-4"
+            requestedServiceKinds={focusedDraft?.requestedServiceKinds ?? focusedSummary?.requestedServiceKinds ?? []}
+            quantity={focusedQuantity}
+            requestedQuoteQuantities={focusedRequestedQuoteQuantities}
+            requestedByDate={focusedRequestedByDate}
+            className="mt-3"
           />
-        </div>
-
-        {focusedWorkspaceState ? <ClientWorkspaceStateSummary state={focusedWorkspaceState} /> : null}
-
-        <ClientDrawingPreviewPanel
-          drawingFile={focusedWorkspaceItem.part?.drawingFile ?? null}
-          drawingPreview={focusedWorkspaceItem.drawingPreview}
-        />
-        <ClientCadPreviewPanel cadFile={focusedWorkspaceItem.part?.cadFile ?? null} />
-
-        <div className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
-          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Quote options</p>
-          <div className="mt-4 space-y-3">
-            {focusedQuoteOptions.length === 0 ? (
-              <p className="text-sm text-white/45">No quote options available for this line item.</p>
-            ) : (
-              focusedQuoteOptions.map((option) => (
-                <button
-                  key={option.key}
-                  type="button"
-                  onClick={() => {
-                    void handleSelectQuoteOption(focusedJob.id, option);
-                  }}
-                  className={cn(
-                    "block w-full rounded-2xl border px-4 py-3 text-left transition",
-                    focusedSelectedOption?.key === option.key
-                      ? "border-emerald-500/30 bg-emerald-500/10"
-                      : "border-white/8 bg-black/20 hover:bg-white/4",
-                  )}
-                  disabled={!option.isSelectable}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-white">{option.vendorLabel}</p>
-                      <p className="mt-1 text-xs text-white/45">
-                        Qty {option.requestedQuantity} ·{" "}
-                        {option.resolvedDeliveryDate ?? formatLeadTime(option.leadTimeBusinessDays)}
-                      </p>
-                      {(() => {
-                        const optionReasons = getClientQuoteOptionStateReasons({
-                          option,
-                          requestedByDate:
-                            focusedDraft?.requestedByDate ?? focusedSummary?.requestedByDate ?? null,
-                        });
-
-                        if (optionReasons.length === 0) {
-                          return null;
-                        }
-
-                        return (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {optionReasons.map((reason) => (
-                              <ClientWorkspaceToneBadge
-                                key={`${option.key}:${reason.id}`}
-                                tone={reason.tone}
-                                label={reason.label}
-                                className="tracking-normal normal-case"
-                              />
-                            ))}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-white">
-                        {formatCurrency(option.totalPriceUsd)}
-                      </p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="mt-1 h-auto p-0 text-xs text-white/60 hover:bg-transparent hover:text-white"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleToggleVendorExclusion(
-                            focusedJob.id,
-                            option.vendorKey,
-                            !option.excluded,
-                          );
-                        }}
-                      >
-                        {option.excluded ? "Include vendor" : "Exclude vendor"}
-                      </Button>
-                    </div>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
+        </section>
 
         {focusedQuoteRequestViewModel ? (
-          <div
-            className={cn(
-              "rounded-[26px] border p-5",
-              focusedQuoteRequestViewModel.tone === "ready"
-                ? "border-emerald-400/20 bg-emerald-500/8"
-                : focusedQuoteRequestViewModel.tone === "warning"
-                  ? "border-amber-400/20 bg-amber-500/8"
-                  : "border-rose-400/20 bg-rose-500/8",
-            )}
-          >
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <ClientWorkspaceToneBadge
-                    tone={focusedQuoteRequestViewModel.tone}
-                    label={`Quote ${focusedQuoteRequestViewModel.label}`}
-                    className="tracking-normal normal-case"
-                  />
-                  <p className="text-sm font-medium text-white">Xometry request status</p>
-                </div>
-                <p className="mt-2 text-sm text-white/75">{focusedQuoteRequestViewModel.detail}</p>
-              </div>
-              {focusedQuoteRequestViewModel.action.kind !== "none" ? (
-                <Button
-                  type="button"
-                  className="rounded-full"
-                  disabled={
-                    requestProjectQuotesMutation.isPending || focusedQuoteRequestViewModel.action.disabled
-                  }
-                  onClick={() => {
+          <ClientQuoteRequestStatusCard
+            tone={focusedQuoteRequestViewModel.tone}
+            label={focusedQuoteRequestViewModel.label}
+            detail={focusedQuoteRequestViewModel.detail}
+            actionLabel={focusedQuoteRequestViewModel.action.label}
+            actionDisabled={focusedQuoteRequestViewModel.action.disabled}
+            blockerReasons={focusedQuoteRequestViewModel.blockerReasons}
+            isBusy={requestProjectQuotesMutation.isPending}
+            onAction={
+              focusedQuoteRequestViewModel.action.kind === "none"
+                ? null
+                : () => {
                     void handleRequestProjectQuotes(
                       [focusedJob.id],
                       focusedQuoteRequestViewModel.action.kind === "retry",
                     );
-                  }}
-                >
-                  {requestProjectQuotesMutation.isPending ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : null}
-                  {focusedQuoteRequestViewModel.action.label}
-                </Button>
+                  }
+            }
+          />
+        ) : null}
+
+        {renderVendorExclusionControls()}
+
+        <section className="rounded-[24px] border border-white/8 bg-black/20 p-4">
+          <div className="mb-4">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Request details</p>
+            <p className="mt-2 text-sm text-white/55">
+              Edit quote-safe request details for this selected line item without leaving the project workspace.
+            </p>
+          </div>
+          {focusedDraft ? (
+            <ClientPartRequestEditor
+              draft={focusedDraft}
+              quoteQuantityInput={focusedQuoteQuantityInput}
+              onQuoteQuantityInputChange={(value) => handleQuoteQuantityInputChange(focusedJob.id, value)}
+              onChange={(next) => handleRequestDraftChange(focusedJob.id, next)}
+              onSave={() => handleSaveRequest(focusedJob.id)}
+              onUploadRevision={attachFilesPicker.openFilePicker}
+              isSaving={saveRequestMutation.isPending}
+            />
+          ) : (
+            <p className="text-sm text-white/45">Select a part with editable request details to continue.</p>
+          )}
+        </section>
+      </div>
+    );
+
+    return (
+      <div className="space-y-6">
+        <ClientPartHeader
+          eyebrow="Selected part workspace"
+          title={focusedPresentation.title}
+          description={focusedPresentation.description}
+          badges={
+            <>
+              <Badge className="border border-white/10 bg-white/6 text-white/70">
+                {formatStatusLabel(focusedJob.status)}
+              </Badge>
+              <Badge className="border border-white/10 bg-white/6 text-white/70">
+                {projectQuery.data?.name ?? "Project"}
+              </Badge>
+              {focusedSelectedOption ? (
+                <Badge className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">
+                  {focusedSelectedOption.vendorLabel}
+                </Badge>
               ) : null}
-            </div>
-            {focusedQuoteRequestViewModel.blockerReasons.length > 0 ? (
-              <div className="mt-4 flex flex-wrap gap-2">
-                {focusedQuoteRequestViewModel.blockerReasons.map((reason) => (
-                  <Badge key={reason} className="border border-white/10 bg-black/20 text-white/75">
-                    {reason}
-                  </Badge>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+            </>
+          }
+          details={
+            <RequestSummaryBadges
+              requestedServiceKinds={focusedDraft?.requestedServiceKinds ?? focusedSummary?.requestedServiceKinds ?? []}
+              quantity={focusedQuantity}
+              requestedQuoteQuantities={focusedRequestedQuoteQuantities}
+              requestedByDate={focusedRequestedByDate}
+            />
+          }
+          actions={
+            <Button type="button" className="rounded-full" onClick={() => navigate(`/parts/${focusedJob.id}`)}>
+              Open part workspace
+              <MoveRight className="ml-2 h-4 w-4" />
+            </Button>
+          }
+        />
 
-        {focusedDraft ? (
-          <div className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
-            <p className="text-xs uppercase tracking-[0.18em] text-white/35">Metadata and RFQ details</p>
-            <div className="mt-4">
-              <ClientPartRequestEditor
-                draft={focusedDraft}
-                quoteQuantityInput={focusedQuoteQuantityInput}
-                onQuoteQuantityInputChange={(value) =>
-                  handleQuoteQuantityInputChange(focusedJob.id, value)
-                }
-                onChange={(next) => handleRequestDraftChange(focusedJob.id, next)}
-                onSave={() => handleSaveRequest(focusedJob.id)}
-                onUploadRevision={attachFilesPicker.openFilePicker}
-                isSaving={saveRequestMutation.isPending}
+        {focusedWorkspaceState ? <ClientWorkspaceStateSummary state={focusedWorkspaceState} /> : null}
+
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="space-y-6">
+            <ClientArtifactWorkspace
+              itemKey={focusedJob.id}
+              hasCad={Boolean(focusedWorkspaceItem.part?.cadFile)}
+              hasDrawing={Boolean(focusedWorkspaceItem.part?.drawingFile)}
+              drawingPanel={
+                <ClientDrawingPreviewPanel
+                  drawingFile={focusedWorkspaceItem.part?.drawingFile ?? null}
+                  drawingPreview={focusedWorkspaceItem.drawingPreview}
+                />
+              }
+              cadPanel={<ClientCadPreviewPanel cadFile={focusedWorkspaceItem.part?.cadFile ?? null} />}
+            />
+
+            <ClientQuoteDecisionPanel
+              title="Selected part quote intelligence"
+              description="Keep the project-level selection view, but make the chosen line item readable as an artifact-first engineering workspace."
+              options={focusedQuoteOptions}
+              selectedOption={focusedSelectedOption}
+              onSelect={(option) => {
+                void handleSelectQuoteOption(focusedJob.id, option);
+              }}
+              requestedByDate={focusedRequestedByDate}
+              onToggleVendorExclusion={(vendorKey, nextExcluded) => {
+                handleToggleVendorExclusion(focusedJob.id, vendorKey, nextExcluded);
+              }}
+              emptyState="No quote options are available for this project line item yet."
+            />
+          </div>
+
+          <ClientIntelligencePanel
+            itemKey={focusedJob.id}
+            quoteContent={quoteRailContent}
+            metadataContent={
+              <ClientMetadataPanel
+                summary={focusedSummary}
+                part={focusedWorkspaceItem.part}
+                extraction={focusedExtraction}
+                quoteOptions={focusedQuoteOptions}
               />
-            </div>
-          </div>
-        ) : null}
-
-        <ActivityLog entries={focusedActivityEntries} />
+            }
+            dfmContent={<ClientDfmPanel quoteOptions={focusedQuoteOptions} />}
+            historyContent={<ActivityLog entries={focusedActivityEntries} />}
+            chatContent={
+              <ClientReadOnlyChatPanel
+                partLabel={focusedPresentation.title}
+                latestQuoteRequest={focusedWorkspaceItem.latestQuoteRequest}
+                latestQuoteRun={focusedWorkspaceItem.latestQuoteRun}
+              />
+            }
+          />
+        </div>
       </div>
     );
   };
@@ -520,7 +527,7 @@ const ClientProject = () => {
                 {projectQuery.data?.name ?? "Project"}
               </h1>
               <p className="mt-2 text-sm text-white/55">
-                Dense procurement workspace tuned for fast quote selection.
+                Artifact-first project workspace with selected-part context, quote decisions, and collaboration in one shell.
               </p>
               {sharedRequestSummary ? (
                 <RequestSummaryBadges
@@ -680,7 +687,7 @@ const ClientProject = () => {
             </div>
           </section>
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <div className="space-y-6">
             <div className="space-y-4">
               <div className="flex flex-col gap-3 rounded-[26px] border border-white/8 bg-[#262626] p-4">
                 <div className="flex flex-col gap-3 md:flex-row">
@@ -842,8 +849,7 @@ const ClientProject = () => {
                 )}
               </div>
             </div>
-
-            {!isMobile ? <aside className="space-y-4">{renderDetailDrawer()}</aside> : null}
+            {!isMobile ? renderFocusedWorkspace() : null}
           </div>
         </div>
       </ChatWorkspaceLayout>
@@ -856,7 +862,7 @@ const ClientProject = () => {
               Review previews, metadata, and quote options for the selected project row.
             </SheetDescription>
           </SheetHeader>
-          <div className="px-6 py-5">{renderDetailDrawer()}</div>
+          <div className="px-6 py-5">{renderFocusedWorkspace()}</div>
         </SheetContent>
       </Sheet>
 

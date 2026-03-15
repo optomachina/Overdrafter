@@ -171,6 +171,12 @@ The current product should not be treated as owning:
 - native mobile applications
 - public marketing CMS functionality
 
+## Client workspace surface
+
+The client-facing workspace should be artifact-first. CAD, drawings, structured metadata, request state, and quote comparison should be the dominant surfaces in the part and project experience.
+
+Chat-style interaction may exist as a contextual tool inside the workspace, but it must not be the primary page surface or the primary information architecture. The intended client mental model remains `Project > Part > Artifacts > Quotes`, with conversation supporting that flow rather than replacing it.
+
 ## Product principles
 
 ### 1. Intake must feel fast

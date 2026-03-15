@@ -287,6 +287,8 @@ describe("ClientPart", () => {
       expect(screen.getByRole("button", { name: "A" })).toBeInTheDocument();
     });
 
+    expect(screen.getByText("Artifact workspace")).toBeInTheDocument();
+    expect(screen.getByText("Contextual intelligence")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /prev rev/i })).toBeInTheDocument();
     expect(screen.queryByText("This part could not be loaded.")).not.toBeInTheDocument();
     expect(api.fetchPartDetail).toHaveBeenCalledTimes(1);

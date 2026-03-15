@@ -175,6 +175,6 @@ describe("Index client home", () => {
     renderIndex();
 
     expect(screen.queryByText("Loading workspace…")).not.toBeInTheDocument();
-    expect(screen.getByText("What are you working on?")).toBeInTheDocument();
+    expect(screen.getByText("Workspace launcher")).toBeInTheDocument();
   });
 });

@@ -18,6 +18,7 @@ The next-phase domain model should expand that quote-centric shape into an expli
 - authentication entry points
 - workspace-facing navigation and application shell
 - client intake UI
+- artifact-first client workspaces with contextual intelligence rails and chat as a secondary tool
 - project-first browsing and creation flows
 - assembly and part management inside a project
 - internal estimator interfaces
