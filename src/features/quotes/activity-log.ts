@@ -85,12 +85,15 @@ export function buildActivityLogEntries(events: ClientActivityEvent[]): Activity
           };
         case "worker.extraction_completed": {
           const warningCount = readNumber(payload, "warningCount") ?? 0;
+          const extractionLifecycle = readString(payload, "extractionLifecycle");
 
           return {
             id: event.id,
             label: "Part details extracted",
             detail:
-              warningCount > 0
+              extractionLifecycle === "partial"
+                ? `Available drawing fields were extracted, but ${pluralize(warningCount, "warning")} still need review.`
+                : warningCount > 0
                 ? `Material, finish, and revision were extracted for review with ${pluralize(warningCount, "warning")}.`
                 : "Material, finish, and revision were extracted and moved into review.",
             occurredAt: event.occurredAt,

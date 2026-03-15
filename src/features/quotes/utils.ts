@@ -179,7 +179,8 @@ export function normalizeDrawingPreview(
     extraction && "pageCount" in extraction
       ? Number(extraction.pageCount ?? 0)
       : (() => {
-          const payload = asObject(extraction?.extraction);
+          const payload =
+            extraction && "extraction" in extraction ? asObject(extraction.extraction) : {};
           const rawPageCount = payload.pageCount;
           return typeof rawPageCount === "number" ? rawPageCount : Number(rawPageCount ?? 0);
         })();

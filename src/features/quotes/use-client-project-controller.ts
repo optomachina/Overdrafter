@@ -69,7 +69,7 @@ import {
   type ClientQuoteSelectionOption,
   type QuotePreset,
 } from "@/features/quotes/selection";
-import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
+import type { ClientPartRequestUpdateInput, ClientQuoteWorkspaceItem } from "@/features/quotes/types";
 import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
@@ -95,6 +95,13 @@ export const clientFilterOptions: { id: JobFilter; label: string }[] = [
   { id: "quoting", label: "Quoting" },
   { id: "published", label: "Published" },
 ];
+
+function workspaceItemsNeedExtractionPolling(items: ClientQuoteWorkspaceItem[] | undefined) {
+  return (items ?? []).some((item) => {
+    const lifecycle = item.part?.clientExtraction?.lifecycle ?? null;
+    return lifecycle === "queued" || lifecycle === "extracting" || lifecycle === "uploaded";
+  });
+}
 
 function matchesJobFilter(status: string, filter: JobFilter) {
   switch (filter) {
@@ -189,12 +196,18 @@ export function useClientProjectController() {
     queryKey: workspaceQueryKeys.clientQuoteWorkspace(projectJobIds),
     queryFn: () => fetchClientQuoteWorkspaceByJobIds(projectJobIds),
     enabled: Boolean(user) && projectJobIds.length > 0,
+    refetchInterval: (query) =>
+      workspaceItemsNeedExtractionPolling(query.state.data as ClientQuoteWorkspaceItem[] | undefined)
+        ? 5000
+        : false,
     ...workspaceDetailQueryOptions,
   });
   const projectActivityQuery = useQuery({
     queryKey: workspaceQueryKeys.clientActivity(projectJobIds),
     queryFn: () => fetchClientActivityEventsByJobIds(projectJobIds),
     enabled: Boolean(user) && projectJobIds.length > 0,
+    refetchInterval: () =>
+      workspaceItemsNeedExtractionPolling(projectWorkspaceItemsQuery.data) ? 5000 : false,
     ...workspaceDetailQueryOptions,
   });
   const workspaceItemsByJobId = useMemo(

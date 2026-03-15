@@ -203,22 +203,42 @@ describe("quotes api schema drift handling", () => {
       created_at: "2026-03-01T00:00:00Z",
       updated_at: "2026-03-01T00:00:00Z",
     };
-    const summaryRow = {
-      job_id: "job-1",
+    const metadataRow = {
+      partId: "part-1",
+      jobId: "job-1",
+      organizationId: "org-1",
+      hasCadFile: false,
+      hasDrawingFile: true,
+      description: "Bracket",
+      partNumber: "1093-05589",
+      revision: "A",
+      material: "6061-T6 aluminum",
+      finish: "As machined",
+      tightestToleranceInch: 0.005,
+      process: null,
+      notes: null,
       quantity: 5,
-      approved_part_requirements: {
-        part_number: "1093-05589",
-        revision: "A",
-        description: "Bracket",
-        quote_quantities: [5],
-        requested_by_date: null,
-        spec_snapshot: null,
-      },
+      quoteQuantities: [5],
+      requestedByDate: null,
+      pageCount: 2,
+      warningCount: 0,
+      warnings: [],
+      missingFields: [],
+      lastFailureCode: null,
+      lastFailureMessage: null,
+      extractedAt: "2026-03-01T00:05:00Z",
+      failedAt: null,
+      updatedAt: "2026-03-01T00:05:00Z",
+      lifecycle: "succeeded",
     };
 
     supabaseMock.setResolver("jobs", (state) => {
       if (state.selected === "*" && findFilter(state, "id", "eq")) {
         return response(job);
+      }
+
+      if (state.selected === "*" && findFilter(state, "organization_id", "eq")) {
+        return response([job]);
       }
 
       if (state.selected?.includes("selected_vendor_quote_offer_id")) {
@@ -255,8 +275,14 @@ describe("quotes api schema drift handling", () => {
         return response([part]);
       }
 
-      if (state.selected?.includes("approved_part_requirements")) {
-        return response([summaryRow]);
+      if (state.selected === "id, job_id, quantity") {
+        return response([
+          {
+            id: "part-1",
+            job_id: "job-1",
+            quantity: 5,
+          },
+        ]);
       }
 
       throw new Error(`Unhandled parts query: ${JSON.stringify(state)}`);
@@ -266,8 +292,6 @@ describe("quotes api schema drift handling", () => {
     supabaseMock.setResolver("quote_runs", () => response([]));
     supabaseMock.setResolver("published_quote_packages", () => response([]));
     supabaseMock.setResolver("work_queue", () => response([]));
-    supabaseMock.setResolver("drawing_extractions", () => response([]));
-    supabaseMock.setResolver("approved_part_requirements", () => response([]));
     supabaseMock.setResolver("pricing_policies", () => response(null));
     supabaseMock.setResolver("drawing_preview_assets", () =>
       response(null, {
@@ -277,6 +301,17 @@ describe("quotes api schema drift handling", () => {
         hint: null,
       }),
     );
+    supabaseMock.rpc.mockImplementation((fn: string) => {
+      if (fn === "api_list_client_part_metadata") {
+        return Promise.resolve(response([metadataRow]));
+      }
+
+      if (fn === "api_list_client_activity_events") {
+        return Promise.resolve(response([]));
+      }
+
+      throw new Error(`Unhandled rpc: ${fn}`);
+    });
 
     await expect(fetchPartDetail("job-1")).resolves.toMatchObject({
       job: {
@@ -289,9 +324,18 @@ describe("quotes api schema drift handling", () => {
         revision: "A",
       },
       drawingPreview: {
-        pageCount: 0,
+        pageCount: 2,
         thumbnail: null,
         pages: [],
+      },
+      part: {
+        clientExtraction: {
+          lifecycle: "succeeded",
+        },
+        clientRequirement: {
+          material: "6061-T6 aluminum",
+          finish: "As machined",
+        },
       },
     });
   });
@@ -318,19 +362,12 @@ describe("quotes api schema drift handling", () => {
     });
 
     supabaseMock.setResolver("parts", (state) => {
-      if (state.selected?.includes("approved_part_requirements")) {
+      if (state.selected === "id, job_id, quantity") {
         return response([
           {
+            id: "part-1",
             job_id: "job-1",
             quantity: 5,
-            approved_part_requirements: {
-              part_number: "1093-05589",
-              revision: "A",
-              description: "Bracket",
-              quote_quantities: [5],
-              requested_by_date: "2026-04-01",
-              spec_snapshot: null,
-            },
           },
         ]);
       }
@@ -339,6 +376,38 @@ describe("quotes api schema drift handling", () => {
     });
 
     supabaseMock.setResolver("job_files", () => response([]));
+    supabaseMock.rpc.mockResolvedValue(
+      response([
+        {
+          partId: "part-1",
+          jobId: "job-1",
+          organizationId: "org-1",
+          hasCadFile: true,
+          hasDrawingFile: true,
+          description: "Bracket",
+          partNumber: "1093-05589",
+          revision: "A",
+          material: "6061-T6 aluminum",
+          finish: "As machined",
+          tightestToleranceInch: 0.005,
+          process: null,
+          notes: null,
+          quantity: 5,
+          quoteQuantities: [5],
+          requestedByDate: "2026-04-01",
+          pageCount: 1,
+          warningCount: 0,
+          warnings: [],
+          missingFields: [],
+          lastFailureCode: null,
+          lastFailureMessage: null,
+          extractedAt: "2026-03-01T00:05:00Z",
+          failedAt: null,
+          updatedAt: "2026-03-01T00:05:00Z",
+          lifecycle: "succeeded",
+        },
+      ]),
+    );
 
     await expect(fetchJobPartSummariesByJobIds(["job-1"])).resolves.toEqual([
       expect.objectContaining({
@@ -348,6 +417,321 @@ describe("quotes api schema drift handling", () => {
         requestedServiceKinds: ["manufacturing_quote"],
       }),
     ]);
+  });
+
+  it("maps failed client-safe extraction diagnostics into part detail", async () => {
+    const job = {
+      id: "job-1",
+      organization_id: "org-1",
+      project_id: null,
+      created_by: "user-1",
+      title: "1093-05589",
+      description: "Bracket",
+      status: "extracting",
+      source: "client_home",
+      active_pricing_policy_id: null,
+      tags: [],
+      requested_quote_quantities: [5],
+      requested_by_date: null,
+      requested_service_kinds: [],
+      primary_service_kind: null,
+      service_notes: null,
+      selected_vendor_quote_offer_id: null,
+      archived_at: null,
+      created_at: "2026-03-01T00:00:00Z",
+      updated_at: "2026-03-01T00:00:00Z",
+    };
+
+    supabaseMock.setResolver("jobs", (state) => {
+      if (state.selected === "*" && findFilter(state, "id", "eq")) {
+        return response(job);
+      }
+
+      if (state.selected === "*" && findFilter(state, "organization_id", "eq")) {
+        return response([job]);
+      }
+
+      if (state.selected === "*" && findFilter(state, "archived_at", "is")) {
+        return response([job]);
+      }
+
+      if (state.selected?.includes("selected_vendor_quote_offer_id")) {
+        return response([
+          {
+            id: job.id,
+            selected_vendor_quote_offer_id: null,
+            requested_service_kinds: [],
+            primary_service_kind: null,
+            service_notes: null,
+            requested_quote_quantities: [5],
+            requested_by_date: null,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled jobs query: ${JSON.stringify(state)}`);
+    });
+    supabaseMock.setResolver("job_files", (state) => {
+      if (state.selected === "*" || state.selected?.includes("normalized_name")) {
+        return response([]);
+      }
+
+      throw new Error(`Unhandled job_files query: ${JSON.stringify(state)}`);
+    });
+    supabaseMock.setResolver("parts", (state) => {
+      if (state.selected === "*" && findFilter(state, "job_id")) {
+        return response([
+          {
+            id: "part-1",
+            job_id: "job-1",
+            organization_id: "org-1",
+            name: "Bracket",
+            normalized_key: "1093-05589",
+            cad_file_id: null,
+            drawing_file_id: "drawing-1",
+            quantity: 5,
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        ]);
+      }
+
+      if (state.selected === "id, job_id, quantity") {
+        return response([
+          {
+            id: "part-1",
+            job_id: "job-1",
+            quantity: 5,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled parts query: ${JSON.stringify(state)}`);
+    });
+    supabaseMock.setResolver("project_jobs", () => response([]));
+    supabaseMock.setResolver("quote_runs", () => response([]));
+    supabaseMock.setResolver("drawing_preview_assets", () => response([]));
+    supabaseMock.setResolver("vendor_quote_results", () => response([]));
+    supabaseMock.rpc.mockImplementation((fn: string) => {
+      if (fn === "api_list_client_part_metadata") {
+        return Promise.resolve(
+          response([
+            {
+              partId: "part-1",
+              jobId: "job-1",
+              organizationId: "org-1",
+              hasCadFile: false,
+              hasDrawingFile: true,
+              description: "Bracket",
+              partNumber: "1093-05589",
+              revision: "A",
+              material: "Unknown material",
+              finish: null,
+              tightestToleranceInch: null,
+              process: null,
+              notes: null,
+              quantity: 5,
+              quoteQuantities: [5],
+              requestedByDate: null,
+              pageCount: 0,
+              warningCount: 0,
+              warnings: [],
+              missingFields: ["material", "finish"],
+              lastFailureCode: "pdf_parse_failed",
+              lastFailureMessage: "Could not read text from the uploaded drawing PDF.",
+              extractedAt: null,
+              failedAt: "2026-03-01T00:06:00Z",
+              updatedAt: "2026-03-01T00:06:00Z",
+              lifecycle: "failed",
+            },
+          ]),
+        );
+      }
+
+      throw new Error(`Unhandled rpc: ${fn}`);
+    });
+
+    await expect(fetchPartDetail("job-1")).resolves.toMatchObject({
+      part: {
+        clientExtraction: {
+          lifecycle: "failed",
+          lastFailureCode: "pdf_parse_failed",
+          lastFailureMessage: "Could not read text from the uploaded drawing PDF.",
+          missingFields: ["material", "finish"],
+        },
+      },
+    });
+  });
+
+  it("resolves part-id routes and synthesizes client part detail from metadata when parts rows are unavailable", async () => {
+    const job = {
+      id: "job-1",
+      organization_id: "org-1",
+      project_id: null,
+      created_by: "user-1",
+      title: "1093-05589",
+      description: "Bracket",
+      status: "extracting",
+      source: "client_home",
+      active_pricing_policy_id: null,
+      tags: [],
+      requested_quote_quantities: [5],
+      requested_by_date: "2026-04-02",
+      requested_service_kinds: ["manufacturing_quote"],
+      primary_service_kind: "manufacturing_quote",
+      service_notes: null,
+      selected_vendor_quote_offer_id: null,
+      archived_at: null,
+      created_at: "2026-03-01T00:00:00Z",
+      updated_at: "2026-03-01T00:00:00Z",
+    };
+
+    supabaseMock.setResolver("jobs", (state) => {
+      const idFilter = findFilter(state, "id", "in");
+
+      if (state.selected === "*" && idFilter) {
+        const ids = Array.isArray(idFilter.value) ? idFilter.value : [];
+        return response(ids.includes("job-1") ? [job] : []);
+      }
+
+      if (state.selected === "*" && findFilter(state, "archived_at", "is")) {
+        return response([job]);
+      }
+
+      if (state.selected === "*" && findFilter(state, "organization_id", "eq")) {
+        return response([job]);
+      }
+
+      if (state.selected?.includes("selected_vendor_quote_offer_id")) {
+        return response([
+          {
+            id: job.id,
+            selected_vendor_quote_offer_id: null,
+            requested_service_kinds: ["manufacturing_quote"],
+            primary_service_kind: "manufacturing_quote",
+            service_notes: null,
+            requested_quote_quantities: [5],
+            requested_by_date: "2026-04-02",
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled jobs query: ${JSON.stringify(state)}`);
+    });
+    supabaseMock.setResolver("job_files", (state) => {
+      if (state.selected === "*") {
+        return response([
+          {
+            id: "drawing-1",
+            job_id: "job-1",
+            organization_id: "org-1",
+            storage_bucket: "job-files",
+            storage_path: "org-1/1093-05589.pdf",
+            original_name: "1093-05589.pdf",
+            normalized_name: "1093-05589",
+            file_kind: "drawing",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        ]);
+      }
+
+      if (state.selected?.includes("normalized_name")) {
+        return response([
+          {
+            job_id: "job-1",
+            normalized_name: "1093-05589.pdf",
+            original_name: "1093-05589.pdf",
+            file_kind: "drawing",
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled job_files query: ${JSON.stringify(state)}`);
+    });
+    supabaseMock.setResolver("parts", (state) => {
+      if (state.selected === "job_id" && findFilter(state, "id", "eq")) {
+        return response({
+          job_id: "job-1",
+        });
+      }
+
+      if (state.selected === "*" && findFilter(state, "job_id")) {
+        return response([]);
+      }
+
+      if (state.selected === "id, job_id, quantity") {
+        return response([]);
+      }
+
+      throw new Error(`Unhandled parts query: ${JSON.stringify(state)}`);
+    });
+    supabaseMock.setResolver("project_jobs", () => response([]));
+    supabaseMock.setResolver("quote_runs", () => response([]));
+    supabaseMock.setResolver("drawing_preview_assets", () => response([]));
+    supabaseMock.setResolver("vendor_quote_results", () => response([]));
+    supabaseMock.rpc.mockImplementation((fn: string) => {
+      if (fn === "api_list_client_part_metadata") {
+        return Promise.resolve(
+          response([
+            {
+              partId: "part-1",
+              jobId: "job-1",
+              organizationId: "org-1",
+              hasCadFile: false,
+              hasDrawingFile: true,
+              description: "Bracket",
+              partNumber: "1093-05589",
+              revision: "B",
+              material: "7075-T6 aluminum",
+              finish: "Black anodize",
+              tightestToleranceInch: 0.002,
+              process: "3-axis CNC milling",
+              notes: "Deburr all edges.",
+              quantity: 5,
+              quoteQuantities: [5, 10],
+              requestedByDate: "2026-04-02",
+              pageCount: 1,
+              warningCount: 0,
+              warnings: [],
+              missingFields: [],
+              lastFailureCode: null,
+              lastFailureMessage: null,
+              extractedAt: "2026-03-01T00:05:00Z",
+              failedAt: null,
+              updatedAt: "2026-03-01T00:05:00Z",
+              lifecycle: "succeeded",
+            },
+          ]),
+        );
+      }
+
+      throw new Error(`Unhandled rpc: ${fn}`);
+    });
+
+    await expect(fetchPartDetail("part-1")).resolves.toMatchObject({
+      job: {
+        id: "job-1",
+      },
+      summary: {
+        jobId: "job-1",
+        partNumber: "1093-05589",
+        revision: "B",
+      },
+      part: {
+        id: "part-1",
+        job_id: "job-1",
+        drawing_file_id: "drawing-1",
+        clientRequirement: {
+          material: "7075-T6 aluminum",
+          finish: "Black anodize",
+          process: "3-axis CNC milling",
+        },
+        clientExtraction: {
+          lifecycle: "succeeded",
+        },
+      },
+    });
   });
 
   it("caches the legacy jobs-column fallback after the first schema-drift hit", async () => {
@@ -376,19 +760,12 @@ describe("quotes api schema drift handling", () => {
     });
 
     supabaseMock.setResolver("parts", (state) => {
-      if (state.selected?.includes("approved_part_requirements")) {
+      if (state.selected === "id, job_id, quantity") {
         return response([
           {
+            id: "part-1",
             job_id: "job-1",
             quantity: 5,
-            approved_part_requirements: {
-              part_number: "1093-05589",
-              revision: "A",
-              description: "Bracket",
-              quote_quantities: [5],
-              requested_by_date: "2026-04-01",
-              spec_snapshot: null,
-            },
           },
         ]);
       }
@@ -397,6 +774,38 @@ describe("quotes api schema drift handling", () => {
     });
 
     supabaseMock.setResolver("job_files", () => response([]));
+    supabaseMock.rpc.mockResolvedValue(
+      response([
+        {
+          partId: "part-1",
+          jobId: "job-1",
+          organizationId: "org-1",
+          hasCadFile: true,
+          hasDrawingFile: true,
+          description: "Bracket",
+          partNumber: "1093-05589",
+          revision: "A",
+          material: "6061-T6 aluminum",
+          finish: "As machined",
+          tightestToleranceInch: 0.005,
+          process: null,
+          notes: null,
+          quantity: 5,
+          quoteQuantities: [5],
+          requestedByDate: "2026-04-01",
+          pageCount: 1,
+          warningCount: 0,
+          warnings: [],
+          missingFields: [],
+          lastFailureCode: null,
+          lastFailureMessage: null,
+          extractedAt: "2026-03-01T00:05:00Z",
+          failedAt: null,
+          updatedAt: "2026-03-01T00:05:00Z",
+          lifecycle: "succeeded",
+        },
+      ]),
+    );
 
     await fetchJobPartSummariesByJobIds(["job-1"]);
     await fetchJobPartSummariesByJobIds(["job-1"]);
@@ -454,19 +863,12 @@ describe("quotes api schema drift handling", () => {
     });
 
     supabaseMock.setResolver("parts", (state) => {
-      if (state.selected?.includes("approved_part_requirements")) {
+      if (state.selected === "id, job_id, quantity") {
         return response([
           {
+            id: "part-1",
             job_id: "job-1",
             quantity: 5,
-            approved_part_requirements: {
-              part_number: "1093-05589",
-              revision: "A",
-              description: "Bracket",
-              quote_quantities: [5],
-              requested_by_date: "2026-04-01",
-              spec_snapshot: null,
-            },
           },
         ]);
       }
@@ -476,6 +878,44 @@ describe("quotes api schema drift handling", () => {
 
     supabaseMock.setResolver("job_files", () => response([]));
     supabaseMock.setResolver("project_jobs", () => response([]));
+    supabaseMock.rpc.mockImplementation((fn: string) => {
+      if (fn === "api_list_client_part_metadata") {
+        return Promise.resolve(
+          response([
+            {
+              partId: "part-1",
+              jobId: "job-1",
+              organizationId: "org-1",
+              hasCadFile: true,
+              hasDrawingFile: true,
+              description: "Bracket",
+              partNumber: "1093-05589",
+              revision: "A",
+              material: "6061-T6 aluminum",
+              finish: "As machined",
+              tightestToleranceInch: 0.005,
+              process: null,
+              notes: null,
+              quantity: 5,
+              quoteQuantities: [5],
+              requestedByDate: "2026-04-01",
+              pageCount: 1,
+              warningCount: 0,
+              warnings: [],
+              missingFields: [],
+              lastFailureCode: null,
+              lastFailureMessage: null,
+              extractedAt: "2026-03-01T00:05:00Z",
+              failedAt: null,
+              updatedAt: "2026-03-01T00:05:00Z",
+              lifecycle: "succeeded",
+            },
+          ]),
+        );
+      }
+
+      throw new Error(`Unhandled rpc: ${fn}`);
+    });
 
     await expect(fetchArchivedJobs()).resolves.toEqual([
       expect.objectContaining({
