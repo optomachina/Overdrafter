@@ -113,6 +113,23 @@ function summarizeError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function summarizeExtractionOutcome(extraction: Awaited<ReturnType<typeof runHybridExtraction>>) {
+  const missingFields = [
+    extraction.description ? null : "description",
+    extraction.partNumber ? null : "partNumber",
+    extraction.revision ? null : "revision",
+    extraction.material.normalized || extraction.material.raw ? null : "material",
+    extraction.finish.normalized || extraction.finish.raw ? null : "finish",
+    extraction.tightestTolerance.valueInch ?? extraction.tightestTolerance.raw ? null : "tightestToleranceInch",
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    missingFields,
+    lifecycle:
+      missingFields.length > 0 || extraction.warnings.length > 0 ? "partial" : "succeeded",
+  };
+}
+
 async function logWorkerAuditEvent(
   supabase: SupabaseClient,
   input: {
@@ -508,6 +525,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       drawingFile: context.drawingFile,
       pdfText,
     });
+    const extractionOutcome = summarizeExtractionOutcome(extraction);
 
     const { error } = await supabase.from("drawing_extractions").upsert(
       {
@@ -559,7 +577,9 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       payload: {
         partId: context.part.id,
         extractionStatus: extraction.status,
+        extractionLifecycle: extractionOutcome.lifecycle,
         warningCount: extraction.warnings.length,
+        missingFields: extractionOutcome.missingFields,
         previewAssetCount: previewAssets.length,
         autoApprovedPartCount,
       },
@@ -567,7 +587,9 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
     await markTaskCompleted(supabase, task.id, {
       ...task.payload,
       extractionStatus: extraction.status,
+      extractionLifecycle: extractionOutcome.lifecycle,
       warningCount: extraction.warnings.length,
+      missingFields: extractionOutcome.missingFields,
       previewAssetCount: previewAssets.length,
       autoApprovedPartCount,
     });
@@ -578,6 +600,8 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       eventType: "worker.extraction_failed",
       payload: {
         partId: context.part.id,
+        failureCode: failureCodeForError(error),
+        failureMessage: summarizeError(error),
       },
     });
     throw error;

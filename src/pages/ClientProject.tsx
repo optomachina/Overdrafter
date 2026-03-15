@@ -20,6 +20,7 @@ import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
+import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtractionStatusNotice";
 import { ClientPartRequestEditor } from "@/components/quotes/ClientPartRequestEditor";
 import {
   ClientCadPreviewPanel,
@@ -285,9 +286,27 @@ const ClientProject = () => {
 
         {focusedWorkspaceState ? <ClientWorkspaceStateSummary state={focusedWorkspaceState} /> : null}
 
+        <ClientExtractionStatusNotice
+          diagnostics={focusedWorkspaceItem.part?.clientExtraction ?? null}
+        />
+
         <ClientDrawingPreviewPanel
           drawingFile={focusedWorkspaceItem.part?.drawingFile ?? null}
           drawingPreview={focusedWorkspaceItem.drawingPreview}
+          state={
+            focusedWorkspaceItem.part?.clientExtraction?.lifecycle === "failed"
+              ? "failed"
+              : focusedWorkspaceItem.part?.clientExtraction?.lifecycle === "queued" ||
+                  focusedWorkspaceItem.part?.clientExtraction?.lifecycle === "extracting"
+                ? "pending"
+                : undefined
+          }
+          statusMessage={
+            focusedWorkspaceItem.part?.clientExtraction?.lifecycle === "failed"
+              ? focusedWorkspaceItem.part.clientExtraction.lastFailureMessage ??
+                "Drawing preview generation failed."
+              : undefined
+          }
         />
         <ClientCadPreviewPanel cadFile={focusedWorkspaceItem.part?.cadFile ?? null} />
 
@@ -826,6 +845,16 @@ const ClientProject = () => {
                                         ? `Quote ${quoteRequestViewModel.label}`
                                         : workspaceState.reasons[0]?.label ?? formatStatusLabel(job.status)}
                                     </p>
+                                    {workspaceItem?.part?.clientExtraction &&
+                                    workspaceItem.part.clientExtraction.lifecycle !== "succeeded" ? (
+                                      <p className="text-xs text-white/35">
+                                        {workspaceItem.part.clientExtraction.lifecycle === "failed"
+                                          ? "Drawing extraction failed"
+                                          : workspaceItem.part.clientExtraction.lifecycle === "partial"
+                                            ? "Partial drawing metadata"
+                                            : "Drawing extraction in progress"}
+                                      </p>
+                                    ) : null}
                                   </div>
                                 ) : (
                                   <Badge className="border border-white/10 bg-white/6 text-white/70">
