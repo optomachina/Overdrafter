@@ -21,6 +21,7 @@ import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientArtifactWorkspace } from "@/components/quotes/ClientArtifactWorkspace";
+import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtractionStatusNotice";
 import { ClientIntelligencePanel } from "@/components/quotes/ClientIntelligencePanel";
 import { ClientPartHeader } from "@/components/quotes/ClientPartHeader";
 import { ClientPartRequestEditor } from "@/components/quotes/ClientPartRequestEditor";
@@ -313,6 +314,8 @@ const ClientProject = () => {
             className="mt-3"
           />
         </section>
+
+        <ClientExtractionStatusNotice diagnostics={focusedWorkspaceItem.part?.clientExtraction ?? null} />
 
         {focusedQuoteRequestViewModel ? (
           <ClientQuoteRequestStatusCard
@@ -833,6 +836,16 @@ const ClientProject = () => {
                                         ? `Quote ${quoteRequestViewModel.label}`
                                         : workspaceState.reasons[0]?.label ?? formatStatusLabel(job.status)}
                                     </p>
+                                    {workspaceItem?.part?.clientExtraction &&
+                                    workspaceItem.part.clientExtraction.lifecycle !== "succeeded" ? (
+                                      <p className="text-xs text-white/35">
+                                        {workspaceItem.part.clientExtraction.lifecycle === "failed"
+                                          ? "Drawing extraction failed"
+                                          : workspaceItem.part.clientExtraction.lifecycle === "partial"
+                                            ? "Partial drawing metadata"
+                                            : "Drawing extraction in progress"}
+                                      </p>
+                                    ) : null}
                                   </div>
                                 ) : (
                                   <Badge className="border border-white/10 bg-white/6 text-white/70">

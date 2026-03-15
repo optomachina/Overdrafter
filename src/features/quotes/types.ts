@@ -87,6 +87,51 @@ export type DrawingExtractionData = {
   status: ExtractionStatus;
 };
 
+export type ClientExtractionLifecycle =
+  | "uploaded"
+  | "queued"
+  | "extracting"
+  | "succeeded"
+  | "partial"
+  | "failed";
+
+export type ClientExtractionDiagnostics = {
+  lifecycle: ClientExtractionLifecycle;
+  warningCount: number;
+  warnings: string[];
+  missingFields: string[];
+  lastFailureCode: string | null;
+  lastFailureMessage: string | null;
+  extractedAt: string | null;
+  failedAt: string | null;
+  updatedAt: string | null;
+  pageCount: number;
+  hasCadFile: boolean;
+  hasDrawingFile: boolean;
+};
+
+export type ClientPartRequirementView = {
+  description: string | null;
+  partNumber: string | null;
+  revision: string | null;
+  material: string;
+  finish: string | null;
+  tightestToleranceInch: number | null;
+  process: string | null;
+  notes: string | null;
+  quantity: number;
+  quoteQuantities: number[];
+  requestedByDate: string | null;
+};
+
+export type ClientPartMetadataRecord = {
+  partId: string;
+  jobId: string;
+  organizationId: string;
+  requirement: ClientPartRequirementView;
+  extraction: ClientExtractionDiagnostics;
+};
+
 export type RfqServiceScope = {
   requestedServiceKinds: string[];
   primaryServiceKind: string | null;
@@ -388,6 +433,8 @@ export type PartAggregate = PartRecord & {
   drawingFile: JobFileRecord | null;
   extraction: DrawingExtractionRecord | null;
   approvedRequirement: ApprovedPartRequirementRecord | null;
+  clientRequirement?: ClientPartRequirementView | null;
+  clientExtraction?: ClientExtractionDiagnostics | null;
   vendorQuotes: VendorQuoteAggregate[];
 };
 

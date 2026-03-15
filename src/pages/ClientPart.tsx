@@ -15,6 +15,7 @@ import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientArtifactWorkspace } from "@/components/quotes/ClientArtifactWorkspace";
+import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtractionStatusNotice";
 import { ClientIntelligencePanel } from "@/components/quotes/ClientIntelligencePanel";
 import { ClientPartHeader } from "@/components/quotes/ClientPartHeader";
 import { ClientPartRequestEditor } from "@/components/quotes/ClientPartRequestEditor";
@@ -71,6 +72,7 @@ const ClientPart = () => {
     drawingPreviewPageUrls,
     drawingPreviewState,
     drawingPreviewStatusMessage,
+    extractionDiagnostics,
     effectiveRequestDraft,
     extraction,
     handleArchivePart,
@@ -225,6 +227,8 @@ const ClientPart = () => {
           className="mt-3"
         />
       </section>
+
+      <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
 
       {quoteRequestViewModel ? (
         <ClientQuoteRequestStatusCard

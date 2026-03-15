@@ -8,6 +8,7 @@ import type {
   ArchivedJobSummary,
   ArchivedProjectSummary,
   ApprovedPartRequirement,
+  ClientPartMetadataRecord,
   ClientSelectionRecord,
   ClientPackageAggregate,
   ClientActivityEvent,
@@ -33,6 +34,7 @@ import type {
   ProjectMembershipRecord,
   ProjectRole,
   PartDetailAggregate,
+  PartAggregate,
   ProjectRecord,
   QuoteRequestSubmissionResult,
   QuoteRunReadiness,
@@ -72,7 +74,11 @@ import { normalizeRequestedQuoteQuantities, parseRequestIntake } from "@/feature
 import { sanitizeClientVisibleSpecSnapshot } from "@/features/quotes/rfq-metadata";
 import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
-import { getImportedVendorOffers, normalizeDrawingPreview } from "@/features/quotes/utils";
+import {
+  getImportedVendorOffers,
+  normalizeClientPartMetadata,
+  normalizeDrawingPreview,
+} from "@/features/quotes/utils";
 import { toast } from "sonner";
 
 const untypedSupabase = supabase as typeof supabase & {
@@ -155,19 +161,6 @@ type MembershipJoinRow = {
     id: string;
     name: string;
     slug: string;
-  } | null;
-};
-
-type ApprovedRequirementJoinRow = {
-  job_id: string;
-  quantity: number | null;
-  approved_part_requirements: {
-    part_number: string | null;
-    revision: string | null;
-    description: string | null;
-    quote_quantities: number[] | null;
-    requested_by_date: string | null;
-    spec_snapshot: Json | null;
   } | null;
 };
 
@@ -304,6 +297,7 @@ const DRAWING_PREVIEW_ASSET_IDENTIFIERS = [
 ] as const;
 const CLIENT_ACTIVITY_IDENTIFIERS = ["api_list_client_activity_events"] as const;
 const QUOTE_REQUEST_IDENTIFIERS = ["public.quote_requests", "quote_requests", "quote_request_status"] as const;
+const CLIENT_PART_METADATA_IDENTIFIERS = ["api_list_client_part_metadata"] as const;
 const JOB_SELECTION_COLUMN_SETS = [
   "id, selected_vendor_quote_offer_id, requested_service_kinds, primary_service_kind, service_notes, requested_quote_quantities, requested_by_date",
   "id, selected_vendor_quote_offer_id, requested_quote_quantities, requested_by_date",
@@ -454,6 +448,10 @@ function isMissingClientActivitySchemaError(error: unknown): boolean {
 
 function isMissingQuoteRequestSchemaError(error: unknown): boolean {
   return isMissingSchemaIdentifierError(error, QUOTE_REQUEST_IDENTIFIERS);
+}
+
+function isMissingClientPartMetadataSchemaError(error: unknown): boolean {
+  return isMissingSchemaIdentifierError(error, CLIENT_PART_METADATA_IDENTIFIERS);
 }
 
 function isMissingClientIntakeSchemaError(error: unknown): boolean {
@@ -700,19 +698,6 @@ function asObject(value: Json | null | undefined): Record<string, unknown> {
     : {};
 }
 
-function sanitizeApprovedRequirementForClient(
-  requirement: ApprovedPartRequirementRecord | null,
-): ApprovedPartRequirementRecord | null {
-  if (!requirement) {
-    return null;
-  }
-
-  return {
-    ...requirement,
-    spec_snapshot: sanitizeClientVisibleSpecSnapshot(requirement.spec_snapshot),
-  };
-}
-
 function sanitizeStorageFileName(fileName: string): string {
   return fileName
     .toLowerCase()
@@ -814,9 +799,9 @@ function parsePartReference(value: string | null | undefined): Pick<JobPartSumma
   return null;
 }
 
-function buildJobPartSummary(
+function buildJobPartSummaryFromMetadata(
   input: {
-    row: ApprovedRequirementJoinRow;
+    metadata: ClientPartMetadataRecord;
     existing: JobPartSummary | undefined;
     requestedServiceKinds: string[];
     primaryServiceKind: string | null;
@@ -825,42 +810,29 @@ function buildJobPartSummary(
     requestedByDate: string | null;
   },
 ): JobPartSummary {
-  const specSnapshot = asObject(input.row.approved_part_requirements?.spec_snapshot);
-  const normalizedQuoteQuantities = normalizeRequestedQuoteQuantities(
-    input.row.approved_part_requirements?.quote_quantities ?? [],
-    input.row.quantity ?? undefined,
-  );
-  const importedBatch =
-    typeof specSnapshot.importedBatch === "string" && specSnapshot.importedBatch.trim().length > 0
-      ? specSnapshot.importedBatch.trim().toUpperCase()
-      : null;
   const serviceIntent = normalizeRequestedServiceIntent({
-    requestedServiceKinds:
-      (Array.isArray(specSnapshot.requestedServiceKinds) ? specSnapshot.requestedServiceKinds : [])
-        .filter((value): value is string => typeof value === "string")
-        .concat(input.requestedServiceKinds),
-    primaryServiceKind:
-      (typeof specSnapshot.primaryServiceKind === "string" ? specSnapshot.primaryServiceKind : null) ??
-      input.primaryServiceKind,
-    serviceNotes:
-      (typeof specSnapshot.serviceNotes === "string" ? specSnapshot.serviceNotes : null) ??
-      input.serviceNotes,
+    requestedServiceKinds: input.requestedServiceKinds,
+    primaryServiceKind: input.primaryServiceKind,
+    serviceNotes: input.serviceNotes,
   });
+  const normalizedQuoteQuantities = normalizeRequestedQuoteQuantities(
+    input.metadata.requirement.quoteQuantities,
+    input.metadata.requirement.quantity,
+  );
 
   return {
-    jobId: input.row.job_id,
-    partNumber: input.row.approved_part_requirements?.part_number ?? null,
-    revision: input.row.approved_part_requirements?.revision ?? null,
-    description: input.row.approved_part_requirements?.description ?? null,
+    jobId: input.metadata.jobId,
+    partNumber: input.metadata.requirement.partNumber,
+    revision: input.metadata.requirement.revision,
+    description: input.metadata.requirement.description,
     requestedServiceKinds: serviceIntent.requestedServiceKinds,
     primaryServiceKind: serviceIntent.primaryServiceKind,
     serviceNotes: serviceIntent.serviceNotes,
-    quantity: input.row.quantity ?? null,
+    quantity: input.metadata.requirement.quantity,
     requestedQuoteQuantities:
       normalizedQuoteQuantities.length > 0 ? normalizedQuoteQuantities : input.requestedQuoteQuantities,
-    requestedByDate:
-      input.row.approved_part_requirements?.requested_by_date ?? input.requestedByDate ?? null,
-    importedBatch,
+    requestedByDate: input.metadata.requirement.requestedByDate ?? input.requestedByDate ?? null,
+    importedBatch: input.existing?.importedBatch ?? null,
     selectedSupplier: input.existing?.selectedSupplier ?? null,
     selectedPriceUsd: input.existing?.selectedPriceUsd ?? null,
     selectedLeadTimeBusinessDays: input.existing?.selectedLeadTimeBusinessDays ?? null,
@@ -876,6 +848,44 @@ function buildNormalizedJobRequestMetadata(job: Partial<JobSelectedOfferRow> | n
     }),
     requestedQuoteQuantities: normalizeRequestedQuoteQuantities(job?.requested_quote_quantities ?? []),
     requestedByDate: job?.requested_by_date ?? null,
+  };
+}
+
+function buildClientPartAggregateFromMetadata(input: {
+  job: JobRecord;
+  metadata: ClientPartMetadataRecord;
+  files: JobFileRecord[];
+  vendorQuotes: VendorQuoteAggregate[];
+}): PartAggregate {
+  const cadFile = input.files.find((file) => file.file_kind === "cad") ?? null;
+  const drawingFile = input.files.find((file) => file.file_kind === "drawing") ?? null;
+  const normalizedKeySource =
+    cadFile?.normalized_name ??
+    drawingFile?.normalized_name ??
+    input.metadata.requirement.partNumber ??
+    input.job.title;
+
+  return {
+    id: input.metadata.partId,
+    job_id: input.job.id,
+    organization_id: input.job.organization_id,
+    name:
+      input.metadata.requirement.description ??
+      input.metadata.requirement.partNumber ??
+      input.job.title,
+    normalized_key: normalizeUploadStem(normalizedKeySource),
+    cad_file_id: cadFile?.id ?? null,
+    drawing_file_id: drawingFile?.id ?? null,
+    quantity: input.metadata.requirement.quantity,
+    created_at: input.job.created_at,
+    updated_at: input.metadata.extraction.updatedAt ?? input.job.updated_at,
+    cadFile,
+    drawingFile,
+    extraction: null,
+    approvedRequirement: null,
+    clientRequirement: input.metadata.requirement,
+    clientExtraction: input.metadata.extraction,
+    vendorQuotes: input.vendorQuotes.filter((quote) => quote.part_id === input.metadata.partId),
   };
 }
 
@@ -1024,6 +1034,65 @@ async function fetchDrawingPreviewAssetsByPartId(partId: string): Promise<Drawin
   return ensureData(data, error) as DrawingPreviewAssetRecord[];
 }
 
+async function fetchClientPartMetadataByJobIds(jobIds: string[]): Promise<ClientPartMetadataRecord[]> {
+  if (jobIds.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await callRpc("api_list_client_part_metadata", {
+    p_job_ids: jobIds,
+  });
+
+  if (error) {
+    if (isMissingClientPartMetadataSchemaError(error)) {
+      return [];
+    }
+
+    throw error;
+  }
+
+  const rows = ensureData(data, null);
+
+  if (!Array.isArray(rows)) {
+    throw new Error("Expected client part metadata to be returned as an array.");
+  }
+
+  return rows
+    .map((row) => normalizeClientPartMetadata(row as Json))
+    .filter((row): row is ClientPartMetadataRecord => Boolean(row));
+}
+
+async function resolveClientPartDetailJobId(candidateId: string): Promise<string | null> {
+  if (!candidateId) {
+    return null;
+  }
+
+  const directJobs = await fetchJobsByIds([candidateId], {
+    archived: false,
+  });
+
+  if (directJobs.length > 0) {
+    return candidateId;
+  }
+
+  const { data, error } = await supabase
+    .from("parts")
+    .select("job_id")
+    .eq("id", candidateId)
+    .maybeSingle();
+
+  if (error) {
+    if (isNoRowsError(error)) {
+      return null;
+    }
+
+    throw error;
+  }
+
+  const row = data as { job_id?: string | null } | null;
+  return typeof row?.job_id === "string" ? row.job_id : null;
+}
+
 async function invokeJobArchivingFallback(
   action: "archive" | "unarchive" | "delete",
   jobId: string,
@@ -1154,12 +1223,10 @@ export async function fetchJobsByOrganization(organizationId: string): Promise<J
 export async function fetchJobPartSummariesByOrganization(
   organizationId: string,
 ): Promise<JobPartSummary[]> {
-  const [partsResult, filesResult, jobSelectionState] = await Promise.all([
+  const [partsResult, filesResult, metadataRows, jobSelectionState] = await Promise.all([
     supabase
       .from("parts")
-      .select(
-        "job_id, quantity, approved_part_requirements(part_number, revision, description, quote_quantities, requested_by_date, spec_snapshot)",
-      )
+      .select("id, job_id, quantity")
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: true }),
     supabase
@@ -1167,11 +1234,14 @@ export async function fetchJobPartSummariesByOrganization(
       .select("job_id, normalized_name, original_name, file_kind")
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: true }),
+    fetchClientPartMetadataByJobIds(
+      (await fetchJobsByOrganization(organizationId)).map((job) => job.id),
+    ),
     fetchJobSelectionStateByOrganization(organizationId),
   ]);
 
-  const approvedRequirements = ensureData(
-    partsResult.data as unknown as ApprovedRequirementJoinRow[] | null,
+  const parts = ensureData(
+    partsResult.data as Array<Pick<PartRecord, "id" | "job_id" | "quantity">> | null,
     partsResult.error,
   );
   const fileRows = ensureData(filesResult.data as unknown as JobFileSummaryRow[] | null, filesResult.error);
@@ -1179,19 +1249,19 @@ export async function fetchJobPartSummariesByOrganization(
 
   const summariesByJobId = new Map<string, JobPartSummary>();
 
-  for (const row of approvedRequirements) {
-    const selectedOffer = selectedOffersByJobId.get(row.job_id) ?? null;
-    const requestDefaults = requestByJobId.get(row.job_id) ?? {
+  for (const metadata of metadataRows) {
+    const selectedOffer = selectedOffersByJobId.get(metadata.jobId) ?? null;
+    const requestDefaults = requestByJobId.get(metadata.jobId) ?? {
       requestedServiceKinds: [],
       primaryServiceKind: null,
       serviceNotes: null,
       requestedQuoteQuantities: [],
       requestedByDate: null,
     };
-    summariesByJobId.set(row.job_id, {
-      ...buildJobPartSummary({
-        row,
-        existing: summariesByJobId.get(row.job_id),
+    summariesByJobId.set(metadata.jobId, {
+      ...buildJobPartSummaryFromMetadata({
+        metadata,
+        existing: summariesByJobId.get(metadata.jobId),
         requestedServiceKinds: requestDefaults.requestedServiceKinds,
         primaryServiceKind: requestDefaults.primaryServiceKind,
         serviceNotes: requestDefaults.serviceNotes,
@@ -1201,6 +1271,39 @@ export async function fetchJobPartSummariesByOrganization(
       selectedSupplier: selectedOffer?.supplier ?? null,
       selectedPriceUsd: selectedOffer?.total_price_usd ?? null,
       selectedLeadTimeBusinessDays: selectedOffer?.lead_time_business_days ?? null,
+    });
+  }
+
+  for (const row of parts) {
+    const existingSummary = summariesByJobId.get(row.job_id);
+
+    if (existingSummary) {
+      continue;
+    }
+
+    const requestDefaults = requestByJobId.get(row.job_id) ?? {
+      requestedServiceKinds: [],
+      primaryServiceKind: null,
+      serviceNotes: null,
+      requestedQuoteQuantities: [],
+      requestedByDate: null,
+    };
+
+    summariesByJobId.set(row.job_id, {
+      jobId: row.job_id,
+      partNumber: null,
+      revision: null,
+      description: null,
+      requestedServiceKinds: requestDefaults.requestedServiceKinds,
+      primaryServiceKind: requestDefaults.primaryServiceKind,
+      serviceNotes: requestDefaults.serviceNotes,
+      quantity: row.quantity ?? null,
+      requestedQuoteQuantities: requestDefaults.requestedQuoteQuantities,
+      requestedByDate: requestDefaults.requestedByDate,
+      importedBatch: null,
+      selectedSupplier: null,
+      selectedPriceUsd: null,
+      selectedLeadTimeBusinessDays: null,
     });
   }
 
@@ -1253,12 +1356,10 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
     return [];
   }
 
-  const [partsResult, filesResult, jobSelectionState] = await Promise.all([
+  const [partsResult, filesResult, metadataRows, jobSelectionState] = await Promise.all([
     supabase
       .from("parts")
-      .select(
-        "job_id, quantity, approved_part_requirements(part_number, revision, description, quote_quantities, requested_by_date, spec_snapshot)",
-      )
+      .select("id, job_id, quantity")
       .in("job_id", jobIds)
       .order("created_at", { ascending: true }),
     supabase
@@ -1266,30 +1367,31 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
       .select("job_id, normalized_name, original_name, file_kind")
       .in("job_id", jobIds)
       .order("created_at", { ascending: true }),
+    fetchClientPartMetadataByJobIds(jobIds),
     fetchJobSelectionStateByJobIds(jobIds),
   ]);
 
-  const approvedRequirements = ensureData(
-    partsResult.data as unknown as ApprovedRequirementJoinRow[] | null,
+  const parts = ensureData(
+    partsResult.data as Array<Pick<PartRecord, "id" | "job_id" | "quantity">> | null,
     partsResult.error,
   );
   const fileRows = ensureData(filesResult.data as unknown as JobFileSummaryRow[] | null, filesResult.error);
   const { selectedOffersByJobId, requestByJobId } = jobSelectionState;
   const summariesByJobId = new Map<string, JobPartSummary>();
 
-  for (const row of approvedRequirements) {
-    const selectedOffer = selectedOffersByJobId.get(row.job_id) ?? null;
-    const requestDefaults = requestByJobId.get(row.job_id) ?? {
+  for (const metadata of metadataRows) {
+    const selectedOffer = selectedOffersByJobId.get(metadata.jobId) ?? null;
+    const requestDefaults = requestByJobId.get(metadata.jobId) ?? {
       requestedServiceKinds: [],
       primaryServiceKind: null,
       serviceNotes: null,
       requestedQuoteQuantities: [],
       requestedByDate: null,
     };
-    summariesByJobId.set(row.job_id, {
-      ...buildJobPartSummary({
-        row,
-        existing: summariesByJobId.get(row.job_id),
+    summariesByJobId.set(metadata.jobId, {
+      ...buildJobPartSummaryFromMetadata({
+        metadata,
+        existing: summariesByJobId.get(metadata.jobId),
         requestedServiceKinds: requestDefaults.requestedServiceKinds,
         primaryServiceKind: requestDefaults.primaryServiceKind,
         serviceNotes: requestDefaults.serviceNotes,
@@ -1299,6 +1401,39 @@ export async function fetchJobPartSummariesByJobIds(jobIds: string[]): Promise<J
       selectedSupplier: selectedOffer?.supplier ?? null,
       selectedPriceUsd: selectedOffer?.total_price_usd ?? null,
       selectedLeadTimeBusinessDays: selectedOffer?.lead_time_business_days ?? null,
+    });
+  }
+
+  for (const row of parts) {
+    const existingSummary = summariesByJobId.get(row.job_id);
+
+    if (existingSummary) {
+      continue;
+    }
+
+    const requestDefaults = requestByJobId.get(row.job_id) ?? {
+      requestedServiceKinds: [],
+      primaryServiceKind: null,
+      serviceNotes: null,
+      requestedQuoteQuantities: [],
+      requestedByDate: null,
+    };
+
+    summariesByJobId.set(row.job_id, {
+      jobId: row.job_id,
+      partNumber: null,
+      revision: null,
+      description: null,
+      requestedServiceKinds: requestDefaults.requestedServiceKinds,
+      primaryServiceKind: requestDefaults.primaryServiceKind,
+      serviceNotes: requestDefaults.serviceNotes,
+      quantity: row.quantity ?? null,
+      requestedQuoteQuantities: requestDefaults.requestedQuoteQuantities,
+      requestedByDate: requestDefaults.requestedByDate,
+      importedBatch: null,
+      selectedSupplier: null,
+      selectedPriceUsd: null,
+      selectedLeadTimeBusinessDays: null,
     });
   }
 
@@ -1711,37 +1846,27 @@ export async function fetchClientQuoteWorkspaceByJobIds(
 
   const files = ensureData(filesResult.data, filesResult.error) as JobFileRecord[];
   const parts = ensureData(partsResult.data, partsResult.error) as PartRecord[];
-  const partIds = parts.map((part) => part.id);
   const latestQuoteRunIds = [...new Set(Array.from(latestQuoteRunsByJobId.values()).map((run) => run.id))];
 
-  const [extractionResult, approvedResult, previewResult, vendorQuoteResult] = await Promise.all([
-    partIds.length > 0
-      ? supabase.from("drawing_extractions").select("*").in("part_id", partIds)
-      : emptyResponse<DrawingExtractionRecord>(),
-    partIds.length > 0
-      ? supabase.from("approved_part_requirements").select("*").in("part_id", partIds)
-      : emptyResponse<ApprovedPartRequirementRecord>(),
-    partIds.length > 0
-      ? supabase
-          .from("drawing_preview_assets")
-          .select("*")
-          .in("part_id", partIds)
-          .order("page_number", { ascending: true })
-      : emptyResponse<DrawingPreviewAssetRecord>(),
+  const [metadataRows, vendorQuoteResult] = await Promise.all([
+    fetchClientPartMetadataByJobIds(jobIds),
     latestQuoteRunIds.length > 0
       ? supabase.from("vendor_quote_results").select("*").in("quote_run_id", latestQuoteRunIds)
       : emptyResponse<VendorQuoteResultRecord>(),
   ]);
+  const previewPartIds = [...new Set([...parts.map((part) => part.id), ...metadataRows.map((item) => item.partId)])];
+  const previewResult =
+    previewPartIds.length > 0
+      ? await supabase
+          .from("drawing_preview_assets")
+          .select("*")
+          .in("part_id", previewPartIds)
+          .order("page_number", { ascending: true })
+      : await emptyResponse<DrawingPreviewAssetRecord>();
 
-  const extractions = ensureData(extractionResult.data, extractionResult.error) as DrawingExtractionRecord[];
-  const approvedRequirements = ensureData(
-    approvedResult.data,
-    approvedResult.error,
-  ) as ApprovedPartRequirementRecord[];
-  const previewAssets = ensureData(
-    previewResult.data,
-    previewResult.error,
-  ) as DrawingPreviewAssetRecord[];
+  const previewAssets = isMissingDrawingPreviewSchemaError(previewResult.error)
+    ? []
+    : (ensureData(previewResult.data, previewResult.error) as DrawingPreviewAssetRecord[]);
   const vendorQuotes = ensureData(
     vendorQuoteResult.data,
     vendorQuoteResult.error,
@@ -1766,10 +1891,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
   const summariesByJobId = new Map(summaries.map((summary) => [summary.jobId, summary]));
   const filesByJobId = new Map<string, JobFileRecord[]>();
   const partsByJobId = new Map<string, PartRecord[]>();
-  const extractionByPartId = new Map(extractions.map((item) => [item.part_id, item]));
-  const approvedByPartId = new Map(
-    approvedRequirements.map((item) => [item.part_id, sanitizeApprovedRequirementForClient(item)]),
-  );
+  const metadataByPartId = new Map(metadataRows.map((item) => [item.partId, item]));
   const previewAssetsByPartId = new Map<string, DrawingPreviewAssetRecord[]>();
   const fileById = new Map(files.map((file) => [file.id, file]));
   const projectIdsByJobId = new Map<string, string[]>();
@@ -1852,15 +1974,25 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     const jobFiles = filesByJobId.get(jobId) ?? [];
     const jobParts = partsByJobId.get(jobId) ?? [];
     const primaryPart = jobParts[0] ?? null;
+    const fallbackMetadata = metadataRows.find((item) => item.jobId === jobId) ?? null;
     const partWithRelations =
       primaryPart === null
-        ? null
+        ? fallbackMetadata
+          ? buildClientPartAggregateFromMetadata({
+              job,
+              metadata: fallbackMetadata,
+              files: jobFiles,
+              vendorQuotes: vendorQuoteAggregates,
+            })
+          : null
         : {
             ...primaryPart,
             cadFile: primaryPart.cad_file_id ? fileById.get(primaryPart.cad_file_id) ?? null : null,
             drawingFile: primaryPart.drawing_file_id ? fileById.get(primaryPart.drawing_file_id) ?? null : null,
-            extraction: extractionByPartId.get(primaryPart.id) ?? null,
-            approvedRequirement: approvedByPartId.get(primaryPart.id) ?? null,
+            extraction: null,
+            approvedRequirement: null,
+            clientRequirement: metadataByPartId.get(primaryPart.id)?.requirement ?? null,
+            clientExtraction: metadataByPartId.get(primaryPart.id)?.extraction ?? null,
             vendorQuotes: vendorQuoteAggregates.filter((quote) => quote.part_id === primaryPart.id),
           };
 
@@ -1872,11 +2004,11 @@ export async function fetchClientQuoteWorkspaceByJobIds(
         part: partWithRelations,
         projectIds: projectIdsByJobId.get(jobId) ?? [],
         drawingPreview:
-          primaryPart === null
+          partWithRelations === null
             ? normalizeDrawingPreview(null, [])
             : normalizeDrawingPreview(
-                extractionByPartId.get(primaryPart.id) ?? null,
-                previewAssetsByPartId.get(primaryPart.id) ?? [],
+                metadataByPartId.get(partWithRelations.id)?.extraction ?? partWithRelations.clientExtraction ?? null,
+                previewAssetsByPartId.get(partWithRelations.id) ?? [],
               ),
         latestQuoteRequest: latestQuoteRequestsByJobId.get(jobId) ?? null,
         latestQuoteRun: latestQuoteRunsByJobId.get(jobId) ?? null,
@@ -2527,23 +2659,31 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
     return fixtureGateway.fetchPartDetail(jobId);
   }
 
-  const [jobAggregate, partSummaries, projectMemberships, latestQuoteRequestsByJobId] = await Promise.all([
-    fetchJobAggregate(jobId),
-    fetchJobPartSummariesByJobIds([jobId]),
-    fetchProjectJobMembershipsByJobIds([jobId]),
-    fetchLatestQuoteRequestsByJobIds([jobId]),
-  ]);
+  const resolvedJobId = await resolveClientPartDetailJobId(jobId);
 
-  if (jobAggregate.job.archived_at) {
+  if (!resolvedJobId) {
+    throw new Error("Part not found.");
+  }
+
+  const [workspaceItems, projectMemberships] = await Promise.all([
+    fetchClientQuoteWorkspaceByJobIds([resolvedJobId]),
+    fetchProjectJobMembershipsByJobIds([resolvedJobId]),
+  ]);
+  const workspaceItem = workspaceItems[0] ?? null;
+
+  if (!workspaceItem) {
+    throw new Error("Part not found.");
+  }
+
+  if (workspaceItem.job.archived_at) {
     throw new Error("Archived parts are only available from the Archive panel.");
   }
 
-  const part = jobAggregate.parts[0] ?? null;
+  const part = workspaceItem.part ?? null;
   const previewAssets = part !== null ? await fetchDrawingPreviewAssetsByPartId(part.id) : [];
-
-  const summary = partSummaries[0] ?? null;
+  const summary = workspaceItem.summary ?? null;
   const [allSummaries, activeJobs] = await Promise.all([
-    fetchJobPartSummariesByOrganization(jobAggregate.job.organization_id),
+    fetchJobPartSummariesByOrganization(workspaceItem.job.organization_id),
     fetchAccessibleJobs(),
   ]);
   const activeJobIdSet = new Set(activeJobs.map((job) => job.id));
@@ -2553,7 +2693,7 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
           .filter(
             (candidate) =>
               candidate.partNumber === summary.partNumber &&
-              candidate.jobId !== jobId &&
+              candidate.jobId !== resolvedJobId &&
               activeJobIdSet.has(candidate.jobId),
           )
           .map((candidate) => ({
@@ -2565,15 +2705,15 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
       : [];
 
   return {
-    job: jobAggregate.job,
-    files: jobAggregate.files,
+    job: workspaceItem.job,
+    files: workspaceItem.files,
     summary,
-    packages: jobAggregate.packages.map((pkg) => pkg as PublishedQuotePackageRecord),
+    packages: [],
     part,
     projectIds: projectMemberships.map((membership) => membership.project_id),
-    drawingPreview: normalizeDrawingPreview(part?.extraction ?? null, previewAssets),
-    latestQuoteRequest: latestQuoteRequestsByJobId.get(jobId) ?? null,
-    latestQuoteRun: jobAggregate.quoteRuns[0] ?? null,
+    drawingPreview: normalizeDrawingPreview(part?.clientExtraction ?? null, previewAssets),
+    latestQuoteRequest: workspaceItem.latestQuoteRequest,
+    latestQuoteRun: workspaceItem.latestQuoteRun,
     revisionSiblings,
   };
 }
