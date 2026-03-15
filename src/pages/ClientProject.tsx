@@ -107,7 +107,7 @@ const ClientProject = () => {
     handleAssignPartToProject,
     handleBulkPreset,
     handleCreateProjectFromSelection,
-    handleDeleteArchivedPart,
+    handleDeleteArchivedParts,
     handleDissolveProject,
     handleInviteProjectMember,
     handleOpenJobDrawer,
@@ -518,7 +518,7 @@ const ClientProject = () => {
             archivedJobs={archivedJobsQuery.data}
             isArchiveLoading={archivedProjectsQuery.isLoading || archivedJobsQuery.isLoading}
             onUnarchivePart={handleUnarchivePart}
-            onDeleteArchivedPart={handleDeleteArchivedPart}
+            onDeleteArchivedParts={handleDeleteArchivedParts}
           />
         }
       >

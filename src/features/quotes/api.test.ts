@@ -322,6 +322,7 @@ import {
   createJobsFromUploadFiles,
   createProject,
   archiveJob,
+  deleteArchivedJobs,
   deleteArchivedJob,
   enqueueDebugVendorQuote,
   fetchAccessibleProjects,
@@ -494,14 +495,57 @@ describe("quotes api helpers", () => {
     });
   });
 
-  it("deletes an archived job through the dedicated RPC", async () => {
-    supabaseMock.rpc.mockResolvedValueOnce({ data: "job-123", error: null });
+  it("deletes archived jobs through the shared cleanup RPC", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        deletedJobIds: ["job-123", "job-456"],
+        failures: [],
+      },
+      error: null,
+    });
+
+    await expect(deleteArchivedJobs(["job-123", "job-456"])).resolves.toEqual({
+      deletedJobIds: ["job-123", "job-456"],
+      failures: [],
+    });
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_delete_archived_jobs", {
+      p_job_ids: ["job-123", "job-456"],
+    });
+  });
+
+  it("deletes a single archived job through the shared cleanup RPC", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        deletedJobIds: ["job-123"],
+        failures: [],
+      },
+      error: null,
+    });
 
     await expect(deleteArchivedJob("job-123")).resolves.toBe("job-123");
 
-    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_delete_archived_job", {
-      p_job_id: "job-123",
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_delete_archived_jobs", {
+      p_job_ids: ["job-123"],
     });
+  });
+
+  it("surfaces a targeted schema error when the archived delete RPC is unavailable", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "PGRST202",
+        message: "Could not find the function public.api_delete_archived_jobs(p_job_ids) in the schema cache",
+        details: null,
+        hint: null,
+      },
+    });
+
+    await expect(deleteArchivedJob("job-123")).rejects.toThrow(
+      "Archived part deletion is unavailable in this environment until the latest archive delete schema is applied.",
+    );
+
+    expect(supabaseMock.functionsInvoke).not.toHaveBeenCalledWith("job-archive-fallback", expect.anything());
   });
 
   it("archives a job through the fallback when shared project tables are unavailable", async () => {

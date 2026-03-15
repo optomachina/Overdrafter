@@ -14,6 +14,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage } = vi.hoi
     createJobsFromUploadFiles: vi.fn(),
     createProject: vi.fn(),
     deleteArchivedJob: vi.fn(),
+    deleteArchivedJobs: vi.fn(),
     dissolveProject: vi.fn(),
     fetchAccessibleJobs: vi.fn(),
     fetchAccessibleProjects: vi.fn(),

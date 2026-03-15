@@ -9,7 +9,7 @@ import {
   assignJobToProject,
   createJobsFromUploadFiles,
   createProject,
-  deleteArchivedJob,
+  deleteArchivedJobs,
   fetchClientActivityEventsByJobIds,
   dissolveProject,
   fetchPartDetail,
@@ -732,14 +732,43 @@ export function useClientPartController() {
     }
   };
 
-  const handleDeleteArchivedPart = async (targetJobId: string) => {
+  const handleDeleteArchivedParts = async (jobIds: string[]) => {
+    const normalizedIds = [...new Set(jobIds)];
+
+    if (normalizedIds.length === 0) {
+      toast.error("No archived parts selected.");
+      return;
+    }
+
     try {
-      await deleteArchivedJob(targetJobId);
-      await invalidateClientWorkspaceQueries(queryClient, { jobId: targetJobId });
-      toast.success("Archived part deleted.");
+      const result = await deleteArchivedJobs(normalizedIds);
+      await invalidateClientWorkspaceQueries(queryClient, {
+        jobId: normalizedIds.length === 1 ? normalizedIds[0] : undefined,
+      });
+
+      if (result.failures.length === 0) {
+        toast.success(
+          result.deletedJobIds.length === 1
+            ? "Archived part deleted."
+            : `${result.deletedJobIds.length} archived parts deleted.`,
+        );
+        return;
+      }
+
+      if (result.deletedJobIds.length === 0) {
+        toast.error(result.failures[0]?.message ?? "Failed to delete archived parts.");
+        return;
+      }
+
+      toast.error(
+        `Deleted ${result.deletedJobIds.length} archived parts, but ${result.failures.length} could not be removed.`,
+      );
     } catch (error) {
+      console.error("Archived part delete failed", {
+        jobIds: normalizedIds,
+        message: error instanceof Error ? error.message : String(error),
+      });
       toast.error(error instanceof Error ? error.message : "Failed to delete archived part.");
-      throw error;
     }
   };
 
@@ -910,7 +939,7 @@ export function useClientPartController() {
     handleArchiveProject,
     handleAssignPartToProject,
     handleCreateProjectFromSelection,
-    handleDeleteArchivedPart,
+    handleDeleteArchivedParts,
     handleDissolveProject,
     handleDownloadFile,
     handleDraftChange,

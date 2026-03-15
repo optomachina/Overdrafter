@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -71,7 +71,7 @@ type WorkspaceAccountMenuProps = {
   archivedJobs?: ArchivedJobSummary[];
   isArchiveLoading?: boolean;
   onUnarchivePart?: (jobId: string) => Promise<void> | void;
-  onDeleteArchivedPart?: (jobId: string) => Promise<void> | void;
+  onDeleteArchivedParts?: (jobIds: string[]) => Promise<void> | void;
 };
 
 type AccountPanelId =
@@ -127,6 +127,16 @@ type ArchiveListItem =
       archivedAt: string | null;
       id: string;
       job: ArchivedJobSummary;
+    };
+
+type ArchiveDeleteConfirmationState =
+  | {
+      kind: "single";
+      job: ArchivedJobSummary;
+    }
+  | {
+      kind: "bulk";
+      jobs: ArchivedJobSummary[];
     };
 
 const HELP_ITEMS: HelpItem[] = [
@@ -369,16 +379,17 @@ export function WorkspaceAccountMenu({
   archivedJobs = [],
   isArchiveLoading = false,
   onUnarchivePart,
-  onDeleteArchivedPart,
+  onDeleteArchivedParts,
 }: WorkspaceAccountMenuProps) {
   const profile = getAccountDisplayProfile(user);
+  const panelContentRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activePanel, setActivePanel] = useState<AccountPanelId | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutDialogOpen, setSignOutDialogOpen] = useState(false);
   const [pendingUnarchiveJobIds, setPendingUnarchiveJobIds] = useState<string[]>([]);
   const [pendingDeleteJobIds, setPendingDeleteJobIds] = useState<string[]>([]);
-  const [jobPendingDeleteConfirmation, setJobPendingDeleteConfirmation] = useState<ArchivedJobSummary | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<ArchiveDeleteConfirmationState | null>(null);
   const roleLabel = getRoleLabel(activeMembership?.role);
   const notifications = notificationCenter ?? {
     allItems: [],
@@ -433,6 +444,9 @@ export function WorkspaceAccountMenu({
       }),
     [archivedJobs, archivedProjects],
   );
+  const archivedPartCount = archivedJobs.length;
+  const hasPendingDelete = pendingDeleteJobIds.length > 0;
+  const bulkDeleteJobIds = deleteConfirmation?.kind === "bulk" ? deleteConfirmation.jobs.map((job) => job.job.id) : [];
 
   const openPanel = (panelId: AccountPanelId) => {
     setMenuOpen(false);
@@ -474,23 +488,33 @@ export function WorkspaceAccountMenu({
 
     try {
       await onUnarchivePart(jobId);
+    } catch {
+      // The caller handles toast/error reporting for menu actions.
     } finally {
       setPendingUnarchiveJobIds((current) => current.filter((id) => id !== jobId));
     }
   };
 
-  const handleDeleteArchivedPart = async (jobId: string) => {
-    if (!onDeleteArchivedPart) {
+  const handleDeleteArchivedParts = async (jobIds: string[]) => {
+    if (!onDeleteArchivedParts) {
       return;
     }
 
-    setPendingDeleteJobIds((current) => (current.includes(jobId) ? current : [...current, jobId]));
+    const normalizedIds = [...new Set(jobIds)];
+
+    if (normalizedIds.length === 0) {
+      return;
+    }
+
+    setPendingDeleteJobIds((current) => [...new Set([...current, ...normalizedIds])]);
 
     try {
-      await onDeleteArchivedPart(jobId);
-      setJobPendingDeleteConfirmation((current) => (current?.job.id === jobId ? null : current));
+      await onDeleteArchivedParts(normalizedIds);
+      setDeleteConfirmation(null);
+    } catch {
+      // The caller handles toast/error reporting for menu actions.
     } finally {
-      setPendingDeleteJobIds((current) => current.filter((id) => id !== jobId));
+      setPendingDeleteJobIds((current) => current.filter((id) => !normalizedIds.includes(id)));
     }
   };
 
@@ -764,101 +788,135 @@ export function WorkspaceAccountMenu({
                 <p className="text-sm leading-6 text-white/58">No archived items yet.</p>
               </div>
             ) : (
-              archiveItems.map((item) => {
-                if (item.kind === "project") {
+              <>
+                {onDeleteArchivedParts && archivedPartCount > 0 ? (
+                  <div className={PANEL_CARD_CLASS}>
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <h3 className="text-[17px] font-medium text-white">
+                          {archivedPartCount} archived {archivedPartCount === 1 ? "part" : "parts"}
+                        </h3>
+                        <p className="mt-1 text-sm text-white/52">
+                          Permanently remove archived parts and their related files from this workspace.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={hasPendingDelete}
+                        className="h-9 rounded-full border border-red-500/20 bg-red-500/10 px-3 text-red-100 hover:bg-red-500/18 hover:text-white disabled:opacity-60"
+                        onClick={() => setDeleteConfirmation({ kind: "bulk", jobs: archivedJobs })}
+                      >
+                        {deleteConfirmation?.kind === "bulk" && hasPendingDelete ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <>
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete all
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {archiveItems.map((item) => {
+                  if (item.kind === "project") {
+                    return (
+                      <div key={`project-${item.project.project.id}`} className={cn(PANEL_CARD_CLASS, "group/item")}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04]">
+                              <Folder className="h-[18px] w-[18px] text-white/80" strokeWidth={1.9} />
+                            </span>
+                            <div className="min-w-0">
+                              <h3 className="truncate text-[17px] font-medium text-white">{item.project.project.name}</h3>
+                              <p className="mt-1 text-sm text-white/52">{formatArchivedAt(item.project.project.archived_at)}</p>
+                            </div>
+                          </div>
+                          <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs font-medium text-white/70">
+                            {item.project.partCount} {item.project.partCount === 1 ? "part" : "parts"}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const presentation = getClientItemPresentation(item.job.job, item.job.summary ?? undefined);
+                  const isUnarchivePending = pendingUnarchiveJobIds.includes(item.job.job.id);
+                  const isDeletePending = pendingDeleteJobIds.includes(item.job.job.id);
+                  const isBusy = isUnarchivePending || isDeletePending || hasPendingDelete;
+
                   return (
-                    <div key={`project-${item.project.project.id}`} className={cn(PANEL_CARD_CLASS, "group/item")}>
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex min-w-0 items-start gap-3">
+                    <div
+                      key={`part-${item.job.job.id}`}
+                      data-testid={`archived-part-card-${item.job.job.id}`}
+                      className={cn(PANEL_CARD_CLASS, "group/item min-w-0 overflow-hidden")}
+                    >
+                      <div className="relative flex min-w-0 items-start gap-4">
+                        <div className="flex min-w-0 items-start gap-3 pr-0 sm:pr-[13.5rem]">
                           <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04]">
-                            <Folder className="h-[18px] w-[18px] text-white/80" strokeWidth={1.9} />
+                            <Box className="h-[18px] w-[18px] text-white/80" strokeWidth={1.9} />
                           </span>
                           <div className="min-w-0">
-                            <h3 className="truncate text-[17px] font-medium text-white">{item.project.project.name}</h3>
-                            <p className="mt-1 text-sm text-white/52">{formatArchivedAt(item.project.project.archived_at)}</p>
+                            <h3 className="truncate text-[17px] font-medium text-white">{presentation.title}</h3>
+                            <p className="mt-1 text-sm text-white/52">{formatArchivedAt(item.job.job.archived_at)}</p>
+                            {item.job.projectNames.length > 0 ? (
+                              <p className="mt-3 truncate text-sm text-white/62">{item.job.projectNames.join(" · ")}</p>
+                            ) : null}
                           </div>
                         </div>
-                        <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs font-medium text-white/70">
-                          {item.project.partCount} {item.project.partCount === 1 ? "part" : "parts"}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                }
 
-                const presentation = getClientItemPresentation(item.job.job, item.job.summary ?? undefined);
-                const isUnarchivePending = pendingUnarchiveJobIds.includes(item.job.job.id);
-                const isDeletePending = pendingDeleteJobIds.includes(item.job.job.id);
-                const isBusy = isUnarchivePending || isDeletePending;
+                        <div
+                          data-testid={`archived-part-actions-${item.job.job.id}`}
+                          className="pointer-events-none absolute right-0 top-0 flex max-w-full items-center gap-2 pl-4 opacity-0 transition group-hover/item:pointer-events-auto group-hover/item:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
+                        >
+                          {onUnarchivePart ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              disabled={isBusy}
+                              className="h-9 rounded-full border border-white/[0.08] bg-white/[0.04] px-3 text-white/78 hover:bg-white/[0.08] hover:text-white"
+                              onClick={() => void handleUnarchivePart(item.job.job.id)}
+                            >
+                              {isUnarchivePending ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <Undo2 className="mr-2 h-4 w-4" />
+                                  Unarchive
+                                </>
+                              )}
+                            </Button>
+                          ) : null}
 
-                return (
-                  <div
-                    key={`part-${item.job.job.id}`}
-                    data-testid={`archived-part-card-${item.job.job.id}`}
-                    className={cn(PANEL_CARD_CLASS, "group/item min-w-0 overflow-hidden")}
-                  >
-                    <div className="relative flex min-w-0 items-start gap-4">
-                      <div className="flex min-w-0 items-start gap-3 pr-0 sm:pr-[13.5rem]">
-                        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04]">
-                          <Box className="h-[18px] w-[18px] text-white/80" strokeWidth={1.9} />
-                        </span>
-                        <div className="min-w-0">
-                          <h3 className="truncate text-[17px] font-medium text-white">{presentation.title}</h3>
-                          <p className="mt-1 text-sm text-white/52">{formatArchivedAt(item.job.job.archived_at)}</p>
-                          {item.job.projectNames.length > 0 ? (
-                            <p className="mt-3 truncate text-sm text-white/62">{item.job.projectNames.join(" · ")}</p>
+                          {onDeleteArchivedParts ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              disabled={isBusy}
+                              className="h-9 rounded-full border border-red-500/20 bg-red-500/10 px-3 text-red-100 hover:bg-red-500/18 hover:text-white"
+                              onClick={() => setDeleteConfirmation({ kind: "single", job: item.job })}
+                            >
+                              {isDeletePending ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Delete
+                                </>
+                              )}
+                            </Button>
                           ) : null}
                         </div>
                       </div>
-
-                      <div
-                        data-testid={`archived-part-actions-${item.job.job.id}`}
-                        className="pointer-events-none absolute right-0 top-0 flex max-w-full items-center gap-2 pl-4 opacity-0 transition group-hover/item:pointer-events-auto group-hover/item:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
-                      >
-                        {onUnarchivePart ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            disabled={isBusy}
-                            className="h-9 rounded-full border border-white/[0.08] bg-white/[0.04] px-3 text-white/78 hover:bg-white/[0.08] hover:text-white"
-                            onClick={() => void handleUnarchivePart(item.job.job.id)}
-                          >
-                            {isUnarchivePending ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <>
-                                <Undo2 className="mr-2 h-4 w-4" />
-                                Unarchive
-                              </>
-                            )}
-                          </Button>
-                        ) : null}
-
-                        {onDeleteArchivedPart ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            disabled={isBusy}
-                            className="h-9 rounded-full border border-red-500/20 bg-red-500/10 px-3 text-red-100 hover:bg-red-500/18 hover:text-white"
-                            onClick={() => setJobPendingDeleteConfirmation(item.job)}
-                          >
-                            {isDeletePending ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <>
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Delete
-                              </>
-                            )}
-                          </Button>
-                        ) : null}
-                      </div>
                     </div>
-                  </div>
-                );
-              })
+                  );
+                })}
+              </>
             )}
           </div>
         );
@@ -1113,7 +1171,16 @@ export function WorkspaceAccountMenu({
       />
 
       <Sheet open={activePanel !== null} onOpenChange={(open) => (!open ? setActivePanel(null) : undefined)}>
-        <SheetContent side="right" className={PANEL_SHEET_CLASS}>
+        <SheetContent
+          side="right"
+          ref={panelContentRef}
+          tabIndex={-1}
+          className={PANEL_SHEET_CLASS}
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            panelContentRef.current?.focus();
+          }}
+        >
           <div className="flex h-full flex-col">
             <SheetHeader className="border-b border-white/[0.08] px-6 py-6">
               <SheetTitle className="pr-12 text-[28px] font-medium tracking-[-0.02em] text-white">
@@ -1146,24 +1213,28 @@ export function WorkspaceAccountMenu({
       </Sheet>
 
       <AlertDialog
-        open={Boolean(jobPendingDeleteConfirmation)}
+        open={Boolean(deleteConfirmation)}
         onOpenChange={(open) => {
-          if (!open && !jobPendingDeleteConfirmation) {
+          if (!open && !deleteConfirmation) {
             return;
           }
 
-          if (!pendingDeleteJobIds.includes(jobPendingDeleteConfirmation?.job.id ?? "")) {
-            setJobPendingDeleteConfirmation(open ? jobPendingDeleteConfirmation : null);
+          if (!hasPendingDelete) {
+            setDeleteConfirmation(open ? deleteConfirmation : null);
           }
         }}
       >
         <AlertDialogContent className="chatgpt-shell border-white/[0.08] bg-[#2a2a2a] text-white">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete archived part?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {deleteConfirmation?.kind === "bulk" ? "Delete all archived parts?" : "Delete archived part?"}
+            </AlertDialogTitle>
             <AlertDialogDescription className="text-white/55">
-              {jobPendingDeleteConfirmation
-                ? `Delete ${getClientItemPresentation(jobPendingDeleteConfirmation.job, jobPendingDeleteConfirmation.summary ?? undefined).title} permanently. This cannot be undone.`
-                : "Delete this archived part permanently. This cannot be undone."}
+              {deleteConfirmation?.kind === "bulk"
+                ? `Delete ${deleteConfirmation.jobs.length} archived parts permanently, including their related files. This cannot be undone.`
+                : deleteConfirmation
+                  ? `Delete ${getClientItemPresentation(deleteConfirmation.job.job, deleteConfirmation.job.summary ?? undefined).title} permanently. This cannot be undone.`
+                  : "Delete this archived part permanently. This cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1172,25 +1243,25 @@ export function WorkspaceAccountMenu({
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-600 text-white hover:bg-red-500"
-              disabled={
-                !jobPendingDeleteConfirmation ||
-                pendingDeleteJobIds.includes(jobPendingDeleteConfirmation.job.id)
-              }
+              disabled={!deleteConfirmation || hasPendingDelete}
               onClick={(event) => {
-                if (!jobPendingDeleteConfirmation) {
+                if (!deleteConfirmation) {
                   event.preventDefault();
                   return;
                 }
 
                 event.preventDefault();
-                void handleDeleteArchivedPart(jobPendingDeleteConfirmation.job.id);
+                void handleDeleteArchivedParts(
+                  deleteConfirmation.kind === "bulk"
+                    ? bulkDeleteJobIds
+                    : [deleteConfirmation.job.job.id],
+                );
               }}
             >
-              {jobPendingDeleteConfirmation &&
-              pendingDeleteJobIds.includes(jobPendingDeleteConfirmation.job.id) ? (
+              {hasPendingDelete ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                "Delete"
+                deleteConfirmation?.kind === "bulk" ? "Delete all" : "Delete"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

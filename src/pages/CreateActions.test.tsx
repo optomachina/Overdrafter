@@ -24,6 +24,7 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       createProject: vi.fn(),
       createSelfServiceOrganization: vi.fn(),
       deleteArchivedJob: vi.fn(),
+      deleteArchivedJobs: vi.fn(),
       dissolveProject: vi.fn(),
       fetchAccessibleJobs: vi.fn(),
       fetchAccessibleProjects: vi.fn(),

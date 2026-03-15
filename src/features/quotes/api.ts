@@ -5,6 +5,7 @@ import type {
   AccessibleProjectSummary,
   AppMembership,
   AppSessionData,
+  ArchivedJobDeleteResult,
   ArchivedJobSummary,
   ArchivedProjectSummary,
   ApprovedPartRequirement,
@@ -233,6 +234,8 @@ const PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE =
   "Projects are unavailable in this environment until the shared workspace schema is applied.";
 const JOB_ARCHIVING_UNAVAILABLE_MESSAGE =
   "Part archiving is unavailable in this environment until the archive schema is applied.";
+const ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE =
+  "Archived part deletion is unavailable in this environment until the latest archive delete schema is applied.";
 const PROJECT_NOT_FOUND_MESSAGE = "Project not found.";
 const CLIENT_INTAKE_EXPECTED_MIGRATION = "20260313143000_add_request_service_intent.sql";
 const CLIENT_INTAKE_DRIFT_MESSAGE =
@@ -1131,6 +1134,33 @@ async function invokeJobArchivingFallback(
   }
 
   return data.jobId;
+}
+
+function normalizeArchivedJobDeleteResult(data: Json | null): ArchivedJobDeleteResult {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("Expected archived job delete results from api_delete_archived_jobs.");
+  }
+
+  const deletedJobIds = Array.isArray(data.deletedJobIds)
+    ? data.deletedJobIds.filter((value): value is string => typeof value === "string")
+    : [];
+  const failures = Array.isArray(data.failures)
+    ? data.failures.flatMap((value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          return [];
+        }
+
+        const jobId = typeof value.jobId === "string" ? value.jobId : null;
+        const message = typeof value.message === "string" ? value.message : null;
+
+        return jobId && message ? [{ jobId, message }] : [];
+      })
+    : [];
+
+  return {
+    deletedJobIds,
+    failures,
+  };
 }
 
 export async function fetchAppSessionData(): Promise<AppSessionData> {
@@ -3310,39 +3340,53 @@ export async function unarchiveJob(jobId: string): Promise<string> {
 }
 
 export async function deleteArchivedJob(jobId: string): Promise<string> {
-  const fixtureGateway = getActiveClientWorkspaceGateway();
+  const result = await deleteArchivedJobs([jobId]);
 
-  if (fixtureGateway) {
-    return fixtureGateway.deleteArchivedJob(jobId);
+  if (result.deletedJobIds[0]) {
+    return result.deletedJobIds[0];
   }
 
-  const { data, error } = await callRpc("api_delete_archived_job", {
-    p_job_id: jobId,
+  if (result.failures[0]) {
+    throw new Error(result.failures[0].message);
+  }
+
+  throw new Error("Expected api_delete_archived_jobs to delete the archived part.");
+}
+
+export async function deleteArchivedJobs(jobIds: string[]): Promise<ArchivedJobDeleteResult> {
+  const normalizedIds = [...new Set(jobIds.filter((jobId) => jobId.trim().length > 0))];
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (normalizedIds.length === 0) {
+    return {
+      deletedJobIds: [],
+      failures: [],
+    };
+  }
+
+  if (fixtureGateway) {
+    return fixtureGateway.deleteArchivedJobs(normalizedIds);
+  }
+
+  const { data, error } = await callRpc("api_delete_archived_jobs", {
+    p_job_ids: normalizedIds,
   });
 
   if (!error) {
     markJobArchivingSchemaAvailability("available");
-    return ensureData(data, null);
+    return normalizeArchivedJobDeleteResult(data);
   }
 
-  if (isMissingFunctionError(error, "api_delete_archived_job")) {
-    try {
-      const deletedJobId = await invokeJobArchivingFallback("delete", jobId);
-      markJobArchivingSchemaAvailability("available");
-      return deletedJobId;
-    } catch (fallbackError) {
-      if (isMissingJobArchivingSchemaError(fallbackError)) {
-        markJobArchivingSchemaAvailability("unavailable");
-        throw new Error(JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
-      }
-
-      throw fallbackError;
-    }
+  if (
+    isMissingFunctionError(error, "api_delete_archived_jobs") ||
+    isMissingFunctionError(error, "api_delete_archived_job")
+  ) {
+    throw new Error(ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE);
   }
 
   if (isMissingJobArchivingSchemaError(error)) {
     markJobArchivingSchemaAvailability("unavailable");
-    throw new Error(JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
+    throw new Error(ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE);
   }
 
   throw error;

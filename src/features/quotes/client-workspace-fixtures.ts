@@ -3,6 +3,7 @@ import type {
   AccessibleProjectSummary,
   AppMembership,
   AppSessionData,
+  ArchivedJobDeleteResult,
   ArchivedJobSummary,
   ArchivedProjectSummary,
   ClientActivityEvent,
@@ -102,6 +103,7 @@ export type ClientWorkspaceGateway = {
   archiveJob: (jobId: string) => Promise<string>;
   unarchiveJob: (jobId: string) => Promise<string>;
   deleteArchivedJob: (jobId: string) => Promise<string>;
+  deleteArchivedJobs: (jobIds: string[]) => Promise<ArchivedJobDeleteResult>;
   setJobSelectedVendorQuoteOffer: (jobId: string, offerId: string | null) => Promise<string>;
   updateClientPartRequest: (input: ClientPartRequestUpdateInput) => Promise<string>;
 };
@@ -1702,6 +1704,24 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       state.projectJobMemberships = state.projectJobMemberships.filter((membership) => membership.job_id !== jobId);
       syncProjectCounts(state);
       return jobId;
+    },
+    deleteArchivedJobs: async (jobIds) => {
+      const normalizedIds = [...new Set(jobIds)];
+
+      normalizedIds.forEach((jobId) => {
+        const state = getState(scenarioId);
+        state.archivedJobs = state.archivedJobs.filter((entry) => entry.job.id !== jobId);
+        delete state.partSummariesByJobId[jobId];
+        delete state.workspaceByJobId[jobId];
+        delete state.partDetailsByJobId[jobId];
+        state.projectJobMemberships = state.projectJobMemberships.filter((membership) => membership.job_id !== jobId);
+        syncProjectCounts(state);
+      });
+
+      return {
+        deletedJobIds: normalizedIds,
+        failures: [],
+      };
     },
     setJobSelectedVendorQuoteOffer: async (jobId, offerId) => {
       updateSelectedOfferSummary(getState(scenarioId), jobId, offerId);

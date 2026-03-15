@@ -60,7 +60,7 @@ vi.mock("@/features/quotes/use-client-home-controller", () => ({
     handleArchiveProject: vi.fn(),
     handleComposerSubmit: vi.fn(),
     handleCreateProjectFromSelection: vi.fn(),
-    handleDeleteArchivedPart: vi.fn(),
+    handleDeleteArchivedParts: vi.fn(),
     handleDissolveProject: vi.fn(),
     handlePinPart: vi.fn(),
     handlePinProject: vi.fn(),
