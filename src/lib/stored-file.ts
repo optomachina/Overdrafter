@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { toUserFacingError } from "@/lib/error-message";
 
 export const FIXTURE_STORAGE_BUCKET = "fixture-public";
 
@@ -34,7 +35,10 @@ export async function downloadStoredFileBlob(file: StoredFileLike): Promise<Blob
   const { data, error } = await supabase.storage.from(file.storage_bucket).download(file.storage_path);
 
   if (error || !data) {
-    throw error ?? new Error(`Unable to download ${file.original_name ?? file.storage_path}.`);
+    throw toUserFacingError(
+      error,
+      `Unable to download ${file.original_name ?? file.storage_path}.`,
+    );
   }
 
   return data;

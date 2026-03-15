@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const sonnerMock = vi.hoisted(() => {
   const errorImpl = vi.fn();
@@ -31,6 +31,10 @@ vi.mock("sonner", () => {
 });
 
 describe("sonner error toast defaults", () => {
+  beforeEach(() => {
+    sonnerMock.errorImpl.mockClear();
+  });
+
   it("keeps error toasts open until dismissed while preserving explicit overrides", async () => {
     const { toast } = await import("sonner");
     await import("./sonner");
@@ -80,6 +84,34 @@ describe("sonner error toast defaults", () => {
       expect.objectContaining({
         action: retryAction,
         cancel: expect.objectContaining({
+          label: expect.any(Object),
+        }),
+      }),
+    );
+  });
+
+  it("normalizes object-shaped error messages before rendering", async () => {
+    const { toast } = await import("sonner");
+    await import("./sonner");
+    const emitObjectError = toast.error as unknown as (message: unknown) => void;
+
+    emitObjectError({ message: "Storage denied" });
+    emitObjectError({});
+
+    expect(sonnerMock.errorImpl).toHaveBeenNthCalledWith(
+      1,
+      "Storage denied",
+      expect.objectContaining({
+        action: expect.objectContaining({
+          label: expect.any(Object),
+        }),
+      }),
+    );
+    expect(sonnerMock.errorImpl).toHaveBeenNthCalledWith(
+      2,
+      "Error toast triggered.",
+      expect.objectContaining({
+        action: expect.objectContaining({
           label: expect.any(Object),
         }),
       }),
