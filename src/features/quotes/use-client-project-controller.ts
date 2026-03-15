@@ -21,6 +21,7 @@ import {
   fetchProjectInvites,
   fetchProjectMemberships,
   inviteProjectMember,
+  isArchivedDeleteCapabilityError,
   isProjectCollaborationSchemaUnavailable,
   pinJob,
   pinProject,
@@ -752,10 +753,12 @@ export function useClientProjectController() {
         `Deleted ${result.deletedJobIds.length} archived parts, but ${result.failures.length} could not be removed.`,
       );
     } catch (error) {
-      console.error("Archived part delete failed", {
-        jobIds: normalizedIds,
-        message: error instanceof Error ? error.message : String(error),
-      });
+      if (!isArchivedDeleteCapabilityError(error)) {
+        console.error("Archived part delete failed", {
+          jobIds: normalizedIds,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
       toast.error(error instanceof Error ? error.message : "Failed to delete archived part.");
     }
   };

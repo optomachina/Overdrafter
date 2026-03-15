@@ -41,6 +41,7 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       fetchSidebarPins: vi.fn(),
       getClientIntakeCompatibilityMessage: vi.fn(() => "compatibility ok"),
       inviteProjectMember: vi.fn(),
+      isArchivedDeleteCapabilityError: vi.fn(() => false),
       isProjectCollaborationSchemaUnavailable: vi.fn(),
       pinJob: vi.fn(),
       pinProject: vi.fn(),

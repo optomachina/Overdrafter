@@ -235,7 +235,7 @@ const PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE =
 const JOB_ARCHIVING_UNAVAILABLE_MESSAGE =
   "Part archiving is unavailable in this environment until the archive schema is applied.";
 const ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE =
-  "Archived part deletion is temporarily unavailable. Please refresh and try again.";
+  "Archived part deletion is unavailable until the latest archive delete migrations are applied and the PostgREST schema cache is refreshed.";
 const PROJECT_NOT_FOUND_MESSAGE = "Project not found.";
 const CLIENT_INTAKE_EXPECTED_MIGRATION = "20260313143000_add_request_service_intent.sql";
 const CLIENT_INTAKE_DRIFT_MESSAGE =
@@ -323,6 +323,26 @@ export class ClientIntakeCompatibilityError extends Error {
     this.name = "ClientIntakeCompatibilityError";
     this.missing = [...missing];
   }
+}
+
+export class ArchivedDeleteCapabilityError extends Error {
+  readonly dependency: "api_delete_archived_jobs" | "api_delete_archived_job";
+  readonly reason: "missing_function" | "missing_schema";
+
+  constructor(
+    dependency: "api_delete_archived_jobs" | "api_delete_archived_job",
+    reason: "missing_function" | "missing_schema",
+    message = ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE,
+  ) {
+    super(message);
+    this.name = "ArchivedDeleteCapabilityError";
+    this.dependency = dependency;
+    this.reason = reason;
+  }
+}
+
+export function isArchivedDeleteCapabilityError(error: unknown): error is ArchivedDeleteCapabilityError {
+  return error instanceof ArchivedDeleteCapabilityError;
 }
 
 function ensureData<T>(data: T | null, error: { message: string } | null | undefined): T {
@@ -1184,37 +1204,75 @@ function logArchivedDeleteCapabilityIssue(context: {
   });
 }
 
-async function deleteArchivedJobLegacy(jobId: string): Promise<string> {
+type ArchivedDeleteLegacySuccess = {
+  ok: true;
+  jobId: string;
+};
+
+type ArchivedDeleteLegacyFailure = {
+  ok: false;
+  kind: "missing_legacy_rpc" | "missing_archive_schema" | "failure";
+  error: unknown;
+  message: string;
+};
+
+type ArchivedDeleteLegacyCapabilityFailure = {
+  ok: false;
+  kind: "missing_legacy_rpc" | "missing_archive_schema";
+  error: unknown;
+  message: string;
+};
+
+type ArchivedDeleteLegacyAttempt = ArchivedDeleteLegacySuccess | ArchivedDeleteLegacyFailure;
+
+function isArchivedDeleteLegacyCapabilityFailure(
+  result: ArchivedDeleteLegacyAttempt,
+): result is ArchivedDeleteLegacyCapabilityFailure {
+  if ("jobId" in result) {
+    return false;
+  }
+
+  return result.kind === "missing_legacy_rpc" || result.kind === "missing_archive_schema";
+}
+
+async function deleteArchivedJobLegacy(jobId: string): Promise<ArchivedDeleteLegacyAttempt> {
   const { data, error } = await callRpc("api_delete_archived_job", {
     p_job_id: jobId,
   });
 
   if (!error) {
     markJobArchivingSchemaAvailability("available");
-    return ensureData(data, null);
+    return {
+      ok: true,
+      jobId: ensureData(data, null),
+    };
   }
 
   if (isMissingFunctionError(error, "api_delete_archived_job")) {
-    try {
-      const deletedJobId = await invokeJobArchivingFallback("delete", jobId);
-      markJobArchivingSchemaAvailability("available");
-      return deletedJobId;
-    } catch (fallbackError) {
-      if (isMissingJobArchivingSchemaError(fallbackError)) {
-        markJobArchivingSchemaAvailability("unavailable");
-        throw new Error(JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
-      }
-
-      throw fallbackError;
-    }
+    return {
+      ok: false,
+      kind: "missing_legacy_rpc",
+      error,
+      message: ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE,
+    };
   }
 
   if (isMissingJobArchivingSchemaError(error)) {
     markJobArchivingSchemaAvailability("unavailable");
-    throw new Error(JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
+    return {
+      ok: false,
+      kind: "missing_archive_schema",
+      error,
+      message: ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE,
+    };
   }
 
-  throw error;
+  return {
+    ok: false,
+    kind: "failure",
+    error,
+    message: error instanceof Error ? error.message : "Failed to delete archived part.",
+  };
 }
 
 export async function fetchAppSessionData(): Promise<AppSessionData> {
@@ -3431,10 +3489,7 @@ export async function deleteArchivedJobs(jobIds: string[]): Promise<ArchivedJobD
     return normalizeArchivedJobDeleteResult(data);
   }
 
-  const bulkDeleteUnavailable =
-    isMissingFunctionError(error, "api_delete_archived_jobs") || isMissingJobArchivingSchemaError(error);
-
-  if (bulkDeleteUnavailable) {
+  if (isMissingFunctionError(error, "api_delete_archived_jobs")) {
     logArchivedDeleteCapabilityIssue({
       operation: normalizedIds.length > 1 ? "bulk" : "single",
       jobIds: normalizedIds,
@@ -3442,27 +3497,40 @@ export async function deleteArchivedJobs(jobIds: string[]): Promise<ArchivedJobD
       error,
     });
 
-    const settled = await Promise.allSettled(
-      normalizedIds.map(async (jobId) => {
-        const deletedJobId = await deleteArchivedJobLegacy(jobId);
-        return deletedJobId;
-      }),
-    );
+    const legacyResults = await Promise.all(normalizedIds.map((jobId) => deleteArchivedJobLegacy(jobId)));
+
+    const legacyCapabilityFailure = legacyResults.find(isArchivedDeleteLegacyCapabilityFailure);
+
+    if (legacyCapabilityFailure) {
+      logArchivedDeleteCapabilityIssue({
+        operation: normalizedIds.length > 1 ? "bulk" : "single",
+        jobIds: normalizedIds,
+        reason:
+          legacyCapabilityFailure.kind === "missing_legacy_rpc"
+            ? "api_delete_archived_job unavailable; archive delete migrations missing or schema cache is stale"
+            : "archive delete schema unavailable while resolving legacy single-delete contract",
+        error: legacyCapabilityFailure.error,
+      });
+
+      throw new ArchivedDeleteCapabilityError(
+        "api_delete_archived_job",
+        legacyCapabilityFailure.kind === "missing_legacy_rpc" ? "missing_function" : "missing_schema",
+      );
+    }
 
     const deletedJobIds: string[] = [];
-    const failures = settled.flatMap((result, index) => {
-      if (result.status === "fulfilled") {
-        deletedJobIds.push(result.value);
+    const failures = legacyResults.flatMap((result, index) => {
+      if ("jobId" in result) {
+        deletedJobIds.push(result.jobId);
         return [];
       }
+
+      const failure = result;
 
       return [
         {
           jobId: normalizedIds[index],
-          message:
-            result.reason instanceof Error
-              ? result.reason.message
-              : "Failed to delete archived part.",
+          message: failure.message,
         },
       ];
     });
@@ -3475,6 +3543,17 @@ export async function deleteArchivedJobs(jobIds: string[]): Promise<ArchivedJobD
     }
 
     throw new Error(ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE);
+  }
+
+  if (isMissingJobArchivingSchemaError(error)) {
+    markJobArchivingSchemaAvailability("unavailable");
+    logArchivedDeleteCapabilityIssue({
+      operation: normalizedIds.length > 1 ? "bulk" : "single",
+      jobIds: normalizedIds,
+      reason: "archive delete schema unavailable while calling api_delete_archived_jobs",
+      error,
+    });
+    throw new ArchivedDeleteCapabilityError("api_delete_archived_jobs", "missing_schema");
   }
 
   throw error;

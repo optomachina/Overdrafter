@@ -30,6 +30,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage } = vi.hoi
     fetchProjectMemberships: vi.fn(),
     fetchSidebarPins: vi.fn(),
     inviteProjectMember: vi.fn(),
+    isArchivedDeleteCapabilityError: vi.fn(() => false),
     isProjectCollaborationSchemaUnavailable: vi.fn(),
     pinJob: vi.fn(),
     pinProject: vi.fn(),
