@@ -130,6 +130,16 @@ export function buildActivityLogEntries(events: ClientActivityEvent[]): Activity
             tone: "active",
           };
         case "job.quote_run_started":
+          if (payload.clientTriggered === true) {
+            return {
+              id: event.id,
+              label: "Quote request accepted",
+              detail: "Your quote request was accepted and queued for Xometry.",
+              occurredAt: event.occurredAt,
+              tone: "active",
+            };
+          }
+
           return {
             id: event.id,
             label: "Quote collection started",

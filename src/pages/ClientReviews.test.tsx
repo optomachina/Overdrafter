@@ -194,6 +194,7 @@ describe("client review pages", () => {
         },
         projectIds: ["project-1"],
         drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+        latestQuoteRequest: null,
         latestQuoteRun: null,
       },
     ]);

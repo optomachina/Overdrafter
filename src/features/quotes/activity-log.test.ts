@@ -98,4 +98,25 @@ describe("activity log mapping", () => {
     expect(entries[0]?.detail).toContain("DFM review");
     expect(entries[0]?.detail).toContain("Manufacturing quote");
   });
+
+  it("treats client-triggered quote starts as accepted quote requests", () => {
+    const entries = buildActivityLogEntries([
+      createEvent({
+        id: "event-client-quote-start",
+        jobId: "job-1",
+        eventType: "job.quote_run_started",
+        payload: {
+          clientTriggered: true,
+          quoteRequestId: "request-1",
+        },
+      }),
+    ]);
+
+    expect(entries[0]).toMatchObject({
+      id: "event-client-quote-start",
+      label: "Quote request accepted",
+      tone: "active",
+    });
+    expect(entries[0]?.detail).toContain("queued for Xometry");
+  });
 });

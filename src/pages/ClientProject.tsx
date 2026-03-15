@@ -64,6 +64,7 @@ import {
   getClientQuoteOptionStateReasons,
   summarizeClientWorkspaceStates,
 } from "@/features/quotes/client-workspace-state";
+import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import { parseRequestedQuoteQuantitiesInput } from "@/features/quotes/request-intake";
 import { formatCurrency, formatLeadTime, formatStatusLabel } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
@@ -107,6 +108,7 @@ const ClientProject = () => {
     handleRemovePartFromProject,
     handleRemoveProjectMember,
     handleRenameProject,
+    handleRequestProjectQuotes,
     handleRequestDraftChange,
     handleRevertBulk,
     handleSaveRequest,
@@ -138,6 +140,7 @@ const ClientProject = () => {
     search,
     saveRequestMutation,
     optionsByJobId,
+    requestProjectQuotesMutation,
     selectedOptionsByJobId,
     setActiveFilter,
     setIsSearchOpen,
@@ -203,6 +206,41 @@ const ClientProject = () => {
     [workspaceStatesByJobId],
   );
   const focusedWorkspaceState = focusedJob ? workspaceStatesByJobId.get(focusedJob.id) ?? null : null;
+  const quoteRequestViewModelsByJobId = useMemo(
+    () =>
+      new Map(
+        projectJobs.map((job) => {
+          const workspaceItem = workspaceItemsByJobId.get(job.id) ?? null;
+
+          return [
+            job.id,
+            buildQuoteRequestViewModel({
+              job,
+              part: workspaceItem?.part ?? null,
+              latestQuoteRequest: workspaceItem?.latestQuoteRequest ?? null,
+              latestQuoteRun: workspaceItem?.latestQuoteRun ?? null,
+            }),
+          ] as const;
+        }),
+      ),
+    [projectJobs, workspaceItemsByJobId],
+  );
+  const projectRequestableJobIds = useMemo(
+    () =>
+      projectJobs
+        .map((job) => [job.id, quoteRequestViewModelsByJobId.get(job.id) ?? null] as const)
+        .filter(
+          (entry): entry is readonly [string, NonNullable<typeof entry[1]>] =>
+            Boolean(entry[1]) &&
+            entry[1]!.action.kind === "request" &&
+            !entry[1]!.action.disabled,
+        )
+        .map(([jobId]) => jobId),
+    [projectJobs, quoteRequestViewModelsByJobId],
+  );
+  const focusedQuoteRequestViewModel = focusedJob
+    ? quoteRequestViewModelsByJobId.get(focusedJob.id) ?? null
+    : null;
 
   const renderDetailDrawer = () => {
     if (!focusedJob || !focusedWorkspaceItem) {
@@ -333,6 +371,62 @@ const ClientProject = () => {
           </div>
         </div>
 
+        {focusedQuoteRequestViewModel ? (
+          <div
+            className={cn(
+              "rounded-[26px] border p-5",
+              focusedQuoteRequestViewModel.tone === "ready"
+                ? "border-emerald-400/20 bg-emerald-500/8"
+                : focusedQuoteRequestViewModel.tone === "warning"
+                  ? "border-amber-400/20 bg-amber-500/8"
+                  : "border-rose-400/20 bg-rose-500/8",
+            )}
+          >
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <ClientWorkspaceToneBadge
+                    tone={focusedQuoteRequestViewModel.tone}
+                    label={`Quote ${focusedQuoteRequestViewModel.label}`}
+                    className="tracking-normal normal-case"
+                  />
+                  <p className="text-sm font-medium text-white">Xometry request status</p>
+                </div>
+                <p className="mt-2 text-sm text-white/75">{focusedQuoteRequestViewModel.detail}</p>
+              </div>
+              {focusedQuoteRequestViewModel.action.kind !== "none" ? (
+                <Button
+                  type="button"
+                  className="rounded-full"
+                  disabled={
+                    requestProjectQuotesMutation.isPending || focusedQuoteRequestViewModel.action.disabled
+                  }
+                  onClick={() => {
+                    void handleRequestProjectQuotes(
+                      [focusedJob.id],
+                      focusedQuoteRequestViewModel.action.kind === "retry",
+                    );
+                  }}
+                >
+                  {requestProjectQuotesMutation.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  {focusedQuoteRequestViewModel.action.label}
+                </Button>
+              ) : null}
+            </div>
+            {focusedQuoteRequestViewModel.blockerReasons.length > 0 ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {focusedQuoteRequestViewModel.blockerReasons.map((reason) => (
+                  <Badge key={reason} className="border border-white/10 bg-black/20 text-white/75">
+                    {reason}
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {focusedDraft ? (
           <div className="rounded-[26px] border border-white/8 bg-[#262626] p-5">
             <p className="text-xs uppercase tracking-[0.18em] text-white/35">Metadata and RFQ details</p>
@@ -446,6 +540,19 @@ const ClientProject = () => {
                   Add part
                 </Button>
               ) : null}
+              <Button
+                type="button"
+                className="rounded-full"
+                disabled={requestProjectQuotesMutation.isPending || projectRequestableJobIds.length === 0}
+                onClick={() => {
+                  void handleRequestProjectQuotes(projectRequestableJobIds);
+                }}
+              >
+                {requestProjectQuotesMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {projectRequestableJobIds.length > 0
+                  ? `Request ${projectRequestableJobIds.length} quote${projectRequestableJobIds.length === 1 ? "" : "s"}`
+                  : "Request quotes"}
+              </Button>
               <Button
                 type="button"
                 variant="outline"
@@ -638,6 +745,7 @@ const ClientProject = () => {
                           const draft = requestDraftsByJobId[job.id] ?? null;
                           const selectedOption = selectedOptionsByJobId[job.id] ?? null;
                           const workspaceState = workspaceStatesByJobId.get(job.id) ?? null;
+                          const quoteRequestViewModel = quoteRequestViewModelsByJobId.get(job.id) ?? null;
                           const presentation = getClientItemPresentation(job, summary);
                           const sourceIcon =
                             selectedOption?.domesticStatus === "domestic" ? (
@@ -714,7 +822,9 @@ const ClientProject = () => {
                                       {workspaceState.selection.label}
                                     </p>
                                     <p className="text-xs text-white/35">
-                                      {workspaceState.reasons[0]?.label ?? formatStatusLabel(job.status)}
+                                      {quoteRequestViewModel
+                                        ? `Quote ${quoteRequestViewModel.label}`
+                                        : workspaceState.reasons[0]?.label ?? formatStatusLabel(job.status)}
                                     </p>
                                   </div>
                                 ) : (

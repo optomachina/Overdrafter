@@ -19,6 +19,7 @@ import {
   reconcileJobParts,
   removeJobFromProject,
   requestExtraction,
+  requestQuote,
   setJobSelectedVendorQuoteOffer,
   unarchiveJob,
   unarchiveProject,
@@ -256,6 +257,28 @@ export function useClientPartController() {
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to rename part.");
+    },
+  });
+
+  const requestQuoteMutation = useMutation({
+    mutationFn: ({ forceRetry = false }: { forceRetry?: boolean }) => requestQuote(jobId, forceRetry),
+    onSuccess: async (result, variables) => {
+      await invalidateClientWorkspaceQueries(queryClient, { jobId });
+
+      if (!result.accepted) {
+        toast.error(result.reason || "Quote request could not be started.");
+        return;
+      }
+
+      if (result.created) {
+        toast.success(variables.forceRetry ? "Quote retry queued." : "Quote request queued.");
+        return;
+      }
+
+      toast.success("Quote request is already in progress.");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to request a quote.");
     },
   });
 
@@ -799,6 +822,10 @@ export function useClientPartController() {
     saveRequestMutation.mutate(payload);
   };
 
+  const handleRequestQuote = async (forceRetry = false) => {
+    await requestQuoteMutation.mutateAsync({ forceRetry });
+  };
+
   const handleDownloadFile = async (file: {
     storage_bucket: string;
     storage_path: string;
@@ -865,6 +892,7 @@ export function useClientPartController() {
     handleRemovePartFromProject,
     handleRenamePart,
     handleRenameProject,
+    handleRequestQuote,
     handleSaveRequest,
     handleSelectQuoteOption,
     handleToggleCurrentPartPin,
@@ -874,6 +902,7 @@ export function useClientPartController() {
     handleUnpinProject,
     isDrawingPreviewLoading,
     isPartArchiveBusy,
+    isRequestingQuote: requestQuoteMutation.isPending,
     isPartOptionsOpen,
     isPartPinBusy,
     isRenamingPart,
@@ -894,6 +923,7 @@ export function useClientPartController() {
     rankedQuoteOptions,
     removeJobMutation,
     requestQuantities,
+    requestQuoteMutation,
     requestSummaryQuantity,
     requestSummaryRequestedByDate,
     resolveSidebarProjectIdsForJob,

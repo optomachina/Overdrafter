@@ -34,6 +34,15 @@ Operational workflow alignment for this phase:
 
 ## Milestones
 
+### Current feature slice — Client-triggered quote requests
+- add a client-safe quote request intent model distinct from quote run execution
+- add idempotent single-part and project-bulk quote request RPCs
+- restrict the client-triggered automation path to Xometry in phase 1
+- persist request lifecycle states: `not_requested`, `queued`, `requesting`, `received`, `failed`, `canceled`
+- expose quote request status and gating reasons in part and project client workspaces
+- keep quote publication and quote selection flows unchanged
+- document follow-up backlog for multi-vendor expansion, cancellation, richer preflight gating, and successful rerun support
+
 ### Milestone 1 — Canonical root documentation
 - Create `PRD.md`
 - Create `PLAN.md`

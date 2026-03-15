@@ -135,6 +135,7 @@ function makePart(overrides: Partial<PartAggregate> = {}): PartAggregate {
 function makeQuoteRun(overrides: Partial<QuoteRunAggregate> = {}): QuoteRunAggregate {
   return {
     id: "run-1",
+    quote_request_id: null,
     job_id: "job-1",
     organization_id: "org-1",
     initiated_by: "user-1",
