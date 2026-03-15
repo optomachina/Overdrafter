@@ -63,11 +63,13 @@ import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-pi
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
 import { prefetchPartPage, prefetchProjectPage, workspaceQueryKeys } from "@/features/quotes/workspace-navigation";
 import { downloadStoredFileBlob } from "@/lib/stored-file";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 import {
   buildRequirementDraft,
   formatCurrency,
   normalizeDrawingExtraction,
 } from "@/features/quotes/utils";
+import type { DrawingPreviewState } from "@/components/quotes/ClientQuoteAssetPanels";
 import type { ActivityLogEntry } from "@/components/quotes/ActivityLog";
 import type { VendorName } from "@/integrations/supabase/types";
 
@@ -78,10 +80,12 @@ export function useClientPartController() {
   const { user, activeMembership, signOut } = useAppSession();
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [showDrawingPreview, setShowDrawingPreview] = useState(false);
+  const [drawingPdfUrl, setDrawingPdfUrl] = useState<string | null>(null);
   const [drawingPreviewPageUrls, setDrawingPreviewPageUrls] = useState<
     Array<{ pageNumber: number; url: string }>
   >([]);
   const [isDrawingPreviewLoading, setIsDrawingPreviewLoading] = useState(false);
+  const [drawingPreviewLoadError, setDrawingPreviewLoadError] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activePreset, setActivePreset] = useState<QuotePreset | null>(null);
   const [excludedVendorKeys, setExcludedVendorKeys] = useState<VendorName[]>([]);
@@ -404,6 +408,39 @@ export function useClientPartController() {
     () => buildActivityLogEntries(activityEventsQuery.data ?? []),
     [activityEventsQuery.data],
   );
+  const hasExtractionFailure = useMemo(
+    () => (activityEventsQuery.data ?? []).some((event) => event.eventType === "worker.extraction_failed"),
+    [activityEventsQuery.data],
+  );
+  const drawingPreviewState: DrawingPreviewState = useMemo(() => {
+    if (!drawingFile) {
+      return "missing";
+    }
+
+    if (drawingPreviewLoadError) {
+      return "unavailable";
+    }
+
+    if (drawingPdfUrl) {
+      return "ready";
+    }
+
+    return hasExtractionFailure ? "failed" : "pending";
+  }, [drawingFile, drawingPdfUrl, drawingPreviewLoadError, hasExtractionFailure]);
+  const drawingPreviewStatusMessage = useMemo(() => {
+    switch (drawingPreviewState) {
+      case "missing":
+        return "PDF drawing missing. Upload a drawing file to validate extracted dimensions and notes.";
+      case "pending":
+        return "Drawing preview is still processing. The original PDF can still be downloaded.";
+      case "failed":
+        return "Drawing preview generation failed. Download the original PDF while this is investigated.";
+      case "unavailable":
+        return drawingPreviewLoadError ?? "Drawing preview could not be loaded.";
+      default:
+        return null;
+    }
+  }, [drawingPreviewLoadError, drawingPreviewState]);
 
   useEffect(() => {
     setExcludedVendorKeys(readExcludedVendorKeys(jobId));
@@ -413,6 +450,8 @@ export function useClientPartController() {
     setPartRenameValue("");
     setShowRenameDialog(false);
     setIsPartOptionsOpen(false);
+    setDrawingPdfUrl(null);
+    setDrawingPreviewLoadError(null);
   }, [jobId]);
 
   useEffect(() => {
@@ -429,47 +468,39 @@ export function useClientPartController() {
 
   useEffect(() => {
     let isActive = true;
-    const objectUrls: string[] = [];
+    let objectUrl: string | null = null;
 
-    if (!drawingFile || !drawingPreview || (!drawingPreview.thumbnail && drawingPreview.pages.length === 0)) {
+    if (!drawingFile) {
+      setDrawingPdfUrl(null);
       setDrawingPreviewPageUrls([]);
       setIsDrawingPreviewLoading(false);
+      setDrawingPreviewLoadError(null);
       return;
     }
 
     setIsDrawingPreviewLoading(true);
+    setDrawingPreviewLoadError(null);
 
-    const loadAsset = async (storageBucket: string, storagePath: string) => {
-      const blob = await downloadStoredFileBlob({
-        storage_bucket: storageBucket,
-        storage_path: storagePath,
-        original_name: drawingFile.original_name,
-      });
-      const url = URL.createObjectURL(blob);
-      objectUrls.push(url);
-      return url;
-    };
-
-    void Promise.all(
-      drawingPreview.pages.map(async (page) => ({
-        pageNumber: page.pageNumber,
-        url: await loadAsset(page.storageBucket, page.storagePath),
-      })),
-    )
-      .then((pageUrls) => {
+    void downloadStoredFileBlob(drawingFile)
+      .then((blob) => {
         if (!isActive) {
           return;
         }
 
-        setDrawingPreviewPageUrls(pageUrls);
+        objectUrl = URL.createObjectURL(blob);
+        setDrawingPdfUrl(objectUrl);
+        setDrawingPreviewPageUrls([]);
+        setDrawingPreviewLoadError(null);
       })
       .catch((error: unknown) => {
         if (!isActive) {
           return;
         }
 
-        const message = error instanceof Error ? error.message : "Unable to load drawing preview.";
+        const message = getUserFacingErrorMessage(error, "Unable to load drawing preview.");
         toast.error(message);
+        setDrawingPreviewLoadError(message);
+        setDrawingPdfUrl(null);
         setDrawingPreviewPageUrls([]);
       })
       .finally(() => {
@@ -480,9 +511,11 @@ export function useClientPartController() {
 
     return () => {
       isActive = false;
-      objectUrls.forEach((objectUrl) => URL.revokeObjectURL(objectUrl));
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
     };
-  }, [drawingFile, drawingPreview]);
+  }, [drawingFile]);
 
   const handlePinProject = async (projectId: string) => {
     try {
@@ -782,7 +815,7 @@ export function useClientPartController() {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Download failed.");
+      toast.error(getUserFacingErrorMessage(error, "Download failed."));
     }
   };
 
@@ -811,7 +844,10 @@ export function useClientPartController() {
     displayPartTitle,
     drawingFile,
     drawingPreview,
+    drawingPdfUrl,
     drawingPreviewPageUrls,
+    drawingPreviewState,
+    drawingPreviewStatusMessage,
     effectiveRequestDraft,
     eligibleQuoteCount,
     extraction,

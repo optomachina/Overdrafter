@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Box, Download, Expand, FileText, Loader2 } from "lucide-react";
+import { AlertCircle, Box, Download, Expand, FileText, Loader2 } from "lucide-react";
 import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { Button } from "@/components/ui/button";
 import type { DrawingPreviewData, JobFileRecord } from "@/features/quotes/types";
@@ -8,6 +8,12 @@ import { downloadStoredFileBlob } from "@/lib/stored-file";
 import { cn } from "@/lib/utils";
 
 type DownloadableFile = Pick<JobFileRecord, "storage_bucket" | "storage_path" | "original_name">;
+export type DrawingPreviewPage = {
+  pageNumber: number;
+  url: string;
+};
+
+export type DrawingPreviewState = "missing" | "ready" | "pending" | "failed" | "unavailable";
 
 async function downloadStoredFile(file: DownloadableFile) {
   const blob = await downloadStoredFileBlob(file);
@@ -24,30 +30,48 @@ async function downloadStoredFile(file: DownloadableFile) {
 export function ClientDrawingPreviewPanel({
   drawingFile,
   drawingPreview,
+  pdfUrl,
+  pages,
+  state,
+  statusMessage,
+  isLoading = false,
   onOpenDialog,
   className,
 }: {
   drawingFile: JobFileRecord | null;
   drawingPreview: DrawingPreviewData;
+  pdfUrl?: string | null;
+  pages?: DrawingPreviewPage[];
+  state?: DrawingPreviewState;
+  statusMessage?: string | null;
+  isLoading?: boolean;
   onOpenDialog?: () => void;
   className?: string;
 }) {
-  const [pageUrls, setPageUrls] = useState<Array<{ pageNumber: number; url: string }>>([]);
   const [activePageNumber, setActivePageNumber] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [localPages, setLocalPages] = useState<DrawingPreviewPage[]>([]);
+  const [isLocalLoading, setIsLocalLoading] = useState(false);
+  const resolvedState: DrawingPreviewState =
+    state ?? (!drawingFile ? "missing" : drawingPreview.pages.length > 0 ? "ready" : "pending");
+  const resolvedPages = pages ?? localPages;
+  const resolvedLoading = pages ? isLoading : isLocalLoading;
+  const hasPdfPreview = typeof pdfUrl === "string" && pdfUrl.length > 0;
 
   useEffect(() => {
+    if (pages) {
+      return;
+    }
+
     let isActive = true;
     const objectUrls: string[] = [];
 
     if (!drawingFile || drawingPreview.pages.length === 0) {
-      setPageUrls([]);
-      setActivePageNumber(null);
-      setIsLoading(false);
+      setLocalPages([]);
+      setIsLocalLoading(false);
       return;
     }
 
-    setIsLoading(true);
+    setIsLocalLoading(true);
 
     void Promise.all(
       drawingPreview.pages.map(async (page) => {
@@ -65,25 +89,23 @@ export function ClientDrawingPreviewPanel({
         };
       }),
     )
-      .then((loadedPages) => {
+      .then((nextPages) => {
         if (!isActive) {
           return;
         }
 
-        setPageUrls(loadedPages);
-        setActivePageNumber((current) => current ?? loadedPages[0]?.pageNumber ?? null);
+        setLocalPages(nextPages);
       })
       .catch(() => {
         if (!isActive) {
           return;
         }
 
-        setPageUrls([]);
-        setActivePageNumber(null);
+        setLocalPages([]);
       })
       .finally(() => {
         if (isActive) {
-          setIsLoading(false);
+          setIsLocalLoading(false);
         }
       });
 
@@ -91,10 +113,33 @@ export function ClientDrawingPreviewPanel({
       isActive = false;
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [drawingFile, drawingPreview.pages]);
+  }, [drawingFile, drawingPreview.pages, pages]);
+
+  useEffect(() => {
+    setActivePageNumber((current) =>
+      current !== null && resolvedPages.some((page) => page.pageNumber === current)
+        ? current
+        : resolvedPages[0]?.pageNumber ?? null,
+    );
+  }, [resolvedPages]);
 
   const activePage =
-    pageUrls.find((page) => page.pageNumber === activePageNumber) ?? pageUrls[0] ?? null;
+    resolvedPages.find((page) => page.pageNumber === activePageNumber) ?? resolvedPages[0] ?? null;
+
+  const emptyState = useMemo(() => {
+    switch (resolvedState) {
+      case "missing":
+        return "PDF drawing missing. Upload a drawing file to validate extracted dimensions and notes.";
+      case "pending":
+        return "Drawing preview is still processing. The original PDF can still be downloaded.";
+      case "failed":
+        return "Drawing preview generation failed. Download the original PDF while this is investigated.";
+      case "unavailable":
+        return statusMessage ?? "Drawing preview could not be loaded. The original PDF can still be downloaded.";
+      default:
+        return "Preview not available yet. The original PDF can still be downloaded.";
+    }
+  }, [resolvedState, statusMessage]);
 
   return (
     <section className={cn("rounded-[26px] border border-white/8 bg-[#262626] p-5", className)}>
@@ -107,7 +152,7 @@ export function ClientDrawingPreviewPanel({
         </div>
         {drawingFile ? (
           <div className="flex shrink-0 gap-2">
-            {onOpenDialog ? (
+            {onOpenDialog && resolvedState !== "missing" ? (
               <Button
                 type="button"
                 variant="outline"
@@ -135,12 +180,14 @@ export function ClientDrawingPreviewPanel({
 
       <div className="mt-4 overflow-hidden rounded-[22px] border border-white/8 bg-black/20">
         <div className="flex min-h-[320px] items-center justify-center bg-white">
-          {!drawingFile ? (
-            <div className="px-6 text-center text-sm text-zinc-500">
-              PDF drawing missing. Upload a drawing file to validate extracted dimensions and notes.
-            </div>
-          ) : isLoading ? (
+          {resolvedLoading ? (
             <Loader2 className="h-6 w-6 animate-spin text-zinc-500" />
+          ) : hasPdfPreview ? (
+            <iframe
+              src={pdfUrl}
+              title={`${drawingFile?.original_name ?? "Drawing"} PDF preview`}
+              className="min-h-[520px] w-full border-0 bg-white"
+            />
           ) : activePage ? (
             <img
               src={activePage.url}
@@ -148,15 +195,23 @@ export function ClientDrawingPreviewPanel({
               className="max-h-[520px] w-full object-contain"
             />
           ) : (
-            <div className="px-6 text-center text-sm text-zinc-500">
-              Preview not available yet. The original PDF can still be downloaded.
+            <div className="flex max-w-md flex-col items-center gap-3 px-6 text-center text-sm text-zinc-500">
+              {resolvedState === "failed" || resolvedState === "unavailable" ? (
+                <AlertCircle className="h-6 w-6 text-zinc-400" />
+              ) : null}
+              <div>
+                {emptyState}
+              </div>
+              {resolvedState === "unavailable" && statusMessage ? (
+                <div className="text-xs text-zinc-400">{statusMessage}</div>
+              ) : null}
             </div>
           )}
         </div>
 
-        {pageUrls.length > 1 ? (
+        {resolvedPages.length > 1 ? (
           <div className="flex flex-wrap gap-2 border-t border-white/8 px-4 py-3">
-            {pageUrls.map((page) => (
+            {resolvedPages.map((page) => (
               <button
                 key={page.pageNumber}
                 type="button"

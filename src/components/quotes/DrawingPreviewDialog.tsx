@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
+import { AlertCircle, ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { DrawingPreviewState } from "@/components/quotes/ClientQuoteAssetPanels";
 import {
   Dialog,
   DialogContent,
@@ -19,8 +20,11 @@ type DrawingPreviewDialogProps = {
   onOpenChange: (open: boolean) => void;
   fileName: string;
   pageCount: number;
+  pdfUrl?: string | null;
   pages: DrawingPreviewDialogPage[];
   isLoading: boolean;
+  state?: DrawingPreviewState;
+  statusMessage?: string | null;
   onDownload: () => void;
 };
 
@@ -29,14 +33,28 @@ export function DrawingPreviewDialog({
   onOpenChange,
   fileName,
   pageCount,
+  pdfUrl = null,
   pages,
   isLoading,
+  state = "pending",
+  statusMessage = null,
   onDownload,
 }: DrawingPreviewDialogProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const pageMap = useMemo(() => new Map(pages.map((page) => [page.pageNumber, page.url])), [pages]);
   const currentPageUrl = pageMap.get(currentPage) ?? null;
+  const hasPdfPreview = typeof pdfUrl === "string" && pdfUrl.length > 0;
   const hasMultiplePages = pageCount > 1;
+  const emptyStateMessage =
+    state === "failed"
+      ? "Drawing preview generation failed. Download the original PDF while this is investigated."
+      : state === "unavailable"
+        ? statusMessage ?? "Drawing preview could not be loaded. Download the original PDF instead."
+        : state === "pending"
+          ? "Drawing preview is still processing. Download the original PDF while it finishes."
+          : state === "missing"
+            ? "Drawing PDF is missing for this part."
+            : "Preview unavailable for this page.";
 
   useEffect(() => {
     if (open) {
@@ -102,9 +120,9 @@ export function DrawingPreviewDialog({
         <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-3">
           <div className="mb-3 flex items-center justify-between px-2">
             <div className="text-sm text-white/55">
-              {pageCount > 0 ? `Page ${currentPage} of ${pageCount}` : "Preview unavailable"}
+              {hasPdfPreview ? "Original PDF" : pageCount > 0 ? `Page ${currentPage} of ${pageCount}` : "Preview unavailable"}
             </div>
-            {hasMultiplePages ? (
+            {hasMultiplePages && !hasPdfPreview ? (
               <div className="flex items-center gap-2">
                 <Button
                   type="button"
@@ -137,6 +155,12 @@ export function DrawingPreviewDialog({
               <div className="flex h-full items-center justify-center text-white/55">
                 <Loader2 className="h-6 w-6 animate-spin" />
               </div>
+            ) : hasPdfPreview ? (
+              <iframe
+                src={pdfUrl}
+                title={`${fileName} PDF preview`}
+                className="h-full w-full border-0 bg-white"
+              />
             ) : currentPageUrl ? (
               <img
                 src={currentPageUrl}
@@ -144,8 +168,14 @@ export function DrawingPreviewDialog({
                 className="h-full w-full object-contain"
               />
             ) : (
-              <div className="flex h-full items-center justify-center px-6 text-center text-sm text-white/45">
-                Preview unavailable for this page.
+              <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-white/45">
+                {state === "failed" || state === "unavailable" ? (
+                  <AlertCircle className="h-6 w-6 text-white/40" />
+                ) : null}
+                <div>{emptyStateMessage}</div>
+                {state === "unavailable" && statusMessage ? (
+                  <div className="max-w-md text-xs text-white/35">{statusMessage}</div>
+                ) : null}
               </div>
             )}
           </div>

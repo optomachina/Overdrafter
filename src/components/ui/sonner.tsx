@@ -2,17 +2,14 @@ import { useTheme } from "next-themes";
 import { Copy } from "lucide-react";
 import { Toaster as Sonner, toast, type ExternalToast } from "sonner";
 import { copyTextToClipboard, createToastClipboardText } from "@/lib/diagnostics";
+import { getUserFacingErrorMessage } from "@/lib/error-message";
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 const PERSISTENT_ERROR_DURATION = Number.POSITIVE_INFINITY;
 let persistentErrorToastInstalled = false;
 
 function getToastMessageText(message: unknown) {
-  if (typeof message === "string" || typeof message === "number") {
-    return String(message);
-  }
-
-  return "Error toast triggered.";
+  return getUserFacingErrorMessage(message, "Error toast triggered.");
 }
 
 function renderCopyToastLabel() {
@@ -41,7 +38,7 @@ function withPersistentErrorOptions(message: unknown, data?: ExternalToast): Ext
           toast.success("Error details copied.");
         })
         .catch((error: unknown) => {
-          toast.error(error instanceof Error ? error.message : "Unable to copy error details.");
+          toast.error(getUserFacingErrorMessage(error, "Unable to copy error details."));
         });
     },
   };
@@ -62,7 +59,7 @@ function installPersistentErrorToast() {
 
   const originalToastError = toast.error.bind(toast);
   toast.error = ((message, data) =>
-    originalToastError(message, withPersistentErrorOptions(message, data))) as typeof toast.error;
+    originalToastError(getToastMessageText(message), withPersistentErrorOptions(message, data))) as typeof toast.error;
   persistentErrorToastInstalled = true;
 }
 

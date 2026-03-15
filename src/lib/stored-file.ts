@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { getUserFacingErrorMessage, toUserFacingError } from "@/lib/error-message";
 
 export const FIXTURE_STORAGE_BUCKET = "fixture-public";
 
@@ -34,7 +35,15 @@ export async function downloadStoredFileBlob(file: StoredFileLike): Promise<Blob
   const { data, error } = await supabase.storage.from(file.storage_bucket).download(file.storage_path);
 
   if (error || !data) {
-    throw error ?? new Error(`Unable to download ${file.original_name ?? file.storage_path}.`);
+    const fallbackMessage = `Unable to download ${file.original_name ?? file.storage_path}.`;
+    const normalizedMessage =
+      error && typeof error === "object" && "details" in error && typeof error.details === "string" && error.details.trim()
+        ? error.details.trim()
+        : getUserFacingErrorMessage(error, fallbackMessage);
+    throw toUserFacingError(
+      error && typeof error === "object" ? { ...error, message: normalizedMessage } : error,
+      fallbackMessage,
+    );
   }
 
   return data;
