@@ -7,7 +7,7 @@ import type {
   JobRecord,
   PartAggregate,
 } from "@/features/quotes/types";
-import { normalizeDrawingExtraction } from "@/features/quotes/utils";
+import { countPartExtractionWarnings } from "@/features/quotes/utils";
 
 export type ClientWorkspaceStateTone = "ready" | "warning" | "blocked";
 
@@ -228,9 +228,8 @@ export function buildClientWorkspaceState(input: {
     job: input.job,
     summary,
   });
-  const extractionWarnings = part
-    ? normalizeDrawingExtraction(part.extraction, part.id).warnings.length
-    : 0;
+  const extractionWarnings = countPartExtractionWarnings(part);
+  const extractionLifecycle = part?.clientExtraction?.lifecycle ?? null;
   const failedQuoteLanes = part?.vendorQuotes.filter((quote) => quote.status === "failed").length ?? 0;
   const followUpQuoteLanes =
     part?.vendorQuotes.filter(
@@ -244,6 +243,24 @@ export function buildClientWorkspaceState(input: {
   const eligibleOptions = options.filter((option) => option.eligible).length;
   const excludedOptions = options.filter((option) => option.excluded).length;
   const reasons: ClientWorkspaceStateReason[] = [];
+
+  if (extractionLifecycle === "failed") {
+    reasons.push({
+      id: "extraction-failed",
+      tone: "blocked",
+      label: "Drawing extraction failed",
+      detail:
+        part?.clientExtraction?.lastFailureMessage ??
+        "The drawing upload could not be processed yet. Review the uploaded PDF and try again if needed.",
+    });
+  } else if (extractionLifecycle === "queued" || extractionLifecycle === "extracting") {
+    reasons.push({
+      id: "extraction-pending",
+      tone: "warning",
+      label: "Drawing extraction in progress",
+      detail: "Uploaded drawing metadata is still being processed in the background.",
+    });
+  }
 
   if (extractionWarnings > 0) {
     reasons.push({

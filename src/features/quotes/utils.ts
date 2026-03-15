@@ -1,5 +1,8 @@
 import type {
   ApprovedPartRequirement,
+  ClientExtractionDiagnostics,
+  ClientPartMetadataRecord,
+  ClientPartRequirementView,
   DrawingExtractionData,
   DrawingExtractionRecord,
   DrawingPreviewAssetRecord,
@@ -105,6 +108,12 @@ function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+function asStringArray(value: unknown): string[] {
+  return asArray<unknown>(value)
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0);
+}
+
 function normalizeEvidence(extraction: DrawingExtractionRecord | null): DrawingExtractionData["evidence"] {
   return asArray<Record<string, unknown>>(extraction?.evidence).map((item) => ({
     field: String(item.field ?? "unknown"),
@@ -163,12 +172,17 @@ export function normalizeDrawingExtraction(
 }
 
 export function normalizeDrawingPreview(
-  extraction: DrawingExtractionRecord | null,
+  extraction: DrawingExtractionRecord | ClientExtractionDiagnostics | null,
   previewAssets: DrawingPreviewAssetRecord[],
 ): DrawingPreviewData {
-  const payload = asObject(extraction?.extraction);
-  const rawPageCount = payload.pageCount;
-  const extractedPageCount = typeof rawPageCount === "number" ? rawPageCount : Number(rawPageCount ?? 0);
+  const extractedPageCount =
+    extraction && "pageCount" in extraction
+      ? Number(extraction.pageCount ?? 0)
+      : (() => {
+          const payload = asObject(extraction?.extraction);
+          const rawPageCount = payload.pageCount;
+          return typeof rawPageCount === "number" ? rawPageCount : Number(rawPageCount ?? 0);
+        })();
   const pageAssets = previewAssets
     .filter((asset) => asset.kind === "page")
     .sort((left, right) => left.page_number - right.page_number)
@@ -197,6 +211,87 @@ export function normalizeDrawingPreview(
   };
 }
 
+export function normalizeClientPartMetadata(
+  value: Json | null | undefined,
+): ClientPartMetadataRecord | null {
+  const payload = asObject(value);
+  const partId = typeof payload.partId === "string" ? payload.partId : null;
+  const jobId = typeof payload.jobId === "string" ? payload.jobId : null;
+  const organizationId = typeof payload.organizationId === "string" ? payload.organizationId : null;
+
+  if (!partId || !jobId || !organizationId) {
+    return null;
+  }
+
+  const quantityCandidate = Number(payload.quantity ?? 1);
+  const warningCountCandidate = Number(payload.warningCount ?? 0);
+  const pageCountCandidate = Number(payload.pageCount ?? 0);
+
+  return {
+    partId,
+    jobId,
+    organizationId,
+    requirement: {
+      description: typeof payload.description === "string" ? payload.description : null,
+      partNumber: typeof payload.partNumber === "string" ? payload.partNumber : null,
+      revision: typeof payload.revision === "string" ? payload.revision : null,
+      material: typeof payload.material === "string" ? payload.material : "",
+      finish: typeof payload.finish === "string" ? payload.finish : null,
+      tightestToleranceInch:
+        typeof payload.tightestToleranceInch === "number"
+          ? payload.tightestToleranceInch
+          : Number.isFinite(Number(payload.tightestToleranceInch))
+            ? Number(payload.tightestToleranceInch)
+            : null,
+      process: typeof payload.process === "string" ? payload.process : null,
+      notes: typeof payload.notes === "string" ? payload.notes : null,
+      quantity:
+        Number.isFinite(quantityCandidate) && quantityCandidate > 0
+          ? Math.max(1, Math.trunc(quantityCandidate))
+          : 1,
+      quoteQuantities: normalizeRequestedQuoteQuantities(asArray<number>(payload.quoteQuantities), quantityCandidate),
+      requestedByDate: typeof payload.requestedByDate === "string" ? payload.requestedByDate : null,
+    },
+    extraction: {
+      lifecycle:
+        payload.lifecycle === "queued" ||
+        payload.lifecycle === "extracting" ||
+        payload.lifecycle === "succeeded" ||
+        payload.lifecycle === "partial" ||
+        payload.lifecycle === "failed"
+          ? payload.lifecycle
+          : "uploaded",
+      warningCount:
+        Number.isFinite(warningCountCandidate) && warningCountCandidate >= 0
+          ? warningCountCandidate
+          : 0,
+      warnings: asStringArray(payload.warnings),
+      missingFields: asStringArray(payload.missingFields),
+      lastFailureCode: typeof payload.lastFailureCode === "string" ? payload.lastFailureCode : null,
+      lastFailureMessage: typeof payload.lastFailureMessage === "string" ? payload.lastFailureMessage : null,
+      extractedAt: typeof payload.extractedAt === "string" ? payload.extractedAt : null,
+      failedAt: typeof payload.failedAt === "string" ? payload.failedAt : null,
+      updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : null,
+      pageCount:
+        Number.isFinite(pageCountCandidate) && pageCountCandidate >= 0 ? Math.trunc(pageCountCandidate) : 0,
+      hasCadFile: Boolean(payload.hasCadFile),
+      hasDrawingFile: Boolean(payload.hasDrawingFile),
+    },
+  };
+}
+
+export function countPartExtractionWarnings(part: PartAggregate | null | undefined): number {
+  if (!part) {
+    return 0;
+  }
+
+  if (part.clientExtraction) {
+    return part.clientExtraction.warningCount;
+  }
+
+  return normalizeDrawingExtraction(part.extraction, part.id).warnings.length;
+}
+
 export function buildRequirementDraft(
   part: PartAggregate,
   jobRequest?: {
@@ -209,6 +304,7 @@ export function buildRequirementDraft(
 ): ApprovedPartRequirement {
   const normalizedExtraction = normalizeDrawingExtraction(part.extraction, part.id);
   const approved = part.approvedRequirement;
+  const clientRequirement = part.clientRequirement ?? null;
   const serviceIntent = normalizeRequestedServiceIntent({
     requestedServiceKinds: readSpecSnapshotStringArray(approved?.spec_snapshot, "requestedServiceKinds")
       .concat(jobRequest?.requested_service_kinds ?? []),
@@ -226,9 +322,17 @@ export function buildRequirementDraft(
   const metadata = readRfqLineItemExtendedMetadata(approved?.spec_snapshot);
   const showQuoteFields = requestedServicesSupportQuoteFields(serviceIntent.requestedServiceKinds);
   const materialRequired = requestedServicesRequireMaterial(serviceIntent.requestedServiceKinds);
-  const quantity = approved?.quantity ?? part.quantity ?? jobRequest?.requested_quote_quantities?.[0] ?? 1;
+  const quantity =
+    clientRequirement?.quantity ??
+    approved?.quantity ??
+    part.quantity ??
+    jobRequest?.requested_quote_quantities?.[0] ??
+    1;
   const quoteQuantities = normalizeRequestedQuoteQuantities(
-    approved?.quote_quantities ?? jobRequest?.requested_quote_quantities ?? [],
+    clientRequirement?.quoteQuantities ??
+      approved?.quote_quantities ??
+      jobRequest?.requested_quote_quantities ??
+      [],
     quantity,
   );
 
@@ -237,26 +341,34 @@ export function buildRequirementDraft(
     requestedServiceKinds: serviceIntent.requestedServiceKinds,
     primaryServiceKind: serviceIntent.primaryServiceKind,
     serviceNotes: serviceIntent.serviceNotes,
-    description: approved?.description ?? normalizedExtraction.description,
-    partNumber: approved?.part_number ?? normalizedExtraction.partNumber,
-    revision: approved?.revision ?? normalizedExtraction.revision,
+    description: clientRequirement?.description ?? approved?.description ?? normalizedExtraction.description,
+    partNumber: clientRequirement?.partNumber ?? approved?.part_number ?? normalizedExtraction.partNumber,
+    revision: clientRequirement?.revision ?? approved?.revision ?? normalizedExtraction.revision,
     material:
+      clientRequirement?.material ??
       approved?.material ??
       normalizedExtraction.material.normalized ??
       normalizedExtraction.material.raw ??
       (materialRequired ? "Unknown material" : ""),
     finish:
+      clientRequirement?.finish ??
       approved?.finish ??
       normalizedExtraction.finish.normalized ??
       normalizedExtraction.finish.raw ??
       null,
     tightestToleranceInch:
-      approved?.tightest_tolerance_inch ?? normalizedExtraction.tightestTolerance.valueInch,
-    process,
-    notes,
+      clientRequirement?.tightestToleranceInch ??
+      approved?.tightest_tolerance_inch ??
+      normalizedExtraction.tightestTolerance.valueInch,
+    process: clientRequirement?.process ?? process,
+    notes: clientRequirement?.notes ?? notes,
     quantity,
     quoteQuantities,
-    requestedByDate: approved?.requested_by_date ?? jobRequest?.requested_by_date ?? null,
+    requestedByDate:
+      clientRequirement?.requestedByDate ??
+      approved?.requested_by_date ??
+      jobRequest?.requested_by_date ??
+      null,
     shipping: metadata.shipping,
     certifications: metadata.certifications,
     sourcing: metadata.sourcing,
