@@ -15,6 +15,7 @@ import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
+import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtractionStatusNotice";
 import { ClientPartRequestEditor } from "@/components/quotes/ClientPartRequestEditor";
 import {
   ClientCadPreviewPanel,
@@ -67,6 +68,7 @@ const ClientPart = () => {
     drawingPreviewPageUrls,
     drawingPreviewState,
     drawingPreviewStatusMessage,
+    extractionDiagnostics,
     effectiveRequestDraft,
     handleArchivePart,
     handleArchiveProject,
@@ -696,6 +698,7 @@ const ClientPart = () => {
                     <ChevronDown className="h-4 w-4 text-white/45" />
                   </CollapsibleTrigger>
                   <CollapsibleContent className="pt-4">
+                    <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} className="mb-4" />
                     {effectiveRequestDraft ? (
                       <ClientPartRequestEditor
                         draft={effectiveRequestDraft}

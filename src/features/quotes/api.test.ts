@@ -532,6 +532,10 @@ describe("quotes api helpers", () => {
   });
 
   it("falls back to legacy job selection columns when service-intent fields are absent", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: [],
+      error: null,
+    });
     supabaseMock.jobsIn
       .mockResolvedValueOnce({
         data: null,
@@ -599,6 +603,10 @@ describe("quotes api helpers", () => {
   });
 
   it("uses the centralized selection accessor without fallback when service-intent columns are available", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: [],
+      error: null,
+    });
     supabaseMock.jobsIn.mockResolvedValueOnce({
       data: [
         {
@@ -697,6 +705,10 @@ describe("quotes api helpers", () => {
   });
 
   it("keeps archived job summaries renderable when project tables are unavailable", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: [],
+      error: null,
+    });
     supabaseMock.jobsOrder.mockImplementationOnce(() => supabaseMock.jobsQuery);
     supabaseMock.jobsNot.mockResolvedValueOnce({
       data: [

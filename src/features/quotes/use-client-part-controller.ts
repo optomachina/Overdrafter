@@ -74,6 +74,12 @@ import type { DrawingPreviewState } from "@/components/quotes/ClientQuoteAssetPa
 import type { ActivityLogEntry } from "@/components/quotes/ActivityLog";
 import type { VendorName } from "@/integrations/supabase/types";
 
+function shouldPollExtractionState(
+  lifecycle: string | null | undefined,
+) {
+  return lifecycle === "queued" || lifecycle === "extracting" || lifecycle === "uploaded";
+}
+
 export function useClientPartController() {
   const { jobId = "" } = useParams();
   const navigate = useNavigate();
@@ -147,12 +153,21 @@ export function useClientPartController() {
     queryKey: workspaceQueryKeys.partDetail(jobId),
     queryFn: () => fetchPartDetail(jobId),
     enabled: Boolean(user) && Boolean(jobId),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const lifecycle = data?.part?.clientExtraction?.lifecycle ?? null;
+      return shouldPollExtractionState(lifecycle) ? 5000 : false;
+    },
     ...workspaceDetailQueryOptions,
   });
   const activityEventsQuery = useQuery({
     queryKey: workspaceQueryKeys.clientActivity([jobId]),
     queryFn: () => fetchClientActivityEventsByJobIds([jobId]),
     enabled: Boolean(user) && Boolean(jobId),
+    refetchInterval: () => {
+      const lifecycle = partDetailQuery.data?.part?.clientExtraction?.lifecycle ?? null;
+      return shouldPollExtractionState(lifecycle) ? 5000 : false;
+    },
     ...workspaceDetailQueryOptions,
   });
   const partDetail = partDetailQuery.data;
@@ -315,6 +330,12 @@ export function useClientPartController() {
     }
   }, [navigate, user]);
 
+  useEffect(() => {
+    if (partDetail?.job?.id && partDetail.job.id !== jobId) {
+      navigate(`/parts/${partDetail.job.id}`, { replace: true });
+    }
+  }, [jobId, navigate, partDetail?.job?.id]);
+
   const summary = partDetail?.summary ?? summariesByJobId.get(jobId) ?? null;
   const presentation = partDetail?.job ? getClientItemPresentation(partDetail.job, summary) : null;
   const projectMemberships = useMemo(
@@ -327,6 +348,7 @@ export function useClientPartController() {
   const extraction = partDetail?.part
     ? normalizeDrawingExtraction(partDetail.part.extraction, partDetail.part.id)
     : null;
+  const extractionDiagnostics = partDetail?.part?.clientExtraction ?? null;
   const drawingPreview = partDetail?.drawingPreview ?? null;
   const drawingFile = partDetail?.files.find((file) => file.file_kind === "drawing") ?? null;
   const cadFile = partDetail?.files.find((file) => file.file_kind === "cad") ?? null;
@@ -431,10 +453,6 @@ export function useClientPartController() {
     () => buildActivityLogEntries(activityEventsQuery.data ?? []),
     [activityEventsQuery.data],
   );
-  const hasExtractionFailure = useMemo(
-    () => (activityEventsQuery.data ?? []).some((event) => event.eventType === "worker.extraction_failed"),
-    [activityEventsQuery.data],
-  );
   const drawingPreviewState: DrawingPreviewState = useMemo(() => {
     if (!drawingFile) {
       return "missing";
@@ -448,22 +466,31 @@ export function useClientPartController() {
       return "ready";
     }
 
-    return hasExtractionFailure ? "failed" : "pending";
-  }, [drawingFile, drawingPdfUrl, drawingPreviewLoadError, hasExtractionFailure]);
+    if (extractionDiagnostics?.lifecycle === "failed") {
+      return "failed";
+    }
+
+    return "pending";
+  }, [drawingFile, drawingPdfUrl, drawingPreviewLoadError, extractionDiagnostics?.lifecycle]);
   const drawingPreviewStatusMessage = useMemo(() => {
     switch (drawingPreviewState) {
       case "missing":
         return "PDF drawing missing. Upload a drawing file to validate extracted dimensions and notes.";
       case "pending":
-        return "Drawing preview is still processing. The original PDF can still be downloaded.";
+        return extractionDiagnostics?.lifecycle === "partial"
+          ? "Drawing preview pages are still catching up. The extracted metadata below is partial and needs review."
+          : "Drawing preview is still processing. The original PDF can still be downloaded.";
       case "failed":
-        return "Drawing preview generation failed. Download the original PDF while this is investigated.";
+        return (
+          extractionDiagnostics?.lastFailureMessage ??
+          "Drawing preview generation failed. Download the original PDF while this is investigated."
+        );
       case "unavailable":
         return drawingPreviewLoadError ?? "Drawing preview could not be loaded.";
       default:
         return null;
     }
-  }, [drawingPreviewLoadError, drawingPreviewState]);
+  }, [drawingPreviewLoadError, drawingPreviewState, extractionDiagnostics]);
 
   useEffect(() => {
     setExcludedVendorKeys(readExcludedVendorKeys(jobId));
@@ -870,6 +897,7 @@ export function useClientPartController() {
     currentProjectOptions,
     displayPartTitle,
     drawingFile,
+    extractionDiagnostics,
     drawingPreview,
     drawingPdfUrl,
     drawingPreviewPageUrls,
