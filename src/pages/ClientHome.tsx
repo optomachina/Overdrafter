@@ -33,7 +33,7 @@ const ClientHome = () => {
     handleArchiveProject,
     handleComposerSubmit,
     handleCreateProjectFromSelection,
-    handleDeleteArchivedPart,
+    handleDeleteArchivedParts,
     handleDissolveProject,
     handlePinPart,
     handlePinProject,
@@ -364,7 +364,7 @@ const ClientHome = () => {
               archivedJobs={archivedJobsQuery.data}
               isArchiveLoading={archivedProjectsQuery.isLoading || archivedJobsQuery.isLoading}
               onUnarchivePart={handleUnarchivePart}
-              onDeleteArchivedPart={handleDeleteArchivedPart}
+              onDeleteArchivedParts={handleDeleteArchivedParts}
             />
           ) : (
             <GuestSidebarCta onLogIn={() => openAuth("signin")} />

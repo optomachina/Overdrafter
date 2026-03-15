@@ -5,6 +5,7 @@ import type {
   AccessibleProjectSummary,
   AppMembership,
   AppSessionData,
+  ArchivedJobDeleteResult,
   ArchivedJobSummary,
   ArchivedProjectSummary,
   ApprovedPartRequirement,
@@ -233,6 +234,8 @@ const PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE =
   "Projects are unavailable in this environment until the shared workspace schema is applied.";
 const JOB_ARCHIVING_UNAVAILABLE_MESSAGE =
   "Part archiving is unavailable in this environment until the archive schema is applied.";
+const ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE =
+  "Archived part deletion is unavailable until the latest archive delete migrations are applied and the PostgREST schema cache is refreshed.";
 const PROJECT_NOT_FOUND_MESSAGE = "Project not found.";
 const CLIENT_INTAKE_EXPECTED_MIGRATION = "20260313143000_add_request_service_intent.sql";
 const CLIENT_INTAKE_DRIFT_MESSAGE =
@@ -320,6 +323,26 @@ export class ClientIntakeCompatibilityError extends Error {
     this.name = "ClientIntakeCompatibilityError";
     this.missing = [...missing];
   }
+}
+
+export class ArchivedDeleteCapabilityError extends Error {
+  readonly dependency: "api_delete_archived_jobs" | "api_delete_archived_job";
+  readonly reason: "missing_function" | "missing_schema";
+
+  constructor(
+    dependency: "api_delete_archived_jobs" | "api_delete_archived_job",
+    reason: "missing_function" | "missing_schema",
+    message = ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE,
+  ) {
+    super(message);
+    this.name = "ArchivedDeleteCapabilityError";
+    this.dependency = dependency;
+    this.reason = reason;
+  }
+}
+
+export function isArchivedDeleteCapabilityError(error: unknown): error is ArchivedDeleteCapabilityError {
+  return error instanceof ArchivedDeleteCapabilityError;
 }
 
 function ensureData<T>(data: T | null, error: { message: string } | null | undefined): T {
@@ -1131,6 +1154,132 @@ async function invokeJobArchivingFallback(
   }
 
   return data.jobId;
+}
+
+function normalizeArchivedJobDeleteResult(data: Json | null): ArchivedJobDeleteResult {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("Expected archived job delete results from api_delete_archived_jobs.");
+  }
+
+  const payload = data as Record<string, unknown>;
+
+  if (!Array.isArray(payload.deletedJobIds)) {
+    throw new Error("api_delete_archived_jobs returned an invalid deletedJobIds field.");
+  }
+
+  if (!Array.isArray(payload.failures)) {
+    throw new Error("api_delete_archived_jobs returned an invalid failures field.");
+  }
+
+  const deletedJobIds = payload.deletedJobIds.filter((value): value is string => typeof value === "string");
+  const failures = payload.failures.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return [];
+    }
+
+    const jobId = typeof value.jobId === "string" ? value.jobId : null;
+    const message = typeof value.message === "string" ? value.message : null;
+
+    return jobId && message ? [{ jobId, message }] : [];
+  });
+
+  return {
+    deletedJobIds,
+    failures,
+  };
+}
+
+function logArchivedDeleteCapabilityIssue(context: {
+  operation: "single" | "bulk";
+  jobIds: string[];
+  reason: string;
+  error: unknown;
+}): void {
+  const message =
+    context.error instanceof Error
+      ? context.error.message
+      : typeof context.error === "object" && context.error !== null && "message" in context.error
+        ? String((context.error as { message?: unknown }).message)
+        : String(context.error);
+
+  console.error("Archived delete capability unavailable", {
+    operation: context.operation,
+    jobIds: context.jobIds,
+    reason: context.reason,
+    message,
+  });
+}
+
+type ArchivedDeleteLegacySuccess = {
+  ok: true;
+  jobId: string;
+};
+
+type ArchivedDeleteLegacyFailure = {
+  ok: false;
+  kind: "missing_legacy_rpc" | "missing_archive_schema" | "failure";
+  error: unknown;
+  message: string;
+};
+
+type ArchivedDeleteLegacyCapabilityFailure = {
+  ok: false;
+  kind: "missing_legacy_rpc" | "missing_archive_schema";
+  error: unknown;
+  message: string;
+};
+
+type ArchivedDeleteLegacyAttempt = ArchivedDeleteLegacySuccess | ArchivedDeleteLegacyFailure;
+const ARCHIVED_DELETE_LEGACY_BATCH_SIZE = 10;
+
+function isArchivedDeleteLegacyCapabilityFailure(
+  result: ArchivedDeleteLegacyAttempt,
+): result is ArchivedDeleteLegacyCapabilityFailure {
+  if ("jobId" in result) {
+    return false;
+  }
+
+  return result.kind === "missing_legacy_rpc" || result.kind === "missing_archive_schema";
+}
+
+async function deleteArchivedJobLegacy(jobId: string): Promise<ArchivedDeleteLegacyAttempt> {
+  const { data, error } = await callRpc("api_delete_archived_job", {
+    p_job_id: jobId,
+  });
+
+  if (!error) {
+    markJobArchivingSchemaAvailability("available");
+    return {
+      ok: true,
+      jobId: ensureData(data, null),
+    };
+  }
+
+  if (isMissingFunctionError(error, "api_delete_archived_job")) {
+    return {
+      ok: false,
+      kind: "missing_legacy_rpc",
+      error,
+      message: ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE,
+    };
+  }
+
+  if (isMissingJobArchivingSchemaError(error)) {
+    markJobArchivingSchemaAvailability("unavailable");
+    return {
+      ok: false,
+      kind: "missing_archive_schema",
+      error,
+      message: ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE,
+    };
+  }
+
+  return {
+    ok: false,
+    kind: "failure",
+    error,
+    message: error instanceof Error ? error.message : "Failed to delete archived part.",
+  };
 }
 
 export async function fetchAppSessionData(): Promise<AppSessionData> {
@@ -3310,39 +3459,113 @@ export async function unarchiveJob(jobId: string): Promise<string> {
 }
 
 export async function deleteArchivedJob(jobId: string): Promise<string> {
-  const fixtureGateway = getActiveClientWorkspaceGateway();
+  const result = await deleteArchivedJobs([jobId]);
 
-  if (fixtureGateway) {
-    return fixtureGateway.deleteArchivedJob(jobId);
+  if (result.deletedJobIds[0]) {
+    return result.deletedJobIds[0];
   }
 
-  const { data, error } = await callRpc("api_delete_archived_job", {
-    p_job_id: jobId,
+  if (result.failures[0]) {
+    throw new Error(result.failures[0].message);
+  }
+
+  throw new Error("Expected api_delete_archived_jobs to delete the archived part.");
+}
+
+export async function deleteArchivedJobs(jobIds: string[]): Promise<ArchivedJobDeleteResult> {
+  const normalizedIds = [...new Set(jobIds.filter((jobId) => jobId.trim().length > 0))];
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (normalizedIds.length === 0) {
+    return {
+      deletedJobIds: [],
+      failures: [],
+    };
+  }
+
+  if (fixtureGateway) {
+    return fixtureGateway.deleteArchivedJobs(normalizedIds);
+  }
+
+  const { data, error } = await callRpc("api_delete_archived_jobs", {
+    p_job_ids: normalizedIds,
   });
 
   if (!error) {
     markJobArchivingSchemaAvailability("available");
-    return ensureData(data, null);
+    return normalizeArchivedJobDeleteResult(data);
   }
 
-  if (isMissingFunctionError(error, "api_delete_archived_job")) {
-    try {
-      const deletedJobId = await invokeJobArchivingFallback("delete", jobId);
-      markJobArchivingSchemaAvailability("available");
-      return deletedJobId;
-    } catch (fallbackError) {
-      if (isMissingJobArchivingSchemaError(fallbackError)) {
-        markJobArchivingSchemaAvailability("unavailable");
-        throw new Error(JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
+  if (isMissingFunctionError(error, "api_delete_archived_jobs")) {
+    logArchivedDeleteCapabilityIssue({
+      operation: normalizedIds.length > 1 ? "bulk" : "single",
+      jobIds: normalizedIds,
+      reason: "api_delete_archived_jobs unavailable; falling back to legacy single-delete contract",
+      error,
+    });
+
+    const legacyResults: ArchivedDeleteLegacyAttempt[] = [];
+
+    for (let index = 0; index < normalizedIds.length; index += ARCHIVED_DELETE_LEGACY_BATCH_SIZE) {
+      const batchJobIds = normalizedIds.slice(index, index + ARCHIVED_DELETE_LEGACY_BATCH_SIZE);
+      legacyResults.push(...(await Promise.all(batchJobIds.map((jobId) => deleteArchivedJobLegacy(jobId)))));
+    }
+
+    const legacyCapabilityFailure = legacyResults.find(isArchivedDeleteLegacyCapabilityFailure);
+
+    if (legacyCapabilityFailure) {
+      logArchivedDeleteCapabilityIssue({
+        operation: normalizedIds.length > 1 ? "bulk" : "single",
+        jobIds: normalizedIds,
+        reason:
+          legacyCapabilityFailure.kind === "missing_legacy_rpc"
+            ? "api_delete_archived_job unavailable; archive delete migrations missing or schema cache is stale"
+            : "archive delete schema unavailable while resolving legacy single-delete contract",
+        error: legacyCapabilityFailure.error,
+      });
+
+      throw new ArchivedDeleteCapabilityError(
+        "api_delete_archived_job",
+        legacyCapabilityFailure.kind === "missing_legacy_rpc" ? "missing_function" : "missing_schema",
+      );
+    }
+
+    const deletedJobIds: string[] = [];
+    const failures = legacyResults.flatMap((result, index) => {
+      if ("jobId" in result) {
+        deletedJobIds.push(result.jobId);
+        return [];
       }
 
-      throw fallbackError;
+      const failure = result;
+
+      return [
+        {
+          jobId: normalizedIds[index],
+          message: failure.message,
+        },
+      ];
+    });
+
+    if (deletedJobIds.length > 0 || failures.length > 0) {
+      return {
+        deletedJobIds,
+        failures,
+      };
     }
+
+    throw new Error(ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE);
   }
 
   if (isMissingJobArchivingSchemaError(error)) {
     markJobArchivingSchemaAvailability("unavailable");
-    throw new Error(JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
+    logArchivedDeleteCapabilityIssue({
+      operation: normalizedIds.length > 1 ? "bulk" : "single",
+      jobIds: normalizedIds,
+      reason: "archive delete schema unavailable while calling api_delete_archived_jobs",
+      error,
+    });
+    throw new ArchivedDeleteCapabilityError("api_delete_archived_jobs", "missing_schema");
   }
 
   throw error;

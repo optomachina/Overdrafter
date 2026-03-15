@@ -62,4 +62,27 @@ describe("client workspace fixtures", () => {
     expect(jobs).toHaveLength(1);
     expect(archivedJobs[0]?.job.id).toBe("fx-job-quoted-a");
   });
+
+  it("reports missing archived jobs during bulk fixture deletes", async () => {
+    window.history.replaceState({}, "", "/projects/fx-project-quoted?fixture=client-quoted");
+
+    const gateway = getActiveClientWorkspaceGateway();
+    expect(gateway).not.toBeNull();
+
+    await gateway!.archiveJob("fx-job-quoted-a");
+
+    const result = await gateway!.deleteArchivedJobs(["fx-job-quoted-a", "fx-job-missing"]);
+    const archivedJobs = await gateway!.fetchArchivedJobs();
+
+    expect(result).toEqual({
+      deletedJobIds: ["fx-job-quoted-a"],
+      failures: [
+        {
+          jobId: "fx-job-missing",
+          message: "Part not found, not archived, or you do not have permission to delete it.",
+        },
+      ],
+    });
+    expect(archivedJobs).toEqual([]);
+  });
 });

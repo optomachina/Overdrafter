@@ -203,6 +203,11 @@ npm run db:push
 After either flow, verify the latest migrations have been applied and that `public.projects.archived_at`
 and `public.jobs.archived_at` exist before debugging app-layer query failures.
 
+Archive delete requires the hosted environment to have the archived delete RPCs at migration head:
+`public.api_delete_archived_jobs(uuid[])` as the primary contract and
+`public.api_delete_archived_job(uuid)` as the legacy compatibility fallback. Archived delete should
+not depend on Edge Function deployment.
+
 Then create memberships for your users in `organization_memberships`.
 
 Minimum bootstrap flow:

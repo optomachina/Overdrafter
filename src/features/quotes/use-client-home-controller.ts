@@ -15,8 +15,9 @@ import {
   createJobsFromUploadFiles,
   createProject,
   createSelfServiceOrganization,
-  deleteArchivedJob,
+  deleteArchivedJobs,
   dissolveProject,
+  isArchivedDeleteCapabilityError,
   isProjectCollaborationSchemaUnavailable,
   pinJob,
   pinProject,
@@ -417,12 +418,41 @@ export function useClientHomeController() {
     }
   };
 
-  const handleDeleteArchivedPart = async (jobId: string) => {
+  const handleDeleteArchivedParts = async (jobIds: string[]) => {
+    const normalizedIds = [...new Set(jobIds)];
+
+    if (normalizedIds.length === 0) {
+      toast.error("No archived parts selected.");
+      return;
+    }
+
     try {
-      await deleteArchivedJob(jobId);
+      const result = await deleteArchivedJobs(normalizedIds);
       await invalidateClientWorkspaceQueries(queryClient);
-      toast.success("Archived part deleted.");
+
+      if (result.failures.length === 0) {
+        toast.success(
+          result.deletedJobIds.length === 1
+            ? "Archived part deleted."
+            : `${result.deletedJobIds.length} archived parts deleted.`,
+        );
+        return;
+      }
+
+      if (result.deletedJobIds.length === 0) {
+        throw new Error(result.failures[0]?.message ?? "Failed to delete archived parts.");
+      }
+
+      toast.error(
+        `Deleted ${result.deletedJobIds.length} archived parts, but ${result.failures.length} could not be removed.`,
+      );
     } catch (error) {
+      if (!isArchivedDeleteCapabilityError(error)) {
+        console.error("Archived part delete failed", {
+          jobIds: normalizedIds,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
       toast.error(error instanceof Error ? error.message : "Failed to delete archived part.");
       throw error;
     }
@@ -572,7 +602,7 @@ export function useClientHomeController() {
     handleArchiveProject,
     handleComposerSubmit,
     handleCreateProjectFromSelection,
-    handleDeleteArchivedPart,
+    handleDeleteArchivedParts,
     handleDissolveProject,
     handlePinPart,
     handlePinProject,

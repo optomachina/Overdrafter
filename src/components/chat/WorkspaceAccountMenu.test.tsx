@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@supabase/supabase-js";
 import type { WorkspaceNotificationsController } from "@/features/notifications/use-workspace-notifications";
@@ -100,6 +101,52 @@ const archivedJobs: ArchivedJobSummary[] = [
     projectNames: ["Archived Project"],
   },
 ];
+
+const archivedJobsWithSecondEntry: ArchivedJobSummary[] = [
+  ...archivedJobs,
+  {
+    job: {
+      ...archivedJobs[0].job,
+      id: "job-2",
+      title: "Archived Part Two",
+      archived_at: "2026-03-07T12:00:00.000Z",
+      created_at: "2026-03-05T00:00:00.000Z",
+      updated_at: "2026-03-07T12:00:00.000Z",
+    },
+    summary: null,
+    projectNames: [],
+  },
+];
+
+function ArchiveMenuStatefulHarness({
+  initialJobs,
+  rejectDelete = false,
+}: {
+  initialJobs: ArchivedJobSummary[];
+  rejectDelete?: boolean;
+}) {
+  const [jobs, setJobs] = useState(initialJobs);
+
+  return (
+    <WorkspaceAccountMenu
+      user={makeUser()}
+      activeMembership={membership}
+      onSignOut={vi.fn()}
+      archivedProjects={archivedProjects}
+      archivedJobs={jobs}
+      onUnarchivePart={async (jobId) => {
+        setJobs((current) => current.filter((entry) => entry.job.id !== jobId));
+      }}
+      onDeleteArchivedParts={async (jobIds) => {
+        if (rejectDelete) {
+          throw new Error("Delete failed.");
+        }
+
+        setJobs((current) => current.filter((entry) => !jobIds.includes(entry.job.id)));
+      }}
+    />
+  );
+}
 
 function makeNotificationCenter(
   overrides: Partial<WorkspaceNotificationsController> = {},
@@ -243,7 +290,7 @@ describe("WorkspaceAccountMenu", () => {
 
   it("opens the archive panel from the account menu", async () => {
     const onUnarchivePart = vi.fn();
-    const onDeleteArchivedPart = vi.fn();
+    const onDeleteArchivedParts = vi.fn();
     render(
       <WorkspaceAccountMenu
         user={makeUser()}
@@ -252,7 +299,7 @@ describe("WorkspaceAccountMenu", () => {
         archivedProjects={archivedProjects}
         archivedJobs={archivedJobs}
         onUnarchivePart={onUnarchivePart}
-        onDeleteArchivedPart={onDeleteArchivedPart}
+        onDeleteArchivedParts={onDeleteArchivedParts}
       />,
     );
 
@@ -263,6 +310,7 @@ describe("WorkspaceAccountMenu", () => {
     const partHeading = screen.getByRole("heading", { name: "Archived Part" });
     const partCard = screen.getByTestId("archived-part-card-job-1");
     const partActions = screen.getByTestId("archived-part-actions-job-1");
+    const footerActions = screen.getByTestId("archive-footer-actions");
     expect(screen.queryByRole("tab", { name: "Projects" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Parts" })).not.toBeInTheDocument();
 
@@ -271,8 +319,11 @@ describe("WorkspaceAccountMenu", () => {
     expect(document.querySelector(".lucide-box")).not.toBeNull();
     expect(partCard).toHaveClass("min-w-0", "overflow-hidden");
     expect(partActions).toHaveClass("absolute", "right-0", "top-0", "opacity-0");
+    expect(footerActions).toHaveClass("sm:flex-row", "sm:justify-between");
     expect(screen.getByRole("button", { name: "Unarchive" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    expect(within(footerActions).getByRole("button", { name: "Back to Help center" })).toBeInTheDocument();
+    expect(within(footerActions).getByRole("button", { name: "Delete all" })).toBeEnabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Unarchive" }));
     await waitFor(() => {
@@ -282,11 +333,11 @@ describe("WorkspaceAccountMenu", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     const dialog = await screen.findByRole("alertdialog");
     expect(within(dialog).getByText("Delete archived part?")).toBeInTheDocument();
-    expect(onDeleteArchivedPart).not.toHaveBeenCalled();
+    expect(onDeleteArchivedParts).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
     await waitFor(() => {
-      expect(onDeleteArchivedPart).toHaveBeenCalledWith("job-1");
+      expect(onDeleteArchivedParts).toHaveBeenCalledWith(["job-1"]);
     });
   });
 
@@ -299,7 +350,7 @@ describe("WorkspaceAccountMenu", () => {
         archivedProjects={archivedProjects}
         archivedJobs={archivedJobs}
         onUnarchivePart={vi.fn()}
-        onDeleteArchivedPart={vi.fn()}
+        onDeleteArchivedParts={vi.fn()}
       />,
     );
 
@@ -307,18 +358,115 @@ describe("WorkspaceAccountMenu", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
     const partActions = await screen.findByTestId("archived-part-actions-job-1");
-    expect(partActions).toHaveClass("pointer-events-none", "opacity-0");
-    expect(partActions).toHaveClass("group-hover/item:opacity-100", "focus-within:opacity-100");
+    expect(screen.getByRole("button", { name: "Unarchive" })).not.toHaveFocus();
+    expect(partActions).toHaveClass("opacity-0", "group-hover/item:opacity-100", "focus-within:opacity-100");
+    expect(partActions).not.toHaveClass("pointer-events-none");
     expect(partActions).not.toHaveClass("group-focus-within/item:opacity-100");
   });
 
+  it("refreshes the archive list after unarchiving and deleting parts", async () => {
+    render(<ArchiveMenuStatefulHarness initialJobs={archivedJobsWithSecondEntry} />);
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+
+    fireEvent.click(within(await screen.findByTestId("archived-part-card-job-1")).getByRole("button", { name: "Unarchive" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Archived Part" })).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(within(screen.getByTestId("archived-part-card-job-2")).getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Archived Part Two" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Delete all" })).toBeDisabled();
+    });
+  });
+
+  it("deletes all archived parts after confirmation", async () => {
+    render(<ArchiveMenuStatefulHarness initialJobs={archivedJobsWithSecondEntry} />);
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete all" }));
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("Delete all archived parts?")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete all" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Archived Part" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Archived Part Two" })).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Archived Project" })).toBeInTheDocument();
+      expect(screen.queryByText("No archived items yet.")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Delete all" })).toBeDisabled();
+    });
+  });
+
+  it("cancels delete all without mutating the archive list", async () => {
+    render(<ArchiveMenuStatefulHarness initialJobs={archivedJobsWithSecondEntry} />);
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete all" }));
+
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("heading", { name: "Archived Part" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Archived Part Two" })).toBeInTheDocument();
+  });
+
+  it("keeps delete failures handled inside the archive menu", async () => {
+    const unhandledRejectionListener = vi.fn();
+    window.addEventListener("unhandledrejection", unhandledRejectionListener);
+    try {
+      render(<ArchiveMenuStatefulHarness initialJobs={archivedJobs} rejectDelete />);
+
+      await openMainMenu();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+
+      const dialog = await screen.findByRole("alertdialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(unhandledRejectionListener).not.toHaveBeenCalled();
+      });
+    } finally {
+      window.removeEventListener("unhandledrejection", unhandledRejectionListener);
+    }
+  });
+
   it("shows archive empty states", async () => {
-    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+    render(
+      <WorkspaceAccountMenu
+        user={makeUser()}
+        activeMembership={membership}
+        onSignOut={vi.fn()}
+        onDeleteArchivedParts={vi.fn()}
+      />,
+    );
 
     await openMainMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
 
     expect(await screen.findByText("No archived items yet.")).toBeInTheDocument();
+    expect(screen.queryByText("0 archived parts")).not.toBeInTheDocument();
+    expect(screen.getByTestId("archive-footer-actions")).toContainElement(
+      screen.getByRole("button", { name: "Delete all" }),
+    );
+    expect(screen.getByRole("button", { name: "Delete all" })).toBeDisabled();
   });
 
   it("opens the settings panel from the account menu", async () => {

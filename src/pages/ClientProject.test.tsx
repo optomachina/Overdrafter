@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ClientProject from "./ClientProject";
 
-const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage } = vi.hoisted(() => ({
+const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock } = vi.hoisted(() => ({
   api: {
     archiveJob: vi.fn(),
     archiveProject: vi.fn(),
@@ -15,6 +15,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage } = vi.hoi
     createJobsFromUploadFiles: vi.fn(),
     createProject: vi.fn(),
     deleteArchivedJob: vi.fn(),
+    deleteArchivedJobs: vi.fn(),
     dissolveProject: vi.fn(),
     fetchAccessibleJobs: vi.fn(),
     fetchAccessibleProjects: vi.fn(),
@@ -29,6 +30,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage } = vi.hoi
     fetchProjectMemberships: vi.fn(),
     fetchSidebarPins: vi.fn(),
     inviteProjectMember: vi.fn(),
+    isArchivedDeleteCapabilityError: vi.fn(() => false),
     isProjectCollaborationSchemaUnavailable: vi.fn(),
     pinJob: vi.fn(),
     pinProject: vi.fn(),
@@ -49,6 +51,10 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage } = vi.hoi
   mockUseAppSession: vi.fn(),
   prefetchProjectPage: vi.fn(),
   prefetchPartPage: vi.fn(),
+  toastMock: {
+    error: vi.fn(),
+    success: vi.fn(),
+  },
 }));
 
 vi.mock("@/features/quotes/api", () => api);
@@ -69,7 +75,12 @@ vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
 }));
 
+vi.mock("sonner", () => ({
+  toast: toastMock,
+}));
+
 let lastSidebarProps: Record<string, unknown> | null = null;
+let lastAccountMenuProps: Record<string, unknown> | null = null;
 
 vi.mock("@/components/chat/ChatWorkspaceLayout", () => ({
   ChatWorkspaceLayout: ({
@@ -105,7 +116,10 @@ vi.mock("@/components/chat/WorkspaceSidebar", () => ({
 }));
 
 vi.mock("@/components/chat/WorkspaceAccountMenu", () => ({
-  WorkspaceAccountMenu: () => <div>Account Menu</div>,
+  WorkspaceAccountMenu: (props: Record<string, unknown>) => {
+    lastAccountMenuProps = props;
+    return <div>Account Menu</div>;
+  },
 }));
 
 vi.mock("@/components/chat/ProjectMembersDialog", () => ({
@@ -150,6 +164,7 @@ function renderWithClient(initialEntry: string) {
 describe("ClientProject", () => {
   beforeEach(() => {
     lastSidebarProps = null;
+    lastAccountMenuProps = null;
     vi.clearAllMocks();
     Object.defineProperty(window, "matchMedia", {
       writable: true,
@@ -409,6 +424,22 @@ describe("ClientProject", () => {
     await waitFor(() => {
       expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
     });
+  });
+
+  it("propagates archived delete failures through the account menu callback", async () => {
+    api.deleteArchivedJobs.mockRejectedValueOnce(new Error("Delete failed."));
+
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(lastAccountMenuProps).not.toBeNull();
+    });
+
+    await expect(
+      (lastAccountMenuProps!.onDeleteArchivedParts as (jobIds: string[]) => Promise<void>)(["job-1"]),
+    ).rejects.toThrow("Delete failed.");
+
+    expect(toastMock.error).toHaveBeenCalledWith("Delete failed.");
   });
 
 });

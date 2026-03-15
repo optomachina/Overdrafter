@@ -939,6 +939,12 @@ export type Database = {
         };
         Returns: string;
       };
+      api_delete_archived_jobs: {
+        Args: {
+          p_job_ids: string[];
+        };
+        Returns: Json;
+      };
       api_set_job_selected_vendor_quote_offer: {
         Args: {
           p_job_id: string;
