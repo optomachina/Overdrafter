@@ -543,6 +543,16 @@ export type ArchivedJobSummary = {
   projectNames: string[];
 };
 
+export type ArchivedJobDeleteFailure = {
+  jobId: string;
+  message: string;
+};
+
+export type ArchivedJobDeleteResult = {
+  deletedJobIds: string[];
+  failures: ArchivedJobDeleteFailure[];
+};
+
 export type PrepareJobFileUploadResult =
   | {
       status: "duplicate_in_job";
