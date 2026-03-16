@@ -3,7 +3,7 @@ create or replace function public.api_update_client_part_request(
   p_description text default null,
   p_part_number text default null,
   p_revision text default null,
-  p_material text,
+  p_material text default null,
   p_finish text default null,
   p_tightest_tolerance_inch numeric default null,
   p_process text default null,
