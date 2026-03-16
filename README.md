@@ -257,7 +257,7 @@ Use the lane that matches the problem you are chasing:
 
 - production-realistic: real local Supabase auth plus seeded app data
 - fast E2E: Playwright with saved authenticated sessions
-- UI tuning: dev-only fixture mode for stable client workspace states
+- UI tuning: local fixture surfaces for stable client workspace states
 
 ### Quickstart
 
@@ -274,7 +274,7 @@ Docker note:
 
 - `npm run db:start` and `npm run db:reset` require Docker Desktop because local Supabase runs in Docker
 - if `supabase start` fails with `Cannot connect to the Docker daemon`, start Docker Desktop first
-- if you do not want to use Docker, use fixture mode instead
+- if you do not want to use Docker, use the built-in fixture surfaces instead
 
 Typical usage:
 
@@ -321,21 +321,23 @@ Notes:
 - Playwright starts its own dev server on `http://127.0.0.1:4173`
 - failure artifacts are written to `test-results/` and `playwright-report/`
 
-Fixture mode:
+Fixture surfaces:
 
 ```bash
-VITE_ENABLE_FIXTURE_MODE=1 npm run dev
+npm run dev
 ```
 
 Then open one of these URLs:
 
+- `http://127.0.0.1:5173/debug/state-gallery`
 - `http://127.0.0.1:5173/?fixture=landing-anonymous&debug=1`
 - `http://127.0.0.1:5173/?fixture=client-empty&debug=1`
 - `http://127.0.0.1:5173/parts/fx-job-needs-attention?fixture=client-needs-attention&debug=1`
 - `http://127.0.0.1:5173/projects/fx-project-quoted?fixture=client-quoted&debug=1`
 - `http://127.0.0.1:5173/projects/fx-project-published/review?fixture=client-published&debug=1`
 
-The floating `Fixtures` launcher is only available in dev/test when `VITE_ENABLE_FIXTURE_MODE=1`.
+The floating `Fixtures` launcher is available in local dev and test builds. It appears in the bottom-right corner, above the `Diagnostics` button.
+Use `/debug/state-gallery` when you want the auth states and the existing fixture-backed workspace states in one review surface.
 
 For a longer walkthrough, see `docs/debugging-workflows.md`.
 
@@ -343,7 +345,7 @@ For a longer walkthrough, see `docs/debugging-workflows.md`.
 
 - use production-realistic when you need real auth, real memberships, real Supabase queries, or seeded demo data
 - use fast E2E when you want repeatable browser coverage with saved sessions
-- use fixture mode when you want to tune client workspace UI without Docker or Supabase state
+- use fixture surfaces when you want to tune client workspace UI without Docker or Supabase state
 
 ### Recurring Codex Workflows
 

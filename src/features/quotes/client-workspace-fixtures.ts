@@ -1328,7 +1328,7 @@ export function getFixtureScenarioIdFromSearch(search: string): FixtureScenarioI
 }
 
 function isFixtureModeEnvironmentEnabled(): boolean {
-  return (import.meta.env.DEV || import.meta.env.MODE === "test") && import.meta.env.VITE_ENABLE_FIXTURE_MODE === "1";
+  return import.meta.env.DEV || import.meta.env.MODE === "test";
 }
 
 export function getActiveFixtureScenario(): (typeof CLIENT_WORKSPACE_FIXTURE_SCENARIOS)[number] | null {
