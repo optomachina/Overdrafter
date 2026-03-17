@@ -98,6 +98,7 @@ const ClientPart = () => {
     handleUnpinPart,
     handleUnpinProject,
     isDrawingPreviewLoading,
+    isPartDetailLoading,
     isPartArchiveBusy,
     isPartOptionsOpen,
     isPartPinBusy,
@@ -304,7 +305,7 @@ const ClientPart = () => {
             onArchiveProject={handleArchiveProject}
             onDissolveProject={handleDissolveProject}
             onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
-            onSelectPart={(partId) => navigate(`/parts/${partId}`)}
+            onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
             onPrefetchProject={prefetchProject}
             onPrefetchPart={prefetchPart}
             resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
@@ -326,7 +327,7 @@ const ClientPart = () => {
         }
       >
         <div className="mx-auto flex w-full max-w-[1480px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
-          {partDetailQuery.isLoading ? (
+          {isPartDetailLoading ? (
             <div className="flex min-h-[320px] items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin text-white/60" />
             </div>
@@ -595,7 +596,7 @@ const ClientPart = () => {
         jobs={accessibleJobsQuery.data ?? []}
         summariesByJobId={summariesByJobId}
         onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
-        onSelectPart={(partId) => navigate(`/parts/${partId}`)}
+        onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
       />
 
       <input

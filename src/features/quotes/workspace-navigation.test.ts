@@ -8,25 +8,28 @@ import {
 } from "@/features/quotes/workspace-navigation";
 
 const {
+  fetchPartDetailByJobId,
   fetchClientQuoteWorkspaceByJobIds,
   fetchJobsByProject,
-  fetchPartDetail,
   fetchProject,
   isProjectNotFoundError,
+  resolveClientPartDetailRoute,
 } = vi.hoisted(() => ({
+  fetchPartDetailByJobId: vi.fn(),
   fetchClientQuoteWorkspaceByJobIds: vi.fn(),
   fetchJobsByProject: vi.fn(),
-  fetchPartDetail: vi.fn(),
   fetchProject: vi.fn(),
   isProjectNotFoundError: vi.fn(),
+  resolveClientPartDetailRoute: vi.fn(),
 }));
 
 vi.mock("@/features/quotes/api", () => ({
+  fetchPartDetailByJobId,
   fetchClientQuoteWorkspaceByJobIds,
   fetchJobsByProject,
-  fetchPartDetail,
   fetchProject,
   isProjectNotFoundError,
+  resolveClientPartDetailRoute,
 }));
 
 describe("workspace navigation prefetch", () => {
@@ -68,7 +71,12 @@ describe("workspace navigation prefetch", () => {
 
   it("prefetches part detail with the route query key", async () => {
     const detail = { job: { id: "job-1" } };
-    fetchPartDetail.mockResolvedValue(detail);
+    resolveClientPartDetailRoute.mockResolvedValue({
+      routeId: "job-1",
+      jobId: "job-1",
+      source: "job",
+    });
+    fetchPartDetailByJobId.mockResolvedValue(detail);
 
     await prefetchPartPage(queryClient, "job-1");
 
@@ -76,12 +84,32 @@ describe("workspace navigation prefetch", () => {
   });
 
   it("skips duplicate part prefetches while cached data is still fresh", async () => {
-    fetchPartDetail.mockResolvedValue({ job: { id: "job-1" } });
+    resolveClientPartDetailRoute.mockResolvedValue({
+      routeId: "job-1",
+      jobId: "job-1",
+      source: "job",
+    });
+    fetchPartDetailByJobId.mockResolvedValue({ job: { id: "job-1" } });
 
     await prefetchPartPage(queryClient, "job-1");
     await prefetchPartPage(queryClient, "job-1");
 
-    expect(fetchPartDetail).toHaveBeenCalledTimes(1);
+    expect(fetchPartDetailByJobId).toHaveBeenCalledTimes(1);
+  });
+
+  it("canonicalizes legacy part-id prefetches onto the owning job key", async () => {
+    const detail = { job: { id: "job-1" } };
+    resolveClientPartDetailRoute.mockResolvedValue({
+      routeId: "part-1",
+      jobId: "job-1",
+      source: "part",
+    });
+    fetchPartDetailByJobId.mockResolvedValue(detail);
+
+    await prefetchPartPage(queryClient, "part-1");
+
+    expect(queryClient.getQueryData(workspaceQueryKeys.partDetail("job-1"))).toEqual(detail);
+    expect(queryClient.getQueryState(workspaceQueryKeys.partDetail("part-1"))).toBeUndefined();
   });
 
   it("skips remote prefetch for virtual seeded projects", async () => {

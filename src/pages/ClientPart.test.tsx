@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ClientPart from "./ClientPart";
 
@@ -20,9 +20,10 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage } = vi.hoi
     fetchAccessibleProjects: vi.fn(),
     fetchArchivedJobs: vi.fn(),
     fetchArchivedProjects: vi.fn(),
+    fetchPartDetailByJobId: vi.fn(),
     fetchJobPartSummariesByJobIds: vi.fn(),
-    fetchPartDetail: vi.fn(),
     fetchProjectJobMembershipsByJobIds: vi.fn(),
+    resolveClientPartDetailRoute: vi.fn(),
     fetchSidebarPins: vi.fn(),
     isArchivedDeleteCapabilityError: vi.fn(() => false),
     isProjectCollaborationSchemaUnavailable: vi.fn(),
@@ -145,12 +146,25 @@ function renderWithClient(initialEntry: string) {
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={[initialEntry]}>
           <Routes>
-            <Route path="/parts/:jobId" element={<ClientPart />} />
+            <Route
+              path="/parts/:jobId"
+              element={
+                <>
+                  <ClientPart />
+                  <LocationEcho />
+                </>
+              }
+            />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,
     ),
   };
+}
+
+function LocationEcho() {
+  const location = useLocation();
+  return <div data-testid="location-path">{location.pathname}</div>;
 }
 
 function createPartDetail(overrides: Record<string, unknown> = {}) {
@@ -274,7 +288,12 @@ describe("ClientPart", () => {
     api.fetchArchivedProjects.mockResolvedValue([]);
     api.fetchArchivedJobs.mockResolvedValue([]);
     api.updateClientPartRequest.mockResolvedValue(undefined);
-    api.fetchPartDetail.mockResolvedValue(createPartDetail());
+    api.resolveClientPartDetailRoute.mockResolvedValue({
+      routeId: "job-1",
+      jobId: "job-1",
+      source: "job",
+    });
+    api.fetchPartDetailByJobId.mockResolvedValue(createPartDetail());
     api.requestQuote.mockResolvedValue({
       jobId: "job-1",
       accepted: true,
@@ -300,7 +319,25 @@ describe("ClientPart", () => {
     expect(screen.getByText("Contextual intelligence")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /prev rev/i })).toBeInTheDocument();
     expect(screen.queryByText("This part could not be loaded.")).not.toBeInTheDocument();
-    expect(api.fetchPartDetail).toHaveBeenCalledTimes(1);
+    expect(api.fetchPartDetailByJobId).toHaveBeenCalledTimes(1);
+  });
+
+  it("canonicalizes legacy part-id routes onto the owning job route", async () => {
+    api.resolveClientPartDetailRoute.mockResolvedValueOnce({
+      routeId: "part-1",
+      jobId: "job-1",
+      source: "part",
+    });
+
+    const { queryClient } = renderWithClient("/parts/part-1");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location-path")).toHaveTextContent("/parts/job-1");
+    });
+
+    expect(api.fetchPartDetailByJobId).toHaveBeenCalledWith("job-1");
+    expect(queryClient.getQueryState(["part-detail", "part-1"])).toBeUndefined();
+    expect(queryClient.getQueryData(["part-detail", "job-1"])).toEqual(createPartDetail());
   });
 
   it("passes the collaboration gate through sidebar project prefetch", async () => {
@@ -340,7 +377,7 @@ describe("ClientPart", () => {
   });
 
   it("submits a client quote request when the part is ready", async () => {
-    api.fetchPartDetail.mockResolvedValue(
+    api.fetchPartDetailByJobId.mockResolvedValue(
       createPartDetail({
         job: {
           ...createPartDetail().job,
@@ -418,7 +455,7 @@ describe("ClientPart", () => {
   });
 
   it("shows a processing notice while drawing extraction is still running", async () => {
-    api.fetchPartDetail.mockResolvedValueOnce(
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(
       createPartDetail({
         job: {
           ...createPartDetail().job,
@@ -472,7 +509,7 @@ describe("ClientPart", () => {
   });
 
   it("shows a failure notice when drawing extraction fails", async () => {
-    api.fetchPartDetail.mockResolvedValueOnce(
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(
       createPartDetail({
         part: {
           ...createPartDetail().part,
@@ -501,7 +538,7 @@ describe("ClientPart", () => {
   });
 
   it("shows a partial notice when drawing extraction is incomplete", async () => {
-    api.fetchPartDetail.mockResolvedValueOnce(
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(
       createPartDetail({
         part: {
           ...createPartDetail().part,

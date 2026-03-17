@@ -12,7 +12,7 @@ import {
   deleteArchivedJobs,
   fetchClientActivityEventsByJobIds,
   dissolveProject,
-  fetchPartDetail,
+  fetchPartDetailByJobId,
   isArchivedDeleteCapabilityError,
   isProjectCollaborationSchemaUnavailable,
   pinJob,
@@ -21,6 +21,7 @@ import {
   removeJobFromProject,
   requestExtraction,
   requestQuote,
+  resolveClientPartDetailRoute,
   setJobSelectedVendorQuoteOffer,
   unarchiveJob,
   unarchiveProject,
@@ -82,7 +83,7 @@ function shouldPollExtractionState(
 }
 
 export function useClientPartController() {
-  const { jobId = "" } = useParams();
+  const { jobId: routeJobId = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user, activeMembership, signOut } = useAppSession();
@@ -139,7 +140,7 @@ export function useClientPartController() {
     onFilesSelected: async (files) => {
       const result = await createJobsFromUploadFiles({ files });
 
-      await invalidateClientWorkspaceQueries(queryClient, { jobId });
+      await invalidateClientWorkspaceQueries(queryClient, { jobId: routeJobId });
 
       if (result.projectId && result.jobIds.length > 1) {
         navigate(`/projects/${result.projectId}`);
@@ -150,10 +151,18 @@ export function useClientPartController() {
     },
   });
 
+  const partRouteQuery = useQuery({
+    queryKey: workspaceQueryKeys.partDetailRoute(routeJobId),
+    queryFn: () => resolveClientPartDetailRoute(routeJobId),
+    enabled: Boolean(user) && Boolean(routeJobId),
+    retry: false,
+    ...workspaceDetailQueryOptions,
+  });
+  const resolvedJobId = partRouteQuery.data?.jobId ?? null;
   const partDetailQuery = useQuery({
-    queryKey: workspaceQueryKeys.partDetail(jobId),
-    queryFn: () => fetchPartDetail(jobId),
-    enabled: Boolean(user) && Boolean(jobId),
+    queryKey: workspaceQueryKeys.partDetail(resolvedJobId ?? ""),
+    queryFn: () => fetchPartDetailByJobId(resolvedJobId ?? ""),
+    enabled: Boolean(user) && Boolean(resolvedJobId),
     refetchInterval: (query) => {
       const data = query.state.data;
       const lifecycle = data?.part?.clientExtraction?.lifecycle ?? null;
@@ -162,9 +171,9 @@ export function useClientPartController() {
     ...workspaceDetailQueryOptions,
   });
   const activityEventsQuery = useQuery({
-    queryKey: workspaceQueryKeys.clientActivity([jobId]),
-    queryFn: () => fetchClientActivityEventsByJobIds([jobId]),
-    enabled: Boolean(user) && Boolean(jobId),
+    queryKey: workspaceQueryKeys.clientActivity(resolvedJobId ? [resolvedJobId] : []),
+    queryFn: () => fetchClientActivityEventsByJobIds([resolvedJobId ?? ""]),
+    enabled: Boolean(user) && Boolean(resolvedJobId),
     refetchInterval: () => {
       const lifecycle = partDetailQuery.data?.part?.clientExtraction?.lifecycle ?? null;
       return shouldPollExtractionState(lifecycle) ? 5000 : false;
@@ -172,6 +181,9 @@ export function useClientPartController() {
     ...workspaceDetailQueryOptions,
   });
   const partDetail = partDetailQuery.data;
+  const canonicalJobId = resolvedJobId ?? partDetail?.job?.id ?? routeJobId;
+  const isPartDetailLoading =
+    partRouteQuery.isLoading || partRouteQuery.isFetching || partDetailQuery.isLoading;
 
   const attachFilesPicker = useClientJobFilePicker({
     isSignedIn: Boolean(user),
@@ -189,14 +201,14 @@ export function useClientPartController() {
         throw new Error(`"${invalid.name}" does not match this part's filename stem.`);
       }
 
-      const uploadSummary = await uploadFilesToJob(jobId, files);
+      const uploadSummary = await uploadFilesToJob(canonicalJobId, files);
 
       if (uploadSummary.uploadedCount > 0 || uploadSummary.reusedCount > 0) {
-        await reconcileJobParts(jobId);
-        await requestExtraction(jobId);
+        await reconcileJobParts(canonicalJobId);
+        await requestExtraction(canonicalJobId);
       }
 
-      await invalidateClientWorkspaceQueries(queryClient, { jobId });
+      await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
 
       if (uploadSummary.uploadedCount > 0 || uploadSummary.reusedCount > 0) {
         toast.success("Files attached to part.");
@@ -215,11 +227,11 @@ export function useClientPartController() {
   }, [accessibleProjectsQuery.data, partDetail?.job]);
 
   const assignJobMutation = useMutation({
-    mutationFn: (projectId: string) => assignJobToProject({ jobId, projectId }),
+    mutationFn: (projectId: string) => assignJobToProject({ jobId: canonicalJobId, projectId }),
     onSuccess: async () => {
       toast.success("Part moved to project.");
       setShowMoveDialog(false);
-      await invalidateClientWorkspaceQueries(queryClient, { jobId });
+      await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to move part.");
@@ -232,11 +244,11 @@ export function useClientPartController() {
         throw new Error("This part is not currently assigned to a project.");
       }
 
-      return removeJobFromProject(jobId, projectId);
+      return removeJobFromProject(canonicalJobId, projectId);
     },
     onSuccess: async () => {
       toast.success("Part removed from project.");
-      await invalidateClientWorkspaceQueries(queryClient, { jobId });
+      await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to remove part from project.");
@@ -244,9 +256,9 @@ export function useClientPartController() {
   });
 
   const selectOfferMutation = useMutation({
-    mutationFn: (offerId: string) => setJobSelectedVendorQuoteOffer(jobId, offerId),
+    mutationFn: (offerId: string) => setJobSelectedVendorQuoteOffer(canonicalJobId, offerId),
     onSuccess: async () => {
-      await invalidateClientWorkspaceQueries(queryClient, { jobId });
+      await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
       toast.success("Selected quote updated.");
     },
     onError: (error: Error) => {
@@ -257,7 +269,7 @@ export function useClientPartController() {
   const saveRequestMutation = useMutation({
     mutationFn: (input: ClientPartRequestUpdateInput) => updateClientPartRequest(input),
     onSuccess: async () => {
-      await invalidateClientWorkspaceQueries(queryClient, { jobId });
+      await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
       toast.success("Request details updated.");
     },
     onError: (error: Error) => {
@@ -268,7 +280,7 @@ export function useClientPartController() {
   const renamePartMutation = useMutation({
     mutationFn: (input: ClientPartRequestUpdateInput) => updateClientPartRequest(input),
     onSuccess: async () => {
-      await invalidateClientWorkspaceQueries(queryClient, { jobId });
+      await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
       toast.success("Part renamed.");
     },
     onError: (error: Error) => {
@@ -277,9 +289,9 @@ export function useClientPartController() {
   });
 
   const requestQuoteMutation = useMutation({
-    mutationFn: ({ forceRetry = false }: { forceRetry?: boolean }) => requestQuote(jobId, forceRetry),
+    mutationFn: ({ forceRetry = false }: { forceRetry?: boolean }) => requestQuote(canonicalJobId, forceRetry),
     onSuccess: async (result, variables) => {
-      await invalidateClientWorkspaceQueries(queryClient, { jobId });
+      await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
 
       if (!result.accepted) {
         toast.error(result.reason || "Quote request could not be started.");
@@ -316,7 +328,7 @@ export function useClientPartController() {
     pinnedProjectIds: sidebarPinsQuery.data?.projectIds ?? [],
     pinnedJobIds: sidebarPinsQuery.data?.jobIds ?? [],
     resolveProjectIdsForJob: resolveSidebarProjectIdsForJob,
-    activeJobId: jobId,
+    activeJobId: canonicalJobId,
   });
 
   useEffect(() => {
@@ -332,12 +344,21 @@ export function useClientPartController() {
   }, [navigate, user]);
 
   useEffect(() => {
-    if (partDetail?.job?.id && partDetail.job.id !== jobId) {
+    if (resolvedJobId && resolvedJobId !== routeJobId) {
+      queryClient.removeQueries({
+        queryKey: workspaceQueryKeys.partDetail(routeJobId),
+        exact: true,
+      });
+      navigate(`/parts/${resolvedJobId}`, { replace: true });
+      return;
+    }
+
+    if (partDetail?.job?.id && partDetail.job.id !== routeJobId) {
       navigate(`/parts/${partDetail.job.id}`, { replace: true });
     }
-  }, [jobId, navigate, partDetail?.job?.id]);
+  }, [navigate, partDetail?.job?.id, queryClient, resolvedJobId, routeJobId]);
 
-  const summary = partDetail?.summary ?? summariesByJobId.get(jobId) ?? null;
+  const summary = partDetail?.summary ?? summariesByJobId.get(canonicalJobId) ?? null;
   const presentation = partDetail?.job ? getClientItemPresentation(partDetail.job, summary) : null;
   const projectMemberships = useMemo(
     () =>
@@ -366,9 +387,9 @@ export function useClientPartController() {
       requested_by_date: partDetail.job.requested_by_date ?? null,
     });
 
-    return buildClientPartRequestUpdateInput(jobId, requirement);
+    return buildClientPartRequestUpdateInput(canonicalJobId, requirement);
   }, [
-    jobId,
+    canonicalJobId,
     partDetail?.job.primary_service_kind,
     partDetail?.job.requested_by_date,
     partDetail?.job.requested_quote_quantities,
@@ -440,7 +461,7 @@ export function useClientPartController() {
 
     return [
       {
-        jobId,
+        jobId: canonicalJobId,
         revision: summary.revision,
         title: `${summary.partNumber ?? presentation?.title ?? "Part"}${
           summary.revision ? ` rev ${summary.revision}` : ""
@@ -448,8 +469,8 @@ export function useClientPartController() {
       },
       ...(partDetail?.revisionSiblings ?? []),
     ].sort((left, right) => (left.revision ?? "").localeCompare(right.revision ?? ""));
-  }, [jobId, partDetail?.revisionSiblings, presentation?.title, summary]);
-  const selectedRevisionIndex = revisionOptions.findIndex((revision) => revision.jobId === jobId);
+  }, [canonicalJobId, partDetail?.revisionSiblings, presentation?.title, summary]);
+  const selectedRevisionIndex = revisionOptions.findIndex((revision) => revision.jobId === canonicalJobId);
   const activityEntries = useMemo(
     () => buildActivityLogEntries(activityEventsQuery.data ?? []),
     [activityEventsQuery.data],
@@ -494,7 +515,7 @@ export function useClientPartController() {
   }, [drawingPreviewLoadError, drawingPreviewState, extractionDiagnostics]);
 
   useEffect(() => {
-    setExcludedVendorKeys(readExcludedVendorKeys(jobId));
+    setExcludedVendorKeys(readExcludedVendorKeys(canonicalJobId));
     setActivePreset(null);
     setRequestDraft(null);
     setQuoteQuantityInput("");
@@ -503,7 +524,7 @@ export function useClientPartController() {
     setIsPartOptionsOpen(false);
     setDrawingPdfUrl(null);
     setDrawingPreviewLoadError(null);
-  }, [jobId]);
+  }, [canonicalJobId]);
 
   useEffect(() => {
     if (!fallbackRequestDraft) {
@@ -612,12 +633,12 @@ export function useClientPartController() {
     setIsPartPinBusy(true);
 
     try {
-      if ((sidebarPinsQuery.data?.jobIds ?? []).includes(jobId)) {
-        await handleUnpinPart(jobId);
+      if ((sidebarPinsQuery.data?.jobIds ?? []).includes(canonicalJobId)) {
+        await handleUnpinPart(canonicalJobId);
         return;
       }
 
-      await handlePinPart(jobId);
+      await handlePinPart(canonicalJobId);
     } finally {
       setIsPartPinBusy(false);
     }
@@ -659,7 +680,7 @@ export function useClientPartController() {
   const handleRenamePart = async (targetJobId: string, name: string) => {
     const baseDraft = requestDraft ?? fallbackRequestDraft;
 
-    if (!baseDraft || targetJobId !== jobId) {
+    if (!baseDraft || targetJobId !== canonicalJobId) {
       return;
     }
 
@@ -695,7 +716,7 @@ export function useClientPartController() {
         },
       });
       toast.success("Part archived. Press Ctrl+Z to undo.");
-      if (targetJobId === jobId) {
+      if (targetJobId === canonicalJobId) {
         navigate("/");
       }
     } catch (error) {
@@ -843,7 +864,7 @@ export function useClientPartController() {
   };
 
   const handleToggleVendorExclusion = (vendorKey: VendorName, shouldExclude: boolean) => {
-    setExcludedVendorKeys(toggleExcludedVendorKey(jobId, vendorKey, shouldExclude));
+    setExcludedVendorKeys(toggleExcludedVendorKey(canonicalJobId, vendorKey, shouldExclude));
   };
 
   const handleDraftChange = (next: Partial<ClientPartRequestUpdateInput>) => {
@@ -911,8 +932,8 @@ export function useClientPartController() {
     });
   };
 
-  const prefetchPart = (partId: string) => {
-    void prefetchPartPage(queryClient, partId);
+  const prefetchPart = (jobId: string) => {
+    void prefetchPartPage(queryClient, jobId);
   };
 
   return {
@@ -961,16 +982,18 @@ export function useClientPartController() {
     handleUnpinPart,
     handleUnpinProject,
     isDrawingPreviewLoading,
+    isPartDetailLoading,
     isPartArchiveBusy,
     isRequestingQuote: requestQuoteMutation.isPending,
     isPartOptionsOpen,
     isPartPinBusy,
     isRenamingPart,
     isSearchOpen,
-    jobId,
+    jobId: canonicalJobId,
     navigate,
     newJobFilePicker,
     partDetail,
+    partRouteQuery,
     partDetailQuery,
     partRenameValue,
     pinnedJobIds: sidebarPinsQuery.data?.jobIds ?? [],

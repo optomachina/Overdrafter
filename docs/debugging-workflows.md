@@ -115,6 +115,8 @@ Example URLs:
 - `http://127.0.0.1:5173/projects/fx-project-quoted?fixture=client-quoted&debug=1`
 - `http://127.0.0.1:5173/projects/fx-project-published/review?fixture=client-published&debug=1`
 
+For client part pages, the fixture and gallery routes use canonical job IDs in `/parts/:jobId`. The internal-only Extraction Lab is not part of the State Gallery; it lives on the internal job detail page.
+
 The in-app `Fixtures` launcher lets you switch scenarios quickly in dev/test.
 
 Fixture mode is intentionally narrow. It supports:
