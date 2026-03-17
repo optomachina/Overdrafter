@@ -74,7 +74,10 @@ import { buildDraftTitleFromPrompt } from "@/features/quotes/file-validation";
 import { normalizeRequestedQuoteQuantities, parseRequestIntake } from "@/features/quotes/request-intake";
 import { sanitizeClientVisibleSpecSnapshot } from "@/features/quotes/rfq-metadata";
 import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
-import { toArchivedDeleteError } from "@/features/quotes/archive-delete-errors";
+import {
+  getArchivedDeleteErrorMessage,
+  toArchivedDeleteError,
+} from "@/features/quotes/archive-delete-errors";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import {
   getImportedVendorOffers,
@@ -1207,6 +1210,7 @@ function logArchivedDeleteCapabilityIssue(context: {
     operation: context.operation,
     jobIds: context.jobIds,
     reason: context.reason,
+    error: context.error,
     message,
   });
 }
@@ -1232,6 +1236,8 @@ type ArchivedDeleteLegacyCapabilityFailure = {
 
 type ArchivedDeleteLegacyAttempt = ArchivedDeleteLegacySuccess | ArchivedDeleteLegacyFailure;
 const ARCHIVED_DELETE_LEGACY_BATCH_SIZE = 10;
+const DIRECT_STORAGE_DELETE_DISALLOWED_MESSAGE =
+  "Direct deletion from storage tables is not allowed. Use the Storage API instead.";
 
 function isArchivedDeleteLegacyCapabilityFailure(
   result: ArchivedDeleteLegacyAttempt,
@@ -1241,6 +1247,47 @@ function isArchivedDeleteLegacyCapabilityFailure(
   }
 
   return result.kind === "missing_legacy_rpc" || result.kind === "missing_archive_schema";
+}
+
+function requiresStorageApiArchivedDeleteFallback(error: unknown): boolean {
+  return getArchivedDeleteErrorMessage(error).includes(DIRECT_STORAGE_DELETE_DISALLOWED_MESSAGE);
+}
+
+async function deleteArchivedJobsViaEdgeFallback(jobIds: string[]): Promise<ArchivedJobDeleteResult> {
+  const deletedJobIds: string[] = [];
+  const failures: ArchivedJobDeleteResult["failures"] = [];
+
+  for (let index = 0; index < jobIds.length; index += ARCHIVED_DELETE_LEGACY_BATCH_SIZE) {
+    const batchJobIds = jobIds.slice(index, index + ARCHIVED_DELETE_LEGACY_BATCH_SIZE);
+    const batchResults = await Promise.allSettled(
+      batchJobIds.map(async (jobId) => {
+        const deletedJobId = await invokeJobArchivingFallback("delete", jobId);
+        return {
+          requestedJobId: jobId,
+          deletedJobId,
+        };
+      }),
+    );
+
+    batchResults.forEach((result, batchIndex) => {
+      const jobId = batchJobIds[batchIndex];
+
+      if (result.status === "fulfilled") {
+        deletedJobIds.push(result.value.deletedJobId);
+        return;
+      }
+
+      failures.push({
+        jobId,
+        message: toArchivedDeleteError(result.reason).message,
+      });
+    });
+  }
+
+  return {
+    deletedJobIds,
+    failures,
+  };
 }
 
 async function deleteArchivedJobLegacy(jobId: string): Promise<ArchivedDeleteLegacyAttempt> {
@@ -1273,6 +1320,23 @@ async function deleteArchivedJobLegacy(jobId: string): Promise<ArchivedDeleteLeg
       error,
       message: ARCHIVED_JOB_DELETE_UNAVAILABLE_MESSAGE,
     };
+  }
+
+  if (requiresStorageApiArchivedDeleteFallback(error)) {
+    try {
+      const deletedJobId = await invokeJobArchivingFallback("delete", jobId);
+      return {
+        ok: true,
+        jobId: deletedJobId,
+      };
+    } catch (fallbackError) {
+      return {
+        ok: false,
+        kind: "failure",
+        error: fallbackError,
+        message: toArchivedDeleteError(fallbackError).message,
+      };
+    }
   }
 
   return {
@@ -3567,6 +3631,14 @@ export async function deleteArchivedJobs(jobIds: string[]): Promise<ArchivedJobD
       error,
     });
     throw new ArchivedDeleteCapabilityError("api_delete_archived_jobs", "missing_schema");
+  }
+
+  if (requiresStorageApiArchivedDeleteFallback(error)) {
+    const fallbackResult = await deleteArchivedJobsViaEdgeFallback(normalizedIds);
+
+    if (fallbackResult.deletedJobIds.length > 0 || fallbackResult.failures.length > 0) {
+      return fallbackResult;
+    }
   }
 
   throw toArchivedDeleteError(error);
