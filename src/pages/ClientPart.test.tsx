@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ClientPart from "./ClientPart";
 
-const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage } = vi.hoisted(() => ({
+const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock } = vi.hoisted(() => ({
   api: {
     archiveJob: vi.fn(),
     archiveProject: vi.fn(),
@@ -44,9 +44,14 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage } = vi.hoi
   mockUseAppSession: vi.fn(),
   prefetchProjectPage: vi.fn(),
   prefetchPartPage: vi.fn(),
+  toastMock: {
+    error: vi.fn(),
+    success: vi.fn(),
+  },
 }));
 
 let lastSidebarProps: Record<string, unknown> | null = null;
+let lastAccountMenuProps: Record<string, unknown> | null = null;
 
 vi.mock("@/features/quotes/api", () => api);
 
@@ -64,6 +69,10 @@ vi.mock("@/features/quotes/workspace-navigation", async () => {
 
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
+}));
+
+vi.mock("sonner", () => ({
+  toast: toastMock,
 }));
 
 vi.mock("@/components/chat/ChatWorkspaceLayout", () => ({
@@ -100,7 +109,10 @@ vi.mock("@/components/chat/WorkspaceSidebar", () => ({
 }));
 
 vi.mock("@/components/chat/WorkspaceAccountMenu", () => ({
-  WorkspaceAccountMenu: () => <div>Account Menu</div>,
+  WorkspaceAccountMenu: (props: Record<string, unknown>) => {
+    lastAccountMenuProps = props;
+    return <div>Account Menu</div>;
+  },
 }));
 
 vi.mock("@/components/chat/SearchPartsDialog", () => ({
@@ -225,11 +237,12 @@ function createPartDetail(overrides: Record<string, unknown> = {}) {
 describe("ClientPart", () => {
   beforeEach(() => {
     lastSidebarProps = null;
+    lastAccountMenuProps = null;
     vi.clearAllMocks();
 
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
-      activeMembership: null,
+      activeMembership: { organizationId: "org-1", role: "client" },
       signOut: vi.fn(),
     });
 
@@ -542,5 +555,39 @@ describe("ClientPart", () => {
       expect(screen.getByText(/partial drawing metadata found/i)).toBeInTheDocument();
       expect(screen.getByText(/missing: material, finish/i)).toBeInTheDocument();
     });
+  });
+
+  it("logs structured archived delete failures through the account menu callback", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    api.deleteArchivedJobs.mockRejectedValueOnce({
+      code: "23503",
+      message: "Delete failed.",
+      details: "quoted package dependency",
+    });
+
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(lastAccountMenuProps).not.toBeNull();
+    });
+
+    await expect(
+      (lastAccountMenuProps!.onDeleteArchivedParts as (jobIds: string[]) => Promise<void>)(["job-1"]),
+    ).rejects.toThrow("Delete failed.");
+
+    expect(toastMock.error).toHaveBeenCalledWith("Delete failed.");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Archived part delete failed",
+      expect.objectContaining({
+        jobIds: ["job-1"],
+        organizationId: "org-1",
+        userId: "user-1",
+        message: "Delete failed.",
+        error: expect.objectContaining({
+          code: "23503",
+          message: "Delete failed.",
+        }),
+      }),
+    );
   });
 });

@@ -206,7 +206,9 @@ and `public.jobs.archived_at` exist before debugging app-layer query failures.
 Archive delete requires the hosted environment to have the archived delete RPCs at migration head:
 `public.api_delete_archived_jobs(uuid[])` as the primary contract and
 `public.api_delete_archived_job(uuid)` as the legacy compatibility fallback. Archived delete should
-not depend on Edge Function deployment.
+not depend on Edge Function deployment. The migration head also needs the published-package cleanup
+inside `api_delete_archived_jobs(uuid[])` so quoted or published archived parts can be permanently
+deleted without foreign-key failures.
 
 Then create memberships for your users in `organization_memberships`.
 

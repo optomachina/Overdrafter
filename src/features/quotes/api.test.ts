@@ -652,6 +652,42 @@ describe("quotes api helpers", () => {
     );
   });
 
+  it("normalizes raw bulk delete RPC errors into readable messages", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "23503",
+        message:
+          'update or delete on table "vendor_quote_results" violates foreign key constraint "published_quote_options_source_vendor_quote_id_fkey" on table "published_quote_options"',
+        details: 'Key (id)=(quote-result-1) is still referenced from table "published_quote_options".',
+        hint: null,
+      },
+    });
+
+    await expect(deleteArchivedJobs(["job-123"])).rejects.toThrow(
+      'update or delete on table "vendor_quote_results" violates foreign key constraint "published_quote_options_source_vendor_quote_id_fkey" on table "published_quote_options"',
+    );
+  });
+
+  it("surfaces authorization failures from the bulk delete payload for single deletes", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        deletedJobIds: [],
+        failures: [
+          {
+            jobId: "job-123",
+            message: "Part not found, not archived, or you do not have permission to delete it.",
+          },
+        ],
+      },
+      error: null,
+    });
+
+    await expect(deleteArchivedJob("job-123")).rejects.toThrow(
+      "Part not found, not archived, or you do not have permission to delete it.",
+    );
+  });
+
   it("throws a targeted migration error when both bulk and legacy delete RPCs are unavailable", async () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 

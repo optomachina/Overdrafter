@@ -182,7 +182,7 @@ describe("ClientProject", () => {
 
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
-      activeMembership: null,
+      activeMembership: { organizationId: "org-1", role: "client" },
       signOut: vi.fn(),
     });
 
@@ -426,8 +426,13 @@ describe("ClientProject", () => {
     });
   });
 
-  it("propagates archived delete failures through the account menu callback", async () => {
-    api.deleteArchivedJobs.mockRejectedValueOnce(new Error("Delete failed."));
+  it("logs structured archived delete failures through the account menu callback", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    api.deleteArchivedJobs.mockRejectedValueOnce({
+      code: "23503",
+      message: "Delete failed.",
+      details: "quoted package dependency",
+    });
 
     renderWithClient("/projects/project-1");
 
@@ -440,6 +445,19 @@ describe("ClientProject", () => {
     ).rejects.toThrow("Delete failed.");
 
     expect(toastMock.error).toHaveBeenCalledWith("Delete failed.");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Archived part delete failed",
+      expect.objectContaining({
+        jobIds: ["job-1"],
+        organizationId: "org-1",
+        userId: "user-1",
+        message: "Delete failed.",
+        error: expect.objectContaining({
+          code: "23503",
+          message: "Delete failed.",
+        }),
+      }),
+    );
   });
 
 });

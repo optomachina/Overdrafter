@@ -74,6 +74,7 @@ import { buildDraftTitleFromPrompt } from "@/features/quotes/file-validation";
 import { normalizeRequestedQuoteQuantities, parseRequestIntake } from "@/features/quotes/request-intake";
 import { sanitizeClientVisibleSpecSnapshot } from "@/features/quotes/rfq-metadata";
 import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
+import { toArchivedDeleteError } from "@/features/quotes/archive-delete-errors";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import {
   getImportedVendorOffers,
@@ -1278,7 +1279,7 @@ async function deleteArchivedJobLegacy(jobId: string): Promise<ArchivedDeleteLeg
     ok: false,
     kind: "failure",
     error,
-    message: error instanceof Error ? error.message : "Failed to delete archived part.",
+    message: toArchivedDeleteError(error).message,
   };
 }
 
@@ -3568,7 +3569,7 @@ export async function deleteArchivedJobs(jobIds: string[]): Promise<ArchivedJobD
     throw new ArchivedDeleteCapabilityError("api_delete_archived_jobs", "missing_schema");
   }
 
-  throw error;
+  throw toArchivedDeleteError(error);
 }
 
 export async function setJobSelectedVendorQuoteOffer(jobId: string, offerId: string | null): Promise<string> {

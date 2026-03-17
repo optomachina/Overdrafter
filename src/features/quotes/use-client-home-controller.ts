@@ -38,6 +38,10 @@ import {
   resolveWorkspaceProjectIdsForJob,
 } from "@/features/quotes/client-workspace";
 import {
+  logArchivedDeleteFailure,
+  toArchivedDeleteError,
+} from "@/features/quotes/archive-delete-errors";
+import {
   invalidateClientWorkspaceQueries,
   useClientWorkspaceData,
   useWarmClientWorkspaceNavigation,
@@ -447,14 +451,18 @@ export function useClientHomeController() {
         `Deleted ${result.deletedJobIds.length} archived parts, but ${result.failures.length} could not be removed.`,
       );
     } catch (error) {
-      if (!isArchivedDeleteCapabilityError(error)) {
-        console.error("Archived part delete failed", {
+      const surfacedError = toArchivedDeleteError(error);
+
+      if (!isArchivedDeleteCapabilityError(surfacedError)) {
+        logArchivedDeleteFailure({
+          error,
           jobIds: normalizedIds,
-          message: error instanceof Error ? error.message : String(error),
+          organizationId: activeMembership?.organizationId,
+          userId: user?.id,
         });
       }
-      toast.error(error instanceof Error ? error.message : "Failed to delete archived part.");
-      throw error;
+      toast.error(surfacedError.message);
+      throw surfacedError;
     }
   };
 

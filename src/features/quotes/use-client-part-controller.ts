@@ -35,6 +35,10 @@ import { buildActivityLogEntries } from "@/features/quotes/activity-log";
 import { formatPartLabel, getClientItemPresentation } from "@/features/quotes/client-presentation";
 import { describeClientPresetUnavailableReason } from "@/features/quotes/client-workspace-state";
 import {
+  logArchivedDeleteFailure,
+  toArchivedDeleteError,
+} from "@/features/quotes/archive-delete-errors";
+import {
   buildSidebarProjectIdsByJobId,
   buildSidebarProjects,
   resolveWorkspaceProjectIdsForJob,
@@ -764,14 +768,18 @@ export function useClientPartController() {
         `Deleted ${result.deletedJobIds.length} archived parts, but ${result.failures.length} could not be removed.`,
       );
     } catch (error) {
-      if (!isArchivedDeleteCapabilityError(error)) {
-        console.error("Archived part delete failed", {
+      const surfacedError = toArchivedDeleteError(error);
+
+      if (!isArchivedDeleteCapabilityError(surfacedError)) {
+        logArchivedDeleteFailure({
+          error,
           jobIds: normalizedIds,
-          message: error instanceof Error ? error.message : String(error),
+          organizationId: activeMembership?.organizationId,
+          userId: user?.id,
         });
       }
-      toast.error(error instanceof Error ? error.message : "Failed to delete archived part.");
-      throw error;
+      toast.error(surfacedError.message);
+      throw surfacedError;
     }
   };
 
