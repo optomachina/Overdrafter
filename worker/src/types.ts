@@ -1,5 +1,6 @@
 export type QueueTaskType =
   | "extract_part"
+  | "debug_extract_part"
   | "run_vendor_quote"
   | "poll_vendor_quote"
   | "publish_package"
@@ -310,6 +311,8 @@ export type WorkerConfig = {
   xometryStorageStatePath: string | null;
   xometryStorageStateJson: string | null;
   openAiApiKey: string | null;
+  workerBuildVersion: string;
   drawingExtractionModel: string;
   drawingExtractionEnableModelFallback: boolean;
+  drawingExtractionDebugAllowedModels: string[];
 };

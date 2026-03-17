@@ -226,7 +226,11 @@ function getSnapshot(config: WorkerConfig, state: WorkerRuntimeState) {
   return {
     service: "overdrafter-cad-worker",
     workerName: config.workerName,
+    workerBuildVersion: config.workerBuildVersion,
     workerMode: config.workerMode,
+    drawingExtractionModel: config.drawingExtractionModel,
+    drawingExtractionDebugAllowedModels: config.drawingExtractionDebugAllowedModels,
+    drawingExtractionModelFallbackEnabled: config.drawingExtractionEnableModelFallback,
     status: state.status,
     ready,
     readinessIssues: state.readinessIssues,

@@ -1,6 +1,6 @@
 # Drawing Extraction
 
-Last updated: March 16, 2026
+Last updated: March 17, 2026
 
 ## Purpose
 
@@ -55,16 +55,35 @@ Priority order per field:
 - If parser and model disagree on a critical field and neither clearly wins, the field stays review-needed and the extraction lifecycle remains partial.
 - The worker should still try to produce a first-page preview for model fallback when Poppler text extraction is unavailable. On macOS debug hosts, Quick Look rendering is an acceptable fallback for this preview image.
 
+## Extraction Lab
+
+- Internal debugging now supports preview-only reruns through the `Extraction Lab` on the internal job detail page.
+- Debug reruns enqueue `debug_extract_part` tasks and persist their result in `debug_extraction_runs`.
+- Preview-only runs must not overwrite canonical `drawing_extractions` rows or `approved_part_requirements`.
+- The lab should show canonical extraction and the latest preview-only debug run side by side, including:
+  - worker build version
+  - extractor version
+  - requested model and effective model
+  - raw extracted fields
+  - normalized quote-facing fields
+  - review fields, warnings, and candidate/debug metadata
+- The browser must request preview runs through Supabase RPC rather than calling the worker directly.
+- `OPENAI_API_KEY` belongs only in the worker environment or secret manager.
+- `DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS` defines the allowlisted per-run model selector shown in the lab.
+- `WORKER_BUILD_VERSION` should be injected from deploy metadata or git SHA so preview runs and canonical rows reveal the exact worker build that produced them.
+
 ## Internal review precedence
 
 - Internal quote review should not blindly display `approved_part_requirements` when those values were auto-derived.
 - If an approved field is auto-managed, the extraction is newer, and the extracted field is not review-blocked, the review UI should display the fresher extraction-backed value and surface the stale approved value as provenance.
 - Explicit user-owned approved values remain authoritative until a user chooses to rebuild them from extraction.
+- If there is no approved value yet and the extraction is review-blocked, the editable field should stay blank while the raw extracted candidate remains visible as review evidence.
 
 ## Smoke verification
 
 - For real-file diagnostics outside fixture coverage, use `npm --prefix worker run extract:smoke -- /absolute/path/to/drawing.pdf`.
 - The smoke command should print the raw extraction payload, preview path, and run directory so parser-vs-model behavior can be inspected against a production PDF without mutating application data.
+- For app-level debugging of a stored part, prefer the internal `Extraction Lab` first because it keeps the run attached to the part/job record, records build/model metadata, and avoids reuploading or archiving files.
 
 ## Regression coverage
 

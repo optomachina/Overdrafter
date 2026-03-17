@@ -1,6 +1,6 @@
 # OverDrafter Architecture
 
-Last updated: March 14, 2026
+Last updated: March 17, 2026
 
 ## Purpose
 
@@ -48,6 +48,7 @@ The next-phase domain model should expand that quote-centric shape into an expli
 - preserving raw drawing-derived values and evidence in `drawing_extractions`
 - normalizing quote-facing requirement fields separately in `approved_part_requirements` / `spec_snapshot`
 - generating previews and auto-approving extracted requirements for normal quote preparation
+- supporting preview-only debug reruns in `debug_extraction_runs` without mutating canonical extraction or approved requirements
 - failing closed into review when field confidence is low or candidates conflict
 - running long-lived or queued work
 - surfacing processing status and failures without blocking part navigation
@@ -138,6 +139,8 @@ Drawing extraction is advisory evidence, not the canonical quote contract.
 
 - `drawing_extractions.extraction` stores source-truth raw fields, field confidence, review-needed state, evidence, and debug candidate metadata.
 - the worker should prefer deterministic label-anchored parsing first and call `gpt-5.4` fallback only when critical fields are missing, weak, or conflicting.
+- preview-only debug reruns should flow through Supabase and the worker queue using `debug_extract_part`, not direct browser-to-worker calls.
+- `debug_extraction_runs` is the internal observability record for preview-only reruns and should persist worker build, extractor version, selected model, and raw result payload.
 - `approved_part_requirements` stores the normalized requirement record used by quoting and estimator workflows.
 - `approved_part_requirements.spec_snapshot` is the transitional home for normalized quote-facing variants such as `quoteDescription`, `quoteFinish`, and field provenance or override state.
 - Auto-approval may refresh auto-managed normalized fields from extraction output, but it must preserve reviewed user-managed values and must not silently promote low-confidence raw extraction into approved requirements.

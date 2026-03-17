@@ -43,11 +43,20 @@ function buildSmokeConfig(): WorkerConfig {
     xometryStorageStatePath: null,
     xometryStorageStateJson: null,
     openAiApiKey,
+    workerBuildVersion: process.env.WORKER_BUILD_VERSION ?? "smoke-local",
     drawingExtractionModel: process.env.DRAWING_EXTRACTION_MODEL ?? "gpt-5.4",
     drawingExtractionEnableModelFallback:
       (process.env.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK ?? "").trim().length > 0
         ? /^(1|true|yes|on)$/i.test(process.env.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK ?? "")
         : Boolean(openAiApiKey),
+    drawingExtractionDebugAllowedModels: (
+      process.env.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS ??
+      process.env.DRAWING_EXTRACTION_MODEL ??
+      "gpt-5.4"
+    )
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
   };
 }
 

@@ -33,8 +33,10 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     xometryStorageStatePath: null,
     xometryStorageStateJson: null,
     openAiApiKey: null,
+    workerBuildVersion: "dev-local",
     drawingExtractionModel: "gpt-5.4",
     drawingExtractionEnableModelFallback: false,
+    drawingExtractionDebugAllowedModels: ["gpt-5.4"],
     ...overrides,
   };
 }
@@ -129,6 +131,18 @@ describe("runtimeSecrets", () => {
       ),
     ).toEqual([
       "Drawing extraction model fallback is enabled but OPENAI_API_KEY is missing. Fallback requests will stay disabled.",
+    ]); 
+  });
+
+  it("reports readiness issues when no debug extraction models are allowlisted", async () => {
+    expect(
+      await validateDrawingExtractionReadiness(
+        makeConfig({
+          drawingExtractionDebugAllowedModels: [],
+        }),
+      ),
+    ).toEqual([
+      "DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS must include at least one model for debug extraction runs.",
     ]);
   });
 

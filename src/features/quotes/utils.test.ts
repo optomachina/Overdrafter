@@ -120,6 +120,8 @@ describe("quotes utils", () => {
       description: "Widget plate",
       partNumber: "1093-05589",
       revision: "A",
+      workerBuildVersion: null,
+      extractorVersion: null,
       quoteDescription: "Widget plate",
       quoteFinish: "Anodize",
       model: {
@@ -190,6 +192,7 @@ describe("quotes utils", () => {
   it("builds requirement drafts from extraction data and excludes SendCutSend for tight tolerances", () => {
     const part = makePartAggregate({
       extraction: makeExtractionRecord({
+        status: "approved",
         extraction: {
           description: "Optic bracket",
           partNumber: "1093-03242",
@@ -683,6 +686,58 @@ describe("quotes utils", () => {
       approvedSource: "auto",
       staleAuto: false,
       reviewBlocked: true,
+    });
+  });
+
+  it("does not auto-populate editable fields from legacy needs-review extraction rows", () => {
+    const part = makePartAggregate({
+      extraction: makeExtractionRecord({
+        status: "needs_review",
+        extraction: {
+          description: "8 7 6 5 4 3 2 1",
+          partNumber: "A-8625F",
+          revision: "S",
+          finish: {
+            raw: "ENGINEER TIM 10/29/2013",
+            normalized: "ENGINEER TIM 10/29/2013",
+            confidence: 0.6,
+          },
+          material: {
+            raw: "6061 Alloy",
+            normalized: "6061 Alloy",
+            confidence: 0.72,
+          },
+        },
+        updated_at: "2026-03-17T07:53:20Z",
+      }),
+      approvedRequirement: null,
+    });
+
+    const normalizedExtraction = normalizeDrawingExtraction(part.extraction, part.id);
+
+    expect(normalizedExtraction.reviewFields).toEqual([
+      "description",
+      "partNumber",
+      "revision",
+      "material",
+      "finish",
+    ]);
+    expect(normalizedExtraction.rawFields.partNumber.reviewNeeded).toBe(true);
+    expect(normalizedExtraction.rawFields.description.reviewNeeded).toBe(true);
+    expect(normalizedExtraction.rawFields.revision.reviewNeeded).toBe(true);
+    expect(normalizedExtraction.rawFields.finish.reviewNeeded).toBe(true);
+    expect(resolveRequirementField(part, "partNumber", normalizedExtraction)).toMatchObject({
+      value: null,
+      source: "extraction",
+      reviewBlocked: true,
+      extractionValue: "A-8625F",
+    });
+    expect(buildRequirementDraft(part)).toMatchObject({
+      description: null,
+      partNumber: null,
+      revision: null,
+      finish: null,
+      material: "6061 Alloy",
     });
   });
 

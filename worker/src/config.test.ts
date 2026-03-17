@@ -27,8 +27,10 @@ describe("loadConfig", () => {
       xometryStorageStatePath: null,
       xometryStorageStateJson: null,
       openAiApiKey: null,
+      workerBuildVersion: "dev-local",
       drawingExtractionModel: "gpt-5.4",
       drawingExtractionEnableModelFallback: false,
+      drawingExtractionDebugAllowedModels: ["gpt-5.4"],
     });
     expect(config.workerTempDir).toBe(path.resolve(path.join(os.tmpdir(), "overdrafter-worker")));
   });
@@ -52,7 +54,9 @@ describe("loadConfig", () => {
       XOMETRY_STORAGE_STATE_PATH: "./state.json",
       XOMETRY_STORAGE_STATE_JSON: "{\"cookies\":[]}",
       OPENAI_API_KEY: "test-openai-key",
+      WORKER_BUILD_VERSION: "sha-123",
       DRAWING_EXTRACTION_MODEL: "gpt-5.4",
+      DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS: "gpt-5.4,gpt-5.4-mini",
       DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: "true",
     });
 
@@ -70,8 +74,10 @@ describe("loadConfig", () => {
       playwrightDisableDevShmUsage: false,
       xometryStorageStateJson: "{\"cookies\":[]}",
       openAiApiKey: "test-openai-key",
+      workerBuildVersion: "sha-123",
       drawingExtractionModel: "gpt-5.4",
       drawingExtractionEnableModelFallback: true,
+      drawingExtractionDebugAllowedModels: ["gpt-5.4", "gpt-5.4-mini"],
     });
     expect(config.workerTempDir).toBe(path.resolve("./tmp/worker"));
     expect(config.xometryStorageStatePath).toBe(path.resolve("./state.json"));

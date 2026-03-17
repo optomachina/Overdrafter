@@ -11,6 +11,7 @@ import type {
   ApprovedPartRequirement,
   ClientPartMetadataRecord,
   ClientSelectionRecord,
+  DebugExtractionRunRecord,
   ClientPackageAggregate,
   ClientActivityEvent,
   ClientDraftInput,
@@ -1740,7 +1741,9 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
 
   const [
     extractionResult,
+    previewAssetResult,
     approvedResult,
+    debugExtractionRunsResult,
     vendorQuoteResult,
     optionResult,
     selectionResult,
@@ -1749,8 +1752,18 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
       ? supabase.from("drawing_extractions").select("*").in("part_id", partIds)
       : emptyResponse<DrawingExtractionRecord>(),
     partIds.length > 0
+      ? supabase.from("drawing_preview_assets").select("*").in("part_id", partIds)
+      : emptyResponse<DrawingPreviewAssetRecord>(),
+    partIds.length > 0
       ? supabase.from("approved_part_requirements").select("*").in("part_id", partIds)
       : emptyResponse<ApprovedPartRequirementRecord>(),
+    partIds.length > 0
+      ? supabase
+          .from("debug_extraction_runs")
+          .select("*")
+          .in("part_id", partIds)
+          .order("created_at", { ascending: false })
+      : emptyResponse<DebugExtractionRunRecord>(),
     quoteRunIds.length > 0
       ? supabase.from("vendor_quote_results").select("*").in("quote_run_id", quoteRunIds)
       : emptyResponse<VendorQuoteResultRecord>(),
@@ -1780,10 +1793,18 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
     : ((await pricingPolicyPromise) as PostgrestSingleResponse<PricingPolicyRecord | null>);
 
   const extractions = ensureData(extractionResult.data, extractionResult.error) as DrawingExtractionRecord[];
+  const drawingPreviewAssets = ensureData(
+    previewAssetResult.data,
+    previewAssetResult.error,
+  ) as DrawingPreviewAssetRecord[];
   const approvedRequirements = ensureData(
     approvedResult.data,
     approvedResult.error,
   ) as ApprovedPartRequirementRecord[];
+  const debugExtractionRuns = ensureData(
+    debugExtractionRunsResult.data,
+    debugExtractionRunsResult.error,
+  ) as DebugExtractionRunRecord[];
   const vendorQuotes = ensureData(
     vendorQuoteResult.data,
     vendorQuoteResult.error,
@@ -1893,6 +1914,8 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
     packages: packagesWithOptions,
     pricingPolicy,
     workQueue,
+    drawingPreviewAssets,
+    debugExtractionRuns,
   };
 }
 
@@ -3778,6 +3801,18 @@ export async function requestExtraction(jobId: string): Promise<number> {
   return ensureData(data, error);
 }
 
+export async function requestDebugExtraction(
+  partId: string,
+  model: string | null,
+): Promise<string> {
+  const { data, error } = await callRpc("api_request_debug_extraction", {
+    p_part_id: partId,
+    p_model: model,
+  });
+
+  return ensureData(data, error);
+}
+
 export async function approveJobRequirements(
   jobId: string,
   requirements: ApprovedPartRequirement[],
@@ -3923,7 +3958,11 @@ export async function fetchWorkerReadiness(): Promise<WorkerReadinessSnapshot> {
       reachable: false,
       ready: null,
       workerName: null,
+      workerBuildVersion: null,
       workerMode: null,
+      drawingExtractionModel: null,
+      drawingExtractionDebugAllowedModels: [],
+      drawingExtractionModelFallbackEnabled: false,
       status: null,
       readinessIssues: [],
       message: "Set VITE_WORKER_BASE_URL to enable the worker readiness probe.",
@@ -3946,7 +3985,14 @@ export async function fetchWorkerReadiness(): Promise<WorkerReadinessSnapshot> {
       reachable: true,
       ready: typeof payload.ready === "boolean" ? payload.ready : response.ok,
       workerName: typeof payload.workerName === "string" ? payload.workerName : null,
+      workerBuildVersion: typeof payload.workerBuildVersion === "string" ? payload.workerBuildVersion : null,
       workerMode: typeof payload.workerMode === "string" ? payload.workerMode : null,
+      drawingExtractionModel:
+        typeof payload.drawingExtractionModel === "string" ? payload.drawingExtractionModel : null,
+      drawingExtractionDebugAllowedModels: Array.isArray(payload.drawingExtractionDebugAllowedModels)
+        ? payload.drawingExtractionDebugAllowedModels.map(String)
+        : [],
+      drawingExtractionModelFallbackEnabled: Boolean(payload.drawingExtractionModelFallbackEnabled),
       status: typeof payload.status === "string" ? payload.status : null,
       readinessIssues: Array.isArray(payload.readinessIssues)
         ? payload.readinessIssues.map(String)
@@ -3959,7 +4005,11 @@ export async function fetchWorkerReadiness(): Promise<WorkerReadinessSnapshot> {
       reachable: false,
       ready: null,
       workerName: null,
+      workerBuildVersion: null,
       workerMode: null,
+      drawingExtractionModel: null,
+      drawingExtractionDebugAllowedModels: [],
+      drawingExtractionModelFallbackEnabled: false,
       status: null,
       readinessIssues: [],
       message: error instanceof Error ? error.message : "Unable to reach the worker readiness probe.",

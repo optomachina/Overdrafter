@@ -102,17 +102,27 @@ export async function validateXometryReadiness(config: WorkerConfig): Promise<st
 }
 
 export async function validateDrawingExtractionReadiness(config: WorkerConfig): Promise<string[]> {
+  const issues: string[] = [];
+
+  if (config.drawingExtractionDebugAllowedModels.length === 0) {
+    issues.push(
+      "DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS must include at least one model for debug extraction runs.",
+    );
+  }
+
   if (!config.drawingExtractionEnableModelFallback) {
-    return [];
+    return issues;
   }
 
   if (config.openAiApiKey) {
-    return [];
+    return issues;
   }
 
-  return [
+  issues.push(
     "Drawing extraction model fallback is enabled but OPENAI_API_KEY is missing. Fallback requests will stay disabled.",
-  ];
+  );
+
+  return issues;
 }
 
 export async function validateWorkerReadiness(config: WorkerConfig): Promise<string[]> {

@@ -3,6 +3,8 @@ import type {
   ClientExtractionDiagnostics,
   ClientPartMetadataRecord,
   ClientPartRequirementView,
+  DebugExtractionRunRecord,
+  DebugExtractionRunSummary,
   DrawingExtractionData,
   DrawingExtractionRecord,
   DrawingPreviewAssetRecord,
@@ -135,6 +137,10 @@ function normalizeEvidence(extraction: DrawingExtractionRecord | null): DrawingE
     confidence: Number(item.confidence ?? 0),
     reasons: asStringArray(item.reasons),
   }));
+}
+
+function hasExplicitReviewFlag(field: Record<string, unknown>) {
+  return typeof field.reviewNeeded === "boolean";
 }
 
 function normalizeComparableString(value: string | null | undefined) {
@@ -279,12 +285,25 @@ export function resolveRequirementField(
     !reviewBlocked &&
     valuesDiffer;
 
-  if (staleAuto || (!approvedValue && extractionValue)) {
+  if (staleAuto || (!approvedValue && extractionValue && !reviewBlocked)) {
     return {
       value: extractionValue,
       source: "extraction",
       approvedSource,
       staleAuto,
+      extractionNewer,
+      reviewBlocked,
+      approvedValue,
+      extractionValue,
+    };
+  }
+
+  if (!approvedValue && reviewBlocked) {
+    return {
+      value: null,
+      source: "extraction",
+      approvedSource,
+      staleAuto: false,
       extractionNewer,
       reviewBlocked,
       approvedValue,
@@ -348,14 +367,44 @@ export function normalizeDrawingExtraction(
   const finish = asObject(payload.finish);
   const tolerances = asObject(payload.tolerances);
   const warnings = asArray<string>(extraction?.warnings).map(String);
-  const reviewFields = asStringArray(payload.reviewFields);
+  const storedReviewFields = asStringArray(payload.reviewFields);
   const fieldSelections = asObject(payload.fieldSelections);
+  const isLegacyNeedsReviewRecord =
+    extraction?.status === "needs_review" &&
+    storedReviewFields.length === 0 &&
+    !hasExplicitReviewFlag(extractedDescriptionRaw) &&
+    !hasExplicitReviewFlag(extractedPartNumberRaw) &&
+    !hasExplicitReviewFlag(extractedRevisionRaw) &&
+    !hasExplicitReviewFlag(extractedFinishRaw);
+  const reviewFields = isLegacyNeedsReviewRecord
+    ? ["description", "partNumber", "revision", "material", "finish"]
+    : storedReviewFields;
+  const descriptionReviewNeeded =
+    typeof extractedDescriptionRaw.reviewNeeded === "boolean"
+      ? Boolean(extractedDescriptionRaw.reviewNeeded)
+      : reviewFields.includes("description");
+  const partNumberReviewNeeded =
+    typeof extractedPartNumberRaw.reviewNeeded === "boolean"
+      ? Boolean(extractedPartNumberRaw.reviewNeeded)
+      : reviewFields.includes("partNumber");
+  const revisionReviewNeeded =
+    typeof extractedRevisionRaw.reviewNeeded === "boolean"
+      ? Boolean(extractedRevisionRaw.reviewNeeded)
+      : reviewFields.includes("revision");
+  const finishReviewNeeded =
+    typeof extractedFinishRaw.reviewNeeded === "boolean"
+      ? Boolean(extractedFinishRaw.reviewNeeded)
+      : reviewFields.includes("finish");
+  const materialReviewNeeded =
+    typeof material.reviewNeeded === "boolean" ? Boolean(material.reviewNeeded) : reviewFields.includes("material");
 
   return {
     partId,
     description: (payload.description ?? payload.desc ?? null) as string | null,
     partNumber: (payload.partNumber ?? payload.pn ?? null) as string | null,
     revision: (payload.revision ?? payload.rev ?? null) as string | null,
+    workerBuildVersion: typeof payload.workerBuildVersion === "string" ? payload.workerBuildVersion : null,
+    extractorVersion: extraction?.extractor_version ?? null,
     quoteDescription: (payload.quoteDescription ?? payload.description ?? payload.desc ?? null) as string | null,
     quoteFinish:
       (payload.quoteFinish ?? finish.normalized ?? finish.raw ?? payload.finish ?? null) as string | null,
@@ -382,25 +431,25 @@ export function normalizeDrawingExtraction(
       description: {
         raw: (extractedDescriptionRaw.value ?? payload.description ?? payload.desc ?? null) as string | null,
         confidence: Number(extractedDescriptionRaw.confidence ?? extraction?.confidence ?? 0),
-        reviewNeeded: Boolean(extractedDescriptionRaw.reviewNeeded),
+        reviewNeeded: descriptionReviewNeeded,
         reasons: asStringArray(extractedDescriptionRaw.reasons),
       },
       partNumber: {
         raw: (extractedPartNumberRaw.value ?? payload.partNumber ?? payload.pn ?? null) as string | null,
         confidence: Number(extractedPartNumberRaw.confidence ?? extraction?.confidence ?? 0),
-        reviewNeeded: Boolean(extractedPartNumberRaw.reviewNeeded),
+        reviewNeeded: partNumberReviewNeeded,
         reasons: asStringArray(extractedPartNumberRaw.reasons),
       },
       revision: {
         raw: (extractedRevisionRaw.value ?? payload.revision ?? payload.rev ?? null) as string | null,
         confidence: Number(extractedRevisionRaw.confidence ?? extraction?.confidence ?? 0),
-        reviewNeeded: Boolean(extractedRevisionRaw.reviewNeeded),
+        reviewNeeded: revisionReviewNeeded,
         reasons: asStringArray(extractedRevisionRaw.reasons),
       },
       finish: {
         raw: (extractedFinishRaw.value ?? finish.raw ?? finish.raw_text ?? payload.finish ?? null) as string | null,
         confidence: Number(extractedFinishRaw.confidence ?? extraction?.confidence ?? 0),
-        reviewNeeded: Boolean(extractedFinishRaw.reviewNeeded),
+        reviewNeeded: finishReviewNeeded,
         reasons: asStringArray(extractedFinishRaw.reasons),
       },
     },
@@ -408,7 +457,7 @@ export function normalizeDrawingExtraction(
       raw: (material.raw ?? material.raw_text ?? null) as string | null,
       normalized: (material.normalized ?? null) as string | null,
       confidence: Number(material.confidence ?? extraction?.confidence ?? 0),
-      reviewNeeded: Boolean(material.reviewNeeded),
+      reviewNeeded: materialReviewNeeded,
       reasons: asStringArray(material.reasons),
     },
     finish: {
@@ -429,6 +478,62 @@ export function normalizeDrawingExtraction(
     warnings,
     reviewFields,
     status: extraction?.status ?? "needs_review",
+  };
+}
+
+export function normalizeDebugExtractionRun(
+  run: DebugExtractionRunRecord | null,
+  partId: string,
+): {
+  summary: DebugExtractionRunSummary | null;
+  extraction: DrawingExtractionData | null;
+} {
+  if (!run) {
+    return {
+      summary: null,
+      extraction: null,
+    };
+  }
+
+  const result = asObject(run.result);
+  const extractionPayload = asObject(result.extraction);
+  const extractionRecord: DrawingExtractionRecord | null =
+    Object.keys(extractionPayload).length > 0
+      ? ({
+          id: run.id,
+          part_id: run.part_id,
+          organization_id: run.organization_id,
+          extractor_version: run.extractor_version ?? "debug",
+          extraction: extractionPayload as Json,
+          confidence: null,
+          warnings: (result.warnings ?? []) as Json,
+          evidence: (result.evidence ?? []) as Json,
+          status: result.status === "approved" ? "approved" : "needs_review",
+          created_at: run.created_at,
+          updated_at: run.updated_at,
+        } as DrawingExtractionRecord)
+      : null;
+
+  return {
+    summary: {
+      id: run.id,
+      jobId: run.job_id,
+      partId: run.part_id,
+      requestedModel: run.requested_model,
+      effectiveModel: run.effective_model,
+      workerBuildVersion: run.worker_build_version,
+      extractorVersion: run.extractor_version,
+      modelFallbackUsed: run.model_fallback_used,
+      modelPromptVersion: run.model_prompt_version,
+      status: run.status,
+      error: run.error,
+      startedAt: run.started_at,
+      completedAt: run.completed_at,
+      createdAt: run.created_at,
+      updatedAt: run.updated_at,
+      result: run.result,
+    },
+    extraction: extractionRecord ? normalizeDrawingExtraction(extractionRecord, partId) : null,
   };
 }
 

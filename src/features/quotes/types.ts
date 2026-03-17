@@ -34,6 +34,7 @@ export type JobFileRecord = Database["public"]["Tables"]["job_files"]["Row"];
 export type PartRecord = Database["public"]["Tables"]["parts"]["Row"];
 export type DrawingExtractionRecord = Database["public"]["Tables"]["drawing_extractions"]["Row"];
 export type DrawingPreviewAssetRecord = Database["public"]["Tables"]["drawing_preview_assets"]["Row"];
+export type DebugExtractionRunRecord = Database["public"]["Tables"]["debug_extraction_runs"]["Row"];
 export type ApprovedPartRequirementRecord = Database["public"]["Tables"]["approved_part_requirements"]["Row"];
 export type QuoteRequestRecord = Database["public"]["Tables"]["quote_requests"]["Row"];
 export type QuoteRunRecord = Database["public"]["Tables"]["quote_runs"]["Row"];
@@ -93,6 +94,8 @@ export type DrawingExtractionData = {
   description: string | null;
   partNumber: string | null;
   revision: string | null;
+  workerBuildVersion?: string | null;
+  extractorVersion?: string | null;
   quoteDescription?: string | null;
   quoteFinish?: string | null;
   model?: {
@@ -132,6 +135,25 @@ export type DrawingExtractionData = {
   warnings: string[];
   reviewFields?: string[];
   status: ExtractionStatus;
+};
+
+export type DebugExtractionRunSummary = {
+  id: string;
+  jobId: string;
+  partId: string;
+  requestedModel: string;
+  effectiveModel: string | null;
+  workerBuildVersion: string | null;
+  extractorVersion: string | null;
+  modelFallbackUsed: boolean | null;
+  modelPromptVersion: string | null;
+  status: QueueTaskStatus;
+  error: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  result: Json;
 };
 
 export type ClientExtractionLifecycle =
@@ -524,13 +546,19 @@ export type JobAggregate = {
   packages: PublishedPackageAggregate[];
   pricingPolicy: PricingPolicyRecord | null;
   workQueue: WorkQueueRecord[];
+  drawingPreviewAssets?: DrawingPreviewAssetRecord[];
+  debugExtractionRuns?: DebugExtractionRunRecord[];
 };
 
 export type WorkerReadinessSnapshot = {
   reachable: boolean;
   ready: boolean | null;
   workerName: string | null;
+  workerBuildVersion?: string | null;
   workerMode: string | null;
+  drawingExtractionModel?: string | null;
+  drawingExtractionDebugAllowedModels?: string[];
+  drawingExtractionModelFallbackEnabled?: boolean;
   status: string | null;
   readinessIssues: string[];
   message: string | null;

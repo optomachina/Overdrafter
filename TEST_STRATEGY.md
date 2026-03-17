@@ -1,6 +1,6 @@
 # OverDrafter Test Strategy
 
-Last updated: March 13, 2026
+Last updated: March 17, 2026
 
 ## Purpose
 
@@ -100,6 +100,8 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - when model fallback is in scope, verify both parser-only and parser-plus-model branches, including disagreement fail-closed behavior
 - when stale approved metadata is part of the failure, verify both the extraction payload and the approved-requirement precedence layer
 - when fixture coverage is insufficient, run the worker smoke harness against the real drawing file and capture the printed raw extraction payload as verification evidence
+- when preview-only debug reruns are in scope, verify that `debug_extract_part` persists to `debug_extraction_runs`, respects the model allowlist, and does not mutate canonical `drawing_extractions` or `approved_part_requirements`
+- for internal Extraction Lab UI changes, verify model selection, status polling, and side-by-side rendering of canonical extraction versus preview-only debug output
 
 ### Schema or migration changes
 - validate the migration path

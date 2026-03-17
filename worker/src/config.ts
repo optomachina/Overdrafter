@@ -43,13 +43,23 @@ const schema = z.object({
   XOMETRY_STORAGE_STATE_PATH: z.string().optional(),
   XOMETRY_STORAGE_STATE_JSON: z.string().optional(),
   OPENAI_API_KEY: z.string().min(1).optional(),
+  WORKER_BUILD_VERSION: z.string().default("dev-local"),
   DRAWING_EXTRACTION_MODEL: z.string().default("gpt-5.4"),
+  DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS: z.string().optional(),
   DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: envBoolean.optional(),
 });
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   const parsed = schema.parse(env);
   const workerTempDir = path.resolve(parsed.WORKER_TEMP_DIR);
+  const drawingExtractionDebugAllowedModels = [
+    ...new Set(
+      (parsed.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS ?? parsed.DRAWING_EXTRACTION_MODEL)
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  ];
 
   return {
     supabaseUrl: parsed.SUPABASE_URL,
@@ -71,8 +81,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       : null,
     xometryStorageStateJson: parsed.XOMETRY_STORAGE_STATE_JSON ?? null,
     openAiApiKey: parsed.OPENAI_API_KEY ?? null,
+    workerBuildVersion: parsed.WORKER_BUILD_VERSION,
     drawingExtractionModel: parsed.DRAWING_EXTRACTION_MODEL,
     drawingExtractionEnableModelFallback:
       parsed.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK ?? Boolean(parsed.OPENAI_API_KEY),
+    drawingExtractionDebugAllowedModels,
   };
 }

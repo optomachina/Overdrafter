@@ -17,6 +17,7 @@ import { AppShell } from "@/components/app/AppShell";
 import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
 import { ManualQuoteIntakeCard } from "@/components/quotes/ManualQuoteIntakeCard";
+import { ExtractionLabCard } from "@/components/quotes/ExtractionLabCard";
 import { RfqLineItemMetadataFields } from "@/components/quotes/RfqLineItemMetadataFields";
 import { RequestServiceIntentFields } from "@/components/quotes/RequestServiceIntentFields";
 import { RequestedQuantityFilter } from "@/components/quotes/RequestedQuantityFilter";
@@ -94,6 +95,24 @@ const InternalJobDetail = () => {
     queryKey: ["job", jobId],
     queryFn: () => fetchJobAggregate(jobId),
     enabled: Boolean(jobId && user && activeMembership && activeMembership.role !== "client"),
+    refetchInterval: (query) => {
+      const current = query.state.data;
+
+      if (!current) {
+        return false;
+      }
+
+      const hasInFlightDebugRun = (current.debugExtractionRuns ?? []).some(
+        (run) => run.status === "queued" || run.status === "running",
+      );
+      const hasInFlightDebugTask = current.workQueue.some(
+        (task) =>
+          task.task_type === "debug_extract_part" &&
+          (task.status === "queued" || task.status === "running"),
+      );
+
+      return hasInFlightDebugRun || hasInFlightDebugTask ? 2500 : false;
+    },
   });
 
   const cadPreviewSources = useMemo(
@@ -972,6 +991,16 @@ const InternalJobDetail = () => {
             parts={job.parts}
             disabled={writeActionsDisabled}
           />
+
+          {showDebugTools ? (
+            <ExtractionLabCard
+              jobId={jobId}
+              parts={job.parts}
+              debugExtractionRuns={job.debugExtractionRuns ?? []}
+              drawingPreviewAssets={job.drawingPreviewAssets ?? []}
+              disabled={writeActionsDisabled}
+            />
+          ) : null}
 
           {showDebugTools ? (
             <XometryDebugCard

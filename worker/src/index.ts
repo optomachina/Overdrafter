@@ -34,6 +34,7 @@ import { suggestLocatorUpdate } from "./repair/suggestLocatorUpdate.js";
 import { prepareRuntimeSecrets, validateWorkerReadiness } from "./runtimeSecrets.js";
 import {
   ApprovedRequirementRecord,
+  DrawingExtractionPayload,
   JobFileRecord,
   PartRecord,
   QueueTaskRecord,
@@ -48,6 +49,9 @@ import {
   nextRetryAt,
   retryCountForAttempts,
 } from "./vendorTaskRetry.js";
+
+const PDF_EXTRACTOR_VERSION = "worker-pdf-v3";
+const SIM_EXTRACTOR_VERSION = "worker-sim-v1";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -135,6 +139,48 @@ function summarizeExtractionOutcome(extraction: Awaited<ReturnType<typeof runHyb
       missingFields.length > 0 || reviewFields.length > 0 || extraction.warnings.length > 0
         ? "partial"
         : "succeeded",
+  };
+}
+
+function currentExtractorVersion(hasDrawingFile: boolean) {
+  return hasDrawingFile ? PDF_EXTRACTOR_VERSION : SIM_EXTRACTOR_VERSION;
+}
+
+function buildStoredExtractionPayload(
+  extraction: DrawingExtractionPayload,
+  pageCount: number,
+  workerBuildVersion: string,
+) {
+  return {
+    pageCount,
+    workerBuildVersion,
+    description: extraction.description,
+    partNumber: extraction.partNumber,
+    revision: extraction.revision,
+    extractedDescriptionRaw: extraction.extractedDescriptionRaw,
+    extractedPartNumberRaw: extraction.extractedPartNumberRaw,
+    extractedRevisionRaw: extraction.extractedRevisionRaw,
+    extractedFinishRaw: extraction.extractedFinishRaw,
+    quoteDescription: extraction.quoteDescription,
+    quoteFinish: extraction.quoteFinish,
+    reviewFields: extraction.reviewFields,
+    debugCandidates: extraction.debugCandidates,
+    modelFallbackUsed: extraction.modelFallbackUsed,
+    modelName: extraction.modelName,
+    modelPromptVersion: extraction.modelPromptVersion,
+    fieldSelections: extraction.fieldSelections,
+    modelCandidates: extraction.modelCandidates,
+    material: extraction.material,
+    finish: extraction.finish,
+    generalTolerance: extraction.generalTolerance,
+    tolerances: {
+      general: extraction.generalTolerance.raw,
+      tightest: extraction.tightestTolerance.raw,
+      valueInch: extraction.tightestTolerance.valueInch,
+      confidence: extraction.tightestTolerance.confidence,
+    },
+    notes: extraction.notes,
+    threads: extraction.threads,
   };
 }
 
@@ -514,9 +560,29 @@ async function pathToBuffer(filePath: string) {
   return readFile(filePath);
 }
 
-async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord, config: WorkerConfig) {
+function resolveDebugExtractionModel(config: WorkerConfig, requestedModel: unknown) {
+  const requested =
+    typeof requestedModel === "string" && requestedModel.trim().length > 0
+      ? requestedModel.trim()
+      : config.drawingExtractionModel;
+
+  if (!config.drawingExtractionDebugAllowedModels.includes(requested)) {
+    throw new Error(
+      `Debug extraction model "${requested}" is not allowlisted. Allowed models: ${config.drawingExtractionDebugAllowedModels.join(", ")}`,
+    );
+  }
+
+  return requested;
+}
+
+async function runDrawingExtractionForTask(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  config: WorkerConfig,
+  requestedModel: string | null = null,
+) {
   if (!task.part_id || !task.job_id) {
-    throw new Error("extract_part task is missing job_id or part_id.");
+    throw new Error(`${task.task_type} task is missing job_id or part_id.`);
   }
 
   const context = await fetchPartContext(supabase, task.part_id);
@@ -549,6 +615,16 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       }
     }
 
+    const effectiveModel = requestedModel
+      ? resolveDebugExtractionModel(config, requestedModel)
+      : config.drawingExtractionModel;
+    const extractionConfig =
+      effectiveModel === config.drawingExtractionModel
+        ? config
+        : {
+            ...config,
+            drawingExtractionModel: effectiveModel,
+          };
     const extraction = await runHybridExtraction({
       part: context.part,
       cadFile: context.cadFile,
@@ -557,7 +633,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       drawingPath: stagedDrawingFile?.localPath ?? null,
       previewPagePath: firstPagePreviewPath,
       runDir,
-      config,
+      config: extractionConfig,
     });
     const extractionOutcome = summarizeExtractionOutcome(extraction);
 
@@ -565,7 +641,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       console.log(
         JSON.stringify({
           service: "overdrafter-cad-worker",
-          source: "extract_part",
+          source: task.task_type,
           message: "drawing extraction candidate ranking",
           partId: context.part.id,
           reviewFields: extraction.reviewFields,
@@ -574,41 +650,45 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       );
     }
 
+    return {
+      context,
+      runDir,
+      stagedDrawingFile,
+      pdfText,
+      previewAssets,
+      firstPagePreviewPath,
+      extraction,
+      extractionOutcome,
+      effectiveModel,
+    };
+  } catch (error) {
+    await cleanupPaths([runDir]);
+    throw error;
+  }
+}
+
+async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord, config: WorkerConfig) {
+  let runDir: string | null = null;
+  let organizationIdForError: string | null = null;
+  let partIdForError: string | null = task.part_id;
+  try {
+    const extractionRun = await runDrawingExtractionForTask(supabase, task, config);
+    runDir = extractionRun.runDir;
+    const { context, extraction, extractionOutcome, pdfText, previewAssets, stagedDrawingFile } =
+      extractionRun;
+    organizationIdForError = context.part.organization_id;
+    partIdForError = context.part.id;
+
     const { error } = await supabase.from("drawing_extractions").upsert(
       {
         part_id: context.part.id,
         organization_id: context.part.organization_id,
-        extractor_version: stagedDrawingFile ? "worker-pdf-v2" : "worker-sim-v1",
-        extraction: {
-          pageCount: pdfText?.pageCount ?? 0,
-          description: extraction.description,
-          partNumber: extraction.partNumber,
-          revision: extraction.revision,
-          extractedDescriptionRaw: extraction.extractedDescriptionRaw,
-          extractedPartNumberRaw: extraction.extractedPartNumberRaw,
-          extractedRevisionRaw: extraction.extractedRevisionRaw,
-          extractedFinishRaw: extraction.extractedFinishRaw,
-          quoteDescription: extraction.quoteDescription,
-          quoteFinish: extraction.quoteFinish,
-          reviewFields: extraction.reviewFields,
-          debugCandidates: extraction.debugCandidates,
-          modelFallbackUsed: extraction.modelFallbackUsed,
-          modelName: extraction.modelName,
-          modelPromptVersion: extraction.modelPromptVersion,
-          fieldSelections: extraction.fieldSelections,
-          modelCandidates: extraction.modelCandidates,
-          material: extraction.material,
-          finish: extraction.finish,
-          generalTolerance: extraction.generalTolerance,
-          tolerances: {
-            general: extraction.generalTolerance.raw,
-            tightest: extraction.tightestTolerance.raw,
-            valueInch: extraction.tightestTolerance.valueInch,
-            confidence: extraction.tightestTolerance.confidence,
-          },
-          notes: extraction.notes,
-          threads: extraction.threads,
-        },
+        extractor_version: currentExtractorVersion(Boolean(stagedDrawingFile)),
+        extraction: buildStoredExtractionPayload(
+          extraction,
+          pdfText?.pageCount ?? 0,
+          config.workerBuildVersion,
+        ),
         confidence: extraction.material.confidence,
         warnings: extraction.warnings,
         evidence: extraction.evidence,
@@ -626,18 +706,20 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
     await persistDrawingPreviewAssets(supabase, config, {
       organizationId: context.part.organization_id,
       partId: context.part.id,
-      jobId: task.job_id,
+      jobId: task.job_id!,
       previewAssets,
     });
-    const autoApprovedPartCount = await autoApproveJobRequirements(supabase, task.job_id);
+    const autoApprovedPartCount = await autoApproveJobRequirements(supabase, task.job_id!);
     await logWorkerAuditEvent(supabase, {
       organizationId: context.part.organization_id,
-      jobId: task.job_id,
-        eventType: "worker.extraction_completed",
+      jobId: task.job_id!,
+      eventType: "worker.extraction_completed",
       payload: {
         partId: context.part.id,
         extractionStatus: extraction.status,
         extractionLifecycle: extractionOutcome.lifecycle,
+        extractorVersion: currentExtractorVersion(Boolean(stagedDrawingFile)),
+        workerBuildVersion: config.workerBuildVersion,
         warningCount: extraction.warnings.length,
         missingFields: extractionOutcome.missingFields,
         reviewFields: extractionOutcome.reviewFields,
@@ -649,6 +731,8 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       ...task.payload,
       extractionStatus: extraction.status,
       extractionLifecycle: extractionOutcome.lifecycle,
+      extractorVersion: currentExtractorVersion(Boolean(stagedDrawingFile)),
+      workerBuildVersion: config.workerBuildVersion,
       warningCount: extraction.warnings.length,
       missingFields: extractionOutcome.missingFields,
       reviewFields: extractionOutcome.reviewFields,
@@ -656,19 +740,148 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       autoApprovedPartCount,
     });
   } catch (error) {
-    await logWorkerAuditEvent(supabase, {
-      organizationId: context.part.organization_id,
-      jobId: task.job_id,
-      eventType: "worker.extraction_failed",
-      payload: {
-        partId: context.part.id,
-        failureCode: failureCodeForError(error),
-        failureMessage: summarizeError(error),
-      },
-    });
+    if (organizationIdForError && task.job_id) {
+      await logWorkerAuditEvent(supabase, {
+        organizationId: organizationIdForError,
+        jobId: task.job_id,
+        eventType: "worker.extraction_failed",
+        payload: {
+          partId: partIdForError,
+          failureCode: failureCodeForError(error),
+          failureMessage: summarizeError(error),
+        },
+      });
+    }
     throw error;
   } finally {
-    await cleanupPaths([runDir]);
+    await cleanupPaths(runDir ? [runDir] : []);
+  }
+}
+
+async function handleDebugExtractTask(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  config: WorkerConfig,
+) {
+  const debugRunId =
+    typeof task.payload.debugRunId === "string" && task.payload.debugRunId.length > 0
+      ? task.payload.debugRunId
+      : null;
+
+  if (!debugRunId) {
+    throw new Error("debug_extract_part task is missing debugRunId.");
+  }
+
+  const requestedModel =
+    typeof task.payload.requestedModel === "string" && task.payload.requestedModel.trim().length > 0
+      ? task.payload.requestedModel.trim()
+      : null;
+
+  await supabase
+    .from("debug_extraction_runs")
+    .update({
+      status: "running",
+      started_at: new Date().toISOString(),
+      error: null,
+    })
+    .eq("id", debugRunId);
+
+  let runDir: string | null = null;
+
+  try {
+    const extractionRun = await runDrawingExtractionForTask(
+      supabase,
+      task,
+      config,
+      requestedModel,
+    );
+    runDir = extractionRun.runDir;
+    const { context, extraction, extractionOutcome, pdfText, previewAssets, effectiveModel, stagedDrawingFile } =
+      extractionRun;
+    const extractorVersion = currentExtractorVersion(Boolean(stagedDrawingFile));
+    const result = {
+      extraction: buildStoredExtractionPayload(
+        extraction,
+        pdfText?.pageCount ?? 0,
+        config.workerBuildVersion,
+      ),
+      status: extraction.status,
+      warnings: extraction.warnings,
+      evidence: extraction.evidence,
+      summary: extractionOutcome,
+      preview: {
+        pageCount: pdfText?.pageCount ?? 0,
+        previewAssetCount: previewAssets.length,
+        hasPreviewImage: previewAssets.some((asset) => asset.kind === "page" && asset.pageNumber === 1),
+      },
+    };
+
+    const { error: debugRunError } = await supabase
+      .from("debug_extraction_runs")
+      .update({
+        status: "completed",
+        effective_model: effectiveModel,
+        worker_build_version: config.workerBuildVersion,
+        extractor_version: extractorVersion,
+        model_fallback_used: extraction.modelFallbackUsed ?? false,
+        model_prompt_version: extraction.modelPromptVersion ?? null,
+        result,
+        error: null,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", debugRunId);
+
+    if (debugRunError) {
+      throw debugRunError;
+    }
+
+    await logWorkerAuditEvent(supabase, {
+      organizationId: context.part.organization_id,
+      jobId: task.job_id!,
+      eventType: "worker.debug_extraction_completed",
+      payload: {
+        partId: context.part.id,
+        debugRunId,
+        requestedModel,
+        effectiveModel,
+        workerBuildVersion: config.workerBuildVersion,
+        extractorVersion,
+        extractionStatus: extraction.status,
+        extractionLifecycle: extractionOutcome.lifecycle,
+        warningCount: extraction.warnings.length,
+        missingFields: extractionOutcome.missingFields,
+        reviewFields: extractionOutcome.reviewFields,
+      },
+    });
+
+    await markTaskCompleted(supabase, task.id, {
+      ...task.payload,
+      debugRunId,
+      requestedModel,
+      effectiveModel,
+      workerBuildVersion: config.workerBuildVersion,
+      extractorVersion,
+      extractionStatus: extraction.status,
+      extractionLifecycle: extractionOutcome.lifecycle,
+      warningCount: extraction.warnings.length,
+      missingFields: extractionOutcome.missingFields,
+      reviewFields: extractionOutcome.reviewFields,
+    });
+  } catch (error) {
+    await supabase
+      .from("debug_extraction_runs")
+      .update({
+        status: "failed",
+        effective_model: requestedModel ?? config.drawingExtractionModel,
+        worker_build_version: config.workerBuildVersion,
+        error: summarizeError(error),
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", debugRunId);
+
+    throw error;
+  } finally {
+    await cleanupPaths(runDir ? [runDir] : []);
   }
 }
 
@@ -951,6 +1164,9 @@ async function processTask(
   switch (task.task_type) {
     case "extract_part":
       await handleExtractTask(supabase, task, config);
+      return;
+    case "debug_extract_part":
+      await handleDebugExtractTask(supabase, task, config);
       return;
     case "run_vendor_quote":
       await handleVendorQuoteTask(supabase, task, config);

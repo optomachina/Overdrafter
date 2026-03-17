@@ -338,6 +338,7 @@ import {
   inferFileKind,
   pinJob,
   pinProject,
+  requestDebugExtraction,
   requestQuote,
   requestQuotes,
   resetClientIntakeSchemaAvailabilityForTests,
@@ -1361,7 +1362,11 @@ describe("quotes api helpers", () => {
         json: async () => ({
           ready: true,
           workerName: "worker-1",
+          workerBuildVersion: "build-123",
           workerMode: "live",
+          drawingExtractionModel: "gpt-5.4",
+          drawingExtractionDebugAllowedModels: ["gpt-5.4", "gpt-5.4-mini"],
+          drawingExtractionModelFallbackEnabled: true,
           status: "running",
           readinessIssues: [],
         }),
@@ -1372,11 +1377,29 @@ describe("quotes api helpers", () => {
       reachable: true,
       ready: true,
       workerName: "worker-1",
+      workerBuildVersion: "build-123",
       workerMode: "live",
+      drawingExtractionModel: "gpt-5.4",
+      drawingExtractionDebugAllowedModels: ["gpt-5.4", "gpt-5.4-mini"],
+      drawingExtractionModelFallbackEnabled: true,
       status: "running",
       readinessIssues: [],
       message: null,
       url: "https://worker.example.com/readyz",
+    });
+  });
+
+  it("requests a preview-only debug extraction run for a part", async () => {
+    supabaseMock.rpc.mockResolvedValue({
+      data: "debug-run-1",
+      error: null,
+    });
+
+    await expect(requestDebugExtraction("part-1", "gpt-5.4-mini")).resolves.toBe("debug-run-1");
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_debug_extraction", {
+      p_part_id: "part-1",
+      p_model: "gpt-5.4-mini",
     });
   });
 
