@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FunctionsHttpError } from "@supabase/supabase-js";
+import { getArchivedDeleteReporting } from "./archive-delete-errors";
 
 const toastMock = vi.hoisted(() => ({
   error: vi.fn(),
@@ -610,15 +611,102 @@ describe("quotes api helpers", () => {
         ),
       });
 
-    await expect(deleteArchivedJobs(["job-123", "job-999"])).resolves.toEqual({
+    await expect(deleteArchivedJobs(["job-123", "job-999"])).resolves.toMatchObject({
       deletedJobIds: ["job-123"],
       failures: [
         {
           jobId: "job-999",
           message: "Part not found, not archived, or you do not have permission to delete it.",
+          reporting: {
+            operation: "archived_delete",
+            fallbackPath: "job-archive-fallback",
+            failureCategory: "edge_http_error",
+            httpStatus: 403,
+            hasResponseBody: true,
+          },
         },
       ],
     });
+  });
+
+  it("classifies edge fallback reachability failures for archived delete errors", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "42501",
+        message: "Direct deletion from storage tables is not allowed. Use the Storage API instead.",
+        details: null,
+        hint: null,
+      },
+    });
+    supabaseMock.functionsInvoke.mockResolvedValueOnce({
+      data: null,
+      error: new Error("Failed to send a request to the Edge Function"),
+    });
+
+    const result = await deleteArchivedJobs(["job-123"]);
+
+    expect(result).toMatchObject({
+      deletedJobIds: [],
+      failures: [
+        {
+          jobId: "job-123",
+          message:
+            "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
+          reporting: {
+            operation: "archived_delete",
+            fallbackPath: "job-archive-fallback",
+            failureCategory: "edge_unreachable",
+            hasResponseBody: false,
+          },
+        },
+      ],
+    });
+  });
+
+  it("annotates misconfigured edge fallback errors with archived delete reporting metadata", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "42501",
+        message: "Direct deletion from storage tables is not allowed. Use the Storage API instead.",
+        details: null,
+        hint: null,
+      },
+    });
+    supabaseMock.functionsInvoke.mockResolvedValueOnce({
+      data: null,
+      error: new FunctionsHttpError(
+        new Response(
+          JSON.stringify({
+            error: "Archived part deletion requires SUPABASE_SERVICE_ROLE_KEY for storage cleanup.",
+          }),
+          {
+            status: 500,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      ),
+    });
+
+    try {
+      await deleteArchivedJob("job-123");
+      throw new Error("Expected archived delete to fail.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(
+        "Archived part deletion requires SUPABASE_SERVICE_ROLE_KEY for storage cleanup.",
+      );
+      expect(getArchivedDeleteReporting(error)).toMatchObject({
+        failureCategory: "edge_misconfigured",
+        fallbackPath: "job-archive-fallback",
+        httpStatus: 500,
+        hasResponseBody: true,
+        functionName: "job-archive-fallback",
+      });
+    }
   });
 
   it("falls back to the legacy single-delete RPC when the bulk delete RPC is unavailable", async () => {

@@ -429,9 +429,23 @@ describe("ClientProject", () => {
   it("logs structured archived delete failures through the account menu callback", async () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     api.deleteArchivedJobs.mockRejectedValueOnce({
-      code: "23503",
-      message: "Delete failed.",
-      details: "quoted package dependency",
+      message:
+        "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
+      reporting: {
+        operation: "archived_delete",
+        fallbackPath: "job-archive-fallback",
+        failureCategory: "edge_unreachable",
+        failureSummary:
+          "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
+        likelyCause: "The app could not reach the job-archive-fallback Edge Function endpoint.",
+        recommendedChecks: [
+          "Verify Edge Function deployment status for job-archive-fallback.",
+          "Verify the Supabase function endpoint is reachable from the current environment.",
+        ],
+        functionName: "job-archive-fallback",
+        httpStatus: null,
+        hasResponseBody: false,
+      },
     });
 
     try {
@@ -443,10 +457,12 @@ describe("ClientProject", () => {
 
       await expect(
         (lastAccountMenuProps!.onDeleteArchivedParts as (jobIds: string[]) => Promise<void>)(["job-1"]),
-      ).rejects.toThrow("Failed to delete archived part because related records still exist.");
+      ).rejects.toThrow(
+        "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
+      );
 
       expect(toastMock.error).toHaveBeenCalledWith(
-        "Failed to delete archived part because related records still exist.",
+        "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
       );
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         "Archived part delete failed",
@@ -454,10 +470,19 @@ describe("ClientProject", () => {
           jobIds: ["job-1"],
           organizationId: "org-1",
           userId: "user-1",
-          message: "Failed to delete archived part because related records still exist.",
+          message:
+            "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
           error: expect.objectContaining({
-            code: "23503",
-            message: "Delete failed.",
+            message:
+              "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
+          }),
+          reporting: expect.objectContaining({
+            operation: "archived_delete",
+            failureCategory: "edge_unreachable",
+            fallbackPath: "job-archive-fallback",
+            partIds: ["job-1"],
+            organizationId: "org-1",
+            userId: "user-1",
           }),
         }),
       );

@@ -37,6 +37,7 @@ import { describeClientPresetUnavailableReason } from "@/features/quotes/client-
 import {
   logArchivedDeleteFailure,
   toArchivedDeleteError,
+  withArchivedDeleteReporting,
 } from "@/features/quotes/archive-delete-errors";
 import {
   buildSidebarProjectIdsByJobId,
@@ -761,7 +762,14 @@ export function useClientPartController() {
       }
 
       if (result.deletedJobIds.length === 0) {
-        throw new Error(result.failures[0]?.message ?? "Failed to delete archived parts.");
+        const failure = result.failures[0];
+
+        throw failure?.reporting
+          ? withArchivedDeleteReporting(new Error(failure.message), {
+              ...failure.reporting,
+              partIds: failure.reporting.partIds.length > 0 ? failure.reporting.partIds : normalizedIds,
+            })
+          : new Error(failure?.message ?? "Failed to delete archived parts.");
       }
 
       toast.error(

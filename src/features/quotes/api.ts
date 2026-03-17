@@ -75,8 +75,13 @@ import { normalizeRequestedQuoteQuantities, parseRequestIntake } from "@/feature
 import { sanitizeClientVisibleSpecSnapshot } from "@/features/quotes/rfq-metadata";
 import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
 import {
+  ARCHIVED_DELETE_EDGE_NOT_DEPLOYED_MESSAGE,
+  ARCHIVED_DELETE_EDGE_UNREACHABLE_MESSAGE,
+  type ArchivedDeleteReporting,
   getArchivedDeleteErrorMessage,
   toArchivedDeleteError,
+  getArchivedDeleteReporting,
+  withArchivedDeleteReporting,
 } from "@/features/quotes/archive-delete-errors";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import {
@@ -1134,9 +1139,11 @@ async function invokeJobArchivingFallback(
   if (error) {
     if (error instanceof FunctionsHttpError && error.context instanceof Response) {
       let message = error.message;
+      let hasResponseBody = false;
 
       try {
         const body = (await error.context.clone().json()) as { error?: unknown; message?: unknown };
+        hasResponseBody = true;
         message =
           typeof body.error === "string"
             ? body.error
@@ -1147,10 +1154,31 @@ async function invokeJobArchivingFallback(
         // Keep the original edge-function error when the body is not valid JSON.
       }
 
-      throw new Error(message);
+      throw withArchivedDeleteReporting(
+        new Error(message),
+        classifyArchivedDeleteEdgeFallbackError({
+          error,
+          message,
+          functionName: "job-archive-fallback",
+          httpStatus: error.context.status,
+          hasResponseBody,
+        }),
+      );
     }
 
-    throw error;
+    throw withArchivedDeleteReporting(
+      error,
+      classifyArchivedDeleteEdgeFallbackError({
+        error,
+        message: getArchivedDeleteErrorMessage(error),
+        functionName: "job-archive-fallback",
+        httpStatus:
+          typeof (error as { status?: unknown })?.status === "number"
+            ? ((error as { status: number }).status as number)
+            : null,
+        hasResponseBody: false,
+      }),
+    );
   }
 
   if (!data || typeof data !== "object" || !("jobId" in data) || typeof data.jobId !== "string") {
@@ -1158,6 +1186,100 @@ async function invokeJobArchivingFallback(
   }
 
   return data.jobId;
+}
+
+function classifyArchivedDeleteEdgeFallbackError(input: {
+  error: unknown;
+  message: string;
+  functionName: "job-archive-fallback";
+  httpStatus: number | null;
+  hasResponseBody: boolean;
+}): ArchivedDeleteReporting {
+  const normalizedMessage = input.message.trim();
+  const lowerMessage = normalizedMessage.toLowerCase();
+  const status = input.httpStatus;
+
+  if (
+    status === 404 ||
+    lowerMessage.includes("function not found") ||
+    lowerMessage.includes("could not find the function") ||
+    lowerMessage.includes("cleanup service is not deployed")
+  ) {
+    return {
+      operation: "archived_delete",
+      fallbackPath: "job-archive-fallback",
+      failureCategory: "edge_not_deployed",
+      failureSummary: ARCHIVED_DELETE_EDGE_NOT_DEPLOYED_MESSAGE,
+      likelyCause: "The job-archive-fallback Edge Function is unavailable in the active Supabase project.",
+      recommendedChecks: [
+        "Verify that job-archive-fallback is deployed to the active Supabase project.",
+        "Confirm the app is pointed at the same Supabase project where the function was deployed.",
+      ],
+      functionName: input.functionName,
+      httpStatus: status,
+      hasResponseBody: input.hasResponseBody,
+    };
+  }
+
+  if (
+    lowerMessage.includes("service_role") ||
+    lowerMessage.includes("service role") ||
+    lowerMessage.includes("supabase_db_url") ||
+    lowerMessage.includes("missing supabase function environment configuration") ||
+    lowerMessage.includes("requires supabase_service_role_key")
+  ) {
+    return {
+      operation: "archived_delete",
+      fallbackPath: "job-archive-fallback",
+      failureCategory: "edge_misconfigured",
+      failureSummary: normalizedMessage,
+      likelyCause: "The archived delete cleanup function is deployed but missing required environment configuration.",
+      recommendedChecks: [
+        "Verify SUPABASE_DB_URL is configured for job-archive-fallback.",
+        "Verify SUPABASE_SERVICE_ROLE_KEY is configured for job-archive-fallback.",
+      ],
+      functionName: input.functionName,
+      httpStatus: status,
+      hasResponseBody: input.hasResponseBody,
+    };
+  }
+
+  if (
+    !input.hasResponseBody ||
+    lowerMessage.includes("failed to send a request to the edge function") ||
+    lowerMessage.includes("failed to fetch") ||
+    lowerMessage.includes("networkerror") ||
+    lowerMessage.includes("network request failed")
+  ) {
+    return {
+      operation: "archived_delete",
+      fallbackPath: "job-archive-fallback",
+      failureCategory: "edge_unreachable",
+      failureSummary: ARCHIVED_DELETE_EDGE_UNREACHABLE_MESSAGE,
+      likelyCause: "The app could not reach the job-archive-fallback Edge Function endpoint.",
+      recommendedChecks: [
+        "Verify Edge Function deployment status for job-archive-fallback.",
+        "Verify the Supabase function endpoint is reachable from the current environment.",
+      ],
+      functionName: input.functionName,
+      httpStatus: status,
+      hasResponseBody: input.hasResponseBody,
+    };
+  }
+
+  return {
+    operation: "archived_delete",
+    fallbackPath: "job-archive-fallback",
+    failureCategory: "edge_http_error",
+    failureSummary: normalizedMessage || ARCHIVED_DELETE_EDGE_UNREACHABLE_MESSAGE,
+    likelyCause: "The cleanup service returned an HTTP error during archived part deletion.",
+    recommendedChecks: [
+      "Inspect the raw event/error details included in the copied diagnostics report.",
+    ],
+    functionName: input.functionName,
+    httpStatus: status,
+    hasResponseBody: input.hasResponseBody,
+  };
 }
 
 function normalizeArchivedJobDeleteResult(data: Json | null): ArchivedJobDeleteResult {
@@ -1183,8 +1305,9 @@ function normalizeArchivedJobDeleteResult(data: Json | null): ArchivedJobDeleteR
 
     const jobId = typeof value.jobId === "string" ? value.jobId : null;
     const message = typeof value.message === "string" ? value.message : null;
+    const reporting = getArchivedDeleteReporting(value);
 
-    return jobId && message ? [{ jobId, message }] : [];
+    return jobId && message ? [{ jobId, message, ...(reporting ? { reporting } : {}) }] : [];
   });
 
   return {
@@ -1280,6 +1403,7 @@ async function deleteArchivedJobsViaEdgeFallback(jobIds: string[]): Promise<Arch
       failures.push({
         jobId,
         message: toArchivedDeleteError(result.reason).message,
+        reporting: getArchivedDeleteReporting(result.reason) ?? undefined,
       });
     });
   }
@@ -3531,7 +3655,14 @@ export async function deleteArchivedJob(jobId: string): Promise<string> {
   }
 
   if (result.failures[0]) {
-    throw new Error(result.failures[0].message);
+    const failure = result.failures[0];
+
+    throw failure.reporting
+      ? withArchivedDeleteReporting(new Error(failure.message), {
+          ...failure.reporting,
+          partIds: failure.reporting.partIds.length > 0 ? failure.reporting.partIds : [jobId],
+        })
+      : new Error(failure.message);
   }
 
   throw new Error("Expected api_delete_archived_jobs to delete the archived part.");
