@@ -22,6 +22,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "validate:pr-body": "node ./scripts/validate-pr-body.mjs",
     "verify:worker": "npm --prefix worker run verify",
     "verify": "npm run lint && npm run typecheck && npm test && npm run build && npm run verify:worker"
   },

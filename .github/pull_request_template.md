@@ -1,3 +1,5 @@
+Remove the prompt text once each section is filled. Pull requests are validated for missing required sections and obvious leftover template placeholders.
+
 ## Summary
 
 Describe the change briefly.

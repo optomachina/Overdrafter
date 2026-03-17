@@ -1,11 +1,13 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { DiagnosticsPanel } from "@/components/debug/DiagnosticsPanel";
+import { resolveDiagnosticsRouteMode } from "@/components/debug/diagnostics-route-mode";
 import { useAppSession } from "@/hooks/use-app-session";
 import {
   installDiagnostics,
   setDiagnosticsEnabled,
   setDiagnosticsPanelOpen,
+  setDiagnosticsUiSuppressed,
   updateDiagnosticsContext,
 } from "@/lib/diagnostics";
 
@@ -19,15 +21,18 @@ export function DiagnosticsBootstrap() {
 
   useEffect(() => {
     const route = `${location.pathname}${location.search}${location.hash}`;
-    const params = new URLSearchParams(location.search);
-    const debugValue = params.get("debug");
+    const { debugValue, embedded } = resolveDiagnosticsRouteMode(location.search);
 
     updateDiagnosticsContext({
       route,
       href: typeof window !== "undefined" ? window.location.href : route,
     });
 
-    if (debugValue === "1") {
+    setDiagnosticsUiSuppressed(embedded);
+
+    if (embedded) {
+      setDiagnosticsPanelOpen(false);
+    } else if (debugValue === "1") {
       setDiagnosticsEnabled(true);
       setDiagnosticsPanelOpen(true);
     } else if (debugValue === "0") {

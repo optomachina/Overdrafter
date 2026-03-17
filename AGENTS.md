@@ -20,6 +20,8 @@ This file is the operating manual for contributors and coding agents working in 
 - Preserve existing authentication and authorization boundaries.
 - Require tests for changed critical paths, or document why tests were not feasible.
 - Surface schema, migration, and public API changes explicitly in review output.
+- Flag missing TSDoc on shared exported utilities, worker orchestration helpers, repo scripts, and non-obvious domain helpers when the behavior is not clear from the signature alone.
+- Do not require boilerplate docstrings for routine React components, trivial formatters, or obvious local helpers.
 
 For recurring review expectations and GitHub-side Codex guidance, also read `docs/code-review.md`.
 This repo uses subscription-backed local Codex CLI review and native GitHub Codex review, not API-key Codex Actions.
@@ -189,6 +191,7 @@ PRs should include:
 - migration notes where applicable
 - rollback/risk notes where applicable
 - docs updated or reason none were needed
+- a PR body that passes `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`
 
 See `.github/pull_request_template.md`.
 For recurring Codex and Symphony issue motions, use `docs/recurring-workflows.md` as the concise cross-reference for planning, verification-lane selection, skill usage, and handoff evidence.
@@ -210,7 +213,8 @@ Stop and surface the issue instead of improvising when:
 4. implement in a focused way
 5. verify
 6. update docs if needed
-7. summarize what changed and what was verified
+7. refresh the PR body from `.github/pull_request_template.md` and validate it before `Human Review`
+8. summarize what changed and what was verified
 
 ## Directory-local overrides
 

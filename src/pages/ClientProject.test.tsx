@@ -182,7 +182,7 @@ describe("ClientProject", () => {
 
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
-      activeMembership: null,
+      activeMembership: { organizationId: "org-1", role: "client" },
       signOut: vi.fn(),
     });
 
@@ -426,20 +426,69 @@ describe("ClientProject", () => {
     });
   });
 
-  it("propagates archived delete failures through the account menu callback", async () => {
-    api.deleteArchivedJobs.mockRejectedValueOnce(new Error("Delete failed."));
-
-    renderWithClient("/projects/project-1");
-
-    await waitFor(() => {
-      expect(lastAccountMenuProps).not.toBeNull();
+  it("logs structured archived delete failures through the account menu callback", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    api.deleteArchivedJobs.mockRejectedValueOnce({
+      message:
+        "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
+      reporting: {
+        operation: "archived_delete",
+        fallbackPath: "job-archive-fallback",
+        failureCategory: "edge_unreachable",
+        failureSummary:
+          "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
+        likelyCause: "The app could not reach the job-archive-fallback Edge Function endpoint.",
+        recommendedChecks: [
+          "Verify Edge Function deployment status for job-archive-fallback.",
+          "Verify the Supabase function endpoint is reachable from the current environment.",
+        ],
+        functionName: "job-archive-fallback",
+        httpStatus: null,
+        hasResponseBody: false,
+      },
     });
 
-    await expect(
-      (lastAccountMenuProps!.onDeleteArchivedParts as (jobIds: string[]) => Promise<void>)(["job-1"]),
-    ).rejects.toThrow("Delete failed.");
+    try {
+      renderWithClient("/projects/project-1");
 
-    expect(toastMock.error).toHaveBeenCalledWith("Delete failed.");
+      await waitFor(() => {
+        expect(lastAccountMenuProps).not.toBeNull();
+      });
+
+      await expect(
+        (lastAccountMenuProps!.onDeleteArchivedParts as (jobIds: string[]) => Promise<void>)(["job-1"]),
+      ).rejects.toThrow(
+        "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
+      );
+
+      expect(toastMock.error).toHaveBeenCalledWith(
+        "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
+      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        "Archived part delete failed",
+        expect.objectContaining({
+          jobIds: ["job-1"],
+          organizationId: "org-1",
+          userId: "user-1",
+          message:
+            "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
+          error: expect.objectContaining({
+            message:
+              "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
+          }),
+          reporting: expect.objectContaining({
+            operation: "archived_delete",
+            failureCategory: "edge_unreachable",
+            fallbackPath: "job-archive-fallback",
+            partIds: ["job-1"],
+            organizationId: "org-1",
+            userId: "user-1",
+          }),
+        }),
+      );
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 
 });

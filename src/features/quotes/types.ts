@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import type { ArchivedDeleteReporting } from "@/features/quotes/archive-delete-errors";
 import type { RequestedServiceIntent } from "@/features/quotes/service-intent";
 import type {
   AppRole,
@@ -624,6 +625,7 @@ export type ArchivedJobSummary = {
 export type ArchivedJobDeleteFailure = {
   jobId: string;
   message: string;
+  reporting?: ArchivedDeleteReporting;
 };
 
 export type ArchivedJobDeleteResult = {

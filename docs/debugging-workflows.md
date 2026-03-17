@@ -165,6 +165,20 @@ Internal users, and local debug/dev sessions, now get a bottom-right `Extraction
 
 The full side-by-side extraction inspection surface still lives on the internal job detail page.
 
+### Archived Delete Edge Fallback
+
+When archived delete reports `edge_unreachable`, use the copied diagnostics block to drive the first
+checks instead of reproducing blindly:
+
+1. Confirm the active Supabase project ref from `VITE_SUPABASE_URL` in the copied report.
+2. Confirm `job-archive-fallback` is deployed to that exact Supabase project.
+3. Confirm the function has `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_DB_URL`, and
+   `SUPABASE_SERVICE_ROLE_KEY`.
+4. Confirm the reported function URL is reachable and compare with another known edge function such
+   as `create-project-fallback` to distinguish per-function deploy issues from project-wide endpoint
+   issues.
+5. Check Supabase Edge Function logs around the reported timestamp before changing app code.
+
 ## Recommended Usage
 
 Pick the fastest lane that still exercises the behavior you are debugging:

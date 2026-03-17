@@ -30,17 +30,29 @@ gh pr view --json number,url,state,isDraft,headRefName,baseRefName
 gh pr create --base main
 ```
 
-6. In the PR body, include:
-   - problem
-   - scope
-   - verification
-   - docs updated
-   - risks or residual blockers
-7. Report the PR URL back to the issue thread or tracker comment.
+6. Write or refresh the PR body using `.github/pull_request_template.md`.
+7. Fill every required template section before handoff:
+   - `Summary`
+   - `Problem`
+   - `Scope`
+   - `Verification` with exact commands and outcomes
+   - `Tests`
+   - `Migration notes`
+   - `Rollback / risk notes`
+   - `Documentation`
+8. Validate the live PR body:
+
+```bash
+gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin
+```
+
+9. If validation fails, fix the PR body before reporting handoff.
+10. Report the PR URL and PR body validation status back to the issue thread or tracker comment.
 
 ## Guardrails
 
 - Prefer `push` over `open-pr` in unattended issue execution.
 - Do not create duplicate PRs for the same branch.
 - Do not move an issue to `Human Review` until the PR exists.
+- Do not move an issue to `Human Review` until the PR body passes `npm run validate:pr-body`.
 - If GitHub auth is missing, stop and report that explicitly.

@@ -51,7 +51,7 @@ See `TEST_STRATEGY.md` for the policy and `docs/debugging-workflows.md` for the 
 
 Use these defaults:
 
-- docs-only or repo-workflow documentation changes: verify the referenced commands, file paths, branch rules, and skill names still match the repo; rerun `./scripts/symphony-preflight.sh`; run broader app or worker verification only if the diff changes scripts, commands, or behavior
+- docs-only or repo-workflow documentation changes: verify the referenced commands, file paths, branch rules, and skill names still match the repo; rerun `./scripts/symphony-preflight.sh`; if the change touches PR workflow or validation scripts, run `npm run validate:pr-body` against passing and failing sample input; run broader app or worker verification only if the diff changes scripts, commands, or behavior
 - cosmetic or fixture-friendly client UI changes: start with Lane A checks and the UI tuning lane
 - UI behavior changes that need browser confirmation: use Lane B and add fixture mode or fast E2E coverage depending on whether real auth/data matters
 - auth, RLS, membership, routing, and Supabase-backed data bugs: use the production-realistic lane
@@ -68,6 +68,7 @@ Always record:
 - the exact commands run
 - whether each command passed, failed, or was intentionally skipped
 - which debugging lane was used when browser or Supabase validation mattered
+- whether the live PR body passed `npm run validate:pr-body`
 - tests added or updated, or why none were practical
 - docs updated, or why no doc update was needed
 - migration impact and rollback notes when relevant
@@ -84,8 +85,9 @@ Before moving an issue to `Human Review`:
 3. Run `./scripts/symphony-preflight.sh` again.
 4. Use the `commit` skill for the local git commit.
 5. Use the `push` skill to publish the branch and ensure the PR exists.
-6. Use the `linear` skill to add the branch, PR URL, changed files, and verification evidence to the issue workpad or comments.
-7. Move the issue to `Human Review` only after the commit, push, PR, and workpad evidence all exist.
+6. Validate the live PR body with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
+7. Use the `linear` skill to add the branch, PR URL, changed files, verification evidence, and PR body validation result to the issue workpad or comments.
+8. Move the issue to `Human Review` only after the commit, push, PR, validated PR body, and workpad evidence all exist.
 
 If verification finds unrelated baseline failures outside the issue scope, document them precisely and still hand off. If the current change introduced the failure, keep the issue in an implementation state until it is resolved.
 

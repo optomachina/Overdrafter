@@ -1,5 +1,14 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import postgres from "npm:postgres@3.4.7";
+import { canUserEditJobWithoutAuthContext } from "./authorization.ts";
+import {
+  ARCHIVED_DELETE_STORAGE_CLEANUP_FAILED_MESSAGE,
+  ArchivedDeleteFlowError,
+  executeArchivedDelete,
+  type ArchivedDeletePlan,
+  type StorageCandidate,
+} from "./delete-flow.ts";
+import { buildBlobOwnershipExclusionClause } from "./query-fragments.ts";
 
 type JobArchiveAction = "archive" | "unarchive" | "delete";
 
@@ -30,6 +39,8 @@ function json(status: number, body: Record<string, unknown>) {
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
 const supabaseDbUrl = Deno.env.get("SUPABASE_DB_URL");
+const supabaseServiceRoleKey =
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SERVICE_ROLE_KEY");
 
 if (!supabaseUrl || !supabaseAnonKey || !supabaseDbUrl) {
   throw new Error("Missing Supabase function environment configuration.");
@@ -49,8 +60,17 @@ class HttpError extends Error {
   }
 }
 
+type Transaction = postgres.TransactionSql<object>;
+
+type JobRow = {
+  id: string;
+  organization_id: string;
+  created_by: string | null;
+  archived_at: string | null;
+};
+
 async function hasRelation(
-  transaction: postgres.TransactionSql<object>,
+  transaction: Transaction,
   relationName: string,
 ): Promise<boolean> {
   const rows = await transaction<{ oid: string | null }[]>`
@@ -61,7 +81,7 @@ async function hasRelation(
 }
 
 async function hasColumn(
-  transaction: postgres.TransactionSql<object>,
+  transaction: Transaction,
   tableName: string,
   columnName: string,
 ): Promise<boolean> {
@@ -79,7 +99,7 @@ async function hasColumn(
 }
 
 async function hasFunction(
-  transaction: postgres.TransactionSql<object>,
+  transaction: Transaction,
   regprocedure: string,
 ): Promise<boolean> {
   const rows = await transaction<{ present: boolean }[]>`
@@ -87,6 +107,261 @@ async function hasFunction(
   `;
 
   return Boolean(rows[0]?.present);
+}
+
+function dedupeStorageCandidates(candidates: StorageCandidate[]): StorageCandidate[] {
+  const seen = new Set<string>();
+  const deduped: StorageCandidate[] = [];
+
+  for (const candidate of candidates) {
+    const bucket = candidate.bucket.trim();
+    const path = candidate.path.trim();
+
+    if (!bucket || !path) {
+      continue;
+    }
+
+    const key = `${bucket}:${path}`;
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push({ bucket, path });
+  }
+
+  return deduped;
+}
+
+async function getAuthorizedJob(
+  transaction: Transaction,
+  jobId: string,
+  userId: string,
+  action: JobArchiveAction,
+): Promise<JobRow> {
+  const hasArchivedAt = await hasColumn(transaction, "jobs", "archived_at");
+
+  if (!hasArchivedAt) {
+    throw new HttpError(500, JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
+  }
+
+  const jobs = await transaction<JobRow[]>`
+    select id, organization_id, created_by, archived_at
+    from public.jobs
+    where id = ${jobId}::uuid
+    limit 1
+  `;
+
+  const job = jobs[0];
+
+  if (!job) {
+    throw new HttpError(404, `Job ${jobId} not found.`);
+  }
+
+  const isOrgMember = Boolean(
+    (
+      await transaction<{ allowed: boolean }[]>`
+        select exists (
+          select 1
+          from public.organization_memberships
+          where user_id = ${userId}::uuid
+            and organization_id = ${job.organization_id}::uuid
+        ) as allowed
+      `
+    )[0]?.allowed,
+  );
+  const hasProjectMemberships = await hasRelation(transaction, "public.project_memberships");
+  const hasProjects = await hasRelation(transaction, "public.projects");
+  const hasProjectId = hasProjects && (await hasColumn(transaction, "jobs", "project_id"));
+  const canEditDirectProject =
+    hasProjectMemberships && hasProjectId
+      ? Boolean(
+          (
+            await transaction<{ allowed: boolean }[]>`
+              select exists (
+                select 1
+                from public.jobs job
+                join public.project_memberships membership on membership.project_id = job.project_id
+                where job.id = ${job.id}::uuid
+                  and membership.user_id = ${userId}::uuid
+                  and membership.role in ('owner', 'editor')
+              ) as allowed
+            `
+          )[0]?.allowed,
+        )
+      : false;
+  const hasProjectJobs = await hasRelation(transaction, "public.project_jobs");
+  const canEditProjectViaJoinTable =
+    hasProjectMemberships && hasProjectJobs
+      ? Boolean(
+          (
+            await transaction<{ allowed: boolean }[]>`
+              select exists (
+                select 1
+                from public.project_jobs project_job
+                join public.project_memberships membership on membership.project_id = project_job.project_id
+                where project_job.job_id = ${job.id}::uuid
+                  and membership.user_id = ${userId}::uuid
+                  and membership.role in ('owner', 'editor')
+              ) as allowed
+            `
+          )[0]?.allowed,
+        )
+      : false;
+  const allowed = canUserEditJobWithoutAuthContext({
+    createdByMatchesUser: job.created_by === userId,
+    isOrgMember,
+    canEditDirectProject,
+    canEditProjectViaJoinTable,
+  });
+
+  if (!allowed) {
+    throw new HttpError(403, `You do not have permission to ${action} this part.`);
+  }
+
+  return job;
+}
+
+async function collectArchivedDeletePlan(
+  transaction: Transaction,
+  jobId: string,
+  userId: string,
+): Promise<ArchivedDeletePlan> {
+  const job = await getAuthorizedJob(transaction, jobId, userId, "delete");
+
+  if (!job.archived_at) {
+    throw new HttpError(400, "Only archived parts can be deleted.");
+  }
+
+  const orphanBlobs = await transaction<{ id: string; storage_bucket: string; storage_path: string }[]>`
+    select distinct blob.id, blob.storage_bucket, blob.storage_path
+    from public.organization_file_blobs blob
+    join public.job_files file on file.blob_id = blob.id
+    where file.job_id = ${job.id}::uuid
+      and not exists (
+        select 1
+        from public.job_files other
+        where other.blob_id = blob.id
+          and other.job_id <> ${job.id}::uuid
+      )
+  `;
+
+  const orphanBlobIds = orphanBlobs.map((blob) => blob.id);
+  const orphanBlobOwnershipExclusion = buildBlobOwnershipExclusionClause(
+    transaction,
+    (values, type) => sql.array(values, type),
+    orphanBlobIds,
+  );
+
+  const drawingPreviewAssets = await transaction<{ storage_bucket: string; storage_path: string }[]>`
+    select distinct asset.storage_bucket, asset.storage_path
+    from public.drawing_preview_assets asset
+    join public.parts part on part.id = asset.part_id
+    where part.job_id = ${job.id}::uuid
+      and not exists (
+        select 1
+        from public.drawing_preview_assets other_asset
+        join public.parts other_part on other_part.id = other_asset.part_id
+        where other_asset.storage_bucket = asset.storage_bucket
+          and other_asset.storage_path = asset.storage_path
+          and other_part.job_id <> ${job.id}::uuid
+      )
+  `;
+
+  const vendorQuoteArtifacts = await transaction<{ storage_bucket: string; storage_path: string }[]>`
+    select distinct artifact.storage_bucket, artifact.storage_path
+    from public.vendor_quote_artifacts artifact
+    join public.vendor_quote_results result on result.id = artifact.vendor_quote_result_id
+    join public.parts part on part.id = result.part_id
+    where part.job_id = ${job.id}::uuid
+  `;
+
+  const unownedJobFiles = await transaction<{ storage_bucket: string; storage_path: string }[]>`
+    select distinct file.storage_bucket, file.storage_path
+    from public.job_files file
+    where file.job_id = ${job.id}::uuid
+      and file.blob_id is null
+      and not exists (
+        select 1
+        from public.job_files other
+        where other.storage_bucket = file.storage_bucket
+          and other.storage_path = file.storage_path
+          and other.job_id <> ${job.id}::uuid
+      )
+      and not exists (
+        select 1
+        from public.organization_file_blobs blob
+        where blob.storage_bucket = file.storage_bucket
+          and blob.storage_path = file.storage_path
+          ${orphanBlobOwnershipExclusion}
+      )
+  `;
+
+  return {
+    job,
+    orphanBlobIds,
+    storageCandidates: dedupeStorageCandidates([
+      ...orphanBlobs.map((blob) => ({
+        bucket: blob.storage_bucket,
+        path: blob.storage_path,
+      })),
+      ...drawingPreviewAssets.map((asset) => ({
+        bucket: asset.storage_bucket,
+        path: asset.storage_path,
+      })),
+      ...vendorQuoteArtifacts.map((artifact) => ({
+        bucket: artifact.storage_bucket,
+        path: artifact.storage_path,
+      })),
+      ...unownedJobFiles.map((file) => ({
+        bucket: file.storage_bucket,
+        path: file.storage_path,
+      })),
+    ]),
+  };
+}
+
+async function removeStorageCandidates(jobId: string, storageCandidates: StorageCandidate[]): Promise<boolean> {
+  if (storageCandidates.length === 0) {
+    return true;
+  }
+
+  const serviceRoleKey = supabaseServiceRoleKey;
+
+  if (!serviceRoleKey) {
+    return false;
+  }
+
+  const serviceRoleClient = createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+
+  const candidatesByBucket = new Map<string, string[]>();
+
+  for (const candidate of storageCandidates) {
+    const paths = candidatesByBucket.get(candidate.bucket) ?? [];
+    paths.push(candidate.path);
+    candidatesByBucket.set(candidate.bucket, paths);
+  }
+
+  for (const [bucket, paths] of candidatesByBucket.entries()) {
+    const { error } = await serviceRoleClient.storage.from(bucket).remove(paths);
+
+    if (error) {
+      console.error("job-archive-fallback storage cleanup failed", {
+        jobId,
+        bucket,
+        paths,
+        error,
+      });
+      return false;
+    }
+  }
+
+  return true;
 }
 
 Deno.serve(async (request) => {
@@ -152,58 +427,71 @@ Deno.serve(async (request) => {
   }
 
   try {
-    const jobId = await sql.begin(async (transaction) => {
-      const hasArchivedAt = await hasColumn(transaction, "jobs", "archived_at");
+    if (payload.action === "delete") {
+      const deletePlan = await sql.begin((transaction) =>
+        collectArchivedDeletePlan(transaction, payload.jobId!, user.id),
+      );
+      const jobId = await executeArchivedDelete({
+        deletePlan,
+        hasStorageServiceRoleKey: Boolean(supabaseServiceRoleKey),
+        missingServiceRoleMessage:
+          "Archived part deletion requires SUPABASE_SERVICE_ROLE_KEY for storage cleanup.",
+        storageCleanupFailureMessage: ARCHIVED_DELETE_STORAGE_CLEANUP_FAILED_MESSAGE,
+        removeStorageCandidates,
+        commitDelete: async (currentDeletePlan) => {
+          await sql.begin(async (transaction) => {
+            const job = await getAuthorizedJob(transaction, payload.jobId!, user.id, "delete");
 
-      if (!hasArchivedAt) {
-        throw new HttpError(500, JOB_ARCHIVING_UNAVAILABLE_MESSAGE);
-      }
+            if (!job.archived_at) {
+              throw new HttpError(400, "Only archived parts can be deleted.");
+            }
 
-      const jobs = await transaction<{
-        id: string;
-        organization_id: string;
-        created_by: string | null;
-        archived_at: string | null;
-      }[]>`
-        select id, organization_id, created_by, archived_at
-        from public.jobs
-        where id = ${payload.jobId}::uuid
-        limit 1
-      `;
+            await transaction`
+              delete from public.published_quote_options option_row
+              using public.published_quote_packages package_row
+              where option_row.package_id = package_row.id
+                and package_row.job_id = ${job.id}::uuid
+            `;
 
-      const job = jobs[0];
+            await transaction`
+              select public.log_audit_event(
+                ${job.organization_id}::uuid,
+                'job.deleted',
+                jsonb_build_object(
+                  'jobId', ${job.id}::uuid,
+                  'archivedAt', ${job.archived_at},
+                  'deleteScope', 'single'
+                ),
+                ${job.id}::uuid,
+                null
+              )
+            `;
 
-      if (!job) {
-        throw new HttpError(404, `Job ${payload.jobId} not found.`);
-      }
+            await transaction`
+              delete from public.jobs
+              where id = ${job.id}::uuid
+            `;
 
-      const hasUserCanEditJob = await hasFunction(transaction, "public.user_can_edit_job(uuid)");
-      const allowed =
-        hasUserCanEditJob
-          ? Boolean(
-              (
-                await transaction<{ allowed: boolean }[]>`
-                  select public.user_can_edit_job(${job.id}::uuid) as allowed
-                `
-              )[0]?.allowed,
-            )
-          : job.created_by === user.id ||
-            Boolean(
-              (
-                await transaction<{ allowed: boolean }[]>`
-                  select exists (
+            if (currentDeletePlan.orphanBlobIds.length > 0) {
+              await transaction`
+                delete from public.organization_file_blobs blob
+                where blob.id = any(${sql.array(currentDeletePlan.orphanBlobIds, "uuid")})
+                  and not exists (
                     select 1
-                    from public.organization_memberships
-                    where user_id = ${user.id}::uuid
-                      and organization_id = ${job.organization_id}::uuid
-                  ) as allowed
-                `
-              )[0]?.allowed,
-            );
+                    from public.job_files file
+                    where file.blob_id = blob.id
+                  )
+              `;
+            }
+          });
+        },
+      });
 
-      if (!allowed) {
-        throw new HttpError(403, `You do not have permission to ${payload.action} this part.`);
-      }
+      return json(200, { jobId });
+    }
+
+    const jobId = await sql.begin(async (transaction) => {
+      const job = await getAuthorizedJob(transaction, payload.jobId!, user.id, payload.action);
 
       if (payload.action === "archive") {
         const hasProjectId = await hasColumn(transaction, "jobs", "project_id");
@@ -261,21 +549,12 @@ Deno.serve(async (request) => {
         return job.id;
       }
 
-      if (!job.archived_at) {
-        throw new HttpError(400, "Only archived parts can be deleted.");
-      }
-
-      await transaction`
-        delete from public.jobs
-        where id = ${job.id}::uuid
-      `;
-
-      return job.id;
+      throw new HttpError(400, "Unsupported archive action.");
     });
 
     return json(200, { jobId });
   } catch (error) {
-    if (error instanceof HttpError) {
+    if (error instanceof HttpError || error instanceof ArchivedDeleteFlowError) {
       return json(error.status, { error: error.message });
     }
 

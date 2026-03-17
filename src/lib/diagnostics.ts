@@ -55,10 +55,34 @@ export type DiagnosticEvent = {
   details: JsonValue | null;
 };
 
+type ArchivedDeleteDiagnosticsSummary = {
+  failureCategory: string;
+  failureSummary: string;
+  likelyCause: string;
+  recommendedChecks: string[];
+  fallbackPath: string;
+  supabaseOrigin: string | null;
+  supabaseProjectRef: string | null;
+  functionName: string | null;
+  functionPath: string | null;
+  functionUrl: string | null;
+  httpStatus: number | null;
+  hasResponseBody: boolean | null;
+  rawErrorName: string | null;
+  rawErrorMessage: string | null;
+  rawErrorStatus: number | null;
+  partIds: string[];
+  organizationId: string | null;
+  userId: string | null;
+  eventId: string;
+  eventTimestamp: string;
+};
+
 export type DiagnosticsSnapshot = {
   sessionId: string;
   enabled: boolean;
   panelOpen: boolean;
+  uiSuppressed: boolean;
   context: DiagnosticContext;
   events: DiagnosticEvent[];
   counts: Record<DiagnosticLevel, number>;
@@ -131,16 +155,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function toJsonValue(value: unknown, depth = 0): JsonValue {
-  if (depth > 4) {
-    return "[max-depth]";
-  }
-
   if (value === null || value === undefined) {
     return null;
   }
 
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return value;
+  }
+
+  if (depth > 4) {
+    return "[max-depth]";
   }
 
   if (value instanceof Error) {
@@ -268,6 +292,75 @@ function summarizeConsoleArgs(args: unknown[]) {
     .slice(0, 1000);
 }
 
+function getArchivedDeleteDiagnosticsSummary(
+  event: DiagnosticEvent | null | undefined,
+): ArchivedDeleteDiagnosticsSummary | null {
+  if (!event || !isRecord(event.details) || !Array.isArray(event.details.args)) {
+    return null;
+  }
+
+  const reportingHolder = event.details.args.find(
+    (entry) => isRecord(entry) && isRecord(entry.reporting) && entry.reporting.operation === "archived_delete",
+  );
+
+  if (!isRecord(reportingHolder) || !isRecord(reportingHolder.reporting)) {
+    return null;
+  }
+
+  const reporting = reportingHolder.reporting;
+  const partIds =
+    Array.isArray(reporting.partIds) && reporting.partIds.every((entry) => typeof entry === "string")
+      ? reporting.partIds
+      : [];
+  const recommendedChecks = reporting.recommendedChecks;
+
+  if (
+    typeof reporting.failureCategory !== "string" ||
+    typeof reporting.failureSummary !== "string" ||
+    typeof reporting.likelyCause !== "string" ||
+    !Array.isArray(recommendedChecks) ||
+    !recommendedChecks.every((entry) => typeof entry === "string") ||
+    typeof reporting.fallbackPath !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    failureCategory: reporting.failureCategory,
+    failureSummary: reporting.failureSummary,
+    likelyCause: reporting.likelyCause,
+    recommendedChecks,
+    fallbackPath: reporting.fallbackPath,
+    supabaseOrigin: typeof reporting.supabaseOrigin === "string" ? reporting.supabaseOrigin : null,
+    supabaseProjectRef: typeof reporting.supabaseProjectRef === "string" ? reporting.supabaseProjectRef : null,
+    functionName: typeof reporting.functionName === "string" ? reporting.functionName : null,
+    functionPath: typeof reporting.functionPath === "string" ? reporting.functionPath : null,
+    functionUrl: typeof reporting.functionUrl === "string" ? reporting.functionUrl : null,
+    httpStatus: typeof reporting.httpStatus === "number" ? reporting.httpStatus : null,
+    hasResponseBody: typeof reporting.hasResponseBody === "boolean" ? reporting.hasResponseBody : null,
+    rawErrorName: typeof reporting.rawErrorName === "string" ? reporting.rawErrorName : null,
+    rawErrorMessage: typeof reporting.rawErrorMessage === "string" ? reporting.rawErrorMessage : null,
+    rawErrorStatus: typeof reporting.rawErrorStatus === "number" ? reporting.rawErrorStatus : null,
+    partIds,
+    organizationId: typeof reporting.organizationId === "string" ? reporting.organizationId : null,
+    userId: typeof reporting.userId === "string" ? reporting.userId : null,
+    eventId: event.id,
+    eventTimestamp: event.timestamp,
+  };
+}
+
+function findLatestArchivedDeleteDiagnosticsSummary(): ArchivedDeleteDiagnosticsSummary | null {
+  for (const event of diagnosticsState.events) {
+    const summary = getArchivedDeleteDiagnosticsSummary(event);
+
+    if (summary) {
+      return summary;
+    }
+  }
+
+  return null;
+}
+
 function isIgnoredConsoleError(args: unknown[]) {
   const summary = summarizeConsoleArgs(args).toLowerCase();
 
@@ -289,6 +382,7 @@ function createInitialState(): DiagnosticsState {
     sessionId: createSessionId(),
     enabled: safeReadBoolean(ENABLED_STORAGE_KEY) ?? import.meta.env.DEV,
     panelOpen: false,
+    uiSuppressed: false,
     context: defaultContext(),
     events: [],
     counts: { info: 0, warn: 0, error: 0 },
@@ -561,6 +655,13 @@ export function setDiagnosticsPanelOpen(panelOpen: boolean) {
   });
 }
 
+export function setDiagnosticsUiSuppressed(uiSuppressed: boolean) {
+  updateState({
+    ...diagnosticsState,
+    uiSuppressed,
+  });
+}
+
 export function toggleDiagnosticsPanel() {
   setDiagnosticsEnabled(true);
   setDiagnosticsPanelOpen(!diagnosticsState.panelOpen);
@@ -582,12 +683,15 @@ export function useDiagnosticsSnapshot() {
 }
 
 export function createDiagnosticsReport() {
+  const archivedDeleteDiagnostics = findLatestArchivedDeleteDiagnosticsSummary();
+
   return {
     generatedAt: new Date().toISOString(),
     sessionId: diagnosticsState.sessionId,
     context: diagnosticsState.context,
     counts: diagnosticsState.counts,
     events: diagnosticsState.events,
+    archivedDeleteDiagnostics,
     browser:
       typeof window !== "undefined"
         ? {
@@ -660,6 +764,64 @@ function formatEventForClipboard(event: DiagnosticEvent) {
   return lines.join("\n");
 }
 
+function formatArchivedDeleteDiagnosticsForClipboard(summary: ArchivedDeleteDiagnosticsSummary) {
+  const lines = [
+    "Archived Delete Diagnostics:",
+    `- Failure category: ${summary.failureCategory}`,
+    `- Summary: ${summary.failureSummary}`,
+    `- Likely cause: ${summary.likelyCause}`,
+    `- Fallback path: ${summary.fallbackPath}`,
+    `- Supabase origin: ${summary.supabaseOrigin ?? "unknown"}`,
+    `- Supabase project ref: ${summary.supabaseProjectRef ?? "unknown"}`,
+    `- Function: ${summary.functionName ?? "unknown"}`,
+  ];
+
+  if (summary.functionPath) {
+    lines.push(`- Function path: ${summary.functionPath}`);
+  }
+
+  if (summary.functionUrl) {
+    lines.push(`- Expected function URL: ${summary.functionUrl}`);
+  }
+
+  if (summary.httpStatus != null) {
+    lines.push(`- HTTP status: ${summary.httpStatus}`);
+  }
+
+  if (summary.hasResponseBody != null) {
+    lines.push(`- Response body present: ${summary.hasResponseBody ? "true" : "false"}`);
+  }
+
+  if (summary.rawErrorName || summary.rawErrorMessage) {
+    lines.push(
+      `- Raw edge error: ${summary.rawErrorName ?? "Error"}${summary.rawErrorMessage ? `: ${summary.rawErrorMessage}` : ""}`,
+    );
+  }
+
+  if (summary.rawErrorStatus != null && summary.rawErrorStatus !== summary.httpStatus) {
+    lines.push(`- Raw edge status: ${summary.rawErrorStatus}`);
+  }
+
+  if (summary.partIds.length > 0) {
+    lines.push(`- Affected part IDs: ${summary.partIds.join(", ")}`);
+  }
+
+  if (summary.organizationId) {
+    lines.push(`- Organization: ${summary.organizationId}`);
+  }
+
+  if (summary.userId) {
+    lines.push(`- User ID: ${summary.userId}`);
+  }
+
+  lines.push("- Recommended checks:");
+  summary.recommendedChecks.forEach((entry) => {
+    lines.push(`  - ${entry}`);
+  });
+
+  return lines.join("\n");
+}
+
 function formatRecentEventsForClipboard(limit = 3) {
   return diagnosticsState.events
     .slice(0, limit)
@@ -687,6 +849,8 @@ export function createDiagnosticClipboardText(input: {
     diagnosticsState.events.find((event) => event.level === "error") ??
     diagnosticsState.events[0] ??
     null;
+  const archivedDeleteDiagnostics =
+    getArchivedDeleteDiagnosticsSummary(relevantEvent) ?? findLatestArchivedDeleteDiagnosticsSummary();
   const lines = [
     `Help debug this Overdrafter issue in Codex.`,
     "",
@@ -697,6 +861,10 @@ export function createDiagnosticClipboardText(input: {
 
   if (input.message ?? relevantEvent?.message) {
     lines.push("", `Issue: ${input.message ?? relevantEvent?.message ?? "Unknown issue"}`);
+  }
+
+  if (archivedDeleteDiagnostics) {
+    lines.push("", formatArchivedDeleteDiagnosticsForClipboard(archivedDeleteDiagnostics));
   }
 
   lines.push(
