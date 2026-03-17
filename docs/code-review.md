@@ -22,9 +22,16 @@ Reviewers should prioritize:
 - Prefer minimal fixes over broad refactors when addressing review findings.
 - Treat undocumented behavior changes as findings until the matching docs are updated.
 
+## Targeted TSDoc expectations
+
+- Flag missing TSDoc when shared or exported utilities, worker orchestration helpers, CLI or repo scripts, or non-obvious domain helpers are easy to misuse without written intent.
+- Do not require boilerplate docstrings for routine React components, trivial formatters, or obvious local helpers whose behavior is clear from the signature and surrounding code.
+- Treat generic docstring-coverage warnings as non-authoritative unless they match this repo policy or a concrete reviewer concern.
+
 ## Local and GitHub usage
 
 - Before opening a PR, run local verification and use Codex CLI `/review` against the working tree, commit, or base branch.
+- Before handing a PR off for review, validate the live PR body with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
 - On GitHub, native automatic Codex review is the baseline PR review layer when enabled for the repository.
 - `@codex review` is an optional follow-up path when maintainers want a fresh pass after updates.
 - Codex review does not replace `npm run verify`, CI, or human approval.
