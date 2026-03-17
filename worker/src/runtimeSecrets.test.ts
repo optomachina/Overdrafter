@@ -4,7 +4,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { prepareRuntimeSecrets, validateXometryReadiness } from "./runtimeSecrets";
+import {
+  prepareRuntimeSecrets,
+  validateDrawingExtractionReadiness,
+  validateWorkerReadiness,
+  validateXometryReadiness,
+} from "./runtimeSecrets";
 import type { WorkerConfig } from "./types";
 
 const tempDirs: string[] = [];
@@ -27,6 +32,11 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     playwrightDisableDevShmUsage: true,
     xometryStorageStatePath: null,
     xometryStorageStateJson: null,
+    openAiApiKey: null,
+    workerBuildVersion: "dev-local",
+    drawingExtractionModel: "gpt-5.4",
+    drawingExtractionEnableModelFallback: false,
+    drawingExtractionDebugAllowedModels: ["gpt-5.4"],
     ...overrides,
   };
 }
@@ -109,5 +119,48 @@ describe("runtimeSecrets", () => {
         }),
       ),
     ).toEqual([]);
+  });
+
+  it("reports model fallback readiness issues when enabled without a key", async () => {
+    expect(
+      await validateDrawingExtractionReadiness(
+        makeConfig({
+          drawingExtractionEnableModelFallback: true,
+          openAiApiKey: null,
+        }),
+      ),
+    ).toEqual([
+      "Drawing extraction model fallback is enabled but OPENAI_API_KEY is missing. Fallback requests will stay disabled.",
+    ]); 
+  });
+
+  it("reports readiness issues when no debug extraction models are allowlisted", async () => {
+    expect(
+      await validateDrawingExtractionReadiness(
+        makeConfig({
+          drawingExtractionDebugAllowedModels: [],
+        }),
+      ),
+    ).toEqual([
+      "DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS must include at least one model for debug extraction runs.",
+    ]);
+  });
+
+  it("combines worker readiness issues across subsystems", async () => {
+    const workerTempDir = await makeTempDir();
+    const missingPath = path.join(workerTempDir, "missing.json");
+
+    expect(
+      await validateWorkerReadiness(
+        makeConfig({
+          xometryStorageStatePath: missingPath,
+          drawingExtractionEnableModelFallback: true,
+          openAiApiKey: null,
+        }),
+      ),
+    ).toEqual([
+      `Xometry storage state file was not found at ${missingPath}.`,
+      "Drawing extraction model fallback is enabled but OPENAI_API_KEY is missing. Fallback requests will stay disabled.",
+    ]);
   });
 });

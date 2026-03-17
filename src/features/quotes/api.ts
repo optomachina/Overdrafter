@@ -11,6 +11,7 @@ import type {
   ApprovedPartRequirement,
   ClientPartMetadataRecord,
   ClientSelectionRecord,
+  DebugExtractionRunRecord,
   ClientPackageAggregate,
   ClientActivityEvent,
   ClientDraftInput,
@@ -308,6 +309,11 @@ const DRAWING_PREVIEW_ASSET_IDENTIFIERS = [
   "drawing_preview_assets",
   "page_number",
 ] as const;
+const DEBUG_EXTRACTION_RUN_IDENTIFIERS = [
+  "public.debug_extraction_runs",
+  "debug_extraction_runs",
+  "requested_model",
+] as const;
 const CLIENT_ACTIVITY_IDENTIFIERS = ["api_list_client_activity_events"] as const;
 const QUOTE_REQUEST_IDENTIFIERS = ["public.quote_requests", "quote_requests", "quote_request_status"] as const;
 const CLIENT_PART_METADATA_IDENTIFIERS = ["api_list_client_part_metadata"] as const;
@@ -475,8 +481,24 @@ function isMissingDrawingPreviewSchemaError(error: unknown): boolean {
   return isMissingSchemaIdentifierError(error, DRAWING_PREVIEW_ASSET_IDENTIFIERS);
 }
 
+function isMissingDebugExtractionSchemaError(error: unknown): boolean {
+  return isMissingSchemaIdentifierError(error, DEBUG_EXTRACTION_RUN_IDENTIFIERS);
+}
+
 function isMissingClientActivitySchemaError(error: unknown): boolean {
   return isMissingSchemaIdentifierError(error, CLIENT_ACTIVITY_IDENTIFIERS);
+}
+
+function ensureOptionalRows<T>(
+  data: T[] | null,
+  error: { message: string } | null | undefined,
+  isMissingSchemaError: (value: { message: string } | null | undefined) => boolean,
+): T[] {
+  if (isMissingSchemaError(error)) {
+    return [];
+  }
+
+  return ensureData(data, error) as T[];
 }
 
 function isMissingQuoteRequestSchemaError(error: unknown): boolean {
@@ -1095,9 +1117,25 @@ async function fetchClientPartMetadataByJobIds(jobIds: string[]): Promise<Client
     .filter((row): row is ClientPartMetadataRecord => Boolean(row));
 }
 
-async function resolveClientPartDetailJobId(candidateId: string): Promise<string | null> {
+export type ResolvedClientPartDetailRoute = {
+  routeId: string;
+  jobId: string;
+  source: "job" | "part";
+};
+
+export async function resolveClientPartDetailRoute(candidateId: string): Promise<ResolvedClientPartDetailRoute | null> {
   if (!candidateId) {
     return null;
+  }
+
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return {
+      routeId: candidateId,
+      jobId: candidateId,
+      source: "job",
+    };
   }
 
   const directJobs = await fetchJobsByIds([candidateId], {
@@ -1105,7 +1143,11 @@ async function resolveClientPartDetailJobId(candidateId: string): Promise<string
   });
 
   if (directJobs.length > 0) {
-    return candidateId;
+    return {
+      routeId: candidateId,
+      jobId: candidateId,
+      source: "job",
+    };
   }
 
   const { data, error } = await supabase
@@ -1123,7 +1165,13 @@ async function resolveClientPartDetailJobId(candidateId: string): Promise<string
   }
 
   const row = data as { job_id?: string | null } | null;
-  return typeof row?.job_id === "string" ? row.job_id : null;
+  return typeof row?.job_id === "string"
+    ? {
+        routeId: candidateId,
+        jobId: row.job_id,
+        source: "part",
+      }
+    : null;
 }
 
 async function invokeJobArchivingFallback(
@@ -1987,7 +2035,9 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
 
   const [
     extractionResult,
+    previewAssetResult,
     approvedResult,
+    debugExtractionRunsResult,
     vendorQuoteResult,
     optionResult,
     selectionResult,
@@ -1996,8 +2046,18 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
       ? supabase.from("drawing_extractions").select("*").in("part_id", partIds)
       : emptyResponse<DrawingExtractionRecord>(),
     partIds.length > 0
+      ? supabase.from("drawing_preview_assets").select("*").in("part_id", partIds)
+      : emptyResponse<DrawingPreviewAssetRecord>(),
+    partIds.length > 0
       ? supabase.from("approved_part_requirements").select("*").in("part_id", partIds)
       : emptyResponse<ApprovedPartRequirementRecord>(),
+    partIds.length > 0
+      ? supabase
+          .from("debug_extraction_runs")
+          .select("*")
+          .in("part_id", partIds)
+          .order("created_at", { ascending: false })
+      : emptyResponse<DebugExtractionRunRecord>(),
     quoteRunIds.length > 0
       ? supabase.from("vendor_quote_results").select("*").in("quote_run_id", quoteRunIds)
       : emptyResponse<VendorQuoteResultRecord>(),
@@ -2027,10 +2087,20 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
     : ((await pricingPolicyPromise) as PostgrestSingleResponse<PricingPolicyRecord | null>);
 
   const extractions = ensureData(extractionResult.data, extractionResult.error) as DrawingExtractionRecord[];
+  const drawingPreviewAssets = ensureOptionalRows(
+    previewAssetResult.data,
+    previewAssetResult.error,
+    isMissingDrawingPreviewSchemaError,
+  ) as DrawingPreviewAssetRecord[];
   const approvedRequirements = ensureData(
     approvedResult.data,
     approvedResult.error,
   ) as ApprovedPartRequirementRecord[];
+  const debugExtractionRuns = ensureOptionalRows(
+    debugExtractionRunsResult.data,
+    debugExtractionRunsResult.error,
+    isMissingDebugExtractionSchemaError,
+  ) as DebugExtractionRunRecord[];
   const vendorQuotes = ensureData(
     vendorQuoteResult.data,
     vendorQuoteResult.error,
@@ -2140,6 +2210,8 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
     packages: packagesWithOptions,
     pricingPolicy,
     workQueue,
+    drawingPreviewAssets,
+    debugExtractionRuns,
   };
 }
 
@@ -3048,22 +3120,16 @@ export async function searchAccessibleParts(query: string): Promise<JobRecord[]>
   );
 }
 
-export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregate> {
+export async function fetchPartDetailByJobId(jobId: string): Promise<PartDetailAggregate> {
   const fixtureGateway = getActiveClientWorkspaceGateway();
 
   if (fixtureGateway) {
     return fixtureGateway.fetchPartDetail(jobId);
   }
 
-  const resolvedJobId = await resolveClientPartDetailJobId(jobId);
-
-  if (!resolvedJobId) {
-    throw new Error("Part not found.");
-  }
-
   const [workspaceItems, projectMemberships] = await Promise.all([
-    fetchClientQuoteWorkspaceByJobIds([resolvedJobId]),
-    fetchProjectJobMembershipsByJobIds([resolvedJobId]),
+    fetchClientQuoteWorkspaceByJobIds([jobId]),
+    fetchProjectJobMembershipsByJobIds([jobId]),
   ]);
   const workspaceItem = workspaceItems[0] ?? null;
 
@@ -3089,7 +3155,7 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
           .filter(
             (candidate) =>
               candidate.partNumber === summary.partNumber &&
-              candidate.jobId !== resolvedJobId &&
+              candidate.jobId !== jobId &&
               activeJobIdSet.has(candidate.jobId),
           )
           .map((candidate) => ({
@@ -3112,6 +3178,16 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
     latestQuoteRun: workspaceItem.latestQuoteRun,
     revisionSiblings,
   };
+}
+
+export async function fetchPartDetail(routeId: string): Promise<PartDetailAggregate> {
+  const resolvedRoute = await resolveClientPartDetailRoute(routeId);
+
+  if (!resolvedRoute) {
+    throw new Error("Part not found.");
+  }
+
+  return fetchPartDetailByJobId(resolvedRoute.jobId);
 }
 
 export async function createProject(input: {
@@ -4040,6 +4116,18 @@ export async function requestExtraction(jobId: string): Promise<number> {
   return ensureData(data, error);
 }
 
+export async function requestDebugExtraction(
+  partId: string,
+  model: string | null,
+): Promise<string> {
+  const { data, error } = await callRpc("api_request_debug_extraction", {
+    p_part_id: partId,
+    p_model: model,
+  });
+
+  return ensureData(data, error);
+}
+
 export async function approveJobRequirements(
   jobId: string,
   requirements: ApprovedPartRequirement[],
@@ -4185,7 +4273,11 @@ export async function fetchWorkerReadiness(): Promise<WorkerReadinessSnapshot> {
       reachable: false,
       ready: null,
       workerName: null,
+      workerBuildVersion: null,
       workerMode: null,
+      drawingExtractionModel: null,
+      drawingExtractionDebugAllowedModels: [],
+      drawingExtractionModelFallbackEnabled: false,
       status: null,
       readinessIssues: [],
       message: "Set VITE_WORKER_BASE_URL to enable the worker readiness probe.",
@@ -4208,7 +4300,14 @@ export async function fetchWorkerReadiness(): Promise<WorkerReadinessSnapshot> {
       reachable: true,
       ready: typeof payload.ready === "boolean" ? payload.ready : response.ok,
       workerName: typeof payload.workerName === "string" ? payload.workerName : null,
+      workerBuildVersion: typeof payload.workerBuildVersion === "string" ? payload.workerBuildVersion : null,
       workerMode: typeof payload.workerMode === "string" ? payload.workerMode : null,
+      drawingExtractionModel:
+        typeof payload.drawingExtractionModel === "string" ? payload.drawingExtractionModel : null,
+      drawingExtractionDebugAllowedModels: Array.isArray(payload.drawingExtractionDebugAllowedModels)
+        ? payload.drawingExtractionDebugAllowedModels.map(String)
+        : [],
+      drawingExtractionModelFallbackEnabled: Boolean(payload.drawingExtractionModelFallbackEnabled),
       status: typeof payload.status === "string" ? payload.status : null,
       readinessIssues: Array.isArray(payload.readinessIssues)
         ? payload.readinessIssues.map(String)
@@ -4221,7 +4320,11 @@ export async function fetchWorkerReadiness(): Promise<WorkerReadinessSnapshot> {
       reachable: false,
       ready: null,
       workerName: null,
+      workerBuildVersion: null,
       workerMode: null,
+      drawingExtractionModel: null,
+      drawingExtractionDebugAllowedModels: [],
+      drawingExtractionModelFallbackEnabled: false,
       status: null,
       readinessIssues: [],
       message: error instanceof Error ? error.message : "Unable to reach the worker readiness probe.",

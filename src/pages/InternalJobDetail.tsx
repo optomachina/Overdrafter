@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -17,6 +17,7 @@ import { AppShell } from "@/components/app/AppShell";
 import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
 import { ManualQuoteIntakeCard } from "@/components/quotes/ManualQuoteIntakeCard";
+import { ExtractionLabCard } from "@/components/quotes/ExtractionLabCard";
 import { RfqLineItemMetadataFields } from "@/components/quotes/RfqLineItemMetadataFields";
 import { RequestServiceIntentFields } from "@/components/quotes/RequestServiceIntentFields";
 import { RequestedQuantityFilter } from "@/components/quotes/RequestedQuantityFilter";
@@ -67,9 +68,11 @@ import {
   getLatestQuoteRun,
   hasManualQuoteIntakeSource,
   isManualImportVendor,
+  mergeRequirementDraftState,
   normalizeDrawingExtraction,
   optionLabelForKind,
   projectedClientPrice,
+  resolveRequirementField,
 } from "@/features/quotes/utils";
 
 const vendors = ["xometry", "fictiv", "protolabs", "sendcutsend"] as const;
@@ -88,11 +91,36 @@ const InternalJobDetail = () => {
   const [isResendingVerification, setIsResendingVerification] = useState(false);
   const [activeCompareRequestedQuantity, setActiveCompareRequestedQuantity] =
     useState<RequestedQuantityFilterValue | null>(null);
+  const draftStateRef = useRef<{
+    drafts: Record<string, ApprovedPartRequirement>;
+    quoteQuantityInputs: Record<string, string>;
+  }>({
+    drafts: {},
+    quoteQuantityInputs: {},
+  });
 
   const jobQuery = useQuery({
     queryKey: ["job", jobId],
     queryFn: () => fetchJobAggregate(jobId),
     enabled: Boolean(jobId && user && activeMembership && activeMembership.role !== "client"),
+    refetchInterval: (query) => {
+      const current = query.state.data;
+
+      if (!current) {
+        return false;
+      }
+
+      const hasInFlightDebugRun = (current.debugExtractionRuns ?? []).some(
+        (run) => run.status === "queued" || run.status === "running",
+      );
+      const hasInFlightDebugTask = current.workQueue.some(
+        (task) =>
+          task.task_type === "debug_extract_part" &&
+          (task.status === "queued" || task.status === "running"),
+      );
+
+      return hasInFlightDebugRun || hasInFlightDebugTask ? 2500 : false;
+    },
   });
 
   const cadPreviewSources = useMemo(
@@ -184,6 +212,13 @@ const InternalJobDetail = () => {
   }, [compareQuantities]);
 
   useEffect(() => {
+    draftStateRef.current = {
+      drafts,
+      quoteQuantityInputs,
+    };
+  }, [drafts, quoteQuantityInputs]);
+
+  useEffect(() => {
     if (!jobQuery.data) {
       return;
     }
@@ -195,19 +230,15 @@ const InternalJobDetail = () => {
       requested_quote_quantities: jobQuery.data.job.requested_quote_quantities ?? [],
       requested_by_date: jobQuery.data.job.requested_by_date ?? null,
     };
-    const nextDrafts = Object.fromEntries(
-      jobQuery.data.parts.map((part) => [part.id, buildRequirementDraft(part, jobRequestDefaults)]),
-    );
+    const nextDraftState = mergeRequirementDraftState({
+      parts: jobQuery.data.parts,
+      currentDrafts: draftStateRef.current.drafts,
+      currentQuoteQuantityInputs: draftStateRef.current.quoteQuantityInputs,
+      jobRequest: jobRequestDefaults,
+    });
 
-    setDrafts(nextDrafts);
-    setQuoteQuantityInputs(
-      Object.fromEntries(
-        Object.values(nextDrafts).map((draft) => [
-          draft.partId,
-          formatRequestedQuoteQuantitiesInput(draft.quoteQuantities),
-        ]),
-      ),
-    );
+    setDrafts(nextDraftState.drafts);
+    setQuoteQuantityInputs(nextDraftState.quoteQuantityInputs);
 
     setClientSummary((current) =>
       current ||
@@ -503,6 +534,47 @@ const InternalJobDetail = () => {
               const quoteQuantityInput =
                 quoteQuantityInputs[part.id] ?? formatRequestedQuoteQuantitiesInput(draft.quoteQuantities);
               const showQuoteFields = requestedServicesSupportQuoteFields(draft.requestedServiceKinds);
+              const descriptionResolution = resolveRequirementField(part, "description", extraction);
+              const partNumberResolution = resolveRequirementField(part, "partNumber", extraction);
+              const revisionResolution = resolveRequirementField(part, "revision", extraction);
+              const finishResolution = resolveRequirementField(part, "finish", extraction);
+              const descriptionSelectedBy = extraction.fieldSelections?.description ?? "parser";
+              const partNumberSelectedBy = extraction.fieldSelections?.partNumber ?? "parser";
+              const revisionSelectedBy = extraction.fieldSelections?.revision ?? "parser";
+              const materialSelectedBy = extraction.fieldSelections?.material ?? "parser";
+              const finishSelectedBy = extraction.fieldSelections?.finish ?? "parser";
+              const extractionSourceLabel = (selectedBy: "parser" | "model" | "review") => {
+                switch (selectedBy) {
+                  case "model":
+                    return "model fallback";
+                  case "review":
+                    return "manual review";
+                  default:
+                    return "parser";
+                }
+              };
+              const draftSourceLabel = (
+                source: "client" | "approved_user" | "approved_auto" | "extraction",
+              ) => {
+                switch (source) {
+                  case "client":
+                    return "client request";
+                  case "approved_user":
+                    return "approved user value";
+                  case "approved_auto":
+                    return "approved auto value";
+                  default:
+                    return "fresher extraction";
+                }
+              };
+              const extractedFinishRaw = extraction.rawFields.finish.raw ?? extraction.finish.raw ?? null;
+              const finishUsesRawField = Boolean(extraction.rawFields.finish.raw);
+              const finishReviewNeeded = finishUsesRawField
+                ? extraction.rawFields.finish.reviewNeeded
+                : extraction.finish.reviewNeeded;
+              const finishConfidence = finishUsesRawField
+                ? extraction.rawFields.finish.confidence
+                : extraction.finish.confidence;
 
               return (
                 <div key={part.id} className="rounded-3xl border border-white/8 bg-black/20 p-5">
@@ -618,6 +690,19 @@ const InternalJobDetail = () => {
                             }))
                           }
                         />
+                        <p className="text-xs text-white/45">
+                          Extracted raw: {extraction.rawFields.description.raw || "Not found"}
+                          {extraction.rawFields.description.reviewNeeded
+                            ? ` • review needed (${Math.round(extraction.rawFields.description.confidence * 100)}%)`
+                            : ""}
+                          {` • source: ${extractionSourceLabel(descriptionSelectedBy)}`}
+                        </p>
+                        {descriptionResolution.staleAuto && descriptionResolution.approvedValue ? (
+                          <p className="text-xs text-amber-300">
+                            Showing {draftSourceLabel(descriptionResolution.source)} instead of stale auto-approved value:{" "}
+                            {descriptionResolution.approvedValue}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="space-y-2">
                         <Label>Part number</Label>
@@ -632,6 +717,19 @@ const InternalJobDetail = () => {
                             }))
                           }
                         />
+                        <p className="text-xs text-white/45">
+                          Extracted raw: {extraction.rawFields.partNumber.raw || "Not found"}
+                          {extraction.rawFields.partNumber.reviewNeeded
+                            ? ` • review needed (${Math.round(extraction.rawFields.partNumber.confidence * 100)}%)`
+                            : ""}
+                          {` • source: ${extractionSourceLabel(partNumberSelectedBy)}`}
+                        </p>
+                        {partNumberResolution.staleAuto && partNumberResolution.approvedValue ? (
+                          <p className="text-xs text-amber-300">
+                            Showing {draftSourceLabel(partNumberResolution.source)} instead of stale auto-approved value:{" "}
+                            {partNumberResolution.approvedValue}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="space-y-2">
                         <Label>Revision</Label>
@@ -646,6 +744,19 @@ const InternalJobDetail = () => {
                             }))
                           }
                         />
+                        <p className="text-xs text-white/45">
+                          Extracted raw: {extraction.rawFields.revision.raw || "Not found"}
+                          {extraction.rawFields.revision.reviewNeeded
+                            ? ` • review needed (${Math.round(extraction.rawFields.revision.confidence * 100)}%)`
+                            : ""}
+                          {` • source: ${extractionSourceLabel(revisionSelectedBy)}`}
+                        </p>
+                        {revisionResolution.staleAuto && revisionResolution.approvedValue ? (
+                          <p className="text-xs text-amber-300">
+                            Showing {draftSourceLabel(revisionResolution.source)} instead of stale auto-approved value:{" "}
+                            {revisionResolution.approvedValue}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="space-y-2">
                         <Label>Quantity</Label>
@@ -744,6 +855,10 @@ const InternalJobDetail = () => {
                         />
                         <p className="text-xs text-white/45">
                           Extracted: {extraction.material.normalized || extraction.material.raw || "Not found"}
+                          {extraction.material.reviewNeeded
+                            ? ` • review needed (${Math.round(extraction.material.confidence * 100)}%)`
+                            : ""}
+                          {` • source: ${extractionSourceLabel(materialSelectedBy)}`}
                         </p>
                       </div>
                       <div className="space-y-2">
@@ -760,8 +875,18 @@ const InternalJobDetail = () => {
                           }
                         />
                         <p className="text-xs text-white/45">
-                          Extracted: {extraction.finish.normalized || extraction.finish.raw || "Not found"}
+                          Extracted raw: {extractedFinishRaw || "Not found"}
+                          {finishReviewNeeded
+                            ? ` • review needed (${Math.round(finishConfidence * 100)}%)`
+                            : ""}
+                          {` • source: ${extractionSourceLabel(finishSelectedBy)}`}
                         </p>
+                        {finishResolution.staleAuto && finishResolution.approvedValue ? (
+                          <p className="text-xs text-amber-300">
+                            Showing {draftSourceLabel(finishResolution.source)} instead of stale auto-approved value:{" "}
+                            {finishResolution.approvedValue}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="space-y-2">
                         <Label>Tightest tolerance (inches)</Label>
@@ -882,6 +1007,16 @@ const InternalJobDetail = () => {
             parts={job.parts}
             disabled={writeActionsDisabled}
           />
+
+          {showDebugTools ? (
+            <ExtractionLabCard
+              jobId={jobId}
+              parts={job.parts}
+              debugExtractionRuns={job.debugExtractionRuns ?? []}
+              drawingPreviewAssets={job.drawingPreviewAssets ?? []}
+              disabled={writeActionsDisabled}
+            />
+          ) : null}
 
           {showDebugTools ? (
             <XometryDebugCard

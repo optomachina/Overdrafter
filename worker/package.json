@@ -13,6 +13,7 @@
     "verify": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.json",
     "auth:xometry": "tsx src/tools/xometryAuth.ts",
     "cleanup:dmrifles-demo": "tsx src/tools/cleanupDmriflesDemoData.ts",
+    "extract:smoke": "tsx src/tools/extractDrawingSmoke.ts",
     "import:quotes": "tsx src/tools/importSpreadsheetQuotes.ts",
     "install:browsers": "playwright install chromium"
   },

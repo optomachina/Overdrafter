@@ -43,6 +43,7 @@ export type QuoteRunStatus = "queued" | "running" | "completed" | "failed" | "pu
 export type QuoteRequestStatus = "queued" | "requesting" | "received" | "failed" | "canceled";
 export type QueueTaskType =
   | "extract_part"
+  | "debug_extract_part"
   | "run_vendor_quote"
   | "poll_vendor_quote"
   | "publish_package"
@@ -408,6 +409,48 @@ export type Database = {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["drawing_preview_assets"]["Insert"]>;
+      };
+      debug_extraction_runs: {
+        Row: BaseRow & {
+          organization_id: string;
+          job_id: string;
+          part_id: string;
+          requested_by: string;
+          status: QueueTaskStatus;
+          requested_model: string;
+          effective_model: string | null;
+          worker_build_version: string | null;
+          extractor_version: string | null;
+          model_fallback_used: boolean | null;
+          model_prompt_version: string | null;
+          result: Json;
+          error: string | null;
+          started_at: string | null;
+          completed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          job_id: string;
+          part_id: string;
+          requested_by: string;
+          status?: QueueTaskStatus;
+          requested_model: string;
+          effective_model?: string | null;
+          worker_build_version?: string | null;
+          extractor_version?: string | null;
+          model_fallback_used?: boolean | null;
+          model_prompt_version?: string | null;
+          result?: Json;
+          error?: string | null;
+          started_at?: string | null;
+          completed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["debug_extraction_runs"]["Insert"]>;
       };
       approved_part_requirements: {
         Row: BaseRow & {
@@ -999,6 +1042,13 @@ export type Database = {
           p_job_id: string;
         };
         Returns: number;
+      };
+      api_request_debug_extraction: {
+        Args: {
+          p_part_id: string;
+          p_model?: string | null;
+        };
+        Returns: string;
       };
       api_approve_job_requirements: {
         Args: {

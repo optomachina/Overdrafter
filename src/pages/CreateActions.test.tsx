@@ -31,9 +31,9 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       fetchArchivedJobs: vi.fn(),
       fetchArchivedProjects: vi.fn(),
       fetchClientQuoteWorkspaceByJobIds: vi.fn(),
+      fetchPartDetailByJobId: vi.fn(),
       fetchJobPartSummariesByJobIds: vi.fn(),
       fetchJobsByProject: vi.fn(),
-      fetchPartDetail: vi.fn(),
       fetchProject: vi.fn(),
       fetchProjectInvites: vi.fn(),
       fetchProjectJobMembershipsByJobIds: vi.fn(),
@@ -47,6 +47,7 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       pinProject: vi.fn(),
       reconcileJobParts: vi.fn(),
       removeJobFromProject: vi.fn(),
+      resolveClientPartDetailRoute: vi.fn(),
       removeProjectMember: vi.fn(),
       requestExtraction: vi.fn(),
       requestQuote: vi.fn(),
@@ -356,7 +357,12 @@ describe("top-level create actions", () => {
     });
     api.fetchProjectInvites.mockResolvedValue([]);
     api.fetchProjectMemberships.mockResolvedValue([]);
-    api.fetchPartDetail.mockResolvedValue({
+    api.resolveClientPartDetailRoute.mockResolvedValue({
+      routeId: "job-1",
+      jobId: "job-1",
+      source: "job",
+    });
+    api.fetchPartDetailByJobId.mockResolvedValue({
       job: makeJob(),
       part: {
         id: "part-1",
@@ -544,7 +550,7 @@ describe("top-level create actions", () => {
     api.assignJobToProject.mockResolvedValue("job-1");
     api.fetchAccessibleProjects.mockResolvedValue([]);
     api.fetchAccessibleJobs.mockResolvedValue([makeJob({ project_id: null })]);
-    api.fetchPartDetail.mockResolvedValue({
+    api.fetchPartDetailByJobId.mockResolvedValue({
       job: makeJob({ project_id: null }),
       part: {
         id: "part-1",

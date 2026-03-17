@@ -35,6 +35,7 @@ export type JobFileRecord = Database["public"]["Tables"]["job_files"]["Row"];
 export type PartRecord = Database["public"]["Tables"]["parts"]["Row"];
 export type DrawingExtractionRecord = Database["public"]["Tables"]["drawing_extractions"]["Row"];
 export type DrawingPreviewAssetRecord = Database["public"]["Tables"]["drawing_preview_assets"]["Row"];
+export type DebugExtractionRunRecord = Database["public"]["Tables"]["debug_extraction_runs"]["Row"];
 export type ApprovedPartRequirementRecord = Database["public"]["Tables"]["approved_part_requirements"]["Row"];
 export type QuoteRequestRecord = Database["public"]["Tables"]["quote_requests"]["Row"];
 export type QuoteRunRecord = Database["public"]["Tables"]["quote_runs"]["Row"];
@@ -61,6 +62,32 @@ export type EvidenceItem = {
   page: number;
   snippet: string;
   confidence: number;
+  reasons?: string[];
+};
+
+export type ExtractedFieldData = {
+  raw: string | null;
+  confidence: number;
+  reviewNeeded: boolean;
+  reasons: string[];
+};
+
+export type RequirementFieldName = "description" | "partNumber" | "revision" | "finish";
+export type RequirementFieldOwnership = "auto" | "user";
+export type RequirementFieldDisplaySource =
+  | "client"
+  | "approved_user"
+  | "approved_auto"
+  | "extraction";
+export type RequirementFieldResolution = {
+  value: string | null;
+  source: RequirementFieldDisplaySource;
+  approvedSource: RequirementFieldOwnership | null;
+  staleAuto: boolean;
+  extractionNewer: boolean;
+  reviewBlocked: boolean;
+  approvedValue: string | null;
+  extractionValue: string | null;
 };
 
 export type DrawingExtractionData = {
@@ -68,15 +95,37 @@ export type DrawingExtractionData = {
   description: string | null;
   partNumber: string | null;
   revision: string | null;
+  workerBuildVersion?: string | null;
+  extractorVersion?: string | null;
+  quoteDescription?: string | null;
+  quoteFinish?: string | null;
+  model?: {
+    fallbackUsed: boolean;
+    name: string | null;
+    promptVersion: string | null;
+  };
+  fieldSelections?: Partial<
+    Record<"description" | "partNumber" | "revision" | "material" | "finish" | "process", "parser" | "model" | "review">
+  >;
+  rawFields: {
+    description: ExtractedFieldData;
+    partNumber: ExtractedFieldData;
+    revision: ExtractedFieldData;
+    finish: ExtractedFieldData;
+  };
   material: {
     raw: string | null;
     normalized: string | null;
     confidence: number;
+    reviewNeeded: boolean;
+    reasons: string[];
   };
   finish: {
     raw: string | null;
     normalized: string | null;
     confidence: number;
+    reviewNeeded: boolean;
+    reasons: string[];
   };
   tightestTolerance: {
     raw: string | null;
@@ -85,7 +134,27 @@ export type DrawingExtractionData = {
   };
   evidence: EvidenceItem[];
   warnings: string[];
+  reviewFields?: string[];
   status: ExtractionStatus;
+};
+
+export type DebugExtractionRunSummary = {
+  id: string;
+  jobId: string;
+  partId: string;
+  requestedModel: string;
+  effectiveModel: string | null;
+  workerBuildVersion: string | null;
+  extractorVersion: string | null;
+  modelFallbackUsed: boolean | null;
+  modelPromptVersion: string | null;
+  status: QueueTaskStatus;
+  error: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  result: Json;
 };
 
 export type ClientExtractionLifecycle =
@@ -101,6 +170,7 @@ export type ClientExtractionDiagnostics = {
   warningCount: number;
   warnings: string[];
   missingFields: string[];
+  reviewFields?: string[];
   lastFailureCode: string | null;
   lastFailureMessage: string | null;
   extractedAt: string | null;
@@ -115,8 +185,10 @@ export type ClientPartRequirementView = {
   description: string | null;
   partNumber: string | null;
   revision: string | null;
+  quoteDescription?: string | null;
   material: string;
   finish: string | null;
+  quoteFinish?: string | null;
   tightestToleranceInch: number | null;
   process: string | null;
   notes: string | null;
@@ -475,13 +547,19 @@ export type JobAggregate = {
   packages: PublishedPackageAggregate[];
   pricingPolicy: PricingPolicyRecord | null;
   workQueue: WorkQueueRecord[];
+  drawingPreviewAssets?: DrawingPreviewAssetRecord[];
+  debugExtractionRuns?: DebugExtractionRunRecord[];
 };
 
 export type WorkerReadinessSnapshot = {
   reachable: boolean;
   ready: boolean | null;
   workerName: string | null;
+  workerBuildVersion?: string | null;
   workerMode: string | null;
+  drawingExtractionModel?: string | null;
+  drawingExtractionDebugAllowedModels?: string[];
+  drawingExtractionModelFallbackEnabled?: boolean;
   status: string | null;
   readinessIssues: string[];
   message: string | null;

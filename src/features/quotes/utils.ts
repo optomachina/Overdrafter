@@ -3,6 +3,8 @@ import type {
   ClientExtractionDiagnostics,
   ClientPartMetadataRecord,
   ClientPartRequirementView,
+  DebugExtractionRunRecord,
+  DebugExtractionRunSummary,
   DrawingExtractionData,
   DrawingExtractionRecord,
   DrawingPreviewAssetRecord,
@@ -15,10 +17,16 @@ import type {
   VendorQuoteResultRecord,
   PublishedPackageAggregate,
   QuoteRunAggregate,
+  RequirementFieldName,
+  RequirementFieldOwnership,
+  RequirementFieldResolution,
 } from "@/features/quotes/types";
 import type { ClientOptionKind, Json, VendorName } from "@/integrations/supabase/types";
 import { readRfqLineItemExtendedMetadata } from "@/features/quotes/rfq-metadata";
-import { normalizeRequestedQuoteQuantities } from "@/features/quotes/request-intake";
+import {
+  formatRequestedQuoteQuantitiesInput,
+  normalizeRequestedQuoteQuantities,
+} from "@/features/quotes/request-intake";
 import {
   normalizeRequestedServiceIntent,
   requestedServicesRequireMaterial,
@@ -104,6 +112,16 @@ function readSpecSnapshotStringArray(
     : [];
 }
 
+function readSpecSnapshotBoolean(
+  specSnapshot: Json | null | undefined,
+  parentKey: string,
+  key: string,
+): boolean | null {
+  const parent = asObject(asObject(specSnapshot)[parentKey]);
+  const value = parent[key];
+  return typeof value === "boolean" ? value : null;
+}
+
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
@@ -120,7 +138,226 @@ function normalizeEvidence(extraction: DrawingExtractionRecord | null): DrawingE
     page: Number(item.page ?? 0),
     snippet: String(item.snippet ?? ""),
     confidence: Number(item.confidence ?? 0),
+    reasons: asStringArray(item.reasons),
   }));
+}
+
+function hasExplicitReviewFlag(field: Record<string, unknown>) {
+  return typeof field.reviewNeeded === "boolean";
+}
+
+function normalizeComparableString(value: string | null | undefined) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim().toUpperCase() : null;
+}
+
+function isExtractionNewerThanApproved(
+  extraction: DrawingExtractionRecord | null | undefined,
+  approved: PartAggregate["approvedRequirement"] | null | undefined,
+) {
+  const extractionTimestamp = extraction?.updated_at ? Date.parse(extraction.updated_at) : Number.NaN;
+  const approvedTimestamp = approved?.updated_at ? Date.parse(approved.updated_at) : Number.NaN;
+
+  if (!Number.isFinite(extractionTimestamp)) {
+    return false;
+  }
+
+  if (!Number.isFinite(approvedTimestamp)) {
+    return true;
+  }
+
+  return extractionTimestamp > approvedTimestamp;
+}
+
+function getApprovedFieldValue(
+  approved: PartAggregate["approvedRequirement"] | null | undefined,
+  field: RequirementFieldName,
+) {
+  switch (field) {
+    case "description":
+      return readSpecSnapshotString(approved?.spec_snapshot, "quoteDescription") ?? approved?.description ?? null;
+    case "partNumber":
+      return approved?.part_number ?? null;
+    case "revision":
+      return approved?.revision ?? null;
+    case "finish":
+      return readSpecSnapshotString(approved?.spec_snapshot, "quoteFinish") ?? approved?.finish ?? null;
+  }
+}
+
+function getExtractionFieldValue(extraction: DrawingExtractionData, field: RequirementFieldName) {
+  switch (field) {
+    case "description":
+      return extraction.quoteDescription ?? extraction.description ?? null;
+    case "partNumber":
+      return extraction.partNumber ?? null;
+    case "revision":
+      return extraction.revision ?? null;
+    case "finish":
+      return extraction.quoteFinish ?? extraction.finish.normalized ?? extraction.finish.raw ?? null;
+  }
+}
+
+function isExtractionFieldReviewBlocked(extraction: DrawingExtractionData, field: RequirementFieldName) {
+  switch (field) {
+    case "description":
+      return extraction.rawFields.description.reviewNeeded;
+    case "partNumber":
+      return extraction.rawFields.partNumber.reviewNeeded;
+    case "revision":
+      return extraction.rawFields.revision.reviewNeeded;
+    case "finish":
+      return extraction.rawFields.finish.reviewNeeded || extraction.finish.reviewNeeded;
+  }
+}
+
+function getApprovedFieldOwnership(
+  approved: PartAggregate["approvedRequirement"] | null | undefined,
+  field: RequirementFieldName,
+): RequirementFieldOwnership | null {
+  if (!approved) {
+    return null;
+  }
+
+  const hasExplicitOverride = readSpecSnapshotBoolean(approved.spec_snapshot, "fieldOverrides", field);
+
+  if (hasExplicitOverride === true) {
+    return "user";
+  }
+
+  const fieldSources = asObject(asObject(approved.spec_snapshot).fieldSources);
+  const rawSource = fieldSources[field];
+  const normalizedSource = typeof rawSource === "string" ? rawSource.trim().toLowerCase() : "";
+
+  if (normalizedSource.length === 0 || normalizedSource === "auto") {
+    return "auto";
+  }
+
+  return "user";
+}
+
+function getClientFieldValue(
+  clientRequirement: PartAggregate["clientRequirement"] | null | undefined,
+  field: RequirementFieldName,
+) {
+  switch (field) {
+    case "description":
+      return clientRequirement?.quoteDescription ?? clientRequirement?.description ?? null;
+    case "partNumber":
+      return clientRequirement?.partNumber ?? null;
+    case "revision":
+      return clientRequirement?.revision ?? null;
+    case "finish":
+      return clientRequirement?.quoteFinish ?? clientRequirement?.finish ?? null;
+  }
+}
+
+export function resolveRequirementField(
+  part: PartAggregate,
+  field: RequirementFieldName,
+  extraction: DrawingExtractionData = normalizeDrawingExtraction(part.extraction, part.id),
+): RequirementFieldResolution {
+  const clientValue = getClientFieldValue(part.clientRequirement ?? null, field);
+
+  if (clientValue) {
+    return {
+      value: clientValue,
+      source: "client",
+      approvedSource: getApprovedFieldOwnership(part.approvedRequirement, field),
+      staleAuto: false,
+      extractionNewer: isExtractionNewerThanApproved(part.extraction, part.approvedRequirement),
+      reviewBlocked: isExtractionFieldReviewBlocked(extraction, field),
+      approvedValue: getApprovedFieldValue(part.approvedRequirement, field),
+      extractionValue: getExtractionFieldValue(extraction, field),
+    };
+  }
+
+  const approvedValue = getApprovedFieldValue(part.approvedRequirement, field);
+  const extractionValue = getExtractionFieldValue(extraction, field);
+  const approvedSource = getApprovedFieldOwnership(part.approvedRequirement, field);
+  const extractionNewer = isExtractionNewerThanApproved(part.extraction, part.approvedRequirement);
+  const reviewBlocked = isExtractionFieldReviewBlocked(extraction, field);
+  const valuesDiffer =
+    normalizeComparableString(approvedValue) !== null &&
+    normalizeComparableString(extractionValue) !== null &&
+    normalizeComparableString(approvedValue) !== normalizeComparableString(extractionValue);
+  const staleAuto =
+    approvedSource === "auto" &&
+    Boolean(approvedValue) &&
+    Boolean(extractionValue) &&
+    extractionNewer &&
+    !reviewBlocked &&
+    valuesDiffer;
+
+  if (staleAuto || (approvedSource !== "user" && !approvedValue && extractionValue && !reviewBlocked)) {
+    return {
+      value: extractionValue,
+      source: "extraction",
+      approvedSource,
+      staleAuto,
+      extractionNewer,
+      reviewBlocked,
+      approvedValue,
+      extractionValue,
+    };
+  }
+
+  if (!approvedValue && reviewBlocked) {
+    return {
+      value: null,
+      source: "extraction",
+      approvedSource,
+      staleAuto: false,
+      extractionNewer,
+      reviewBlocked,
+      approvedValue,
+      extractionValue,
+    };
+  }
+
+  if (!approvedValue && approvedSource === "user") {
+    return {
+      value: null,
+      source: "approved_user",
+      approvedSource,
+      staleAuto: false,
+      extractionNewer,
+      reviewBlocked,
+      approvedValue,
+      extractionValue,
+    };
+  }
+
+  if (approvedValue) {
+    return {
+      value: approvedValue,
+      source: approvedSource === "user" ? "approved_user" : "approved_auto",
+      approvedSource,
+      staleAuto: false,
+      extractionNewer,
+      reviewBlocked,
+      approvedValue,
+      extractionValue,
+    };
+  }
+
+  return {
+    value: extractionValue,
+    source: "extraction",
+    approvedSource,
+    staleAuto: false,
+    extractionNewer,
+    reviewBlocked,
+    approvedValue,
+    extractionValue,
+  };
+}
+
+export function listStaleAutoRequirementFields(part: PartAggregate) {
+  const extraction = normalizeDrawingExtraction(part.extraction, part.id);
+
+  return (["description", "partNumber", "revision", "finish"] as const).filter(
+    (field) => resolveRequirementField(part, field, extraction).staleAuto,
+  );
 }
 
 function parseToleranceValue(raw: string | null | undefined): number | null {
@@ -138,25 +375,113 @@ export function normalizeDrawingExtraction(
   partId: string,
 ): DrawingExtractionData {
   const payload = asObject(extraction?.extraction);
+  const extractedDescriptionRaw = asObject(payload.extractedDescriptionRaw);
+  const extractedPartNumberRaw = asObject(payload.extractedPartNumberRaw);
+  const extractedRevisionRaw = asObject(payload.extractedRevisionRaw);
+  const extractedFinishRaw = asObject(payload.extractedFinishRaw);
   const material = asObject(payload.material);
   const finish = asObject(payload.finish);
   const tolerances = asObject(payload.tolerances);
   const warnings = asArray<string>(extraction?.warnings).map(String);
+  const storedReviewFields = asStringArray(payload.reviewFields);
+  const fieldSelections = asObject(payload.fieldSelections);
+  const isLegacyNeedsReviewRecord =
+    extraction?.status === "needs_review" &&
+    storedReviewFields.length === 0 &&
+    !hasExplicitReviewFlag(extractedDescriptionRaw) &&
+    !hasExplicitReviewFlag(extractedPartNumberRaw) &&
+    !hasExplicitReviewFlag(extractedRevisionRaw) &&
+    !hasExplicitReviewFlag(extractedFinishRaw);
+  const reviewFields = isLegacyNeedsReviewRecord
+    ? ["description", "partNumber", "revision", "material", "finish"]
+    : storedReviewFields;
+  const descriptionReviewNeeded =
+    typeof extractedDescriptionRaw.reviewNeeded === "boolean"
+      ? Boolean(extractedDescriptionRaw.reviewNeeded)
+      : reviewFields.includes("description");
+  const partNumberReviewNeeded =
+    typeof extractedPartNumberRaw.reviewNeeded === "boolean"
+      ? Boolean(extractedPartNumberRaw.reviewNeeded)
+      : reviewFields.includes("partNumber");
+  const revisionReviewNeeded =
+    typeof extractedRevisionRaw.reviewNeeded === "boolean"
+      ? Boolean(extractedRevisionRaw.reviewNeeded)
+      : reviewFields.includes("revision");
+  const finishReviewNeeded =
+    typeof extractedFinishRaw.reviewNeeded === "boolean"
+      ? Boolean(extractedFinishRaw.reviewNeeded)
+      : reviewFields.includes("finish");
+  const materialReviewNeeded =
+    typeof material.reviewNeeded === "boolean" ? Boolean(material.reviewNeeded) : reviewFields.includes("material");
 
   return {
     partId,
     description: (payload.description ?? payload.desc ?? null) as string | null,
     partNumber: (payload.partNumber ?? payload.pn ?? null) as string | null,
     revision: (payload.revision ?? payload.rev ?? null) as string | null,
+    workerBuildVersion: typeof payload.workerBuildVersion === "string" ? payload.workerBuildVersion : null,
+    extractorVersion: extraction?.extractor_version ?? null,
+    quoteDescription: (payload.quoteDescription ?? payload.description ?? payload.desc ?? null) as string | null,
+    quoteFinish:
+      (payload.quoteFinish ?? finish.normalized ?? finish.raw ?? payload.finish ?? null) as string | null,
+    model: {
+      fallbackUsed: Boolean(payload.modelFallbackUsed),
+      name: typeof payload.modelName === "string" ? payload.modelName : null,
+      promptVersion: typeof payload.modelPromptVersion === "string" ? payload.modelPromptVersion : null,
+    },
+    fieldSelections: {
+      description:
+        typeof fieldSelections.description === "string" ? (fieldSelections.description as "parser" | "model" | "review") : undefined,
+      partNumber:
+        typeof fieldSelections.partNumber === "string" ? (fieldSelections.partNumber as "parser" | "model" | "review") : undefined,
+      revision:
+        typeof fieldSelections.revision === "string" ? (fieldSelections.revision as "parser" | "model" | "review") : undefined,
+      material:
+        typeof fieldSelections.material === "string" ? (fieldSelections.material as "parser" | "model" | "review") : undefined,
+      finish:
+        typeof fieldSelections.finish === "string" ? (fieldSelections.finish as "parser" | "model" | "review") : undefined,
+      process:
+        typeof fieldSelections.process === "string" ? (fieldSelections.process as "parser" | "model" | "review") : undefined,
+    },
+    rawFields: {
+      description: {
+        raw: (extractedDescriptionRaw.value ?? payload.description ?? payload.desc ?? null) as string | null,
+        confidence: Number(extractedDescriptionRaw.confidence ?? extraction?.confidence ?? 0),
+        reviewNeeded: descriptionReviewNeeded,
+        reasons: asStringArray(extractedDescriptionRaw.reasons),
+      },
+      partNumber: {
+        raw: (extractedPartNumberRaw.value ?? payload.partNumber ?? payload.pn ?? null) as string | null,
+        confidence: Number(extractedPartNumberRaw.confidence ?? extraction?.confidence ?? 0),
+        reviewNeeded: partNumberReviewNeeded,
+        reasons: asStringArray(extractedPartNumberRaw.reasons),
+      },
+      revision: {
+        raw: (extractedRevisionRaw.value ?? payload.revision ?? payload.rev ?? null) as string | null,
+        confidence: Number(extractedRevisionRaw.confidence ?? extraction?.confidence ?? 0),
+        reviewNeeded: revisionReviewNeeded,
+        reasons: asStringArray(extractedRevisionRaw.reasons),
+      },
+      finish: {
+        raw: (extractedFinishRaw.value ?? finish.raw ?? finish.raw_text ?? payload.finish ?? null) as string | null,
+        confidence: Number(extractedFinishRaw.confidence ?? extraction?.confidence ?? 0),
+        reviewNeeded: finishReviewNeeded,
+        reasons: asStringArray(extractedFinishRaw.reasons),
+      },
+    },
     material: {
       raw: (material.raw ?? material.raw_text ?? null) as string | null,
       normalized: (material.normalized ?? null) as string | null,
       confidence: Number(material.confidence ?? extraction?.confidence ?? 0),
+      reviewNeeded: materialReviewNeeded,
+      reasons: asStringArray(material.reasons),
     },
     finish: {
       raw: (finish.raw ?? finish.raw_text ?? null) as string | null,
       normalized: (finish.normalized ?? null) as string | null,
       confidence: Number(finish.confidence ?? extraction?.confidence ?? 0),
+      reviewNeeded: Boolean(finish.reviewNeeded),
+      reasons: asStringArray(finish.reasons),
     },
     tightestTolerance: {
       raw: (tolerances.tightest ?? null) as string | null,
@@ -167,7 +492,64 @@ export function normalizeDrawingExtraction(
     },
     evidence: normalizeEvidence(extraction),
     warnings,
+    reviewFields,
     status: extraction?.status ?? "needs_review",
+  };
+}
+
+export function normalizeDebugExtractionRun(
+  run: DebugExtractionRunRecord | null,
+  partId: string,
+): {
+  summary: DebugExtractionRunSummary | null;
+  extraction: DrawingExtractionData | null;
+} {
+  if (!run) {
+    return {
+      summary: null,
+      extraction: null,
+    };
+  }
+
+  const result = asObject(run.result);
+  const extractionPayload = asObject(result.extraction);
+  const extractionRecord: DrawingExtractionRecord | null =
+    Object.keys(extractionPayload).length > 0
+      ? ({
+          id: run.id,
+          part_id: run.part_id,
+          organization_id: run.organization_id,
+          extractor_version: run.extractor_version ?? "debug",
+          extraction: extractionPayload as Json,
+          confidence: null,
+          warnings: (result.warnings ?? []) as Json,
+          evidence: (result.evidence ?? []) as Json,
+          status: result.status === "approved" ? "approved" : "needs_review",
+          created_at: run.created_at,
+          updated_at: run.updated_at,
+        } as DrawingExtractionRecord)
+      : null;
+
+  return {
+    summary: {
+      id: run.id,
+      jobId: run.job_id,
+      partId: run.part_id,
+      requestedModel: run.requested_model,
+      effectiveModel: run.effective_model,
+      workerBuildVersion: run.worker_build_version,
+      extractorVersion: run.extractor_version,
+      modelFallbackUsed: run.model_fallback_used,
+      modelPromptVersion: run.model_prompt_version,
+      status: run.status,
+      error: run.error,
+      startedAt: run.started_at,
+      completedAt: run.completed_at,
+      createdAt: run.created_at,
+      updatedAt: run.updated_at,
+      result: run.result,
+    },
+    extraction: extractionRecord ? normalizeDrawingExtraction(extractionRecord, partId) : null,
   };
 }
 
@@ -236,8 +618,10 @@ export function normalizeClientPartMetadata(
       description: typeof payload.description === "string" ? payload.description : null,
       partNumber: typeof payload.partNumber === "string" ? payload.partNumber : null,
       revision: typeof payload.revision === "string" ? payload.revision : null,
+      quoteDescription: typeof payload.quoteDescription === "string" ? payload.quoteDescription : null,
       material: typeof payload.material === "string" ? payload.material : "",
       finish: typeof payload.finish === "string" ? payload.finish : null,
+      quoteFinish: typeof payload.quoteFinish === "string" ? payload.quoteFinish : null,
       tightestToleranceInch:
         typeof payload.tightestToleranceInch === "number"
           ? payload.tightestToleranceInch
@@ -268,6 +652,7 @@ export function normalizeClientPartMetadata(
           : 0,
       warnings: asStringArray(payload.warnings),
       missingFields: asStringArray(payload.missingFields),
+      reviewFields: asStringArray(payload.reviewFields),
       lastFailureCode: typeof payload.lastFailureCode === "string" ? payload.lastFailureCode : null,
       lastFailureMessage: typeof payload.lastFailureMessage === "string" ? payload.lastFailureMessage : null,
       extractedAt: typeof payload.extractedAt === "string" ? payload.extractedAt : null,
@@ -293,6 +678,40 @@ export function countPartExtractionWarnings(part: PartAggregate | null | undefin
   return normalizeDrawingExtraction(part.extraction, part.id).warnings.length;
 }
 
+type RequirementDraftSeedInput = {
+  parts: PartAggregate[];
+  currentDrafts: Record<string, ApprovedPartRequirement>;
+  currentQuoteQuantityInputs: Record<string, string>;
+  jobRequest?: {
+    requested_quote_quantities: number[];
+    requested_by_date: string | null;
+    requested_service_kinds?: string[] | null;
+    primary_service_kind?: string | null;
+    service_notes?: string | null;
+  } | null;
+};
+
+export function mergeRequirementDraftState(input: RequirementDraftSeedInput) {
+  const drafts = Object.fromEntries(
+    input.parts.map((part) => [
+      part.id,
+      input.currentDrafts[part.id] ?? buildRequirementDraft(part, input.jobRequest),
+    ]),
+  );
+  const quoteQuantityInputs = Object.fromEntries(
+    input.parts.map((part) => [
+      part.id,
+      input.currentQuoteQuantityInputs[part.id] ??
+        formatRequestedQuoteQuantitiesInput(drafts[part.id].quoteQuantities),
+    ]),
+  );
+
+  return {
+    drafts,
+    quoteQuantityInputs,
+  };
+}
+
 export function buildRequirementDraft(
   part: PartAggregate,
   jobRequest?: {
@@ -306,6 +725,10 @@ export function buildRequirementDraft(
   const normalizedExtraction = normalizeDrawingExtraction(part.extraction, part.id);
   const approved = part.approvedRequirement;
   const clientRequirement = part.clientRequirement ?? null;
+  const descriptionResolution = resolveRequirementField(part, "description", normalizedExtraction);
+  const partNumberResolution = resolveRequirementField(part, "partNumber", normalizedExtraction);
+  const revisionResolution = resolveRequirementField(part, "revision", normalizedExtraction);
+  const finishResolution = resolveRequirementField(part, "finish", normalizedExtraction);
   const serviceIntent = normalizeRequestedServiceIntent({
     requestedServiceKinds: readSpecSnapshotStringArray(approved?.spec_snapshot, "requestedServiceKinds")
       .concat(jobRequest?.requested_service_kinds ?? []),
@@ -342,21 +765,16 @@ export function buildRequirementDraft(
     requestedServiceKinds: serviceIntent.requestedServiceKinds,
     primaryServiceKind: serviceIntent.primaryServiceKind,
     serviceNotes: serviceIntent.serviceNotes,
-    description: clientRequirement?.description ?? approved?.description ?? normalizedExtraction.description,
-    partNumber: clientRequirement?.partNumber ?? approved?.part_number ?? normalizedExtraction.partNumber,
-    revision: clientRequirement?.revision ?? approved?.revision ?? normalizedExtraction.revision,
+    description: descriptionResolution.value,
+    partNumber: partNumberResolution.value,
+    revision: revisionResolution.value,
     material:
       clientRequirement?.material ??
       approved?.material ??
       normalizedExtraction.material.normalized ??
       normalizedExtraction.material.raw ??
       (materialRequired ? "Unknown material" : ""),
-    finish:
-      clientRequirement?.finish ??
-      approved?.finish ??
-      normalizedExtraction.finish.normalized ??
-      normalizedExtraction.finish.raw ??
-      null,
+    finish: finishResolution.value,
     tightestToleranceInch:
       clientRequirement?.tightestToleranceInch ??
       approved?.tightest_tolerance_inch ??

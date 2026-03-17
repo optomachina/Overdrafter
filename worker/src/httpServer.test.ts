@@ -21,6 +21,11 @@ const workerConfig: WorkerConfig = {
   playwrightDisableDevShmUsage: true,
   xometryStorageStatePath: null,
   xometryStorageStateJson: null,
+  openAiApiKey: null,
+  workerBuildVersion: "build-test",
+  drawingExtractionModel: "gpt-5.4",
+  drawingExtractionEnableModelFallback: false,
+  drawingExtractionDebugAllowedModels: ["gpt-5.4", "gpt-5.4-mini"],
 };
 
 const servers: Array<{ close: () => Promise<void> }> = [];
@@ -62,6 +67,9 @@ describe("startHealthServer", () => {
     expect(healthResponse.status).toBe(200);
     expect(healthPayload).toMatchObject({
       workerName: "worker-debug-test",
+      workerBuildVersion: "build-test",
+      drawingExtractionModel: "gpt-5.4",
+      drawingExtractionDebugAllowedModels: ["gpt-5.4", "gpt-5.4-mini"],
       status: "running",
       ready: true,
       readinessIssues: [],

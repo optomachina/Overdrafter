@@ -2,10 +2,11 @@ import type { QueryClient, QueryFunction, QueryKey } from "@tanstack/react-query
 import type { JobRecord } from "@/features/quotes/types";
 import {
   fetchClientQuoteWorkspaceByJobIds,
+  fetchPartDetailByJobId,
   fetchJobsByProject,
-  fetchPartDetail,
   fetchProject,
   isProjectNotFoundError,
+  resolveClientPartDetailRoute,
 } from "@/features/quotes/api";
 
 export const WORKSPACE_SHARED_STALE_TIME_MS = 30_000;
@@ -33,6 +34,7 @@ export const workspaceQueryKeys = {
   projectJobs: (projectId: string) => ["project-jobs", projectId] as const,
   clientQuoteWorkspace: (jobIds: string[]) => ["client-quote-workspace", stableJobIds(jobIds)] as const,
   clientActivity: (jobIds: string[]) => ["client-activity", stableJobIds(jobIds)] as const,
+  partDetailRoute: (routeId: string) => ["part-detail-route", routeId] as const,
   partDetail: (jobId: string) => ["part-detail", jobId] as const,
 };
 
@@ -139,10 +141,25 @@ export async function prefetchProjectPage(
   });
 }
 
-export async function prefetchPartPage(queryClient: QueryClient, jobId: string): Promise<void> {
+export async function prefetchPartPage(queryClient: QueryClient, routeId: string): Promise<void> {
+  const resolvedRoute = await maybePrefetchQuery(queryClient, {
+    queryKey: workspaceQueryKeys.partDetailRoute(routeId),
+    queryFn: () => resolveClientPartDetailRoute(routeId),
+    staleTime: WORKSPACE_DETAIL_STALE_TIME_MS,
+  });
+
+  if (!resolvedRoute) {
+    queryClient.removeQueries({ queryKey: workspaceQueryKeys.partDetail(routeId), exact: true });
+    return;
+  }
+
+  if (resolvedRoute.jobId !== routeId) {
+    queryClient.removeQueries({ queryKey: workspaceQueryKeys.partDetail(routeId), exact: true });
+  }
+
   await maybePrefetchQuery(queryClient, {
-    queryKey: workspaceQueryKeys.partDetail(jobId),
-    queryFn: () => fetchPartDetail(jobId),
+    queryKey: workspaceQueryKeys.partDetail(resolvedRoute.jobId),
+    queryFn: () => fetchPartDetailByJobId(resolvedRoute.jobId),
     staleTime: WORKSPACE_DETAIL_STALE_TIME_MS,
   });
 }

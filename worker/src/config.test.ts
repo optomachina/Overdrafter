@@ -26,6 +26,11 @@ describe("loadConfig", () => {
       playwrightDisableDevShmUsage: true,
       xometryStorageStatePath: null,
       xometryStorageStateJson: null,
+      openAiApiKey: null,
+      workerBuildVersion: "dev-local",
+      drawingExtractionModel: "gpt-5.4",
+      drawingExtractionEnableModelFallback: false,
+      drawingExtractionDebugAllowedModels: ["gpt-5.4"],
     });
     expect(config.workerTempDir).toBe(path.resolve(path.join(os.tmpdir(), "overdrafter-worker")));
   });
@@ -48,6 +53,11 @@ describe("loadConfig", () => {
       PLAYWRIGHT_DISABLE_DEV_SHM_USAGE: "0",
       XOMETRY_STORAGE_STATE_PATH: "./state.json",
       XOMETRY_STORAGE_STATE_JSON: "{\"cookies\":[]}",
+      OPENAI_API_KEY: "test-openai-key",
+      WORKER_BUILD_VERSION: "sha-123",
+      DRAWING_EXTRACTION_MODEL: "gpt-5.4",
+      DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS: "gpt-5.4,gpt-5.4-mini",
+      DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: "true",
     });
 
     expect(config).toMatchObject({
@@ -63,9 +73,24 @@ describe("loadConfig", () => {
       playwrightDisableSandbox: true,
       playwrightDisableDevShmUsage: false,
       xometryStorageStateJson: "{\"cookies\":[]}",
+      openAiApiKey: "test-openai-key",
+      workerBuildVersion: "sha-123",
+      drawingExtractionModel: "gpt-5.4",
+      drawingExtractionEnableModelFallback: true,
+      drawingExtractionDebugAllowedModels: ["gpt-5.4", "gpt-5.4-mini"],
     });
     expect(config.workerTempDir).toBe(path.resolve("./tmp/worker"));
     expect(config.xometryStorageStatePath).toBe(path.resolve("./state.json"));
+  });
+
+  it("enables drawing model fallback by default when OPENAI_API_KEY is present", () => {
+    const config = loadConfig({
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+      OPENAI_API_KEY: "test-openai-key",
+    });
+
+    expect(config.drawingExtractionEnableModelFallback).toBe(true);
   });
 
   it("rejects invalid required settings", () => {

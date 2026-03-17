@@ -1,5 +1,6 @@
 export type QueueTaskType =
   | "extract_part"
+  | "debug_extract_part"
   | "run_vendor_quote"
   | "poll_vendor_quote"
   | "publish_package"
@@ -75,19 +76,107 @@ export type ApprovedRequirementRecord = {
   applicable_vendors: VendorName[];
 };
 
+export const SUPPORTED_REVIEW_FIELDS = [
+  "description",
+  "partNumber",
+  "revision",
+  "material",
+  "finish",
+] as const;
+
+export type SupportedReviewField = (typeof SUPPORTED_REVIEW_FIELDS)[number];
+
+export const DRAWING_FIELD_NAMES = [...SUPPORTED_REVIEW_FIELDS, "process"] as const;
+
+export type DrawingFieldName = (typeof DRAWING_FIELD_NAMES)[number];
+
+export type RawExtractionField = {
+  value: string | null;
+  confidence: number;
+  reviewNeeded: boolean;
+  reasons: string[];
+  sourceRegion: {
+    page: number;
+    line: number;
+    columnStart: number;
+    columnEnd: number;
+    label: string | null;
+  } | null;
+};
+
 export type DrawingExtractionPayload = {
   partId: string;
   description: string | null;
   partNumber: string | null;
   revision: string | null;
-  material: { raw: string | null; normalized: string | null; confidence: number };
-  finish: { raw: string | null; normalized: string | null; confidence: number };
+  modelFallbackUsed?: boolean;
+  modelName?: string | null;
+  modelPromptVersion?: string | null;
+  fieldSelections?: Partial<
+    Record<DrawingFieldName, "parser" | "model" | "review">
+  >;
+  extractedDescriptionRaw: RawExtractionField;
+  extractedPartNumberRaw: RawExtractionField;
+  extractedRevisionRaw: RawExtractionField;
+  extractedFinishRaw: RawExtractionField;
+  quoteDescription: string | null;
+  quoteFinish: string | null;
+  reviewFields: SupportedReviewField[];
+  material: {
+    raw: string | null;
+    normalized: string | null;
+    confidence: number;
+    reviewNeeded: boolean;
+    reasons: string[];
+  };
+  finish: {
+    raw: string | null;
+    normalized: string | null;
+    confidence: number;
+    reviewNeeded: boolean;
+    reasons: string[];
+  };
   generalTolerance: { raw: string | null; confidence: number };
   tightestTolerance: { raw: string | null; valueInch: number | null; confidence: number };
   notes: string[];
   threads: string[];
-  evidence: Array<{ field: string; page: number; snippet: string; confidence: number }>;
+  evidence: Array<{
+    field: string;
+    page: number;
+    snippet: string;
+    confidence: number;
+    reasons?: string[];
+  }>;
   warnings: string[];
+  debugCandidates?: Partial<
+    Record<
+      DrawingFieldName,
+    Array<{
+      value: string;
+      page: number;
+      line: number;
+      columnStart: number;
+      columnEnd: number;
+      label: string | null;
+      score: number;
+      reasons: string[];
+      snippet: string;
+    }>
+    >
+  >;
+  modelCandidates?: Partial<
+    Record<
+      DrawingFieldName,
+    {
+      value: string | null;
+      confidence: number;
+      fieldSource: "title_block" | "note" | "unknown";
+      selected: boolean;
+      reasons: string[];
+      attempt: "title_block_crop" | "full_page";
+    }
+    >
+  >;
   status: "needs_review" | "approved";
 };
 
@@ -202,4 +291,9 @@ export type WorkerConfig = {
   playwrightDisableDevShmUsage: boolean;
   xometryStorageStatePath: string | null;
   xometryStorageStateJson: string | null;
+  openAiApiKey: string | null;
+  workerBuildVersion: string;
+  drawingExtractionModel: string;
+  drawingExtractionEnableModelFallback: boolean;
+  drawingExtractionDebugAllowedModels: string[];
 };

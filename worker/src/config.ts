@@ -1,6 +1,7 @@
 import { z } from "zod";
 import path from "node:path";
 import os from "node:os";
+import { parseEnvBooleanLike, parseEnvList } from "./env.js";
 import type { WorkerConfig } from "./types.js";
 
 const envBoolean = z.preprocess((value) => {
@@ -42,11 +43,20 @@ const schema = z.object({
   PLAYWRIGHT_DISABLE_DEV_SHM_USAGE: envBoolean.default(true),
   XOMETRY_STORAGE_STATE_PATH: z.string().optional(),
   XOMETRY_STORAGE_STATE_JSON: z.string().optional(),
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  WORKER_BUILD_VERSION: z.string().default("dev-local"),
+  DRAWING_EXTRACTION_MODEL: z.string().default("gpt-5.4"),
+  DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS: z.string().optional(),
+  DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: envBoolean.optional(),
 });
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   const parsed = schema.parse(env);
   const workerTempDir = path.resolve(parsed.WORKER_TEMP_DIR);
+  const drawingExtractionDebugAllowedModels = parseEnvList(
+    parsed.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS,
+    parsed.DRAWING_EXTRACTION_MODEL,
+  );
 
   return {
     supabaseUrl: parsed.SUPABASE_URL,
@@ -67,5 +77,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       ? path.resolve(parsed.XOMETRY_STORAGE_STATE_PATH)
       : null,
     xometryStorageStateJson: parsed.XOMETRY_STORAGE_STATE_JSON ?? null,
+    openAiApiKey: parsed.OPENAI_API_KEY ?? null,
+    workerBuildVersion: parsed.WORKER_BUILD_VERSION,
+    drawingExtractionModel: parsed.DRAWING_EXTRACTION_MODEL,
+    drawingExtractionEnableModelFallback: parseEnvBooleanLike(
+      parsed.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK,
+      Boolean(parsed.OPENAI_API_KEY),
+    ),
+    drawingExtractionDebugAllowedModels,
   };
 }
