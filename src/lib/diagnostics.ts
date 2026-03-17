@@ -82,6 +82,7 @@ export type DiagnosticsSnapshot = {
   sessionId: string;
   enabled: boolean;
   panelOpen: boolean;
+  uiSuppressed: boolean;
   context: DiagnosticContext;
   events: DiagnosticEvent[];
   counts: Record<DiagnosticLevel, number>;
@@ -381,6 +382,7 @@ function createInitialState(): DiagnosticsState {
     sessionId: createSessionId(),
     enabled: safeReadBoolean(ENABLED_STORAGE_KEY) ?? import.meta.env.DEV,
     panelOpen: false,
+    uiSuppressed: false,
     context: defaultContext(),
     events: [],
     counts: { info: 0, warn: 0, error: 0 },
@@ -650,6 +652,13 @@ export function setDiagnosticsPanelOpen(panelOpen: boolean) {
   updateState({
     ...diagnosticsState,
     panelOpen,
+  });
+}
+
+export function setDiagnosticsUiSuppressed(uiSuppressed: boolean) {
+  updateState({
+    ...diagnosticsState,
+    uiSuppressed,
   });
 }
 
