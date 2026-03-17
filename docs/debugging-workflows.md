@@ -150,6 +150,21 @@ window.__OVERDRAFTER_DEBUG__?.exportJson()
 
 Playwright uses the same diagnostics surface and stores the snapshot as a test artifact on failure.
 
+### Global Extraction Launcher
+
+Internal users, and local debug/dev sessions, now get a bottom-right `Extraction` launcher above the
+`Fixtures` and `Diagnostics` buttons.
+
+- It opens a lightweight global extraction sheet from any route.
+- On `/internal/jobs/:jobId`, it prefills the current job and exposes quick `Queue extraction` and
+  `Run debug extraction` actions.
+- On client part routes, it resolves the current `/parts/:id` route to the canonical job before
+  enabling extraction actions.
+- On routes without extraction context, it stays available but requires a pasted job or part ID to
+  jump into the full internal `Extraction Lab`.
+
+The full side-by-side extraction inspection surface still lives on the internal job detail page.
+
 ## Recommended Usage
 
 Pick the fastest lane that still exercises the behavior you are debugging:
