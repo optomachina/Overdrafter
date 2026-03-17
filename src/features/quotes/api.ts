@@ -1107,9 +1107,25 @@ async function fetchClientPartMetadataByJobIds(jobIds: string[]): Promise<Client
     .filter((row): row is ClientPartMetadataRecord => Boolean(row));
 }
 
-async function resolveClientPartDetailJobId(candidateId: string): Promise<string | null> {
+export type ResolvedClientPartDetailRoute = {
+  routeId: string;
+  jobId: string;
+  source: "job" | "part";
+};
+
+export async function resolveClientPartDetailRoute(candidateId: string): Promise<ResolvedClientPartDetailRoute | null> {
   if (!candidateId) {
     return null;
+  }
+
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return {
+      routeId: candidateId,
+      jobId: candidateId,
+      source: "job",
+    };
   }
 
   const directJobs = await fetchJobsByIds([candidateId], {
@@ -1117,7 +1133,11 @@ async function resolveClientPartDetailJobId(candidateId: string): Promise<string
   });
 
   if (directJobs.length > 0) {
-    return candidateId;
+    return {
+      routeId: candidateId,
+      jobId: candidateId,
+      source: "job",
+    };
   }
 
   const { data, error } = await supabase
@@ -1135,7 +1155,13 @@ async function resolveClientPartDetailJobId(candidateId: string): Promise<string
   }
 
   const row = data as { job_id?: string | null } | null;
-  return typeof row?.job_id === "string" ? row.job_id : null;
+  return typeof row?.job_id === "string"
+    ? {
+        routeId: candidateId,
+        jobId: row.job_id,
+        source: "part",
+      }
+    : null;
 }
 
 async function invokeJobArchivingFallback(
@@ -2847,22 +2873,16 @@ export async function searchAccessibleParts(query: string): Promise<JobRecord[]>
   );
 }
 
-export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregate> {
+export async function fetchPartDetailByJobId(jobId: string): Promise<PartDetailAggregate> {
   const fixtureGateway = getActiveClientWorkspaceGateway();
 
   if (fixtureGateway) {
     return fixtureGateway.fetchPartDetail(jobId);
   }
 
-  const resolvedJobId = await resolveClientPartDetailJobId(jobId);
-
-  if (!resolvedJobId) {
-    throw new Error("Part not found.");
-  }
-
   const [workspaceItems, projectMemberships] = await Promise.all([
-    fetchClientQuoteWorkspaceByJobIds([resolvedJobId]),
-    fetchProjectJobMembershipsByJobIds([resolvedJobId]),
+    fetchClientQuoteWorkspaceByJobIds([jobId]),
+    fetchProjectJobMembershipsByJobIds([jobId]),
   ]);
   const workspaceItem = workspaceItems[0] ?? null;
 
@@ -2888,7 +2908,7 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
           .filter(
             (candidate) =>
               candidate.partNumber === summary.partNumber &&
-              candidate.jobId !== resolvedJobId &&
+              candidate.jobId !== jobId &&
               activeJobIdSet.has(candidate.jobId),
           )
           .map((candidate) => ({
@@ -2911,6 +2931,16 @@ export async function fetchPartDetail(jobId: string): Promise<PartDetailAggregat
     latestQuoteRun: workspaceItem.latestQuoteRun,
     revisionSiblings,
   };
+}
+
+export async function fetchPartDetail(routeId: string): Promise<PartDetailAggregate> {
+  const resolvedRoute = await resolveClientPartDetailRoute(routeId);
+
+  if (!resolvedRoute) {
+    throw new Error("Part not found.");
+  }
+
+  return fetchPartDetailByJobId(resolvedRoute.jobId);
 }
 
 export async function createProject(input: {
