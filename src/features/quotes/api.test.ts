@@ -709,6 +709,54 @@ describe("quotes api helpers", () => {
     }
   });
 
+  it("surfaces storage cleanup rollback failures from the archived delete edge fallback", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "42501",
+        message: "Direct deletion from storage tables is not allowed. Use the Storage API instead.",
+        details: null,
+        hint: null,
+      },
+    });
+    supabaseMock.functionsInvoke.mockResolvedValueOnce({
+      data: null,
+      error: new FunctionsHttpError(
+        new Response(
+          JSON.stringify({
+            error: "Archived part deletion failed during storage cleanup. No records were deleted. Please retry.",
+          }),
+          {
+            status: 500,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      ),
+    });
+
+    const result = await deleteArchivedJobs(["job-123"]);
+
+    expect(result).toMatchObject({
+      deletedJobIds: [],
+      failures: [
+        {
+          jobId: "job-123",
+          message:
+            "Archived part deletion failed during storage cleanup. No records were deleted. Please retry.",
+          reporting: {
+            operation: "archived_delete",
+            fallbackPath: "job-archive-fallback",
+            failureCategory: "edge_http_error",
+            httpStatus: 500,
+            hasResponseBody: true,
+          },
+        },
+      ],
+    });
+  });
+
   it("falls back to the legacy single-delete RPC when the bulk delete RPC is unavailable", async () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 

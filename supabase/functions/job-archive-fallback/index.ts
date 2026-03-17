@@ -1,5 +1,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import postgres from "npm:postgres@3.4.7";
+import {
+  ARCHIVED_DELETE_STORAGE_CLEANUP_FAILED_MESSAGE,
+  ArchivedDeleteFlowError,
+  executeArchivedDelete,
+  type ArchivedDeletePlan,
+  type StorageCandidate,
+} from "./delete-flow.ts";
 
 type JobArchiveAction = "archive" | "unarchive" | "delete";
 
@@ -58,17 +65,6 @@ type JobRow = {
   organization_id: string;
   created_by: string | null;
   archived_at: string | null;
-};
-
-type StorageCandidate = {
-  bucket: string;
-  path: string;
-};
-
-type ArchivedDeletePlan = {
-  job: JobRow;
-  orphanBlobIds: string[];
-  storageCandidates: StorageCandidate[];
 };
 
 async function hasRelation(
@@ -396,61 +392,63 @@ Deno.serve(async (request) => {
       const deletePlan = await sql.begin((transaction) =>
         collectArchivedDeletePlan(transaction, payload.jobId!, user.id),
       );
-
-      if (deletePlan.storageCandidates.length > 0 && !supabaseServiceRoleKey) {
-        throw new HttpError(
-          500,
+      const jobId = await executeArchivedDelete({
+        deletePlan,
+        hasStorageServiceRoleKey: Boolean(supabaseServiceRoleKey),
+        missingServiceRoleMessage:
           "Archived part deletion requires SUPABASE_SERVICE_ROLE_KEY for storage cleanup.",
-        );
-      }
+        storageCleanupFailureMessage: ARCHIVED_DELETE_STORAGE_CLEANUP_FAILED_MESSAGE,
+        removeStorageCandidates,
+        commitDelete: async (currentDeletePlan) => {
+          await sql.begin(async (transaction) => {
+            const job = await getAuthorizedJob(transaction, payload.jobId!, user.id, "delete");
 
-      await sql.begin(async (transaction) => {
-        const job = await getAuthorizedJob(transaction, payload.jobId!, user.id, "delete");
+            if (!job.archived_at) {
+              throw new HttpError(400, "Only archived parts can be deleted.");
+            }
 
-        if (!job.archived_at) {
-          throw new HttpError(400, "Only archived parts can be deleted.");
-        }
+            await transaction`
+              delete from public.published_quote_options option_row
+              using public.published_quote_packages package_row
+              where option_row.package_id = package_row.id
+                and package_row.job_id = ${job.id}::uuid
+            `;
 
-        await transaction`
-          delete from public.published_quote_options option_row
-          using public.published_quote_packages package_row
-          where option_row.package_id = package_row.id
-            and package_row.job_id = ${job.id}::uuid
-        `;
+            await transaction`
+              select public.log_audit_event(
+                ${job.organization_id}::uuid,
+                'job.deleted',
+                jsonb_build_object(
+                  'jobId', ${job.id}::uuid,
+                  'archivedAt', ${job.archived_at},
+                  'deleteScope', 'single'
+                ),
+                ${job.id}::uuid,
+                null
+              )
+            `;
 
-        await transaction`
-          select public.log_audit_event(
-            ${job.organization_id}::uuid,
-            'job.deleted',
-            jsonb_build_object(
-              'jobId', ${job.id}::uuid,
-              'archivedAt', ${job.archived_at},
-              'deleteScope', 'single'
-            ),
-            ${job.id}::uuid,
-            null
-          )
-        `;
+            await transaction`
+              delete from public.jobs
+              where id = ${job.id}::uuid
+            `;
 
-        await transaction`
-          delete from public.jobs
-          where id = ${job.id}::uuid
-        `;
+            if (currentDeletePlan.orphanBlobIds.length > 0) {
+              await transaction`
+                delete from public.organization_file_blobs blob
+                where blob.id = any(${sql.array(currentDeletePlan.orphanBlobIds, "uuid")})
+                  and not exists (
+                    select 1
+                    from public.job_files file
+                    where file.blob_id = blob.id
+                  )
+              `;
+            }
+          });
+        },
       });
 
-      const storageCleanupSucceeded = await removeStorageCandidates(
-        deletePlan.job.id,
-        deletePlan.storageCandidates,
-      );
-
-      if (storageCleanupSucceeded && deletePlan.orphanBlobIds.length > 0) {
-        await sql`
-          delete from public.organization_file_blobs
-          where id = any(${sql.array(deletePlan.orphanBlobIds, "uuid")})
-        `;
-      }
-
-      return json(200, { jobId: deletePlan.job.id });
+      return json(200, { jobId });
     }
 
     const jobId = await sql.begin(async (transaction) => {
@@ -517,7 +515,7 @@ Deno.serve(async (request) => {
 
     return json(200, { jobId });
   } catch (error) {
-    if (error instanceof HttpError) {
+    if (error instanceof HttpError || error instanceof ArchivedDeleteFlowError) {
       return json(error.status, { error: error.message });
     }
 
