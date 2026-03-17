@@ -10,7 +10,7 @@ const mockUser = { id: "user-1", email: "user@example.com" } as WorkspaceReadine
 
 const mockMembership: AppMembership = {
   id: "mem-1",
-  role: "owner",
+  role: "client",
   organizationId: "org-1",
   organizationName: "Test Org",
   organizationSlug: "test-org",

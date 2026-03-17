@@ -121,9 +121,15 @@ export function useWorkspaceReadiness(input: WorkspaceReadinessInput) {
 
     return new Promise<AppMembership>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
+        const deferred = deferredRef.current;
         deferredRef.current = null;
         console.warn("workspace-readiness: wait timed out after 30s");
-        reject(new WorkspaceNotReadyError("Your workspace is taking longer than expected. Please refresh and try again."));
+        const error = new WorkspaceNotReadyError("Your workspace is taking longer than expected. Please refresh and try again.");
+        if (deferred) {
+          deferred.reject(error);
+        } else {
+          reject(error);
+        }
       }, WAIT_TIMEOUT_MS);
 
       deferredRef.current = { resolve, reject, timeoutId };
