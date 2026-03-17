@@ -630,6 +630,8 @@ describe("quotes api helpers", () => {
   });
 
   it("classifies edge fallback reachability failures for archived delete errors", async () => {
+    vi.stubEnv("VITE_SUPABASE_URL", "https://previewref.supabase.co");
+
     supabaseMock.rpc.mockResolvedValueOnce({
       data: null,
       error: {
@@ -657,6 +659,12 @@ describe("quotes api helpers", () => {
             operation: "archived_delete",
             fallbackPath: "job-archive-fallback",
             failureCategory: "edge_unreachable",
+            supabaseOrigin: "https://previewref.supabase.co",
+            supabaseProjectRef: "previewref",
+            functionPath: "/functions/v1/job-archive-fallback",
+            functionUrl: "https://previewref.supabase.co/functions/v1/job-archive-fallback",
+            rawErrorName: "Error",
+            rawErrorMessage: "Failed to send a request to the Edge Function",
             hasResponseBody: false,
           },
         },

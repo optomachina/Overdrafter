@@ -61,9 +61,16 @@ type ArchivedDeleteDiagnosticsSummary = {
   likelyCause: string;
   recommendedChecks: string[];
   fallbackPath: string;
+  supabaseOrigin: string | null;
+  supabaseProjectRef: string | null;
   functionName: string | null;
+  functionPath: string | null;
+  functionUrl: string | null;
   httpStatus: number | null;
   hasResponseBody: boolean | null;
+  rawErrorName: string | null;
+  rawErrorMessage: string | null;
+  rawErrorStatus: number | null;
   partIds: string[];
   organizationId: string | null;
   userId: string | null;
@@ -323,9 +330,16 @@ function getArchivedDeleteDiagnosticsSummary(
     likelyCause: reporting.likelyCause,
     recommendedChecks,
     fallbackPath: reporting.fallbackPath,
+    supabaseOrigin: typeof reporting.supabaseOrigin === "string" ? reporting.supabaseOrigin : null,
+    supabaseProjectRef: typeof reporting.supabaseProjectRef === "string" ? reporting.supabaseProjectRef : null,
     functionName: typeof reporting.functionName === "string" ? reporting.functionName : null,
+    functionPath: typeof reporting.functionPath === "string" ? reporting.functionPath : null,
+    functionUrl: typeof reporting.functionUrl === "string" ? reporting.functionUrl : null,
     httpStatus: typeof reporting.httpStatus === "number" ? reporting.httpStatus : null,
     hasResponseBody: typeof reporting.hasResponseBody === "boolean" ? reporting.hasResponseBody : null,
+    rawErrorName: typeof reporting.rawErrorName === "string" ? reporting.rawErrorName : null,
+    rawErrorMessage: typeof reporting.rawErrorMessage === "string" ? reporting.rawErrorMessage : null,
+    rawErrorStatus: typeof reporting.rawErrorStatus === "number" ? reporting.rawErrorStatus : null,
     partIds,
     organizationId: typeof reporting.organizationId === "string" ? reporting.organizationId : null,
     userId: typeof reporting.userId === "string" ? reporting.userId : null,
@@ -748,8 +762,18 @@ function formatArchivedDeleteDiagnosticsForClipboard(summary: ArchivedDeleteDiag
     `- Summary: ${summary.failureSummary}`,
     `- Likely cause: ${summary.likelyCause}`,
     `- Fallback path: ${summary.fallbackPath}`,
+    `- Supabase origin: ${summary.supabaseOrigin ?? "unknown"}`,
+    `- Supabase project ref: ${summary.supabaseProjectRef ?? "unknown"}`,
     `- Function: ${summary.functionName ?? "unknown"}`,
   ];
+
+  if (summary.functionPath) {
+    lines.push(`- Function path: ${summary.functionPath}`);
+  }
+
+  if (summary.functionUrl) {
+    lines.push(`- Expected function URL: ${summary.functionUrl}`);
+  }
 
   if (summary.httpStatus != null) {
     lines.push(`- HTTP status: ${summary.httpStatus}`);
@@ -757,6 +781,16 @@ function formatArchivedDeleteDiagnosticsForClipboard(summary: ArchivedDeleteDiag
 
   if (summary.hasResponseBody != null) {
     lines.push(`- Response body present: ${summary.hasResponseBody ? "true" : "false"}`);
+  }
+
+  if (summary.rawErrorName || summary.rawErrorMessage) {
+    lines.push(
+      `- Raw edge error: ${summary.rawErrorName ?? "Error"}${summary.rawErrorMessage ? `: ${summary.rawErrorMessage}` : ""}`,
+    );
+  }
+
+  if (summary.rawErrorStatus != null && summary.rawErrorStatus !== summary.httpStatus) {
+    lines.push(`- Raw edge status: ${summary.rawErrorStatus}`);
   }
 
   if (summary.partIds.length > 0) {

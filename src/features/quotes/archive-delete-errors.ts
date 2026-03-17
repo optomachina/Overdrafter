@@ -23,9 +23,16 @@ export type ArchivedDeleteReporting = {
   failureSummary: string;
   likelyCause: string;
   recommendedChecks: string[];
+  supabaseOrigin?: string | null;
+  supabaseProjectRef?: string | null;
   functionName?: string | null;
+  functionPath?: string | null;
+  functionUrl?: string | null;
   httpStatus?: number | null;
   hasResponseBody?: boolean | null;
+  rawErrorName?: string | null;
+  rawErrorMessage?: string | null;
+  rawErrorStatus?: number | null;
   partIds?: string[];
   organizationId?: string | null;
   userId?: string | null;
@@ -92,9 +99,16 @@ function normalizeArchivedDeleteReporting(reporting: unknown): ArchivedDeleteRep
     failureSummary: reporting.failureSummary,
     likelyCause: reporting.likelyCause,
     recommendedChecks: reporting.recommendedChecks,
+    supabaseOrigin: typeof reporting.supabaseOrigin === "string" ? reporting.supabaseOrigin : null,
+    supabaseProjectRef: typeof reporting.supabaseProjectRef === "string" ? reporting.supabaseProjectRef : null,
     functionName: typeof reporting.functionName === "string" ? reporting.functionName : null,
+    functionPath: typeof reporting.functionPath === "string" ? reporting.functionPath : null,
+    functionUrl: typeof reporting.functionUrl === "string" ? reporting.functionUrl : null,
     httpStatus: typeof reporting.httpStatus === "number" ? reporting.httpStatus : null,
     hasResponseBody: typeof reporting.hasResponseBody === "boolean" ? reporting.hasResponseBody : null,
+    rawErrorName: typeof reporting.rawErrorName === "string" ? reporting.rawErrorName : null,
+    rawErrorMessage: typeof reporting.rawErrorMessage === "string" ? reporting.rawErrorMessage : null,
+    rawErrorStatus: typeof reporting.rawErrorStatus === "number" ? reporting.rawErrorStatus : null,
     partIds: isStringArray(reporting.partIds) ? reporting.partIds : [],
     organizationId: typeof reporting.organizationId === "string" ? reporting.organizationId : null,
     userId: typeof reporting.userId === "string" ? reporting.userId : null,
@@ -173,6 +187,7 @@ export function logArchivedDeleteFailure(input: {
   userId?: string | null;
 }): void {
   const surfacedError = toArchivedDeleteError(input.error);
+  const surfacedErrorWithStatus = surfacedError as Error & { status?: unknown };
   const existingReporting = getArchivedDeleteReporting(input.error) ?? getArchivedDeleteReporting(surfacedError);
   const reporting: ArchivedDeleteReporting = existingReporting ?? {
     operation: "archived_delete",
@@ -181,9 +196,16 @@ export function logArchivedDeleteFailure(input: {
     failureSummary: surfacedError.message,
     likelyCause: "The archived delete flow failed outside the expected RPC or edge fallback categories.",
     recommendedChecks: ["Inspect the raw error payload and recent diagnostics events in the copied report."],
+    supabaseOrigin: null,
+    supabaseProjectRef: null,
     functionName: null,
+    functionPath: null,
+    functionUrl: null,
     httpStatus: null,
     hasResponseBody: null,
+    rawErrorName: surfacedError.name,
+    rawErrorMessage: surfacedError.message,
+    rawErrorStatus: typeof surfacedErrorWithStatus.status === "number" ? surfacedErrorWithStatus.status : null,
     partIds: input.jobIds,
     organizationId: input.organizationId ?? null,
     userId: input.userId ?? null,

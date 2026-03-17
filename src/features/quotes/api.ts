@@ -83,6 +83,7 @@ import {
   getArchivedDeleteReporting,
   withArchivedDeleteReporting,
 } from "@/features/quotes/archive-delete-errors";
+import { getEdgeFunctionDebugInfo } from "@/features/quotes/edge-function-debug";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import {
   getImportedVendorOffers,
@@ -1198,6 +1199,23 @@ function classifyArchivedDeleteEdgeFallbackError(input: {
   const normalizedMessage = input.message.trim();
   const lowerMessage = normalizedMessage.toLowerCase();
   const status = input.httpStatus;
+  const debugInfo = getEdgeFunctionDebugInfo(input.functionName);
+  const rawErrorName =
+    input.error instanceof Error
+      ? input.error.name
+      : typeof (input.error as { name?: unknown })?.name === "string"
+        ? ((input.error as { name: string }).name as string)
+        : null;
+  const rawErrorMessage =
+    input.error instanceof Error
+      ? input.error.message
+      : typeof (input.error as { message?: unknown })?.message === "string"
+        ? ((input.error as { message: string }).message as string)
+        : null;
+  const rawErrorStatus =
+    typeof (input.error as { status?: unknown })?.status === "number"
+      ? ((input.error as { status: number }).status as number)
+      : status;
 
   if (
     status === 404 ||
@@ -1212,12 +1230,23 @@ function classifyArchivedDeleteEdgeFallbackError(input: {
       failureSummary: ARCHIVED_DELETE_EDGE_NOT_DEPLOYED_MESSAGE,
       likelyCause: "The job-archive-fallback Edge Function is unavailable in the active Supabase project.",
       recommendedChecks: [
-        "Verify that job-archive-fallback is deployed to the active Supabase project.",
-        "Confirm the app is pointed at the same Supabase project where the function was deployed.",
+        debugInfo.supabaseProjectRef
+          ? `Verify that job-archive-fallback is deployed to Supabase project ${debugInfo.supabaseProjectRef}.`
+          : "Verify that job-archive-fallback is deployed to the active Supabase project.",
+        debugInfo.functionUrl
+          ? `Confirm the app is pointed at ${debugInfo.supabaseOrigin} and expects ${debugInfo.functionUrl}.`
+          : "Confirm the app is pointed at the same Supabase project where the function was deployed.",
       ],
+      supabaseOrigin: debugInfo.supabaseOrigin,
+      supabaseProjectRef: debugInfo.supabaseProjectRef,
       functionName: input.functionName,
+      functionPath: debugInfo.functionPath,
+      functionUrl: debugInfo.functionUrl,
       httpStatus: status,
       hasResponseBody: input.hasResponseBody,
+      rawErrorName,
+      rawErrorMessage,
+      rawErrorStatus,
     };
   }
 
@@ -1235,12 +1264,23 @@ function classifyArchivedDeleteEdgeFallbackError(input: {
       failureSummary: normalizedMessage,
       likelyCause: "The archived delete cleanup function is deployed but missing required environment configuration.",
       recommendedChecks: [
-        "Verify SUPABASE_DB_URL is configured for job-archive-fallback.",
-        "Verify SUPABASE_SERVICE_ROLE_KEY is configured for job-archive-fallback.",
+        debugInfo.supabaseProjectRef
+          ? `Verify SUPABASE_DB_URL is configured for job-archive-fallback in Supabase project ${debugInfo.supabaseProjectRef}.`
+          : "Verify SUPABASE_DB_URL is configured for job-archive-fallback.",
+        debugInfo.supabaseProjectRef
+          ? `Verify SUPABASE_SERVICE_ROLE_KEY is configured for job-archive-fallback in Supabase project ${debugInfo.supabaseProjectRef}.`
+          : "Verify SUPABASE_SERVICE_ROLE_KEY is configured for job-archive-fallback.",
       ],
+      supabaseOrigin: debugInfo.supabaseOrigin,
+      supabaseProjectRef: debugInfo.supabaseProjectRef,
       functionName: input.functionName,
+      functionPath: debugInfo.functionPath,
+      functionUrl: debugInfo.functionUrl,
       httpStatus: status,
       hasResponseBody: input.hasResponseBody,
+      rawErrorName,
+      rawErrorMessage,
+      rawErrorStatus,
     };
   }
 
@@ -1258,12 +1298,23 @@ function classifyArchivedDeleteEdgeFallbackError(input: {
       failureSummary: ARCHIVED_DELETE_EDGE_UNREACHABLE_MESSAGE,
       likelyCause: "The app could not reach the job-archive-fallback Edge Function endpoint.",
       recommendedChecks: [
-        "Verify Edge Function deployment status for job-archive-fallback.",
-        "Verify the Supabase function endpoint is reachable from the current environment.",
+        debugInfo.supabaseProjectRef
+          ? `Verify Edge Function deployment status for job-archive-fallback in Supabase project ${debugInfo.supabaseProjectRef}.`
+          : "Verify Edge Function deployment status for job-archive-fallback.",
+        debugInfo.functionUrl
+          ? `Verify the Supabase function endpoint ${debugInfo.functionUrl} is reachable from the current environment.`
+          : "Verify the Supabase function endpoint is reachable from the current environment.",
       ],
+      supabaseOrigin: debugInfo.supabaseOrigin,
+      supabaseProjectRef: debugInfo.supabaseProjectRef,
       functionName: input.functionName,
+      functionPath: debugInfo.functionPath,
+      functionUrl: debugInfo.functionUrl,
       httpStatus: status,
       hasResponseBody: input.hasResponseBody,
+      rawErrorName,
+      rawErrorMessage,
+      rawErrorStatus,
     };
   }
 
@@ -1276,9 +1327,16 @@ function classifyArchivedDeleteEdgeFallbackError(input: {
     recommendedChecks: [
       "Inspect the raw event/error details included in the copied diagnostics report.",
     ],
+    supabaseOrigin: debugInfo.supabaseOrigin,
+    supabaseProjectRef: debugInfo.supabaseProjectRef,
     functionName: input.functionName,
+    functionPath: debugInfo.functionPath,
+    functionUrl: debugInfo.functionUrl,
     httpStatus: status,
     hasResponseBody: input.hasResponseBody,
+    rawErrorName,
+    rawErrorMessage,
+    rawErrorStatus,
   };
 }
 

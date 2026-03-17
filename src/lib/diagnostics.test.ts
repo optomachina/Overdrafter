@@ -203,12 +203,19 @@ describe("diagnostics", () => {
                 "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
               likelyCause: "The app could not reach the job-archive-fallback Edge Function endpoint.",
               recommendedChecks: [
-                "Verify Edge Function deployment status for job-archive-fallback.",
-                "Verify the Supabase function endpoint is reachable from the current environment.",
+                "Verify Edge Function deployment status for job-archive-fallback in Supabase project previewref.",
+                "Verify the Supabase function endpoint https://previewref.supabase.co/functions/v1/job-archive-fallback is reachable from the current environment.",
               ],
+              supabaseOrigin: "https://previewref.supabase.co",
+              supabaseProjectRef: "previewref",
               functionName: "job-archive-fallback",
+              functionPath: "/functions/v1/job-archive-fallback",
+              functionUrl: "https://previewref.supabase.co/functions/v1/job-archive-fallback",
               httpStatus: null,
               hasResponseBody: false,
+              rawErrorName: "Error",
+              rawErrorMessage: "Failed to send a request to the Edge Function",
+              rawErrorStatus: null,
               partIds: ["job-1"],
               organizationId: "org-1",
               userId: "user-1",
@@ -234,14 +241,26 @@ describe("diagnostics", () => {
     expect(report.archivedDeleteDiagnostics).toMatchObject({
       failureCategory: "edge_unreachable",
       fallbackPath: "job-archive-fallback",
+      supabaseOrigin: "https://previewref.supabase.co",
+      supabaseProjectRef: "previewref",
+      functionUrl: "https://previewref.supabase.co/functions/v1/job-archive-fallback",
       partIds: ["job-1"],
       organizationId: "org-1",
       userId: "user-1",
     });
     expect(clipboardText).toContain("Archived Delete Diagnostics:");
     expect(clipboardText).toContain("- Failure category: edge_unreachable");
+    expect(clipboardText).toContain("- Supabase project ref: previewref");
+    expect(clipboardText).toContain(
+      "- Expected function URL: https://previewref.supabase.co/functions/v1/job-archive-fallback",
+    );
+    expect(clipboardText).toContain(
+      "- Raw edge error: Error: Failed to send a request to the Edge Function",
+    );
     expect(clipboardText).toContain("- Affected part IDs: job-1");
-    expect(clipboardText).toContain("Verify Edge Function deployment status for job-archive-fallback.");
+    expect(clipboardText).toContain(
+      "Verify Edge Function deployment status for job-archive-fallback in Supabase project previewref.",
+    );
   });
 
   it("does not add archived delete diagnostics when the copied report is unrelated", () => {

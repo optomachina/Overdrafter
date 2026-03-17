@@ -211,6 +211,9 @@ also depends on the `job-archive-fallback` Edge Function being deployed with `SU
 `storage.objects` deletes are blocked. The migration head still needs the published-package cleanup
 inside `api_delete_archived_jobs(uuid[])` so quoted or published archived parts can be permanently
 deleted without foreign-key failures before the storage cleanup fallback runs.
+Vercel preview or production app deploys do not deploy Supabase Edge Functions automatically, so
+confirm the active Supabase project for `VITE_SUPABASE_URL` also has `job-archive-fallback`
+deployed and configured before treating preview archive-delete failures as app regressions.
 
 Then create memberships for your users in `organization_memberships`.
 
