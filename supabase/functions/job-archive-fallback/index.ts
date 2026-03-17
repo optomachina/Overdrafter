@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import postgres from "npm:postgres@3.4.7";
+import { canUserEditJobWithoutAuthContext } from "./authorization.ts";
 import {
   ARCHIVED_DELETE_STORAGE_CLEANUP_FAILED_MESSAGE,
   ArchivedDeleteFlowError,
@@ -156,29 +157,62 @@ async function getAuthorizedJob(
     throw new HttpError(404, `Job ${jobId} not found.`);
   }
 
-  const hasUserCanEditJob = await hasFunction(transaction, "public.user_can_edit_job(uuid)");
-  const allowed =
-    hasUserCanEditJob
+  const isOrgMember = Boolean(
+    (
+      await transaction<{ allowed: boolean }[]>`
+        select exists (
+          select 1
+          from public.organization_memberships
+          where user_id = ${userId}::uuid
+            and organization_id = ${job.organization_id}::uuid
+        ) as allowed
+      `
+    )[0]?.allowed,
+  );
+  const hasProjectMemberships = await hasRelation(transaction, "public.project_memberships");
+  const hasProjects = await hasRelation(transaction, "public.projects");
+  const hasProjectId = hasProjects && (await hasColumn(transaction, "jobs", "project_id"));
+  const canEditDirectProject =
+    hasProjectMemberships && hasProjectId
       ? Boolean(
-          (
-            await transaction<{ allowed: boolean }[]>`
-              select public.user_can_edit_job(${job.id}::uuid) as allowed
-            `
-          )[0]?.allowed,
-        )
-      : job.created_by === userId ||
-        Boolean(
           (
             await transaction<{ allowed: boolean }[]>`
               select exists (
                 select 1
-                from public.organization_memberships
-                where user_id = ${userId}::uuid
-                  and organization_id = ${job.organization_id}::uuid
+                from public.jobs job
+                join public.project_memberships membership on membership.project_id = job.project_id
+                where job.id = ${job.id}::uuid
+                  and membership.user_id = ${userId}::uuid
+                  and membership.role in ('owner', 'editor')
               ) as allowed
             `
           )[0]?.allowed,
-        );
+        )
+      : false;
+  const hasProjectJobs = await hasRelation(transaction, "public.project_jobs");
+  const canEditProjectViaJoinTable =
+    hasProjectMemberships && hasProjectJobs
+      ? Boolean(
+          (
+            await transaction<{ allowed: boolean }[]>`
+              select exists (
+                select 1
+                from public.project_jobs project_job
+                join public.project_memberships membership on membership.project_id = project_job.project_id
+                where project_job.job_id = ${job.id}::uuid
+                  and membership.user_id = ${userId}::uuid
+                  and membership.role in ('owner', 'editor')
+              ) as allowed
+            `
+          )[0]?.allowed,
+        )
+      : false;
+  const allowed = canUserEditJobWithoutAuthContext({
+    createdByMatchesUser: job.created_by === userId,
+    isOrgMember,
+    canEditDirectProject,
+    canEditProjectViaJoinTable,
+  });
 
   if (!allowed) {
     throw new HttpError(403, `You do not have permission to ${action} this part.`);
