@@ -31,6 +31,10 @@ export function ClientExtractionStatusNotice({
     diagnostics.missingFields.length > 0
       ? diagnostics.missingFields.map(sentenceCaseField).join(", ")
       : null;
+  const reviewLabel =
+    diagnostics.reviewFields && diagnostics.reviewFields.length > 0
+      ? diagnostics.reviewFields.map(sentenceCaseField).join(", ")
+      : null;
 
   switch (diagnostics.lifecycle) {
     case "queued":
@@ -87,6 +91,11 @@ export function ClientExtractionStatusNotice({
                 {missingLabel ? (
                   <Badge className="border border-amber-300/20 bg-amber-400/10 text-amber-100">
                     Missing: {missingLabel}
+                  </Badge>
+                ) : null}
+                {reviewLabel ? (
+                  <Badge className="border border-amber-300/20 bg-amber-400/10 text-amber-100">
+                    Review: {reviewLabel}
                   </Badge>
                 ) : null}
               </div>

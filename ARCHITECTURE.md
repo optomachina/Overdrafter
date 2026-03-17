@@ -45,7 +45,10 @@ The next-phase domain model should expand that quote-centric shape into an expli
 
 ### 5. Extraction and asynchronous worker layer
 - extracting structured part requirements from files
+- preserving raw drawing-derived values and evidence in `drawing_extractions`
+- normalizing quote-facing requirement fields separately in `approved_part_requirements` / `spec_snapshot`
 - generating previews and auto-approving extracted requirements for normal quote preparation
+- failing closed into review when field confidence is low or candidates conflict
 - running long-lived or queued work
 - surfacing processing status and failures without blocking part navigation
 
@@ -128,3 +131,12 @@ Phase 1 vendor boundary:
 - auditability
 - observability
 - data separation
+
+## Extraction boundary
+
+Drawing extraction is advisory evidence, not the canonical quote contract.
+
+- `drawing_extractions.extraction` stores source-truth raw fields, field confidence, review-needed state, evidence, and debug candidate metadata.
+- `approved_part_requirements` stores the normalized requirement record used by quoting and estimator workflows.
+- `approved_part_requirements.spec_snapshot` is the transitional home for normalized quote-facing variants such as `quoteDescription`, `quoteFinish`, and field provenance or override state.
+- Auto-approval may refresh auto-managed normalized fields from extraction output, but it must preserve reviewed user-managed values and must not silently promote low-confidence raw extraction into approved requirements.

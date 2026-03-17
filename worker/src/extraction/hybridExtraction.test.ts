@@ -45,15 +45,50 @@ describe("runHybridExtraction", () => {
       description: "Optic Bracket Lower",
       partNumber: "OPTIC-BRACKET_LOWER",
       revision: null,
+      extractedDescriptionRaw: {
+        value: "Optic Bracket Lower",
+        confidence: 0.2,
+        reviewNeeded: true,
+        reasons: ["regex_fit"],
+        sourceRegion: null,
+      },
+      extractedPartNumberRaw: {
+        value: "OPTIC-BRACKET_LOWER",
+        confidence: 0.2,
+        reviewNeeded: true,
+        reasons: ["regex_fit"],
+        sourceRegion: null,
+      },
+      extractedRevisionRaw: {
+        value: null,
+        confidence: 0.05,
+        reviewNeeded: true,
+        reasons: ["regex_fit"],
+        sourceRegion: null,
+      },
+      extractedFinishRaw: {
+        value: null,
+        confidence: 0.05,
+        reviewNeeded: true,
+        reasons: ["regex_fit"],
+        sourceRegion: null,
+      },
+      quoteDescription: "Optic Bracket Lower",
+      quoteFinish: null,
+      reviewFields: ["description", "partNumber", "revision", "material", "finish"],
       material: {
         raw: null,
         normalized: null,
         confidence: 0.15,
+        reviewNeeded: true,
+        reasons: ["regex_fit"],
       },
       finish: {
         raw: null,
         normalized: null,
         confidence: 0.1,
+        reviewNeeded: true,
+        reasons: ["regex_fit"],
       },
       generalTolerance: {
         raw: null,
@@ -71,13 +106,15 @@ describe("runHybridExtraction", () => {
           field: "description",
           page: 1,
           snippet: "Optic Bracket Lower",
-          confidence: 0.65,
+          confidence: 0.2,
+          reasons: ["regex_fit"],
         },
       ],
       warnings: [
         "Unable to extract text from the drawing PDF. Review extracted fields manually.",
         "No PDF drawing was attached. Material, finish, and tolerance values require review.",
       ],
+      debugCandidates: {},
       status: "needs_review",
     });
   });
@@ -98,6 +135,7 @@ describe("runHybridExtraction", () => {
     expect(result.material.confidence).toBe(0.35);
     expect(result.finish.confidence).toBe(0.25);
     expect(result.tightestTolerance.confidence).toBe(0.25);
-    expect(result.warnings).toEqual(["Unable to extract text from the drawing PDF. Review extracted fields manually."]);
+    expect(result.warnings).toContain("Unable to extract text from the drawing PDF. Review extracted fields manually.");
+    expect(result.reviewFields).toContain("partNumber");
   });
 });

@@ -42,6 +42,7 @@ Current persistence split:
 - `jobs.requested_quote_quantities` and `jobs.requested_by_date` hold request timing and quantity state
 - `approved_part_requirements` holds canonical line-item requirement fields
 - `approved_part_requirements.spec_snapshot` is the extension bucket used by the current client request editor
+- `drawing_extractions.extraction` holds raw drawing-derived metadata, extraction confidence, and review-needed state for source-truth auditing
 - `public.api_update_client_part_request` in [supabase/migrations/20260310110000_add_client_part_request_update.sql](../supabase/migrations/20260310110000_add_client_part_request_update.sql) only updates that MVP-safe subset
 
 ## Target envelope
@@ -146,6 +147,15 @@ The client-safe write path can edit:
 - `sourcing.notes`
 - `release.releaseStatus`
 - `release.notes`
+
+Normalized quote-facing fields also currently ride in `approved_part_requirements.spec_snapshot`:
+
+- `quoteDescription`
+- `quoteFinish`
+- `fieldSources`
+- `fieldOverrides`
+
+Those fields exist to keep estimator- and vendor-facing normalization separate from raw extraction. They should remain traceable back to `drawing_extractions.extraction` and should not be overwritten on reparse when the provenance marks them as user-managed.
 
 This service-intent trio is a transitional bridge so active intake and internal review surfaces can capture the taxonomy before dedicated service request line items land.
 

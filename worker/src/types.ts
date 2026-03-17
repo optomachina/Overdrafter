@@ -80,14 +80,101 @@ export type DrawingExtractionPayload = {
   description: string | null;
   partNumber: string | null;
   revision: string | null;
-  material: { raw: string | null; normalized: string | null; confidence: number };
-  finish: { raw: string | null; normalized: string | null; confidence: number };
+  extractedDescriptionRaw: {
+    value: string | null;
+    confidence: number;
+    reviewNeeded: boolean;
+    reasons: string[];
+    sourceRegion: {
+      page: number;
+      line: number;
+      columnStart: number;
+      columnEnd: number;
+      label: string | null;
+    } | null;
+  };
+  extractedPartNumberRaw: {
+    value: string | null;
+    confidence: number;
+    reviewNeeded: boolean;
+    reasons: string[];
+    sourceRegion: {
+      page: number;
+      line: number;
+      columnStart: number;
+      columnEnd: number;
+      label: string | null;
+    } | null;
+  };
+  extractedRevisionRaw: {
+    value: string | null;
+    confidence: number;
+    reviewNeeded: boolean;
+    reasons: string[];
+    sourceRegion: {
+      page: number;
+      line: number;
+      columnStart: number;
+      columnEnd: number;
+      label: string | null;
+    } | null;
+  };
+  extractedFinishRaw: {
+    value: string | null;
+    confidence: number;
+    reviewNeeded: boolean;
+    reasons: string[];
+    sourceRegion: {
+      page: number;
+      line: number;
+      columnStart: number;
+      columnEnd: number;
+      label: string | null;
+    } | null;
+  };
+  quoteDescription: string | null;
+  quoteFinish: string | null;
+  reviewFields: string[];
+  material: {
+    raw: string | null;
+    normalized: string | null;
+    confidence: number;
+    reviewNeeded?: boolean;
+    reasons?: string[];
+  };
+  finish: {
+    raw: string | null;
+    normalized: string | null;
+    confidence: number;
+    reviewNeeded?: boolean;
+    reasons?: string[];
+  };
   generalTolerance: { raw: string | null; confidence: number };
   tightestTolerance: { raw: string | null; valueInch: number | null; confidence: number };
   notes: string[];
   threads: string[];
-  evidence: Array<{ field: string; page: number; snippet: string; confidence: number }>;
+  evidence: Array<{
+    field: string;
+    page: number;
+    snippet: string;
+    confidence: number;
+    reasons?: string[];
+  }>;
   warnings: string[];
+  debugCandidates?: Record<
+    string,
+    Array<{
+      value: string;
+      page: number;
+      line: number;
+      columnStart: number;
+      columnEnd: number;
+      label: string | null;
+      score: number;
+      reasons: string[];
+      snippet: string;
+    }>
+  >;
   status: "needs_review" | "approved";
 };
 

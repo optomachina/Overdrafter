@@ -122,11 +122,15 @@ function summarizeExtractionOutcome(extraction: Awaited<ReturnType<typeof runHyb
     extraction.finish.normalized || extraction.finish.raw ? null : "finish",
     extraction.tightestTolerance.valueInch ?? extraction.tightestTolerance.raw ? null : "tightestToleranceInch",
   ].filter((value): value is string => Boolean(value));
+  const reviewFields = extraction.reviewFields.filter((field) => !missingFields.includes(field));
 
   return {
     missingFields,
+    reviewFields,
     lifecycle:
-      missingFields.length > 0 || extraction.warnings.length > 0 ? "partial" : "succeeded",
+      missingFields.length > 0 || reviewFields.length > 0 || extraction.warnings.length > 0
+        ? "partial"
+        : "succeeded",
   };
 }
 
@@ -527,6 +531,19 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
     });
     const extractionOutcome = summarizeExtractionOutcome(extraction);
 
+    if (process.env.EXTRACTION_DEBUG === "true" && extraction.debugCandidates) {
+      console.log(
+        JSON.stringify({
+          service: "overdrafter-cad-worker",
+          source: "extract_part",
+          message: "drawing extraction candidate ranking",
+          partId: context.part.id,
+          reviewFields: extraction.reviewFields,
+          candidates: extraction.debugCandidates,
+        }),
+      );
+    }
+
     const { error } = await supabase.from("drawing_extractions").upsert(
       {
         part_id: context.part.id,
@@ -537,6 +554,13 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
           description: extraction.description,
           partNumber: extraction.partNumber,
           revision: extraction.revision,
+          extractedDescriptionRaw: extraction.extractedDescriptionRaw,
+          extractedPartNumberRaw: extraction.extractedPartNumberRaw,
+          extractedRevisionRaw: extraction.extractedRevisionRaw,
+          extractedFinishRaw: extraction.extractedFinishRaw,
+          quoteDescription: extraction.quoteDescription,
+          quoteFinish: extraction.quoteFinish,
+          reviewFields: extraction.reviewFields,
           material: extraction.material,
           finish: extraction.finish,
           generalTolerance: extraction.generalTolerance,
@@ -573,13 +597,14 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
     await logWorkerAuditEvent(supabase, {
       organizationId: context.part.organization_id,
       jobId: task.job_id,
-      eventType: "worker.extraction_completed",
+        eventType: "worker.extraction_completed",
       payload: {
         partId: context.part.id,
         extractionStatus: extraction.status,
         extractionLifecycle: extractionOutcome.lifecycle,
         warningCount: extraction.warnings.length,
         missingFields: extractionOutcome.missingFields,
+        reviewFields: extractionOutcome.reviewFields,
         previewAssetCount: previewAssets.length,
         autoApprovedPartCount,
       },
@@ -590,6 +615,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       extractionLifecycle: extractionOutcome.lifecycle,
       warningCount: extraction.warnings.length,
       missingFields: extractionOutcome.missingFields,
+      reviewFields: extractionOutcome.reviewFields,
       previewAssetCount: previewAssets.length,
       autoApprovedPartCount,
     });

@@ -120,6 +120,7 @@ function normalizeEvidence(extraction: DrawingExtractionRecord | null): DrawingE
     page: Number(item.page ?? 0),
     snippet: String(item.snippet ?? ""),
     confidence: Number(item.confidence ?? 0),
+    reasons: asStringArray(item.reasons),
   }));
 }
 
@@ -138,25 +139,63 @@ export function normalizeDrawingExtraction(
   partId: string,
 ): DrawingExtractionData {
   const payload = asObject(extraction?.extraction);
+  const extractedDescriptionRaw = asObject(payload.extractedDescriptionRaw);
+  const extractedPartNumberRaw = asObject(payload.extractedPartNumberRaw);
+  const extractedRevisionRaw = asObject(payload.extractedRevisionRaw);
+  const extractedFinishRaw = asObject(payload.extractedFinishRaw);
   const material = asObject(payload.material);
   const finish = asObject(payload.finish);
   const tolerances = asObject(payload.tolerances);
   const warnings = asArray<string>(extraction?.warnings).map(String);
+  const reviewFields = asStringArray(payload.reviewFields);
 
   return {
     partId,
     description: (payload.description ?? payload.desc ?? null) as string | null,
     partNumber: (payload.partNumber ?? payload.pn ?? null) as string | null,
     revision: (payload.revision ?? payload.rev ?? null) as string | null,
+    quoteDescription: (payload.quoteDescription ?? payload.description ?? payload.desc ?? null) as string | null,
+    quoteFinish:
+      (payload.quoteFinish ?? finish.normalized ?? finish.raw ?? payload.finish ?? null) as string | null,
+    rawFields: {
+      description: {
+        raw: (extractedDescriptionRaw.value ?? payload.description ?? payload.desc ?? null) as string | null,
+        confidence: Number(extractedDescriptionRaw.confidence ?? extraction?.confidence ?? 0),
+        reviewNeeded: Boolean(extractedDescriptionRaw.reviewNeeded),
+        reasons: asStringArray(extractedDescriptionRaw.reasons),
+      },
+      partNumber: {
+        raw: (extractedPartNumberRaw.value ?? payload.partNumber ?? payload.pn ?? null) as string | null,
+        confidence: Number(extractedPartNumberRaw.confidence ?? extraction?.confidence ?? 0),
+        reviewNeeded: Boolean(extractedPartNumberRaw.reviewNeeded),
+        reasons: asStringArray(extractedPartNumberRaw.reasons),
+      },
+      revision: {
+        raw: (extractedRevisionRaw.value ?? payload.revision ?? payload.rev ?? null) as string | null,
+        confidence: Number(extractedRevisionRaw.confidence ?? extraction?.confidence ?? 0),
+        reviewNeeded: Boolean(extractedRevisionRaw.reviewNeeded),
+        reasons: asStringArray(extractedRevisionRaw.reasons),
+      },
+      finish: {
+        raw: (extractedFinishRaw.value ?? finish.raw ?? finish.raw_text ?? payload.finish ?? null) as string | null,
+        confidence: Number(extractedFinishRaw.confidence ?? extraction?.confidence ?? 0),
+        reviewNeeded: Boolean(extractedFinishRaw.reviewNeeded),
+        reasons: asStringArray(extractedFinishRaw.reasons),
+      },
+    },
     material: {
       raw: (material.raw ?? material.raw_text ?? null) as string | null,
       normalized: (material.normalized ?? null) as string | null,
       confidence: Number(material.confidence ?? extraction?.confidence ?? 0),
+      reviewNeeded: Boolean(material.reviewNeeded),
+      reasons: asStringArray(material.reasons),
     },
     finish: {
       raw: (finish.raw ?? finish.raw_text ?? null) as string | null,
       normalized: (finish.normalized ?? null) as string | null,
       confidence: Number(finish.confidence ?? extraction?.confidence ?? 0),
+      reviewNeeded: Boolean(finish.reviewNeeded),
+      reasons: asStringArray(finish.reasons),
     },
     tightestTolerance: {
       raw: (tolerances.tightest ?? null) as string | null,
@@ -167,6 +206,7 @@ export function normalizeDrawingExtraction(
     },
     evidence: normalizeEvidence(extraction),
     warnings,
+    reviewFields,
     status: extraction?.status ?? "needs_review",
   };
 }
@@ -236,8 +276,10 @@ export function normalizeClientPartMetadata(
       description: typeof payload.description === "string" ? payload.description : null,
       partNumber: typeof payload.partNumber === "string" ? payload.partNumber : null,
       revision: typeof payload.revision === "string" ? payload.revision : null,
+      quoteDescription: typeof payload.quoteDescription === "string" ? payload.quoteDescription : null,
       material: typeof payload.material === "string" ? payload.material : "",
       finish: typeof payload.finish === "string" ? payload.finish : null,
+      quoteFinish: typeof payload.quoteFinish === "string" ? payload.quoteFinish : null,
       tightestToleranceInch:
         typeof payload.tightestToleranceInch === "number"
           ? payload.tightestToleranceInch
@@ -268,6 +310,7 @@ export function normalizeClientPartMetadata(
           : 0,
       warnings: asStringArray(payload.warnings),
       missingFields: asStringArray(payload.missingFields),
+      reviewFields: asStringArray(payload.reviewFields),
       lastFailureCode: typeof payload.lastFailureCode === "string" ? payload.lastFailureCode : null,
       lastFailureMessage: typeof payload.lastFailureMessage === "string" ? payload.lastFailureMessage : null,
       extractedAt: typeof payload.extractedAt === "string" ? payload.extractedAt : null,
@@ -342,7 +385,13 @@ export function buildRequirementDraft(
     requestedServiceKinds: serviceIntent.requestedServiceKinds,
     primaryServiceKind: serviceIntent.primaryServiceKind,
     serviceNotes: serviceIntent.serviceNotes,
-    description: clientRequirement?.description ?? approved?.description ?? normalizedExtraction.description,
+    description:
+      clientRequirement?.quoteDescription ??
+      clientRequirement?.description ??
+      readSpecSnapshotString(approved?.spec_snapshot, "quoteDescription") ??
+      approved?.description ??
+      normalizedExtraction.quoteDescription ??
+      normalizedExtraction.description,
     partNumber: clientRequirement?.partNumber ?? approved?.part_number ?? normalizedExtraction.partNumber,
     revision: clientRequirement?.revision ?? approved?.revision ?? normalizedExtraction.revision,
     material:
@@ -352,8 +401,11 @@ export function buildRequirementDraft(
       normalizedExtraction.material.raw ??
       (materialRequired ? "Unknown material" : ""),
     finish:
+      clientRequirement?.quoteFinish ??
       clientRequirement?.finish ??
+      readSpecSnapshotString(approved?.spec_snapshot, "quoteFinish") ??
       approved?.finish ??
+      normalizedExtraction.quoteFinish ??
       normalizedExtraction.finish.normalized ??
       normalizedExtraction.finish.raw ??
       null,

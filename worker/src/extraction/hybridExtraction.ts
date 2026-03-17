@@ -42,18 +42,61 @@ export async function runHybridExtraction(input: {
 
   return {
     partId: input.part.id,
-    description: drawingSignals.description ?? normalizedTitle,
-    partNumber: drawingSignals.partNumber ?? inferredBase.toUpperCase(),
-    revision: drawingSignals.revision,
+    description: drawingSignals.description.value ?? normalizedTitle,
+    partNumber: drawingSignals.partNumber.value ?? inferredBase.toUpperCase(),
+    revision: drawingSignals.revision.value,
+    extractedDescriptionRaw: {
+      value: drawingSignals.description.value ?? normalizedTitle,
+      confidence: drawingSignals.description.confidence,
+      reviewNeeded: drawingSignals.description.reviewNeeded,
+      reasons: drawingSignals.description.reasons,
+      sourceRegion: drawingSignals.description.sourceRegion,
+    },
+    extractedPartNumberRaw: {
+      value: drawingSignals.partNumber.value ?? inferredBase.toUpperCase(),
+      confidence: drawingSignals.partNumber.confidence,
+      reviewNeeded: drawingSignals.partNumber.reviewNeeded,
+      reasons: drawingSignals.partNumber.reasons,
+      sourceRegion: drawingSignals.partNumber.sourceRegion,
+    },
+    extractedRevisionRaw: {
+      value: drawingSignals.revision.value,
+      confidence: drawingSignals.revision.confidence,
+      reviewNeeded: drawingSignals.revision.reviewNeeded,
+      reasons: drawingSignals.revision.reasons,
+      sourceRegion: drawingSignals.revision.sourceRegion,
+    },
+    extractedFinishRaw: {
+      value: drawingSignals.finish.value,
+      confidence: drawingSignals.finish.confidence,
+      reviewNeeded: drawingSignals.finish.reviewNeeded,
+      reasons: drawingSignals.finish.reasons,
+      sourceRegion: drawingSignals.finish.sourceRegion,
+    },
+    quoteDescription: drawingSignals.quoteDescription,
+    quoteFinish: drawingSignals.quoteFinish,
+    reviewFields: drawingSignals.reviewFields,
     material: {
-      raw: drawingSignals.material,
-      normalized: drawingSignals.material,
-      confidence: drawingSignals.material ? (input.drawingFile ? 0.72 : 0.2) : input.drawingFile ? 0.35 : 0.15,
+      raw: drawingSignals.material.value,
+      normalized: drawingSignals.material.value,
+      confidence: drawingSignals.material.value
+        ? drawingSignals.material.confidence
+        : input.drawingFile
+          ? 0.35
+          : 0.15,
+      reviewNeeded: drawingSignals.material.reviewNeeded,
+      reasons: drawingSignals.material.reasons,
     },
     finish: {
-      raw: drawingSignals.finish,
-      normalized: drawingSignals.finish,
-      confidence: drawingSignals.finish ? 0.6 : input.drawingFile ? 0.25 : 0.1,
+      raw: drawingSignals.finish.value,
+      normalized: drawingSignals.quoteFinish ?? drawingSignals.finish.value,
+      confidence: drawingSignals.finish.value
+        ? drawingSignals.finish.confidence
+        : input.drawingFile
+          ? 0.25
+          : 0.1,
+      reviewNeeded: drawingSignals.finish.reviewNeeded,
+      reasons: drawingSignals.finish.reasons,
     },
     generalTolerance: {
       raw: drawingSignals.generalTolerance,
@@ -77,9 +120,11 @@ export async function runHybridExtraction(input: {
               page: 1,
               snippet: normalizedTitle,
               confidence: 0.75,
+              reasons: ["regex_fit"],
             },
           ],
     warnings,
+    debugCandidates: drawingSignals.debugCandidates,
     status: "needs_review",
   };
 }

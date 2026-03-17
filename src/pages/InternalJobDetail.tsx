@@ -618,6 +618,12 @@ const InternalJobDetail = () => {
                             }))
                           }
                         />
+                        <p className="text-xs text-white/45">
+                          Extracted raw: {extraction.rawFields.description.raw || "Not found"}
+                          {extraction.rawFields.description.reviewNeeded
+                            ? ` • review needed (${Math.round(extraction.rawFields.description.confidence * 100)}%)`
+                            : ""}
+                        </p>
                       </div>
                       <div className="space-y-2">
                         <Label>Part number</Label>
@@ -632,6 +638,12 @@ const InternalJobDetail = () => {
                             }))
                           }
                         />
+                        <p className="text-xs text-white/45">
+                          Extracted raw: {extraction.rawFields.partNumber.raw || "Not found"}
+                          {extraction.rawFields.partNumber.reviewNeeded
+                            ? ` • review needed (${Math.round(extraction.rawFields.partNumber.confidence * 100)}%)`
+                            : ""}
+                        </p>
                       </div>
                       <div className="space-y-2">
                         <Label>Revision</Label>
@@ -646,6 +658,12 @@ const InternalJobDetail = () => {
                             }))
                           }
                         />
+                        <p className="text-xs text-white/45">
+                          Extracted raw: {extraction.rawFields.revision.raw || "Not found"}
+                          {extraction.rawFields.revision.reviewNeeded
+                            ? ` • review needed (${Math.round(extraction.rawFields.revision.confidence * 100)}%)`
+                            : ""}
+                        </p>
                       </div>
                       <div className="space-y-2">
                         <Label>Quantity</Label>
@@ -760,7 +778,10 @@ const InternalJobDetail = () => {
                           }
                         />
                         <p className="text-xs text-white/45">
-                          Extracted: {extraction.finish.normalized || extraction.finish.raw || "Not found"}
+                          Extracted raw: {extraction.rawFields.finish.raw || extraction.finish.raw || "Not found"}
+                          {extraction.rawFields.finish.reviewNeeded
+                            ? ` • review needed (${Math.round(extraction.rawFields.finish.confidence * 100)}%)`
+                            : ""}
                         </p>
                       </div>
                       <div className="space-y-2">

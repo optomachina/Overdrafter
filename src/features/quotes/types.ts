@@ -60,6 +60,14 @@ export type EvidenceItem = {
   page: number;
   snippet: string;
   confidence: number;
+  reasons?: string[];
+};
+
+export type ExtractedFieldData = {
+  raw: string | null;
+  confidence: number;
+  reviewNeeded: boolean;
+  reasons: string[];
 };
 
 export type DrawingExtractionData = {
@@ -67,15 +75,27 @@ export type DrawingExtractionData = {
   description: string | null;
   partNumber: string | null;
   revision: string | null;
+  quoteDescription?: string | null;
+  quoteFinish?: string | null;
+  rawFields: {
+    description: ExtractedFieldData;
+    partNumber: ExtractedFieldData;
+    revision: ExtractedFieldData;
+    finish: ExtractedFieldData;
+  };
   material: {
     raw: string | null;
     normalized: string | null;
     confidence: number;
+    reviewNeeded: boolean;
+    reasons: string[];
   };
   finish: {
     raw: string | null;
     normalized: string | null;
     confidence: number;
+    reviewNeeded: boolean;
+    reasons: string[];
   };
   tightestTolerance: {
     raw: string | null;
@@ -84,6 +104,7 @@ export type DrawingExtractionData = {
   };
   evidence: EvidenceItem[];
   warnings: string[];
+  reviewFields?: string[];
   status: ExtractionStatus;
 };
 
@@ -100,6 +121,7 @@ export type ClientExtractionDiagnostics = {
   warningCount: number;
   warnings: string[];
   missingFields: string[];
+  reviewFields?: string[];
   lastFailureCode: string | null;
   lastFailureMessage: string | null;
   extractedAt: string | null;
@@ -114,8 +136,10 @@ export type ClientPartRequirementView = {
   description: string | null;
   partNumber: string | null;
   revision: string | null;
+  quoteDescription?: string | null;
   material: string;
   finish: string | null;
+  quoteFinish?: string | null;
   tightestToleranceInch: number | null;
   process: string | null;
   notes: string | null;

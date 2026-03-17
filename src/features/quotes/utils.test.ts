@@ -118,15 +118,47 @@ describe("quotes utils", () => {
       description: "Widget plate",
       partNumber: "1093-05589",
       revision: "A",
+      quoteDescription: "Widget plate",
+      quoteFinish: "Anodize",
+      rawFields: {
+        description: {
+          raw: "Widget plate",
+          confidence: 0.47,
+          reviewNeeded: false,
+          reasons: [],
+        },
+        partNumber: {
+          raw: "1093-05589",
+          confidence: 0.47,
+          reviewNeeded: false,
+          reasons: [],
+        },
+        revision: {
+          raw: "A",
+          confidence: 0.47,
+          reviewNeeded: false,
+          reasons: [],
+        },
+        finish: {
+          raw: "Anodize",
+          confidence: 0.47,
+          reviewNeeded: false,
+          reasons: [],
+        },
+      },
       material: {
         raw: "6061-T6 AL",
         normalized: "6061 aluminum",
         confidence: 0.91,
+        reviewNeeded: false,
+        reasons: [],
       },
       finish: {
         raw: "Anodize",
         normalized: null,
         confidence: 0.47,
+        reviewNeeded: false,
+        reasons: [],
       },
       tightestTolerance: {
         raw: "+/- .002 in",
@@ -135,6 +167,7 @@ describe("quotes utils", () => {
       },
       evidence: [],
       warnings: ["Verify finish callout"],
+      reviewFields: [],
       status: "approved",
     });
   });

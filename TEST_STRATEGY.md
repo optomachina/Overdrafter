@@ -92,6 +92,12 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - implement the fix
 - prove the new or updated test passes
 
+### Drawing extraction changes
+- add or update regression coverage for the failing layout or title-block pattern
+- cover field-specific rejection rules when a nearby bad candidate could contaminate another field
+- verify raw extracted fields separately from normalized quote-facing fields when both layers are affected
+- validate review-needed behavior when confidence is low or candidate ranking is ambiguous
+
 ### Schema or migration changes
 - validate the migration path
 - run static verification

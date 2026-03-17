@@ -197,6 +197,9 @@ The system should distinguish client quote-request intent from quote-run executi
 ### 5. Automation must fail closed
 If extraction or sourcing automation fails, the system must preserve visibility and prevent silent progression.
 
+### 10. Extraction must preserve source truth and quote-ready normalization separately
+Drawing extraction must keep source-truth values from the drawing title block distinct from downstream quote-facing normalization. Raw extracted fields are evidence and must remain traceable. Quote-facing fields may be normalized for estimator and vendor workflows, but that normalization must not silently destroy source text or overwrite reviewed user edits.
+
 ### 6. Internal-only data must stay internal
 Internal sourcing context, operational notes, and sensitive quote context must not leak into client-facing views.
 
