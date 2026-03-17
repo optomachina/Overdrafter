@@ -805,7 +805,7 @@ describe("quotes api helpers", () => {
     });
 
     await expect(deleteArchivedJobs(["job-123"])).rejects.toThrow(
-      'update or delete on table "vendor_quote_results" violates foreign key constraint "published_quote_options_source_vendor_quote_id_fkey" on table "published_quote_options"',
+      "Failed to delete archived part because related records still exist.",
     );
   });
 

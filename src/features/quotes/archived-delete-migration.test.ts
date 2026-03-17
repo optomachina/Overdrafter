@@ -9,9 +9,10 @@ describe("archived delete migration", () => {
       "supabase/migrations/20260316110000_fix_archived_job_delete_for_published_parts.sql",
     );
     const sql = readFileSync(migrationPath, "utf8");
+    const normalizedSql = sql.toLowerCase();
 
-    const publishedOptionsDeleteIndex = sql.indexOf("delete from public.published_quote_options");
-    const jobsDeleteIndex = sql.indexOf("delete from public.jobs");
+    const publishedOptionsDeleteIndex = normalizedSql.indexOf("delete from public.published_quote_options");
+    const jobsDeleteIndex = normalizedSql.indexOf("delete from public.jobs");
 
     expect(publishedOptionsDeleteIndex).toBeGreaterThanOrEqual(0);
     expect(jobsDeleteIndex).toBeGreaterThanOrEqual(0);

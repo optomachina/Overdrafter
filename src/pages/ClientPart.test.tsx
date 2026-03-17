@@ -565,29 +565,35 @@ describe("ClientPart", () => {
       details: "quoted package dependency",
     });
 
-    renderWithClient("/parts/job-1");
+    try {
+      renderWithClient("/parts/job-1");
 
-    await waitFor(() => {
-      expect(lastAccountMenuProps).not.toBeNull();
-    });
+      await waitFor(() => {
+        expect(lastAccountMenuProps).not.toBeNull();
+      });
 
-    await expect(
-      (lastAccountMenuProps!.onDeleteArchivedParts as (jobIds: string[]) => Promise<void>)(["job-1"]),
-    ).rejects.toThrow("Delete failed.");
+      await expect(
+        (lastAccountMenuProps!.onDeleteArchivedParts as (jobIds: string[]) => Promise<void>)(["job-1"]),
+      ).rejects.toThrow("Failed to delete archived part because related records still exist.");
 
-    expect(toastMock.error).toHaveBeenCalledWith("Delete failed.");
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      "Archived part delete failed",
-      expect.objectContaining({
-        jobIds: ["job-1"],
-        organizationId: "org-1",
-        userId: "user-1",
-        message: "Delete failed.",
-        error: expect.objectContaining({
-          code: "23503",
-          message: "Delete failed.",
+      expect(toastMock.error).toHaveBeenCalledWith(
+        "Failed to delete archived part because related records still exist.",
+      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        "Archived part delete failed",
+        expect.objectContaining({
+          jobIds: ["job-1"],
+          organizationId: "org-1",
+          userId: "user-1",
+          message: "Failed to delete archived part because related records still exist.",
+          error: expect.objectContaining({
+            code: "23503",
+            message: "Delete failed.",
+          }),
         }),
-      }),
-    );
+      );
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 });
