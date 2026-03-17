@@ -6,6 +6,8 @@ import type {
 } from "../types.js";
 import { inferDrawingSignalsFromPdf, type PdfTextExtraction } from "./pdfDrawing.js";
 
+const SUPPORTED_REVIEW_FIELDS = new Set(["description", "partNumber", "revision", "material", "finish"]);
+
 function titleCase(value: string): string {
   return value
     .split(/[-_\s]+/)
@@ -35,6 +37,12 @@ export async function runHybridExtraction(input: {
     pdfText: input.pdfText ?? null,
   });
   const warnings = [...drawingSignals.warnings];
+  const description = drawingSignals.description.value ?? normalizedTitle;
+  const partNumber = drawingSignals.partNumber.value ?? inferredBase.toUpperCase();
+  const finishRaw = drawingSignals.finish.value;
+  const reviewFields = drawingSignals.reviewFields.filter((field) => SUPPORTED_REVIEW_FIELDS.has(field));
+  const quoteDescription = drawingSignals.quoteDescription ?? description;
+  const quoteFinish = drawingSignals.quoteFinish ?? finishRaw;
 
   if (!input.drawingFile) {
     warnings.push("No PDF drawing was attached. Material, finish, and tolerance values require review.");
@@ -42,18 +50,18 @@ export async function runHybridExtraction(input: {
 
   return {
     partId: input.part.id,
-    description: drawingSignals.description.value ?? normalizedTitle,
-    partNumber: drawingSignals.partNumber.value ?? inferredBase.toUpperCase(),
+    description,
+    partNumber,
     revision: drawingSignals.revision.value,
     extractedDescriptionRaw: {
-      value: drawingSignals.description.value ?? normalizedTitle,
+      value: description,
       confidence: drawingSignals.description.confidence,
       reviewNeeded: drawingSignals.description.reviewNeeded,
       reasons: drawingSignals.description.reasons,
       sourceRegion: drawingSignals.description.sourceRegion,
     },
     extractedPartNumberRaw: {
-      value: drawingSignals.partNumber.value ?? inferredBase.toUpperCase(),
+      value: partNumber,
       confidence: drawingSignals.partNumber.confidence,
       reviewNeeded: drawingSignals.partNumber.reviewNeeded,
       reasons: drawingSignals.partNumber.reasons,
@@ -73,9 +81,9 @@ export async function runHybridExtraction(input: {
       reasons: drawingSignals.finish.reasons,
       sourceRegion: drawingSignals.finish.sourceRegion,
     },
-    quoteDescription: drawingSignals.quoteDescription,
-    quoteFinish: drawingSignals.quoteFinish,
-    reviewFields: drawingSignals.reviewFields,
+    quoteDescription,
+    quoteFinish,
+    reviewFields,
     material: {
       raw: drawingSignals.material.value,
       normalized: drawingSignals.material.value,
@@ -88,8 +96,8 @@ export async function runHybridExtraction(input: {
       reasons: drawingSignals.material.reasons,
     },
     finish: {
-      raw: drawingSignals.finish.value,
-      normalized: drawingSignals.quoteFinish ?? drawingSignals.finish.value,
+      raw: finishRaw,
+      normalized: quoteFinish ?? finishRaw,
       confidence: drawingSignals.finish.value
         ? drawingSignals.finish.confidence
         : input.drawingFile

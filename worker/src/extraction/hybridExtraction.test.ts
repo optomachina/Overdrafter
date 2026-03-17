@@ -1,7 +1,8 @@
 // @vitest-environment node
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { JobFileRecord, PartRecord } from "../types";
+import * as pdfDrawing from "./pdfDrawing";
 import { runHybridExtraction } from "./hybridExtraction";
 
 function makePart(overrides: Partial<PartRecord> = {}): PartRecord {
@@ -31,6 +32,10 @@ function makeFile(overrides: Partial<JobFileRecord> = {}): JobFileRecord {
 }
 
 describe("runHybridExtraction", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("derives fallback extraction details from the available CAD filename", async () => {
     const result = await runHybridExtraction({
       part: makePart(),
@@ -137,5 +142,83 @@ describe("runHybridExtraction", () => {
     expect(result.tightestTolerance.confidence).toBe(0.25);
     expect(result.warnings).toContain("Unable to extract text from the drawing PDF. Review extracted fields manually.");
     expect(result.reviewFields).toContain("partNumber");
+  });
+
+  it("filters unsupported review fields and falls back quote-facing values", async () => {
+    vi.spyOn(pdfDrawing, "inferDrawingSignalsFromPdf").mockReturnValue({
+      description: {
+        value: "Widget Clamp",
+        confidence: 0.92,
+        reviewNeeded: false,
+        reasons: ["label_match"],
+        sourceRegion: null,
+        snippet: "Widget Clamp",
+      },
+      partNumber: {
+        value: "1000-00001",
+        confidence: 0.95,
+        reviewNeeded: false,
+        reasons: ["label_match"],
+        sourceRegion: null,
+        snippet: "1000-00001",
+      },
+      revision: {
+        value: "A",
+        confidence: 0.9,
+        reviewNeeded: false,
+        reasons: ["label_match"],
+        sourceRegion: null,
+        snippet: "A",
+      },
+      material: {
+        value: "6061-T6",
+        confidence: 0.88,
+        reviewNeeded: false,
+        reasons: ["label_match"],
+        sourceRegion: null,
+        snippet: "6061-T6",
+      },
+      finish: {
+        value: "Black Oxide",
+        confidence: 0.86,
+        reviewNeeded: true,
+        reasons: ["label_match"],
+        sourceRegion: null,
+        snippet: "Black Oxide",
+      },
+      process: {
+        value: "Grind",
+        confidence: 0.51,
+        reviewNeeded: true,
+        reasons: ["label_match"],
+        sourceRegion: null,
+        snippet: "Grind",
+      },
+      generalTolerance: null,
+      tightestTolerance: null,
+      quoteDescription: null,
+      quoteFinish: null,
+      reviewFields: ["description", "process", "finish"],
+      notes: [],
+      threads: [],
+      evidence: [],
+      warnings: [],
+      debugCandidates: {},
+    });
+
+    const result = await runHybridExtraction({
+      part: makePart(),
+      cadFile: makeFile(),
+      drawingFile: makeFile({
+        id: "file-2",
+        original_name: "widget-clamp.pdf",
+        file_kind: "drawing",
+      }),
+    });
+
+    expect(result.quoteDescription).toBe("Widget Clamp");
+    expect(result.quoteFinish).toBe("Black Oxide");
+    expect(result.finish.normalized).toBe("Black Oxide");
+    expect(result.reviewFields).toEqual(["description", "finish"]);
   });
 });

@@ -503,6 +503,12 @@ const InternalJobDetail = () => {
               const quoteQuantityInput =
                 quoteQuantityInputs[part.id] ?? formatRequestedQuoteQuantitiesInput(draft.quoteQuantities);
               const showQuoteFields = requestedServicesSupportQuoteFields(draft.requestedServiceKinds);
+              const extractedFinishRaw = extraction.rawFields.finish.raw ?? extraction.finish.raw ?? null;
+              const finishReviewNeeded =
+                extraction.rawFields.finish.reviewNeeded || extraction.finish.reviewNeeded;
+              const finishConfidence = extraction.rawFields.finish.raw
+                ? extraction.rawFields.finish.confidence
+                : extraction.finish.confidence;
 
               return (
                 <div key={part.id} className="rounded-3xl border border-white/8 bg-black/20 p-5">
@@ -778,9 +784,9 @@ const InternalJobDetail = () => {
                           }
                         />
                         <p className="text-xs text-white/45">
-                          Extracted raw: {extraction.rawFields.finish.raw || extraction.finish.raw || "Not found"}
-                          {extraction.rawFields.finish.reviewNeeded
-                            ? ` • review needed (${Math.round(extraction.rawFields.finish.confidence * 100)}%)`
+                          Extracted raw: {extractedFinishRaw || "Not found"}
+                          {finishReviewNeeded
+                            ? ` • review needed (${Math.round(finishConfidence * 100)}%)`
                             : ""}
                         </p>
                       </div>

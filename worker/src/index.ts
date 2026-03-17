@@ -561,6 +561,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
           quoteDescription: extraction.quoteDescription,
           quoteFinish: extraction.quoteFinish,
           reviewFields: extraction.reviewFields,
+          debugCandidates: extraction.debugCandidates,
           material: extraction.material,
           finish: extraction.finish,
           generalTolerance: extraction.generalTolerance,
