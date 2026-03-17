@@ -15,6 +15,9 @@ import type {
   VendorQuoteResultRecord,
   PublishedPackageAggregate,
   QuoteRunAggregate,
+  RequirementFieldName,
+  RequirementFieldOwnership,
+  RequirementFieldResolution,
 } from "@/features/quotes/types";
 import type { ClientOptionKind, Json, VendorName } from "@/integrations/supabase/types";
 import { readRfqLineItemExtendedMetadata } from "@/features/quotes/rfq-metadata";
@@ -104,6 +107,16 @@ function readSpecSnapshotStringArray(
     : [];
 }
 
+function readSpecSnapshotBoolean(
+  specSnapshot: Json | null | undefined,
+  parentKey: string,
+  key: string,
+): boolean | null {
+  const parent = asObject(asObject(specSnapshot)[parentKey]);
+  const value = parent[key];
+  return typeof value === "boolean" ? value : null;
+}
+
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
@@ -122,6 +135,194 @@ function normalizeEvidence(extraction: DrawingExtractionRecord | null): DrawingE
     confidence: Number(item.confidence ?? 0),
     reasons: asStringArray(item.reasons),
   }));
+}
+
+function normalizeComparableString(value: string | null | undefined) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim().toUpperCase() : null;
+}
+
+function isExtractionNewerThanApproved(
+  extraction: DrawingExtractionRecord | null | undefined,
+  approved: PartAggregate["approvedRequirement"] | null | undefined,
+) {
+  const extractionTimestamp = extraction?.updated_at ? Date.parse(extraction.updated_at) : Number.NaN;
+  const approvedTimestamp = approved?.updated_at ? Date.parse(approved.updated_at) : Number.NaN;
+
+  if (!Number.isFinite(extractionTimestamp)) {
+    return false;
+  }
+
+  if (!Number.isFinite(approvedTimestamp)) {
+    return true;
+  }
+
+  return extractionTimestamp > approvedTimestamp;
+}
+
+function getApprovedFieldValue(
+  approved: PartAggregate["approvedRequirement"] | null | undefined,
+  field: RequirementFieldName,
+) {
+  switch (field) {
+    case "description":
+      return readSpecSnapshotString(approved?.spec_snapshot, "quoteDescription") ?? approved?.description ?? null;
+    case "partNumber":
+      return approved?.part_number ?? null;
+    case "revision":
+      return approved?.revision ?? null;
+    case "finish":
+      return readSpecSnapshotString(approved?.spec_snapshot, "quoteFinish") ?? approved?.finish ?? null;
+  }
+}
+
+function getExtractionFieldValue(extraction: DrawingExtractionData, field: RequirementFieldName) {
+  switch (field) {
+    case "description":
+      return extraction.quoteDescription ?? extraction.description ?? null;
+    case "partNumber":
+      return extraction.partNumber ?? null;
+    case "revision":
+      return extraction.revision ?? null;
+    case "finish":
+      return extraction.quoteFinish ?? extraction.finish.normalized ?? extraction.finish.raw ?? null;
+  }
+}
+
+function isExtractionFieldReviewBlocked(extraction: DrawingExtractionData, field: RequirementFieldName) {
+  switch (field) {
+    case "description":
+      return extraction.rawFields.description.reviewNeeded;
+    case "partNumber":
+      return extraction.rawFields.partNumber.reviewNeeded;
+    case "revision":
+      return extraction.rawFields.revision.reviewNeeded;
+    case "finish":
+      return extraction.rawFields.finish.reviewNeeded || extraction.finish.reviewNeeded;
+  }
+}
+
+function getApprovedFieldOwnership(
+  approved: PartAggregate["approvedRequirement"] | null | undefined,
+  field: RequirementFieldName,
+): RequirementFieldOwnership | null {
+  if (!approved) {
+    return null;
+  }
+
+  const hasExplicitOverride = readSpecSnapshotBoolean(approved.spec_snapshot, "fieldOverrides", field);
+
+  if (hasExplicitOverride === true) {
+    return "user";
+  }
+
+  const fieldSources = asObject(asObject(approved.spec_snapshot).fieldSources);
+  const rawSource = fieldSources[field];
+  const normalizedSource = typeof rawSource === "string" ? rawSource.trim().toLowerCase() : "";
+
+  if (normalizedSource.length === 0 || normalizedSource === "auto") {
+    return "auto";
+  }
+
+  return "user";
+}
+
+function getClientFieldValue(
+  clientRequirement: PartAggregate["clientRequirement"] | null | undefined,
+  field: RequirementFieldName,
+) {
+  switch (field) {
+    case "description":
+      return clientRequirement?.quoteDescription ?? clientRequirement?.description ?? null;
+    case "partNumber":
+      return clientRequirement?.partNumber ?? null;
+    case "revision":
+      return clientRequirement?.revision ?? null;
+    case "finish":
+      return clientRequirement?.quoteFinish ?? clientRequirement?.finish ?? null;
+  }
+}
+
+export function resolveRequirementField(
+  part: PartAggregate,
+  field: RequirementFieldName,
+  extraction: DrawingExtractionData = normalizeDrawingExtraction(part.extraction, part.id),
+): RequirementFieldResolution {
+  const clientValue = getClientFieldValue(part.clientRequirement ?? null, field);
+
+  if (clientValue) {
+    return {
+      value: clientValue,
+      source: "client",
+      approvedSource: getApprovedFieldOwnership(part.approvedRequirement, field),
+      staleAuto: false,
+      extractionNewer: isExtractionNewerThanApproved(part.extraction, part.approvedRequirement),
+      reviewBlocked: isExtractionFieldReviewBlocked(extraction, field),
+      approvedValue: getApprovedFieldValue(part.approvedRequirement, field),
+      extractionValue: getExtractionFieldValue(extraction, field),
+    };
+  }
+
+  const approvedValue = getApprovedFieldValue(part.approvedRequirement, field);
+  const extractionValue = getExtractionFieldValue(extraction, field);
+  const approvedSource = getApprovedFieldOwnership(part.approvedRequirement, field);
+  const extractionNewer = isExtractionNewerThanApproved(part.extraction, part.approvedRequirement);
+  const reviewBlocked = isExtractionFieldReviewBlocked(extraction, field);
+  const valuesDiffer =
+    normalizeComparableString(approvedValue) !== null &&
+    normalizeComparableString(extractionValue) !== null &&
+    normalizeComparableString(approvedValue) !== normalizeComparableString(extractionValue);
+  const staleAuto =
+    approvedSource === "auto" &&
+    Boolean(approvedValue) &&
+    Boolean(extractionValue) &&
+    extractionNewer &&
+    !reviewBlocked &&
+    valuesDiffer;
+
+  if (staleAuto || (!approvedValue && extractionValue)) {
+    return {
+      value: extractionValue,
+      source: "extraction",
+      approvedSource,
+      staleAuto,
+      extractionNewer,
+      reviewBlocked,
+      approvedValue,
+      extractionValue,
+    };
+  }
+
+  if (approvedValue) {
+    return {
+      value: approvedValue,
+      source: approvedSource === "user" ? "approved_user" : "approved_auto",
+      approvedSource,
+      staleAuto: false,
+      extractionNewer,
+      reviewBlocked,
+      approvedValue,
+      extractionValue,
+    };
+  }
+
+  return {
+    value: extractionValue,
+    source: "extraction",
+    approvedSource,
+    staleAuto: false,
+    extractionNewer,
+    reviewBlocked,
+    approvedValue,
+    extractionValue,
+  };
+}
+
+export function listStaleAutoRequirementFields(part: PartAggregate) {
+  const extraction = normalizeDrawingExtraction(part.extraction, part.id);
+
+  return (["description", "partNumber", "revision", "finish"] as const).filter(
+    (field) => resolveRequirementField(part, field, extraction).staleAuto,
+  );
 }
 
 function parseToleranceValue(raw: string | null | undefined): number | null {
@@ -369,6 +570,10 @@ export function buildRequirementDraft(
   const normalizedExtraction = normalizeDrawingExtraction(part.extraction, part.id);
   const approved = part.approvedRequirement;
   const clientRequirement = part.clientRequirement ?? null;
+  const descriptionResolution = resolveRequirementField(part, "description", normalizedExtraction);
+  const partNumberResolution = resolveRequirementField(part, "partNumber", normalizedExtraction);
+  const revisionResolution = resolveRequirementField(part, "revision", normalizedExtraction);
+  const finishResolution = resolveRequirementField(part, "finish", normalizedExtraction);
   const serviceIntent = normalizeRequestedServiceIntent({
     requestedServiceKinds: readSpecSnapshotStringArray(approved?.spec_snapshot, "requestedServiceKinds")
       .concat(jobRequest?.requested_service_kinds ?? []),
@@ -405,30 +610,16 @@ export function buildRequirementDraft(
     requestedServiceKinds: serviceIntent.requestedServiceKinds,
     primaryServiceKind: serviceIntent.primaryServiceKind,
     serviceNotes: serviceIntent.serviceNotes,
-    description:
-      clientRequirement?.quoteDescription ??
-      clientRequirement?.description ??
-      readSpecSnapshotString(approved?.spec_snapshot, "quoteDescription") ??
-      approved?.description ??
-      normalizedExtraction.quoteDescription ??
-      normalizedExtraction.description,
-    partNumber: clientRequirement?.partNumber ?? approved?.part_number ?? normalizedExtraction.partNumber,
-    revision: clientRequirement?.revision ?? approved?.revision ?? normalizedExtraction.revision,
+    description: descriptionResolution.value,
+    partNumber: partNumberResolution.value,
+    revision: revisionResolution.value,
     material:
       clientRequirement?.material ??
       approved?.material ??
       normalizedExtraction.material.normalized ??
       normalizedExtraction.material.raw ??
       (materialRequired ? "Unknown material" : ""),
-    finish:
-      clientRequirement?.quoteFinish ??
-      clientRequirement?.finish ??
-      readSpecSnapshotString(approved?.spec_snapshot, "quoteFinish") ??
-      approved?.finish ??
-      normalizedExtraction.quoteFinish ??
-      normalizedExtraction.finish.normalized ??
-      normalizedExtraction.finish.raw ??
-      null,
+    finish: finishResolution.value,
     tightestToleranceInch:
       clientRequirement?.tightestToleranceInch ??
       approved?.tightest_tolerance_inch ??

@@ -803,6 +803,77 @@ async function renderPdfPage(
   return { width: null, height: null };
 }
 
+async function renderPdfPageWithQuickLook(
+  pdfPath: string,
+  outputPath: string,
+  maxDimension: number,
+): Promise<{ width: number | null; height: number | null } | null> {
+  const outputDir = path.dirname(outputPath);
+  const expectedNames = [
+    `${path.basename(pdfPath)}.png`,
+    `${path.basename(pdfPath, path.extname(pdfPath))}.png`,
+  ];
+
+  await execFileAsync("qlmanage", ["-t", "-s", String(maxDimension), "-o", outputDir, pdfPath], {
+    maxBuffer: 8 * 1024 * 1024,
+  });
+
+  let resolvedOutputPath: string | null = null;
+
+  for (const expectedName of expectedNames) {
+    const candidatePath = path.join(outputDir, expectedName);
+
+    try {
+      await fs.access(candidatePath);
+      resolvedOutputPath = candidatePath;
+      break;
+    } catch {
+      // Continue searching the expected Quick Look output names.
+    }
+  }
+
+  if (!resolvedOutputPath) {
+    return null;
+  }
+
+  if (resolvedOutputPath !== outputPath) {
+    await fs.rename(resolvedOutputPath, outputPath);
+  }
+
+  return { width: null, height: null };
+}
+
+export async function renderPdfFirstPagePreview(
+  pdfPath: string,
+  outputPath: string,
+  maxDimension = 1600,
+): Promise<RenderedPreviewAsset | null> {
+  let pageMeta: { width: number | null; height: number | null } | null = null;
+
+  try {
+    pageMeta = await renderPdfPage(pdfPath, outputPath, 0, maxDimension);
+  } catch {
+    try {
+      pageMeta = await renderPdfPageWithQuickLook(pdfPath, outputPath, maxDimension);
+    } catch {
+      pageMeta = null;
+    }
+  }
+
+  if (!pageMeta) {
+    return null;
+  }
+
+  return {
+    localPath: outputPath,
+    pageNumber: 1,
+    kind: "page",
+    width: pageMeta.width,
+    height: pageMeta.height,
+    contentType: "image/png",
+  };
+}
+
 export async function renderPdfTitleBlockCrop(
   pdfPath: string,
   outputPath: string,

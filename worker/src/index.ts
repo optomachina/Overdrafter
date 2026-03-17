@@ -6,7 +6,11 @@ import { autoApproveJobRequirements } from "./autoApprove.js";
 import { XOMETRY_AUTOMATION_VERSION } from "./adapters/xometry.js";
 import { loadConfig } from "./config.js";
 import { runHybridExtraction } from "./extraction/hybridExtraction.js";
-import { extractPdfText, renderPdfPreviewAssets } from "./extraction/pdfDrawing.js";
+import {
+  extractPdfText,
+  renderPdfFirstPagePreview,
+  renderPdfPreviewAssets,
+} from "./extraction/pdfDrawing.js";
 import {
   cleanupPaths,
   createRunDir,
@@ -521,10 +525,30 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
 
   try {
     const pdfText = stagedDrawingFile ? await extractPdfText(stagedDrawingFile.localPath) : null;
-    const previewAssets =
-      stagedDrawingFile && pdfText ? await renderPdfPreviewAssets(stagedDrawingFile.localPath, runDir, pdfText.pageCount) : [];
-    const firstPagePreviewPath =
+    let previewAssets =
+      stagedDrawingFile && pdfText
+        ? await renderPdfPreviewAssets(stagedDrawingFile.localPath, runDir, pdfText.pageCount)
+        : [];
+    let firstPagePreviewPath =
       previewAssets.find((asset) => asset.kind === "page" && asset.pageNumber === 1)?.localPath ?? null;
+
+    if (stagedDrawingFile && !firstPagePreviewPath) {
+      const fallbackPreviewAsset = await renderPdfFirstPagePreview(
+        stagedDrawingFile.localPath,
+        path.join(runDir, "drawing-page-1.png"),
+      );
+
+      if (fallbackPreviewAsset) {
+        previewAssets = [
+          ...previewAssets.filter(
+            (asset) => !(asset.kind === "page" && asset.pageNumber === fallbackPreviewAsset.pageNumber),
+          ),
+          fallbackPreviewAsset,
+        ];
+        firstPagePreviewPath = fallbackPreviewAsset.localPath;
+      }
+    }
+
     const extraction = await runHybridExtraction({
       part: context.part,
       cadFile: context.cadFile,

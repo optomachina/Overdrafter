@@ -70,6 +70,24 @@ export type ExtractedFieldData = {
   reasons: string[];
 };
 
+export type RequirementFieldName = "description" | "partNumber" | "revision" | "finish";
+export type RequirementFieldOwnership = "auto" | "user";
+export type RequirementFieldDisplaySource =
+  | "client"
+  | "approved_user"
+  | "approved_auto"
+  | "extraction";
+export type RequirementFieldResolution = {
+  value: string | null;
+  source: RequirementFieldDisplaySource;
+  approvedSource: RequirementFieldOwnership | null;
+  staleAuto: boolean;
+  extractionNewer: boolean;
+  reviewBlocked: boolean;
+  approvedValue: string | null;
+  extractionValue: string | null;
+};
+
 export type DrawingExtractionData = {
   partId: string;
   description: string | null;

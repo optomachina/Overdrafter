@@ -36,6 +36,8 @@ Priority order per field:
 - Quote-facing normalized fields live in `approved_part_requirements` plus `spec_snapshot`.
 - `spec_snapshot.quoteDescription` and `spec_snapshot.quoteFinish` can compress or rephrase drawing text for quote workflows, but they must remain traceable to the raw extraction.
 - Reparse must not overwrite normalized fields when provenance marks them as user-managed.
+- Legacy `approved_part_requirements` rows with missing `spec_snapshot.fieldSources.*` must be treated as auto-managed, not user-managed.
+- Auto-managed approved values should only be refreshed from extraction when the extraction is newer than the approved row and the extracted raw field is not review-blocked.
 
 ## Confidence and review
 
@@ -51,6 +53,18 @@ Priority order per field:
 - Parser-selected fields remain authoritative when they are strong, label-backed, and conflict-free.
 - Model-selected fields may rescue missing or weak parser values, but they still pass field-specific validation.
 - If parser and model disagree on a critical field and neither clearly wins, the field stays review-needed and the extraction lifecycle remains partial.
+- The worker should still try to produce a first-page preview for model fallback when Poppler text extraction is unavailable. On macOS debug hosts, Quick Look rendering is an acceptable fallback for this preview image.
+
+## Internal review precedence
+
+- Internal quote review should not blindly display `approved_part_requirements` when those values were auto-derived.
+- If an approved field is auto-managed, the extraction is newer, and the extracted field is not review-blocked, the review UI should display the fresher extraction-backed value and surface the stale approved value as provenance.
+- Explicit user-owned approved values remain authoritative until a user chooses to rebuild them from extraction.
+
+## Smoke verification
+
+- For real-file diagnostics outside fixture coverage, use `npm --prefix worker run extract:smoke -- /absolute/path/to/drawing.pdf`.
+- The smoke command should print the raw extraction payload, preview path, and run directory so parser-vs-model behavior can be inspected against a production PDF without mutating application data.
 
 ## Regression coverage
 

@@ -12,9 +12,11 @@ import {
   getImportedVendorOffers,
   getJobSummaryMetrics,
   hasManualQuoteIntakeSource,
+  listStaleAutoRequirementFields,
   normalizeDrawingExtraction,
   normalizeDrawingPreview,
   projectedClientPrice,
+  resolveRequirementField,
 } from "./utils";
 
 function makeExtractionRecord(
@@ -405,6 +407,282 @@ describe("quotes utils", () => {
         quoteBlockedUntilRelease: true,
       }),
       applicableVendors: ["partsbadger"],
+    });
+  });
+
+  it("treats legacy approved rows without provenance as auto-managed when extraction is newer", () => {
+    const part = makePartAggregate({
+      extraction: makeExtractionRecord({
+        extraction: {
+          description: "BONDED, CARBON FIBER END ATTACHMENT",
+          partNumber: "1093-05589",
+          revision: "02",
+          quoteDescription: "BONDED, CARBON FIBER END ATTACHMENT",
+          quoteFinish: "Black Anodize, Type II",
+          extractedDescriptionRaw: {
+            value: "ROUND, CARBON FIBER END ATTACHMENTS BONDED",
+            confidence: 0.97,
+            reviewNeeded: false,
+            reasons: ["label_match"],
+            sourceRegion: null,
+          },
+          extractedPartNumberRaw: {
+            value: "1093-05589",
+            confidence: 0.99,
+            reviewNeeded: false,
+            reasons: ["label_match"],
+            sourceRegion: null,
+          },
+          extractedRevisionRaw: {
+            value: "02",
+            confidence: 0.96,
+            reviewNeeded: false,
+            reasons: ["label_match"],
+            sourceRegion: null,
+          },
+          extractedFinishRaw: {
+            value: "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2",
+            confidence: 0.93,
+            reviewNeeded: false,
+            reasons: ["label_match"],
+            sourceRegion: null,
+          },
+          finish: {
+            raw: "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2",
+            normalized: "Black Anodize, Type II",
+            confidence: 0.93,
+          },
+          material: {
+            raw: "6061 Alloy",
+            normalized: "6061 Alloy",
+            confidence: 0.88,
+          },
+        },
+        updated_at: "2026-03-04T00:00:00Z",
+      }),
+      approvedRequirement: {
+        id: "req-legacy",
+        part_id: "part-1",
+        organization_id: "org-1",
+        description: "87654321",
+        part_number: "A-8625F",
+        revision: "S",
+        material: "6061 Alloy",
+        finish: "ENGINEER TIM 10/29/2013",
+        tightest_tolerance_inch: 0,
+        approved_by: "user-1",
+        quantity: 3,
+        quote_quantities: [3],
+        requested_by_date: null,
+        applicable_vendors: ["xometry"],
+        spec_snapshot: {},
+        approved_at: "2026-03-03T00:00:00Z",
+        created_at: "2026-03-03T00:00:00Z",
+        updated_at: "2026-03-03T00:00:00Z",
+      } as PartAggregate["approvedRequirement"],
+    });
+
+    expect(resolveRequirementField(part, "description")).toMatchObject({
+      value: "BONDED, CARBON FIBER END ATTACHMENT",
+      source: "extraction",
+      approvedSource: "auto",
+      staleAuto: true,
+      approvedValue: "87654321",
+    });
+    expect(resolveRequirementField(part, "partNumber")).toMatchObject({
+      value: "1093-05589",
+      source: "extraction",
+      approvedSource: "auto",
+      staleAuto: true,
+      approvedValue: "A-8625F",
+    });
+    expect(resolveRequirementField(part, "revision")).toMatchObject({
+      value: "02",
+      source: "extraction",
+      approvedSource: "auto",
+      staleAuto: true,
+      approvedValue: "S",
+    });
+    expect(resolveRequirementField(part, "finish")).toMatchObject({
+      value: "Black Anodize, Type II",
+      source: "extraction",
+      approvedSource: "auto",
+      staleAuto: true,
+      approvedValue: "ENGINEER TIM 10/29/2013",
+    });
+    expect(listStaleAutoRequirementFields(part)).toEqual([
+      "description",
+      "partNumber",
+      "revision",
+      "finish",
+    ]);
+    expect(buildRequirementDraft(part)).toMatchObject({
+      description: "BONDED, CARBON FIBER END ATTACHMENT",
+      partNumber: "1093-05589",
+      revision: "02",
+      finish: "Black Anodize, Type II",
+    });
+  });
+
+  it("preserves explicit user-owned approved fields over newer extraction", () => {
+    const part = makePartAggregate({
+      extraction: makeExtractionRecord({
+        extraction: {
+          description: "Auto extracted description",
+          partNumber: "1093-05589",
+          revision: "02",
+          quoteDescription: "Auto extracted description",
+          quoteFinish: "Black Anodize, Type II",
+          extractedDescriptionRaw: {
+            value: "Auto extracted description",
+            confidence: 0.97,
+            reviewNeeded: false,
+            reasons: ["label_match"],
+            sourceRegion: null,
+          },
+          extractedPartNumberRaw: {
+            value: "1093-05589",
+            confidence: 0.99,
+            reviewNeeded: false,
+            reasons: ["label_match"],
+            sourceRegion: null,
+          },
+          extractedRevisionRaw: {
+            value: "02",
+            confidence: 0.96,
+            reviewNeeded: false,
+            reasons: ["label_match"],
+            sourceRegion: null,
+          },
+          extractedFinishRaw: {
+            value: "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2",
+            confidence: 0.93,
+            reviewNeeded: false,
+            reasons: ["label_match"],
+            sourceRegion: null,
+          },
+          finish: {
+            raw: "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2",
+            normalized: "Black Anodize, Type II",
+            confidence: 0.93,
+          },
+          material: {
+            raw: "6061 Alloy",
+            normalized: "6061 Alloy",
+            confidence: 0.88,
+          },
+        },
+        updated_at: "2026-03-04T00:00:00Z",
+      }),
+      approvedRequirement: {
+        id: "req-user",
+        part_id: "part-1",
+        organization_id: "org-1",
+        description: "Reviewed description",
+        part_number: "PN-REVIEWED",
+        revision: "R1",
+        material: "6061 Alloy",
+        finish: "Reviewed finish",
+        tightest_tolerance_inch: 0.005,
+        approved_by: "user-1",
+        quantity: 3,
+        quote_quantities: [3],
+        requested_by_date: null,
+        applicable_vendors: ["xometry"],
+        spec_snapshot: {
+          quoteDescription: "Reviewed description",
+          quoteFinish: "Reviewed finish",
+          fieldSources: {
+            description: "user",
+            partNumber: "user",
+            revision: "user",
+            finish: "user",
+          },
+          fieldOverrides: {
+            description: true,
+            partNumber: true,
+            revision: true,
+            finish: true,
+          },
+        },
+        approved_at: "2026-03-03T00:00:00Z",
+        created_at: "2026-03-03T00:00:00Z",
+        updated_at: "2026-03-03T00:00:00Z",
+      } as PartAggregate["approvedRequirement"],
+    });
+
+    expect(resolveRequirementField(part, "description")).toMatchObject({
+      value: "Reviewed description",
+      source: "approved_user",
+      approvedSource: "user",
+      staleAuto: false,
+    });
+    expect(resolveRequirementField(part, "finish")).toMatchObject({
+      value: "Reviewed finish",
+      source: "approved_user",
+      approvedSource: "user",
+      staleAuto: false,
+    });
+    expect(buildRequirementDraft(part)).toMatchObject({
+      description: "Reviewed description",
+      partNumber: "PN-REVIEWED",
+      revision: "R1",
+      finish: "Reviewed finish",
+    });
+  });
+
+  it("keeps approved auto values when newer extraction is review-blocked", () => {
+    const part = makePartAggregate({
+      extraction: makeExtractionRecord({
+        extraction: {
+          description: "New extracted description",
+          quoteDescription: "New extracted description",
+          extractedDescriptionRaw: {
+            value: "New extracted description",
+            confidence: 0.41,
+            reviewNeeded: true,
+            reasons: ["model_conflict"],
+            sourceRegion: null,
+          },
+        },
+        updated_at: "2026-03-04T00:00:00Z",
+      }),
+      approvedRequirement: {
+        id: "req-auto",
+        part_id: "part-1",
+        organization_id: "org-1",
+        description: "Existing approved description",
+        part_number: null,
+        revision: null,
+        material: "6061 Alloy",
+        finish: null,
+        tightest_tolerance_inch: null,
+        approved_by: "user-1",
+        quantity: 3,
+        quote_quantities: [3],
+        requested_by_date: null,
+        applicable_vendors: ["xometry"],
+        spec_snapshot: {
+          quoteDescription: "Existing approved description",
+          fieldSources: {
+            description: "auto",
+          },
+          fieldOverrides: {
+            description: false,
+          },
+        },
+        approved_at: "2026-03-03T00:00:00Z",
+        created_at: "2026-03-03T00:00:00Z",
+        updated_at: "2026-03-03T00:00:00Z",
+      } as PartAggregate["approvedRequirement"],
+    });
+
+    expect(resolveRequirementField(part, "description")).toMatchObject({
+      value: "Existing approved description",
+      source: "approved_auto",
+      approvedSource: "auto",
+      staleAuto: false,
+      reviewBlocked: true,
     });
   });
 

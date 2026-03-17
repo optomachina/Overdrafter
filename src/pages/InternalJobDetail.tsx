@@ -70,6 +70,7 @@ import {
   normalizeDrawingExtraction,
   optionLabelForKind,
   projectedClientPrice,
+  resolveRequirementField,
 } from "@/features/quotes/utils";
 
 const vendors = ["xometry", "fictiv", "protolabs", "sendcutsend"] as const;
@@ -503,6 +504,10 @@ const InternalJobDetail = () => {
               const quoteQuantityInput =
                 quoteQuantityInputs[part.id] ?? formatRequestedQuoteQuantitiesInput(draft.quoteQuantities);
               const showQuoteFields = requestedServicesSupportQuoteFields(draft.requestedServiceKinds);
+              const descriptionResolution = resolveRequirementField(part, "description", extraction);
+              const partNumberResolution = resolveRequirementField(part, "partNumber", extraction);
+              const revisionResolution = resolveRequirementField(part, "revision", extraction);
+              const finishResolution = resolveRequirementField(part, "finish", extraction);
               const descriptionSelectedBy = extraction.fieldSelections?.description ?? "parser";
               const partNumberSelectedBy = extraction.fieldSelections?.partNumber ?? "parser";
               const revisionSelectedBy = extraction.fieldSelections?.revision ?? "parser";
@@ -516,6 +521,20 @@ const InternalJobDetail = () => {
                     return "manual review";
                   default:
                     return "parser";
+                }
+              };
+              const draftSourceLabel = (
+                source: "client" | "approved_user" | "approved_auto" | "extraction",
+              ) => {
+                switch (source) {
+                  case "client":
+                    return "client request";
+                  case "approved_user":
+                    return "approved user value";
+                  case "approved_auto":
+                    return "approved auto value";
+                  default:
+                    return "fresher extraction";
                 }
               };
               const extractedFinishRaw = extraction.rawFields.finish.raw ?? extraction.finish.raw ?? null;
@@ -646,6 +665,12 @@ const InternalJobDetail = () => {
                             : ""}
                           {` • source: ${extractionSourceLabel(descriptionSelectedBy)}`}
                         </p>
+                        {descriptionResolution.staleAuto && descriptionResolution.approvedValue ? (
+                          <p className="text-xs text-amber-300">
+                            Showing {draftSourceLabel(descriptionResolution.source)} instead of stale auto-approved value:{" "}
+                            {descriptionResolution.approvedValue}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="space-y-2">
                         <Label>Part number</Label>
@@ -667,6 +692,12 @@ const InternalJobDetail = () => {
                             : ""}
                           {` • source: ${extractionSourceLabel(partNumberSelectedBy)}`}
                         </p>
+                        {partNumberResolution.staleAuto && partNumberResolution.approvedValue ? (
+                          <p className="text-xs text-amber-300">
+                            Showing {draftSourceLabel(partNumberResolution.source)} instead of stale auto-approved value:{" "}
+                            {partNumberResolution.approvedValue}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="space-y-2">
                         <Label>Revision</Label>
@@ -688,6 +719,12 @@ const InternalJobDetail = () => {
                             : ""}
                           {` • source: ${extractionSourceLabel(revisionSelectedBy)}`}
                         </p>
+                        {revisionResolution.staleAuto && revisionResolution.approvedValue ? (
+                          <p className="text-xs text-amber-300">
+                            Showing {draftSourceLabel(revisionResolution.source)} instead of stale auto-approved value:{" "}
+                            {revisionResolution.approvedValue}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="space-y-2">
                         <Label>Quantity</Label>
@@ -809,6 +846,12 @@ const InternalJobDetail = () => {
                             : ""}
                           {` • source: ${extractionSourceLabel(finishSelectedBy)}`}
                         </p>
+                        {finishResolution.staleAuto && finishResolution.approvedValue ? (
+                          <p className="text-xs text-amber-300">
+                            Showing {draftSourceLabel(finishResolution.source)} instead of stale auto-approved value:{" "}
+                            {finishResolution.approvedValue}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="space-y-2">
                         <Label>Tightest tolerance (inches)</Label>
