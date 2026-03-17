@@ -8,6 +8,7 @@ import {
   type ArchivedDeletePlan,
   type StorageCandidate,
 } from "./delete-flow.ts";
+import { buildBlobOwnershipExclusionClause } from "./query-fragments.ts";
 
 type JobArchiveAction = "archive" | "unarchive" | "delete";
 
@@ -246,7 +247,11 @@ async function collectArchivedDeletePlan(
   `;
 
   const orphanBlobIds = orphanBlobs.map((blob) => blob.id);
-  const orphanBlobIdArray = sql.array(orphanBlobIds, "uuid");
+  const orphanBlobOwnershipExclusion = buildBlobOwnershipExclusionClause(
+    transaction,
+    (values, type) => sql.array(values, type),
+    orphanBlobIds,
+  );
 
   const drawingPreviewAssets = await transaction<{ storage_bucket: string; storage_path: string }[]>`
     select distinct asset.storage_bucket, asset.storage_path
@@ -288,7 +293,7 @@ async function collectArchivedDeletePlan(
         from public.organization_file_blobs blob
         where blob.storage_bucket = file.storage_bucket
           and blob.storage_path = file.storage_path
-          and not (blob.id = any(${orphanBlobIdArray}))
+          ${orphanBlobOwnershipExclusion}
       )
   `;
 
