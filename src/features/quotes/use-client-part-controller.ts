@@ -35,6 +35,11 @@ import { buildActivityLogEntries } from "@/features/quotes/activity-log";
 import { formatPartLabel, getClientItemPresentation } from "@/features/quotes/client-presentation";
 import { describeClientPresetUnavailableReason } from "@/features/quotes/client-workspace-state";
 import {
+  logArchivedDeleteFailure,
+  toArchivedDeleteError,
+  withArchivedDeleteReporting,
+} from "@/features/quotes/archive-delete-errors";
+import {
   buildSidebarProjectIdsByJobId,
   buildSidebarProjects,
   resolveWorkspaceProjectIdsForJob,
@@ -757,21 +762,32 @@ export function useClientPartController() {
       }
 
       if (result.deletedJobIds.length === 0) {
-        throw new Error(result.failures[0]?.message ?? "Failed to delete archived parts.");
+        const failure = result.failures[0];
+
+        throw failure?.reporting
+          ? withArchivedDeleteReporting(new Error(failure.message), {
+              ...failure.reporting,
+              partIds: failure.reporting.partIds.length > 0 ? failure.reporting.partIds : normalizedIds,
+            })
+          : new Error(failure?.message ?? "Failed to delete archived parts.");
       }
 
       toast.error(
         `Deleted ${result.deletedJobIds.length} archived parts, but ${result.failures.length} could not be removed.`,
       );
     } catch (error) {
-      if (!isArchivedDeleteCapabilityError(error)) {
-        console.error("Archived part delete failed", {
+      const surfacedError = toArchivedDeleteError(error);
+
+      if (!isArchivedDeleteCapabilityError(surfacedError)) {
+        logArchivedDeleteFailure({
+          error,
           jobIds: normalizedIds,
-          message: error instanceof Error ? error.message : String(error),
+          organizationId: activeMembership?.organizationId,
+          userId: user?.id,
         });
       }
-      toast.error(error instanceof Error ? error.message : "Failed to delete archived part.");
-      throw error;
+      toast.error(surfacedError.message);
+      throw surfacedError;
     }
   };
 

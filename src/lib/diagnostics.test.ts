@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   captureDiagnosticError,
   createDiagnosticClipboardText,
+  createDiagnosticsReport,
+  createToastClipboardText,
   getDiagnosticsSnapshot,
   installDiagnostics,
   recordDiagnosticEvent,
@@ -178,5 +180,104 @@ describe("diagnostics", () => {
     expect(secondSnapshot.sessionId).not.toBe(firstSnapshot.sessionId);
 
     secondModule.resetDiagnosticsForTests();
+  });
+
+  it("adds archived delete troubleshooting details to the copied report and JSON export", () => {
+    recordDiagnosticEvent({
+      level: "error",
+      category: "console",
+      source: "console.error",
+      message: "Archived part delete failed",
+      handled: true,
+      details: {
+        args: [
+          "Archived part delete failed",
+          {
+            message:
+              "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
+            reporting: {
+              operation: "archived_delete",
+              fallbackPath: "job-archive-fallback",
+              failureCategory: "edge_unreachable",
+              failureSummary:
+                "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
+              likelyCause: "The app could not reach the job-archive-fallback Edge Function endpoint.",
+              recommendedChecks: [
+                "Verify Edge Function deployment status for job-archive-fallback in Supabase project previewref.",
+                "Verify the Supabase function endpoint https://previewref.supabase.co/functions/v1/job-archive-fallback is reachable from the current environment.",
+              ],
+              supabaseOrigin: "https://previewref.supabase.co",
+              supabaseProjectRef: "previewref",
+              functionName: "job-archive-fallback",
+              functionPath: "/functions/v1/job-archive-fallback",
+              functionUrl: "https://previewref.supabase.co/functions/v1/job-archive-fallback",
+              httpStatus: null,
+              hasResponseBody: false,
+              rawErrorName: "Error",
+              rawErrorMessage: "Failed to send a request to the Edge Function",
+              rawErrorStatus: null,
+              partIds: ["job-1"],
+              organizationId: "org-1",
+              userId: "user-1",
+            },
+          },
+        ],
+      },
+    });
+    recordDiagnosticEvent({
+      level: "error",
+      category: "toast",
+      source: "toast.error",
+      message: "Failed to send a request to the Edge Function",
+      handled: true,
+      details: {
+        message: "Failed to send a request to the Edge Function",
+      },
+    });
+
+    const report = createDiagnosticsReport();
+    const clipboardText = createToastClipboardText("Failed to send a request to the Edge Function");
+
+    expect(report.archivedDeleteDiagnostics).toMatchObject({
+      failureCategory: "edge_unreachable",
+      fallbackPath: "job-archive-fallback",
+      supabaseOrigin: "https://previewref.supabase.co",
+      supabaseProjectRef: "previewref",
+      functionUrl: "https://previewref.supabase.co/functions/v1/job-archive-fallback",
+      partIds: ["job-1"],
+      organizationId: "org-1",
+      userId: "user-1",
+    });
+    expect(clipboardText).toContain("Archived Delete Diagnostics:");
+    expect(clipboardText).toContain("- Failure category: edge_unreachable");
+    expect(clipboardText).toContain("- Supabase project ref: previewref");
+    expect(clipboardText).toContain(
+      "- Expected function URL: https://previewref.supabase.co/functions/v1/job-archive-fallback",
+    );
+    expect(clipboardText).toContain(
+      "- Raw edge error: Error: Failed to send a request to the Edge Function",
+    );
+    expect(clipboardText).toContain("- Affected part IDs: job-1");
+    expect(clipboardText).toContain(
+      "Verify Edge Function deployment status for job-archive-fallback in Supabase project previewref.",
+    );
+  });
+
+  it("does not add archived delete diagnostics when the copied report is unrelated", () => {
+    captureDiagnosticError(new Error("Quote package publish failed"), {
+      category: "react-mutation",
+      source: "react-query.mutation",
+      handled: true,
+      details: {
+        jobId: "job-42",
+      },
+    });
+
+    const clipboardText = createDiagnosticClipboardText({
+      title: "Overdrafter latest error",
+      event: getDiagnosticsSnapshot().events[0] ?? null,
+    });
+
+    expect(clipboardText).not.toContain("Archived Delete Diagnostics:");
   });
 });
