@@ -15,6 +15,7 @@ import {
   ALLOWED_QUOTE_UPLOAD_EXTENSIONS,
   validateQuoteFiles,
 } from "@/features/quotes/file-validation";
+import { WorkspaceNotReadyError } from "@/lib/workspace-errors";
 
 export type PromptComposerHandle = {
   focus: () => void;
@@ -117,7 +118,11 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       try {
         await onSubmit({ prompt, files, clear });
       } catch (error) {
-        toast.error(getErrorMessage(error));
+        if (error instanceof WorkspaceNotReadyError) {
+          toast.error(getErrorMessage(error), { id: error.toastId });
+        } else {
+          toast.error(getErrorMessage(error));
+        }
       } finally {
         setIsSubmitting(false);
       }

@@ -4,6 +4,7 @@ import {
   ALLOWED_QUOTE_UPLOAD_EXTENSIONS,
   validateQuoteFiles,
 } from "@/features/quotes/file-validation";
+import { WorkspaceNotReadyError } from "@/lib/workspace-errors";
 
 type UseClientJobFilePickerOptions = {
   isSignedIn: boolean;
@@ -65,7 +66,11 @@ export function useClientJobFilePicker({
     try {
       await onFilesSelected(accepted);
     } catch (error) {
-      toast.error(getErrorMessage(error));
+      if (error instanceof WorkspaceNotReadyError) {
+        toast.error(getErrorMessage(error), { id: error.toastId });
+      } else {
+        toast.error(getErrorMessage(error));
+      }
     }
   };
 
