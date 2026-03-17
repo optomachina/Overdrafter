@@ -118,6 +118,7 @@ Before opening a PR for nontrivial work:
 1. run the relevant local verification commands
 2. run Codex CLI `/review` against the working tree, commit, or base branch diff
 3. address material findings or be ready to explain why a finding is not actionable
+4. refresh the PR body from `.github/pull_request_template.md` and validate it with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`
 
 After the PR opens:
 
@@ -132,6 +133,8 @@ General rules:
 - bug fixes should add or update tests when practical
 - behavior changes should include test evidence or explain why tests were omitted
 - access control, async workflows, quote logic, and publication flows deserve extra care
+- add TSDoc for shared exported utilities, worker orchestration helpers, repo scripts, and non-obvious domain helpers when the signature alone does not make intent clear
+- do not add boilerplate docstrings to routine components or trivial helpers just to satisfy a quota
 
 ## Documentation updates
 
@@ -161,6 +164,7 @@ Every meaningful PR should include:
 - migration notes where applicable
 - rollback/risk notes where applicable
 - docs updated or explicit reason none were needed
+- a PR body that passes `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`
 
 Use the repo PR template.
 

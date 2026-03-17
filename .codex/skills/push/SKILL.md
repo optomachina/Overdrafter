@@ -33,11 +33,28 @@ git push -u origin "$(git branch --show-current)"
    - if there is an open PR, update its title/body if the scope changed
    - if the current branch points at a closed or merged PR, stop and create a fresh branch from `origin/main`
 10. Write or refresh the PR body using `.github/pull_request_template.md`.
-11. Report:
+11. Fill every required template section before handoff:
+   - `Summary`
+   - `Problem`
+   - `Scope`
+   - `Verification` with exact commands and outcomes
+   - `Tests`
+   - `Migration notes`
+   - `Rollback / risk notes`
+   - `Documentation`
+12. Validate the live PR body before handoff:
+
+```bash
+gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin
+```
+
+13. If validation fails, update the PR body and rerun the validator before moving the issue to `Human Review`.
+14. Report:
    - branch name
    - whether the push created or updated the remote branch
    - PR URL
    - verification results
+   - PR body validation status
    - local Codex `/review` status
 
 ## Guardrails
@@ -46,3 +63,4 @@ git push -u origin "$(git branch --show-current)"
 - If the branch has no local commit yet, stop and use the `commit` skill first.
 - Do not use `--force`; only use `--force-with-lease` if history was intentionally rewritten.
 - Do not leave an issue in `Human Review` unless the PR exists and matches the current diff.
+- Do not leave an issue in `Human Review` unless the PR body passes `npm run validate:pr-body` against the live PR body.

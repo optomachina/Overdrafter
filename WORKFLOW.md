@@ -81,20 +81,22 @@ Operate with these repo rules:
 
 State behavior:
 
-- `Todo`, `In Progress`, `Rework`: the workspace hook will switch to an issue branch before Codex starts. After that, implement the issue, run targeted verification, run local Codex `/review`, commit, and use the `push` skill to publish the branch and ensure the PR exists before handing off to `Human Review`.
+- `Todo`, `In Progress`, `Rework`: the workspace hook will switch to an issue branch before Codex starts. After that, implement the issue, run targeted verification, run local Codex `/review`, commit, use the `push` skill to publish the branch and ensure the PR exists, and validate the live PR body with `npm run validate:pr-body` before handing off to `Human Review`.
 - `Human Review`: do not implement new changes unless review feedback explicitly moves the issue back to `Rework`. Native GitHub Codex review and human review both happen in this state.
 - `Merging`: do not implement new code. Use the `land` skill to land the reviewed PR safely. If no PR exists, stop and report that the issue was moved to `Merging` too early. If required checks are failing, move the issue back to `Rework`. If the PR is merely waiting on in-flight checks, keep it in `Merging`.
 - `Done`: only after the PR is actually merged.
 
 Human Review transition rule:
 
-- After a scoped change is committed, pushed, attached to the Linear issue, and the verification plus local Codex review evidence is written to the workpad, move the issue to `Human Review`.
+- After a scoped change is committed, pushed, attached to the Linear issue, and the verification plus local Codex review evidence is written to the workpad, validate the live PR body and only then move the issue to `Human Review`.
 - Document whether local Codex `/review` found material issues and how they were resolved or deferred.
+- Document whether `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin` passed and fix the PR body if it did not.
 - If verification surfaces pre-existing unrelated repo failures outside the current issue scope, document them precisely in the workpad and still move to `Human Review`.
 - Keep an issue in `In Progress` only when one of these is still true:
   - the scoped implementation is incomplete
   - the branch has not been pushed
   - no PR exists yet
+  - the PR body still fails validation
   - the verification failure was introduced by the current change
   - local Codex `/review` has not been run yet
   - review feedback has already requested more implementation work
@@ -110,6 +112,7 @@ Handoff requirements:
 
 - Report the exact verification commands and outcomes.
 - Report that local Codex `/review` was run and summarize any unresolved findings.
+- Report whether the live PR body passed `npm run validate:pr-body`.
 - Distinguish clearly between issue-scoped failures and unrelated baseline repo failures.
 - If blocked, explain the blocker precisely and identify the correct state to return to.
 - Do not claim completion from local diffs alone when the workflow expects a landed PR.
