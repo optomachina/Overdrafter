@@ -47,6 +47,8 @@ import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { buildProjectNameFromLabels } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { useAppSession } from "@/hooks/use-app-session";
+import { useWorkspaceReadiness } from "@/hooks/use-workspace-readiness";
+import { WorkspaceNotReadyError } from "@/lib/workspace-errors";
 
 function createProjectStorageKey(organizationId?: string, userEmail?: string): string | null {
   if (!organizationId || !userEmail) {
@@ -94,27 +96,6 @@ export function useClientHomeController() {
     setIsAuthDialogOpen(true);
   };
 
-  const newJobFilePicker = useClientJobFilePicker({
-    isSignedIn: Boolean(user),
-    onRequireAuth: () => openAuth("signin"),
-    onFilesSelected: async (files) => {
-      if (!activeMembership) {
-        throw new Error("Your workspace is still being prepared. Please wait a moment and try again.");
-      }
-
-      const result = await createJobsFromUploadFiles({ files });
-
-      await invalidateClientWorkspaceQueries(queryClient);
-
-      if (result.projectId && result.jobIds.length > 1) {
-        navigate(`/projects/${result.projectId}`);
-        return;
-      }
-
-      navigate(`/parts/${result.jobIds[0]}`);
-    },
-  });
-
   const sidebarProjectIdsByJobId = useMemo(
     () => buildSidebarProjectIdsByJobId(projectJobMembershipsQuery.data ?? []),
     [projectJobMembershipsQuery.data],
@@ -141,6 +122,53 @@ export function useClientHomeController() {
       if (error.message.toLowerCase().includes("already has an organization membership")) {
         await queryClient.invalidateQueries({ queryKey: ["app-session"] });
       }
+    },
+  });
+
+  const { readiness: workspaceReadiness, waitForReady } = useWorkspaceReadiness({
+    user,
+    isLoading,
+    isVerifiedAuth,
+    activeMembership,
+    bootstrapStatus: bootstrapAccountMutation.status,
+    bootstrapErrorMessage: bootstrapAccountMutation.error instanceof Error
+      ? bootstrapAccountMutation.error.message
+      : null,
+  });
+
+  const ensureWorkspaceReady = async () => {
+    if (workspaceReadiness.status === "ready") {
+      return workspaceReadiness.membership;
+    }
+    if (workspaceReadiness.status === "anonymous") {
+      throw new WorkspaceNotReadyError("Please sign in to continue.");
+    }
+    if (workspaceReadiness.status === "unverified") {
+      throw new WorkspaceNotReadyError("Please verify your email before uploading.");
+    }
+    if (workspaceReadiness.status === "provisioning_failed") {
+      throw new WorkspaceNotReadyError(workspaceReadiness.error);
+    }
+    // loading or provisioning — wait
+    return waitForReady();
+  };
+
+  const newJobFilePicker = useClientJobFilePicker({
+    isSignedIn: Boolean(user),
+    onRequireAuth: () => openAuth("signin"),
+    onFilesSelected: async (files) => {
+      await ensureWorkspaceReady();
+
+      const result = await createJobsFromUploadFiles({ files });
+
+      await invalidateClientWorkspaceQueries(queryClient);
+
+      if (result.projectId && result.jobIds.length > 1) {
+        navigate(`/projects/${result.projectId}`);
+        return;
+      }
+
+      navigate(`/parts/${result.jobIds[0]}`);
     },
   });
 
@@ -544,9 +572,7 @@ export function useClientHomeController() {
     files: File[];
     clear: () => void;
   }) => {
-    if (!activeMembership) {
-      throw new Error("Your workspace is still being prepared. Please wait a moment and try again.");
-    }
+    await ensureWorkspaceReady();
 
     const result =
       files.length > 0
@@ -593,6 +619,7 @@ export function useClientHomeController() {
 
   return {
     activeMembership,
+    workspaceReadiness,
     archivedJobsQuery,
     archivedProjectsQuery,
     authDialogMode,
