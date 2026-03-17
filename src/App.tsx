@@ -10,6 +10,7 @@ import {
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppErrorBoundary } from "@/components/debug/AppErrorBoundary";
 import { DiagnosticsBootstrap } from "@/components/debug/DiagnosticsBootstrap";
+import { ExtractionLauncher } from "@/components/debug/ExtractionLauncher";
 import { FixturePanel } from "@/components/debug/FixturePanel";
 import { captureDiagnosticError } from "@/lib/diagnostics";
 import { shouldCaptureMutationDiagnostic } from "@/lib/react-query-diagnostics";
@@ -92,6 +93,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <DiagnosticsBootstrap />
+        <ExtractionLauncher />
         <FixturePanel />
         <AppErrorBoundary>
           <Routes>

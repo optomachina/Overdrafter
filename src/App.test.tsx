@@ -19,6 +19,10 @@ vi.mock("@/components/debug/DiagnosticsBootstrap", () => ({
   DiagnosticsBootstrap: () => null,
 }));
 
+vi.mock("@/components/debug/ExtractionLauncher", () => ({
+  ExtractionLauncher: () => null,
+}));
+
 vi.mock("@/components/debug/FixturePanel", () => ({
   FixturePanel: () => null,
 }));
