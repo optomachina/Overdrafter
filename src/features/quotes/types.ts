@@ -77,6 +77,14 @@ export type DrawingExtractionData = {
   revision: string | null;
   quoteDescription?: string | null;
   quoteFinish?: string | null;
+  model?: {
+    fallbackUsed: boolean;
+    name: string | null;
+    promptVersion: string | null;
+  };
+  fieldSelections?: Partial<
+    Record<"description" | "partNumber" | "revision" | "material" | "finish" | "process", "parser" | "model" | "review">
+  >;
   rawFields: {
     description: ExtractedFieldData;
     partNumber: ExtractedFieldData;

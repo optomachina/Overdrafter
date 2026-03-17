@@ -100,3 +100,26 @@ export async function validateXometryReadiness(config: WorkerConfig): Promise<st
 
   return issues;
 }
+
+export async function validateDrawingExtractionReadiness(config: WorkerConfig): Promise<string[]> {
+  if (!config.drawingExtractionEnableModelFallback) {
+    return [];
+  }
+
+  if (config.openAiApiKey) {
+    return [];
+  }
+
+  return [
+    "Drawing extraction model fallback is enabled but OPENAI_API_KEY is missing. Fallback requests will stay disabled.",
+  ];
+}
+
+export async function validateWorkerReadiness(config: WorkerConfig): Promise<string[]> {
+  const [xometryIssues, extractionIssues] = await Promise.all([
+    validateXometryReadiness(config),
+    validateDrawingExtractionReadiness(config),
+  ]);
+
+  return [...xometryIssues, ...extractionIssues];
+}

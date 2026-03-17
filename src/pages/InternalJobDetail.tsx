@@ -503,6 +503,21 @@ const InternalJobDetail = () => {
               const quoteQuantityInput =
                 quoteQuantityInputs[part.id] ?? formatRequestedQuoteQuantitiesInput(draft.quoteQuantities);
               const showQuoteFields = requestedServicesSupportQuoteFields(draft.requestedServiceKinds);
+              const descriptionSelectedBy = extraction.fieldSelections?.description ?? "parser";
+              const partNumberSelectedBy = extraction.fieldSelections?.partNumber ?? "parser";
+              const revisionSelectedBy = extraction.fieldSelections?.revision ?? "parser";
+              const materialSelectedBy = extraction.fieldSelections?.material ?? "parser";
+              const finishSelectedBy = extraction.fieldSelections?.finish ?? "parser";
+              const extractionSourceLabel = (selectedBy: "parser" | "model" | "review") => {
+                switch (selectedBy) {
+                  case "model":
+                    return "model fallback";
+                  case "review":
+                    return "manual review";
+                  default:
+                    return "parser";
+                }
+              };
               const extractedFinishRaw = extraction.rawFields.finish.raw ?? extraction.finish.raw ?? null;
               const finishReviewNeeded =
                 extraction.rawFields.finish.reviewNeeded || extraction.finish.reviewNeeded;
@@ -629,6 +644,7 @@ const InternalJobDetail = () => {
                           {extraction.rawFields.description.reviewNeeded
                             ? ` • review needed (${Math.round(extraction.rawFields.description.confidence * 100)}%)`
                             : ""}
+                          {` • source: ${extractionSourceLabel(descriptionSelectedBy)}`}
                         </p>
                       </div>
                       <div className="space-y-2">
@@ -649,6 +665,7 @@ const InternalJobDetail = () => {
                           {extraction.rawFields.partNumber.reviewNeeded
                             ? ` • review needed (${Math.round(extraction.rawFields.partNumber.confidence * 100)}%)`
                             : ""}
+                          {` • source: ${extractionSourceLabel(partNumberSelectedBy)}`}
                         </p>
                       </div>
                       <div className="space-y-2">
@@ -669,6 +686,7 @@ const InternalJobDetail = () => {
                           {extraction.rawFields.revision.reviewNeeded
                             ? ` • review needed (${Math.round(extraction.rawFields.revision.confidence * 100)}%)`
                             : ""}
+                          {` • source: ${extractionSourceLabel(revisionSelectedBy)}`}
                         </p>
                       </div>
                       <div className="space-y-2">
@@ -768,6 +786,7 @@ const InternalJobDetail = () => {
                         />
                         <p className="text-xs text-white/45">
                           Extracted: {extraction.material.normalized || extraction.material.raw || "Not found"}
+                          {` • source: ${extractionSourceLabel(materialSelectedBy)}`}
                         </p>
                       </div>
                       <div className="space-y-2">
@@ -788,6 +807,7 @@ const InternalJobDetail = () => {
                           {finishReviewNeeded
                             ? ` • review needed (${Math.round(finishConfidence * 100)}%)`
                             : ""}
+                          {` • source: ${extractionSourceLabel(finishSelectedBy)}`}
                         </p>
                       </div>
                       <div className="space-y-2">

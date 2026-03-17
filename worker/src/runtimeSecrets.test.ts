@@ -4,7 +4,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { prepareRuntimeSecrets, validateXometryReadiness } from "./runtimeSecrets";
+import {
+  prepareRuntimeSecrets,
+  validateDrawingExtractionReadiness,
+  validateWorkerReadiness,
+  validateXometryReadiness,
+} from "./runtimeSecrets";
 import type { WorkerConfig } from "./types";
 
 const tempDirs: string[] = [];
@@ -27,6 +32,9 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     playwrightDisableDevShmUsage: true,
     xometryStorageStatePath: null,
     xometryStorageStateJson: null,
+    openAiApiKey: null,
+    drawingExtractionModel: "gpt-5.4",
+    drawingExtractionEnableModelFallback: false,
     ...overrides,
   };
 }
@@ -109,5 +117,36 @@ describe("runtimeSecrets", () => {
         }),
       ),
     ).toEqual([]);
+  });
+
+  it("reports model fallback readiness issues when enabled without a key", async () => {
+    expect(
+      await validateDrawingExtractionReadiness(
+        makeConfig({
+          drawingExtractionEnableModelFallback: true,
+          openAiApiKey: null,
+        }),
+      ),
+    ).toEqual([
+      "Drawing extraction model fallback is enabled but OPENAI_API_KEY is missing. Fallback requests will stay disabled.",
+    ]);
+  });
+
+  it("combines worker readiness issues across subsystems", async () => {
+    const workerTempDir = await makeTempDir();
+    const missingPath = path.join(workerTempDir, "missing.json");
+
+    expect(
+      await validateWorkerReadiness(
+        makeConfig({
+          xometryStorageStatePath: missingPath,
+          drawingExtractionEnableModelFallback: true,
+          openAiApiKey: null,
+        }),
+      ),
+    ).toEqual([
+      `Xometry storage state file was not found at ${missingPath}.`,
+      "Drawing extraction model fallback is enabled but OPENAI_API_KEY is missing. Fallback requests will stay disabled.",
+    ]);
   });
 });

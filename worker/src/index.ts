@@ -27,7 +27,7 @@ import {
   type WorkerRuntimeState,
 } from "./httpServer.js";
 import { suggestLocatorUpdate } from "./repair/suggestLocatorUpdate.js";
-import { prepareRuntimeSecrets, validateXometryReadiness } from "./runtimeSecrets.js";
+import { prepareRuntimeSecrets, validateWorkerReadiness } from "./runtimeSecrets.js";
 import {
   ApprovedRequirementRecord,
   JobFileRecord,
@@ -208,7 +208,7 @@ async function refreshRuntimeReadiness(
   runtimeState: WorkerRuntimeState,
   logIssueChange: (issues: string[]) => void,
 ) {
-  const issues = await validateXometryReadiness(config);
+  const issues = await validateWorkerReadiness(config);
   const previousSignature = runtimeState.readinessIssues.join("\n");
   const nextSignature = issues.join("\n");
 
@@ -523,11 +523,17 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
     const pdfText = stagedDrawingFile ? await extractPdfText(stagedDrawingFile.localPath) : null;
     const previewAssets =
       stagedDrawingFile && pdfText ? await renderPdfPreviewAssets(stagedDrawingFile.localPath, runDir, pdfText.pageCount) : [];
+    const firstPagePreviewPath =
+      previewAssets.find((asset) => asset.kind === "page" && asset.pageNumber === 1)?.localPath ?? null;
     const extraction = await runHybridExtraction({
       part: context.part,
       cadFile: context.cadFile,
       drawingFile: context.drawingFile,
       pdfText,
+      drawingPath: stagedDrawingFile?.localPath ?? null,
+      previewPagePath: firstPagePreviewPath,
+      runDir,
+      config,
     });
     const extractionOutcome = summarizeExtractionOutcome(extraction);
 
@@ -562,6 +568,11 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
           quoteFinish: extraction.quoteFinish,
           reviewFields: extraction.reviewFields,
           debugCandidates: extraction.debugCandidates,
+          modelFallbackUsed: extraction.modelFallbackUsed,
+          modelName: extraction.modelName,
+          modelPromptVersion: extraction.modelPromptVersion,
+          fieldSelections: extraction.fieldSelections,
+          modelCandidates: extraction.modelCandidates,
           material: extraction.material,
           finish: extraction.finish,
           generalTolerance: extraction.generalTolerance,
@@ -1021,6 +1032,10 @@ async function main() {
       workerMode: config.workerMode,
       healthUrl: healthServer.url,
       pollIntervalMs: config.pollIntervalMs,
+      drawingExtractionModelFallback: config.drawingExtractionEnableModelFallback,
+      drawingExtractionModel: config.drawingExtractionEnableModelFallback
+        ? config.drawingExtractionModel
+        : null,
     },
   });
 

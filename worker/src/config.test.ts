@@ -26,6 +26,9 @@ describe("loadConfig", () => {
       playwrightDisableDevShmUsage: true,
       xometryStorageStatePath: null,
       xometryStorageStateJson: null,
+      openAiApiKey: null,
+      drawingExtractionModel: "gpt-5.4",
+      drawingExtractionEnableModelFallback: false,
     });
     expect(config.workerTempDir).toBe(path.resolve(path.join(os.tmpdir(), "overdrafter-worker")));
   });
@@ -48,6 +51,9 @@ describe("loadConfig", () => {
       PLAYWRIGHT_DISABLE_DEV_SHM_USAGE: "0",
       XOMETRY_STORAGE_STATE_PATH: "./state.json",
       XOMETRY_STORAGE_STATE_JSON: "{\"cookies\":[]}",
+      OPENAI_API_KEY: "test-openai-key",
+      DRAWING_EXTRACTION_MODEL: "gpt-5.4",
+      DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: "true",
     });
 
     expect(config).toMatchObject({
@@ -63,6 +69,9 @@ describe("loadConfig", () => {
       playwrightDisableSandbox: true,
       playwrightDisableDevShmUsage: false,
       xometryStorageStateJson: "{\"cookies\":[]}",
+      openAiApiKey: "test-openai-key",
+      drawingExtractionModel: "gpt-5.4",
+      drawingExtractionEnableModelFallback: true,
     });
     expect(config.workerTempDir).toBe(path.resolve("./tmp/worker"));
     expect(config.xometryStorageStatePath).toBe(path.resolve("./state.json"));

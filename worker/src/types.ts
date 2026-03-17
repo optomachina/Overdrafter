@@ -80,6 +80,15 @@ export type DrawingExtractionPayload = {
   description: string | null;
   partNumber: string | null;
   revision: string | null;
+  modelFallbackUsed?: boolean;
+  modelName?: string | null;
+  modelPromptVersion?: string | null;
+  fieldSelections?: Partial<
+    Record<
+      "description" | "partNumber" | "revision" | "material" | "finish" | "process",
+      "parser" | "model" | "review"
+    >
+  >;
   extractedDescriptionRaw: {
     value: string | null;
     confidence: number;
@@ -174,6 +183,17 @@ export type DrawingExtractionPayload = {
       reasons: string[];
       snippet: string;
     }>
+  >;
+  modelCandidates?: Record<
+    string,
+    {
+      value: string | null;
+      confidence: number;
+      fieldSource: "title_block" | "note" | "unknown";
+      selected: boolean;
+      reasons: string[];
+      attempt: "title_block_crop" | "full_page";
+    }
   >;
   status: "needs_review" | "approved";
 };
@@ -289,4 +309,7 @@ export type WorkerConfig = {
   playwrightDisableDevShmUsage: boolean;
   xometryStorageStatePath: string | null;
   xometryStorageStateJson: string | null;
+  openAiApiKey: string | null;
+  drawingExtractionModel: string;
+  drawingExtractionEnableModelFallback: boolean;
 };

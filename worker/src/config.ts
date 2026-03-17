@@ -42,6 +42,9 @@ const schema = z.object({
   PLAYWRIGHT_DISABLE_DEV_SHM_USAGE: envBoolean.default(true),
   XOMETRY_STORAGE_STATE_PATH: z.string().optional(),
   XOMETRY_STORAGE_STATE_JSON: z.string().optional(),
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  DRAWING_EXTRACTION_MODEL: z.string().default("gpt-5.4"),
+  DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: envBoolean.optional(),
 });
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
@@ -67,5 +70,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       ? path.resolve(parsed.XOMETRY_STORAGE_STATE_PATH)
       : null,
     xometryStorageStateJson: parsed.XOMETRY_STORAGE_STATE_JSON ?? null,
+    openAiApiKey: parsed.OPENAI_API_KEY ?? null,
+    drawingExtractionModel: parsed.DRAWING_EXTRACTION_MODEL,
+    drawingExtractionEnableModelFallback:
+      parsed.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK ?? Boolean(parsed.OPENAI_API_KEY),
   };
 }

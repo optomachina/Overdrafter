@@ -148,6 +148,7 @@ export function normalizeDrawingExtraction(
   const tolerances = asObject(payload.tolerances);
   const warnings = asArray<string>(extraction?.warnings).map(String);
   const reviewFields = asStringArray(payload.reviewFields);
+  const fieldSelections = asObject(payload.fieldSelections);
 
   return {
     partId,
@@ -157,6 +158,25 @@ export function normalizeDrawingExtraction(
     quoteDescription: (payload.quoteDescription ?? payload.description ?? payload.desc ?? null) as string | null,
     quoteFinish:
       (payload.quoteFinish ?? finish.normalized ?? finish.raw ?? payload.finish ?? null) as string | null,
+    model: {
+      fallbackUsed: Boolean(payload.modelFallbackUsed),
+      name: typeof payload.modelName === "string" ? payload.modelName : null,
+      promptVersion: typeof payload.modelPromptVersion === "string" ? payload.modelPromptVersion : null,
+    },
+    fieldSelections: {
+      description:
+        typeof fieldSelections.description === "string" ? (fieldSelections.description as "parser" | "model" | "review") : undefined,
+      partNumber:
+        typeof fieldSelections.partNumber === "string" ? (fieldSelections.partNumber as "parser" | "model" | "review") : undefined,
+      revision:
+        typeof fieldSelections.revision === "string" ? (fieldSelections.revision as "parser" | "model" | "review") : undefined,
+      material:
+        typeof fieldSelections.material === "string" ? (fieldSelections.material as "parser" | "model" | "review") : undefined,
+      finish:
+        typeof fieldSelections.finish === "string" ? (fieldSelections.finish as "parser" | "model" | "review") : undefined,
+      process:
+        typeof fieldSelections.process === "string" ? (fieldSelections.process as "parser" | "model" | "review") : undefined,
+    },
     rawFields: {
       description: {
         raw: (extractedDescriptionRaw.value ?? payload.description ?? payload.desc ?? null) as string | null,

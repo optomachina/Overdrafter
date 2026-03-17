@@ -137,6 +137,7 @@ Phase 1 vendor boundary:
 Drawing extraction is advisory evidence, not the canonical quote contract.
 
 - `drawing_extractions.extraction` stores source-truth raw fields, field confidence, review-needed state, evidence, and debug candidate metadata.
+- the worker should prefer deterministic label-anchored parsing first and call `gpt-5.4` fallback only when critical fields are missing, weak, or conflicting.
 - `approved_part_requirements` stores the normalized requirement record used by quoting and estimator workflows.
 - `approved_part_requirements.spec_snapshot` is the transitional home for normalized quote-facing variants such as `quoteDescription`, `quoteFinish`, and field provenance or override state.
 - Auto-approval may refresh auto-managed normalized fields from extraction output, but it must preserve reviewed user-managed values and must not silently promote low-confidence raw extraction into approved requirements.

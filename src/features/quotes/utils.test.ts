@@ -120,6 +120,19 @@ describe("quotes utils", () => {
       revision: "A",
       quoteDescription: "Widget plate",
       quoteFinish: "Anodize",
+      model: {
+        fallbackUsed: false,
+        name: null,
+        promptVersion: null,
+      },
+      fieldSelections: {
+        description: undefined,
+        partNumber: undefined,
+        revision: undefined,
+        material: undefined,
+        finish: undefined,
+        process: undefined,
+      },
       rawFields: {
         description: {
           raw: "Widget plate",

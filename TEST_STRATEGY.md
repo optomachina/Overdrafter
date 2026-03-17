@@ -97,6 +97,7 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - cover field-specific rejection rules when a nearby bad candidate could contaminate another field
 - verify raw extracted fields separately from normalized quote-facing fields when both layers are affected
 - validate review-needed behavior when confidence is low or candidate ranking is ambiguous
+- when model fallback is in scope, verify both parser-only and parser-plus-model branches, including disagreement fail-closed behavior
 
 ### Schema or migration changes
 - validate the migration path

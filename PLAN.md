@@ -46,6 +46,7 @@ Operational workflow alignment for this phase:
 
 ### Current bug-hardening slice — Drawing extraction reliability
 - keep title-block extraction label-anchored rather than flat-text scanned
+- keep deterministic extraction as the first pass, with `gpt-5.4` fallback only for missing, low-confidence, or conflicting critical fields
 - preserve raw extracted drawing fields separately from normalized quote-facing fields
 - gate low-confidence extraction behind review instead of silently persisting likely-wrong metadata
 - cover known regressions with checked-in layout fixtures, including `1093-05589`

@@ -24,7 +24,7 @@ export type RenderedPreviewAsset = {
   contentType: string;
 };
 
-type SourceRegion = {
+export type SourceRegion = {
   page: number;
   line: number;
   columnStart: number;
@@ -32,7 +32,7 @@ type SourceRegion = {
   label: string | null;
 };
 
-type ExtractedFieldSignal = {
+export type ExtractedFieldSignal = {
   value: string | null;
   confidence: number;
   reviewNeeded: boolean;
@@ -41,7 +41,7 @@ type ExtractedFieldSignal = {
   snippet: string | null;
 };
 
-type CandidateSignal = {
+export type CandidateSignal = {
   value: string;
   page: number;
   line: number;
@@ -67,7 +67,7 @@ type TitleBlockBounds = {
   endLine: number;
 };
 
-type ExtractedDrawingSignals = {
+export type ExtractedDrawingSignals = {
   description: ExtractedFieldSignal;
   partNumber: ExtractedFieldSignal;
   revision: ExtractedFieldSignal;
@@ -671,7 +671,7 @@ function pickBestCandidate(
   };
 }
 
-function normalizeQuoteDescription(raw: string | null) {
+export function normalizeQuoteDescription(raw: string | null) {
   if (!raw) {
     return null;
   }
@@ -685,7 +685,7 @@ function normalizeQuoteDescription(raw: string | null) {
   return normalized;
 }
 
-function normalizeQuoteFinish(raw: string | null) {
+export function normalizeQuoteFinish(raw: string | null) {
   if (!raw) {
     return null;
   }
@@ -707,6 +707,30 @@ async function getPdfPageCount(localPath: string): Promise<number | null> {
     const match = stdout.match(/^Pages:\s+(\d+)$/m);
     const pageCount = Number.parseInt(match?.[1] ?? "", 10);
     return Number.isFinite(pageCount) && pageCount > 0 ? pageCount : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getPdfFirstPageSize(localPath: string): Promise<{ widthPoints: number; heightPoints: number } | null> {
+  try {
+    const { stdout } = await execFileAsync("pdfinfo", ["-f", "1", "-l", "1", localPath], {
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const match =
+      stdout.match(/^Page\s+1 size:\s+([\d.]+)\s+x\s+([\d.]+)\s+pts$/m) ??
+      stdout.match(/^Page size:\s+([\d.]+)\s+x\s+([\d.]+)\s+pts$/m);
+    const widthPoints = Number.parseFloat(match?.[1] ?? "");
+    const heightPoints = Number.parseFloat(match?.[2] ?? "");
+
+    if (!Number.isFinite(widthPoints) || !Number.isFinite(heightPoints)) {
+      return null;
+    }
+
+    return {
+      widthPoints,
+      heightPoints,
+    };
   } catch {
     return null;
   }
@@ -777,6 +801,69 @@ async function renderPdfPage(
   }
 
   return { width: null, height: null };
+}
+
+export async function renderPdfTitleBlockCrop(
+  pdfPath: string,
+  outputPath: string,
+): Promise<RenderedPreviewAsset | null> {
+  const pageSize = await getPdfFirstPageSize(pdfPath);
+
+  if (!pageSize) {
+    return null;
+  }
+
+  const renderDpi = 150;
+  const pageWidthPixels = Math.max(1, Math.round((pageSize.widthPoints / 72) * renderDpi));
+  const pageHeightPixels = Math.max(1, Math.round((pageSize.heightPoints / 72) * renderDpi));
+  const cropX = Math.floor(pageWidthPixels * 0.48);
+  const cropY = Math.floor(pageHeightPixels * 0.58);
+  const cropWidth = Math.max(1, pageWidthPixels - cropX);
+  const cropHeight = Math.max(1, pageHeightPixels - cropY);
+  const outputPrefix = outputPath.endsWith(".png") ? outputPath.slice(0, -4) : outputPath;
+
+  await execFileAsync(
+    "pdftoppm",
+    [
+      "-png",
+      "-r",
+      String(renderDpi),
+      "-f",
+      "1",
+      "-l",
+      "1",
+      "-singlefile",
+      "-x",
+      String(cropX),
+      "-y",
+      String(cropY),
+      "-W",
+      String(cropWidth),
+      "-H",
+      String(cropHeight),
+      pdfPath,
+      outputPrefix,
+    ],
+    {
+      maxBuffer: 8 * 1024 * 1024,
+    },
+  );
+
+  const resolvedOutputPath = `${outputPrefix}.png`;
+  await fs.access(resolvedOutputPath);
+
+  if (resolvedOutputPath !== outputPath) {
+    await fs.rename(resolvedOutputPath, outputPath);
+  }
+
+  return {
+    localPath: outputPath,
+    pageNumber: 1,
+    kind: "page",
+    width: cropWidth,
+    height: cropHeight,
+    contentType: "image/png",
+  };
 }
 
 export async function renderPdfPreviewAssets(

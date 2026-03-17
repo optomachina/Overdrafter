@@ -199,6 +199,7 @@ If extraction or sourcing automation fails, the system must preserve visibility 
 
 ### 10. Extraction must preserve source truth and quote-ready normalization separately
 Drawing extraction must keep source-truth values from the drawing title block distinct from downstream quote-facing normalization. Raw extracted fields are evidence and must remain traceable. Quote-facing fields may be normalized for estimator and vendor workflows, but that normalization must not silently destroy source text or overwrite reviewed user edits.
+For drawings with missing, low-confidence, or conflicting parser output, the system may use a bounded model fallback to recover raw title-block values, but it must still validate the returned fields and fail closed into review when uncertainty remains.
 
 ### 6. Internal-only data must stay internal
 Internal sourcing context, operational notes, and sensitive quote context must not leak into client-facing views.
