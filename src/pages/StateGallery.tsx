@@ -21,6 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ClientExtractionDiagnostics, DrawingPreviewData, PartAggregate } from "@/features/quotes/types";
 import { isFixtureModeAvailable } from "@/features/quotes/client-workspace-fixtures";
 import NotFound from "@/pages/NotFound";
+import { buildEmbeddedPreviewHref } from "@/pages/state-gallery-preview";
 
 type PreviewCard = {
   title: string;
@@ -215,13 +216,6 @@ const gallerySections: GallerySectionLink[] = [
   },
 ];
 
-function withEmbedParams(href: string): string {
-  const url = new URL(href, "http://localhost");
-  url.searchParams.set("embed", "1");
-  url.searchParams.set("debug", url.searchParams.get("debug") ?? "1");
-  return `${url.pathname}${url.search}${url.hash}`;
-}
-
 function SectionShell({
   icon,
   title,
@@ -317,7 +311,7 @@ function RoutePreviewCard({ card }: { card: PreviewCard }) {
       <div className="bg-[#020617] p-3">
         <iframe
           title={card.title}
-          src={withEmbedParams(card.href)}
+          src={buildEmbeddedPreviewHref(card.href)}
           className="h-[640px] w-full rounded-[22px] border border-white/8 bg-[#020617]"
           loading="lazy"
         />
@@ -420,7 +414,7 @@ const StateGallery = () => {
                 Available only in local dev or test builds
               </span>
               <span className="rounded-full border border-white/10 bg-white/6 px-4 py-2">
-                Embedded previews hide the floating fixture launcher
+                Embedded previews hide the floating fixture and diagnostics launchers
               </span>
             </div>
           </div>

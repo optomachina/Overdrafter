@@ -113,7 +113,8 @@ export function DiagnosticsPanel() {
   const diagnostics = useDiagnosticsSnapshot();
   const reportText = formatJson(createDiagnosticsReport());
   const latestError = diagnostics.events.find((event) => event.level === "error") ?? null;
-  const launcherVisible = diagnostics.enabled || import.meta.env.DEV;
+  const launcherVisible = !diagnostics.uiSuppressed && (diagnostics.enabled || import.meta.env.DEV);
+  const panelOpen = !diagnostics.uiSuppressed && diagnostics.panelOpen;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -169,7 +170,7 @@ export function DiagnosticsPanel() {
         </Button>
       ) : null}
 
-      <Sheet open={diagnostics.panelOpen} onOpenChange={setDiagnosticsPanelOpen}>
+      <Sheet open={panelOpen} onOpenChange={setDiagnosticsPanelOpen}>
         <SheetContent side="right" className="w-[min(96vw,56rem)] overflow-hidden p-0 sm:max-w-[56rem]">
           <div className="flex h-full flex-col">
             <SheetHeader className="border-b border-border/70 px-6 py-5">
