@@ -299,6 +299,11 @@ const DRAWING_PREVIEW_ASSET_IDENTIFIERS = [
   "drawing_preview_assets",
   "page_number",
 ] as const;
+const DEBUG_EXTRACTION_RUN_IDENTIFIERS = [
+  "public.debug_extraction_runs",
+  "debug_extraction_runs",
+  "requested_model",
+] as const;
 const CLIENT_ACTIVITY_IDENTIFIERS = ["api_list_client_activity_events"] as const;
 const QUOTE_REQUEST_IDENTIFIERS = ["public.quote_requests", "quote_requests", "quote_request_status"] as const;
 const CLIENT_PART_METADATA_IDENTIFIERS = ["api_list_client_part_metadata"] as const;
@@ -466,8 +471,24 @@ function isMissingDrawingPreviewSchemaError(error: unknown): boolean {
   return isMissingSchemaIdentifierError(error, DRAWING_PREVIEW_ASSET_IDENTIFIERS);
 }
 
+function isMissingDebugExtractionSchemaError(error: unknown): boolean {
+  return isMissingSchemaIdentifierError(error, DEBUG_EXTRACTION_RUN_IDENTIFIERS);
+}
+
 function isMissingClientActivitySchemaError(error: unknown): boolean {
   return isMissingSchemaIdentifierError(error, CLIENT_ACTIVITY_IDENTIFIERS);
+}
+
+function ensureOptionalRows<T>(
+  data: T[] | null,
+  error: { message: string } | null | undefined,
+  isMissingSchemaError: (value: { message: string } | null | undefined) => boolean,
+): T[] {
+  if (isMissingSchemaError(error)) {
+    return [];
+  }
+
+  return ensureData(data, error) as T[];
 }
 
 function isMissingQuoteRequestSchemaError(error: unknown): boolean {
@@ -1793,17 +1814,19 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
     : ((await pricingPolicyPromise) as PostgrestSingleResponse<PricingPolicyRecord | null>);
 
   const extractions = ensureData(extractionResult.data, extractionResult.error) as DrawingExtractionRecord[];
-  const drawingPreviewAssets = ensureData(
+  const drawingPreviewAssets = ensureOptionalRows(
     previewAssetResult.data,
     previewAssetResult.error,
+    isMissingDrawingPreviewSchemaError,
   ) as DrawingPreviewAssetRecord[];
   const approvedRequirements = ensureData(
     approvedResult.data,
     approvedResult.error,
   ) as ApprovedPartRequirementRecord[];
-  const debugExtractionRuns = ensureData(
+  const debugExtractionRuns = ensureOptionalRows(
     debugExtractionRunsResult.data,
     debugExtractionRunsResult.error,
+    isMissingDebugExtractionSchemaError,
   ) as DebugExtractionRunRecord[];
   const vendorQuotes = ensureData(
     vendorQuoteResult.data,

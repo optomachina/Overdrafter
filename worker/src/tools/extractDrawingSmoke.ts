@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseEnvBooleanLike, parseEnvList } from "../env.js";
 import { runHybridExtraction } from "../extraction/hybridExtraction.js";
 import {
   extractPdfText,
@@ -45,18 +46,14 @@ function buildSmokeConfig(): WorkerConfig {
     openAiApiKey,
     workerBuildVersion: process.env.WORKER_BUILD_VERSION ?? "smoke-local",
     drawingExtractionModel: process.env.DRAWING_EXTRACTION_MODEL ?? "gpt-5.4",
-    drawingExtractionEnableModelFallback:
-      (process.env.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK ?? "").trim().length > 0
-        ? /^(1|true|yes|on)$/i.test(process.env.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK ?? "")
-        : Boolean(openAiApiKey),
-    drawingExtractionDebugAllowedModels: (
-      process.env.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS ??
-      process.env.DRAWING_EXTRACTION_MODEL ??
-      "gpt-5.4"
-    )
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean),
+    drawingExtractionEnableModelFallback: parseEnvBooleanLike(
+      process.env.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK,
+      Boolean(openAiApiKey),
+    ),
+    drawingExtractionDebugAllowedModels: parseEnvList(
+      process.env.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS,
+      process.env.DRAWING_EXTRACTION_MODEL ?? "gpt-5.4",
+    ),
   };
 }
 

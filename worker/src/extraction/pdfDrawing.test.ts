@@ -175,6 +175,7 @@ describe("pdfDrawing", () => {
     expect(result.reviewFields).not.toContain("revision");
     expect(result.reviewFields).not.toContain("description");
     expect(result.reviewFields).not.toContain("finish");
+    expect(result.reviewFields).not.toContain("process");
   });
 
   it("rejects finish specs and approval text as part number and finish winners", () => {

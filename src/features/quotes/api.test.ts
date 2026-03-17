@@ -329,6 +329,7 @@ import {
   fetchAccessibleJobs,
   fetchArchivedJobs,
   fetchAppSessionData,
+  fetchJobAggregate,
   fetchJobPartSummariesByJobIds,
   fetchProject,
   fetchWorkerReadiness,
@@ -1400,6 +1401,136 @@ describe("quotes api helpers", () => {
     expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_debug_extraction", {
       p_part_id: "part-1",
       p_model: "gpt-5.4-mini",
+    });
+  });
+
+  it("treats extraction lab tables as optional when fetching a job aggregate", async () => {
+    const jobRecord = {
+      id: "job-1",
+      organization_id: "org-1",
+      title: "Example Job",
+      active_pricing_policy_id: "policy-1",
+      requested_service_kinds: ["manufacturing_quote"],
+      primary_service_kind: "manufacturing_quote",
+      service_notes: null,
+      requested_quote_quantities: [3],
+      requested_by_date: null,
+    };
+    const partRecord = {
+      id: "part-1",
+      job_id: "job-1",
+      organization_id: "org-1",
+      name: "Bracket",
+      normalized_key: "bracket",
+      cad_file_id: null,
+      drawing_file_id: null,
+      quantity: 3,
+      created_at: "2026-03-03T00:00:00Z",
+      updated_at: "2026-03-03T00:00:00Z",
+    };
+    const pricingPolicy = {
+      id: "policy-1",
+      organization_id: "org-1",
+      name: "Default policy",
+      is_active: true,
+      created_at: "2026-03-03T00:00:00Z",
+      updated_at: "2026-03-03T00:00:00Z",
+      rules: {},
+    };
+    const missingPreviewTableError = {
+      code: "42P01",
+      message: 'relation "public.drawing_preview_assets" does not exist',
+      details: null,
+      hint: null,
+    };
+    const missingDebugRunTableError = {
+      code: "42P01",
+      message: 'relation "public.debug_extraction_runs" does not exist',
+      details: null,
+      hint: null,
+    };
+
+    supabaseMock.from.mockImplementation(((table: string) => {
+      switch (table) {
+        case "jobs":
+          return {
+            select: () => ({
+              eq: () => ({
+                single: () => Promise.resolve({ data: jobRecord, error: null }),
+              }),
+            }),
+          };
+        case "job_files":
+          return {
+            select: () => ({
+              eq: () => ({
+                order: () => Promise.resolve({ data: [], error: null }),
+              }),
+            }),
+          };
+        case "parts":
+          return {
+            select: () => ({
+              eq: () => ({
+                order: () => Promise.resolve({ data: [partRecord], error: null }),
+              }),
+            }),
+          };
+        case "quote_runs":
+        case "published_quote_packages":
+        case "work_queue":
+          return {
+            select: () => ({
+              eq: () => ({
+                order: () => Promise.resolve({ data: [], error: null }),
+              }),
+            }),
+          };
+        case "drawing_extractions":
+        case "approved_part_requirements":
+          return {
+            select: () => ({
+              in: () => Promise.resolve({ data: [], error: null }),
+            }),
+          };
+        case "drawing_preview_assets":
+          return {
+            select: () => ({
+              in: () => Promise.resolve({ data: null, error: missingPreviewTableError }),
+            }),
+          };
+        case "debug_extraction_runs":
+          return {
+            select: () => ({
+              in: () => ({
+                order: () => Promise.resolve({ data: null, error: missingDebugRunTableError }),
+              }),
+            }),
+          };
+        case "pricing_policies":
+          return {
+            select: () => ({
+              eq: () => ({
+                single: () => Promise.resolve({ data: pricingPolicy, error: null }),
+              }),
+            }),
+          };
+        default:
+          throw new Error(`Unexpected table: ${table}`);
+      }
+    }) as typeof supabaseMock.from.getMockImplementation extends () => infer T ? T : never);
+
+    await expect(fetchJobAggregate("job-1")).resolves.toMatchObject({
+      job: {
+        id: "job-1",
+      },
+      parts: [
+        expect.objectContaining({
+          id: "part-1",
+        }),
+      ],
+      drawingPreviewAssets: [],
+      debugExtractionRuns: [],
     });
   });
 

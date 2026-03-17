@@ -121,6 +121,28 @@ function summarizeError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function logPreviewRenderWarning(task: QueueTaskRecord, stage: "all_pages" | "first_page", error: unknown) {
+  console.warn(
+    JSON.stringify({
+      service: "overdrafter-cad-worker",
+      level: "warn",
+      source: "worker.preview.render",
+      message: `Failed to render ${stage === "all_pages" ? "all page previews" : "the first-page preview"} for ${task.task_type} ${task.id}: ${summarizeError(error)}`,
+      context: {
+        ...buildTaskContext(task),
+        stage,
+      },
+      error:
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+            }
+          : { message: summarizeError(error) },
+    }),
+  );
+}
+
 function summarizeExtractionOutcome(extraction: Awaited<ReturnType<typeof runHybridExtraction>>) {
   const missingFields = [
     extraction.description ? null : "description",
@@ -591,18 +613,31 @@ async function runDrawingExtractionForTask(
 
   try {
     const pdfText = stagedDrawingFile ? await extractPdfText(stagedDrawingFile.localPath) : null;
-    let previewAssets =
-      stagedDrawingFile && pdfText
-        ? await renderPdfPreviewAssets(stagedDrawingFile.localPath, runDir, pdfText.pageCount)
-        : [];
+    let previewAssets = [] as Awaited<ReturnType<typeof renderPdfPreviewAssets>>;
+
+    if (stagedDrawingFile && pdfText) {
+      try {
+        previewAssets = await renderPdfPreviewAssets(stagedDrawingFile.localPath, runDir, pdfText.pageCount);
+      } catch (error) {
+        logPreviewRenderWarning(task, "all_pages", error);
+        previewAssets = [];
+      }
+    }
+
     let firstPagePreviewPath =
       previewAssets.find((asset) => asset.kind === "page" && asset.pageNumber === 1)?.localPath ?? null;
 
     if (stagedDrawingFile && !firstPagePreviewPath) {
-      const fallbackPreviewAsset = await renderPdfFirstPagePreview(
-        stagedDrawingFile.localPath,
-        path.join(runDir, "drawing-page-1.png"),
-      );
+      let fallbackPreviewAsset = null;
+
+      try {
+        fallbackPreviewAsset = await renderPdfFirstPagePreview(
+          stagedDrawingFile.localPath,
+          path.join(runDir, "drawing-page-1.png"),
+        );
+      } catch (error) {
+        logPreviewRenderWarning(task, "first_page", error);
+      }
 
       if (fallbackPreviewAsset) {
         previewAssets = [
@@ -1273,9 +1308,7 @@ async function main() {
       healthUrl: healthServer.url,
       pollIntervalMs: config.pollIntervalMs,
       drawingExtractionModelFallback: config.drawingExtractionEnableModelFallback,
-      drawingExtractionModel: config.drawingExtractionEnableModelFallback
-        ? config.drawingExtractionModel
-        : null,
+      drawingExtractionModel: config.drawingExtractionModel,
     },
   });
 

@@ -1,8 +1,10 @@
 import path from "node:path";
+import { DRAWING_FIELD_NAMES, SUPPORTED_REVIEW_FIELDS } from "../types.js";
 import type {
   DrawingExtractionPayload,
   JobFileRecord,
   PartRecord,
+  SupportedReviewField,
   WorkerConfig,
 } from "../types.js";
 import {
@@ -23,13 +25,12 @@ import {
   type PdfTextExtraction,
 } from "./pdfDrawing.js";
 
-const SUPPORTED_REVIEW_FIELDS = new Set(["description", "partNumber", "revision", "material", "finish"]);
 const MODEL_ACCEPT_CONFIDENCE = 0.8;
 const MODEL_SELECTION_BONUS = 0.08;
-const MERGE_FIELDS = ["description", "partNumber", "revision", "material", "finish", "process"] as const;
+const SUPPORTED_REVIEW_FIELD_SET = new Set<SupportedReviewField>(SUPPORTED_REVIEW_FIELDS);
 
-type MergeFieldName = (typeof MERGE_FIELDS)[number];
-type ModelCandidateRecord = NonNullable<DrawingExtractionPayload["modelCandidates"]>[string];
+type MergeFieldName = (typeof DRAWING_FIELD_NAMES)[number];
+type ModelCandidateRecord = NonNullable<DrawingExtractionPayload["modelCandidates"]>[MergeFieldName];
 
 function titleCase(value: string) {
   return value
@@ -256,7 +257,7 @@ export async function runHybridExtraction(
   };
   const modelCandidates: NonNullable<DrawingExtractionPayload["modelCandidates"]> = {};
 
-  for (const fieldName of MERGE_FIELDS) {
+  for (const fieldName of DRAWING_FIELD_NAMES) {
     const merged = mergeFieldSignals({
       fieldName,
       parserField: drawingSignals[fieldName],
@@ -275,9 +276,12 @@ export async function runHybridExtraction(
   const description = mergedFields.description.value ?? normalizedTitle;
   const partNumber = mergedFields.partNumber.value ?? inferredBase.toUpperCase();
   const finishRaw = mergedFields.finish.value;
-  const reviewFields = Object.entries(mergedFields)
-    .filter(([fieldName, field]) => SUPPORTED_REVIEW_FIELDS.has(fieldName) && field.reviewNeeded)
-    .map(([fieldName]) => fieldName);
+  const reviewFields = (Object.entries(mergedFields) as Array<[MergeFieldName, ExtractedFieldSignal]>)
+    .filter(
+      ([fieldName, field]) =>
+        SUPPORTED_REVIEW_FIELD_SET.has(fieldName as SupportedReviewField) && field.reviewNeeded,
+    )
+    .map(([fieldName]) => fieldName as SupportedReviewField);
   const quoteDescription = normalizeQuoteDescription(description);
   const quoteFinish = normalizeQuoteFinish(finishRaw);
 
@@ -292,7 +296,7 @@ export async function runHybridExtraction(
   const evidence =
     [
       ...drawingSignals.evidence.filter((item) => fieldSelections[item.field as MergeFieldName] !== "model"),
-      ...MERGE_FIELDS.filter((fieldName) => fieldSelections[fieldName] === "model").flatMap((fieldName) => {
+      ...DRAWING_FIELD_NAMES.filter((fieldName) => fieldSelections[fieldName] === "model").flatMap((fieldName) => {
         const field = mergedFields[fieldName];
 
         if (!field.value) {

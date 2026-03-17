@@ -64,6 +64,8 @@ as $$
 declare
   v_part public.parts%rowtype;
   v_job public.jobs%rowtype;
+  v_default_model constant text := 'gpt-5.4';
+  v_allowed_models constant text[] := array['gpt-5.4', 'gpt-5.4-mini'];
   v_requested_model text;
   v_debug_run_id uuid;
 begin
@@ -93,6 +95,10 @@ begin
 
   v_requested_model := nullif(trim(coalesce(p_model, '')), '');
 
+  if v_requested_model is not null and not (v_requested_model = any(v_allowed_models)) then
+    raise exception 'Requested debug extraction model "%" is not allowed', v_requested_model;
+  end if;
+
   insert into public.debug_extraction_runs (
     organization_id,
     job_id,
@@ -104,7 +110,7 @@ begin
     v_job.id,
     v_part.id,
     auth.uid(),
-    coalesce(v_requested_model, 'gpt-5.4')
+    coalesce(v_requested_model, v_default_model)
   )
   returning id into v_debug_run_id;
 
@@ -123,7 +129,7 @@ begin
       'jobId', v_job.id,
       'partId', v_part.id,
       'debugRunId', v_debug_run_id,
-      'requestedModel', coalesce(v_requested_model, 'gpt-5.4')
+      'requestedModel', coalesce(v_requested_model, v_default_model)
     )
   );
 
@@ -134,7 +140,7 @@ begin
       'jobId', v_job.id,
       'partId', v_part.id,
       'debugRunId', v_debug_run_id,
-      'requestedModel', coalesce(v_requested_model, 'gpt-5.4')
+      'requestedModel', coalesce(v_requested_model, v_default_model)
     ),
     v_job.id,
     null

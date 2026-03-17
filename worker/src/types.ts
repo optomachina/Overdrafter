@@ -76,6 +76,34 @@ export type ApprovedRequirementRecord = {
   applicable_vendors: VendorName[];
 };
 
+export const SUPPORTED_REVIEW_FIELDS = [
+  "description",
+  "partNumber",
+  "revision",
+  "material",
+  "finish",
+] as const;
+
+export type SupportedReviewField = (typeof SUPPORTED_REVIEW_FIELDS)[number];
+
+export const DRAWING_FIELD_NAMES = [...SUPPORTED_REVIEW_FIELDS, "process"] as const;
+
+export type DrawingFieldName = (typeof DRAWING_FIELD_NAMES)[number];
+
+export type RawExtractionField = {
+  value: string | null;
+  confidence: number;
+  reviewNeeded: boolean;
+  reasons: string[];
+  sourceRegion: {
+    page: number;
+    line: number;
+    columnStart: number;
+    columnEnd: number;
+    label: string | null;
+  } | null;
+};
+
 export type DrawingExtractionPayload = {
   partId: string;
   description: string | null;
@@ -85,79 +113,28 @@ export type DrawingExtractionPayload = {
   modelName?: string | null;
   modelPromptVersion?: string | null;
   fieldSelections?: Partial<
-    Record<
-      "description" | "partNumber" | "revision" | "material" | "finish" | "process",
-      "parser" | "model" | "review"
-    >
+    Record<DrawingFieldName, "parser" | "model" | "review">
   >;
-  extractedDescriptionRaw: {
-    value: string | null;
-    confidence: number;
-    reviewNeeded: boolean;
-    reasons: string[];
-    sourceRegion: {
-      page: number;
-      line: number;
-      columnStart: number;
-      columnEnd: number;
-      label: string | null;
-    } | null;
-  };
-  extractedPartNumberRaw: {
-    value: string | null;
-    confidence: number;
-    reviewNeeded: boolean;
-    reasons: string[];
-    sourceRegion: {
-      page: number;
-      line: number;
-      columnStart: number;
-      columnEnd: number;
-      label: string | null;
-    } | null;
-  };
-  extractedRevisionRaw: {
-    value: string | null;
-    confidence: number;
-    reviewNeeded: boolean;
-    reasons: string[];
-    sourceRegion: {
-      page: number;
-      line: number;
-      columnStart: number;
-      columnEnd: number;
-      label: string | null;
-    } | null;
-  };
-  extractedFinishRaw: {
-    value: string | null;
-    confidence: number;
-    reviewNeeded: boolean;
-    reasons: string[];
-    sourceRegion: {
-      page: number;
-      line: number;
-      columnStart: number;
-      columnEnd: number;
-      label: string | null;
-    } | null;
-  };
+  extractedDescriptionRaw: RawExtractionField;
+  extractedPartNumberRaw: RawExtractionField;
+  extractedRevisionRaw: RawExtractionField;
+  extractedFinishRaw: RawExtractionField;
   quoteDescription: string | null;
   quoteFinish: string | null;
-  reviewFields: string[];
+  reviewFields: SupportedReviewField[];
   material: {
     raw: string | null;
     normalized: string | null;
     confidence: number;
-    reviewNeeded?: boolean;
-    reasons?: string[];
+    reviewNeeded: boolean;
+    reasons: string[];
   };
   finish: {
     raw: string | null;
     normalized: string | null;
     confidence: number;
-    reviewNeeded?: boolean;
-    reasons?: string[];
+    reviewNeeded: boolean;
+    reasons: string[];
   };
   generalTolerance: { raw: string | null; confidence: number };
   tightestTolerance: { raw: string | null; valueInch: number | null; confidence: number };
@@ -171,8 +148,9 @@ export type DrawingExtractionPayload = {
     reasons?: string[];
   }>;
   warnings: string[];
-  debugCandidates?: Record<
-    string,
+  debugCandidates?: Partial<
+    Record<
+      DrawingFieldName,
     Array<{
       value: string;
       page: number;
@@ -184,9 +162,11 @@ export type DrawingExtractionPayload = {
       reasons: string[];
       snippet: string;
     }>
+    >
   >;
-  modelCandidates?: Record<
-    string,
+  modelCandidates?: Partial<
+    Record<
+      DrawingFieldName,
     {
       value: string | null;
       confidence: number;
@@ -195,6 +175,7 @@ export type DrawingExtractionPayload = {
       reasons: string[];
       attempt: "title_block_crop" | "full_page";
     }
+    >
   >;
   status: "needs_review" | "approved";
 };

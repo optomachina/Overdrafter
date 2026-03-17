@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -68,6 +68,7 @@ import {
   getLatestQuoteRun,
   hasManualQuoteIntakeSource,
   isManualImportVendor,
+  mergeRequirementDraftState,
   normalizeDrawingExtraction,
   optionLabelForKind,
   projectedClientPrice,
@@ -90,6 +91,13 @@ const InternalJobDetail = () => {
   const [isResendingVerification, setIsResendingVerification] = useState(false);
   const [activeCompareRequestedQuantity, setActiveCompareRequestedQuantity] =
     useState<RequestedQuantityFilterValue | null>(null);
+  const draftStateRef = useRef<{
+    drafts: Record<string, ApprovedPartRequirement>;
+    quoteQuantityInputs: Record<string, string>;
+  }>({
+    drafts: {},
+    quoteQuantityInputs: {},
+  });
 
   const jobQuery = useQuery({
     queryKey: ["job", jobId],
@@ -204,6 +212,13 @@ const InternalJobDetail = () => {
   }, [compareQuantities]);
 
   useEffect(() => {
+    draftStateRef.current = {
+      drafts,
+      quoteQuantityInputs,
+    };
+  }, [drafts, quoteQuantityInputs]);
+
+  useEffect(() => {
     if (!jobQuery.data) {
       return;
     }
@@ -215,19 +230,15 @@ const InternalJobDetail = () => {
       requested_quote_quantities: jobQuery.data.job.requested_quote_quantities ?? [],
       requested_by_date: jobQuery.data.job.requested_by_date ?? null,
     };
-    const nextDrafts = Object.fromEntries(
-      jobQuery.data.parts.map((part) => [part.id, buildRequirementDraft(part, jobRequestDefaults)]),
-    );
+    const nextDraftState = mergeRequirementDraftState({
+      parts: jobQuery.data.parts,
+      currentDrafts: draftStateRef.current.drafts,
+      currentQuoteQuantityInputs: draftStateRef.current.quoteQuantityInputs,
+      jobRequest: jobRequestDefaults,
+    });
 
-    setDrafts(nextDrafts);
-    setQuoteQuantityInputs(
-      Object.fromEntries(
-        Object.values(nextDrafts).map((draft) => [
-          draft.partId,
-          formatRequestedQuoteQuantitiesInput(draft.quoteQuantities),
-        ]),
-      ),
-    );
+    setDrafts(nextDraftState.drafts);
+    setQuoteQuantityInputs(nextDraftState.quoteQuantityInputs);
 
     setClientSummary((current) =>
       current ||
@@ -557,9 +568,11 @@ const InternalJobDetail = () => {
                 }
               };
               const extractedFinishRaw = extraction.rawFields.finish.raw ?? extraction.finish.raw ?? null;
-              const finishReviewNeeded =
-                extraction.rawFields.finish.reviewNeeded || extraction.finish.reviewNeeded;
-              const finishConfidence = extraction.rawFields.finish.raw
+              const finishUsesRawField = Boolean(extraction.rawFields.finish.raw);
+              const finishReviewNeeded = finishUsesRawField
+                ? extraction.rawFields.finish.reviewNeeded
+                : extraction.finish.reviewNeeded;
+              const finishConfidence = finishUsesRawField
                 ? extraction.rawFields.finish.confidence
                 : extraction.finish.confidence;
 
@@ -842,6 +855,9 @@ const InternalJobDetail = () => {
                         />
                         <p className="text-xs text-white/45">
                           Extracted: {extraction.material.normalized || extraction.material.raw || "Not found"}
+                          {extraction.material.reviewNeeded
+                            ? ` • review needed (${Math.round(extraction.material.confidence * 100)}%)`
+                            : ""}
                           {` • source: ${extractionSourceLabel(materialSelectedBy)}`}
                         </p>
                       </div>

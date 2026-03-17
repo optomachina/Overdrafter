@@ -13,6 +13,7 @@ import {
   getJobSummaryMetrics,
   hasManualQuoteIntakeSource,
   listStaleAutoRequirementFields,
+  mergeRequirementDraftState,
   normalizeDrawingExtraction,
   normalizeDrawingPreview,
   projectedClientPrice,
@@ -634,6 +635,59 @@ describe("quotes utils", () => {
     });
   });
 
+  it("does not repopulate a user-cleared approved field from extraction", () => {
+    const part = makePartAggregate({
+      extraction: makeExtractionRecord({
+        extraction: {
+          description: "Auto extracted description",
+          quoteDescription: "Auto extracted description",
+          extractedDescriptionRaw: {
+            value: "Auto extracted description",
+            confidence: 0.97,
+            reviewNeeded: false,
+            reasons: ["label_match"],
+            sourceRegion: null,
+          },
+        },
+        updated_at: "2026-03-04T00:00:00Z",
+      }),
+      approvedRequirement: {
+        id: "req-cleared",
+        part_id: "part-1",
+        organization_id: "org-1",
+        description: null,
+        part_number: null,
+        revision: null,
+        material: "6061 Alloy",
+        finish: null,
+        tightest_tolerance_inch: null,
+        approved_by: "user-1",
+        quantity: 3,
+        quote_quantities: [3],
+        requested_by_date: null,
+        applicable_vendors: ["xometry"],
+        spec_snapshot: {
+          fieldSources: {
+            description: "user",
+          },
+          fieldOverrides: {
+            description: true,
+          },
+        },
+        approved_at: "2026-03-03T00:00:00Z",
+        created_at: "2026-03-03T00:00:00Z",
+        updated_at: "2026-03-03T00:00:00Z",
+      } as PartAggregate["approvedRequirement"],
+    });
+
+    expect(resolveRequirementField(part, "description")).toMatchObject({
+      value: null,
+      source: "approved_user",
+      approvedSource: "user",
+      extractionValue: "Auto extracted description",
+    });
+  });
+
   it("keeps approved auto values when newer extraction is review-blocked", () => {
     const part = makePartAggregate({
       extraction: makeExtractionRecord({
@@ -739,6 +793,42 @@ describe("quotes utils", () => {
       finish: null,
       material: "6061 Alloy",
     });
+  });
+
+  it("preserves existing draft edits when reseeding parts after debug polling", () => {
+    const part = makePartAggregate({
+      extraction: makeExtractionRecord({
+        extraction: {
+          description: "Server description",
+          quoteDescription: "Server description",
+          extractedDescriptionRaw: {
+            value: "Server description",
+            confidence: 0.98,
+            reviewNeeded: false,
+            reasons: ["label_match"],
+            sourceRegion: null,
+          },
+        },
+      }),
+    });
+
+    const currentDrafts = {
+      "part-1": {
+        ...buildRequirementDraft(part),
+        description: "Unsaved local edit",
+      },
+    };
+
+    const merged = mergeRequirementDraftState({
+      parts: [part],
+      currentDrafts,
+      currentQuoteQuantityInputs: {
+        "part-1": "3/12",
+      },
+    });
+
+    expect(merged.drafts["part-1"].description).toBe("Unsaved local edit");
+    expect(merged.quoteQuantityInputs["part-1"]).toBe("3/12");
   });
 
   it("sorts imported vendor offers by sort rank first and then price", () => {

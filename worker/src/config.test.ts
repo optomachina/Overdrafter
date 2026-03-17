@@ -83,6 +83,16 @@ describe("loadConfig", () => {
     expect(config.xometryStorageStatePath).toBe(path.resolve("./state.json"));
   });
 
+  it("enables drawing model fallback by default when OPENAI_API_KEY is present", () => {
+    const config = loadConfig({
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+      OPENAI_API_KEY: "test-openai-key",
+    });
+
+    expect(config.drawingExtractionEnableModelFallback).toBe(true);
+  });
+
   it("rejects invalid required settings", () => {
     expect(() =>
       loadConfig({

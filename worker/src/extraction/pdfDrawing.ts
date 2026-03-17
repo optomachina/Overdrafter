@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import type { SupportedReviewField } from "../types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -78,7 +79,7 @@ export type ExtractedDrawingSignals = {
   tightestTolerance: string | null;
   quoteDescription: string | null;
   quoteFinish: string | null;
-  reviewFields: string[];
+  reviewFields: SupportedReviewField[];
   notes: string[];
   threads: string[];
   evidence: Array<{ field: string; page: number; snippet: string; confidence: number; reasons: string[] }>;
@@ -1128,6 +1129,13 @@ export function inferDrawingSignalsFromPdf(input: {
     finish: finishCandidate.selected,
     process: processCandidate.selected,
   };
+  const reviewFieldResults = {
+    description: fieldResults.description,
+    partNumber: fieldResults.partNumber,
+    revision: fieldResults.revision,
+    material: fieldResults.material,
+    finish: fieldResults.finish,
+  } satisfies Record<SupportedReviewField, ExtractedFieldSignal>;
 
   debugCandidates.description = descriptionCandidate.debugCandidates;
   debugCandidates.partNumber = partNumberCandidate.debugCandidates;
@@ -1136,7 +1144,9 @@ export function inferDrawingSignalsFromPdf(input: {
   debugCandidates.finish = finishCandidate.debugCandidates;
   debugCandidates.process = processCandidate.debugCandidates;
 
-  for (const [field, result] of Object.entries(fieldResults)) {
+  for (const [field, result] of Object.entries(reviewFieldResults) as Array<
+    [SupportedReviewField, ExtractedFieldSignal]
+  >) {
     if (result.value) {
       evidence.push({
         field,
@@ -1152,7 +1162,9 @@ export function inferDrawingSignalsFromPdf(input: {
     }
   }
 
-  const reviewFields = Object.entries(fieldResults)
+  const reviewFields = (Object.entries(reviewFieldResults) as Array<
+    [SupportedReviewField, ExtractedFieldSignal]
+  >)
     .filter(([, result]) => result.reviewNeeded)
     .map(([field]) => field);
 

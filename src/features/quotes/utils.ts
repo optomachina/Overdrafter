@@ -23,7 +23,10 @@ import type {
 } from "@/features/quotes/types";
 import type { ClientOptionKind, Json, VendorName } from "@/integrations/supabase/types";
 import { readRfqLineItemExtendedMetadata } from "@/features/quotes/rfq-metadata";
-import { normalizeRequestedQuoteQuantities } from "@/features/quotes/request-intake";
+import {
+  formatRequestedQuoteQuantitiesInput,
+  normalizeRequestedQuoteQuantities,
+} from "@/features/quotes/request-intake";
 import {
   normalizeRequestedServiceIntent,
   requestedServicesRequireMaterial,
@@ -285,7 +288,7 @@ export function resolveRequirementField(
     !reviewBlocked &&
     valuesDiffer;
 
-  if (staleAuto || (!approvedValue && extractionValue && !reviewBlocked)) {
+  if (staleAuto || (approvedSource !== "user" && !approvedValue && extractionValue && !reviewBlocked)) {
     return {
       value: extractionValue,
       source: "extraction",
@@ -302,6 +305,19 @@ export function resolveRequirementField(
     return {
       value: null,
       source: "extraction",
+      approvedSource,
+      staleAuto: false,
+      extractionNewer,
+      reviewBlocked,
+      approvedValue,
+      extractionValue,
+    };
+  }
+
+  if (!approvedValue && approvedSource === "user") {
+    return {
+      value: null,
+      source: "approved_user",
       approvedSource,
       staleAuto: false,
       extractionNewer,
@@ -660,6 +676,40 @@ export function countPartExtractionWarnings(part: PartAggregate | null | undefin
   }
 
   return normalizeDrawingExtraction(part.extraction, part.id).warnings.length;
+}
+
+type RequirementDraftSeedInput = {
+  parts: PartAggregate[];
+  currentDrafts: Record<string, ApprovedPartRequirement>;
+  currentQuoteQuantityInputs: Record<string, string>;
+  jobRequest?: {
+    requested_quote_quantities: number[];
+    requested_by_date: string | null;
+    requested_service_kinds?: string[] | null;
+    primary_service_kind?: string | null;
+    service_notes?: string | null;
+  } | null;
+};
+
+export function mergeRequirementDraftState(input: RequirementDraftSeedInput) {
+  const drafts = Object.fromEntries(
+    input.parts.map((part) => [
+      part.id,
+      input.currentDrafts[part.id] ?? buildRequirementDraft(part, input.jobRequest),
+    ]),
+  );
+  const quoteQuantityInputs = Object.fromEntries(
+    input.parts.map((part) => [
+      part.id,
+      input.currentQuoteQuantityInputs[part.id] ??
+        formatRequestedQuoteQuantitiesInput(drafts[part.id].quoteQuantities),
+    ]),
+  );
+
+  return {
+    drafts,
+    quoteQuantityInputs,
+  };
 }
 
 export function buildRequirementDraft(

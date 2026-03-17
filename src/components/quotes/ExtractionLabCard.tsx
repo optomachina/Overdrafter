@@ -382,7 +382,7 @@ export function ExtractionLabCard({
                       <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
                         Canonical build: {canonicalExtraction.workerBuildVersion ?? "Unknown"}
                       </Badge>
-                      <Badge className={summaryBadgeClass(latestRun?.status ?? "queued")}>
+                      <Badge className={summaryBadgeClass(latestRun?.status ?? "neutral")}>
                         Latest debug run: {latestRun ? formatStatusLabel(latestRun.status) : "None"}
                       </Badge>
                     </div>

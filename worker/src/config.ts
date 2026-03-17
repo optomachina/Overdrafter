@@ -1,6 +1,7 @@
 import { z } from "zod";
 import path from "node:path";
 import os from "node:os";
+import { parseEnvBooleanLike, parseEnvList } from "./env.js";
 import type { WorkerConfig } from "./types.js";
 
 const envBoolean = z.preprocess((value) => {
@@ -52,14 +53,10 @@ const schema = z.object({
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   const parsed = schema.parse(env);
   const workerTempDir = path.resolve(parsed.WORKER_TEMP_DIR);
-  const drawingExtractionDebugAllowedModels = [
-    ...new Set(
-      (parsed.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS ?? parsed.DRAWING_EXTRACTION_MODEL)
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean),
-    ),
-  ];
+  const drawingExtractionDebugAllowedModels = parseEnvList(
+    parsed.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS,
+    parsed.DRAWING_EXTRACTION_MODEL,
+  );
 
   return {
     supabaseUrl: parsed.SUPABASE_URL,
@@ -83,8 +80,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     openAiApiKey: parsed.OPENAI_API_KEY ?? null,
     workerBuildVersion: parsed.WORKER_BUILD_VERSION,
     drawingExtractionModel: parsed.DRAWING_EXTRACTION_MODEL,
-    drawingExtractionEnableModelFallback:
-      parsed.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK ?? Boolean(parsed.OPENAI_API_KEY),
+    drawingExtractionEnableModelFallback: parseEnvBooleanLike(
+      parsed.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK,
+      Boolean(parsed.OPENAI_API_KEY),
+    ),
     drawingExtractionDebugAllowedModels,
   };
 }

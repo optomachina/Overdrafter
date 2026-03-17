@@ -280,6 +280,7 @@ describe("ExtractionLabCard", () => {
     renderCard();
 
     await screen.findByText("Extraction Lab");
+    expect(screen.getByText("Latest debug run: None")).toHaveClass("text-white/70");
     await waitFor(() => {
       expect(screen.getByRole("combobox")).toHaveTextContent("gpt-5.4-mini");
     });
