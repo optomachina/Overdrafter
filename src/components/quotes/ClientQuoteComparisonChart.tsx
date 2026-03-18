@@ -1,140 +1,308 @@
+import { useMemo } from "react";
 import {
   CartesianGrid,
+  Label,
+  ReferenceArea,
   Scatter,
   ScatterChart,
   XAxis,
   YAxis,
 } from "recharts";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { ChartContainer, ChartTooltip } from "@/components/ui/chart";
 import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
-import { formatCurrency, formatLeadTime } from "@/features/quotes/utils";
+import type { VendorName } from "@/integrations/supabase/types";
+import { formatCurrency } from "@/features/quotes/utils";
+import { getVendorColor, buildVendorChartConfig } from "@/features/quotes/vendor-colors";
 
 type ClientQuoteComparisonChartProps = {
   options: readonly ClientQuoteSelectionOption[];
   selectedKey: string | null;
+  hoveredKey: string | null;
   onSelect: (option: ClientQuoteSelectionOption) => void;
+  onHover: (key: string | null) => void;
 };
 
 type ChartPoint = {
   x: number;
   y: number;
-  z: number;
+  r: number;
   key: string;
+  vendorKey: VendorName;
   label: string;
-  delivery: string;
-  priceLabel: string;
+  supplier: string;
+  tier: string | null;
+  sourcing: string | null;
+  unitPrice: number;
+  totalPrice: number;
+  leadTimeDays: number | null;
+  process: string | null;
+  material: string | null;
   selected: boolean;
+  hovered: boolean;
   disabled: boolean;
+  isNaZone: boolean;
   option: ClientQuoteSelectionOption;
 };
 
-const chartConfig = {
-  eligible: {
-    label: "Eligible quotes",
-    color: "rgba(255,255,255,0.82)",
-  },
-} as const;
+const MIN_RADIUS = 6;
+const MAX_RADIUS = 22;
+const NA_ZONE_PADDING = 3;
+const NA_ZONE_WIDTH = 8;
 
-function buildPoint(option: ClientQuoteSelectionOption, selectedKey: string | null): ChartPoint {
-  return {
-    x: option.leadTimeBusinessDays ?? 0,
-    y: option.totalPriceUsd,
-    z: selectedKey === option.key ? 1.2 : 1,
-    key: option.key,
-    label: `${option.vendorLabel}${option.expedite ? " • Expedite" : ""}`,
-    delivery: option.resolvedDeliveryDate ?? formatLeadTime(option.leadTimeBusinessDays),
-    priceLabel: formatCurrency(option.totalPriceUsd),
-    selected: selectedKey === option.key,
-    disabled: !option.eligible,
-    option,
+function computeBubbleRadius(
+  totalPrice: number,
+  minPrice: number,
+  maxPrice: number,
+): number {
+  if (maxPrice === minPrice) {
+    return (MIN_RADIUS + MAX_RADIUS) / 2;
+  }
+  const ratio = (totalPrice - minPrice) / (maxPrice - minPrice);
+  return MIN_RADIUS + Math.sqrt(ratio) * (MAX_RADIUS - MIN_RADIUS);
+}
+
+function buildChartData(
+  options: readonly ClientQuoteSelectionOption[],
+  selectedKey: string | null,
+  hoveredKey: string | null,
+) {
+  const totalPrices = options.map((o) => o.totalPriceUsd).filter(Number.isFinite);
+  const minTotal = totalPrices.length > 0 ? Math.min(...totalPrices) : 0;
+  const maxTotal = totalPrices.length > 0 ? Math.max(...totalPrices) : 1;
+
+  const leadTimes = options
+    .map((o) => o.leadTimeBusinessDays)
+    .filter((v): v is number => v !== null && v > 0);
+  const maxLeadTime = leadTimes.length > 0 ? Math.max(...leadTimes) : 20;
+  const naZoneStart = maxLeadTime + NA_ZONE_PADDING;
+
+  let naIndex = 0;
+  const points = options.map((option): ChartPoint => {
+    const hasLeadTime = option.leadTimeBusinessDays !== null && option.leadTimeBusinessDays > 0;
+    let xValue: number;
+    let isNaZone = false;
+
+    if (hasLeadTime) {
+      xValue = option.leadTimeBusinessDays!;
+    } else {
+      isNaZone = true;
+      xValue = naZoneStart + 1 + (naIndex % 4) * 1.5 + (naIndex >= 4 ? 0.75 : 0);
+      naIndex += 1;
+    }
+
+    return {
+      x: xValue,
+      y: option.unitPriceUsd,
+      r: computeBubbleRadius(option.totalPriceUsd, minTotal, maxTotal),
+      key: option.key,
+      vendorKey: option.vendorKey,
+      label: `${option.supplier}${option.tier ? ` · ${option.tier}` : ""}`,
+      supplier: option.supplier,
+      tier: option.tier,
+      sourcing: option.sourcing,
+      unitPrice: option.unitPriceUsd,
+      totalPrice: option.totalPriceUsd,
+      leadTimeDays: option.leadTimeBusinessDays,
+      process: option.process,
+      material: option.material,
+      selected: selectedKey === option.key,
+      hovered: hoveredKey === option.key,
+      disabled: !option.eligible,
+      isNaZone,
+      option,
+    };
+  });
+
+  const vendorKeys = [...new Set(options.map((o) => o.vendorKey))];
+  const pointsByVendor = new Map<VendorName, ChartPoint[]>();
+  for (const point of points) {
+    const existing = pointsByVendor.get(point.vendorKey) ?? [];
+    existing.push(point);
+    pointsByVendor.set(point.vendorKey, existing);
+  }
+
+  const hasNaZone = points.some((p) => p.isNaZone);
+  const xDomainMax = hasNaZone ? naZoneStart + NA_ZONE_WIDTH : maxLeadTime + 2;
+
+  return { points, pointsByVendor, vendorKeys, naZoneStart, xDomainMax, hasNaZone };
+}
+
+function CustomTooltipContent({ active, payload }: { active?: boolean; payload?: Array<{ payload: ChartPoint }> }) {
+  if (!active || !payload?.[0]) {
+    return null;
+  }
+
+  const point = payload[0].payload;
+  const leadDisplay = point.leadTimeDays !== null ? `${point.leadTimeDays} business days` : "Not quoted";
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-[#1a1d2e] px-3 py-2.5 shadow-xl">
+      <p className="text-xs font-semibold text-white">
+        {point.supplier}
+        {point.tier ? ` · ${point.tier}` : ""}
+        {point.sourcing ? ` · ${point.sourcing}` : ""}
+      </p>
+      <div className="mt-1.5 space-y-0.5 text-[11px] text-white/55">
+        <p>{formatCurrency(point.unitPrice)}/unit</p>
+        <p>Total: {formatCurrency(point.totalPrice)}</p>
+        <p>Lead: {leadDisplay}</p>
+        {point.process ? <p>{point.process}</p> : null}
+        {point.material ? <p>{point.material}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+function VendorScatterShape(props: unknown) {
+  const { cx, cy, payload } = props as {
+    cx?: number;
+    cy?: number;
+    payload?: ChartPoint;
   };
+
+  if (!payload || cx === undefined || cy === undefined) {
+    return null;
+  }
+
+  const baseRadius = payload.r;
+  const isActive = payload.selected || payload.hovered;
+  const radius = isActive ? baseRadius + 2 : baseRadius;
+  const color = getVendorColor(payload.vendorKey);
+  const opacity = payload.disabled ? 0.25 : isActive ? 1 : 0.8;
+  const strokeColor = payload.selected ? "#ffffff" : isActive ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.25)";
+  const strokeWidth = payload.selected ? 2.5 : isActive ? 1.5 : 1;
+
+  return (
+    <circle
+      cx={cx}
+      cy={cy}
+      r={radius}
+      fill={color}
+      fillOpacity={opacity}
+      stroke={strokeColor}
+      strokeWidth={strokeWidth}
+      className="cursor-pointer transition-all duration-150"
+      onClick={() => payload.option && !payload.disabled}
+    />
+  );
 }
 
 export function ClientQuoteComparisonChart({
   options,
   selectedKey,
+  hoveredKey,
   onSelect,
+  onHover,
 }: ClientQuoteComparisonChartProps) {
-  const points = options.map((option) => buildPoint(option, selectedKey));
+  const {
+    pointsByVendor,
+    vendorKeys,
+    naZoneStart,
+    xDomainMax,
+    hasNaZone,
+  } = useMemo(
+    () => buildChartData(options, selectedKey, hoveredKey),
+    [options, selectedKey, hoveredKey],
+  );
+
+  const chartConfig = useMemo(
+    () => buildVendorChartConfig(vendorKeys),
+    [vendorKeys],
+  );
+
+  const handleScatterClick = (data: unknown) => {
+    const point = data as { payload?: ChartPoint } | undefined;
+    if (point?.payload?.option && !point.payload.disabled) {
+      onSelect(point.payload.option);
+    }
+  };
+
+  const handleScatterMouseEnter = (data: unknown) => {
+    const point = data as { payload?: ChartPoint } | undefined;
+    if (point?.payload) {
+      onHover(point.payload.key);
+    }
+  };
 
   return (
-    <ChartContainer config={chartConfig} className="h-[320px] w-full">
-      <ScatterChart margin={{ top: 16, right: 20, bottom: 8, left: 6 }}>
-        <CartesianGrid stroke="rgba(255,255,255,0.08)" />
+    <ChartContainer config={chartConfig} className="h-[420px] w-full">
+      <ScatterChart margin={{ top: 16, right: 20, bottom: 24, left: 6 }}>
+        <CartesianGrid stroke="rgba(255,255,255,0.06)" />
         <XAxis
           type="number"
           dataKey="x"
+          domain={[0, xDomainMax]}
           tickLine={false}
           axisLine={false}
           tickMargin={10}
-          tickFormatter={(value) => `${value}d`}
-          label={{ value: "Lead time", position: "insideBottom", offset: -4 }}
-        />
+          tickFormatter={(value: number) => {
+            if (value >= naZoneStart) {
+              return "";
+            }
+            return `${value}d`;
+          }}
+        >
+          <Label
+            value="Lead Time (business days)"
+            position="insideBottom"
+            offset={-12}
+            style={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }}
+          />
+        </XAxis>
         <YAxis
           type="number"
           dataKey="y"
           tickLine={false}
           axisLine={false}
           tickMargin={10}
-          tickFormatter={(value) => formatCurrency(Number(value))}
-          width={92}
-          label={{ value: "Total price", angle: -90, position: "insideLeft" }}
-        />
-        <ChartTooltip
-          cursor={{ stroke: "rgba(255,255,255,0.14)" }}
-          content={
-            <ChartTooltipContent
-              formatter={(_, __, item) => {
-                const point = item.payload as ChartPoint;
+          tickFormatter={(value: number) => formatCurrency(value)}
+          width={80}
+        >
+          <Label
+            value="Unit Price"
+            angle={-90}
+            position="insideLeft"
+            offset={4}
+            style={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }}
+          />
+        </YAxis>
 
-                return (
-                  <div className="space-y-1">
-                    <div className="font-medium text-foreground">{point.label}</div>
-                    <div className="text-muted-foreground">{point.priceLabel}</div>
-                    <div className="text-muted-foreground">{point.delivery}</div>
-                  </div>
-                );
+        {hasNaZone ? (
+          <ReferenceArea
+            x1={naZoneStart}
+            x2={xDomainMax}
+            fill="rgba(255,255,255,0.03)"
+            strokeOpacity={0}
+          >
+            <Label
+              value="Lead not quoted"
+              position="insideTop"
+              offset={8}
+              style={{
+                fill: "rgba(255,255,255,0.25)",
+                fontSize: 10,
+                fontWeight: 500,
               }}
             />
-          }
+          </ReferenceArea>
+        ) : null}
+
+        <ChartTooltip
+          cursor={false}
+          content={<CustomTooltipContent />}
         />
-        <Scatter
-          data={points}
-          dataKey="y"
-          fill="var(--color-eligible)"
-          shape={(props: unknown) => {
-            const point = props as {
-              cx?: number;
-              cy?: number;
-              payload?: ChartPoint;
-            };
 
-            if (!point.payload || point.cx === undefined || point.cy === undefined) {
-              return null;
-            }
-
-            const radius = point.payload.selected ? 10 : 7;
-            const fill = point.payload.selected
-              ? "#f5f5f5"
-              : point.payload.disabled
-                ? "rgba(255,255,255,0.2)"
-                : "rgba(255,255,255,0.7)";
-            const stroke = point.payload.selected ? "#101010" : "rgba(16,16,16,0.3)";
-
-            return (
-              <circle
-                cx={point.cx}
-                cy={point.cy}
-                r={radius}
-                fill={fill}
-                stroke={stroke}
-                strokeWidth={2}
-                className="cursor-pointer"
-                onClick={() => onSelect(point.payload!.option)}
-              />
-            );
-          }}
-        />
+        {vendorKeys.map((vendorKey) => (
+          <Scatter
+            key={vendorKey}
+            name={vendorKey}
+            data={pointsByVendor.get(vendorKey) ?? []}
+            shape={<VendorScatterShape />}
+            onClick={handleScatterClick}
+            onMouseEnter={handleScatterMouseEnter}
+            onMouseLeave={() => onHover(null)}
+          />
+        ))}
       </ScatterChart>
     </ChartContainer>
   );

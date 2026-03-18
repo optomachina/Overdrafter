@@ -119,7 +119,7 @@ function toSupportedVendor(value: string | null | undefined): SupportedVendor | 
 function parseArgs(): ImportArgs {
   const args = process.argv.slice(2);
   const result: ImportArgs = {
-    workbookPath: "/Users/blainewilson/My Drive/Mako/Quotes/Quotes.xlsx",
+    workbookPath: "/Users/blainewilson/Library/CloudStorage/OneDrive-Personal/Overdrafter/Quotes/Quotes Spreadsheet - Improved.xlsx",
     batch: null,
     batches: null,
     partNumber: null,
