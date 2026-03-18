@@ -119,7 +119,7 @@ function toSupportedVendor(value: string | null | undefined): SupportedVendor | 
 function parseArgs(): ImportArgs {
   const args = process.argv.slice(2);
   const result: ImportArgs = {
-    workbookPath: "/Users/blainewilson/My Drive/Mako/Quotes/Quotes.xlsx",
+    workbookPath: "/Users/blainewilson/Library/CloudStorage/OneDrive-Personal/Overdrafter/Quotes/Quotes Spreadsheet - Improved.xlsx",
     batch: null,
     batches: null,
     partNumber: null,
@@ -429,11 +429,24 @@ async function readWorkbookRows(workbookPath: string, sheetName = "All Quotes"):
       const items = asArray(shared.sst.si);
 
       items.forEach((item, index) => {
+        const resolveText = (value: unknown): string => {
+          if (typeof value === "string") {
+            return value;
+          }
+          if (typeof value === "number") {
+            return String(value);
+          }
+          if (value !== null && typeof value === "object" && "#text" in (value as object)) {
+            return String((value as Record<string, unknown>)["#text"] ?? "");
+          }
+          return "";
+        };
+
         const text =
-          typeof item.t === "string"
-            ? item.t
+          item.t !== undefined && item.t !== null
+            ? resolveText(item.t)
             : asArray(item.r)
-                .map((run) => (typeof run.t === "string" ? run.t : ""))
+                .map((run) => resolveText(run.t))
                 .join("");
 
         sharedStrings.set(index, text);

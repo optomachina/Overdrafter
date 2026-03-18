@@ -249,42 +249,40 @@ const ClientPackage = () => {
         </section>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <Card className="border-white/10 bg-white/5">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-white/70">Published</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-lg font-semibold">
-              {new Date(data.package.published_at).toLocaleDateString()}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="border-white/10 bg-white/5">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-white/70">Options</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-semibold">{data.options.length}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-white/10 bg-white/5">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-white/70">Status</CardTitle>
-          </CardHeader>
-          <CardContent>
+      <section className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/8 bg-white/8 md:grid-cols-4">
+        <div className="bg-[#1a1a1a] px-4 py-3">
+          <p className="text-[10px] uppercase tracking-widest text-white/40">Published</p>
+          <p className="mt-1 text-xl font-bold tracking-tight text-white">
+            {new Date(data.package.published_at).toLocaleDateString()}
+          </p>
+        </div>
+        <div className="bg-[#1a1a1a] px-4 py-3">
+          <p className="text-[10px] uppercase tracking-widest text-white/40">Options</p>
+          <p className="mt-1 text-xl font-bold tracking-tight text-blue-400">
+            {data.options.length}
+          </p>
+        </div>
+        <div className="bg-[#1a1a1a] px-4 py-3">
+          <p className="text-[10px] uppercase tracking-widest text-white/40">Best Price</p>
+          <p className="mt-1 text-xl font-bold tracking-tight text-emerald-400">
+            {data.options.length > 0
+              ? formatCurrency(Math.min(...data.options.map((o) => o.published_price_usd)))
+              : "—"}
+          </p>
+        </div>
+        <div className="bg-[#1a1a1a] px-4 py-3">
+          <p className="text-[10px] uppercase tracking-widest text-white/40">Status</p>
+          <div className="mt-1">
             {latestSelection ? (
-              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
+              <div className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-400">
                 <CheckCircle2 className="h-4 w-4" />
-                Selection received
+                Selected
               </div>
             ) : (
-              <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/75">
-                Awaiting selection
-              </Badge>
+              <p className="text-sm font-semibold text-amber-400">Awaiting selection</p>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </section>
 
       <RequestSummaryBadges
