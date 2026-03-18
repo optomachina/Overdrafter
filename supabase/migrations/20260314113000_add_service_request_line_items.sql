@@ -147,6 +147,7 @@ declare
   v_item_notes text;
   v_detail_payload jsonb;
   v_raw_quote_quantities integer[];
+  v_primary_quote_service_request_written boolean := false;
 begin
   perform public.require_verified_auth();
 
@@ -214,6 +215,15 @@ begin
       else '{}'::jsonb
     end;
 
+    if v_service_type in ('manufacturing_quote', 'sourcing_only') and not v_primary_quote_service_request_written then
+      v_requested_by_date := p_requested_by_date;
+      v_detail_payload := jsonb_build_object(
+        'requestedQuoteQuantities',
+        to_jsonb(v_default_quote_quantities)
+      );
+      v_primary_quote_service_request_written := true;
+    end if;
+
     insert into public.service_request_line_items (
       organization_id,
       project_id,
@@ -230,7 +240,7 @@ begin
       v_job.organization_id,
       v_job.project_id,
       v_job.id,
-      case when v_scope = 'part' or v_single_part_id is not null then v_single_part_id else null end,
+      case when v_scope = 'part' then v_single_part_id else null end,
       v_service_type,
       v_scope,
       v_requested_by_date,
@@ -254,6 +264,10 @@ begin
         )
         else '{}'::jsonb
       end;
+
+      if v_service_type in ('manufacturing_quote', 'sourcing_only') and not v_primary_quote_service_request_written then
+        v_primary_quote_service_request_written := true;
+      end if;
 
       insert into public.service_request_line_items (
         organization_id,

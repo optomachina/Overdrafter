@@ -60,6 +60,7 @@ import {
   buildRequestedServiceIntentFromServiceRequests,
   getPrimaryQuoteServiceRequest,
   normalizeServiceRequestInputs,
+  syncPrimaryQuoteServiceRequestWithCompatibilityFields,
 } from "@/features/quotes/service-requests";
 import { formatRequestedServiceKindLabel } from "@/features/quotes/service-intent";
 import { getSharedRequestMetadata } from "@/features/quotes/request-scenarios";
@@ -939,6 +940,13 @@ export function useClientProjectController() {
     const nextDraft = {
       ...draft,
       requestedQuoteQuantities,
+      serviceRequests: syncPrimaryQuoteServiceRequestWithCompatibilityFields(draft.serviceRequests, {
+        requestedServiceKinds: draft.requestedServiceKinds,
+        primaryServiceKind: draft.primaryServiceKind,
+        serviceNotes: draft.serviceNotes,
+        requestedQuoteQuantities,
+        requestedByDate: draft.requestedByDate,
+      }),
     } satisfies ClientPartRequestUpdateInput;
 
     setRequestDraftsByJobId((current) => ({

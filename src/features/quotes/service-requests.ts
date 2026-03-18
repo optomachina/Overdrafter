@@ -133,6 +133,46 @@ export function normalizeServiceRequestInputs(
   return buildServiceRequestInputsFromIntent(defaults);
 }
 
+export function syncPrimaryQuoteServiceRequestWithCompatibilityFields(
+  items: readonly ServiceRequestLineItemInput[] | null | undefined,
+  defaults: WorkpackDefaults = {},
+): ServiceRequestLineItemInput[] {
+  const normalizedItems = normalizeServiceRequestInputs(items, defaults);
+  const primaryQuoteServiceRequestIndex = normalizedItems.findIndex((item) =>
+    isQuoteCompatibleServiceKind(item.serviceType as RequestedServiceKind),
+  );
+
+  if (primaryQuoteServiceRequestIndex === -1) {
+    return normalizedItems;
+  }
+
+  const primaryQuoteServiceRequest = normalizedItems[primaryQuoteServiceRequestIndex];
+  const requestedQuoteQuantities =
+    defaults.requestedQuoteQuantities !== undefined
+      ? normalizeRequestedQuoteQuantities(defaults.requestedQuoteQuantities)
+      : readServiceRequestQuoteQuantities(primaryQuoteServiceRequest.detailPayload);
+  const requestedByDate =
+    defaults.requestedByDate !== undefined
+      ? defaults.requestedByDate ?? null
+      : primaryQuoteServiceRequest.requestedByDate ?? null;
+
+  return normalizedItems.map((item, index) =>
+    index === primaryQuoteServiceRequestIndex
+      ? {
+          ...item,
+          requestedByDate,
+          detailPayload: normalizeQuoteCompatiblePayload(
+            item.serviceType,
+            {
+              requestedQuoteQuantities,
+            },
+            requestedQuoteQuantities,
+          ),
+        }
+      : item,
+  );
+}
+
 export function buildServiceRequestInputsFromIntent(
   defaults: WorkpackDefaults = {},
 ): ServiceRequestLineItemInput[] {

@@ -48,7 +48,10 @@ import {
   parseRequestedQuoteQuantitiesInput,
 } from "@/features/quotes/request-intake";
 import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadata";
-import { normalizeServiceRequestInputs } from "@/features/quotes/service-requests";
+import {
+  normalizeServiceRequestInputs,
+  syncPrimaryQuoteServiceRequestWithCompatibilityFields,
+} from "@/features/quotes/service-requests";
 import {
   buildClientQuoteSelectionOptions,
   buildVendorLabelMap,
@@ -771,6 +774,16 @@ export function useClientPartController() {
     const payload = {
       ...effectiveRequestDraft,
       requestedQuoteQuantities: nextQuantities,
+      serviceRequests: syncPrimaryQuoteServiceRequestWithCompatibilityFields(
+        effectiveRequestDraft.serviceRequests,
+        {
+          requestedServiceKinds: effectiveRequestDraft.requestedServiceKinds,
+          primaryServiceKind: effectiveRequestDraft.primaryServiceKind,
+          serviceNotes: effectiveRequestDraft.serviceNotes,
+          requestedQuoteQuantities: nextQuantities,
+          requestedByDate: effectiveRequestDraft.requestedByDate,
+        },
+      ),
     } satisfies ClientPartRequestUpdateInput;
 
     setRequestDraft(payload);

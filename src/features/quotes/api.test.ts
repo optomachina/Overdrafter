@@ -267,6 +267,7 @@ import {
   unarchiveJob,
   unpinJob,
   unpinProject,
+  updateClientPartRequest,
   uploadFilesToJob,
   uploadManualQuoteEvidence,
 } from "./api";
@@ -973,6 +974,143 @@ describe("quotes api helpers", () => {
             requestedQuoteQuantities: [10],
           },
           displayOrder: 0,
+        },
+      ],
+    });
+  });
+
+  it("syncs primary quote-compatible service requests with edited compatibility fields on request updates", async () => {
+    supabaseMock.rpc.mockResolvedValue({
+      data: "job-structured-1",
+      error: null,
+    });
+
+    await expect(
+      updateClientPartRequest({
+        jobId: "job-1",
+        requestedServiceKinds: ["manufacturing_quote", "dfm_review"],
+        primaryServiceKind: "manufacturing_quote",
+        serviceNotes: "Need pricing and a manufacturability pass",
+        description: "Bracket",
+        partNumber: "BR-100",
+        revision: "B",
+        material: "6061-T6",
+        finish: "Anodize",
+        tightestToleranceInch: 0.01,
+        process: "CNC milling",
+        notes: "Review before release",
+        quantity: 5,
+        requestedQuoteQuantities: [5, 25],
+        requestedByDate: "2026-05-01",
+        shipping: {
+          requestedByDateOverride: null,
+          packagingNotes: null,
+          shippingNotes: null,
+        },
+        certifications: {
+          requiredCertifications: [],
+          materialCertificationRequired: null,
+          certificateOfConformanceRequired: null,
+          inspectionLevel: null,
+          notes: null,
+        },
+        sourcing: {
+          regionPreferenceOverride: null,
+          preferredSuppliers: [],
+          materialProvisioning: null,
+          notes: null,
+        },
+        release: {
+          releaseStatus: null,
+          reviewDisposition: null,
+          quoteBlockedUntilRelease: null,
+          notes: null,
+        },
+        serviceRequests: [
+          {
+            id: "sr-quote",
+            serviceType: "manufacturing_quote",
+            scope: "job",
+            requestedByDate: "2026-04-15",
+            serviceNotes: "Need pricing and a manufacturability pass",
+            detailPayload: {
+              requestedQuoteQuantities: [1, 10],
+            },
+            displayOrder: 0,
+          },
+          {
+            id: "sr-dfm",
+            serviceType: "dfm_review",
+            scope: "job",
+            requestedByDate: null,
+            serviceNotes: "Need pricing and a manufacturability pass",
+            detailPayload: {},
+            displayOrder: 1,
+          },
+        ],
+      }),
+    ).resolves.toBe("job-structured-1");
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_update_client_part_request", {
+      p_job_id: "job-1",
+      p_requested_service_kinds: ["manufacturing_quote", "dfm_review"],
+      p_primary_service_kind: "manufacturing_quote",
+      p_service_notes: "Need pricing and a manufacturability pass",
+      p_description: "Bracket",
+      p_part_number: "BR-100",
+      p_revision: "B",
+      p_material: "6061-T6",
+      p_finish: "Anodize",
+      p_tightest_tolerance_inch: 0.01,
+      p_process: "CNC milling",
+      p_notes: "Review before release",
+      p_quantity: 5,
+      p_requested_quote_quantities: [5, 25],
+      p_requested_by_date: "2026-05-01",
+      p_shipping: {
+        requestedByDateOverride: null,
+        packagingNotes: null,
+        shippingNotes: null,
+      },
+      p_certifications: {
+        requiredCertifications: [],
+        materialCertificationRequired: null,
+        certificateOfConformanceRequired: null,
+        inspectionLevel: null,
+        notes: null,
+      },
+      p_sourcing: {
+        regionPreferenceOverride: null,
+        preferredSuppliers: [],
+        materialProvisioning: null,
+        notes: null,
+      },
+      p_release: {
+        releaseStatus: null,
+        reviewDisposition: null,
+        quoteBlockedUntilRelease: null,
+        notes: null,
+      },
+      p_service_requests: [
+        {
+          id: "sr-quote",
+          serviceType: "manufacturing_quote",
+          scope: "job",
+          requestedByDate: "2026-05-01",
+          serviceNotes: "Need pricing and a manufacturability pass",
+          detailPayload: {
+            requestedQuoteQuantities: [5, 25],
+          },
+          displayOrder: 0,
+        },
+        {
+          id: "sr-dfm",
+          serviceType: "dfm_review",
+          scope: "job",
+          requestedByDate: "2026-05-01",
+          serviceNotes: "Need pricing and a manufacturability pass",
+          detailPayload: {},
+          displayOrder: 1,
         },
       ],
     });

@@ -78,6 +78,7 @@ import {
   getPrimaryQuoteServiceRequest,
   mapServiceRequestRecord,
   normalizeServiceRequestInputs,
+  syncPrimaryQuoteServiceRequestWithCompatibilityFields,
 } from "@/features/quotes/service-requests";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import { getImportedVendorOffers, normalizeDrawingPreview } from "@/features/quotes/utils";
@@ -2657,7 +2658,7 @@ function buildServiceRequestRpcInput(input: {
   requestedQuoteQuantities?: number[];
   requestedByDate?: string | null;
 }) {
-  return normalizeServiceRequestInputs(input.serviceRequests, {
+  return syncPrimaryQuoteServiceRequestWithCompatibilityFields(input.serviceRequests, {
     requestedServiceKinds: input.requestedServiceKinds ?? [],
     primaryServiceKind: input.primaryServiceKind ?? null,
     serviceNotes: input.serviceNotes ?? null,
