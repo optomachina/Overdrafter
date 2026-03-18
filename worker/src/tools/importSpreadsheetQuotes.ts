@@ -119,7 +119,7 @@ function toSupportedVendor(value: string | null | undefined): SupportedVendor | 
 function parseArgs(): ImportArgs {
   const args = process.argv.slice(2);
   const result: ImportArgs = {
-    workbookPath: "/Users/blainewilson/Library/CloudStorage/OneDrive-Personal/Overdrafter/Quotes/Quotes Spreadsheet - Improved.xlsx",
+    workbookPath: "",
     batch: null,
     batches: null,
     partNumber: null,
@@ -191,6 +191,10 @@ function parseArgs(): ImportArgs {
       default:
         throw new Error(`Unknown argument: ${arg}`);
     }
+  }
+
+  if (!result.workbookPath) {
+    throw new Error("Provide --workbook <path-to-xlsx>.");
   }
 
   if (result.batch && result.batches) {
