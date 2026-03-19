@@ -631,6 +631,57 @@ describe("quotes api helpers", () => {
     });
   });
 
+  it("classifies not-deployed edge fallback failures for archived delete errors", async () => {
+    vi.stubEnv("VITE_SUPABASE_URL", "https://previewref.supabase.co");
+
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "42501",
+        message: "Direct deletion from storage tables is not allowed. Use the Storage API instead.",
+        details: null,
+        hint: null,
+      },
+    });
+    supabaseMock.functionsInvoke.mockResolvedValueOnce({
+      data: null,
+      error: new FunctionsHttpError(
+        new Response(
+          JSON.stringify({
+            error: "cleanup service is not deployed in this environment.",
+          }),
+          {
+            status: 404,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      ),
+    });
+
+    const result = await deleteArchivedJobs(["job-123"]);
+
+    expect(result).toMatchObject({
+      deletedJobIds: [],
+      failures: [
+        {
+          jobId: "job-123",
+          message:
+            "Archived part deletion is unavailable in this environment because the cleanup service is not deployed.",
+          reporting: {
+            operation: "archived_delete",
+            fallbackPath: "job-archive-fallback",
+            failureCategory: "edge_not_deployed",
+            httpStatus: 404,
+            hasResponseBody: true,
+            functionUrl: "https://previewref.supabase.co/functions/v1/job-archive-fallback",
+          },
+        },
+      ],
+    });
+  });
+
   it("classifies edge fallback reachability failures for archived delete errors", async () => {
     vi.stubEnv("VITE_SUPABASE_URL", "https://previewref.supabase.co");
 
@@ -909,6 +960,77 @@ describe("quotes api helpers", () => {
 
     expect(supabaseMock.rpc).toHaveBeenCalledWith("api_delete_archived_jobs", {
       p_job_ids: ["job-123", "job-999"],
+    });
+  });
+
+  it("filters malformed archived delete payload entries while preserving valid reporting", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        deletedJobIds: ["job-123", 42, null],
+        failures: [
+          null,
+          {
+            jobId: "job-456",
+            message: "Archived delete cleanup service missing.",
+            reporting: {
+              operation: "archived_delete",
+              fallbackPath: "job-archive-fallback",
+              failureCategory: "edge_not_deployed",
+              failureSummary:
+                "Archived part deletion is unavailable in this environment because the cleanup service is not deployed.",
+              likelyCause:
+                "The job-archive-fallback Edge Function is unavailable in the active Supabase project.",
+              recommendedChecks: ["Verify that job-archive-fallback is deployed to the active Supabase project."],
+              httpStatus: 404,
+              hasResponseBody: true,
+            },
+          },
+          {
+            jobId: "job-789",
+          },
+          {
+            message: "Missing job id",
+          },
+          {
+            jobId: "job-999",
+            message: 7,
+          },
+        ],
+      },
+      error: null,
+    });
+
+    await expect(deleteArchivedJobs(["job-123", "job-456"])).resolves.toEqual({
+      deletedJobIds: ["job-123"],
+      failures: [
+        {
+          jobId: "job-456",
+          message: "Archived delete cleanup service missing.",
+          reporting: {
+            operation: "archived_delete",
+            fallbackPath: "job-archive-fallback",
+            failureCategory: "edge_not_deployed",
+            failureSummary:
+              "Archived part deletion is unavailable in this environment because the cleanup service is not deployed.",
+            likelyCause:
+              "The job-archive-fallback Edge Function is unavailable in the active Supabase project.",
+            recommendedChecks: ["Verify that job-archive-fallback is deployed to the active Supabase project."],
+            supabaseOrigin: null,
+            supabaseProjectRef: null,
+            functionName: null,
+            functionPath: null,
+            functionUrl: null,
+            httpStatus: 404,
+            hasResponseBody: true,
+            rawErrorName: null,
+            rawErrorMessage: null,
+            rawErrorStatus: null,
+            partIds: [],
+            organizationId: null,
+            userId: null,
+          },
+        },
+      ],
     });
   });
 
@@ -1839,6 +1961,80 @@ describe("quotes api helpers", () => {
     });
   });
 
+  it("returns a disabled worker readiness snapshot when the probe base url is unset", async () => {
+    await expect(fetchWorkerReadiness()).resolves.toEqual({
+      reachable: false,
+      ready: null,
+      workerName: null,
+      workerBuildVersion: null,
+      workerMode: null,
+      drawingExtractionModel: null,
+      drawingExtractionDebugAllowedModels: [],
+      drawingExtractionModelFallbackEnabled: false,
+      status: null,
+      readinessIssues: [],
+      message: "Set VITE_WORKER_BASE_URL to enable the worker readiness probe.",
+      url: null,
+    });
+  });
+
+  it("keeps payload-derived worker readiness fields when the probe returns a non-OK response", async () => {
+    vi.stubEnv("VITE_WORKER_BASE_URL", "https://worker.example.com/root/");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        json: async () => ({
+          ready: false,
+          workerName: "worker-1",
+          workerBuildVersion: "build-456",
+          workerMode: "live",
+          drawingExtractionModel: "gpt-5.4-mini",
+          drawingExtractionDebugAllowedModels: ["gpt-5.4-mini"],
+          drawingExtractionModelFallbackEnabled: false,
+          status: "degraded",
+          readinessIssues: ["vendor adapter unavailable"],
+        }),
+      }),
+    );
+
+    await expect(fetchWorkerReadiness()).resolves.toEqual({
+      reachable: true,
+      ready: false,
+      workerName: "worker-1",
+      workerBuildVersion: "build-456",
+      workerMode: "live",
+      drawingExtractionModel: "gpt-5.4-mini",
+      drawingExtractionDebugAllowedModels: ["gpt-5.4-mini"],
+      drawingExtractionModelFallbackEnabled: false,
+      status: "degraded",
+      readinessIssues: ["vendor adapter unavailable"],
+      message: "Worker readiness probe returned HTTP 503.",
+      url: "https://worker.example.com/readyz",
+    });
+  });
+
+  it("returns an unreachable worker readiness snapshot when the probe request fails", async () => {
+    vi.stubEnv("VITE_WORKER_BASE_URL", "https://worker.example.com");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Failed to fetch")));
+
+    await expect(fetchWorkerReadiness()).resolves.toEqual({
+      reachable: false,
+      ready: null,
+      workerName: null,
+      workerBuildVersion: null,
+      workerMode: null,
+      drawingExtractionModel: null,
+      drawingExtractionDebugAllowedModels: [],
+      drawingExtractionModelFallbackEnabled: false,
+      status: null,
+      readinessIssues: [],
+      message: "Failed to fetch",
+      url: "https://worker.example.com/readyz",
+    });
+  });
+
   it("requests a preview-only debug extraction run for a part", async () => {
     supabaseMock.rpc.mockResolvedValue({
       data: "debug-run-1",
@@ -2084,6 +2280,49 @@ describe("quotes api helpers", () => {
     });
   });
 
+  it("does not fall back to api_create_job for project-scoped client drafts", async () => {
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "42883",
+          message: "function public.api_create_client_draft does not exist",
+          details: null,
+          hint: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "42883",
+          message: "function public.api_create_client_draft does not exist",
+          details: null,
+          hint: null,
+        },
+      })
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "42883",
+          message: "function public.api_create_client_draft does not exist",
+          details: null,
+          hint: null,
+        },
+      });
+
+    await expect(
+      createClientDraft({
+        projectId: "project-1",
+        title: "Bracket",
+        description: "Upload test",
+        tags: [],
+      }),
+    ).rejects.toBeInstanceOf(ClientIntakeCompatibilityError);
+
+    expect(supabaseMock.rpc).not.toHaveBeenCalledWith("api_create_job", expect.anything());
+    expect(supabaseMock.membershipsSelect).not.toHaveBeenCalled();
+  });
+
   it("reports legacy intake compatibility when the probe RPC is missing", async () => {
     supabaseMock.rpc.mockResolvedValueOnce({
       data: null,
@@ -2097,6 +2336,30 @@ describe("quotes api helpers", () => {
 
     await expect(checkClientIntakeCompatibility()).resolves.toBe("legacy");
     expect(getClientIntakeCompatibilityMessage()).toContain("20260313143000_add_request_service_intent.sql");
+  });
+
+  it("reports legacy intake compatibility when only legacy create paths are available", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        supportsCurrentCreateJob: false,
+        supportsLegacyCreateJobV2: true,
+        supportsLegacyCreateJobV1: false,
+        supportsLegacyCreateJobV0: false,
+        supportsCurrentCreateClientDraft: false,
+        supportsLegacyCreateClientDraftV1: true,
+        supportsLegacyCreateClientDraftV0: false,
+        hasRequestedServiceKindsColumn: false,
+        hasPrimaryServiceKindColumn: false,
+        hasServiceNotesColumn: false,
+        missing: ["requested_service_kinds", "primary_service_kind", "service_notes"],
+      },
+      error: null,
+    });
+
+    await expect(checkClientIntakeCompatibility()).resolves.toBe("legacy");
+    expect(getClientIntakeCompatibilityMessage()).toContain(
+      "Missing: requested_service_kinds, primary_service_kind, service_notes.",
+    );
   });
 
   it("reports available intake compatibility when the probe RPC confirms the current schema", async () => {
@@ -2119,6 +2382,30 @@ describe("quotes api helpers", () => {
 
     await expect(checkClientIntakeCompatibility()).resolves.toBe("available");
     expect(supabaseMock.rpc).toHaveBeenCalledWith("api_get_client_intake_compatibility", {});
+  });
+
+  it("throws a compatibility error when the probe confirms neither current nor legacy intake support", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        supportsCurrentCreateJob: false,
+        supportsLegacyCreateJobV2: false,
+        supportsLegacyCreateJobV1: false,
+        supportsLegacyCreateJobV0: false,
+        supportsCurrentCreateClientDraft: false,
+        supportsLegacyCreateClientDraftV1: false,
+        supportsLegacyCreateClientDraftV0: false,
+        hasRequestedServiceKindsColumn: false,
+        hasPrimaryServiceKindColumn: false,
+        hasServiceNotesColumn: false,
+        missing: ["api_create_job", "api_create_client_draft"],
+      },
+      error: null,
+    });
+
+    await expect(checkClientIntakeCompatibility()).rejects.toBeInstanceOf(ClientIntakeCompatibilityError);
+    expect(getClientIntakeCompatibilityMessage()).toContain(
+      "Missing: api_create_job, api_create_client_draft.",
+    );
   });
 
   it("throws a compatibility error when job creation is blocked by client intake schema drift", async () => {
@@ -2677,12 +2964,42 @@ describe("quotes api helpers", () => {
       error: null,
     });
 
-    await expect(requestQuotes(["job-1", "job-2", "job-1"])).resolves.toHaveLength(2);
+    await expect(requestQuotes(["job-1", "job-2", "job-1"])).resolves.toEqual([
+      {
+        jobId: "job-1",
+        accepted: true,
+        created: true,
+        deduplicated: false,
+        quoteRequestId: "request-1",
+        quoteRunId: "run-1",
+        status: "queued",
+        reasonCode: null,
+        reason: null,
+        requestedVendors: ["xometry"],
+      },
+      {
+        jobId: "job-2",
+        accepted: false,
+        created: false,
+        deduplicated: false,
+        quoteRequestId: null,
+        quoteRunId: null,
+        status: "not_requested",
+        reasonCode: "missing_cad",
+        reason: "Upload a CAD model before requesting a quote from Xometry.",
+        requestedVendors: ["xometry"],
+      },
+    ]);
 
     expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_quotes", {
       p_job_ids: ["job-1", "job-2"],
       p_force_retry: false,
     });
+  });
+
+  it("short-circuits empty bulk quote requests without calling the rpc", async () => {
+    await expect(requestQuotes([])).resolves.toEqual([]);
+    expect(supabaseMock.rpc).not.toHaveBeenCalledWith("api_request_quotes", expect.anything());
   });
 
   it("keeps raw requested_service_kinds reads confined to the compatibility accessor", () => {
