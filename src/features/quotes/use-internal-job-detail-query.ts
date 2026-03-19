@@ -197,10 +197,20 @@ export function useInternalJobDetailQuery({
     partId: string,
     updater: (current: ApprovedPartRequirement) => ApprovedPartRequirement,
   ) => {
-    setDrafts((current) => ({
-      ...current,
-      [partId]: updater(current[partId]),
-    }));
+    const fallbackDraft = partViewModels.find((part) => part.part.id === partId)?.draft;
+
+    setDrafts((current) => {
+      const existingDraft = current[partId] ?? fallbackDraft;
+
+      if (!existingDraft) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [partId]: updater(existingDraft),
+      };
+    });
   };
 
   const setPartQuoteQuantityInput = (partId: string, value: string) => {
