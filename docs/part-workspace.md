@@ -21,7 +21,7 @@
   - `Domestic`
 - Presets ignore excluded vendors and any quote that cannot satisfy the requested due date.
 - Manual row or chart selection clears the active preset and persists through `api_set_job_selected_vendor_quote_offer`.
-- Vendor labels are anonymized per workspace as `Vendor A`, `Vendor B`, and so on.
+- Vendor labels use real vendor names, and comparison rows keep the stored lane and sourcing text visible to the client.
 
 ## Preview Panels
 - Drawing panel uses `ClientDrawingPreviewPanel` with inline page switching and a download action.

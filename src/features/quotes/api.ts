@@ -100,6 +100,13 @@ const untypedSupabase = supabase as typeof supabase & {
 
 type RpcName = keyof Database["public"]["Functions"];
 
+type ClientQuoteWorkspaceProjection = {
+  jobId: string;
+  latestQuoteRun: QuoteRunRecord | null;
+  selectedOffer: VendorQuoteOfferRecord | null;
+  vendorQuotes: VendorQuoteAggregate[];
+};
+
 function callRpc<Name extends RpcName>(
   fn: Name,
   args: Database["public"]["Functions"][Name]["Args"],
@@ -317,6 +324,7 @@ const DEBUG_EXTRACTION_RUN_IDENTIFIERS = [
 const CLIENT_ACTIVITY_IDENTIFIERS = ["api_list_client_activity_events"] as const;
 const QUOTE_REQUEST_IDENTIFIERS = ["public.quote_requests", "quote_requests", "quote_request_status"] as const;
 const CLIENT_PART_METADATA_IDENTIFIERS = ["api_list_client_part_metadata"] as const;
+const CLIENT_QUOTE_WORKSPACE_IDENTIFIERS = ["api_list_client_quote_workspace"] as const;
 const JOB_SELECTION_COLUMN_SETS = [
   "id, selected_vendor_quote_offer_id, requested_service_kinds, primary_service_kind, service_notes, requested_quote_quantities, requested_by_date",
   "id, selected_vendor_quote_offer_id, requested_quote_quantities, requested_by_date",
@@ -507,6 +515,10 @@ function isMissingQuoteRequestSchemaError(error: unknown): boolean {
 
 function isMissingClientPartMetadataSchemaError(error: unknown): boolean {
   return isMissingSchemaIdentifierError(error, CLIENT_PART_METADATA_IDENTIFIERS);
+}
+
+function isMissingClientQuoteWorkspaceSchemaError(error: unknown): boolean {
+  return isMissingSchemaIdentifierError(error, CLIENT_QUOTE_WORKSPACE_IDENTIFIERS);
 }
 
 function isMissingClientIntakeSchemaError(error: unknown): boolean {
@@ -751,6 +763,55 @@ function asObject(value: Json | null | undefined): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function normalizeQuoteRunRecord(value: unknown): QuoteRunRecord | null {
+  const record = asObject(value as Json);
+  return typeof record.id === "string" ? (record as unknown as QuoteRunRecord) : null;
+}
+
+function normalizeVendorQuoteOfferRecord(value: unknown): VendorQuoteOfferRecord | null {
+  const record = asObject(value as Json);
+  return typeof record.id === "string" ? (record as unknown as VendorQuoteOfferRecord) : null;
+}
+
+function normalizeVendorQuoteAggregate(value: unknown): VendorQuoteAggregate | null {
+  const record = asObject(value as Json);
+
+  if (typeof record.id !== "string") {
+    return null;
+  }
+
+  return {
+    ...(record as unknown as VendorQuoteResultRecord),
+    offers: asArray<unknown>(record.offers)
+      .map((offer) => normalizeVendorQuoteOfferRecord(offer))
+      .filter((offer): offer is VendorQuoteOfferRecord => Boolean(offer)),
+    artifacts: asArray<unknown>(record.artifacts)
+      .map((artifact) => artifact as VendorQuoteArtifactRecord)
+      .filter((artifact) => typeof artifact.id === "string"),
+  };
+}
+
+function normalizeClientQuoteWorkspaceProjection(value: Json): ClientQuoteWorkspaceProjection | null {
+  const record = asObject(value);
+
+  if (typeof record.jobId !== "string") {
+    return null;
+  }
+
+  return {
+    jobId: record.jobId,
+    latestQuoteRun: normalizeQuoteRunRecord(record.latestQuoteRun),
+    selectedOffer: normalizeVendorQuoteOfferRecord(record.selectedOffer),
+    vendorQuotes: asArray<unknown>(record.vendorQuotes)
+      .map((quote) => normalizeVendorQuoteAggregate(quote))
+      .filter((quote): quote is VendorQuoteAggregate => Boolean(quote)),
+  };
 }
 
 function sanitizeStorageFileName(fileName: string): string {
@@ -1020,13 +1081,9 @@ async function fetchJobSelectionState(scope: JobSelectionScope): Promise<JobSele
     };
   }
 
-  const { data: offersData, error: offersError } = await supabase
-    .from("vendor_quote_offers")
-    .select("*")
-    .in("id", offerIds);
-
-  const offers = ensureData(offersData, offersError) as VendorQuoteOfferRecord[];
-  const offersById = new Map(offers.map((offer) => [offer.id, offer]));
+  const quoteWorkspaceByJobId = await fetchClientQuoteWorkspaceProjectionByJobIds(
+    jobsWithSelection.map((job) => job.id),
+  );
 
   return {
     selectedOffersByJobId: new Map(
@@ -1035,7 +1092,7 @@ async function fetchJobSelectionState(scope: JobSelectionScope): Promise<JobSele
           return [];
         }
 
-        const offer = offersById.get(job.selected_vendor_quote_offer_id);
+        const offer = quoteWorkspaceByJobId.get(job.id)?.selectedOffer ?? null;
         return offer ? [[job.id, offer] as const] : [];
       }),
     ),
@@ -1115,6 +1172,52 @@ async function fetchClientPartMetadataByJobIds(jobIds: string[]): Promise<Client
   return rows
     .map((row) => normalizeClientPartMetadata(row as Json))
     .filter((row): row is ClientPartMetadataRecord => Boolean(row));
+}
+
+async function fetchClientQuoteWorkspaceProjectionByJobIds(
+  jobIds: string[],
+): Promise<Map<string, ClientQuoteWorkspaceProjection>> {
+  if (jobIds.length === 0) {
+    return new Map();
+  }
+
+  const { data, error } = await callUntypedRpc("api_list_client_quote_workspace", {
+    p_job_ids: jobIds,
+  });
+
+  if (error) {
+    if (
+      isMissingFunctionError(error, "api_list_client_quote_workspace") ||
+      isMissingClientQuoteWorkspaceSchemaError(error)
+    ) {
+      return new Map(
+        jobIds.map((jobId) => [
+          jobId,
+          {
+            jobId,
+            latestQuoteRun: null,
+            selectedOffer: null,
+            vendorQuotes: [],
+          } satisfies ClientQuoteWorkspaceProjection,
+        ]),
+      );
+    }
+
+    throw error;
+  }
+
+  const rows = ensureData(data, null);
+
+  if (!Array.isArray(rows)) {
+    throw new Error("Expected client quote workspace projection to be returned as an array.");
+  }
+
+  return new Map(
+    rows
+      .map((row) => normalizeClientQuoteWorkspaceProjection(row as Json))
+      .filter((row): row is ClientQuoteWorkspaceProjection => Boolean(row))
+      .map((row) => [row.jobId, row] as const),
+  );
 }
 
 export type ResolvedClientPartDetailRoute = {
@@ -2215,29 +2318,6 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
   };
 }
 
-async function fetchLatestQuoteRunsByJobIds(jobIds: string[]): Promise<Map<string, QuoteRunRecord>> {
-  if (jobIds.length === 0) {
-    return new Map();
-  }
-
-  const { data, error } = await supabase
-    .from("quote_runs")
-    .select("*")
-    .in("job_id", jobIds)
-    .order("created_at", { ascending: false });
-
-  const runs = ensureData(data, error) as QuoteRunRecord[];
-  const latestByJobId = new Map<string, QuoteRunRecord>();
-
-  runs.forEach((run) => {
-    if (!latestByJobId.has(run.job_id)) {
-      latestByJobId.set(run.job_id, run);
-    }
-  });
-
-  return latestByJobId;
-}
-
 async function fetchLatestQuoteRequestsByJobIds(jobIds: string[]): Promise<Map<string, QuoteRequestRecord>> {
   if (jobIds.length === 0) {
     return new Map();
@@ -2298,8 +2378,8 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     partsResult,
     summaries,
     projectMemberships,
-    latestQuoteRunsByJobId,
     latestQuoteRequestsByJobId,
+    quoteWorkspaceByJobId,
   ] = await Promise.all([
     fetchJobsByIds(jobIds, {
       archived: false,
@@ -2308,20 +2388,13 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     supabase.from("parts").select("*").in("job_id", jobIds).order("created_at", { ascending: true }),
     fetchJobPartSummariesByJobIds(jobIds),
     fetchProjectJobMembershipsByJobIds(jobIds),
-    fetchLatestQuoteRunsByJobIds(jobIds),
     fetchLatestQuoteRequestsByJobIds(jobIds),
+    fetchClientQuoteWorkspaceProjectionByJobIds(jobIds),
   ]);
 
   const files = ensureData(filesResult.data, filesResult.error) as JobFileRecord[];
   const parts = ensureData(partsResult.data, partsResult.error) as PartRecord[];
-  const latestQuoteRunIds = [...new Set(Array.from(latestQuoteRunsByJobId.values()).map((run) => run.id))];
-
-  const [metadataRows, vendorQuoteResult] = await Promise.all([
-    fetchClientPartMetadataByJobIds(jobIds),
-    latestQuoteRunIds.length > 0
-      ? supabase.from("vendor_quote_results").select("*").in("quote_run_id", latestQuoteRunIds)
-      : emptyResponse<VendorQuoteResultRecord>(),
-  ]);
+  const metadataRows = await fetchClientPartMetadataByJobIds(jobIds);
   const previewPartIds = [...new Set([...parts.map((part) => part.id), ...metadataRows.map((item) => item.partId)])];
   const previewResult =
     previewPartIds.length > 0
@@ -2335,26 +2408,6 @@ export async function fetchClientQuoteWorkspaceByJobIds(
   const previewAssets = isMissingDrawingPreviewSchemaError(previewResult.error)
     ? []
     : (ensureData(previewResult.data, previewResult.error) as DrawingPreviewAssetRecord[]);
-  const vendorQuotes = ensureData(
-    vendorQuoteResult.data,
-    vendorQuoteResult.error,
-  ) as VendorQuoteResultRecord[];
-  const vendorQuoteIds = vendorQuotes.map((quote) => quote.id);
-
-  const [artifactResult, offerResult] = await Promise.all([
-    vendorQuoteIds.length > 0
-      ? supabase.from("vendor_quote_artifacts").select("*").in("vendor_quote_result_id", vendorQuoteIds)
-      : emptyResponse<VendorQuoteArtifactRecord>(),
-    vendorQuoteIds.length > 0
-      ? supabase.from("vendor_quote_offers").select("*").in("vendor_quote_result_id", vendorQuoteIds)
-      : emptyResponse<VendorQuoteOfferRecord>(),
-  ]);
-
-  const vendorArtifacts = ensureData(
-    artifactResult.data,
-    artifactResult.error,
-  ) as VendorQuoteArtifactRecord[];
-  const vendorOffers = ensureData(offerResult.data, offerResult.error) as VendorQuoteOfferRecord[];
 
   const summariesByJobId = new Map(summaries.map((summary) => [summary.jobId, summary]));
   const filesByJobId = new Map<string, JobFileRecord[]>();
@@ -2363,8 +2416,6 @@ export async function fetchClientQuoteWorkspaceByJobIds(
   const previewAssetsByPartId = new Map<string, DrawingPreviewAssetRecord[]>();
   const fileById = new Map(files.map((file) => [file.id, file]));
   const projectIdsByJobId = new Map<string, string[]>();
-  const vendorOffersByQuoteId = new Map<string, VendorQuoteOfferRecord[]>();
-  const vendorArtifactsByQuoteId = new Map<string, VendorQuoteArtifactRecord[]>();
 
   files.forEach((file) => {
     const jobFiles = filesByJobId.get(file.job_id) ?? [];
@@ -2392,44 +2443,6 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     projectIdsByJobId.set(membership.job_id, projectIds);
   });
 
-  vendorOffers.forEach((offer) => {
-    const offers = vendorOffersByQuoteId.get(offer.vendor_quote_result_id) ?? [];
-    offers.push(offer);
-    vendorOffersByQuoteId.set(offer.vendor_quote_result_id, offers);
-  });
-
-  vendorArtifacts.forEach((artifact) => {
-    const artifacts = vendorArtifactsByQuoteId.get(artifact.vendor_quote_result_id) ?? [];
-    artifacts.push(artifact);
-    vendorArtifactsByQuoteId.set(artifact.vendor_quote_result_id, artifacts);
-  });
-
-  const vendorQuoteAggregates: VendorQuoteAggregate[] = vendorQuotes
-    .map((quote) => ({
-      ...quote,
-      artifacts: [...(vendorArtifactsByQuoteId.get(quote.id) ?? [])].sort((left, right) =>
-        left.created_at.localeCompare(right.created_at),
-      ),
-      offers: [...(vendorOffersByQuoteId.get(quote.id) ?? [])].sort((left, right) => {
-        if (left.sort_rank !== right.sort_rank) {
-          return left.sort_rank - right.sort_rank;
-        }
-
-        return (left.total_price_usd ?? Number.MAX_SAFE_INTEGER) - (right.total_price_usd ?? Number.MAX_SAFE_INTEGER);
-      }),
-    }))
-    .sort((left, right) => {
-      if (left.requested_quantity !== right.requested_quantity) {
-        return left.requested_quantity - right.requested_quantity;
-      }
-
-      if (left.part_id !== right.part_id) {
-        return left.part_id.localeCompare(right.part_id);
-      }
-
-      return left.vendor.localeCompare(right.vendor);
-    });
-
   const jobById = new Map(jobs.map((job) => [job.id, job]));
 
   return jobIds.flatMap((jobId) => {
@@ -2441,6 +2454,12 @@ export async function fetchClientQuoteWorkspaceByJobIds(
 
     const jobFiles = filesByJobId.get(jobId) ?? [];
     const jobParts = partsByJobId.get(jobId) ?? [];
+    const quoteWorkspace = quoteWorkspaceByJobId.get(jobId) ?? {
+      jobId,
+      latestQuoteRun: null,
+      selectedOffer: null,
+      vendorQuotes: [],
+    };
     const primaryPart = jobParts[0] ?? null;
     const fallbackMetadata = metadataRows.find((item) => item.jobId === jobId) ?? null;
     const partWithRelations =
@@ -2450,7 +2469,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
               job,
               metadata: fallbackMetadata,
               files: jobFiles,
-              vendorQuotes: vendorQuoteAggregates,
+              vendorQuotes: quoteWorkspace.vendorQuotes,
             })
           : null
         : {
@@ -2461,7 +2480,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
             approvedRequirement: null,
             clientRequirement: metadataByPartId.get(primaryPart.id)?.requirement ?? null,
             clientExtraction: metadataByPartId.get(primaryPart.id)?.extraction ?? null,
-            vendorQuotes: vendorQuoteAggregates.filter((quote) => quote.part_id === primaryPart.id),
+            vendorQuotes: quoteWorkspace.vendorQuotes.filter((quote) => quote.part_id === primaryPart.id),
           };
 
     return [
@@ -2479,7 +2498,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
                 previewAssetsByPartId.get(partWithRelations.id) ?? [],
               ),
         latestQuoteRequest: latestQuoteRequestsByJobId.get(jobId) ?? null,
-        latestQuoteRun: latestQuoteRunsByJobId.get(jobId) ?? null,
+        latestQuoteRun: quoteWorkspace.latestQuoteRun,
       } satisfies ClientQuoteWorkspaceItem,
     ];
   });

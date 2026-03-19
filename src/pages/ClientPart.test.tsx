@@ -209,7 +209,7 @@ function createPartDetail(overrides: Record<string, unknown> = {}) {
       importedBatch: null,
       requestedQuoteQuantities: [10],
       requestedByDate: "2026-04-15",
-      selectedSupplier: "Vendor A",
+      selectedSupplier: "Xometry",
       selectedPriceUsd: 100,
       selectedLeadTimeBusinessDays: 7,
     },
@@ -291,7 +291,7 @@ describe("ClientPart", () => {
         importedBatch: null,
         requestedQuoteQuantities: [10],
         requestedByDate: "2026-04-15",
-        selectedSupplier: "Vendor A",
+        selectedSupplier: "Xometry",
         selectedPriceUsd: 100,
         selectedLeadTimeBusinessDays: 7,
       },
@@ -333,6 +333,77 @@ describe("ClientPart", () => {
     expect(screen.getByRole("button", { name: /prev rev/i })).toBeInTheDocument();
     expect(screen.queryByText("This part could not be loaded.")).not.toBeInTheDocument();
     expect(api.fetchPartDetailByJobId).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders real vendor quote options instead of the empty comparison state", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValue(
+      createPartDetail({
+        part: {
+          ...createPartDetail().part,
+          vendorQuotes: [
+            {
+              id: "quote-1",
+              quote_run_id: "run-1",
+              part_id: "part-1",
+              organization_id: "org-1",
+              vendor: "xometry",
+              requested_quantity: 10,
+              status: "official_quote_received",
+              unit_price_usd: 10,
+              total_price_usd: 100,
+              lead_time_business_days: 7,
+              quote_url: null,
+              dfm_issues: [],
+              notes: [],
+              raw_payload: {},
+              created_at: "2026-03-01T00:00:00Z",
+              updated_at: "2026-03-01T00:00:00Z",
+              offers: [
+                {
+                  id: "offer-1",
+                  vendor_quote_result_id: "quote-1",
+                  organization_id: "org-1",
+                  offer_key: "xometry-standard",
+                  supplier: "Xometry",
+                  lane_label: "USA / Standard",
+                  sourcing: "USA",
+                  tier: "Standard",
+                  quote_ref: "Q-1",
+                  quote_date: "2026-03-01",
+                  unit_price_usd: 10,
+                  total_price_usd: 100,
+                  lead_time_business_days: 7,
+                  ship_receive_by: "2026-03-10",
+                  due_date: "2026-04-15",
+                  process: "CNC Machining",
+                  material: "6061-T6",
+                  finish: "Black anodize",
+                  tightest_tolerance: "±.005\"",
+                  tolerance_source: "Drawing",
+                  thread_callouts: null,
+                  thread_match_notes: null,
+                  notes: null,
+                  sort_rank: 0,
+                  raw_payload: {},
+                  created_at: "2026-03-01T00:00:00Z",
+                  updated_at: "2026-03-01T00:00:00Z",
+                },
+              ],
+              artifacts: [],
+            },
+          ],
+        },
+      }),
+    );
+
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Xometry").length).toBeGreaterThan(0);
+    });
+
+    expect(screen.getByText("Chart")).toBeInTheDocument();
+    expect(screen.queryByText("No quote options are available yet.")).not.toBeInTheDocument();
   });
 
   it("canonicalizes legacy part-id routes onto the owning job route", async () => {

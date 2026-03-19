@@ -1,7 +1,7 @@
 import { addBusinessDays, format, isValid, parse, parseISO, startOfDay } from "date-fns";
 import type { VendorName, Json } from "@/integrations/supabase/types";
 import type { VendorQuoteAggregate } from "@/features/quotes/types";
-import { getImportedVendorOffers } from "@/features/quotes/utils";
+import { formatVendorName, getImportedVendorOffers } from "@/features/quotes/utils";
 
 export type QuotePreset = "cheapest" | "fastest" | "domestic";
 
@@ -108,19 +108,6 @@ const DATE_FORMATS = [
   "MMM d",
   "MMMM d",
 ] as const;
-
-function indexToAlphabetLabel(index: number): string {
-  let value = index + 1;
-  let output = "";
-
-  while (value > 0) {
-    value -= 1;
-    output = String.fromCharCode(65 + (value % 26)) + output;
-    value = Math.floor(value / 26);
-  }
-
-  return output;
-}
 
 function stringifyJson(value: Json | null | undefined): string {
   if (value === null || value === undefined) {
@@ -483,7 +470,7 @@ export function buildVendorLabelMap(vendorKeys: readonly VendorName[]): Map<Vend
   const sortedKeys = [...new Set(vendorKeys)].sort();
 
   return new Map(
-    sortedKeys.map((vendorKey, index) => [vendorKey, `Vendor ${indexToAlphabetLabel(index)}`] as const),
+    sortedKeys.map((vendorKey) => [vendorKey, formatVendorName(vendorKey)] as const),
   );
 }
 

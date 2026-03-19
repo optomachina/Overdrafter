@@ -202,7 +202,7 @@ Drawing extraction must keep source-truth values from the drawing title block di
 For drawings with missing, low-confidence, or conflicting parser output, the system may use a bounded model fallback to recover raw title-block values, but it must still validate the returned fields and fail closed into review when uncertainty remains.
 
 ### 6. Internal-only data must stay internal
-Internal sourcing context, operational notes, and sensitive quote context must not leak into client-facing views.
+Internal operational notes, unpublished workflow/debug context, and other non-client-facing quote data must not leak into client-facing views. Client quote comparison may intentionally expose vendor identities and published raw lane context when that data is part of the workspace comparison experience.
 
 ### 7. Workspace is the tenancy concept
 The product should expose `workspace` as the user-facing tenancy boundary. Lower-level backend tenancy concepts should stay implementation details.

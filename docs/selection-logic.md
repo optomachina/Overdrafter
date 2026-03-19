@@ -67,7 +67,7 @@
 
 ## Client-Facing Reason Rules
 - Part, project, review, and sidebar surfaces should derive client-facing reasons from the same underlying signals rather than inventing route-specific labels.
-- Quote-option rows surface only client-safe constraints:
+- Quote-option rows surface the stored vendor and lane context alongside selection constraints:
   - `Needs review before selection`
   - `Misses requested date <date>`
   - `Excluded from presets`

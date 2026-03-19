@@ -1333,8 +1333,8 @@ async function attachFileToJob(
   }
 
   let blobId = existingBlob?.id ?? null;
-  let storageBucket = existingBlob?.storage_bucket ?? "job-files";
-  let storagePath = existingBlob?.storage_path ?? buildStoragePath(input.organizationId, contentSha256, input.file.originalName);
+  const storageBucket = existingBlob?.storage_bucket ?? "job-files";
+  const storagePath = existingBlob?.storage_path ?? buildStoragePath(input.organizationId, contentSha256, input.file.originalName);
 
   if (!existingBlob) {
     const content = await fs.readFile(input.file.absolutePath);
