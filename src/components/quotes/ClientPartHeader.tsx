@@ -23,13 +23,13 @@ export function ClientPartHeader({
   return (
     <section
       className={cn(
-        "rounded-[30px] border border-white/8 bg-[#262626] px-5 py-5 md:px-6",
+        "rounded-[30px] border border-ws-border bg-ws-card px-5 py-5 md:px-6",
         className,
       )}
     >
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 flex-1">
-          <p className="text-xs uppercase tracking-[0.18em] text-white/35">{eyebrow}</p>
+          <p className="ws-section-label">{eyebrow}</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">{title}</h1>
           {description ? <p className="mt-2 max-w-4xl text-sm text-white/55">{description}</p> : null}
           {badges ? <div className="mt-4 flex flex-wrap gap-2">{badges}</div> : null}

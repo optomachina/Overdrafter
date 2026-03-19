@@ -51,6 +51,19 @@ export default {
         surface: {
           elevated: "var(--surface-elevated)",
         },
+        ws: {
+          base: "var(--ws-surface-base)",
+          card: "var(--ws-surface-card)",
+          inset: "var(--ws-surface-inset)",
+          raised: "var(--ws-surface-raised)",
+          "accent-surface": "var(--ws-accent-surface)",
+        },
+        "ws-border": {
+          subtle: "var(--ws-border-subtle)",
+          DEFAULT: "var(--ws-border-default)",
+          strong: "var(--ws-border-strong)",
+          accent: "var(--ws-accent-border)",
+        },
         sidebar: {
           DEFAULT: "var(--sidebar)",
           foreground: "var(--sidebar-foreground)",

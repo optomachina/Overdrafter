@@ -194,8 +194,8 @@ const ClientPart = () => {
     }
 
     return (
-      <section className="rounded-[24px] border border-white/8 bg-black/20 p-4">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Vendor visibility</p>
+      <section className="rounded-[24px] border border-ws-border-subtle bg-ws-inset p-4">
+        <p className="ws-subsection-label">Vendor visibility</p>
         <div className="mt-3 flex flex-wrap gap-2">
           {visibleOptions.map((option) => (
             <Button
@@ -218,8 +218,8 @@ const ClientPart = () => {
 
   const quoteRailContent = (
     <div className="space-y-4">
-      <section className="rounded-[24px] border border-white/8 bg-black/20 p-4">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Request summary</p>
+      <section className="rounded-[24px] border border-ws-border-subtle bg-ws-inset p-4">
+        <p className="ws-subsection-label">Request summary</p>
         <RequestSummaryBadges
           requestedServiceKinds={effectiveRequestDraft?.requestedServiceKinds ?? summary?.requestedServiceKinds ?? []}
           quantity={requestSummaryQuantity}
@@ -246,9 +246,9 @@ const ClientPart = () => {
 
       {renderVendorExclusionControls()}
 
-      <section className="rounded-[24px] border border-white/8 bg-black/20 p-4">
+      <section className="rounded-[24px] border border-ws-border-subtle bg-ws-inset p-4">
         <div className="mb-4">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Request details</p>
+          <p className="ws-subsection-label">Request details</p>
           <p className="mt-2 text-sm text-white/55">
             Keep quote-safe metadata and revision uploads connected to this part.
           </p>
@@ -440,13 +440,13 @@ const ClientPart = () => {
                     <Button
                       type="button"
                       variant="outline"
-                      className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                      className="rounded-full border-white/10 bg-white/8 text-white hover:bg-white/12"
                       onClick={attachFilesPicker.openFilePicker}
                     >
                       <Upload className="mr-2 h-4 w-4" />
                       Attach files
                     </Button>
-                    <Button type="button" className="rounded-full" onClick={() => navigate(`/parts/${jobId}/review`)}>
+                    <Button type="button" className="rounded-full shadow-sm" onClick={() => navigate(`/parts/${jobId}/review`)}>
                       Review order
                       <MoveRight className="ml-2 h-4 w-4" />
                     </Button>
@@ -521,11 +521,11 @@ const ClientPart = () => {
 
               {workspaceState ? <ClientWorkspaceStateSummary state={workspaceState} /> : null}
 
-              <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
                 <div className="space-y-6">
                   {/* Artifact stage */}
                   <div>
-                    <p className="mb-3 text-[10px] uppercase tracking-[0.18em] text-white/30">Artifact stage</p>
+                    <p className="ws-section-label mb-3">Artifact stage</p>
                     <ClientArtifactWorkspace
                       itemKey={jobId}
                       hasCad={Boolean(cadFile)}
@@ -548,7 +548,7 @@ const ClientPart = () => {
 
                   {/* Quote intelligence */}
                   <div>
-                    <p className="mb-3 text-[10px] uppercase tracking-[0.18em] text-white/30">Quote intelligence</p>
+                    <p className="ws-section-label mb-3">Quote intelligence</p>
                     <ClientQuoteDecisionPanel
                       options={rankedQuoteOptions}
                       selectedOption={selectedQuoteOption}

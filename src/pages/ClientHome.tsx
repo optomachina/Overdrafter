@@ -67,8 +67,8 @@ const ClientHome = () => {
     return (
       <div className="mx-auto flex w-full max-w-[860px] flex-1 flex-col px-6 pb-20 pt-12">
         <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Manufacturing workspace</p>
-          <h1 className="mt-3 text-[2.25rem] font-semibold tracking-tight text-white md:text-[2.65rem]">
+          <p className="ws-section-label">Manufacturing workspace</p>
+          <h1 className="mt-3 text-[2.75rem] font-semibold tracking-tight text-white md:text-[2.75rem]">
             Artifact-first quoting for machined parts.
           </h1>
           <p className="mt-4 max-w-xl text-base text-white/55">
@@ -79,7 +79,7 @@ const ClientHome = () => {
         <div className="mt-8 flex flex-wrap gap-3">
           <Button
             type="button"
-            className="rounded-full px-6"
+            className="rounded-full px-6 shadow-lg shadow-white/5"
             onClick={() => openAuth("signup")}
           >
             <Upload className="mr-2 h-4 w-4" />
@@ -105,7 +105,7 @@ const ClientHome = () => {
                 onClick={() => openAuth("signup")}
                 className="flex w-full items-center gap-4 px-5 py-4 text-left text-sm text-white/60 transition hover:bg-white/4 hover:text-white/90 first:rounded-t-[20px] last:rounded-b-[20px]"
               >
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/25" />
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${item.action === "upload" ? "bg-emerald-400/40" : "bg-blue-400/40"}`} />
                 <span>{item.label}</span>
               </button>
             ))}
@@ -125,11 +125,11 @@ const ClientHome = () => {
     return (
       <div className="mx-auto flex w-full max-w-[1380px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
         {/* Workspace header */}
-        <section className="rounded-[30px] border border-white/8 bg-[#262626] p-6">
+        <section className="rounded-[30px] border border-ws-border-subtle bg-gradient-to-br from-ws-card to-ws-card/80 p-6">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Workspace</p>
-              <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white">
+              <p className="ws-section-label">Workspace</p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
                 Start with a part package or open an existing project.
               </h1>
               <p className="mt-2 text-sm text-white/55">
@@ -163,7 +163,7 @@ const ClientHome = () => {
                     onClick={item.action === "upload" ? newJobFilePicker.openFilePicker : () => setIsSearchOpen(true)}
                     className="flex w-full items-center gap-3 px-4 py-3 text-left text-xs text-white/55 transition hover:bg-white/4 hover:text-white/80 first:rounded-t-[14px] last:rounded-b-[14px]"
                   >
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/25" />
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${item.action === "upload" ? "bg-emerald-400/40" : "bg-blue-400/40"}`} />
                     <span>{item.label}</span>
                   </button>
                 ))}
@@ -174,9 +174,9 @@ const ClientHome = () => {
 
         {/* Recent projects + recent parts */}
         <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-          <section className="rounded-[30px] border border-white/8 bg-[#262626] p-5">
+          <section className="rounded-[30px] border border-ws-border-subtle bg-ws-card p-5">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Recent projects</p>
+              <p className="ws-subsection-label">Recent projects</p>
               <Badge className="border border-white/10 bg-white/6 text-white/70">
                 {recentProjects.length} shown
               </Badge>
@@ -193,7 +193,7 @@ const ClientHome = () => {
                     key={project.id}
                     type="button"
                     onClick={() => navigate(`/projects/${project.id}`)}
-                    className="block w-full rounded-[18px] border border-white/8 bg-black/20 px-4 py-3.5 text-left transition hover:bg-white/4"
+                    className="block w-full rounded-[18px] border border-ws-border-subtle bg-ws-card px-4 py-3.5 text-left transition hover:border-ws-border border-l-2 border-l-blue-500/30"
                   >
                     <div className="flex items-center justify-between gap-4">
                       <div className="min-w-0">
@@ -210,9 +210,9 @@ const ClientHome = () => {
             </div>
           </section>
 
-          <section className="rounded-[30px] border border-white/8 bg-[#262626] p-5">
+          <section className="rounded-[30px] border border-ws-border-subtle bg-ws-card p-5">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Recent parts</p>
+              <p className="ws-subsection-label">Recent parts</p>
               <Badge className="border border-white/10 bg-white/6 text-white/70">
                 {recentJobs.length} shown
               </Badge>
@@ -241,7 +241,7 @@ const ClientHome = () => {
                       key={job.id}
                       type="button"
                       onClick={() => navigate(`/parts/${job.id}`)}
-                      className="block w-full rounded-[18px] border border-white/8 bg-black/20 px-4 py-3.5 text-left transition hover:bg-white/4"
+                      className="block w-full rounded-[18px] border border-ws-border-subtle bg-ws-card px-4 py-3.5 text-left transition hover:border-ws-border border-l-2 border-l-emerald-500/30"
                     >
                       <div className="flex items-center justify-between gap-4">
                         <div className="min-w-0">

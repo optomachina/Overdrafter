@@ -45,9 +45,9 @@ export function ClientIntelligencePanel({
   }, [defaultTab, itemKey]);
 
   return (
-    <aside className={cn("rounded-[30px] border border-white/8 bg-[#262626] p-5", className)}>
+    <aside className={cn("rounded-[24px] border border-ws-border-subtle bg-ws-card p-4", className)}>
       <div className="border-b border-white/8 pb-4">
-        <p className="text-xs uppercase tracking-[0.18em] text-white/35">Part context</p>
+        <p className="ws-subsection-label">Part context</p>
       </div>
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as IntelligencePanelTab)}>

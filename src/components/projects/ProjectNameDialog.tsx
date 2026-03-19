@@ -39,7 +39,7 @@ export function ProjectNameDialog({
 }: ProjectNameDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="chatgpt-shell rounded-2xl border-white/[0.08] bg-[#2a2a2a] text-white">
+      <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-[#2a2a2a] text-white">
         <form
           className="space-y-4"
           onSubmit={(event) => {

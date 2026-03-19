@@ -8,7 +8,7 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* ChatGPT-inspired Dark Theme with OKLCH colors */
+    /* Workspace Dark Theme with OKLCH colors */
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
 
@@ -43,6 +43,21 @@ All colors MUST be HSL.
     /* Surface elevation */
     --surface-elevated: oklch(0.269 0 0);
 
+    /* Workspace surface elevation system */
+    --ws-surface-base: oklch(0.165 0 0);
+    --ws-surface-card: oklch(0.185 0 0);
+    --ws-surface-inset: oklch(0.12 0 0);
+    --ws-surface-raised: oklch(0.21 0 0);
+
+    /* Workspace border system */
+    --ws-border-subtle: oklch(1 0 0 / 0.08);
+    --ws-border-default: oklch(1 0 0 / 0.12);
+    --ws-border-strong: oklch(1 0 0 / 0.18);
+
+    /* Artifact accent */
+    --ws-accent-surface: oklch(0.25 0.015 250);
+    --ws-accent-border: oklch(0.45 0.04 250 / 0.3);
+
     /* Sidebar tokens */
     --sidebar: oklch(0.205 0 0);
     --sidebar-foreground: oklch(0.985 0 0);
@@ -72,7 +87,14 @@ All colors MUST be HSL.
 }
 
 @layer utilities {
-  .chatgpt-shell {
+  .ws-section-label {
+    @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-white/50;
+  }
+  .ws-subsection-label {
+    @apply text-[10px] uppercase tracking-[0.18em] text-white/30;
+  }
+
+  .workspace-shell {
     font-family:
       ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif,
       "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
