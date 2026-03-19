@@ -24,8 +24,8 @@ vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
 }));
 
-vi.mock("@/components/chat/ChatWorkspaceLayout", () => ({
-  ChatWorkspaceLayout: ({
+vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
+  ClientWorkspaceShell: ({
     children,
     sidebarContent,
   }: {
@@ -251,7 +251,7 @@ describe("client review pages", () => {
       expect(screen.getByText("Line items")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Bracket RFQ")).toBeInTheDocument();
+    expect(screen.getAllByText("Bracket RFQ").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("$100.00")).toBeInTheDocument();
     expect(screen.getByText("Procurement handoff")).toBeInTheDocument();
     expect(

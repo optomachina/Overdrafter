@@ -4,8 +4,8 @@ import React, { type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import ClientHome from "./ClientHome";
 
-vi.mock("@/components/chat/ChatWorkspaceLayout", () => ({
-  ChatWorkspaceLayout: ({
+vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
+  ClientWorkspaceShell: ({
     children,
     sidebarContent,
     sidebarFooter,
@@ -145,7 +145,7 @@ describe("ClientHome", () => {
   it("renders the signed-in workspace launcher with recent project and part sections", () => {
     render(<ClientHome />);
 
-    expect(screen.getByText("Workspace launcher")).toBeInTheDocument();
+    expect(screen.getByText("Workspace")).toBeInTheDocument();
     expect(screen.getByText("Recent projects")).toBeInTheDocument();
     expect(screen.getByText("Recent parts")).toBeInTheDocument();
     expect(screen.getByText("Q1 Brackets")).toBeInTheDocument();

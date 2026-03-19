@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { PartDropdownMenuActions } from "@/components/chat/PartActionsMenu";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
-import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
+import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
@@ -272,7 +272,7 @@ const ClientPart = () => {
 
   return (
     <>
-      <ChatWorkspaceLayout
+      <ClientWorkspaceShell
         onLogoClick={() => navigate("/")}
         sidebarRailActions={[
           { label: "New Job", icon: PlusSquare, onClick: newJobFilePicker.openFilePicker },
@@ -523,39 +523,47 @@ const ClientPart = () => {
 
               <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
                 <div className="space-y-6">
-                  <ClientArtifactWorkspace
-                    itemKey={jobId}
-                    hasCad={Boolean(cadFile)}
-                    hasDrawing={Boolean(drawingFile)}
-                    drawingPanel={
-                      <ClientDrawingPreviewPanel
-                        drawingFile={drawingFile}
-                        drawingPreview={drawingPreview ?? { pageCount: 0, thumbnail: null, pages: [] }}
-                        pdfUrl={drawingPdfUrl}
-                        pages={drawingPreviewPageUrls}
-                        state={drawingPreviewState}
-                        statusMessage={drawingPreviewStatusMessage}
-                        isLoading={isDrawingPreviewLoading}
-                        onOpenDialog={drawingFile ? () => setShowDrawingPreview(true) : undefined}
-                      />
-                    }
-                    cadPanel={<ClientCadPreviewPanel cadFile={cadFile} />}
-                  />
+                  {/* Artifact stage */}
+                  <div>
+                    <p className="mb-3 text-[10px] uppercase tracking-[0.18em] text-white/30">Artifact stage</p>
+                    <ClientArtifactWorkspace
+                      itemKey={jobId}
+                      hasCad={Boolean(cadFile)}
+                      hasDrawing={Boolean(drawingFile)}
+                      drawingPanel={
+                        <ClientDrawingPreviewPanel
+                          drawingFile={drawingFile}
+                          drawingPreview={drawingPreview ?? { pageCount: 0, thumbnail: null, pages: [] }}
+                          pdfUrl={drawingPdfUrl}
+                          pages={drawingPreviewPageUrls}
+                          state={drawingPreviewState}
+                          statusMessage={drawingPreviewStatusMessage}
+                          isLoading={isDrawingPreviewLoading}
+                          onOpenDialog={drawingFile ? () => setShowDrawingPreview(true) : undefined}
+                        />
+                      }
+                      cadPanel={<ClientCadPreviewPanel cadFile={cadFile} />}
+                    />
+                  </div>
 
-                  <ClientQuoteDecisionPanel
-                    options={rankedQuoteOptions}
-                    selectedOption={selectedQuoteOption}
-                    onSelect={handleSelectQuoteOption}
-                    requestedByDate={requestSummaryRequestedByDate}
-                    activePreset={activePreset}
-                    onPresetSelect={handlePresetSelection}
-                    onToggleVendorExclusion={handleToggleVendorExclusion}
-                    emptyState={
-                      cadFile
-                        ? "No quote options are available yet."
-                        : "Upload a CAD model before quote options can be compared."
-                    }
-                  />
+                  {/* Quote intelligence */}
+                  <div>
+                    <p className="mb-3 text-[10px] uppercase tracking-[0.18em] text-white/30">Quote intelligence</p>
+                    <ClientQuoteDecisionPanel
+                      options={rankedQuoteOptions}
+                      selectedOption={selectedQuoteOption}
+                      onSelect={handleSelectQuoteOption}
+                      requestedByDate={requestSummaryRequestedByDate}
+                      activePreset={activePreset}
+                      onPresetSelect={handlePresetSelection}
+                      onToggleVendorExclusion={handleToggleVendorExclusion}
+                      emptyState={
+                        cadFile
+                          ? "No quote options are available yet."
+                          : "Upload a CAD model before quote options can be compared."
+                      }
+                    />
+                  </div>
                 </div>
 
                 <ClientIntelligencePanel
@@ -587,7 +595,7 @@ const ClientPart = () => {
             </div>
           )}
         </div>
-      </ChatWorkspaceLayout>
+      </ClientWorkspaceShell>
 
       <SearchPartsDialog
         open={isSearchOpen}

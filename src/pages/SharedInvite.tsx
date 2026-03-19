@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
+import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { GuestSidebarCta } from "@/components/chat/GuestSidebarCta";
 import { SignInDialog } from "@/components/SignInDialog";
 import { Button } from "@/components/ui/button";
@@ -39,7 +39,7 @@ const SharedInvite = () => {
 
   return (
     <>
-      <ChatWorkspaceLayout
+      <ClientWorkspaceShell
         topRightContent={
           !user ? (
             <>
@@ -86,7 +86,7 @@ const SharedInvite = () => {
             ) : null}
           </div>
         </div>
-      </ChatWorkspaceLayout>
+      </ClientWorkspaceShell>
 
       <SignInDialog
         open={authOpen}

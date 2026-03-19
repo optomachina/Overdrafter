@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { Loader2, MoveLeft, MoveRight } from "lucide-react";
-import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
+import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { ProcurementHandoffPanel } from "@/components/quotes/ProcurementHandoffPanel";
 import { ClientWorkspaceStateSummary, ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
@@ -103,9 +103,26 @@ const ClientProjectReview = () => {
   }
 
   return (
-    <ChatWorkspaceLayout
+    <ClientWorkspaceShell
       onLogoClick={() => navigate("/")}
-      sidebarContent={<div className="px-5 py-6 text-sm text-white/45">Reviewing selected project quotes.</div>}
+      sidebarContent={
+        <div className="space-y-1 py-2">
+          <div className="rounded-[10px] border border-white/8 bg-black/20 px-3 py-3">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Review</p>
+            {projectQuery.data?.name ? (
+              <p className="mt-1.5 truncate text-sm font-medium text-white">{projectQuery.data.name}</p>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate(`/projects/${projectId}`)}
+            className="flex w-full items-center gap-2 rounded-[10px] px-3 py-2.5 text-left text-sm text-white/60 transition hover:bg-white/6 hover:text-white"
+          >
+            <MoveLeft className="h-3.5 w-3.5 shrink-0" />
+            Back to project
+          </button>
+        </div>
+      }
     >
       <div className="mx-auto flex w-full max-w-[1100px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
         {projectJobsQuery.isLoading || workspaceQuery.isLoading ? (
@@ -265,7 +282,7 @@ const ClientProjectReview = () => {
           </>
         )}
       </div>
-    </ChatWorkspaceLayout>
+    </ClientWorkspaceShell>
   );
 };
 

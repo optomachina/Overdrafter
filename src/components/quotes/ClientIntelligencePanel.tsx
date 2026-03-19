@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Bot, History, Info, MessageSquareText, Quote, Sparkles } from "lucide-react";
+import { History, Info, MessageSquareText, Quote, Sparkles } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
@@ -25,7 +25,7 @@ const TAB_LABELS: Array<{
   { value: "metadata", label: "Metadata", icon: Info },
   { value: "dfm", label: "DFM", icon: Sparkles },
   { value: "history", label: "History", icon: History },
-  { value: "chat", label: "Chat", icon: MessageSquareText },
+  { value: "chat", label: "Quote log", icon: MessageSquareText },
 ];
 
 export function ClientIntelligencePanel({
@@ -46,16 +46,8 @@ export function ClientIntelligencePanel({
 
   return (
     <aside className={cn("rounded-[30px] border border-white/8 bg-[#262626] p-5", className)}>
-      <div className="flex items-start justify-between gap-3 border-b border-white/8 pb-4">
-        <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Contextual intelligence</p>
-          <p className="mt-2 text-sm text-white/55">
-            Quote controls, structured part context, and workflow history stay docked to the side.
-          </p>
-        </div>
-        <div className="rounded-full border border-white/10 bg-black/20 p-2 text-white/60">
-          <Bot className="h-4 w-4" />
-        </div>
+      <div className="border-b border-white/8 pb-4">
+        <p className="text-xs uppercase tracking-[0.18em] text-white/35">Part context</p>
       </div>
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as IntelligencePanelTab)}>

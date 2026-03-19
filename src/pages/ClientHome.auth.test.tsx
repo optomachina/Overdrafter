@@ -63,8 +63,8 @@ vi.mock("react-router-dom", async (importOriginal) => {
   };
 });
 
-vi.mock("@/components/chat/ChatWorkspaceLayout", () => ({
-  ChatWorkspaceLayout: ({
+vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
+  ClientWorkspaceShell: ({
     topRightContent,
     sidebarContent,
     sidebarFooter,

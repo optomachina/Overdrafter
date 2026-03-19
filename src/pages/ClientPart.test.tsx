@@ -76,8 +76,8 @@ vi.mock("sonner", () => ({
   toast: toastMock,
 }));
 
-vi.mock("@/components/chat/ChatWorkspaceLayout", () => ({
-  ChatWorkspaceLayout: ({
+vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
+  ClientWorkspaceShell: ({
     children,
     sidebarContent,
     sidebarFooter,
@@ -329,7 +329,7 @@ describe("ClientPart", () => {
     });
 
     expect(screen.getByText("Artifact workspace")).toBeInTheDocument();
-    expect(screen.getByText("Contextual intelligence")).toBeInTheDocument();
+    expect(screen.getByText("Part context")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /prev rev/i })).toBeInTheDocument();
     expect(screen.queryByText("This part could not be loaded.")).not.toBeInTheDocument();
     expect(api.fetchPartDetailByJobId).toHaveBeenCalledTimes(1);

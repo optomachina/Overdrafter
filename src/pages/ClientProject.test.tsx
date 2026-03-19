@@ -82,8 +82,8 @@ vi.mock("sonner", () => ({
 let lastSidebarProps: Record<string, unknown> | null = null;
 let lastAccountMenuProps: Record<string, unknown> | null = null;
 
-vi.mock("@/components/chat/ChatWorkspaceLayout", () => ({
-  ChatWorkspaceLayout: ({
+vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
+  ClientWorkspaceShell: ({
     children,
     sidebarContent,
     sidebarFooter,
@@ -392,7 +392,7 @@ describe("ClientProject", () => {
       expect(screen.getByRole("heading", { name: "Bracket Project" })).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/artifact-first project workspace/i)).toBeInTheDocument();
+    expect(screen.getByText(/Scan and manage parts/i)).toBeInTheDocument();
     expect(screen.getByText("Selected part workspace")).toBeInTheDocument();
   });
 

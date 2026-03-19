@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app/AppShell";
-import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
+import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
@@ -446,7 +446,7 @@ const JobCreate = () => {
   }
 
   return (
-    <ChatWorkspaceLayout
+    <ClientWorkspaceShell
       onLogoClick={() => navigate("/")}
       sidebarRailActions={[
         {
@@ -499,7 +499,7 @@ const JobCreate = () => {
 
         {pageContent}
       </div>
-    </ChatWorkspaceLayout>
+    </ClientWorkspaceShell>
   );
 };
 

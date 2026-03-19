@@ -13,7 +13,7 @@ import {
   Users,
 } from "lucide-react";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
-import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
+import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { ProjectMembersDialog } from "@/components/chat/ProjectMembersDialog";
 import { PromptComposer } from "@/components/chat/PromptComposer";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
@@ -467,7 +467,7 @@ const ClientProject = () => {
 
   return (
     <>
-      <ChatWorkspaceLayout
+      <ClientWorkspaceShell
         onLogoClick={() => navigate("/")}
         sidebarRailActions={[
           { label: "New Job", icon: PlusSquare, onClick: newJobFilePicker.openFilePicker },
@@ -523,14 +523,15 @@ const ClientProject = () => {
         }
       >
         <div className="mx-auto flex w-full max-w-[1380px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <section className="rounded-[30px] border border-white/8 bg-[#262626] px-5 py-5 md:px-6">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Project workspace</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Project</p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
                 {projectQuery.data?.name ?? "Project"}
               </h1>
               <p className="mt-2 text-sm text-white/55">
-                Artifact-first project workspace with selected-part context, quote decisions, and collaboration in one shell.
+                Scan and manage parts across this project. Select a line item to inspect its artifacts and quotes.
               </p>
               {sharedRequestSummary ? (
                 <RequestSummaryBadges
@@ -543,7 +544,7 @@ const ClientProject = () => {
               ) : null}
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
               {!projectCollaborationUnavailable ? (
                 <Button type="button" className="rounded-full" onClick={() => setShowAddPart(true)}>
                   <FolderPlus className="mr-2 h-4 w-4" />
@@ -646,7 +647,8 @@ const ClientProject = () => {
                 </Button>
               ) : null}
             </div>
-          </div>
+            </div>
+          </section>
 
           <div className="grid gap-3 md:grid-cols-4">
             <div className="rounded-[22px] border border-white/8 bg-[#262626] px-4 py-4">
@@ -692,6 +694,7 @@ const ClientProject = () => {
 
           <div className="space-y-6">
             <div className="space-y-4">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-white/30">Parts</p>
               <div className="flex flex-col gap-3 rounded-[26px] border border-white/8 bg-[#262626] p-4">
                 <div className="flex flex-col gap-3 md:flex-row">
                   <Input
@@ -865,7 +868,7 @@ const ClientProject = () => {
             {!isMobile ? renderFocusedWorkspace() : null}
           </div>
         </div>
-      </ChatWorkspaceLayout>
+      </ClientWorkspaceShell>
 
       <Sheet open={mobileDrawerOpen && Boolean(focusedJobId)} onOpenChange={setMobileDrawerOpen}>
         <SheetContent side="right" className="w-[min(96vw,38rem)] overflow-y-auto border-white/10 bg-[#1f1f1f] p-0 text-white sm:max-w-[38rem]">

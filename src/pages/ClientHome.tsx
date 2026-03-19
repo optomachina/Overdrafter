@@ -1,8 +1,7 @@
 import { PlusSquare, Search, Upload } from "lucide-react";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
-import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
+import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { GuestSidebarCta } from "@/components/chat/GuestSidebarCta";
-import { PromptComposer } from "@/components/chat/PromptComposer";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { SignInDialog } from "@/components/SignInDialog";
@@ -14,11 +13,11 @@ import { getClientItemPresentation } from "@/features/quotes/client-presentation
 import { buildClientWorkspaceState } from "@/features/quotes/client-workspace-state";
 import { useClientHomeController } from "@/features/quotes/use-client-home-controller";
 
-const suggestionRows = [
-  "Upload a STEP file and drawing for quoting",
-  "Compare price and lead time options",
-  "Group related parts into a project",
-  "Share a project with a teammate",
+const quickStartItems = [
+  { label: "Upload a STEP file and drawing for quoting", action: "upload" as const },
+  { label: "Compare price and lead time options", action: "search" as const },
+  { label: "Group related parts into a project", action: "upload" as const },
+  { label: "Share a project with a teammate", action: "search" as const },
 ];
 
 const ClientHome = () => {
@@ -27,11 +26,9 @@ const ClientHome = () => {
     archivedJobsQuery,
     archivedProjectsQuery,
     authDialogMode,
-    composerRef,
     handleAssignPartToProject,
     handleArchivePart,
     handleArchiveProject,
-    handleComposerSubmit,
     handleCreateProjectFromSelection,
     handleDeleteArchivedParts,
     handleDissolveProject,
@@ -68,33 +65,53 @@ const ClientHome = () => {
 
   const renderAnonymousContent = () => {
     return (
-      <div className="mx-auto flex w-full max-w-[720px] flex-1 flex-col items-center justify-center px-6 pb-20 pt-10">
-        <h1 className="text-center text-[2.25rem] font-semibold tracking-tight text-white md:text-[2.65rem]">
-          What are you working on?
-        </h1>
-
-        <div className="mt-8 w-full">
-          <PromptComposer
-            ref={composerRef}
-            isSignedIn={Boolean(user)}
-            onRequireAuth={() => openAuth("signin")}
-            onSubmit={handleComposerSubmit}
-          />
+      <div className="mx-auto flex w-full max-w-[860px] flex-1 flex-col px-6 pb-20 pt-12">
+        <div>
+          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Manufacturing workspace</p>
+          <h1 className="mt-3 text-[2.25rem] font-semibold tracking-tight text-white md:text-[2.65rem]">
+            Artifact-first quoting for machined parts.
+          </h1>
+          <p className="mt-4 max-w-xl text-base text-white/55">
+            Upload your CAD and drawing package. OverDrafter extracts part metadata, surfaces vendor quotes, and keeps everything in one workspace.
+          </p>
         </div>
 
-        <div className="mt-6 w-full max-w-[640px] divide-y divide-white/6 rounded-[24px]">
-          {suggestionRows.map((row) => (
-            <button
-              key={row}
-              type="button"
-              onClick={() => composerRef.current?.focus()}
-              className="flex w-full items-center gap-3 px-4 py-4 text-left text-sm text-white/65 transition hover:bg-white/4 hover:text-white"
-            >
-              <span className="h-2 w-2 rounded-full bg-white/30" />
-              <span>{row}</span>
-            </button>
-          ))}
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Button
+            type="button"
+            className="rounded-full px-6"
+            onClick={() => openAuth("signup")}
+          >
+            <Upload className="mr-2 h-4 w-4" />
+            Get started free
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-full border-white/10 bg-transparent px-6 text-white hover:bg-white/6"
+            onClick={() => openAuth("signin")}
+          >
+            Log in
+          </Button>
         </div>
+
+        <div className="mt-12">
+          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Quick start</p>
+          <div className="mt-3 divide-y divide-white/6 rounded-[20px] border border-white/8 bg-black/20">
+            {quickStartItems.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => openAuth("signup")}
+                className="flex w-full items-center gap-4 px-5 py-4 text-left text-sm text-white/60 transition hover:bg-white/4 hover:text-white/90 first:rounded-t-[20px] last:rounded-b-[20px]"
+              >
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/25" />
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
       </div>
     );
   };
@@ -107,31 +124,23 @@ const ClientHome = () => {
 
     return (
       <div className="mx-auto flex w-full max-w-[1380px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
+        {/* Workspace header */}
         <section className="rounded-[30px] border border-white/8 bg-[#262626] p-6">
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,420px)]">
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Workspace launcher</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
-                Start intake, then jump straight into artifacts.
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Workspace</p>
+              <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white">
+                Start with a part package or open an existing project.
               </h1>
-              <p className="mt-3 max-w-3xl text-sm text-white/55">
-                Projects stay at the top of the information architecture. Upload a new part package, then move immediately into the engineering workspace as files and extraction results arrive.
+              <p className="mt-2 text-sm text-white/55">
+                Upload files to begin intake. Projects group related parts and stay at the top of the information hierarchy.
               </p>
-              <div className="mt-6 max-w-2xl">
-                <PromptComposer
-                  ref={composerRef}
-                  isSignedIn={Boolean(user)}
-                  onRequireAuth={() => openAuth("signin")}
-                  onSubmit={handleComposerSubmit}
-                />
-              </div>
             </div>
 
-            <div className="space-y-3 rounded-[26px] border border-white/8 bg-black/20 p-5">
-              <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Quick launch</p>
+            <div className="flex shrink-0 flex-col gap-2 lg:w-[260px]">
               <Button
                 type="button"
-                className="w-full justify-start rounded-[18px]"
+                className="w-full justify-start rounded-[16px]"
                 onClick={newJobFilePicker.openFilePicker}
               >
                 <Upload className="mr-2 h-4 w-4" />
@@ -140,48 +149,43 @@ const ClientHome = () => {
               <Button
                 type="button"
                 variant="outline"
-                className="w-full justify-start rounded-[18px] border-white/10 bg-transparent text-white hover:bg-white/6"
+                className="w-full justify-start rounded-[16px] border-white/10 bg-transparent text-white hover:bg-white/6"
                 onClick={() => setIsSearchOpen(true)}
               >
                 <Search className="mr-2 h-4 w-4" />
                 Search projects and parts
               </Button>
-              <div className="rounded-[20px] border border-white/8 bg-[#202020] p-4">
-                <p className="text-sm font-medium text-white">Suggested flows</p>
-                <div className="mt-3 space-y-2">
-                  {suggestionRows.map((row) => (
-                    <button
-                      key={row}
-                      type="button"
-                      onClick={() => composerRef.current?.focus()}
-                      className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm text-white/65 transition hover:bg-white/4 hover:text-white"
-                    >
-                      <span className="h-2 w-2 rounded-full bg-white/30" />
-                      <span>{row}</span>
-                    </button>
-                  ))}
-                </div>
+              <div className="mt-1 divide-y divide-white/6 rounded-[14px] border border-white/8 bg-black/20">
+                {quickStartItems.map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={item.action === "upload" ? newJobFilePicker.openFilePicker : () => setIsSearchOpen(true)}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left text-xs text-white/55 transition hover:bg-white/4 hover:text-white/80 first:rounded-t-[14px] last:rounded-b-[14px]"
+                  >
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/25" />
+                    <span>{item.label}</span>
+                  </button>
+                ))}
               </div>
             </div>
           </div>
         </section>
 
+        {/* Recent projects + recent parts */}
         <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
           <section className="rounded-[30px] border border-white/8 bg-[#262626] p-5">
             <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-white/35">Recent projects</p>
-                <p className="mt-2 text-sm text-white/55">Open the container first, then move from project to part.</p>
-              </div>
+              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Recent projects</p>
               <Badge className="border border-white/10 bg-white/6 text-white/70">
                 {recentProjects.length} shown
               </Badge>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 space-y-2">
               {recentProjects.length === 0 ? (
-                <div className="rounded-[22px] border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center text-sm text-white/45">
-                  No projects yet. Upload a group of parts to create one automatically, or start from a standalone part.
+                <div className="rounded-[20px] border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center text-sm text-white/45">
+                  No projects yet. Upload a group of parts to create one automatically.
                 </div>
               ) : (
                 recentProjects.map((project) => (
@@ -189,14 +193,14 @@ const ClientHome = () => {
                     key={project.id}
                     type="button"
                     onClick={() => navigate(`/projects/${project.id}`)}
-                    className="block w-full rounded-[22px] border border-white/8 bg-black/20 px-4 py-4 text-left transition hover:bg-white/4"
+                    className="block w-full rounded-[18px] border border-white/8 bg-black/20 px-4 py-3.5 text-left transition hover:bg-white/4"
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-semibold text-white">{project.name}</p>
-                        <p className="mt-1 text-xs text-white/45">{project.partCount} parts</p>
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white">{project.name}</p>
+                        <p className="mt-0.5 text-xs text-white/45">{project.partCount} parts</p>
                       </div>
-                      <Badge className="border border-white/10 bg-white/6 text-white/70">
+                      <Badge className="shrink-0 border border-white/10 bg-white/6 text-white/70">
                         Project
                       </Badge>
                     </div>
@@ -208,18 +212,15 @@ const ClientHome = () => {
 
           <section className="rounded-[30px] border border-white/8 bg-[#262626] p-5">
             <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-white/35">Recent parts</p>
-                <p className="mt-2 text-sm text-white/55">Artifacts and quote state should be the fastest next click.</p>
-              </div>
+              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Recent parts</p>
               <Badge className="border border-white/10 bg-white/6 text-white/70">
                 {recentJobs.length} shown
               </Badge>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 space-y-2">
               {recentJobs.length === 0 ? (
-                <div className="rounded-[22px] border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center text-sm text-white/45">
+                <div className="rounded-[20px] border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center text-sm text-white/45">
                   No parts in this workspace yet.
                 </div>
               ) : (
@@ -240,14 +241,14 @@ const ClientHome = () => {
                       key={job.id}
                       type="button"
                       onClick={() => navigate(`/parts/${job.id}`)}
-                      className="block w-full rounded-[22px] border border-white/8 bg-black/20 px-4 py-4 text-left transition hover:bg-white/4"
+                      className="block w-full rounded-[18px] border border-white/8 bg-black/20 px-4 py-3.5 text-left transition hover:bg-white/4"
                     >
-                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="flex items-center justify-between gap-4">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-white">{presentation.title}</p>
-                          <p className="mt-1 truncate text-xs text-white/45">{presentation.description}</p>
+                          <p className="mt-0.5 truncate text-xs text-white/45">{presentation.description}</p>
                         </div>
-                        <ClientWorkspaceToneBadge tone={workspaceState.tone} className="tracking-normal normal-case" />
+                        <ClientWorkspaceToneBadge tone={workspaceState.tone} className="shrink-0 tracking-normal normal-case" />
                       </div>
                     </button>
                   );
@@ -262,7 +263,7 @@ const ClientHome = () => {
 
   return (
     <>
-      <ChatWorkspaceLayout
+      <ClientWorkspaceShell
         onLogoClick={() => navigate("/")}
         topRightContent={
           user ? null : (
@@ -292,7 +293,7 @@ const ClientHome = () => {
                 { label: "Search", icon: Search, onClick: () => setIsSearchOpen(true) },
               ]
             : [
-                { label: "New Job", icon: PlusSquare, onClick: () => composerRef.current?.focus() },
+                { label: "New Job", icon: PlusSquare, onClick: () => openAuth("signup") },
                 { label: "Search", icon: Search, onClick: () => openAuth("signin") },
               ]
         }
@@ -331,12 +332,12 @@ const ClientHome = () => {
                 type="button"
                 variant="ghost"
                 className="w-full justify-start rounded-[10px] pl-1 pr-3 text-white/[0.94] hover:bg-white/6 hover:text-white"
-                onClick={() => composerRef.current?.focus()}
+                onClick={() => openAuth("signup")}
               >
                 <span className="flex w-5 shrink-0 items-center justify-center text-white/[0.96]">
                   <PlusSquare aria-hidden="true" className="h-4 w-4" />
                 </span>
-                New Job
+                Get started
               </Button>
               <Button
                 type="button"
@@ -372,7 +373,7 @@ const ClientHome = () => {
         }
       >
         {user ? renderSignedInContent() : renderAnonymousContent()}
-      </ChatWorkspaceLayout>
+      </ClientWorkspaceShell>
 
       <input
         ref={newJobFilePicker.inputRef}

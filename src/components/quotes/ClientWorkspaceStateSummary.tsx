@@ -76,16 +76,11 @@ export function ClientWorkspaceStateSummary({
 
   return (
     <div className={cn("rounded-[24px] border p-4", classes.panel, className)}>
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <ClientWorkspaceToneBadge tone={state.tone} />
-            <p className="text-sm font-medium text-white">{state.selection.label}</p>
-          </div>
-          <p className="mt-2 text-sm text-white/70">{state.selection.detail}</p>
-        </div>
-        <p className="text-xs uppercase tracking-[0.18em] text-white/40">Client workspace state</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <ClientWorkspaceToneBadge tone={state.tone} />
+        <p className="text-sm font-medium text-white">{state.selection.label}</p>
       </div>
+      <p className="mt-2 text-sm text-white/70">{state.selection.detail}</p>
 
       {visibleReasons.length > 0 ? (
         <div className="mt-4 grid gap-3">

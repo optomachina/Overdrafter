@@ -109,7 +109,7 @@ describe("Index client home", () => {
 
     expect(screen.getAllByRole("button", { name: /^log in$/i }).length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole("button", { name: /sign up for free/i })).toBeInTheDocument();
-    expect(screen.getByText("What are you working on?")).toBeInTheDocument();
+    expect(screen.getByText("Artifact-first quoting for machined parts.")).toBeInTheDocument();
     expect(screen.getByText("Get quotes tailored to you")).toBeInTheDocument();
     expect(
       screen.getByText(/Log in to get quotes based on price and lead time, plus upload files\./i),
@@ -175,6 +175,6 @@ describe("Index client home", () => {
     renderIndex();
 
     expect(screen.queryByText("Loading workspace…")).not.toBeInTheDocument();
-    expect(screen.getByText("Workspace launcher")).toBeInTheDocument();
+    expect(screen.getByText("Workspace")).toBeInTheDocument();
   });
 });

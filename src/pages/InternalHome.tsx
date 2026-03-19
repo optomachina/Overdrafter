@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LayoutDashboard, Loader2, PlusSquare, UploadCloud } from "lucide-react";
 import { toast } from "sonner";
-import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
+import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
 import { InternalDashboardSidebar } from "@/components/internal/InternalDashboardSidebar";
@@ -141,7 +141,7 @@ const InternalHome = () => {
   };
 
   return (
-    <ChatWorkspaceLayout
+    <ClientWorkspaceShell
       onLogoClick={() => navigate("/")}
       sidebarRailActions={[
         {
@@ -358,7 +358,7 @@ const InternalHome = () => {
           </section>
         ) : null}
       </div>
-    </ChatWorkspaceLayout>
+    </ClientWorkspaceShell>
   );
 };
 

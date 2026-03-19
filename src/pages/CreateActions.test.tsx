@@ -82,8 +82,8 @@ vi.mock("@/features/quotes/use-client-job-file-picker", () => ({
   useClientJobFilePicker: (...args: unknown[]) => mockUseClientJobFilePicker(...args),
 }));
 
-vi.mock("@/components/chat/ChatWorkspaceLayout", () => ({
-  ChatWorkspaceLayout: ({
+vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
+  ClientWorkspaceShell: ({
     sidebarContent,
     children,
   }: {
