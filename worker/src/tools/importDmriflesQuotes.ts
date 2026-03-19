@@ -2133,8 +2133,8 @@ async function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error: unknown) => {
-    console.error(error instanceof Error ? error.stack ?? error.message : error);
+  main().catch(() => {
+    console.error("Import failed; check logs.");
     process.exitCode = 1;
   });
 }
