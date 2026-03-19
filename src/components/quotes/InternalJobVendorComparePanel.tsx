@@ -35,6 +35,11 @@ export function InternalJobVendorComparePanel({
   optionKindsByOfferId,
   onRequestedQuantityChange,
 }: InternalJobVendorComparePanelProps) {
+  const emptyQuantityLabel =
+    activeCompareRequestedQuantity === null || activeCompareRequestedQuantity === "all"
+      ? "all quantities"
+      : `qty ${activeCompareRequestedQuantity}`;
+
   return (
     <section className="mt-8">
       <Card className="border-white/10 bg-white/5">
@@ -53,7 +58,7 @@ export function InternalJobVendorComparePanel({
             </p>
           ) : visibleQuoteRows.length === 0 ? (
             <p className="text-sm text-white/55">
-              No vendor quote rows are available for qty {activeCompareRequestedQuantity}.
+              No vendor quote rows are available for {emptyQuantityLabel}.
             </p>
           ) : (
             visibleQuoteRows.map((quote) => {

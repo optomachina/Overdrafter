@@ -69,6 +69,25 @@ export type UseInternalJobDetailQueryResult = {
   ) => void;
 };
 
+/**
+ * Orchestrates the internal job detail route state.
+ *
+ * Loads the job aggregate and quote-run readiness, derives the view-model data
+ * needed by the internal job detail sections, and owns the local editable state
+ * for part requirement drafts, quote quantity inputs, compare filtering, and
+ * the client-facing publication summary.
+ *
+ * `clientSummary` is exposed as a string and may intentionally be set to `""`
+ * by the UI. An empty string is treated as a valid user choice and must not be
+ * replaced by package or job-title fallbacks after it has been explicitly
+ * cleared.
+ *
+ * @param input.jobId Route job id for the internal detail page.
+ * @param input.user Current signed-in user.
+ * @param input.activeMembership Current organization membership used to gate the query.
+ * @returns Query state, derived aggregates, editable draft state, and mutators
+ * for the internal job detail route.
+ */
 export function useInternalJobDetailQuery({
   jobId,
   user,
@@ -76,7 +95,7 @@ export function useInternalJobDetailQuery({
 }: UseInternalJobDetailQueryInput): UseInternalJobDetailQueryResult {
   const [drafts, setDrafts] = useState<Record<string, ApprovedPartRequirement>>({});
   const [quoteQuantityInputs, setQuoteQuantityInputs] = useState<Record<string, string>>({});
-  const [clientSummary, setClientSummary] = useState("");
+  const [clientSummary, setClientSummary] = useState<string | undefined>(undefined);
   const [activeCompareRequestedQuantity, setActiveCompareRequestedQuantity] =
     useState<RequestedQuantityFilterValue | null>(null);
   const draftStateRef = useRef<{
@@ -187,9 +206,9 @@ export function useInternalJobDetailQuery({
     setDrafts(nextDraftState.drafts);
     setQuoteQuantityInputs(nextDraftState.quoteQuantityInputs);
     setClientSummary((current) =>
-      current ||
-      latestPackage?.client_summary ||
-      `Curated CNC quote package for ${jobQuery.data.job.title}.`,
+      current ??
+      (latestPackage?.client_summary ||
+        `Curated CNC quote package for ${jobQuery.data.job.title}.`),
     );
   }, [jobQuery.data, latestPackage?.client_summary]);
 
@@ -254,7 +273,7 @@ export function useInternalJobDetailQuery({
     compareQuantities,
     visibleQuoteRows,
     normalizedApprovedDrafts,
-    clientSummary,
+    clientSummary: clientSummary ?? "",
     activeCompareRequestedQuantity,
     updateDraft,
     setQuoteQuantityInput: setPartQuoteQuantityInput,

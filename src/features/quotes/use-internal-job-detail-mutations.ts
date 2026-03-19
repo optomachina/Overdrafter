@@ -81,13 +81,18 @@ export function useInternalJobDetailMutations({
   });
 
   const publishMutation = useMutation({
-    mutationFn: () =>
-      publishQuotePackage({
+    mutationFn: () => {
+      if (!latestQuoteRunId) {
+        throw new Error("A latest quote run is required before publishing a quote package.");
+      }
+
+      return publishQuotePackage({
         jobId,
-        quoteRunId: latestQuoteRunId!,
+        quoteRunId: latestQuoteRunId,
         clientSummary,
         force: !readinessReady,
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success("Quote package published.");
       await Promise.all([

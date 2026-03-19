@@ -325,4 +325,40 @@ describe("useInternalJobDetailQuery", () => {
       ]),
     );
   });
+
+  it("preserves an intentionally cleared empty client summary across subsequent job updates", async () => {
+    fetchJobAggregateMock
+      .mockResolvedValueOnce(makeJobAggregate())
+      .mockResolvedValueOnce(
+        makeJobAggregate({
+          packages: [makePackage({ client_summary: "New package summary that should not overwrite an empty string." })],
+        }),
+      );
+    getQuoteRunReadinessMock.mockResolvedValue(readiness);
+
+    const { result } = renderHook(
+      () =>
+        useInternalJobDetailQuery({
+          jobId: "job-1",
+          user: makeUser(),
+          activeMembership: makeMembership(),
+        }),
+      { wrapper: QueryProvider },
+    );
+
+    await waitFor(() => expect(result.current.clientSummary).toBe("Client-safe summary from latest package."));
+
+    act(() => {
+      result.current.setClientSummary("");
+    });
+
+    expect(result.current.clientSummary).toBe("");
+
+    await act(async () => {
+      await result.current.jobQuery.refetch();
+    });
+
+    await waitFor(() => expect(result.current.jobQuery.dataUpdatedAt).toBeGreaterThan(0));
+    expect(result.current.clientSummary).toBe("");
+  });
 });
