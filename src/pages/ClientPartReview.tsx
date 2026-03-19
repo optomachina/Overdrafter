@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   fetchClientQuoteWorkspaceByJobIds,
-} from "@/features/quotes/api";
+} from "@/features/quotes/api/workspace-access";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {
   createDefaultProcurementHandoffState,

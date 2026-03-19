@@ -12,7 +12,7 @@ import {
   fetchClientQuoteWorkspaceByJobIds,
   fetchJobsByProject,
   fetchProject,
-} from "@/features/quotes/api";
+} from "@/features/quotes/api/workspace-access";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {
   buildClientWorkspaceState,

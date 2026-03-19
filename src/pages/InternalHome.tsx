@@ -27,13 +27,15 @@ import {
 } from "@/components/ui/table";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import {
-  fetchJobsByOrganization,
-  fetchOrganizationMemberships,
-  fetchPublishedPackagesByOrganization,
-  isProjectCollaborationSchemaUnavailable,
   resendSignupConfirmation,
   updateOrganizationMembershipRole,
-} from "@/features/quotes/api";
+} from "@/features/quotes/api/session-access";
+import {
+  fetchJobsByOrganization,
+  fetchPublishedPackagesByOrganization,
+} from "@/features/quotes/api/workspace-access";
+import { fetchOrganizationMemberships } from "@/features/quotes/api/organizations-api";
+import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import { useClientWorkspaceData } from "@/features/quotes/use-client-workspace-data";
 import { formatStatusLabel, getJobSummaryMetrics } from "@/features/quotes/utils";
 import { useAppSession } from "@/hooks/use-app-session";

@@ -7,38 +7,38 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useAppSession } from "@/hooks/use-app-session";
 import {
   archiveJob,
+  deleteArchivedJobs,
+  isArchivedDeleteCapabilityError,
+  unarchiveJob,
+} from "@/features/quotes/api/archive-api";
+import { createClientDraft, updateClientPartRequest } from "@/features/quotes/api/jobs-api";
+import {
   archiveProject,
   assignJobToProject,
-  createClientDraft,
-  createJobsFromUploadFiles,
   createProject,
-  deleteArchivedJobs,
   dissolveProject,
-  fetchClientActivityEventsByJobIds,
-  fetchClientQuoteWorkspaceByJobIds,
-  fetchJobsByProject,
   fetchProject,
   fetchProjectInvites,
   fetchProjectMemberships,
   inviteProjectMember,
-  isArchivedDeleteCapabilityError,
-  isProjectCollaborationSchemaUnavailable,
   pinJob,
   pinProject,
-  reconcileJobParts,
   removeJobFromProject,
   removeProjectMember,
-  requestExtraction,
-  requestQuotes,
-  setJobSelectedVendorQuoteOffer,
-  unarchiveJob,
   unarchiveProject,
   unpinJob,
   unpinProject,
-  updateClientPartRequest,
   updateProject,
-  uploadFilesToJob,
-} from "@/features/quotes/api";
+} from "@/features/quotes/api/projects-api";
+import { reconcileJobParts, requestExtraction } from "@/features/quotes/api/extraction-api";
+import { requestQuotes, setJobSelectedVendorQuoteOffer } from "@/features/quotes/api/quote-requests-api";
+import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
+import { createJobsFromUploadFiles, uploadFilesToJob } from "@/features/quotes/api/uploads-api";
+import {
+  fetchClientActivityEventsByJobIds,
+  fetchClientQuoteWorkspaceByJobIds,
+  fetchJobsByProject,
+} from "@/features/quotes/api/workspace-access";
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { getClientItemPresentation, matchesClientJobSearch } from "@/features/quotes/client-presentation";
 import {

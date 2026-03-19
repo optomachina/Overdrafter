@@ -42,6 +42,14 @@ vi.mock("@/features/quotes/api", () => ({
   requestExtraction: apiMock.requestExtraction,
   resolveClientPartDetailRoute: apiMock.resolveClientPartDetailRoute,
 }));
+vi.mock("@/features/quotes/api/internal-review", () => ({
+  fetchJobAggregate: apiMock.fetchJobAggregate,
+  fetchPartDetailByJobId: apiMock.fetchPartDetailByJobId,
+  fetchWorkerReadiness: apiMock.fetchWorkerReadiness,
+  requestDebugExtraction: apiMock.requestDebugExtraction,
+  requestExtraction: apiMock.requestExtraction,
+  resolveClientPartDetailRoute: apiMock.resolveClientPartDetailRoute,
+}));
 
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => appSessionMock.useAppSession(),

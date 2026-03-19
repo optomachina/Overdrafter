@@ -8,27 +8,31 @@ import { getDefaultAccountName } from "@/lib/account-profile";
 import { isEmailConfirmationRequired } from "@/lib/auth-status";
 import {
   archiveJob,
+  deleteArchivedJobs,
+  isArchivedDeleteCapabilityError,
+  unarchiveJob,
+} from "@/features/quotes/api/archive-api";
+import { checkClientIntakeCompatibility } from "@/features/quotes/api/compatibility-api";
+import { createClientDraft } from "@/features/quotes/api/jobs-api";
+import {
   archiveProject,
   assignJobToProject,
-  checkClientIntakeCompatibility,
-  createClientDraft,
-  createJobsFromUploadFiles,
   createProject,
-  createSelfServiceOrganization,
-  deleteArchivedJobs,
   dissolveProject,
-  isArchivedDeleteCapabilityError,
-  isProjectCollaborationSchemaUnavailable,
   pinJob,
   pinProject,
   removeJobFromProject,
-  resendSignupConfirmation,
-  unarchiveJob,
   unarchiveProject,
   unpinJob,
   unpinProject,
   updateProject,
-} from "@/features/quotes/api";
+} from "@/features/quotes/api/projects-api";
+import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
+import { createJobsFromUploadFiles } from "@/features/quotes/api/uploads-api";
+import {
+  createSelfServiceOrganization,
+  resendSignupConfirmation,
+} from "@/features/quotes/api/session-access";
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {

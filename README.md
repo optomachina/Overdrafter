@@ -129,7 +129,7 @@ appear in old diffs or stale local artifacts, do not treat them as canonical run
 - Job intake at `/jobs/new`
 - Internal review and compare view at `/internal/jobs/:jobId`
 - Client package view at `/client/packages/:packageId`
-- Supabase-backed service layer in [`src/features/quotes/api.ts`](src/features/quotes/api.ts)
+- Supabase-backed quote service modules in [`src/features/quotes/api/`](src/features/quotes/api/) with a thin compatibility shim at [`src/features/quotes/api.ts`](src/features/quotes/api.ts)
 
 ### Supabase
 

@@ -1,6 +1,6 @@
 # OverDrafter Test Strategy
 
-Last updated: March 17, 2026
+Last updated: March 19, 2026
 
 ## Purpose
 
@@ -78,6 +78,7 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - typecheck
 - targeted automated tests where practical
 - smoke verification of the affected flow
+- when refactoring a large route into route-local modules, add focused tests for extracted view-model hooks or pure selectors so derived state stays covered outside JSX
 
 ### Client-triggered quote request changes
 - validate request gating and lifecycle rendering in client part and project workspace tests

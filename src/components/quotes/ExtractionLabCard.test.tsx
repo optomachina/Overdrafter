@@ -24,6 +24,10 @@ vi.mock("@/features/quotes/api", () => ({
   fetchWorkerReadiness: apiMock.fetchWorkerReadiness,
   requestDebugExtraction: apiMock.requestDebugExtraction,
 }));
+vi.mock("@/features/quotes/api/internal-review", () => ({
+  fetchWorkerReadiness: apiMock.fetchWorkerReadiness,
+  requestDebugExtraction: apiMock.requestDebugExtraction,
+}));
 
 vi.mock("@/lib/stored-file", () => ({
   downloadStoredFileBlob: storedFileMock.downloadStoredFileBlob,

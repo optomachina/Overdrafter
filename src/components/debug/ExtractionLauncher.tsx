@@ -28,7 +28,7 @@ import {
   requestDebugExtraction,
   requestExtraction,
   resolveClientPartDetailRoute,
-} from "@/features/quotes/api";
+} from "@/features/quotes/api/internal-review";
 import { isFixtureModeAvailable } from "@/features/quotes/client-workspace-fixtures";
 import type { PartAggregate } from "@/features/quotes/types";
 import { useAppSession } from "@/hooks/use-app-session";

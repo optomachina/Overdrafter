@@ -8,7 +8,7 @@ import {
   ScanSearch,
 } from "lucide-react";
 import { toast } from "sonner";
-import { fetchWorkerReadiness, requestDebugExtraction } from "@/features/quotes/api";
+import { fetchWorkerReadiness, requestDebugExtraction } from "@/features/quotes/api/internal-review";
 import type {
   DebugExtractionRunRecord,
   DrawingPreviewAssetRecord,
