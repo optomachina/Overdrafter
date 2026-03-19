@@ -338,6 +338,10 @@ describe("ClientPart", () => {
   it("renders real vendor quote options instead of the empty comparison state", async () => {
     api.fetchPartDetailByJobId.mockResolvedValue(
       createPartDetail({
+        summary: {
+          ...createPartDetail().summary,
+          selectedSupplier: null,
+        },
         part: {
           ...createPartDetail().part,
           vendorQuotes: [
@@ -399,7 +403,7 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getAllByText("Xometry").length).toBeGreaterThan(0);
+      expect(screen.getByText("USA / Standard")).toBeInTheDocument();
     });
 
     expect(screen.getByText("Chart")).toBeInTheDocument();

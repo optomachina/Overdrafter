@@ -645,7 +645,18 @@ describe("quotes api schema drift handling", () => {
                       updated_at: "2026-03-01T00:10:00Z",
                     },
                   ],
-                  artifacts: [],
+                  artifacts: [
+                    {
+                      id: "artifact-1",
+                      vendor_quote_result_id: "quote-1",
+                      organization_id: "org-1",
+                      artifact_type: "quote_pdf",
+                      storage_bucket: "quote-artifacts",
+                      storage_path: "quotes/quote-1.pdf",
+                      metadata: { source: "import" },
+                      created_at: "2026-03-01T00:10:00Z",
+                    },
+                  ],
                 },
               ],
             },
@@ -674,8 +685,328 @@ describe("quotes api schema drift handling", () => {
                   lane_label: "USA / Standard",
                 }),
               ],
+              artifacts: [
+                expect.objectContaining({
+                  id: "artifact-1",
+                  artifact_type: "quote_pdf",
+                }),
+              ],
             }),
           ],
+        }),
+      }),
+    ]);
+  });
+
+  it("degrades client quote workspace projection queries when the workspace rpc is unavailable", async () => {
+    const job = {
+      id: "job-1",
+      organization_id: "org-1",
+      project_id: null,
+      created_by: "user-1",
+      title: "1093-05589",
+      description: "Bracket",
+      status: "published",
+      source: "shared_project",
+      active_pricing_policy_id: null,
+      tags: [],
+      requested_quote_quantities: [10],
+      requested_by_date: "2026-04-01",
+      requested_service_kinds: ["manufacturing_quote"],
+      primary_service_kind: "manufacturing_quote",
+      service_notes: null,
+      selected_vendor_quote_offer_id: "offer-1",
+      archived_at: null,
+      created_at: "2026-03-01T00:00:00Z",
+      updated_at: "2026-03-01T00:00:00Z",
+    };
+
+    supabaseMock.setResolver("jobs", (state) => {
+      if (state.selected === "*" && findFilter(state, "id", "in")) {
+        return response([job]);
+      }
+
+      if (state.selected?.includes("selected_vendor_quote_offer_id")) {
+        return response([
+          {
+            id: job.id,
+            selected_vendor_quote_offer_id: "offer-1",
+            requested_service_kinds: ["manufacturing_quote"],
+            primary_service_kind: "manufacturing_quote",
+            service_notes: null,
+            requested_quote_quantities: [10],
+            requested_by_date: "2026-04-01",
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled jobs query: ${JSON.stringify(state)}`);
+    });
+    supabaseMock.setResolver("job_files", (state) => {
+      if (state.selected === "*" || state.selected?.includes("normalized_name")) {
+        return response([]);
+      }
+
+      throw new Error(`Unhandled job_files query: ${JSON.stringify(state)}`);
+    });
+    supabaseMock.setResolver("parts", (state) => {
+      if (state.selected === "*" && findFilter(state, "job_id", "in")) {
+        return response([
+          {
+            id: "part-1",
+            job_id: "job-1",
+            organization_id: "org-1",
+            name: "Bracket",
+            normalized_key: "1093-05589-a",
+            cad_file_id: null,
+            drawing_file_id: null,
+            quantity: 10,
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        ]);
+      }
+
+      if (state.selected === "id, job_id, quantity") {
+        return response([
+          {
+            id: "part-1",
+            job_id: "job-1",
+            quantity: 10,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled parts query: ${JSON.stringify(state)}`);
+    });
+    supabaseMock.setResolver("project_jobs", () => response([]));
+    supabaseMock.setResolver("drawing_preview_assets", () => response([]));
+    supabaseMock.setResolver("quote_requests", () => response([]));
+    supabaseMock.rpc.mockImplementation((fn: string) => {
+      if (fn === "api_list_client_part_metadata") {
+        return Promise.resolve(
+          response([
+            {
+              partId: "part-1",
+              jobId: "job-1",
+              organizationId: "org-1",
+              hasCadFile: false,
+              hasDrawingFile: false,
+              description: "Bracket",
+              partNumber: "1093-05589",
+              revision: "A",
+              material: "6061-T6 aluminum",
+              finish: "Black anodize",
+              tightestToleranceInch: 0.005,
+              process: "CNC Machining",
+              notes: null,
+              quantity: 10,
+              quoteQuantities: [10],
+              requestedByDate: "2026-04-01",
+              pageCount: 0,
+              warningCount: 0,
+              warnings: [],
+              missingFields: [],
+              lastFailureCode: null,
+              lastFailureMessage: null,
+              extractedAt: "2026-03-01T00:05:00Z",
+              failedAt: null,
+              updatedAt: "2026-03-01T00:05:00Z",
+              lifecycle: "succeeded",
+            },
+          ]),
+        );
+      }
+
+      if (fn === "api_list_client_quote_workspace") {
+        return Promise.resolve({
+          data: null,
+          error: {
+            code: "PGRST202",
+            message:
+              "Could not find the function public.api_list_client_quote_workspace(p_job_ids) in the schema cache",
+            details: null,
+            hint: null,
+          },
+        });
+      }
+
+      throw new Error(`Unhandled rpc: ${fn}`);
+    });
+
+    await expect(fetchClientQuoteWorkspaceByJobIds(["job-1"])).resolves.toEqual([
+      expect.objectContaining({
+        latestQuoteRun: null,
+        part: expect.objectContaining({
+          vendorQuotes: [],
+        }),
+        summary: expect.objectContaining({
+          selectedSupplier: null,
+        }),
+      }),
+    ]);
+  });
+
+  it("drops malformed vendor quote aggregates returned by the workspace rpc", async () => {
+    const job = {
+      id: "job-1",
+      organization_id: "org-1",
+      project_id: null,
+      created_by: "user-1",
+      title: "1093-05589",
+      description: "Bracket",
+      status: "published",
+      source: "shared_project",
+      active_pricing_policy_id: null,
+      tags: [],
+      requested_quote_quantities: [10],
+      requested_by_date: "2026-04-01",
+      requested_service_kinds: ["manufacturing_quote"],
+      primary_service_kind: "manufacturing_quote",
+      service_notes: null,
+      selected_vendor_quote_offer_id: null,
+      archived_at: null,
+      created_at: "2026-03-01T00:00:00Z",
+      updated_at: "2026-03-01T00:00:00Z",
+    };
+
+    supabaseMock.setResolver("jobs", (state) => {
+      if (state.selected === "*" && findFilter(state, "id", "in")) {
+        return response([job]);
+      }
+
+      if (state.selected?.includes("selected_vendor_quote_offer_id")) {
+        return response([
+          {
+            id: job.id,
+            selected_vendor_quote_offer_id: null,
+            requested_service_kinds: ["manufacturing_quote"],
+            primary_service_kind: "manufacturing_quote",
+            service_notes: null,
+            requested_quote_quantities: [10],
+            requested_by_date: "2026-04-01",
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled jobs query: ${JSON.stringify(state)}`);
+    });
+    supabaseMock.setResolver("job_files", (state) => {
+      if (state.selected === "*" || state.selected?.includes("normalized_name")) {
+        return response([]);
+      }
+
+      throw new Error(`Unhandled job_files query: ${JSON.stringify(state)}`);
+    });
+    supabaseMock.setResolver("parts", (state) => {
+      if (state.selected === "*" && findFilter(state, "job_id", "in")) {
+        return response([
+          {
+            id: "part-1",
+            job_id: "job-1",
+            organization_id: "org-1",
+            name: "Bracket",
+            normalized_key: "1093-05589-a",
+            cad_file_id: null,
+            drawing_file_id: null,
+            quantity: 10,
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        ]);
+      }
+
+      if (state.selected === "id, job_id, quantity") {
+        return response([
+          {
+            id: "part-1",
+            job_id: "job-1",
+            quantity: 10,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled parts query: ${JSON.stringify(state)}`);
+    });
+    supabaseMock.setResolver("project_jobs", () => response([]));
+    supabaseMock.setResolver("drawing_preview_assets", () => response([]));
+    supabaseMock.setResolver("quote_requests", () => response([]));
+    supabaseMock.rpc.mockImplementation((fn: string) => {
+      if (fn === "api_list_client_part_metadata") {
+        return Promise.resolve(
+          response([
+            {
+              partId: "part-1",
+              jobId: "job-1",
+              organizationId: "org-1",
+              hasCadFile: false,
+              hasDrawingFile: false,
+              description: "Bracket",
+              partNumber: "1093-05589",
+              revision: "A",
+              material: "6061-T6 aluminum",
+              finish: "Black anodize",
+              tightestToleranceInch: 0.005,
+              process: "CNC Machining",
+              notes: null,
+              quantity: 10,
+              quoteQuantities: [10],
+              requestedByDate: "2026-04-01",
+              pageCount: 0,
+              warningCount: 0,
+              warnings: [],
+              missingFields: [],
+              lastFailureCode: null,
+              lastFailureMessage: null,
+              extractedAt: "2026-03-01T00:05:00Z",
+              failedAt: null,
+              updatedAt: "2026-03-01T00:05:00Z",
+              lifecycle: "succeeded",
+            },
+          ]),
+        );
+      }
+
+      if (fn === "api_list_client_quote_workspace") {
+        return Promise.resolve(
+          response([
+            {
+              jobId: "job-1",
+              latestQuoteRun: null,
+              selectedOffer: null,
+              vendorQuotes: [
+                {
+                  id: "quote-1",
+                  quote_run_id: "run-1",
+                  organization_id: "org-1",
+                  vendor: "xometry",
+                  requested_quantity: 10,
+                  status: "official_quote_received",
+                  unit_price_usd: 25,
+                  total_price_usd: 250,
+                  lead_time_business_days: 7,
+                  quote_url: null,
+                  dfm_issues: [],
+                  notes: [],
+                  raw_payload: {},
+                  created_at: "2026-03-01T00:10:00Z",
+                  updated_at: "2026-03-01T00:10:00Z",
+                  offers: [],
+                  artifacts: [],
+                },
+              ],
+            },
+          ]),
+        );
+      }
+
+      throw new Error(`Unhandled rpc: ${fn}`);
+    });
+
+    await expect(fetchClientQuoteWorkspaceByJobIds(["job-1"])).resolves.toEqual([
+      expect.objectContaining({
+        part: expect.objectContaining({
+          vendorQuotes: [],
         }),
       }),
     ]);

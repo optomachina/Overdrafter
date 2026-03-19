@@ -193,7 +193,7 @@ const ClientHome = () => {
                     key={project.id}
                     type="button"
                     onClick={() => navigate(`/projects/${project.id}`)}
-                    className="block w-full rounded-[18px] border border-ws-border-subtle bg-ws-card px-4 py-3.5 text-left transition hover:border-ws-border border-l-2 border-l-blue-500/30"
+                    className="block w-full rounded-[18px] border border-ws-border-subtle border-l-2 border-l-blue-500/30 bg-ws-card px-4 py-3.5 text-left transition hover:border-ws-border hover:border-l-blue-500/30"
                   >
                     <div className="flex items-center justify-between gap-4">
                       <div className="min-w-0">
@@ -241,7 +241,7 @@ const ClientHome = () => {
                       key={job.id}
                       type="button"
                       onClick={() => navigate(`/parts/${job.id}`)}
-                      className="block w-full rounded-[18px] border border-ws-border-subtle bg-ws-card px-4 py-3.5 text-left transition hover:border-ws-border border-l-2 border-l-emerald-500/30"
+                      className="block w-full rounded-[18px] border border-ws-border-subtle border-l-2 border-l-emerald-500/30 bg-ws-card px-4 py-3.5 text-left transition hover:border-ws-border hover:border-l-emerald-500/30"
                     >
                       <div className="flex items-center justify-between gap-4">
                         <div className="min-w-0">

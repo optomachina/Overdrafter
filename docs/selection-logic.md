@@ -10,7 +10,7 @@
   - stable option key
   - persisted offer id when selectable
   - vendor key
-  - anonymized vendor label
+  - stored vendor and lane context
   - requested quantity
   - unit price
   - total price

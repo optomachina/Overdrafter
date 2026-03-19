@@ -779,21 +779,51 @@ function normalizeVendorQuoteOfferRecord(value: unknown): VendorQuoteOfferRecord
   return typeof record.id === "string" ? (record as unknown as VendorQuoteOfferRecord) : null;
 }
 
+function normalizeVendorQuoteArtifactRecord(value: unknown): VendorQuoteArtifactRecord | null {
+  const record = asObject(value as Json);
+
+  if (
+    typeof record.id !== "string" ||
+    typeof record.vendor_quote_result_id !== "string" ||
+    typeof record.organization_id !== "string" ||
+    typeof record.artifact_type !== "string" ||
+    typeof record.storage_bucket !== "string" ||
+    typeof record.storage_path !== "string" ||
+    typeof record.created_at !== "string"
+  ) {
+    return null;
+  }
+
+  return record as unknown as VendorQuoteArtifactRecord;
+}
+
 function normalizeVendorQuoteAggregate(value: unknown): VendorQuoteAggregate | null {
   const record = asObject(value as Json);
 
-  if (typeof record.id !== "string") {
+  if (
+    typeof record.id !== "string" ||
+    typeof record.quote_run_id !== "string" ||
+    typeof record.part_id !== "string" ||
+    typeof record.organization_id !== "string" ||
+    typeof record.vendor !== "string" ||
+    typeof record.status !== "string" ||
+    typeof record.created_at !== "string" ||
+    typeof record.updated_at !== "string" ||
+    typeof record.requested_quantity !== "number" ||
+    !Array.isArray(record.offers) ||
+    !Array.isArray(record.artifacts)
+  ) {
     return null;
   }
 
   return {
     ...(record as unknown as VendorQuoteResultRecord),
-    offers: asArray<unknown>(record.offers)
+    offers: record.offers
       .map((offer) => normalizeVendorQuoteOfferRecord(offer))
       .filter((offer): offer is VendorQuoteOfferRecord => Boolean(offer)),
-    artifacts: asArray<unknown>(record.artifacts)
-      .map((artifact) => artifact as VendorQuoteArtifactRecord)
-      .filter((artifact) => typeof artifact.id === "string"),
+    artifacts: record.artifacts
+      .map((artifact) => normalizeVendorQuoteArtifactRecord(artifact))
+      .filter((artifact): artifact is VendorQuoteArtifactRecord => Boolean(artifact)),
   };
 }
 

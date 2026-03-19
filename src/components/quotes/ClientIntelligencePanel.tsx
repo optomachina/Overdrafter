@@ -46,7 +46,7 @@ export function ClientIntelligencePanel({
 
   return (
     <aside className={cn("rounded-[24px] border border-ws-border-subtle bg-ws-card p-4", className)}>
-      <div className="border-b border-white/8 pb-4">
+      <div className="border-b border-ws-border-subtle pb-4">
         <p className="ws-subsection-label">Part context</p>
       </div>
 

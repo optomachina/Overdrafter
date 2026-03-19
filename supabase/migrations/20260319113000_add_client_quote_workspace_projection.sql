@@ -48,7 +48,14 @@ as $$
               '[]'::jsonb
             ),
             'artifacts',
-            '[]'::jsonb
+            coalesce(
+              (
+                select jsonb_agg(to_jsonb(artifact) order by artifact.created_at, artifact.id)
+                from public.vendor_quote_artifacts artifact
+                where artifact.vendor_quote_result_id = result.id
+              ),
+              '[]'::jsonb
+            )
           )
           order by result.requested_quantity, result.part_id, result.vendor
         ),

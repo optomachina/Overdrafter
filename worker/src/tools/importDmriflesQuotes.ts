@@ -200,10 +200,23 @@ const EXPLICIT_FILE_STEM_ALIASES: Record<string, string[]> = {
   [buildGroupKey("QB00004", "1093-07054-01", "B")]: ["1093-07054"],
 };
 
+type ActivePricingPolicy = {
+  id: string;
+  version: string;
+  markup_percent: number | string;
+  currency_minor_unit: number | string;
+};
+
 function buildGroupKey(batch: string, partNumber: string, revision: string | null): string {
   return `${batch.trim().toUpperCase()}::${partNumber.trim()}::${(revision ?? "").trim()}`;
 }
 
+/**
+ * Normalizes a workbook token into a stable lowercase slug.
+ *
+ * Nullish and empty inputs collapse to the sentinel `"none"` so file-stem,
+ * group-key, and cleanup matching logic can treat missing values consistently.
+ */
 export function normalizeToken(value: string | null | undefined): string {
   return (value ?? "none")
     .toLowerCase()
@@ -219,6 +232,11 @@ function asArray<T>(value: T | T[] | undefined): T[] {
   return Array.isArray(value) ? value : [value];
 }
 
+/**
+ * Converts an Excel serial date into an ISO `YYYY-MM-DD` string.
+ *
+ * Returns `null` for blank or non-numeric cells and uses Excel's 1899-12-30 epoch.
+ */
 export function excelSerialToIso(serialText: string | null): string | null {
   if (!serialText) {
     return null;
@@ -253,6 +271,11 @@ function parseOptionalMoney(value: string | null): number | null {
   return parseMoney(value);
 }
 
+/**
+ * Extracts the first numeric tolerance value from a free-form tolerance string.
+ *
+ * Returns the parsed inch value or `null` when no numeric tolerance is present.
+ */
 export function parseTolerance(value: string | null): number | null {
   if (!value) {
     return null;
@@ -333,6 +356,110 @@ function resolveWorksheetPath(target: string): string {
   return path.posix.join("xl", target.replace(/^\/+/, ""));
 }
 
+function resolveWorkbookText(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return String(value);
+  }
+
+  if (value !== null && typeof value === "object" && "#text" in (value as object)) {
+    return String((value as Record<string, unknown>)["#text"] ?? "");
+  }
+
+  return "";
+}
+
+function extractCellValue(cell: Record<string, unknown>, sharedStrings: Map<number, string>): string | null {
+  if (cell.t === "s") {
+    return sharedStrings.get(Number(cell.v)) ?? null;
+  }
+
+  if (typeof cell.v === "number") {
+    return String(cell.v);
+  }
+
+  if (typeof cell.v === "string") {
+    return cell.v;
+  }
+
+  if (cell.is !== null && typeof cell.is === "object") {
+    const inline = cell.is as Record<string, unknown>;
+
+    if (inline.t !== undefined && inline.t !== null) {
+      return resolveWorkbookText(inline.t);
+    }
+
+    const richText = asArray(inline.r)
+      .map((run) =>
+        run !== null && typeof run === "object"
+          ? resolveWorkbookText((run as Record<string, unknown>).t)
+          : "",
+      )
+      .join("");
+
+    if (richText.length > 0) {
+      return richText;
+    }
+  }
+
+  return null;
+}
+
+function columnReferenceToIndex(reference: string | null | undefined): number | null {
+  if (!reference) {
+    return null;
+  }
+
+  const match = reference.match(/^([A-Z]+)\d+$/i);
+
+  if (!match) {
+    return null;
+  }
+
+  let value = 0;
+
+  for (const letter of match[1].toUpperCase()) {
+    value = value * 26 + (letter.charCodeAt(0) - 64);
+  }
+
+  return value - 1;
+}
+
+function parseWorksheetRow(
+  row: Record<string, unknown>,
+  sharedStrings: Map<number, string>,
+  rowWidth: number | null,
+): Array<string | null> {
+  const cells = asArray(row.c);
+  const entries = cells.map((cell, fallbackIndex) => {
+    const record = cell as Record<string, unknown>;
+    return {
+      index: columnReferenceToIndex(typeof record.r === "string" ? record.r : null) ?? fallbackIndex,
+      value: extractCellValue(record, sharedStrings),
+    };
+  });
+  const inferredWidth = entries.reduce((max, entry) => Math.max(max, entry.index + 1), 0);
+  const width = rowWidth ?? inferredWidth;
+  const values = Array.from({ length: width }, () => null as string | null);
+
+  entries.forEach((entry) => {
+    if (entry.index < width) {
+      values[entry.index] = entry.value;
+    }
+  });
+
+  return values;
+}
+
+/**
+ * Reads a worksheet from an XLSX file and returns row objects keyed by header cell.
+ *
+ * Rows are reconstructed from Excel cell references instead of array position so
+ * sparse rows with omitted blank cells stay aligned with their headers.
+ */
 export async function readWorkbookRows(workbookPath: string, sheetName: string): Promise<Row[]> {
   const parser = new XMLParser({
     ignoreAttributes: false,
@@ -372,24 +499,15 @@ export async function readWorkbookRows(workbookPath: string, sheetName: string):
       const items = asArray(shared.sst.si);
 
       items.forEach((item, index) => {
-        const resolveText = (value: unknown): string => {
-          if (typeof value === "string") {
-            return value;
-          }
-          if (typeof value === "number") {
-            return String(value);
-          }
-          if (value !== null && typeof value === "object" && "#text" in (value as object)) {
-            return String((value as Record<string, unknown>)["#text"] ?? "");
-          }
-          return "";
-        };
-
         const text =
           item.t !== undefined && item.t !== null
-            ? resolveText(item.t)
+            ? resolveWorkbookText(item.t)
             : asArray(item.r)
-                .map((run) => resolveText(run.t))
+                .map((run) =>
+                  run !== null && typeof run === "object"
+                    ? resolveWorkbookText((run as Record<string, unknown>).t)
+                    : "",
+                )
                 .join("");
 
         sharedStrings.set(index, text);
@@ -402,33 +520,11 @@ export async function readWorkbookRows(workbookPath: string, sheetName: string):
     const sheetXml = await zip.entryData(sheetPath);
     const sheet = parser.parse(sheetXml.toString("utf8"));
     const rows = asArray(sheet.worksheet.sheetData.row);
-
-    const parsedRows = rows.map((row) => {
-      const cells = asArray(row.c);
-      const values = cells.map((cell) => {
-        if (cell.t === "s") {
-          return sharedStrings.get(Number(cell.v)) ?? null;
-        }
-
-        if (typeof cell.v === "number") {
-          return String(cell.v);
-        }
-
-        if (typeof cell.v === "string") {
-          return cell.v;
-        }
-
-        if (typeof cell.is?.t === "string" || typeof cell.is?.t === "number") {
-          return String(cell.is.t);
-        }
-
-        return null;
-      });
-
-      return values;
-    });
-
-    const [headers, ...dataRows] = parsedRows;
+    const [headerRow, ...dataRowsXml] = rows;
+    const headers = headerRow ? parseWorksheetRow(headerRow as Record<string, unknown>, sharedStrings, null) : [];
+    const dataRows = dataRowsXml.map((row) =>
+      parseWorksheetRow(row as Record<string, unknown>, sharedStrings, headers.length),
+    );
 
     return dataRows
       .filter((row) => row.some((value) => value !== null && value !== ""))
@@ -440,6 +536,11 @@ export async function readWorkbookRows(workbookPath: string, sheetName: string):
   }
 }
 
+/**
+ * Groups workbook quote rows by batch, part number, and revision.
+ *
+ * Blank batch or part-number rows are skipped because they cannot be imported as jobs.
+ */
 export function groupWorkbookRows(rows: Row[]): SpreadsheetGroup[] {
   const groups = new Map<string, SpreadsheetGroup>();
 
@@ -540,6 +641,11 @@ function isNonPartGroup(group: SpreadsheetGroup): boolean {
   return group.partNumber.trim().toUpperCase() === "FINISH";
 }
 
+/**
+ * Returns all normalized file-stem aliases that may match the group's source files.
+ *
+ * This includes the canonical part stem, revision variants, and explicit spreadsheet/file overrides.
+ */
 export function buildGroupStemAliases(group: SpreadsheetGroup): string[] {
   const aliases = new Set<string>();
   const add = (value: string | null | undefined) => {
@@ -618,6 +724,11 @@ async function listBatchFiles(rootPath: string, batch: string): Promise<LocalImp
   return files.sort((left, right) => left.originalName.localeCompare(right.originalName));
 }
 
+/**
+ * Matches local CAD/drawing files to spreadsheet groups using normalized stems and aliases.
+ *
+ * Unmatched groups are rejected to keep the import app-faithful and one-part-per-job.
+ */
 export function assignFilesToGroups(
   groups: SpreadsheetGroup[],
   files: LocalImportFile[],
@@ -792,6 +903,11 @@ function fileLooksLikeLegacyDmriflesDraft(job: WorkspaceJob, files: WorkspaceJob
   return names[0] === "1093-05589-02.STEP" && names[1] === "1093-05589-02.pdf";
 }
 
+/**
+ * Finds the existing DMRifles records that should be replaced before a fresh import.
+ *
+ * The heuristic targets prior import artifacts plus the known duplicate client-home draft set.
+ */
 export function findCleanupCandidates(input: {
   jobs: WorkspaceJob[];
   jobFiles: WorkspaceJobFile[];
@@ -931,23 +1047,40 @@ async function hashFile(filePath: string): Promise<string> {
   return hash.digest("hex");
 }
 
-async function resolveUserIdByEmail(
+/**
+ * Resolves an auth user by email, paging through the admin user list until a match is found.
+ */
+export async function resolveUserIdByEmail(
   supabase: SupabaseClient,
   email: string,
 ): Promise<string> {
-  const { data, error } = await supabase.auth.admin.listUsers();
+  const normalizedEmail = email.toLowerCase();
+  let page = 1;
 
-  if (error || !data?.users) {
-    throw error ?? new Error("Unable to list auth users.");
+  while (true) {
+    const { data, error } = await supabase.auth.admin.listUsers({
+      page,
+      perPage: 200,
+    });
+
+    if (error || !data?.users) {
+      throw error ?? new Error("Unable to list auth users.");
+    }
+
+    const user = data.users.find((candidate) => candidate.email?.toLowerCase() === normalizedEmail);
+
+    if (user) {
+      return user.id;
+    }
+
+    if (data.nextPage === null) {
+      break;
+    }
+
+    page = data.nextPage;
   }
 
-  const user = data.users.find((candidate) => candidate.email?.toLowerCase() === email.toLowerCase());
-
-  if (!user) {
-    throw new Error(`Auth user ${email} was not found.`);
-  }
-
-  return user.id;
+  throw new Error(`Auth user ${email} was not found.`);
 }
 
 async function resolveOrganizationIdForClient(
@@ -992,25 +1125,42 @@ async function ensureInternalMembership(
   }
 }
 
-async function getActivePricingPolicy(
+/**
+ * Loads the active pricing policy for an organization, preferring tenant-specific policy over global fallback.
+ */
+export async function getActivePricingPolicy(
   supabase: SupabaseClient,
   organizationId: string,
-): Promise<{ id: string; version: string; markup_percent: number | string; currency_minor_unit: number | string }> {
-  const { data, error } = await supabase
-    .from("pricing_policies")
-    .select("id, version, markup_percent, currency_minor_unit")
-    .or(`organization_id.eq.${organizationId},organization_id.is.null`)
-    .eq("is_active", true)
-    .order("organization_id", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
+): Promise<ActivePricingPolicy> {
+  const selectPolicy = () =>
+    supabase
+      .from("pricing_policies")
+      .select("id, version, markup_percent, currency_minor_unit")
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(1);
 
-  if (error || !data) {
-    throw error ?? new Error(`No active pricing policy found for org ${organizationId}.`);
+  const { data: organizationPolicy, error: organizationError } = await selectPolicy()
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (organizationError) {
+    throw organizationError;
   }
 
-  return data;
+  if (organizationPolicy) {
+    return organizationPolicy;
+  }
+
+  const { data: globalPolicy, error: globalError } = await selectPolicy()
+    .is("organization_id", null)
+    .maybeSingle();
+
+  if (globalError || !globalPolicy) {
+    throw globalError ?? new Error(`No active pricing policy found for org ${organizationId}.`);
+  }
+
+  return globalPolicy;
 }
 
 async function insertAuditEvent(
@@ -1080,7 +1230,10 @@ async function loadWorkspaceState(
   };
 }
 
-async function cleanupExistingRecords(
+/**
+ * Removes prior import records and orphaned storage objects for the current replacement import.
+ */
+export async function cleanupExistingRecords(
   supabase: SupabaseClient,
   organizationId: string,
   candidates: CleanupCandidates,
@@ -1641,7 +1794,12 @@ async function upsertExtractionAndRequirements(
   }
 }
 
-async function publishSupportedQuotes(
+/**
+ * Publishes supported vendor quote rows from the workbook into quote-run, offer, and package records.
+ *
+ * Returns the published package id, or `null` when the grouped rows contain no supported suppliers.
+ */
+export async function publishSupportedQuotes(
   supabase: SupabaseClient,
   input: {
     workbookPath: string;
@@ -1651,7 +1809,7 @@ async function publishSupportedQuotes(
     group: SpreadsheetGroup;
     initiatedBy: string;
     publishedBy: string;
-    pricingPolicy: { id: string; version: string; markup_percent: number | string; currency_minor_unit: number | string };
+    pricingPolicy: ActivePricingPolicy;
   },
 ): Promise<string | null> {
   const supportedRows = getSupportedRows(input.group.rows);
