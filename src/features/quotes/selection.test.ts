@@ -194,6 +194,8 @@ describe("selection helpers", () => {
 
     expect(pickPresetOption(options, "domestic")?.persistedOfferId).toBe("offer-domestic");
     expect(options.find((option) => option.persistedOfferId === "offer-unknown")?.domesticStatus).toBe("unknown");
+    expect(vendorLabels.get("xometry")).toBe("Xometry");
+    expect(vendorLabels.get("protolabs")).toBe("Protolabs");
   });
 
   it("supports multiple offers from one vendor and picks the best selectable lane", () => {

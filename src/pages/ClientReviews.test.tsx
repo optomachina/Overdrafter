@@ -120,7 +120,7 @@ describe("client review pages", () => {
           requestedQuoteQuantities: [10],
           requestedByDate: "2026-04-15",
           importedBatch: null,
-          selectedSupplier: "Vendor A",
+          selectedSupplier: "Xometry",
           selectedPriceUsd: 100,
           selectedLeadTimeBusinessDays: 7,
         },
@@ -213,7 +213,7 @@ describe("client review pages", () => {
       expect(screen.getByText("Selected option")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Vendor A")).toBeInTheDocument();
+    expect(screen.getByText("Xometry")).toBeInTheDocument();
     expect(screen.getByText("Procurement handoff")).toBeInTheDocument();
     expect(screen.queryByText(/Checkout backend wiring is not available/i)).not.toBeInTheDocument();
 

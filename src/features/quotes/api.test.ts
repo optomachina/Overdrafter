@@ -1231,6 +1231,135 @@ describe("quotes api helpers", () => {
     );
   });
 
+  it("derives selected-offer summary data from the client quote workspace projection", async () => {
+    supabaseMock.rpc.mockImplementation((fn: string) => {
+      if (fn === "api_list_client_part_metadata") {
+        return Promise.resolve({
+          data: [
+            {
+              partId: "part-1",
+              jobId: "job-1",
+              organizationId: "org-1",
+              hasCadFile: true,
+              hasDrawingFile: false,
+              description: "Bracket",
+              partNumber: "1234-56789",
+              revision: null,
+              material: "6061-T6",
+              finish: "Black anodize",
+              tightestToleranceInch: 0.005,
+              process: "CNC Machining",
+              notes: null,
+              quantity: 10,
+              quoteQuantities: [10],
+              requestedByDate: "2026-04-01",
+              pageCount: 1,
+              warningCount: 0,
+              warnings: [],
+              missingFields: [],
+              reviewFields: [],
+              lastFailureCode: null,
+              lastFailureMessage: null,
+              extractedAt: "2026-03-01T00:00:00Z",
+              failedAt: null,
+              updatedAt: "2026-03-01T00:00:00Z",
+              lifecycle: "succeeded",
+            },
+          ],
+          error: null,
+        });
+      }
+
+      if (fn === "api_list_client_quote_workspace") {
+        return Promise.resolve({
+          data: [
+            {
+              jobId: "job-1",
+              latestQuoteRun: null,
+              selectedOffer: {
+                id: "offer-1",
+                vendor_quote_result_id: "quote-1",
+                organization_id: "org-1",
+                offer_key: "xometry-standard",
+                supplier: "Xometry",
+                lane_label: "USA / Standard",
+                sourcing: "USA",
+                tier: "Standard",
+                quote_ref: "Q-1",
+                quote_date: "2026-03-01",
+                unit_price_usd: 10,
+                total_price_usd: 100,
+                lead_time_business_days: 7,
+                ship_receive_by: "2026-03-10",
+                due_date: "2026-04-01",
+                process: "CNC Machining",
+                material: "6061-T6",
+                finish: "Black anodize",
+                tightest_tolerance: "±.005\"",
+                tolerance_source: "Drawing",
+                thread_callouts: null,
+                thread_match_notes: null,
+                notes: null,
+                sort_rank: 0,
+                raw_payload: {},
+                created_at: "2026-03-01T00:00:00Z",
+                updated_at: "2026-03-01T00:00:00Z",
+              },
+              vendorQuotes: [],
+            },
+          ],
+          error: null,
+        });
+      }
+
+      throw new Error(`Unexpected rpc: ${fn}`);
+    });
+    supabaseMock.jobsIn.mockResolvedValueOnce({
+      data: [
+        {
+          id: "job-1",
+          selected_vendor_quote_offer_id: "offer-1",
+          requested_service_kinds: ["manufacturing_quote"],
+          primary_service_kind: "manufacturing_quote",
+          service_notes: null,
+          requested_quote_quantities: [10],
+          requested_by_date: "2026-04-01",
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.partsOrder.mockResolvedValueOnce({
+      data: [
+        {
+          job_id: "job-1",
+          quantity: 10,
+          approved_part_requirements: null,
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.jobFilesOrder.mockResolvedValueOnce({
+      data: [
+        {
+          job_id: "job-1",
+          normalized_name: "1234-56789.step",
+          original_name: "1234-56789.step",
+          file_kind: "cad",
+        },
+      ],
+      error: null,
+    });
+
+    await expect(fetchJobPartSummariesByJobIds(["job-1"])).resolves.toEqual([
+      expect.objectContaining({
+        jobId: "job-1",
+        selectedSupplier: "Xometry",
+        selectedPriceUsd: 100,
+        selectedLeadTimeBusinessDays: 7,
+      }),
+    ]);
+  });
+
   it("falls back to unfiltered job reads when the archive column is missing", async () => {
     supabaseMock.jobsOrder
       .mockImplementationOnce(() => supabaseMock.jobsQuery)
