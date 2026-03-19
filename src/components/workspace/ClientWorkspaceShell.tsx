@@ -7,7 +7,8 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-const DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY = "chat-workspace-layout.desktop-collapsed-v1";
+const DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY = "workspace-shell.desktop-collapsed-v1";
+const LEGACY_DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY = "chat-workspace-layout.desktop-collapsed-v1";
 const DESKTOP_SIDEBAR_EXPANDED_WIDTH = "260px";
 const DESKTOP_SIDEBAR_COLLAPSED_WIDTH = "52px";
 const SIDEBAR_TOOLTIP_DELAY_MS = 120;
@@ -22,7 +23,16 @@ function readDesktopSidebarCollapsed() {
       return false;
     }
 
-    return window.localStorage.getItem(DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY) === "1";
+    const value =
+      window.localStorage.getItem(DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY) ??
+      window.localStorage.getItem(LEGACY_DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY);
+
+    if (value !== null) {
+      window.localStorage.setItem(DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY, value);
+      window.localStorage.removeItem(LEGACY_DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY);
+    }
+
+    return value === "1";
   } catch {
     return false;
   }

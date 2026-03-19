@@ -966,7 +966,7 @@ export function WorkspaceSidebar({
               ) : null}
             </div>
           </ContextMenuTrigger>
-          <ContextMenuContent className="chatgpt-shell w-56 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">
+          <ContextMenuContent className="workspace-shell w-56 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">
             <ContextMenuItem onSelect={() => onSelectProject(project.id)}>Edit project</ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
@@ -1051,7 +1051,7 @@ export function WorkspaceSidebar({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="chatgpt-shell w-64 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1.5 text-white"
+          className="workspace-shell w-64 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1.5 text-white"
         >
           <SectionTitle>Sort by</SectionTitle>
           <FilterOption
@@ -1247,7 +1247,7 @@ export function WorkspaceSidebar({
           }
         }}
       >
-        <DialogContent className="chatgpt-shell rounded-2xl border-white/[0.08] bg-[#2a2a2a] text-white">
+        <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-[#2a2a2a] text-white">
           <DialogHeader>
             <DialogTitle>Archive project</DialogTitle>
             <DialogDescription className="text-white/55">
@@ -1297,7 +1297,7 @@ export function WorkspaceSidebar({
           }
         }}
       >
-        <DialogContent className="chatgpt-shell rounded-2xl border-white/[0.08] bg-[#2a2a2a] text-white">
+        <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-[#2a2a2a] text-white">
           <DialogHeader>
             <DialogTitle>Dissolve project</DialogTitle>
             <DialogDescription className="text-white/55">

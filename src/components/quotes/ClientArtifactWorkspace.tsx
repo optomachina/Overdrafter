@@ -36,7 +36,7 @@ function WorkspaceEmptyState({
   body: string;
 }) {
   return (
-    <div className="flex min-h-[460px] items-center justify-center rounded-[24px] border border-dashed border-white/10 bg-black/20 p-8">
+    <div className="flex min-h-[460px] items-center justify-center rounded-[24px] border border-dashed border-ws-border bg-ws-inset p-8">
       <div className="max-w-md text-center">
         <p className="text-lg font-medium text-white">{title}</p>
         <p className="mt-2 text-sm leading-6 text-white/50">{body}</p>
@@ -79,7 +79,7 @@ export function ClientArtifactWorkspace({
   }, [activeView]);
 
   return (
-    <section className={cn("rounded-[30px] border border-white/8 bg-[#262626] p-5", className)}>
+    <section className={cn("rounded-[30px] border border-ws-border-strong bg-ws-raised p-5 shadow-[0_2px_24px_rgba(0,0,0,0.35)]", className)}>
       <div className="flex flex-col gap-4 border-b border-white/8 pb-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>

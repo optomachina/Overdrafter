@@ -283,7 +283,7 @@ export function ClientQuoteDecisionPanel({
   const vendorKeys = [...new Set(options.map((o) => o.vendorKey))];
 
   return (
-    <section className={cn("rounded-[30px] border border-white/8 bg-[#262626] p-5", className)}>
+    <section className={cn("rounded-[28px] border border-ws-border bg-ws-card p-5", className)}>
       <PanelHeader
         title={title}
         description={description}
