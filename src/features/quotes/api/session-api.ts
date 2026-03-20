@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { hasVerifiedAuth } from "@/lib/auth-status";
 import { buildAuthRedirectUrl } from "@/lib/auth-redirect";
+import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import { isAuthError } from "@supabase/supabase-js";
@@ -18,11 +19,27 @@ type MembershipJoinRow = {
   } | null;
 };
 
+function emitSessionPayloadDiagnostic(session: AppSessionData, source: string): void {
+  recordWorkspaceSessionDiagnostic("info", source, "Fetched app-session payload.", {
+    authState: session.authState ?? "anonymous",
+    isVerifiedAuth: session.isVerifiedAuth,
+    userId: session.user?.id ?? null,
+    membershipCount: session.memberships.length,
+    memberships: session.memberships.map((membership) => ({
+      organizationId: membership.organizationId,
+      role: membership.role,
+    })),
+    hasDerivedActiveMembership: session.memberships.length > 0,
+  });
+}
+
 export async function fetchAppSessionData(): Promise<AppSessionData> {
   const fixtureGateway = getActiveClientWorkspaceGateway();
 
   if (fixtureGateway) {
-    return fixtureGateway.getSessionData();
+    const session = await fixtureGateway.getSessionData();
+    emitSessionPayloadDiagnostic(session, "session-api.fetch.fixture");
+    return session;
   }
 
   const {
@@ -44,7 +61,7 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
       isDeletedAuthUserError(userError) ||
       isInvalidRefreshTokenError(userError)
     ) {
-      return {
+      const session: AppSessionData = {
         user: null,
         memberships: [],
         isVerifiedAuth: false,
@@ -53,18 +70,22 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
             ? "invalid_session"
             : "anonymous",
       };
+      emitSessionPayloadDiagnostic(session, "session-api.fetch.auth-fallback");
+      return session;
     }
 
     throw userError;
   }
 
   if (!user) {
-    return {
+    const session: AppSessionData = {
       user: null,
       memberships: [],
       isVerifiedAuth: false,
       authState: "anonymous",
     };
+    emitSessionPayloadDiagnostic(session, "session-api.fetch.no-user");
+    return session;
   }
 
   const membershipQuery = supabase
@@ -87,12 +108,14 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
     organizationSlug: row.organizations?.slug ?? "unassigned",
   }));
 
-  return {
+  const session: AppSessionData = {
     user,
     memberships,
     isVerifiedAuth: hasVerifiedAuth(user),
     authState: "authenticated",
   };
+  emitSessionPayloadDiagnostic(session, "session-api.fetch.authenticated");
+  return session;
 }
 
 export async function requestPasswordReset(email: string): Promise<void> {

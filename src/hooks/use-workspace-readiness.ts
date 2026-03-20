@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { AppMembership } from "@/features/quotes/types";
 import { WorkspaceNotReadyError } from "@/lib/workspace-errors";
+import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 import { deriveWorkspaceReadiness, type WorkspaceReadiness, type WorkspaceReadinessInput } from "./workspace-readiness";
 
 const WAIT_TIMEOUT_MS = 30_000;
@@ -27,6 +28,38 @@ export function useWorkspaceReadiness(input: WorkspaceReadinessInput) {
 
     if (import.meta.env.DEV && prev !== null && prev !== current) {
       console.warn("workspace-readiness: state transition", { from: prev, to: current });
+    }
+
+    if (prev !== current) {
+      recordWorkspaceSessionDiagnostic(
+        current === "provisioning_failed" ? "warn" : "info",
+        "workspace-readiness.transition",
+        "Workspace readiness state changed.",
+        {
+          from: prev,
+          to: current,
+          membershipCount: input.membershipCount,
+          bootstrapStatus: input.bootstrapStatus,
+          membershipResolutionStatus: input.membershipResolutionStatus,
+          membershipResolutionAttempt: input.membershipResolutionAttempt,
+        },
+      );
+    }
+
+    if (current === "provisioning" && input.user && input.isVerifiedAuth && !input.activeMembership) {
+      recordWorkspaceSessionDiagnostic(
+        "warn",
+        "workspace-readiness.provisioning-without-membership",
+        "Verified authenticated session is provisioning without a workspace membership.",
+        {
+          userId: input.user.id,
+          membershipCount: input.membershipCount,
+          bootstrapStatus: input.bootstrapStatus,
+          bootstrapErrorMessage: input.bootstrapErrorMessage,
+          membershipResolutionStatus: input.membershipResolutionStatus,
+          membershipResolutionAttempt: input.membershipResolutionAttempt,
+        },
+      );
     }
 
     prevStatusRef.current = current;
@@ -69,7 +102,17 @@ export function useWorkspaceReadiness(input: WorkspaceReadinessInput) {
       reject(new WorkspaceNotReadyError(message));
       return;
     }
-  }, [readiness]);
+  }, [
+    input.activeMembership,
+    input.bootstrapErrorMessage,
+    input.bootstrapStatus,
+    input.isVerifiedAuth,
+    input.membershipCount,
+    input.membershipResolutionAttempt,
+    input.membershipResolutionStatus,
+    input.user,
+    readiness,
+  ]);
 
   // Reject pending deferred on unmount
   useEffect(() => {
