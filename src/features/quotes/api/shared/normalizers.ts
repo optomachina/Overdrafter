@@ -4,6 +4,7 @@ import type {
   JobFileRecord,
   JobRecord,
   PartAggregate,
+  QuoteDataStatus,
   VendorQuoteArtifactRecord,
 } from "@/features/quotes/types";
 import type {
@@ -19,6 +20,8 @@ export type ClientQuoteWorkspaceProjection = {
   latestQuoteRun: QuoteRunRecord | null;
   selectedOffer: VendorQuoteOfferRecord | null;
   vendorQuotes: VendorQuoteAggregate[];
+  quoteDataStatus: QuoteDataStatus;
+  quoteDataMessage: string | null;
 };
 
 export function asObject(value: Json | null | undefined): Record<string, unknown> {
@@ -103,6 +106,11 @@ export function normalizeClientQuoteWorkspaceProjection(value: Json): ClientQuot
     vendorQuotes: asArray<unknown>(record.vendorQuotes)
       .map((quote) => normalizeVendorQuoteAggregate(quote))
       .filter((quote): quote is VendorQuoteAggregate => Boolean(quote)),
+    quoteDataStatus:
+      record.quoteDataStatus === "schema_unavailable" || record.quoteDataStatus === "invalid_for_plotting"
+        ? record.quoteDataStatus
+        : "available",
+    quoteDataMessage: typeof record.quoteDataMessage === "string" ? record.quoteDataMessage : null,
   };
 }
 

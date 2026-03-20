@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
+import type { QuoteDiagnostics } from "@/features/quotes/types";
 import { ClientQuoteDecisionPanel } from "./ClientQuoteDecisionPanel";
 
 vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
@@ -40,6 +41,28 @@ function makeOption(overrides: Partial<ClientQuoteSelectionOption> = {}): Client
     tightestTolerance: null,
     notes: null,
     rawPayload: null,
+    ...overrides,
+  };
+}
+
+function makeDiagnostics(overrides: Partial<QuoteDiagnostics> = {}): QuoteDiagnostics {
+  return {
+    rawQuoteRowCount: 1,
+    rawOfferCount: 1,
+    plottableOfferCount: 0,
+    excludedOfferCount: 1,
+    excludedOffers: [
+      {
+        vendorQuoteResultId: "result-1",
+        vendorKey: "xometry",
+        offerId: "offer-1",
+        offerKey: "lane-1",
+        supplier: "Xometry USA",
+        laneLabel: "USA / Standard",
+        reasons: ["invalid_total_price_format"],
+      },
+    ],
+    excludedReasonCounts: [{ reason: "invalid_total_price_format", count: 1 }],
     ...overrides,
   };
 }
@@ -91,6 +114,41 @@ describe("ClientQuoteDecisionPanel", () => {
     );
 
     expect(screen.getByText("No quote options are available for this part yet.")).toBeInTheDocument();
+    expect(screen.queryByText("Quote Chart")).not.toBeInTheDocument();
+  });
+
+  it("renders a schema error state instead of an empty state", () => {
+    render(
+      <ClientQuoteDecisionPanel
+        options={[]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+        quoteDataStatus="schema_unavailable"
+        quoteDataMessage="Apply the latest Supabase migrations and refresh the schema cache."
+      />,
+    );
+
+    expect(screen.getByText("Quote comparison is unavailable")).toBeInTheDocument();
+    expect(screen.getByText(/apply the latest supabase migrations/i)).toBeInTheDocument();
+    expect(screen.queryByText("Quote Chart")).not.toBeInTheDocument();
+  });
+
+  it("renders an invalid-for-plotting state when quote rows cannot be plotted", () => {
+    render(
+      <ClientQuoteDecisionPanel
+        options={[]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+        quoteDataStatus="invalid_for_plotting"
+        quoteDataMessage="1 quote lanes were excluded before plotting: Invalid total price format (1)."
+        quoteDiagnostics={makeDiagnostics()}
+      />,
+    );
+
+    expect(screen.getByText("Quote rows were loaded but could not be plotted")).toBeInTheDocument();
+    expect(screen.getAllByText(/invalid total price format/i)).toHaveLength(2);
     expect(screen.queryByText("Quote Chart")).not.toBeInTheDocument();
   });
 });

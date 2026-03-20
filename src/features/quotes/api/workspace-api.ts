@@ -7,10 +7,17 @@ import type {
   JobFileRecord,
   PartDetailAggregate,
   PartRecord,
+  QuoteDataStatus,
+  QuoteDiagnostics,
   QuoteRequestRecord,
+  VendorQuoteAggregate,
 } from "@/features/quotes/types";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import { normalizeDrawingPreview } from "@/features/quotes/utils";
+import {
+  buildClientQuoteSelectionResult,
+  summarizeQuoteDiagnostics,
+} from "@/features/quotes/selection";
 import { callRpc } from "./shared/rpc";
 import { emptyResponse, ensureData } from "./shared/response";
 import {
@@ -37,6 +44,52 @@ import {
   fetchJobsByIds,
 } from "./jobs-api";
 import { fetchProjectJobMembershipsByJobIds } from "./projects-api";
+
+const EMPTY_QUOTE_DIAGNOSTICS: QuoteDiagnostics = {
+  rawQuoteRowCount: 0,
+  rawOfferCount: 0,
+  plottableOfferCount: 0,
+  excludedOfferCount: 0,
+  excludedOffers: [],
+  excludedReasonCounts: [],
+};
+
+function resolveQuoteWorkspaceHealth(input: {
+  quoteDataStatus: QuoteDataStatus;
+  quoteDataMessage: string | null;
+  vendorQuotes: VendorQuoteAggregate[];
+}): {
+  quoteDataStatus: QuoteDataStatus;
+  quoteDataMessage: string | null;
+  quoteDiagnostics: QuoteDiagnostics;
+} {
+  if (input.quoteDataStatus === "schema_unavailable") {
+    return {
+      quoteDataStatus: input.quoteDataStatus,
+      quoteDataMessage: input.quoteDataMessage,
+      quoteDiagnostics: EMPTY_QUOTE_DIAGNOSTICS,
+    };
+  }
+
+  const { diagnostics } = buildClientQuoteSelectionResult({
+    vendorQuotes: input.vendorQuotes,
+  });
+  const quoteDataStatus =
+    diagnostics.rawQuoteRowCount > 0 &&
+    diagnostics.plottableOfferCount === 0 &&
+    diagnostics.excludedOfferCount > 0
+      ? "invalid_for_plotting"
+      : input.quoteDataStatus;
+
+  return {
+    quoteDataStatus,
+    quoteDataMessage:
+      quoteDataStatus === "invalid_for_plotting"
+        ? summarizeQuoteDiagnostics(diagnostics)
+        : input.quoteDataMessage,
+    quoteDiagnostics: diagnostics,
+  };
+}
 
 export type ResolvedClientPartDetailRoute = {
   routeId: string;
@@ -282,6 +335,8 @@ export async function fetchClientQuoteWorkspaceByJobIds(
       latestQuoteRun: null,
       selectedOffer: null,
       vendorQuotes: [],
+      quoteDataStatus: "available" as const,
+      quoteDataMessage: null,
     };
     const primaryPart = jobParts[0] ?? null;
     const fallbackMetadata = metadataRows.find((item) => item.jobId === jobId) ?? null;
@@ -305,6 +360,11 @@ export async function fetchClientQuoteWorkspaceByJobIds(
             clientExtraction: metadataByPartId.get(primaryPart.id)?.extraction ?? null,
             vendorQuotes: quoteWorkspace.vendorQuotes.filter((quote) => quote.part_id === primaryPart.id),
           };
+    const quoteWorkspaceHealth = resolveQuoteWorkspaceHealth({
+      quoteDataStatus: quoteWorkspace.quoteDataStatus,
+      quoteDataMessage: quoteWorkspace.quoteDataMessage,
+      vendorQuotes: partWithRelations?.vendorQuotes ?? quoteWorkspace.vendorQuotes,
+    });
 
     return [
       {
@@ -312,6 +372,9 @@ export async function fetchClientQuoteWorkspaceByJobIds(
         files: jobFiles,
         summary: summariesByJobId.get(jobId) ?? null,
         part: partWithRelations,
+        quoteDataStatus: quoteWorkspaceHealth.quoteDataStatus,
+        quoteDataMessage: quoteWorkspaceHealth.quoteDataMessage,
+        quoteDiagnostics: quoteWorkspaceHealth.quoteDiagnostics,
         projectIds: projectIdsByJobId.get(jobId) ?? [],
         drawingPreview:
           partWithRelations === null
@@ -431,6 +494,9 @@ export async function fetchPartDetailByJobId(jobId: string): Promise<PartDetailA
     summary,
     packages: [],
     part,
+    quoteDataStatus: workspaceItem.quoteDataStatus,
+    quoteDataMessage: workspaceItem.quoteDataMessage,
+    quoteDiagnostics: workspaceItem.quoteDiagnostics,
     projectIds: projectMemberships.map((membership) => membership.project_id),
     drawingPreview: normalizeDrawingPreview(part?.clientExtraction ?? null, previewAssets),
     latestQuoteRequest: workspaceItem.latestQuoteRequest,

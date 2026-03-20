@@ -3,6 +3,7 @@ import type { VendorQuoteAggregate } from "@/features/quotes/types";
 import {
   applyBulkPresetSelection,
   buildClientQuoteSelectionOptions,
+  buildClientQuoteSelectionResult,
   buildVendorLabelMap,
   pickPresetOption,
   revertBulkPresetSelection,
@@ -330,5 +331,59 @@ describe("selection helpers", () => {
     expect(summary.selectedCount).toBe(2);
     expect(summary.domesticCount).toBe(1);
     expect(summary.foreignCount).toBe(1);
+  });
+
+  it("normalizes numeric string quote fields into plottable options", () => {
+    const result = buildClientQuoteSelectionResult({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          id: "quote-stringy",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-stringy",
+              vendor_quote_result_id: "quote-stringy",
+              unit_price_usd: "$12.50" as unknown as number,
+              total_price_usd: "1,250.00" as unknown as number,
+              lead_time_business_days: "10 business days" as unknown as number,
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(result.options).toHaveLength(1);
+    expect(result.options[0]?.unitPriceUsd).toBe(12.5);
+    expect(result.options[0]?.totalPriceUsd).toBe(1250);
+    expect(result.options[0]?.leadTimeBusinessDays).toBe(10);
+    expect(result.diagnostics.excludedOfferCount).toBe(0);
+  });
+
+  it("excludes malformed offers with explicit diagnostics", () => {
+    const result = buildClientQuoteSelectionResult({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          id: "quote-invalid",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-invalid",
+              vendor_quote_result_id: "quote-invalid",
+              unit_price_usd: null,
+              total_price_usd: "bad-currency" as unknown as number,
+              lead_time_business_days: "soon" as unknown as number,
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(result.options).toEqual([]);
+    expect(result.diagnostics.excludedOfferCount).toBe(1);
+    expect(result.diagnostics.excludedOffers[0]?.reasons).toEqual([
+      "missing_unit_price",
+      "invalid_total_price_format",
+      "invalid_lead_time_format",
+    ]);
   });
 });

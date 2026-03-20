@@ -47,6 +47,7 @@ import {
   isMissingJobArchivingSchemaError,
 } from "./shared/schema-errors";
 import {
+  CLIENT_QUOTE_WORKSPACE_DRIFT_MESSAGE,
   JOB_SELECTION_COLUMN_SETS,
   getClientIntakeSchemaAvailability,
   isJobArchivingSchemaUnavailable,
@@ -362,6 +363,8 @@ export async function fetchClientQuoteWorkspaceProjectionByJobIds(
             latestQuoteRun: null,
             selectedOffer: null,
             vendorQuotes: [],
+            quoteDataStatus: "schema_unavailable",
+            quoteDataMessage: CLIENT_QUOTE_WORKSPACE_DRIFT_MESSAGE,
           } satisfies ClientQuoteWorkspaceProjection,
         ]),
       );

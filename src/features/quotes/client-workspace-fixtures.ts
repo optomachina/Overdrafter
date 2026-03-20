@@ -18,6 +18,7 @@ import type {
   ProjectInviteSummary,
   ProjectMembershipRecord,
   ProjectRecord,
+  QuoteDiagnostics,
   QuoteRunRecord,
   PublishedQuotePackageRecord,
   VendorQuoteAggregate,
@@ -35,6 +36,19 @@ import {
 } from "@/features/quotes/rfq-metadata";
 import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
 import { FIXTURE_STORAGE_BUCKET } from "@/lib/stored-file";
+
+function buildFixtureQuoteDiagnostics(vendorQuotes: VendorQuoteAggregate[]): QuoteDiagnostics {
+  const rawOfferCount = vendorQuotes.reduce((count, quote) => count + quote.offers.length, 0);
+
+  return {
+    rawQuoteRowCount: vendorQuotes.length,
+    rawOfferCount,
+    plottableOfferCount: rawOfferCount,
+    excludedOfferCount: 0,
+    excludedOffers: [],
+    excludedReasonCounts: [],
+  };
+}
 
 export const CLIENT_WORKSPACE_FIXTURE_SCENARIOS = [
   {
@@ -631,6 +645,9 @@ function buildNeedsAttentionScenario(): FixtureState {
     summary,
     packages: [],
     part,
+    quoteDataStatus: "available",
+    quoteDataMessage: null,
+    quoteDiagnostics: buildFixtureQuoteDiagnostics(part.vendorQuotes),
     projectIds: [project.id],
     drawingPreview,
     latestQuoteRequest: null,
@@ -692,6 +709,9 @@ function buildNeedsAttentionScenario(): FixtureState {
         files: partDetail.files,
         summary,
         part,
+        quoteDataStatus: "available",
+        quoteDataMessage: null,
+        quoteDiagnostics: buildFixtureQuoteDiagnostics(part.vendorQuotes),
         projectIds: [project.id],
         drawingPreview,
         latestQuoteRequest: null,
@@ -896,6 +916,9 @@ function buildQuotedScenario(): FixtureState {
       summary,
       packages: [],
       part,
+      quoteDataStatus: "available",
+      quoteDataMessage: null,
+      quoteDiagnostics: buildFixtureQuoteDiagnostics(part.vendorQuotes),
       projectIds: [project.id],
       drawingPreview,
       latestQuoteRequest: null,
@@ -907,6 +930,9 @@ function buildQuotedScenario(): FixtureState {
       files: [part.cadFile!, part.drawingFile!],
       summary,
       part,
+      quoteDataStatus: "available",
+      quoteDataMessage: null,
+      quoteDiagnostics: buildFixtureQuoteDiagnostics(part.vendorQuotes),
       projectIds: [project.id],
       drawingPreview,
       latestQuoteRequest: null,
@@ -1096,6 +1122,9 @@ function buildPublishedScenario(): FixtureState {
       summary,
       packages: [packageRecord],
       part,
+      quoteDataStatus: "available",
+      quoteDataMessage: null,
+      quoteDiagnostics: buildFixtureQuoteDiagnostics(part.vendorQuotes),
       projectIds: [publishedProject.id],
       drawingPreview,
       latestQuoteRequest: null,
@@ -1109,6 +1138,9 @@ function buildPublishedScenario(): FixtureState {
       files: [part.cadFile!, part.drawingFile!],
       summary,
       part,
+      quoteDataStatus: "available",
+      quoteDataMessage: null,
+      quoteDiagnostics: buildFixtureQuoteDiagnostics(part.vendorQuotes),
       projectIds: [publishedProject.id],
       drawingPreview,
       latestQuoteRequest: null,

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   CartesianGrid,
   Label,
@@ -11,6 +11,7 @@ import {
 import { ChartContainer, ChartTooltip } from "@/components/ui/chart";
 import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
 import type { VendorName } from "@/integrations/supabase/types";
+import { logQuoteChartPointDiagnostics } from "@/features/quotes/quote-chart-diagnostics";
 import { formatCurrency } from "@/features/quotes/utils";
 import { getVendorColor, buildVendorChartConfig } from "@/features/quotes/vendor-colors";
 
@@ -18,6 +19,8 @@ type ClientQuoteComparisonChartProps = {
   options: readonly ClientQuoteSelectionOption[];
   selectedKey: string | null;
   hoveredKey: string | null;
+  partId?: string | null;
+  organizationId?: string | null;
   onSelect: (option: ClientQuoteSelectionOption) => void;
   onHover: (key: string | null) => void;
 };
@@ -191,10 +194,13 @@ export function ClientQuoteComparisonChart({
   options,
   selectedKey,
   hoveredKey,
+  partId = null,
+  organizationId = null,
   onSelect,
   onHover,
 }: ClientQuoteComparisonChartProps) {
   const {
+    points,
     pointsByVendor,
     vendorKeys,
     naZoneStart,
@@ -209,6 +215,24 @@ export function ClientQuoteComparisonChart({
     () => buildVendorChartConfig(vendorKeys),
     [vendorKeys],
   );
+
+  useEffect(() => {
+    logQuoteChartPointDiagnostics({
+      partId,
+      organizationId,
+      options,
+      points: points.map((point) => ({
+        key: point.key,
+        vendorKey: point.vendorKey,
+        x: point.x,
+        y: point.y,
+        leadTimeDays: point.leadTimeDays,
+        totalPrice: point.totalPrice,
+        disabled: point.disabled,
+        isNaZone: point.isNaZone,
+      })),
+    });
+  }, [options, organizationId, partId, points]);
 
   const handleScatterClick = (data: unknown) => {
     const point = data as { payload?: ChartPoint } | undefined;

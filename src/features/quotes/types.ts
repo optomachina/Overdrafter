@@ -531,6 +531,40 @@ export type VendorQuoteAggregate = VendorQuoteResultRecord & {
   artifacts: VendorQuoteArtifactRecord[];
 };
 
+export type QuotePlotExclusionReason =
+  | "missing_unit_price"
+  | "missing_total_price"
+  | "invalid_unit_price_format"
+  | "invalid_total_price_format"
+  | "invalid_lead_time_format"
+  | "missing_persisted_offer_id";
+
+export type QuotePlotExclusionRecord = {
+  vendorQuoteResultId: string;
+  vendorKey: VendorName;
+  offerId: string | null;
+  offerKey: string | null;
+  supplier: string | null;
+  laneLabel: string | null;
+  reasons: QuotePlotExclusionReason[];
+};
+
+export type QuotePlotReasonCount = {
+  reason: QuotePlotExclusionReason;
+  count: number;
+};
+
+export type QuoteDiagnostics = {
+  rawQuoteRowCount: number;
+  rawOfferCount: number;
+  plottableOfferCount: number;
+  excludedOfferCount: number;
+  excludedOffers: QuotePlotExclusionRecord[];
+  excludedReasonCounts: QuotePlotReasonCount[];
+};
+
+export type QuoteDataStatus = "available" | "schema_unavailable" | "invalid_for_plotting";
+
 export type QuoteRunAggregate = QuoteRunRecord & {
   vendorQuotes: VendorQuoteAggregate[];
 };
@@ -590,6 +624,9 @@ export type PartDetailAggregate = {
   summary: JobPartSummary | null;
   packages: PublishedQuotePackageRecord[];
   part: PartAggregate | null;
+  quoteDataStatus: QuoteDataStatus;
+  quoteDataMessage: string | null;
+  quoteDiagnostics: QuoteDiagnostics;
   projectIds: string[];
   drawingPreview: DrawingPreviewData;
   latestQuoteRequest: QuoteRequestRecord | null;
@@ -611,6 +648,9 @@ export type ClientQuoteWorkspaceItem = {
   files: JobFileRecord[];
   summary: JobPartSummary | null;
   part: PartAggregate | null;
+  quoteDataStatus: QuoteDataStatus;
+  quoteDataMessage: string | null;
+  quoteDiagnostics: QuoteDiagnostics;
   projectIds: string[];
   drawingPreview: DrawingPreviewData;
   latestQuoteRequest: QuoteRequestRecord | null;
