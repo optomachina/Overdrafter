@@ -8,6 +8,8 @@ const VENDOR_COLOR_MAP: Record<VendorName, string> = {
   sendcutsend: "#3dd68c",
   partsbadger: "#f5c542",
   fastdms: "#8899aa",
+  devzmanufacturing: "#e37b2c",
+  infraredlaboratories: "#4db3a2",
 };
 
 const VENDOR_DISPLAY_NAME: Record<VendorName, string> = {
@@ -17,6 +19,8 @@ const VENDOR_DISPLAY_NAME: Record<VendorName, string> = {
   sendcutsend: "SendCutSend",
   partsbadger: "PartsBadger",
   fastdms: "FastDMS",
+  devzmanufacturing: "DEVZ Manufacturing",
+  infraredlaboratories: "Infrared Laboratories",
 };
 
 const FALLBACK_COLOR = "#6b738f";

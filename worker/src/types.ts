@@ -13,7 +13,9 @@ export type VendorName =
   | "protolabs"
   | "sendcutsend"
   | "partsbadger"
-  | "fastdms";
+  | "fastdms"
+  | "devzmanufacturing"
+  | "infraredlaboratories";
 export type VendorStatus =
   | "queued"
   | "running"

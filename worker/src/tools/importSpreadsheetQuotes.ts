@@ -1,5 +1,6 @@
 import "dotenv/config";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import StreamZip from "node-stream-zip";
 import { XMLParser } from "fast-xml-parser";
 import { loadConfig } from "../config.js";
@@ -20,6 +21,7 @@ type ImportArgs = {
   replaceExistingJobData: boolean;
   replaceImportedJobs: boolean;
   skipExistingParts: boolean;
+  existingSharedProjectJobs: boolean;
 };
 
 type ImportedOffer = {
@@ -54,9 +56,40 @@ type SpreadsheetGroup = {
   importSourceKey: string;
 };
 
-type SupportedSupplier = "Xometry" | "Fictiv" | "Protolabs" | "SendCutSend" | "PartsBadger" | "FastDMS";
-type SupportedVendor = "xometry" | "fictiv" | "protolabs" | "sendcutsend" | "partsbadger" | "fastdms";
+type SupportedSupplier =
+  | "Xometry"
+  | "Fictiv"
+  | "Protolabs"
+  | "SendCutSend"
+  | "PartsBadger"
+  | "FastDMS"
+  | "DEVZ Manufacturing"
+  | "Infrared Laboratories";
+type SupportedVendor =
+  | "xometry"
+  | "fictiv"
+  | "protolabs"
+  | "sendcutsend"
+  | "partsbadger"
+  | "fastdms"
+  | "devzmanufacturing"
+  | "infraredlaboratories";
 type SupportedRow = Row & { Supplier: SupportedSupplier };
+
+type ExistingSharedProject = {
+  id: string;
+  organization_id: string;
+  name: string;
+};
+
+type ExistingSharedProjectJob = {
+  id: string;
+  organization_id: string;
+  project_id: string | null;
+  source: string;
+  title: string;
+  tags: string[] | null;
+};
 
 type JobContext = {
   job: {
@@ -92,14 +125,9 @@ const SUPPORTED_VENDOR_MAP: Record<SupportedSupplier, SupportedVendor> = {
   SendCutSend: "sendcutsend",
   PartsBadger: "partsbadger",
   FastDMS: "fastdms",
+  "DEVZ Manufacturing": "devzmanufacturing",
+  "Infrared Laboratories": "infraredlaboratories",
 };
-
-const AUTOMATED_VENDORS = new Set<SupportedVendor>([
-  "xometry",
-  "fictiv",
-  "protolabs",
-  "sendcutsend",
-]);
 
 function isSupportedSupplier(value: string | null | undefined): value is SupportedSupplier {
   return (
@@ -108,7 +136,9 @@ function isSupportedSupplier(value: string | null | undefined): value is Support
     value === "Protolabs" ||
     value === "SendCutSend" ||
     value === "PartsBadger" ||
-    value === "FastDMS"
+    value === "FastDMS" ||
+    value === "DEVZ Manufacturing" ||
+    value === "Infrared Laboratories"
   );
 }
 
@@ -131,6 +161,7 @@ function parseArgs(): ImportArgs {
     replaceExistingJobData: false,
     replaceImportedJobs: true,
     skipExistingParts: true,
+    existingSharedProjectJobs: false,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -188,6 +219,9 @@ function parseArgs(): ImportArgs {
       case "--include-existing-parts":
         result.skipExistingParts = false;
         break;
+      case "--existing-shared-project-jobs":
+        result.existingSharedProjectJobs = true;
+        break;
       default:
         throw new Error(`Unknown argument: ${arg}`);
     }
@@ -209,6 +243,10 @@ function parseArgs(): ImportArgs {
     throw new Error("Single-job imports require --batch or --batches plus an optional --part-number.");
   }
 
+  if (result.jobId && result.existingSharedProjectJobs) {
+    throw new Error("--existing-shared-project-jobs is only supported with --organization-id imports.");
+  }
+
   return result;
 }
 
@@ -220,7 +258,7 @@ function asArray<T>(value: T | T[] | undefined): T[] {
   return Array.isArray(value) ? value : [value];
 }
 
-function excelSerialToIso(serialText: string | null): string | null {
+export function excelSerialToIso(serialText: string | null): string | null {
   if (!serialText) {
     return null;
   }
@@ -246,7 +284,7 @@ function parseMoney(value: string | null): number {
   return Math.round(parsed * 100) / 100;
 }
 
-function parseTolerance(value: string | null): number | null {
+export function parseTolerance(value: string | null): number | null {
   if (!value) {
     return null;
   }
@@ -277,6 +315,48 @@ function dateFromMonthDay(text: string | null, fallbackYear: number): Date | nul
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function parseLeadTimeFromText(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (/\bsame\s+day\b/.test(normalized)) {
+    return 0;
+  }
+
+  const rangeMatch = normalized.match(/(\d+)\s*(?:-|to)\s*(\d+)\s*(business\s+days?|days?|weeks?)/);
+
+  if (rangeMatch) {
+    const upperBound = Number.parseInt(rangeMatch[2], 10);
+
+    if (!Number.isFinite(upperBound)) {
+      return null;
+    }
+
+    return /week/.test(rangeMatch[3]) ? upperBound * 5 : upperBound;
+  }
+
+  const singleMatch = normalized.match(/(\d+)\s*(business\s+days?|days?|weeks?)/);
+
+  if (singleMatch) {
+    const numeric = Number.parseInt(singleMatch[1], 10);
+
+    if (!Number.isFinite(numeric)) {
+      return null;
+    }
+
+    return /week/.test(singleMatch[2]) ? numeric * 5 : numeric;
+  }
+
+  return null;
+}
+
 function businessDaysBetween(startIso: string | null, endText: string | null): number | null {
   if (!startIso || !endText) {
     return null;
@@ -304,14 +384,14 @@ function businessDaysBetween(startIso: string | null, endText: string | null): n
   return businessDays;
 }
 
-function parseLeadTimeDays(row: Row): number | null {
+export function parseLeadTimeDays(row: Row): number | null {
   const direct = row["Lead Time"];
 
   if (direct) {
-    const match = direct.match(/(\d+)/);
+    const parsed = parseLeadTimeFromText(direct);
 
-    if (match) {
-      return Number.parseInt(match[1], 10);
+    if (parsed !== null) {
+      return parsed;
     }
   }
 
@@ -343,11 +423,64 @@ function normalizeRevision(rows: Row[]): string | null {
   return rows[0]?.Revision?.trim() ?? null;
 }
 
-function normalizeToken(value: string | null | undefined): string {
+export function normalizeToken(value: string | null | undefined): string {
   return (value ?? "none")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "none";
+}
+
+export function normalizeRevisionForComparison(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const withoutPrefix = trimmed.replace(/^rev\s+/i, "");
+
+  if (/^\d+$/.test(withoutPrefix)) {
+    const normalized = String(Number.parseInt(withoutPrefix, 10));
+    return normalized === "NaN" ? null : normalized;
+  }
+
+  return withoutPrefix.toUpperCase();
+}
+
+function normalizePartNumberForComparison(value: string | null | undefined): string {
+  return value?.trim().toUpperCase() ?? "";
+}
+
+export function buildExistingSharedProjectJobKey(
+  batch: string,
+  partNumber: string,
+  revision: string | null,
+): string {
+  return [
+    batch.trim().toUpperCase(),
+    normalizePartNumberForComparison(partNumber),
+    normalizeRevisionForComparison(revision) ?? "",
+  ].join("::");
+}
+
+export function parseSharedProjectJobTitle(title: string): { partNumber: string; revision: string | null } | null {
+  const trimmed = title.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const segments = trimmed.split(/\s+rev\s+/i);
+  const partNumber = segments[0]?.trim();
+
+  if (!partNumber) {
+    return null;
+  }
+
+  return {
+    partNumber,
+    revision: normalizeRevisionForComparison(segments[1] ?? null),
+  };
 }
 
 function buildPartKey(partNumber: string, revision: string | null): string {
@@ -358,8 +491,15 @@ function buildImportSourceKey(batch: string, partNumber: string, revision: strin
   return `spreadsheet_import:${normalizeToken(batch)}:${normalizeToken(partNumber)}:${normalizeToken(revision)}`;
 }
 
-function buildOfferId(vendor: SupportedVendor, row: Row): string {
-  const pieces = [vendor, row.Sourcing ?? "default", row.Tier ?? "default"]
+export function buildOfferId(vendor: SupportedVendor, row: Row): string {
+  const pieces = [
+    vendor,
+    row.Sourcing ?? "default",
+    row.Tier ?? "default",
+    row["Quote Ref"] ?? "quote",
+    row["Quote Date"] ?? "date",
+    row["Total Price"] ?? "total",
+  ]
     .map((piece) => piece.toLowerCase().replace(/[^a-z0-9]+/g, "-"))
     .filter(Boolean);
 
@@ -394,7 +534,7 @@ function resolveWorksheetPath(target: string): string {
   return path.posix.join("xl", target.replace(/^\/+/, ""));
 }
 
-async function readWorkbookRows(workbookPath: string, sheetName = "All Quotes"): Promise<Row[]> {
+export async function readWorkbookRows(workbookPath: string, sheetName = "All Quotes"): Promise<Row[]> {
   const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: "",
@@ -501,7 +641,7 @@ async function readWorkbookRows(workbookPath: string, sheetName = "All Quotes"):
   }
 }
 
-function groupWorkbookRows(rows: Row[]): SpreadsheetGroup[] {
+export function groupWorkbookRows(rows: Row[]): SpreadsheetGroup[] {
   const groups = new Map<string, SpreadsheetGroup>();
 
   rows.forEach((row) => {
@@ -560,17 +700,25 @@ function getUnsupportedSuppliers(rows: Row[]): string[] {
   );
 }
 
-function selectGroups(groups: SpreadsheetGroup[], args: ImportArgs): SpreadsheetGroup[] {
+function matchesRequestedFilters(group: SpreadsheetGroup, args: ImportArgs): boolean {
   const requestedBatches = new Set(
-    args.batches ?? (args.batch ? [args.batch] : groups.map((group) => group.batch)),
+    args.batches ?? (args.batch ? [args.batch] : [group.batch]),
   );
 
-  const selected = groups.filter((group) => {
-    if (!requestedBatches.has(group.batch)) {
-      return false;
-    }
+  if (!requestedBatches.has(group.batch)) {
+    return false;
+  }
 
-    if (args.partNumber && group.partNumber !== args.partNumber) {
+  if (args.partNumber && group.partNumber !== args.partNumber) {
+    return false;
+  }
+
+  return true;
+}
+
+export function selectGroups(groups: SpreadsheetGroup[], args: ImportArgs): SpreadsheetGroup[] {
+  const selected = groups.filter((group) => {
+    if (!matchesRequestedFilters(group, args)) {
       return false;
     }
 
@@ -586,6 +734,92 @@ function selectGroups(groups: SpreadsheetGroup[], args: ImportArgs): Spreadsheet
   }
 
   return selected;
+}
+
+export function collectUnsupportedGroups(groups: SpreadsheetGroup[], args: ImportArgs): SpreadsheetGroup[] {
+  return groups.filter(
+    (group) => matchesRequestedFilters(group, args) && getSupportedRows(group.rows).length === 0,
+  );
+}
+
+export function resolveExistingSharedProjectAssignments(input: {
+  groups: SpreadsheetGroup[];
+  projects: ExistingSharedProject[];
+  jobs: ExistingSharedProjectJob[];
+}): {
+  assignments: Map<string, string>;
+  creationTargets: Map<string, string>;
+  missingGroupKeys: string[];
+  duplicateJobKeys: string[];
+} {
+  const projectByBatch = new Map(
+    input.projects.map((project) => [project.name.trim().toUpperCase(), project]),
+  );
+  const jobIdByKey = new Map<string, string>();
+  const duplicateJobKeys = new Set<string>();
+
+  for (const job of input.jobs) {
+    if (job.source !== "shared_project" || !job.project_id) {
+      continue;
+    }
+
+    const project = input.projects.find((candidate) => candidate.id === job.project_id);
+
+    if (!project) {
+      continue;
+    }
+
+    const reference = parseSharedProjectJobTitle(job.title);
+
+    if (!reference) {
+      continue;
+    }
+
+    const key = buildExistingSharedProjectJobKey(project.name, reference.partNumber, reference.revision);
+
+    if (jobIdByKey.has(key)) {
+      duplicateJobKeys.add(key);
+      continue;
+    }
+
+    jobIdByKey.set(key, job.id);
+  }
+
+  const assignments = new Map<string, string>();
+  const creationTargets = new Map<string, string>();
+  const missingGroupKeys: string[] = [];
+
+  for (const group of input.groups) {
+    const project = projectByBatch.get(group.batch.trim().toUpperCase());
+    const requestedKey = buildExistingSharedProjectJobKey(group.batch, group.partNumber, group.revision);
+
+    if (!project) {
+      missingGroupKeys.push(requestedKey);
+      continue;
+    }
+
+    const key = buildExistingSharedProjectJobKey(project.name, group.partNumber, group.revision);
+    const jobId = jobIdByKey.get(key);
+
+    if (duplicateJobKeys.has(key)) {
+      missingGroupKeys.push(key);
+      continue;
+    }
+
+    if (!jobId) {
+      creationTargets.set(key, project.id);
+      continue;
+    }
+
+    assignments.set(key, jobId);
+  }
+
+  return {
+    assignments,
+    creationTargets,
+    missingGroupKeys,
+    duplicateJobKeys: [...duplicateJobKeys],
+  };
 }
 
 function markup(rawAmount: number, markupPercent = 20, minorUnit = 0.01): number {
@@ -689,7 +923,103 @@ async function getExistingJobContext(
   };
 }
 
-async function deleteQuoteDataForJob(
+async function loadExistingSharedProjectJobContexts(
+  supabase: ReturnType<typeof createServiceClient>,
+  organizationId: string,
+  groups: SpreadsheetGroup[],
+): Promise<{
+  jobContexts: Map<string, JobContext>;
+  creationProjects: Map<string, ExistingSharedProject>;
+}> {
+  const batchNames = [...new Set(groups.map((group) => group.batch.trim().toUpperCase()))];
+  const { data: projects, error: projectsError } = await supabase
+    .from("projects")
+    .select("id, organization_id, name")
+    .eq("organization_id", organizationId)
+    .in("name", batchNames);
+
+  if (projectsError) {
+    throw projectsError;
+  }
+
+  const projectIds = (projects ?? []).map((project) => project.id);
+
+  if (projectIds.length === 0) {
+    throw new Error(`No matching shared projects were found for workbook batches: ${batchNames.join(", ")}.`);
+  }
+
+  const projectById = new Map(
+    (projects ?? []).map((project) => [project.id, project as ExistingSharedProject]),
+  );
+  const resolvedBatchNames = new Set(
+    (projects ?? []).map((project) => project.name.trim().toUpperCase()),
+  );
+  const missingBatchNames = batchNames.filter((batchName) => !resolvedBatchNames.has(batchName));
+
+  if (missingBatchNames.length > 0) {
+    throw new Error(`No matching shared projects were found for workbook batches: ${missingBatchNames.join(", ")}.`);
+  }
+
+  const { data: jobs, error: jobsError } = await supabase
+    .from("jobs")
+    .select("id, organization_id, project_id, source, title, tags")
+    .eq("organization_id", organizationId)
+    .in("project_id", projectIds);
+
+  if (jobsError) {
+    throw jobsError;
+  }
+
+  const { assignments, creationTargets, missingGroupKeys, duplicateJobKeys } = resolveExistingSharedProjectAssignments({
+    groups,
+    projects: (projects ?? []) as ExistingSharedProject[],
+    jobs: (jobs ?? []) as ExistingSharedProjectJob[],
+  });
+
+  if (duplicateJobKeys.length > 0) {
+    throw new Error(
+      `Duplicate shared-project job matches were found for workbook groups: ${duplicateJobKeys.join(", ")}.`,
+    );
+  }
+
+  if (missingGroupKeys.length > 0) {
+    throw new Error(
+      `No existing shared-project jobs matched workbook groups: ${missingGroupKeys.join(", ")}.`,
+    );
+  }
+
+  const contexts = new Map<string, JobContext>();
+
+  for (const group of groups) {
+    const key = buildExistingSharedProjectJobKey(group.batch, group.partNumber, group.revision);
+    const jobId = assignments.get(key);
+
+    if (!jobId) {
+      continue;
+    }
+
+    contexts.set(key, await getExistingJobContext(supabase, jobId));
+  }
+
+  const creationProjects = new Map<string, ExistingSharedProject>();
+
+  for (const [key, projectId] of creationTargets.entries()) {
+    const project = projectById.get(projectId);
+
+    if (!project) {
+      throw new Error(`Resolved workbook group ${key} is missing a target project.`);
+    }
+
+    creationProjects.set(key, project);
+  }
+
+  return {
+    jobContexts: contexts,
+    creationProjects,
+  };
+}
+
+export async function deleteQuoteDataForJob(
   supabase: ReturnType<typeof createServiceClient>,
   jobId: string,
 ) {
@@ -790,6 +1120,61 @@ async function createSpreadsheetDemoJob(
   };
 }
 
+async function createSharedProjectJob(
+  supabase: ReturnType<typeof createServiceClient>,
+  input: {
+    group: SpreadsheetGroup;
+    organizationId: string;
+    internalUserId: string;
+    pricingPolicyId: string;
+    project: ExistingSharedProject;
+    jobTags: string[];
+  },
+): Promise<JobContext> {
+  const title = `${input.group.partNumber}${input.group.revision ? ` rev ${input.group.revision}` : ""}`;
+  const description = normalizeDescription(input.group.rows);
+  const requestedQuantity = Math.max(Number.parseInt(input.group.rows[0].Qty ?? "1", 10) || 1, 1);
+
+  const { data, error } = await supabase
+    .from("jobs")
+    .insert({
+      organization_id: input.organizationId,
+      project_id: input.project.id,
+      created_by: input.internalUserId,
+      title,
+      description,
+      status: "uploaded",
+      source: "shared_project",
+      active_pricing_policy_id: input.pricingPolicyId,
+      tags: input.jobTags,
+      requested_service_kinds: ["manufacturing_quote"],
+      primary_service_kind: "manufacturing_quote",
+      requested_quote_quantities: [requestedQuantity],
+    })
+    .select("id, organization_id, source, title, tags")
+    .single();
+
+  if (error || !data) {
+    throw error ?? new Error(`Failed to create shared-project job for ${title}.`);
+  }
+
+  const { error: projectJobError } = await supabase.from("project_jobs").insert({
+    project_id: input.project.id,
+    job_id: data.id,
+    created_by: input.internalUserId,
+  });
+
+  if (projectJobError) {
+    throw projectJobError;
+  }
+
+  return {
+    job: data as JobContext["job"],
+    cadFile: null,
+    drawingFile: null,
+  };
+}
+
 async function logImportAuditEvent(
   supabase: ReturnType<typeof createServiceClient>,
   input: {
@@ -873,9 +1258,7 @@ async function importGroupIntoJob(
   const unsupportedSuppliers = getUnsupportedSuppliers(group.rows);
   const applicableVendors = Array.from(
     new Set(
-      supportedRows
-        .map((row) => SUPPORTED_VENDOR_MAP[row.Supplier])
-        .filter((vendor) => AUTOMATED_VENDORS.has(vendor)),
+      supportedRows.map((row) => SUPPORTED_VENDOR_MAP[row.Supplier]),
     ),
   );
 
@@ -1322,7 +1705,9 @@ async function main() {
   const config = loadConfig();
   const supabase = createServiceClient(config);
   const rows = await readWorkbookRows(args.workbookPath);
-  const groups = selectGroups(groupWorkbookRows(rows), args);
+  const allGroups = groupWorkbookRows(rows);
+  const groups = selectGroups(allGroups, args);
+  const unsupportedGroups = collectUnsupportedGroups(allGroups, args);
   const internalUserId = await resolveInternalUserId(supabase, args.internalUserEmail);
 
   if (args.jobId) {
@@ -1367,6 +1752,83 @@ async function main() {
     internalUserId,
     args.addInternalMembership,
   );
+
+  if (args.existingSharedProjectJobs) {
+    const { jobContexts, creationProjects } = await loadExistingSharedProjectJobContexts(
+      supabase,
+      organizationId,
+      groups,
+    );
+    const imported = [];
+    const skipped = unsupportedGroups.map((group) => ({
+      batch: group.batch,
+      partNumber: group.partNumber,
+      revision: group.revision,
+      reason: "no_supported_quotes",
+    }));
+
+    for (const group of groups) {
+      const groupKey = buildExistingSharedProjectJobKey(group.batch, group.partNumber, group.revision);
+      const creationProject = creationProjects.get(groupKey);
+      const existingJobContext = jobContexts.get(groupKey);
+      const jobPricingPolicy = creationProject
+        ? await getActivePricingPolicy(supabase, creationProject.organization_id)
+        : await getActivePricingPolicy(supabase, existingJobContext?.job.organization_id ?? organizationId);
+      const jobContext =
+        existingJobContext ??
+        (creationProject
+          ? await createSharedProjectJob(supabase, {
+              group,
+              organizationId: creationProject.organization_id,
+              internalUserId,
+              pricingPolicyId: jobPricingPolicy.id,
+              project: creationProject,
+              jobTags: args.jobTags,
+            })
+          : null);
+
+      if (!jobContext) {
+        throw new Error(
+          `Missing existing shared-project job context for ${group.batch} ${group.partNumber} ${group.revision ?? ""}.`,
+        );
+      }
+
+      const jobArgs: ImportArgs = {
+        ...args,
+        replaceExistingJobData: true,
+      };
+      const result = await importGroupIntoJob(supabase, {
+        args: jobArgs,
+        group,
+        jobContext,
+        pricingPolicy: jobPricingPolicy,
+        internalUserId,
+      });
+
+      imported.push({
+        batch: group.batch,
+        partNumber: group.partNumber,
+        revision: group.revision,
+        target: creationProject ? "created_shared_project_job" : "existing_shared_project_job",
+        ...result,
+      });
+    }
+
+    console.log(
+      JSON.stringify(
+        {
+          mode: "existing_shared_project_jobs",
+          organizationId,
+          imported,
+          skipped,
+        },
+        null,
+        2,
+      ),
+    );
+
+    return;
+  }
 
   if (args.replaceImportedJobs) {
     await deleteImportedJobsBySource(
@@ -1431,11 +1893,13 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  if (error instanceof Error) {
-    console.error(error.stack ?? error.message);
-  } else {
-    console.error(JSON.stringify(error, null, 2));
-  }
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    if (error instanceof Error) {
+      console.error(error.stack ?? error.message);
+    } else {
+      console.error(JSON.stringify(error, null, 2));
+    }
+    process.exit(1);
+  });
+}
