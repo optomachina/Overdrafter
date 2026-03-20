@@ -73,7 +73,11 @@ import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-pi
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
 import { prefetchPartPage, prefetchProjectPage, workspaceQueryKeys } from "@/features/quotes/workspace-navigation";
 import { resolveStoredFileViewerMode } from "@/lib/file-viewer";
-import { downloadStoredFileBlob, loadStoredPdfObjectUrl } from "@/lib/stored-file";
+import {
+  downloadStoredFileBlob,
+  loadStoredDrawingPreviewPages,
+  loadStoredPdfObjectUrl,
+} from "@/lib/stored-file";
 import { getUserFacingErrorMessage } from "@/lib/error-message";
 import {
   buildRequirementDraft,
@@ -560,7 +564,9 @@ export function useClientPartController() {
 
   useEffect(() => {
     let isActive = true;
-    let objectUrl: string | null = null;
+    let pdfObjectUrl: string | null = null;
+    let pageObjectUrls: string[] = [];
+    const drawingPreviewPages = drawingPreview?.pages ?? [];
 
     if (!drawingFile) {
       setDrawingPdfUrl(null);
@@ -570,37 +576,60 @@ export function useClientPartController() {
       return;
     }
 
-    if (drawingViewerMode !== "pdf") {
+    const shouldLoadPdfPreview = drawingViewerMode === "pdf";
+    const shouldLoadPagePreviews = drawingPreviewPages.length > 0;
+
+    if (!shouldLoadPdfPreview && !shouldLoadPagePreviews) {
       setDrawingPdfUrl(null);
+      setDrawingPreviewPageUrls([]);
       setIsDrawingPreviewLoading(false);
+      setDrawingPreviewLoadError(null);
       return;
     }
 
     setIsDrawingPreviewLoading(true);
     setDrawingPreviewLoadError(null);
 
-    void loadStoredPdfObjectUrl(drawingFile)
-      .then((url) => {
+    void Promise.allSettled([
+      shouldLoadPdfPreview ? loadStoredPdfObjectUrl(drawingFile) : Promise.resolve(null),
+      shouldLoadPagePreviews ? loadStoredDrawingPreviewPages(drawingFile, drawingPreviewPages) : Promise.resolve([]),
+    ])
+      .then(([pdfResult, pagesResult]) => {
+        const nextPdfUrl = pdfResult.status === "fulfilled" ? pdfResult.value : null;
+        const nextPages = pagesResult.status === "fulfilled" ? pagesResult.value : [];
+
         if (!isActive) {
-          URL.revokeObjectURL(url);
+          if (nextPdfUrl) {
+            URL.revokeObjectURL(nextPdfUrl);
+          }
+          nextPages.forEach((page) => URL.revokeObjectURL(page.url));
           return;
         }
 
-        objectUrl = url;
-        setDrawingPdfUrl(objectUrl);
-        setDrawingPreviewPageUrls([]);
+        pdfObjectUrl = nextPdfUrl;
+        pageObjectUrls = nextPages.map((page) => page.url);
+        setDrawingPdfUrl(nextPdfUrl);
+        setDrawingPreviewPageUrls(nextPages);
+
+        if (pdfResult.status === "rejected") {
+          const message = getUserFacingErrorMessage(pdfResult.reason, "Unable to load drawing preview.");
+          if (nextPages.length === 0) {
+            toast.error(message);
+          }
+          setDrawingPreviewLoadError(message);
+          setDrawingPdfUrl(null);
+          return;
+        }
+
+        if (pagesResult.status === "rejected") {
+          const message = getUserFacingErrorMessage(pagesResult.reason, "Unable to load drawing preview.");
+          toast.error(message);
+          setDrawingPreviewLoadError(message);
+          setDrawingPreviewPageUrls([]);
+          return;
+        }
+
         setDrawingPreviewLoadError(null);
-      })
-      .catch((error: unknown) => {
-        if (!isActive) {
-          return;
-        }
-
-        const message = getUserFacingErrorMessage(error, "Unable to load drawing preview.");
-        toast.error(message);
-        setDrawingPreviewLoadError(message);
-        setDrawingPdfUrl(null);
-        setDrawingPreviewPageUrls([]);
       })
       .finally(() => {
         if (isActive) {
@@ -610,11 +639,12 @@ export function useClientPartController() {
 
     return () => {
       isActive = false;
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
+      if (pdfObjectUrl) {
+        URL.revokeObjectURL(pdfObjectUrl);
       }
+      pageObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [drawingFile, drawingViewerMode]);
+  }, [drawingFile, drawingPreview?.pages, drawingViewerMode]);
 
   const handlePinProject = async (projectId: string) => {
     try {

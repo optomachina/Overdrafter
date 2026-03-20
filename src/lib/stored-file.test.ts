@@ -25,7 +25,7 @@ vi.mock("@/lib/workspace-session-diagnostics", () => ({
   recordWorkspaceSessionDiagnostic,
 }));
 
-import { downloadStoredFileBlob, loadStoredPdfObjectUrl } from "./stored-file";
+import { downloadStoredFileBlob, loadStoredDrawingPreviewPages, loadStoredPdfObjectUrl } from "./stored-file";
 
 describe("stored-file", () => {
   beforeEach(() => {
@@ -189,5 +189,39 @@ describe("stored-file", () => {
         mime_type: "application/pdf",
       }),
     ).rejects.toThrow("Drawing preview link expired or is no longer valid. Refresh and try again.");
+  });
+
+  it("loads extracted drawing pages as object URLs for image fallback rendering", async () => {
+    storageDownload
+      .mockResolvedValueOnce({
+        data: new Blob(["page-1"]),
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: new Blob(["page-2"]),
+        error: null,
+      });
+    createObjectURLMock.mockReturnValueOnce("blob:page-1").mockReturnValueOnce("blob:page-2");
+
+    await expect(
+      loadStoredDrawingPreviewPages(
+        { original_name: "drawing.pdf" },
+        [
+          {
+            pageNumber: 1,
+            storageBucket: "quote-artifacts",
+            storagePath: "preview/page-1.png",
+          },
+          {
+            pageNumber: 2,
+            storageBucket: "quote-artifacts",
+            storagePath: "preview/page-2.png",
+          },
+        ],
+      ),
+    ).resolves.toEqual([
+      { pageNumber: 1, url: "blob:page-1" },
+      { pageNumber: 2, url: "blob:page-2" },
+    ]);
   });
 });

@@ -52,12 +52,14 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
   },
   storedFile: {
     downloadStoredFileBlob: vi.fn(),
+    loadStoredDrawingPreviewPages: vi.fn(),
     loadStoredPdfObjectUrl: vi.fn(),
   },
 }));
 
 let lastSidebarProps: Record<string, unknown> | null = null;
 let lastAccountMenuProps: Record<string, unknown> | null = null;
+let lastDrawingPreviewDialogProps: Record<string, unknown> | null = null;
 
 vi.mock("@/features/quotes/api", () => api);
 vi.mock("@/features/quotes/api/archive-api", () => ({
@@ -128,6 +130,7 @@ vi.mock("@/hooks/use-app-session", () => ({
 
 vi.mock("@/lib/stored-file", () => ({
   downloadStoredFileBlob: storedFile.downloadStoredFileBlob,
+  loadStoredDrawingPreviewPages: storedFile.loadStoredDrawingPreviewPages,
   loadStoredPdfObjectUrl: storedFile.loadStoredPdfObjectUrl,
 }));
 
@@ -201,7 +204,10 @@ vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
 }));
 
 vi.mock("@/components/quotes/DrawingPreviewDialog", () => ({
-  DrawingPreviewDialog: () => null,
+  DrawingPreviewDialog: (props: Record<string, unknown>) => {
+    lastDrawingPreviewDialogProps = props;
+    return null;
+  },
 }));
 
 vi.mock("@/components/quotes/ClientPartRequestEditor", () => ({
@@ -319,6 +325,7 @@ describe("ClientPart", () => {
   beforeEach(() => {
     lastSidebarProps = null;
     lastAccountMenuProps = null;
+    lastDrawingPreviewDialogProps = null;
     vi.clearAllMocks();
     Object.defineProperty(URL, "revokeObjectURL", {
       configurable: true,
@@ -334,6 +341,7 @@ describe("ClientPart", () => {
 
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
     storedFile.downloadStoredFileBlob.mockResolvedValue(new Blob(["download"]));
+    storedFile.loadStoredDrawingPreviewPages.mockResolvedValue([]);
     storedFile.loadStoredPdfObjectUrl.mockResolvedValue("blob:part-drawing-pdf");
     api.fetchClientActivityEventsByJobIds.mockResolvedValue([]);
     api.fetchAccessibleProjects.mockResolvedValue([]);
@@ -714,6 +722,63 @@ describe("ClientPart", () => {
       }),
     );
     expect(screen.queryByText("PDF-1.4")).not.toBeInTheDocument();
+  });
+
+  it("keeps dialog page previews hydrated when PDF loading falls back to extracted page images", async () => {
+    storedFile.loadStoredPdfObjectUrl.mockRejectedValueOnce(new Error("expired"));
+    storedFile.loadStoredDrawingPreviewPages.mockResolvedValueOnce([{ pageNumber: 1, url: "blob:page-1" }]);
+
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(
+      createPartDetail({
+        drawingPreview: {
+          pageCount: 1,
+          thumbnail: null,
+          pages: [
+            {
+              pageNumber: 1,
+              storageBucket: "quote-artifacts",
+              storagePath: "preview/page-1.png",
+              width: 800,
+              height: 600,
+            },
+          ],
+        },
+        part: {
+          ...createPartDetail().part,
+          drawingFile: {
+            id: "drawing-1",
+            job_id: "job-1",
+            storage_bucket: "job-files",
+            storage_path: "org/bracket.pdf",
+            original_name: "bracket.pdf",
+            file_kind: "drawing",
+            mime_type: "application/pdf",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        },
+        files: [
+          {
+            id: "drawing-1",
+            job_id: "job-1",
+            storage_bucket: "job-files",
+            storage_path: "org/bracket.pdf",
+            original_name: "bracket.pdf",
+            file_kind: "drawing",
+            mime_type: "application/pdf",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        ],
+      }),
+    );
+
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(storedFile.loadStoredDrawingPreviewPages).toHaveBeenCalled();
+      expect(lastDrawingPreviewDialogProps?.pages).toEqual([{ pageNumber: 1, url: "blob:page-1" }]);
+    });
   });
 
   it("shows a failure notice when drawing extraction fails", async () => {

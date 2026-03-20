@@ -12,6 +12,17 @@ type StoredFileLike = {
   mime_type?: string | null;
 };
 
+export type StoredDrawingPreviewPageSource = {
+  pageNumber: number;
+  storageBucket: string;
+  storagePath: string;
+};
+
+export type StoredDrawingPreviewPage = {
+  pageNumber: number;
+  url: string;
+};
+
 type ResolvedStoredFileAccess =
   | {
       kind: "fixture";
@@ -194,4 +205,28 @@ export async function loadStoredPdfObjectUrl(file: StoredFileLike): Promise<stri
   });
 
   return URL.createObjectURL(blob);
+}
+
+/**
+ * Downloads extracted drawing page assets and converts them to object URLs for image fallback rendering.
+ * Callers own cleanup and must revoke each returned `url` when the preview is discarded.
+ */
+export async function loadStoredDrawingPreviewPages(
+  file: Pick<StoredFileLike, "original_name">,
+  pages: StoredDrawingPreviewPageSource[],
+): Promise<StoredDrawingPreviewPage[]> {
+  return await Promise.all(
+    pages.map(async (page) => {
+      const blob = await downloadStoredFileBlob({
+        storage_bucket: page.storageBucket,
+        storage_path: page.storagePath,
+        original_name: file.original_name,
+      });
+
+      return {
+        pageNumber: page.pageNumber,
+        url: URL.createObjectURL(blob),
+      };
+    }),
+  );
 }

@@ -6,7 +6,7 @@ import type { DrawingPreviewData, JobFileRecord } from "@/features/quotes/types"
 import { createCadPreviewSourceFromJobFile, isStepPreviewableFile } from "@/lib/cad-preview";
 import type { StoredFileViewerMode } from "@/lib/file-viewer";
 import { resolveStoredFileViewerMode } from "@/lib/file-viewer";
-import { downloadStoredFileBlob } from "@/lib/stored-file";
+import { downloadStoredFileBlob, loadStoredDrawingPreviewPages } from "@/lib/stored-file";
 import { cn } from "@/lib/utils";
 
 type DownloadableFile = Pick<JobFileRecord, "storage_bucket" | "storage_path" | "original_name">;
@@ -68,7 +68,7 @@ export function ClientDrawingPreviewPanel({
     }
 
     let isActive = true;
-    const objectUrls: string[] = [];
+    let objectUrls: string[] = [];
 
     if (!drawingFile || drawingPreview.pages.length === 0) {
       setLocalPages([]);
@@ -78,24 +78,12 @@ export function ClientDrawingPreviewPanel({
 
     setIsLocalLoading(true);
 
-    void Promise.all(
-      drawingPreview.pages.map(async (page) => {
-        const blob = await downloadStoredFileBlob({
-          storage_bucket: page.storageBucket,
-          storage_path: page.storagePath,
-          original_name: drawingFile.original_name,
-        });
-        const url = URL.createObjectURL(blob);
-        objectUrls.push(url);
-
-        return {
-          pageNumber: page.pageNumber,
-          url,
-        };
-      }),
-    )
+    void loadStoredDrawingPreviewPages(drawingFile, drawingPreview.pages)
       .then((nextPages) => {
+        objectUrls = nextPages.map((page) => page.url);
+
         if (!isActive) {
+          objectUrls.forEach((url) => URL.revokeObjectURL(url));
           return;
         }
 

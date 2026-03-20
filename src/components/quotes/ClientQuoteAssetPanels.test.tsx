@@ -10,6 +10,7 @@ vi.mock("@/components/CadModelThumbnail", () => ({
 
 vi.mock("@/lib/stored-file", () => ({
   downloadStoredFileBlob: vi.fn(),
+  loadStoredDrawingPreviewPages: vi.fn(),
 }));
 
 const drawingFile = {
