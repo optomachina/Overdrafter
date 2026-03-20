@@ -162,6 +162,23 @@ async function settleSessionLoad() {
   await flushMicrotasks();
 }
 
+async function waitForCondition(
+  predicate: () => boolean,
+  {
+    attempts = 20,
+    errorMessage = "Timed out waiting for condition.",
+  }: { attempts?: number; errorMessage?: string } = {},
+) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    await settleSessionLoad();
+  }
+
+  throw new Error(errorMessage);
+}
+
 describe("useClientHomeController membership recovery", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -212,7 +229,14 @@ describe("useClientHomeController membership recovery", () => {
       wrapper: createWrapper(),
     });
 
-    await settleSessionLoad();
+    await waitForCondition(
+      () =>
+        result.current.workspaceReadiness.status === "provisioning" &&
+        createSelfServiceOrganizationMock.mock.calls.length === 1,
+      {
+        errorMessage: "Expected membership recovery to enter provisioning for the existing user.",
+      },
+    );
     expect(result.current.workspaceReadiness.status).toBe("provisioning");
     expect(createSelfServiceOrganizationMock).toHaveBeenCalledTimes(1);
 
@@ -244,7 +268,14 @@ describe("useClientHomeController membership recovery", () => {
       wrapper: createWrapper(),
     });
 
-    await settleSessionLoad();
+    await waitForCondition(
+      () =>
+        result.current.workspaceReadiness.status === "provisioning" &&
+        createSelfServiceOrganizationMock.mock.calls.length === 1,
+      {
+        errorMessage: "Expected missing-membership recovery to enter provisioning before exhausting.",
+      },
+    );
     expect(result.current.workspaceReadiness.status).toBe("provisioning");
     expect(createSelfServiceOrganizationMock).toHaveBeenCalledTimes(1);
 
