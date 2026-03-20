@@ -196,6 +196,114 @@ describe("useAppSession", () => {
     });
   });
 
+  it("does not clear localStorage when getUser() fails transiently (session_error) with a stored token", async () => {
+    const tokenKey = getSupabaseAuthStorageKey();
+    storageMock.setItem(tokenKey, JSON.stringify({ access_token: "token-1" }));
+    fetchAppSessionDataMock
+      .mockResolvedValueOnce({
+        user: null,
+        memberships: [],
+        isVerifiedAuth: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        authState: "session_error" as any,
+      })
+      .mockResolvedValueOnce({
+        user: {
+          id: "user-1",
+          email: "client@example.com",
+        } as AppSessionData["user"],
+        memberships: [
+          {
+            id: "membership-1",
+            role: "client",
+            organizationId: "org-1",
+            organizationName: "Client Org",
+            organizationSlug: "client-org",
+          },
+        ],
+        isVerifiedAuth: true,
+        authState: "authenticated",
+      });
+
+    renderProbe();
+
+    // Wait for the retry to resolve
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    });
+
+    // localStorage must NOT have been cleared — transient errors are not permanent logouts
+    expect(storageMock.getItem(tokenKey)).not.toBeNull();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+    });
+  });
+
+  it("clears localStorage on a truly terminal invalid_session but not on session_error", async () => {
+    const tokenKey = getSupabaseAuthStorageKey();
+    storageMock.setItem(tokenKey, JSON.stringify({ access_token: "token-1" }));
+    fetchAppSessionDataMock.mockResolvedValueOnce({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "invalid_session",
+    });
+
+    renderProbe();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("invalid_session");
+    });
+
+    await waitFor(() => {
+      expect(storageMock.getItem(tokenKey)).toBeNull();
+    });
+  });
+
+  it("stays authenticated with empty memberships when membership query fails, then retries", async () => {
+    fetchAppSessionDataMock
+      .mockResolvedValueOnce({
+        user: {
+          id: "user-1",
+          email: "client@example.com",
+        } as AppSessionData["user"],
+        memberships: [],
+        isVerifiedAuth: true,
+        authState: "authenticated",
+        membershipError: "Failed to load memberships",
+      })
+      .mockResolvedValueOnce({
+        user: {
+          id: "user-1",
+          email: "client@example.com",
+        } as AppSessionData["user"],
+        memberships: [
+          {
+            id: "membership-1",
+            role: "client",
+            organizationId: "org-1",
+            organizationName: "Client Org",
+            organizationSlug: "client-org",
+          },
+        ],
+        isVerifiedAuth: true,
+        authState: "authenticated",
+      });
+
+    renderProbe();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+    });
+
+    // Retry should have been scheduled
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it("keeps the authenticated UI during one transient anonymous refetch after sign-in", async () => {
     fetchAppSessionDataMock
       .mockResolvedValueOnce({

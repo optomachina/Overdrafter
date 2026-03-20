@@ -105,4 +105,28 @@ describe("deriveWorkspaceReadiness", () => {
       deriveWorkspaceReadiness(base({ isLoading: true, isVerifiedAuth: false })),
     ).toEqual({ status: "loading" });
   });
+
+  it("returns loading when authenticated user has membershipError (retry in progress)", () => {
+    expect(
+      deriveWorkspaceReadiness(
+        base({
+          activeMembership: null,
+          bootstrapStatus: "idle",
+          membershipError: "Failed to load memberships",
+        }),
+      ),
+    ).toEqual({ status: "loading" });
+  });
+
+  it("returns provisioning when authenticated user has no membership and no membershipError", () => {
+    expect(
+      deriveWorkspaceReadiness(
+        base({
+          activeMembership: null,
+          bootstrapStatus: "idle",
+          membershipError: undefined,
+        }),
+      ),
+    ).toEqual({ status: "provisioning" });
+  });
 });

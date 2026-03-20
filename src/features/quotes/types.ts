@@ -499,6 +499,7 @@ export type AppSessionData = {
   memberships: AppMembership[];
   isVerifiedAuth: boolean;
   authState?: AppSessionAuthState;
+  membershipError?: string;
 };
 
 export type PartAggregate = PartRecord & {

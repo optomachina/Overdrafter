@@ -16,6 +16,7 @@ export type WorkspaceReadinessInput = {
   activeMembership: AppMembership | null;
   bootstrapStatus: "idle" | "pending" | "success" | "error";
   bootstrapErrorMessage: string | null;
+  membershipError?: string;
 };
 
 /**
@@ -23,7 +24,7 @@ export type WorkspaceReadinessInput = {
  * Pure function with no side effects.
  */
 export function deriveWorkspaceReadiness(input: WorkspaceReadinessInput): WorkspaceReadiness {
-  const { user, isLoading, isVerifiedAuth, activeMembership, bootstrapStatus, bootstrapErrorMessage } = input;
+  const { user, isLoading, isVerifiedAuth, activeMembership, bootstrapStatus, bootstrapErrorMessage, membershipError } = input;
 
   if (!user) {
     return { status: "anonymous" };
@@ -39,6 +40,11 @@ export function deriveWorkspaceReadiness(input: WorkspaceReadinessInput): Worksp
 
   if (activeMembership) {
     return { status: "ready", membership: activeMembership };
+  }
+
+  // Authenticated but memberships failed to load transiently — stay in loading while retry runs.
+  if (membershipError) {
+    return { status: "loading" };
   }
 
   // No membership yet — check bootstrap state

@@ -68,7 +68,7 @@ export function useClientHomeController() {
   const queryClient = useQueryClient();
   const composerRef = useRef<PromptComposerHandle>(null);
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user, activeMembership, isLoading, isVerifiedAuth, signOut } = useAppSession();
+  const { user, activeMembership, isLoading, isVerifiedAuth, signOut, data: sessionData } = useAppSession();
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRefreshingVerification, setIsRefreshingVerification] = useState(false);
@@ -139,6 +139,7 @@ export function useClientHomeController() {
     bootstrapErrorMessage: bootstrapAccountMutation.error instanceof Error
       ? bootstrapAccountMutation.error.message
       : null,
+    membershipError: sessionData?.membershipError,
   });
 
   const ensureWorkspaceReady = async () => {

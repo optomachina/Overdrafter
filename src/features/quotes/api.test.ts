@@ -18,6 +18,7 @@ const supabaseMock = vi.hoisted(() => {
   const rpc = vi.fn();
   const functionsInvoke = vi.fn();
   const authGetUser = vi.fn();
+  const authGetSession = vi.fn();
 
   const membershipsOrder = vi.fn();
   const membershipsEq = vi.fn(() => ({ order: membershipsOrder }));
@@ -211,6 +212,7 @@ const supabaseMock = vi.hoisted(() => {
 
   return {
     authGetUser,
+    authGetSession,
     from,
     membershipsEq,
     membershipsOrder,
@@ -287,6 +289,7 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     auth: {
       getUser: supabaseMock.authGetUser,
+      getSession: supabaseMock.authGetSession,
     },
     from: supabaseMock.from,
     storage: {
@@ -420,6 +423,10 @@ describe("quotes api helpers", () => {
     supabaseMock.projectJobsEq.mockImplementation(() => supabaseMock.projectJobsQuery);
     supabaseMock.projectJobsIn.mockImplementation(() => supabaseMock.projectJobsQuery);
     supabaseMock.projectJobsSelect.mockImplementation(() => supabaseMock.projectJobsQuery);
+    supabaseMock.authGetSession.mockResolvedValue({
+      data: { session: { access_token: "token-1", user: { id: "user-1" } } },
+      error: null,
+    });
     supabaseMock.authGetUser.mockResolvedValue({
       data: {
         user: {
@@ -2788,12 +2795,11 @@ describe("quotes api helpers", () => {
   });
 
   it("returns an anonymous app session without invalid-session state when no auth session exists", async () => {
-    supabaseMock.authGetUser.mockResolvedValue({
-      data: { user: null },
-      error: {
-        name: "AuthSessionMissingError",
-        message: "Auth session missing!",
-      },
+    // With the getSession pre-check, a missing local session short-circuits to anonymous
+    // without calling getUser at all.
+    supabaseMock.authGetSession.mockResolvedValue({
+      data: { session: null },
+      error: null,
     });
 
     await expect(fetchAppSessionData()).resolves.toEqual({
