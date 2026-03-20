@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import type { PromptComposerHandle } from "@/components/chat/PromptComposer";
+import type { AppSessionData } from "@/features/quotes/types";
 import { supabase } from "@/integrations/supabase/client";
 import { getDefaultAccountName } from "@/lib/account-profile";
 import { isEmailConfirmationRequired } from "@/lib/auth-status";
@@ -57,7 +58,22 @@ import { buildProjectNameFromLabels } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { useAppSession } from "@/hooks/use-app-session";
 import { useWorkspaceReadiness } from "@/hooks/use-workspace-readiness";
+import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 import { WorkspaceNotReadyError } from "@/lib/workspace-errors";
+import { MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE, type MembershipResolutionStatus } from "@/hooks/workspace-readiness";
+
+const APP_SESSION_QUERY_KEY = ["app-session"] as const;
+const MEMBERSHIP_RECOVERY_DELAYS_MS = [0, 300, 900, 1_800] as const;
+
+function isExistingMembershipBootstrapError(message: string | null | undefined): boolean {
+  return Boolean(message?.toLowerCase().includes("already has an organization membership"));
+}
+
+function waitForDelay(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
+}
 
 function createProjectStorageKey(organizationId?: string, userEmail?: string): string | null {
   if (!organizationId || !userEmail) {
@@ -72,11 +88,18 @@ export function useClientHomeController() {
   const queryClient = useQueryClient();
   const composerRef = useRef<PromptComposerHandle>(null);
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user, activeMembership, isLoading, isVerifiedAuth, signOut } = useAppSession();
+  const appSession = useAppSession();
+  const memberships = appSession.memberships ?? [];
+  const { user, activeMembership, isLoading, isVerifiedAuth, signOut } = appSession;
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRefreshingVerification, setIsRefreshingVerification] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
+  const [membershipResolutionStatus, setMembershipResolutionStatus] =
+    useState<MembershipResolutionStatus>("idle");
+  const [membershipResolutionErrorMessage, setMembershipResolutionErrorMessage] = useState<string | null>(null);
+  const [membershipResolutionAttempt, setMembershipResolutionAttempt] = useState(0);
+  const membershipRecoveryKeyRef = useRef<string | null>(null);
   const authIntent = searchParams.get("auth");
   const focusComposerIntent = searchParams.get("focusComposer");
   const authDialogMode: "sign-in" | "sign-up" = authIntent === "signup" ? "sign-up" : "sign-in";
@@ -134,15 +157,26 @@ export function useClientHomeController() {
     },
   });
 
+  const bootstrapErrorMessage =
+    bootstrapAccountMutation.error instanceof Error ? bootstrapAccountMutation.error.message : null;
+  const shouldRecoverMembership =
+    Boolean(user) &&
+    isVerifiedAuth &&
+    !activeMembership &&
+    (bootstrapAccountMutation.status === "success" ||
+      (bootstrapAccountMutation.status === "error" && isExistingMembershipBootstrapError(bootstrapErrorMessage)));
+
   const { readiness: workspaceReadiness, waitForReady } = useWorkspaceReadiness({
     user,
     isLoading,
     isVerifiedAuth,
     activeMembership,
+    membershipCount: memberships.length,
     bootstrapStatus: bootstrapAccountMutation.status,
-    bootstrapErrorMessage: bootstrapAccountMutation.error instanceof Error
-      ? bootstrapAccountMutation.error.message
-      : null,
+    bootstrapErrorMessage,
+    membershipResolutionStatus,
+    membershipResolutionErrorMessage,
+    membershipResolutionAttempt,
   });
 
   const ensureWorkspaceReady = async () => {
@@ -299,6 +333,132 @@ export function useClientHomeController() {
     defaultAccountName,
     isLoading,
     isVerifiedAuth,
+    user,
+  ]);
+
+  useEffect(() => {
+    if (!user || !isVerifiedAuth || activeMembership) {
+      membershipRecoveryKeyRef.current = null;
+      setMembershipResolutionStatus("idle");
+      setMembershipResolutionErrorMessage(null);
+      setMembershipResolutionAttempt(0);
+      return;
+    }
+
+    if (!shouldRecoverMembership) {
+      if (bootstrapAccountMutation.status !== "error") {
+        setMembershipResolutionStatus("idle");
+        setMembershipResolutionErrorMessage(null);
+        setMembershipResolutionAttempt(0);
+      }
+      return;
+    }
+
+    const recoveryKey = `${user.id}:${bootstrapAccountMutation.status}:${bootstrapErrorMessage ?? ""}`;
+    if (membershipRecoveryKeyRef.current === recoveryKey) {
+      return;
+    }
+
+    membershipRecoveryKeyRef.current = recoveryKey;
+
+    let cancelled = false;
+
+    setMembershipResolutionStatus("retrying");
+    setMembershipResolutionErrorMessage(null);
+    setMembershipResolutionAttempt(0);
+
+    recordWorkspaceSessionDiagnostic(
+      "warn",
+      "client-home.membership-recovery.start",
+      "Starting bounded app-session recovery for an authenticated user without membership.",
+      {
+        userId: user.id,
+        bootstrapStatus: bootstrapAccountMutation.status,
+        bootstrapErrorMessage,
+      },
+    );
+
+    const recoverMembership = async () => {
+      for (const [attemptIndex, delayMs] of MEMBERSHIP_RECOVERY_DELAYS_MS.entries()) {
+        if (delayMs > 0) {
+          await waitForDelay(delayMs);
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        const nextAttempt = attemptIndex + 1;
+        setMembershipResolutionAttempt(nextAttempt);
+        recordWorkspaceSessionDiagnostic(
+          "info",
+          "client-home.membership-recovery.attempt",
+          "Retrying app-session fetch while waiting for workspace membership.",
+          {
+            userId: user.id,
+            attempt: nextAttempt,
+            delayMs,
+          },
+        );
+
+        await queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY, exact: true });
+        await queryClient.refetchQueries({ queryKey: APP_SESSION_QUERY_KEY, exact: true });
+
+        if (cancelled) {
+          return;
+        }
+
+        const session = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
+        if ((session?.memberships.length ?? 0) > 0) {
+          membershipRecoveryKeyRef.current = null;
+          setMembershipResolutionStatus("idle");
+          setMembershipResolutionErrorMessage(null);
+          setMembershipResolutionAttempt(nextAttempt);
+          recordWorkspaceSessionDiagnostic(
+            "info",
+            "client-home.membership-recovery.resolved",
+            "App-session recovery found a workspace membership.",
+            {
+              userId: user.id,
+              attempt: nextAttempt,
+              membershipCount: session?.memberships.length ?? 0,
+            },
+          );
+          return;
+        }
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      setMembershipResolutionStatus("exhausted");
+      setMembershipResolutionErrorMessage(MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE);
+      recordWorkspaceSessionDiagnostic(
+        "warn",
+        "client-home.membership-recovery.exhausted",
+        "App-session recovery exhausted without finding a workspace membership.",
+        {
+          userId: user.id,
+          bootstrapStatus: bootstrapAccountMutation.status,
+          bootstrapErrorMessage,
+          attempts: MEMBERSHIP_RECOVERY_DELAYS_MS.length,
+        },
+      );
+    };
+
+    void recoverMembership();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeMembership,
+    bootstrapAccountMutation.status,
+    bootstrapErrorMessage,
+    isVerifiedAuth,
+    queryClient,
+    shouldRecoverMembership,
     user,
   ]);
 
