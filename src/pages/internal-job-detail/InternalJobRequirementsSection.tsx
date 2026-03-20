@@ -7,13 +7,6 @@ type InternalJobRequirementsSectionProps = {
   getDraftForPart: (part: JobAggregate["parts"][number]) => ApprovedPartRequirement;
   getQuoteQuantityInput: (partId: string, draft: ApprovedPartRequirement) => string;
   job: JobAggregate;
-  jobRequestDefaults: {
-    requested_service_kinds: string[];
-    primary_service_kind: string | null;
-    service_notes: string | null;
-    requested_quote_quantities: number[];
-    requested_by_date: string | null;
-  };
   onDraftQuantityChange: (partId: string, draft: ApprovedPartRequirement, quantity: number) => void;
   onQuoteQuantityInputChange: (partId: string, value: string) => void;
   onQuoteQuantityInputCommit: (partId: string, draft: ApprovedPartRequirement) => void;
@@ -29,7 +22,6 @@ export function InternalJobRequirementsSection({
   getDraftForPart,
   getQuoteQuantityInput,
   job,
-  jobRequestDefaults,
   onDraftQuantityChange,
   onQuoteQuantityInputChange,
   onQuoteQuantityInputCommit,
@@ -53,7 +45,6 @@ export function InternalJobRequirementsSection({
               quoteQuantityInput={getQuoteQuantityInput(part.id, draft)}
               cadPreviewSource={cadPreviewSources.get(part.id) ?? null}
               disabled={writeActionsDisabled}
-              jobRequestDefaults={jobRequestDefaults}
               onDraftChange={(updater) => updateDraft(part.id, updater)}
               onDraftQuantityChange={(quantity) => onDraftQuantityChange(part.id, draft, quantity)}
               onQuoteQuantityInputChange={(value) => onQuoteQuantityInputChange(part.id, value)}

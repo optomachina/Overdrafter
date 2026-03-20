@@ -122,7 +122,6 @@ const InternalJobDetail = () => {
           getDraftForPart={viewModel.getDraftForPart}
           getQuoteQuantityInput={viewModel.getQuoteQuantityInput}
           job={queryState.job}
-          jobRequestDefaults={viewModel.jobRequestDefaults}
           onDraftQuantityChange={viewModel.setDraftQuantity}
           onQuoteQuantityInputChange={(partId, value) =>
             viewModel.setQuoteQuantityInputs((current) => ({

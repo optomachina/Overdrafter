@@ -11,7 +11,6 @@ import { requestedServicesSupportQuoteFields } from "@/features/quotes/service-i
 import type { ApprovedPartRequirement, PartAggregate, RequirementFieldDisplaySource } from "@/features/quotes/types";
 import { normalizeApprovedRequirementDraft } from "@/features/quotes/request-scenarios";
 import {
-  buildRequirementDraft,
   formatStatusLabel,
   formatVendorName,
   normalizeDrawingExtraction,
@@ -24,7 +23,6 @@ type InternalJobPartRequirementCardProps = {
   cadPreviewSource: ReturnType<typeof import("@/lib/cad-preview").createCadPreviewSourceFromJobFile> | null;
   disabled: boolean;
   draft: ApprovedPartRequirement;
-  jobRequestDefaults: Parameters<typeof buildRequirementDraft>[1];
   onDraftChange: (updater: (current: ApprovedPartRequirement) => ApprovedPartRequirement) => void;
   onDraftQuantityChange: (quantity: number) => void;
   onQuoteQuantityInputChange: (value: string) => void;
@@ -61,7 +59,6 @@ export function InternalJobPartRequirementCard({
   cadPreviewSource,
   disabled,
   draft,
-  jobRequestDefaults,
   onDraftChange,
   onDraftQuantityChange,
   onQuoteQuantityInputChange,
@@ -70,7 +67,7 @@ export function InternalJobPartRequirementCard({
   quoteQuantityInput,
 }: InternalJobPartRequirementCardProps) {
   const extraction = normalizeDrawingExtraction(part.extraction, part.id);
-  const currentDraft = draft ?? buildRequirementDraft(part, jobRequestDefaults);
+  const currentDraft = draft;
   const cadPreviewable = part.cadFile ? isStepPreviewableFile(part.cadFile.original_name) : false;
   const showQuoteFields = requestedServicesSupportQuoteFields(currentDraft.requestedServiceKinds);
   const descriptionResolution = resolveRequirementField(part, "description", extraction);
