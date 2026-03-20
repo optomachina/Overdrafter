@@ -71,6 +71,7 @@ const ClientPart = () => {
     drawingPdfUrl,
     drawingPreview,
     drawingPreviewPageUrls,
+    drawingViewerMode,
     drawingPreviewState,
     drawingPreviewStatusMessage,
     extractionDiagnostics,
@@ -540,8 +541,9 @@ const ClientPart = () => {
                         <ClientDrawingPreviewPanel
                           drawingFile={drawingFile}
                           drawingPreview={drawingPreview ?? { pageCount: 0, thumbnail: null, pages: [] }}
+                          viewerMode={drawingViewerMode}
                           pdfUrl={drawingPdfUrl}
-                          pages={drawingPreviewPageUrls}
+                          pages={drawingPreviewPageUrls.length > 0 ? drawingPreviewPageUrls : undefined}
                           state={drawingPreviewState}
                           statusMessage={drawingPreviewStatusMessage}
                           isLoading={isDrawingPreviewLoading}
@@ -642,6 +644,7 @@ const ClientPart = () => {
           onOpenChange={setShowDrawingPreview}
           fileName={drawingFile.original_name}
           pageCount={drawingPreview?.pageCount ?? 0}
+          viewerMode={drawingViewerMode}
           pdfUrl={drawingPdfUrl}
           pages={drawingPreviewPageUrls}
           isLoading={isDrawingPreviewLoading}

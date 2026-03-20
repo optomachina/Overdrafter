@@ -72,7 +72,8 @@ import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quot
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
 import { prefetchPartPage, prefetchProjectPage, workspaceQueryKeys } from "@/features/quotes/workspace-navigation";
-import { downloadStoredFileBlob } from "@/lib/stored-file";
+import { resolveStoredFileViewerMode } from "@/lib/file-viewer";
+import { downloadStoredFileBlob, loadStoredPdfObjectUrl } from "@/lib/stored-file";
 import { getUserFacingErrorMessage } from "@/lib/error-message";
 import {
   buildRequirementDraft,
@@ -390,6 +391,7 @@ export function useClientPartController() {
   const extractionDiagnostics = partDetail?.part?.clientExtraction ?? null;
   const drawingPreview = partDetail?.drawingPreview ?? null;
   const drawingFile = partDetail?.files.find((file) => file.file_kind === "drawing") ?? null;
+  const drawingViewerMode = useMemo(() => resolveStoredFileViewerMode(drawingFile), [drawingFile]);
   const cadFile = partDetail?.files.find((file) => file.file_kind === "cad") ?? null;
   const fallbackRequestDraft = useMemo(() => {
     if (!partDetail?.part) {
@@ -540,6 +542,7 @@ export function useClientPartController() {
     setShowRenameDialog(false);
     setIsPartOptionsOpen(false);
     setDrawingPdfUrl(null);
+    setDrawingPreviewPageUrls([]);
     setDrawingPreviewLoadError(null);
   }, [canonicalJobId]);
 
@@ -567,16 +570,23 @@ export function useClientPartController() {
       return;
     }
 
+    if (drawingViewerMode !== "pdf") {
+      setDrawingPdfUrl(null);
+      setIsDrawingPreviewLoading(false);
+      return;
+    }
+
     setIsDrawingPreviewLoading(true);
     setDrawingPreviewLoadError(null);
 
-    void downloadStoredFileBlob(drawingFile)
-      .then((blob) => {
+    void loadStoredPdfObjectUrl(drawingFile)
+      .then((url) => {
         if (!isActive) {
+          URL.revokeObjectURL(url);
           return;
         }
 
-        objectUrl = URL.createObjectURL(blob);
+        objectUrl = url;
         setDrawingPdfUrl(objectUrl);
         setDrawingPreviewPageUrls([]);
         setDrawingPreviewLoadError(null);
@@ -604,7 +614,7 @@ export function useClientPartController() {
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [drawingFile]);
+  }, [drawingFile, drawingViewerMode]);
 
   const handlePinProject = async (projectId: string) => {
     try {
@@ -980,6 +990,7 @@ export function useClientPartController() {
     drawingFile,
     extractionDiagnostics,
     drawingPreview,
+    drawingViewerMode,
     drawingPdfUrl,
     drawingPreviewPageUrls,
     drawingPreviewState,

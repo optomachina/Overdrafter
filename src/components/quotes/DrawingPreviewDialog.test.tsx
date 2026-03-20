@@ -120,6 +120,7 @@ describe("DrawingPreviewDialog", () => {
         onOpenChange={() => undefined}
         fileName="drawing.pdf"
         pageCount={0}
+        viewerMode="pdf"
         pdfUrl="blob:drawing-pdf"
         pages={[]}
         isLoading={false}
