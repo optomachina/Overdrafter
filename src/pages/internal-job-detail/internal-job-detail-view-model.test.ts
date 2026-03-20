@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { PublishedPackageAggregate, VendorQuoteAggregate } from "@/features/quotes/types";
+import type { ApprovedPartRequirement, PublishedPackageAggregate, VendorQuoteAggregate } from "@/features/quotes/types";
 import {
   buildOptionKindsByOfferId,
   buildVisibleQuoteRows,
   resolveClientSummary,
+  resolveDraftForUpdate,
 } from "./internal-job-detail-view-model";
 
 function makeQuote(overrides: Partial<VendorQuoteAggregate> = {}): VendorQuoteAggregate {
@@ -95,5 +96,80 @@ describe("internal job detail view model helpers", () => {
         latestPackageSummary: "Published summary",
       }),
     ).toBe("Edited summary");
+  });
+
+  it("keeps updateDraft safe when a part id is no longer available", () => {
+    const currentDraft = {
+      partId: "part-a",
+      requestedServiceKinds: ["cnc_milling"],
+      primaryServiceKind: "cnc_milling",
+      serviceNotes: null,
+      description: "Bracket",
+      partNumber: "BRKT-001",
+      revision: "A",
+      material: "6061 Aluminum",
+      finish: "As machined",
+      tightestToleranceInch: 0.005,
+      process: null,
+      notes: null,
+      quantity: 1,
+      quoteQuantities: [1],
+      requestedByDate: null,
+      shipping: {
+        requestedByDateOverride: null,
+        packagingNotes: null,
+        shippingNotes: null,
+      },
+      certifications: {
+        requiredCertifications: [],
+        materialCertificationRequired: null,
+        certificateOfConformanceRequired: null,
+        inspectionLevel: null,
+        notes: null,
+      },
+      sourcing: {
+        regionPreferenceOverride: null,
+        preferredSuppliers: [],
+        materialProvisioning: null,
+        notes: null,
+      },
+      release: {
+        releaseStatus: null,
+        reviewDisposition: null,
+        quoteBlockedUntilRelease: null,
+        notes: null,
+      },
+      applicableVendors: ["xometry"],
+    } as ApprovedPartRequirement;
+
+    expect(
+      resolveDraftForUpdate({
+        currentDraft,
+        job: null,
+        jobRequestDefaults: {
+          requested_service_kinds: [],
+          primary_service_kind: null,
+          service_notes: null,
+          requested_quote_quantities: [],
+          requested_by_date: null,
+        },
+        partId: "part-a",
+      }),
+    ).toBe(currentDraft);
+
+    expect(
+      resolveDraftForUpdate({
+        currentDraft: undefined,
+        job: null,
+        jobRequestDefaults: {
+          requested_service_kinds: [],
+          primary_service_kind: null,
+          service_notes: null,
+          requested_quote_quantities: [],
+          requested_by_date: null,
+        },
+        partId: "missing-part",
+      }),
+    ).toBeNull();
   });
 });

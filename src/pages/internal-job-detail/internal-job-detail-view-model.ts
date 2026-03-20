@@ -95,6 +95,25 @@ export function resolveClientSummary({
   return current || nextSummary;
 }
 
+export function resolveDraftForUpdate({
+  currentDraft,
+  job,
+  jobRequestDefaults,
+  partId,
+}: {
+  currentDraft: ApprovedPartRequirement | undefined;
+  job: JobAggregate | null;
+  jobRequestDefaults: ReturnType<typeof buildJobRequestDefaults>;
+  partId: string;
+}) {
+  if (currentDraft) {
+    return currentDraft;
+  }
+
+  const part = job?.parts.find((candidate) => candidate.id === partId);
+  return part ? buildRequirementDraft(part, jobRequestDefaults) : null;
+}
+
 type UseInternalJobDetailViewModelOptions = {
   job: JobAggregate | null;
   latestQuoteRun: QuoteRunAggregate | null;
@@ -197,10 +216,23 @@ export function useInternalJobDetailViewModel({
     partId: string,
     updater: (current: ApprovedPartRequirement) => ApprovedPartRequirement,
   ) => {
-    setDrafts((current) => ({
-      ...current,
-      [partId]: updater(current[partId]),
-    }));
+    setDrafts((current) => {
+      const currentDraft = resolveDraftForUpdate({
+        currentDraft: current[partId],
+        job,
+        jobRequestDefaults,
+        partId,
+      });
+
+      if (!currentDraft) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [partId]: updater(currentDraft),
+      };
+    });
   };
 
   const getDraftForPart = (part: PartAggregate) =>
