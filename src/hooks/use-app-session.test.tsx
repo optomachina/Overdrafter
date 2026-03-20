@@ -207,8 +207,7 @@ describe("useAppSession", () => {
         user: null,
         memberships: [],
         isVerifiedAuth: false,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        authState: "session_error" as any,
+        authState: "session_error",
       })
       .mockResolvedValueOnce({
         user: {

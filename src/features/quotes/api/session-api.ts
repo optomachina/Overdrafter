@@ -103,7 +103,7 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
         user: null,
         memberships: [],
         isVerifiedAuth: false,
-        authState: "session_error" as AppSessionData["authState"],
+        authState: "session_error",
       };
       emitSessionPayloadDiagnostic(session, "session-api.fetch.auth-fallback");
       return session;
@@ -115,7 +115,7 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
       user: null,
       memberships: [],
       isVerifiedAuth: false,
-      authState: "session_error" as AppSessionData["authState"],
+      authState: "session_error",
     };
     emitSessionPayloadDiagnostic(transientSession, "session-api.fetch.auth-fallback");
     return transientSession;
