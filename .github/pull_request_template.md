@@ -1,4 +1,4 @@
-Remove the prompt text once each section is filled. Pull requests are validated for missing required sections and obvious leftover template placeholders.
+Remove the prompt text once each section is filled. Pull requests are validated for missing required sections and obvious leftover template placeholders. For Codex-driven work, prefer generating the body with `npm run render:pr-body -- <path-to-json>` and use `gh pr create --body-file` or `gh pr edit --body-file` instead of opening a blank PR first.
 
 ## Summary
 

@@ -76,6 +76,47 @@ Always record:
 
 Useful supporting evidence includes screenshots, fixture URLs, diagnostics snapshots, and Playwright artifacts when they materially support the change.
 
+## PR body generation flow
+
+Do not open or refresh a PR with placeholder template text.
+
+Use this sequence instead:
+
+1. Write a structured JSON payload for `npm run render:pr-body -- <path-to-json>`.
+2. Include concrete values for `Summary`, `Problem`, `Scope`, `Verification`, `Tests`, `Migration notes`, `Rollback / risk notes`, and `Documentation`.
+3. Render the markdown to a temporary file and validate it locally with `npm run validate:pr-body -- <path-to-rendered-markdown>`.
+4. Create the PR with `gh pr create --base main --body-file <path-to-rendered-markdown>` or refresh it with `gh pr edit --body-file <path-to-rendered-markdown>`.
+5. Validate the live PR body with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
+
+Renderer input shape:
+
+```json
+{
+  "summary": ["Short change summary"],
+  "problem": ["Why the PR exists"],
+  "scope": ["What changed", "What did not change"],
+  "verification": {
+    "allPassed": true,
+    "usedVerify": false,
+    "usedNarrowVerification": true,
+    "hasOtherVerification": true,
+    "commands": ["npm run test -- scripts/render-pr-body.test.mjs"],
+    "results": ["Narrower verification was sufficient because no runtime code changed."],
+    "baselineFailures": []
+  },
+  "tests": ["Added or updated test coverage, or why none were practical."],
+  "migrationNotes": {
+    "hasImpact": false,
+    "details": []
+  },
+  "rollbackRisks": ["Primary risk and rollback path."],
+  "documentation": {
+    "updated": true,
+    "details": ["Docs updated in the same change."]
+  }
+}
+```
+
 ## Handoff sequence
 
 Before moving an issue to `Human Review`:
@@ -84,7 +125,7 @@ Before moving an issue to `Human Review`:
 2. Run the required verification and record the outcomes.
 3. Run `./scripts/symphony-preflight.sh` again.
 4. Use the `commit` skill for the local git commit.
-5. Use the `push` skill to publish the branch and ensure the PR exists.
+5. Use the `push` skill to publish the branch and ensure the PR exists with a rendered `--body-file`.
 6. Validate the live PR body with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
 7. Use the `linear` skill to add the branch, PR URL, changed files, verification evidence, and PR body validation result to the issue workpad or comments.
 8. Move the issue to `Human Review` only after the commit, push, PR, validated PR body, and workpad evidence all exist.

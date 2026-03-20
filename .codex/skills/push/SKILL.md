@@ -28,27 +28,28 @@ git push -u origin "$(git branch --show-current)"
 ```
 
 8. If push is rejected because the remote moved, use the `pull` skill, rerun verification, and push again.
-9. Ensure a PR exists for the branch:
+9. Build a complete PR body before any PR create or edit call:
+   - write a structured JSON payload for `npm run render:pr-body -- <path-to-json>`
+   - include concrete content for `Summary`, `Problem`, `Scope`, `Verification`, `Tests`, `Migration notes`, `Rollback / risk notes`, and `Documentation`
+   - render the markdown to a temporary file and validate it locally with `npm run validate:pr-body -- <path-to-rendered-markdown>`
+10. Ensure a PR exists for the branch:
    - if there is no PR, create one
    - if there is an open PR, update its title/body if the scope changed
    - if the current branch points at a closed or merged PR, stop and create a fresh branch from `origin/main`
-10. Write or refresh the PR body using `.github/pull_request_template.md`.
-11. Fill every required template section before handoff:
-   - `Summary`
-   - `Problem`
-   - `Scope`
-   - `Verification` with exact commands and outcomes
-   - `Tests`
-   - `Migration notes`
-   - `Rollback / risk notes`
-   - `Documentation`
+11. Create or refresh the PR with that rendered body:
+
+```bash
+gh pr create --base main --body-file /tmp/overdrafter-pr-body.md
+gh pr edit --body-file /tmp/overdrafter-pr-body.md
+```
+
 12. Validate the live PR body before handoff:
 
 ```bash
 gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin
 ```
 
-13. If validation fails, update the PR body and rerun the validator before moving the issue to `Human Review`.
+13. If validation fails, fix the JSON input or rendered markdown, update the PR body, and rerun the validator before moving the issue to `Human Review`.
 14. Report:
    - branch name
    - whether the push created or updated the remote branch
@@ -62,5 +63,6 @@ gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin
 - Never push `main` directly from issue automation.
 - If the branch has no local commit yet, stop and use the `commit` skill first.
 - Do not use `--force`; only use `--force-with-lease` if history was intentionally rewritten.
+- Do not create a PR with a blank body or placeholder template text when `render:pr-body` can be used first.
 - Do not leave an issue in `Human Review` unless the PR exists and matches the current diff.
 - Do not leave an issue in `Human Review` unless the PR body passes `npm run validate:pr-body` against the live PR body.
