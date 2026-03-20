@@ -38,6 +38,10 @@ function normalizeOptionalStringList(value, label) {
     return [];
   }
 
+  if (Array.isArray(value) && value.length === 0) {
+    return [];
+  }
+
   return normalizeStringList(value, label);
 }
 

@@ -106,6 +106,20 @@ describe("renderPrBody", () => {
     expect(validatePrBody(rendered).ok).toBe(true);
   });
 
+  it("accepts an explicit empty baseline-failures list", () => {
+    const rendered = renderPrBody({
+      ...buildInput(),
+      verification: {
+        ...buildInput().verification,
+        baselineFailures: [],
+      },
+    });
+
+    expect(rendered).toContain("Baseline failures or exceptions:");
+    expect(rendered).toContain("None.");
+    expect(validatePrBody(rendered).ok).toBe(true);
+  });
+
   it("rejects missing required fields before rendering", () => {
     expect(() =>
       renderPrBody({
