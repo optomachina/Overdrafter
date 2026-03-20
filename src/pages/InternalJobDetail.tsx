@@ -14,7 +14,6 @@ import { InternalJobWorkerQueueCard } from "./internal-job-detail/InternalJobWor
 import { useInternalJobDetailQuery } from "./internal-job-detail/use-internal-job-detail-query";
 import { useInternalJobDetailMutations } from "./internal-job-detail/use-internal-job-detail-mutations";
 import { useInternalJobDetailViewModel } from "./internal-job-detail/internal-job-detail-view-model";
-
 const InternalJobDetail = () => {
   const navigate = useNavigate();
   const { jobId = "" } = useParams();
@@ -63,7 +62,9 @@ const InternalJobDetail = () => {
       <AppShell title="Job unavailable" subtitle="The requested job could not be loaded.">
         <Card className="border-destructive/30 bg-destructive/10">
           <CardContent className="p-6 text-sm text-destructive">
-            {queryState.jobQuery.error instanceof Error ? queryState.jobQuery.error.message : "Unknown error"}
+            {queryState.jobQuery.error instanceof Error
+              ? queryState.jobQuery.error.message
+              : "Unknown error"}
           </CardContent>
         </Card>
       </AppShell>
