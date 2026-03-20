@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
+import type { Session } from "@supabase/supabase-js";
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getFixtureSessionDataForSearch } from "@/features/quotes/client-workspace-fixtures";
 import { fetchAppSessionData } from "@/features/quotes/api/session-access";
@@ -8,7 +9,6 @@ import { WORKSPACE_SHARED_STALE_TIME_MS } from "@/features/quotes/workspace-navi
 import { supabase } from "@/integrations/supabase/client";
 import { hasVerifiedAuth } from "@/lib/auth-status";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
-import type { Session } from "@supabase/supabase-js";
 
 const APP_SESSION_QUERY_KEY = ["app-session"] as const;
 const EMPTY_MEMBERSHIPS: AppMembership[] = [];
@@ -18,6 +18,7 @@ const EMPTY_APP_SESSION: AppSessionData = {
   isVerifiedAuth: false,
   authState: "anonymous",
 };
+
 export function getSupabaseAuthStorageKey() {
   try {
     const authUrl = new URL(import.meta.env.VITE_SUPABASE_URL);
@@ -69,6 +70,7 @@ export function useAppSession() {
   const hasResolvedInitialRestoreRef = useRef(false);
   const fixtureSession = getFixtureSessionDataForSearch(location.search);
   const isFixtureSession = fixtureSession !== null;
+  const startupHadStoredTokenRef = useRef(Boolean(fixtureSession ? false : getStoredAccessToken()));
   const [initialAuthCheck, setInitialAuthCheck] = useState<InitialAuthCheckState>(
     fixtureSession ? "none" : "checking",
   );
@@ -100,30 +102,30 @@ export function useAppSession() {
     );
   }, []);
 
-  const seedSessionFromSupabaseSession = useCallback((
-    session: Session,
-    source: string,
-  ) => {
-    const currentSession = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
-    queryClient.setQueryData<AppSessionData>(APP_SESSION_QUERY_KEY, (current) => ({
-      user: session.user,
-      memberships:
-        current?.user?.id === session.user.id
-          ? current.memberships
-          : currentSession?.memberships ?? EMPTY_MEMBERSHIPS,
-      isVerifiedAuth: hasVerifiedAuth(session.user),
-      authState: "authenticated",
-    }));
-    recordWorkspaceSessionDiagnostic(
-      "info",
-      source,
-      "Seeded app-session cache from a Supabase auth session.",
-      {
-        userId: session.user.id,
-        email: session.user.email ?? null,
-      },
-    );
-  }, [queryClient]);
+  const seedSessionFromSupabaseSession = useCallback(
+    (session: Session, source: string) => {
+      const currentSession = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
+      queryClient.setQueryData<AppSessionData>(APP_SESSION_QUERY_KEY, (current) => ({
+        user: session.user,
+        memberships:
+          current?.user?.id === session.user.id
+            ? current.memberships
+            : currentSession?.memberships ?? EMPTY_MEMBERSHIPS,
+        isVerifiedAuth: hasVerifiedAuth(session.user),
+        authState: "authenticated",
+      }));
+      recordWorkspaceSessionDiagnostic(
+        "info",
+        source,
+        "Seeded app-session cache from a Supabase auth session.",
+        {
+          userId: session.user.id,
+          email: session.user.email ?? null,
+        },
+      );
+    },
+    [queryClient],
+  );
 
   useEffect(() => {
     if (isFixtureSession) {
@@ -139,6 +141,9 @@ export function useAppSession() {
       "info",
       "use-app-session.initial-check.start",
       "Checking browser-persisted Supabase session on app boot.",
+      {
+        hasStoredAccessToken: startupHadStoredTokenRef.current,
+      },
     );
 
     void supabase.auth
@@ -149,6 +154,7 @@ export function useAppSession() {
         }
 
         if (error) {
+          pendingAuthTransitionRef.current = false;
           updateInitialAuthCheck("none");
           markInitialRestoreResolved("use-app-session.initial-check.error", {
             error: error.message,
@@ -157,6 +163,7 @@ export function useAppSession() {
         }
 
         if (!session) {
+          pendingAuthTransitionRef.current = false;
           updateInitialAuthCheck("none");
           markInitialRestoreResolved("use-app-session.initial-check.no-session");
           return;
@@ -171,6 +178,7 @@ export function useAppSession() {
           return;
         }
 
+        pendingAuthTransitionRef.current = false;
         updateInitialAuthCheck("none");
         markInitialRestoreResolved("use-app-session.initial-check.unexpected-error", {
           error: error instanceof Error ? error.message : String(error),
@@ -363,7 +371,9 @@ export function useAppSession() {
 
   const memberships = sessionQuery.data?.memberships ?? EMPTY_MEMBERSHIPS;
   const activeMembership: AppMembership | null = memberships[0] ?? null;
-  const isAuthInitializing = !hasResolvedInitialRestore;
+  const isAuthInitializing =
+    !hasResolvedInitialRestore &&
+    (initialAuthCheck === "present" || (initialAuthCheck === "checking" && startupHadStoredTokenRef.current));
 
   useEffect(() => {
     if (sessionQuery.isLoading) {

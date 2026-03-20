@@ -6,6 +6,7 @@ import React from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppSessionData } from "@/features/quotes/types";
+import { getSupabaseAuthStorageKey } from "@/hooks/use-app-session";
 import ClientHome from "./ClientHome";
 
 const fetchAppSessionDataMock = vi.fn<() => Promise<AppSessionData>>();
@@ -195,6 +196,23 @@ function deferredPromise<T>() {
   return { promise, resolve, reject };
 }
 
+function createStorageMock() {
+  const values = new Map<string, string>();
+
+  return {
+    getItem: vi.fn((key: string) => values.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => {
+      values.set(key, value);
+    }),
+    removeItem: vi.fn((key: string) => {
+      values.delete(key);
+    }),
+    clear: vi.fn(() => {
+      values.clear();
+    }),
+  };
+}
+
 function renderClientHome() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -214,6 +232,8 @@ function renderClientHome() {
 }
 
 describe("ClientHome auth flow", () => {
+  let storageMock: ReturnType<typeof createStorageMock>;
+
   beforeEach(() => {
     authStateChangeCallbacks = [];
     navigateMock.mockReset();
@@ -225,14 +245,21 @@ describe("ClientHome auth flow", () => {
     requestPasswordResetMock.mockResolvedValue(undefined);
     resendSignupConfirmationMock.mockResolvedValue(undefined);
     updateCurrentUserPasswordMock.mockResolvedValue(undefined);
+    storageMock = createStorageMock();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: storageMock,
+    });
   });
 
   afterEach(() => {
+    storageMock.clear();
     vi.clearAllMocks();
   });
 
-  it("shows auth bootstrap screen while initial session restore is in progress", async () => {
+  it("shows auth bootstrap screen while a restorable session is still initializing", async () => {
     const pendingSession = deferredPromise<{ data: { session: null }; error: null }>();
+    window.localStorage.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: "token-1" }));
     authGetSessionMock.mockReturnValueOnce(pendingSession.promise);
     fetchAppSessionDataMock.mockResolvedValue({
       user: null,
@@ -251,7 +278,7 @@ describe("ClientHome auth flow", () => {
     });
   });
 
-  it("renders the guest workspace once auth restoration is complete", async () => {
+  it("renders the guest workspace once startup auth restoration resolves to anonymous", async () => {
     fetchAppSessionDataMock.mockResolvedValue({
       user: null,
       memberships: [],

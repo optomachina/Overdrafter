@@ -1,7 +1,7 @@
 import ClientHome from "@/pages/ClientHome";
 import InternalHome from "@/pages/InternalHome";
-import { useAppSession } from "@/hooks/use-app-session";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
+import { useAppSession } from "@/hooks/use-app-session";
 
 const Index = () => {
   const { activeMembership, isAuthInitializing } = useAppSession();

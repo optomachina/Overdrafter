@@ -237,6 +237,42 @@ describe("useAppSession", () => {
     });
   });
 
+  it("exposes auth initialization only when a restorable local session exists during startup", async () => {
+    const deferred = deferredPromise<{ data: { session: Session | null }; error: null }>();
+    const tokenKey = getSupabaseAuthStorageKey();
+    storageMock.setItem(tokenKey, JSON.stringify({ access_token: "token-1" }));
+    getSessionMock.mockReturnValueOnce(deferred.promise);
+    fetchAppSessionDataMock.mockResolvedValue({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "anonymous",
+    });
+
+    renderProbe();
+
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+
+    deferred.resolve({ data: { session: null }, error: null });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    });
+  });
+
+  it("does not report auth initialization for a cold anonymous startup without a local session", async () => {
+    fetchAppSessionDataMock.mockResolvedValue({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "anonymous",
+    });
+
+    renderProbe();
+
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+  });
+
   it("keeps the local session during startup session_error retries", async () => {
     const localSession = {
       access_token: "token-1",
