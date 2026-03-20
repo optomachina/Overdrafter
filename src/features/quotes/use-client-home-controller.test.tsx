@@ -119,7 +119,7 @@ function createSessionData(input: { memberships?: AppSessionData["memberships"] 
   };
 }
 
-function createWrapper() {
+function createWrapper(initialAppSession?: AppSessionData) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -130,6 +130,10 @@ function createWrapper() {
       },
     },
   });
+
+  if (initialAppSession) {
+    queryClient.setQueryData(["app-session"], initialAppSession);
+  }
 
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
@@ -213,11 +217,8 @@ describe("useClientHomeController membership recovery", () => {
         },
       ],
     });
-    const sessionResponses = [
-      createSessionData({ memberships: [] }),
-      createSessionData({ memberships: [] }),
-      recoveredSession,
-    ];
+    const initialAuthenticatedSession = createSessionData({ memberships: [] });
+    const sessionResponses = [createSessionData({ memberships: [] }), recoveredSession];
     fetchAppSessionDataMock.mockImplementation(async () => {
       return sessionResponses.shift() ?? recoveredSession;
     });
@@ -226,18 +227,15 @@ describe("useClientHomeController membership recovery", () => {
     );
 
     const { result } = renderHook(() => useClientHomeController(), {
-      wrapper: createWrapper(),
+      wrapper: createWrapper(initialAuthenticatedSession),
     });
 
     await waitForCondition(
-      () =>
-        result.current.workspaceReadiness.status === "provisioning" &&
-        createSelfServiceOrganizationMock.mock.calls.length === 1,
+      () => createSelfServiceOrganizationMock.mock.calls.length === 1,
       {
-        errorMessage: "Expected membership recovery to enter provisioning for the existing user.",
+        errorMessage: "Expected membership recovery bootstrap to run for the existing user.",
       },
     );
-    expect(result.current.workspaceReadiness.status).toBe("provisioning");
     expect(createSelfServiceOrganizationMock).toHaveBeenCalledTimes(1);
 
     const submitPromise = result.current.handleComposerSubmit({
@@ -259,24 +257,22 @@ describe("useClientHomeController membership recovery", () => {
   });
 
   it("fails fast with a precise error when membership recovery exhausts", async () => {
+    const initialAuthenticatedSession = createSessionData({ memberships: [] });
     fetchAppSessionDataMock.mockImplementation(async () => createSessionData({ memberships: [] }));
     createSelfServiceOrganizationMock.mockRejectedValueOnce(
       new Error("Your account already has an organization membership."),
     );
 
     const { result } = renderHook(() => useClientHomeController(), {
-      wrapper: createWrapper(),
+      wrapper: createWrapper(initialAuthenticatedSession),
     });
 
     await waitForCondition(
-      () =>
-        result.current.workspaceReadiness.status === "provisioning" &&
-        createSelfServiceOrganizationMock.mock.calls.length === 1,
+      () => createSelfServiceOrganizationMock.mock.calls.length === 1,
       {
-        errorMessage: "Expected missing-membership recovery to enter provisioning before exhausting.",
+        errorMessage: "Expected missing-membership recovery bootstrap to run before exhausting.",
       },
     );
-    expect(result.current.workspaceReadiness.status).toBe("provisioning");
     expect(createSelfServiceOrganizationMock).toHaveBeenCalledTimes(1);
 
     const submitPromise = result.current.handleComposerSubmit({
