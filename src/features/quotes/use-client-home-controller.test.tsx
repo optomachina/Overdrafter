@@ -15,37 +15,56 @@ const createJobsFromUploadFilesMock = vi.fn();
 const invalidateClientWorkspaceQueriesMock = vi.fn();
 const onAuthStateChangeMock = vi.fn();
 const adminSignOutMock = vi.fn();
+const getUserMock = vi.fn();
 let authStateChangeCallbacks: Array<(event: string, session: Session | null) => void> = [];
 
-vi.mock("@/features/quotes/api", () => ({
+vi.mock("@/features/quotes/api/session-access", () => ({
+  fetchAppSessionData: () => fetchAppSessionDataMock(),
+  createSelfServiceOrganization: (...args: unknown[]) => createSelfServiceOrganizationMock(...args),
+  resendSignupConfirmation: vi.fn(),
+}));
+
+vi.mock("@/features/quotes/api/archive-api", () => ({
   archiveJob: vi.fn(),
+  deleteArchivedJobs: vi.fn(),
+  isArchivedDeleteCapabilityError: vi.fn(() => false),
+  unarchiveJob: vi.fn(),
+}));
+
+vi.mock("@/features/quotes/api/compatibility-api", () => ({
+  checkClientIntakeCompatibility: vi.fn(async () => "available"),
+}));
+
+vi.mock("@/features/quotes/api/jobs-api", () => ({
+  createClientDraft: vi.fn(),
+}));
+
+vi.mock("@/features/quotes/api/projects-api", () => ({
   archiveProject: vi.fn(),
   assignJobToProject: vi.fn(),
-  checkClientIntakeCompatibility: vi.fn(async () => "available"),
-  createClientDraft: vi.fn(),
-  createJobsFromUploadFiles: (...args: unknown[]) => createJobsFromUploadFilesMock(...args),
   createProject: vi.fn(),
-  createSelfServiceOrganization: (...args: unknown[]) => createSelfServiceOrganizationMock(...args),
-  deleteArchivedJobs: vi.fn(),
   dissolveProject: vi.fn(),
-  fetchAppSessionData: () => fetchAppSessionDataMock(),
-  isArchivedDeleteCapabilityError: vi.fn(() => false),
-  isProjectCollaborationSchemaUnavailable: vi.fn(() => false),
   pinJob: vi.fn(),
   pinProject: vi.fn(),
   removeJobFromProject: vi.fn(),
-  resendSignupConfirmation: vi.fn(),
-  unarchiveJob: vi.fn(),
   unarchiveProject: vi.fn(),
   unpinJob: vi.fn(),
   unpinProject: vi.fn(),
   updateProject: vi.fn(),
 }));
 
+vi.mock("@/features/quotes/api/shared/schema-runtime", () => ({
+  isProjectCollaborationSchemaUnavailable: vi.fn(() => false),
+}));
+
+vi.mock("@/features/quotes/api/uploads-api", () => ({
+  createJobsFromUploadFiles: (...args: unknown[]) => createJobsFromUploadFilesMock(...args),
+}));
+
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     auth: {
-      getUser: vi.fn(),
+      getUser: (...args: unknown[]) => getUserMock(...args),
       onAuthStateChange: (...args: unknown[]) => onAuthStateChangeMock(...args),
       admin: {
         signOut: (...args: unknown[]) => adminSignOutMock(...args),
@@ -166,6 +185,19 @@ function emitSignedInAuthEvent() {
 describe("useClientHomeController membership recovery", () => {
   beforeEach(() => {
     authStateChangeCallbacks = [];
+    getUserMock.mockResolvedValue({
+      data: {
+        user: {
+          id: "user-1",
+          email: "client@example.com",
+          app_metadata: {},
+          user_metadata: {},
+          aud: "authenticated",
+          created_at: "2026-03-11T00:00:00.000Z",
+        },
+      },
+      error: null,
+    });
     onAuthStateChangeMock.mockImplementation((callback: (event: string, session: Session | null) => void) => {
       authStateChangeCallbacks.push(callback);
 
