@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ClientPart from "./ClientPart";
 
-const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock } = vi.hoisted(() => ({
+const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock, storedFile } = vi.hoisted(() => ({
   api: {
     archiveJob: vi.fn(),
     archiveProject: vi.fn(),
@@ -50,10 +50,16 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
     error: vi.fn(),
     success: vi.fn(),
   },
+  storedFile: {
+    downloadStoredFileBlob: vi.fn(),
+    loadStoredDrawingPreviewPages: vi.fn(),
+    loadStoredPdfObjectUrl: vi.fn(),
+  },
 }));
 
 let lastSidebarProps: Record<string, unknown> | null = null;
 let lastAccountMenuProps: Record<string, unknown> | null = null;
+let lastDrawingPreviewDialogProps: Record<string, unknown> | null = null;
 
 vi.mock("@/features/quotes/api", () => api);
 vi.mock("@/features/quotes/api/archive-api", () => ({
@@ -122,6 +128,12 @@ vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
 }));
 
+vi.mock("@/lib/stored-file", () => ({
+  downloadStoredFileBlob: storedFile.downloadStoredFileBlob,
+  loadStoredDrawingPreviewPages: storedFile.loadStoredDrawingPreviewPages,
+  loadStoredPdfObjectUrl: storedFile.loadStoredPdfObjectUrl,
+}));
+
 vi.mock("sonner", () => ({
   toast: toastMock,
 }));
@@ -176,7 +188,15 @@ vi.mock("@/components/chat/PartActionsMenu", () => ({
 
 vi.mock("@/components/quotes/ClientQuoteAssetPanels", () => ({
   ClientCadPreviewPanel: () => <div>CAD</div>,
-  ClientDrawingPreviewPanel: () => <div>Drawing</div>,
+  ClientDrawingPreviewPanel: (props: { drawingFile?: { original_name?: string | null } | null; pdfUrl?: string | null }) =>
+    props.pdfUrl ? (
+      <iframe
+        title={`${props.drawingFile?.original_name ?? "Drawing"} PDF preview`}
+        src={props.pdfUrl}
+      />
+    ) : (
+      <div>Drawing</div>
+    ),
 }));
 
 vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
@@ -184,7 +204,10 @@ vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
 }));
 
 vi.mock("@/components/quotes/DrawingPreviewDialog", () => ({
-  DrawingPreviewDialog: () => null,
+  DrawingPreviewDialog: (props: Record<string, unknown>) => {
+    lastDrawingPreviewDialogProps = props;
+    return null;
+  },
 }));
 
 vi.mock("@/components/quotes/ClientPartRequestEditor", () => ({
@@ -302,7 +325,13 @@ describe("ClientPart", () => {
   beforeEach(() => {
     lastSidebarProps = null;
     lastAccountMenuProps = null;
+    lastDrawingPreviewDialogProps = null;
     vi.clearAllMocks();
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    });
 
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
@@ -311,6 +340,9 @@ describe("ClientPart", () => {
     });
 
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
+    storedFile.downloadStoredFileBlob.mockResolvedValue(new Blob(["download"]));
+    storedFile.loadStoredDrawingPreviewPages.mockResolvedValue([]);
+    storedFile.loadStoredPdfObjectUrl.mockResolvedValue("blob:part-drawing-pdf");
     api.fetchClientActivityEventsByJobIds.mockResolvedValue([]);
     api.fetchAccessibleProjects.mockResolvedValue([]);
     api.fetchAccessibleJobs.mockResolvedValue([
@@ -645,6 +677,108 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     expect(await screen.findAllByText(/drawing extraction in progress/i)).not.toHaveLength(0);
+  });
+
+  it("renders an embedded PDF in the part detail pane for uploaded drawing files", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(
+      createPartDetail({
+        part: {
+          ...createPartDetail().part,
+          drawingFile: {
+            id: "drawing-1",
+            job_id: "job-1",
+            storage_bucket: "job-files",
+            storage_path: "org/bracket.pdf",
+            original_name: "bracket.pdf",
+            file_kind: "drawing",
+            mime_type: "text/plain",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        },
+        files: [
+          {
+            id: "drawing-1",
+            job_id: "job-1",
+            storage_bucket: "job-files",
+            storage_path: "org/bracket.pdf",
+            original_name: "bracket.pdf",
+            file_kind: "drawing",
+            mime_type: "text/plain",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        ],
+      }),
+    );
+
+    renderWithClient("/parts/job-1");
+
+    expect(await screen.findByTitle("bracket.pdf PDF preview")).toHaveAttribute("src", "blob:part-drawing-pdf");
+    expect(storedFile.loadStoredPdfObjectUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        original_name: "bracket.pdf",
+        mime_type: "text/plain",
+      }),
+    );
+    expect(screen.queryByText("PDF-1.4")).not.toBeInTheDocument();
+  });
+
+  it("keeps dialog page previews hydrated when PDF loading falls back to extracted page images", async () => {
+    storedFile.loadStoredPdfObjectUrl.mockRejectedValueOnce(new Error("expired"));
+    storedFile.loadStoredDrawingPreviewPages.mockResolvedValueOnce([{ pageNumber: 1, url: "blob:page-1" }]);
+
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(
+      createPartDetail({
+        drawingPreview: {
+          pageCount: 1,
+          thumbnail: null,
+          pages: [
+            {
+              pageNumber: 1,
+              storageBucket: "quote-artifacts",
+              storagePath: "preview/page-1.png",
+              width: 800,
+              height: 600,
+            },
+          ],
+        },
+        part: {
+          ...createPartDetail().part,
+          drawingFile: {
+            id: "drawing-1",
+            job_id: "job-1",
+            storage_bucket: "job-files",
+            storage_path: "org/bracket.pdf",
+            original_name: "bracket.pdf",
+            file_kind: "drawing",
+            mime_type: "application/pdf",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        },
+        files: [
+          {
+            id: "drawing-1",
+            job_id: "job-1",
+            storage_bucket: "job-files",
+            storage_path: "org/bracket.pdf",
+            original_name: "bracket.pdf",
+            file_kind: "drawing",
+            mime_type: "application/pdf",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        ],
+      }),
+    );
+
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(storedFile.loadStoredDrawingPreviewPages).toHaveBeenCalled();
+      expect(lastDrawingPreviewDialogProps?.pages).toEqual([{ pageNumber: 1, url: "blob:page-1" }]);
+    });
   });
 
   it("shows a failure notice when drawing extraction fails", async () => {

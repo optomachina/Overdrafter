@@ -120,6 +120,7 @@ describe("DrawingPreviewDialog", () => {
         onOpenChange={() => undefined}
         fileName="drawing.pdf"
         pageCount={0}
+        viewerMode="pdf"
         pdfUrl="blob:drawing-pdf"
         pages={[]}
         isLoading={false}
@@ -130,5 +131,43 @@ describe("DrawingPreviewDialog", () => {
     expect(screen.getByText("Original PDF")).toBeInTheDocument();
     expect(screen.getByTitle("drawing.pdf PDF preview")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Previous page" })).not.toBeInTheDocument();
+  });
+
+  it("does not advance hidden page state with arrow keys while showing an embedded PDF", () => {
+    const { rerender } = render(
+      <DrawingPreviewDialog
+        open
+        onOpenChange={() => undefined}
+        fileName="drawing.pdf"
+        pageCount={2}
+        viewerMode="pdf"
+        pdfUrl="blob:drawing-pdf"
+        pages={[
+          { pageNumber: 1, url: "/page-1.png" },
+          { pageNumber: 2, url: "/page-2.png" },
+        ]}
+        isLoading={false}
+        onDownload={() => undefined}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+
+    rerender(
+      <DrawingPreviewDialog
+        open
+        onOpenChange={() => undefined}
+        fileName="drawing.pdf"
+        pageCount={2}
+        pages={[
+          { pageNumber: 1, url: "/page-1.png" },
+          { pageNumber: 2, url: "/page-2.png" },
+        ]}
+        isLoading={false}
+        onDownload={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
   });
 });

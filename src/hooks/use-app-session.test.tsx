@@ -380,12 +380,17 @@ describe("useAppSession", () => {
     renderProbe();
 
     await waitFor(() => {
-      expect(screen.getByTestId("auth-state")).toHaveTextContent("invalid_session");
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
       expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
     });
 
     await waitFor(() => {
       expect(storageMock.getItem(tokenKey)).toBeNull();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
+      expect(screen.getByRole("button", { name: "Log in" })).toBeInTheDocument();
     });
   });
 
@@ -445,11 +450,15 @@ describe("useAppSession", () => {
     renderProbe();
 
     await waitFor(() => {
-      expect(screen.getByTestId("auth-state")).toHaveTextContent("invalid_session");
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
     });
 
     await waitFor(() => {
       expect(storageMock.getItem(tokenKey)).toBeNull();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
     });
   });
 

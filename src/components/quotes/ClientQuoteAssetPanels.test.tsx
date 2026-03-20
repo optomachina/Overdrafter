@@ -10,6 +10,7 @@ vi.mock("@/components/CadModelThumbnail", () => ({
 
 vi.mock("@/lib/stored-file", () => ({
   downloadStoredFileBlob: vi.fn(),
+  loadStoredDrawingPreviewPages: vi.fn(),
 }));
 
 const drawingFile = {
@@ -93,11 +94,27 @@ describe("ClientDrawingPreviewPanel", () => {
       <ClientDrawingPreviewPanel
         drawingFile={drawingFile}
         drawingPreview={emptyPreview}
+        viewerMode="pdf"
         pdfUrl="blob:drawing-pdf"
         state="ready"
       />,
     );
 
     expect(screen.getByTitle("drawing.pdf PDF preview")).toBeInTheDocument();
+  });
+
+  it("never renders raw PDF header text when PDF mode is selected", () => {
+    render(
+      <ClientDrawingPreviewPanel
+        drawingFile={drawingFile}
+        drawingPreview={emptyPreview}
+        viewerMode="pdf"
+        pdfUrl="blob:drawing-pdf"
+        state="ready"
+      />,
+    );
+
+    expect(screen.queryByText("PDF-1.4")).not.toBeInTheDocument();
+    expect(screen.queryByText(/xref/i)).not.toBeInTheDocument();
   });
 });
