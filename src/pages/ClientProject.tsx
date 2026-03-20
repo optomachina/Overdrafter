@@ -95,6 +95,9 @@ const ClientProject = () => {
     focusedDraft,
     focusedJob,
     focusedJobId,
+    focusedQuoteDataMessage,
+    focusedQuoteDataStatus,
+    focusedQuoteDiagnostics,
     focusedQuoteOptions,
     focusedQuoteQuantityInput,
     focusedSelectedOption,
@@ -424,6 +427,11 @@ const ClientProject = () => {
               description="Keep the project-level selection view, but make the chosen line item readable as an artifact-first engineering workspace."
               options={focusedQuoteOptions}
               selectedOption={focusedSelectedOption}
+              quoteDataStatus={focusedQuoteDataStatus}
+              quoteDataMessage={focusedQuoteDataMessage}
+              quoteDiagnostics={focusedQuoteDiagnostics}
+              partId={focusedWorkspaceItem.part?.id ?? null}
+              organizationId={focusedWorkspaceItem.job.organization_id}
               onSelect={(option) => {
                 void handleSelectQuoteOption(focusedJob.id, option);
               }}

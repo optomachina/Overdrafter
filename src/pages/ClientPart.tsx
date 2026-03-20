@@ -117,6 +117,9 @@ const ClientPart = () => {
     presentation,
     projectCollaborationUnavailable,
     projectMemberships,
+    quoteDataMessage,
+    quoteDataStatus,
+    quoteDiagnostics,
     quoteQuantityInput,
     rankedQuoteOptions,
     removeJobMutation,
@@ -554,6 +557,11 @@ const ClientPart = () => {
                       selectedOption={selectedQuoteOption}
                       onSelect={handleSelectQuoteOption}
                       requestedByDate={requestSummaryRequestedByDate}
+                      quoteDataStatus={quoteDataStatus}
+                      quoteDataMessage={quoteDataMessage}
+                      quoteDiagnostics={quoteDiagnostics}
+                      partId={partDetail.part?.id ?? null}
+                      organizationId={partDetail.job.organization_id}
                       activePreset={activePreset}
                       onPresetSelect={handlePresetSelection}
                       onToggleVendorExclusion={handleToggleVendorExclusion}

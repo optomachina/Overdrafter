@@ -870,6 +870,61 @@ export type ImportedVendorOffer = {
   notes: string | null;
 };
 
+function parseLooseCurrencyValue(value: unknown): number {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : Number.NaN;
+  }
+
+  if (typeof value !== "string") {
+    return Number.NaN;
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return Number.NaN;
+  }
+
+  const normalized = trimmed.replace(/[$,\s]/g, "");
+  const parsed = Number(normalized);
+
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function parseLooseIntegerValue(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : null;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const direct = Number(trimmed);
+  if (Number.isFinite(direct)) {
+    return Math.max(0, Math.trunc(direct));
+  }
+
+  const match = trimmed.match(/-?\d+(?:\.\d+)?/);
+
+  if (!match) {
+    return null;
+  }
+
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : null;
+}
+
 function mapOfferRecord(offer: VendorQuoteOfferRecord, requestedQuantity: number): ImportedVendorOffer {
   return {
     id: offer.id,
@@ -929,8 +984,8 @@ export function getImportedVendorOffers(
       id: null,
       offerId: String(offer.offerId ?? ""),
       requestedQuantity:
-        Number.isFinite(Number(offer.requestedQuantity))
-          ? Number(offer.requestedQuantity)
+        parseLooseIntegerValue(offer.requestedQuantity) !== null
+          ? parseLooseIntegerValue(offer.requestedQuantity) ?? quoteRequestedQuantity
           : quoteRequestedQuantity,
       supplier: String(offer.supplier ?? ""),
       laneLabel: offer.laneLabel ? String(offer.laneLabel) : null,
@@ -938,12 +993,9 @@ export function getImportedVendorOffers(
       tier: offer.tier ? String(offer.tier) : null,
       quoteRef: offer.quoteRef ? String(offer.quoteRef) : null,
       quoteDateIso: offer.quoteDateIso ? String(offer.quoteDateIso) : null,
-      totalPriceUsd: Number(offer.totalPriceUsd ?? Number.NaN),
-      unitPriceUsd: Number(offer.unitPriceUsd ?? Number.NaN),
-      leadTimeBusinessDays:
-        offer.leadTimeBusinessDays === null || offer.leadTimeBusinessDays === undefined
-          ? null
-          : Number(offer.leadTimeBusinessDays),
+      totalPriceUsd: parseLooseCurrencyValue(offer.totalPriceUsd),
+      unitPriceUsd: parseLooseCurrencyValue(offer.unitPriceUsd),
+      leadTimeBusinessDays: parseLooseIntegerValue(offer.leadTimeBusinessDays),
       shipReceiveBy: offer.shipReceiveBy ? String(offer.shipReceiveBy) : null,
       dueDate: offer.dueDate ? String(offer.dueDate) : null,
       process: offer.process ? String(offer.process) : null,

@@ -203,6 +203,14 @@ npm run db:push
 After either flow, verify the latest migrations have been applied and that `public.projects.archived_at`
 and `public.jobs.archived_at` exist before debugging app-layer query failures.
 
+Quote comparison data path:
+
+- imported spreadsheet quote flows write into `jobs`, `parts`, `drawing_extractions`, `approved_part_requirements`, `quote_runs`, `vendor_quote_results`, and canonical per-lane `vendor_quote_offers`
+- the client scatter chart reads quote comparison data only through `public.api_list_client_quote_workspace(uuid[])`
+- client surfaces do not read `vendor_quote_results` or `vendor_quote_offers` directly because those tables remain internal-only behind RLS
+- `vendor_quote_offers` is the authoritative chart lane source; `vendor_quote_results.raw_payload.offers` is compatibility fallback only
+- hosted environments must include migration `20260319113000_add_client_quote_workspace_projection.sql` and a refreshed PostgREST schema cache before client quote charts can load real data
+
 Archive delete requires the hosted environment to have the archived delete RPCs at migration head:
 `public.api_delete_archived_jobs(uuid[])` as the primary contract and
 `public.api_delete_archived_job(uuid)` as the legacy compatibility fallback. Hosted archive delete

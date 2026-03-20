@@ -58,15 +58,21 @@ import {
 } from "@/features/quotes/request-intake";
 import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadata";
 import {
-  buildClientQuoteSelectionOptions,
+  buildClientQuoteSelectionResult,
   buildVendorLabelMap,
   getSelectedOption,
   pickPresetOption,
   sortQuoteOptionsForPreset,
+  summarizeQuoteDiagnostics,
   type ClientQuoteSelectionOption,
   type QuotePreset,
 } from "@/features/quotes/selection";
-import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
+import { logQuoteFetchDiagnostics } from "@/features/quotes/quote-chart-diagnostics";
+import type {
+  ClientPartRequestUpdateInput,
+  QuoteDataStatus,
+  QuoteDiagnostics,
+} from "@/features/quotes/types";
 import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
@@ -81,6 +87,15 @@ import {
 import type { DrawingPreviewState } from "@/components/quotes/ClientQuoteAssetPanels";
 import type { ActivityLogEntry } from "@/components/quotes/ActivityLog";
 import type { VendorName } from "@/integrations/supabase/types";
+
+const EMPTY_QUOTE_DIAGNOSTICS: QuoteDiagnostics = {
+  rawQuoteRowCount: 0,
+  rawOfferCount: 0,
+  plottableOfferCount: 0,
+  excludedOfferCount: 0,
+  excludedOffers: [],
+  excludedReasonCounts: [],
+};
 
 function shouldPollExtractionState(
   lifecycle: string | null | undefined,
@@ -438,18 +453,38 @@ export function useClientPartController() {
     () => buildVendorLabelMap(partDetail?.part?.vendorQuotes.map((quote) => quote.vendor) ?? []),
     [partDetail?.part?.vendorQuotes],
   );
-  const quoteOptions = useMemo(
+  const quoteSelectionResult = useMemo(
     () =>
       partDetail?.part
-        ? buildClientQuoteSelectionOptions({
+        ? buildClientQuoteSelectionResult({
             vendorQuotes: partDetail.part.vendorQuotes,
             requestedByDate: requestSummaryRequestedByDate,
             excludedVendorKeys,
             vendorLabels: vendorLabelMap,
           })
-        : [],
-    [excludedVendorKeys, partDetail?.part, requestSummaryRequestedByDate, vendorLabelMap],
+        : {
+            options: [] as ClientQuoteSelectionOption[],
+            diagnostics: partDetail?.quoteDiagnostics ?? EMPTY_QUOTE_DIAGNOSTICS,
+          },
+    [excludedVendorKeys, partDetail?.part, partDetail?.quoteDiagnostics, requestSummaryRequestedByDate, vendorLabelMap],
   );
+  const quoteOptions = quoteSelectionResult.options;
+  const quoteDiagnostics = quoteSelectionResult.diagnostics;
+  const quoteDataStatus: QuoteDataStatus =
+    partDetail?.quoteDataStatus === "schema_unavailable"
+      ? "schema_unavailable"
+      : partDetail?.quoteDataStatus === "invalid_for_plotting" ||
+          (quoteDiagnostics.rawQuoteRowCount > 0 &&
+            quoteOptions.length === 0 &&
+            quoteDiagnostics.excludedOfferCount > 0)
+        ? "invalid_for_plotting"
+        : "available";
+  const quoteDataMessage =
+    quoteDataStatus === "schema_unavailable"
+      ? partDetail?.quoteDataMessage ?? null
+      : quoteDataStatus === "invalid_for_plotting"
+        ? summarizeQuoteDiagnostics(quoteDiagnostics)
+        : null;
   const rankedQuoteOptions = useMemo(
     () => sortQuoteOptionsForPreset(quoteOptions, activePreset ?? "cheapest"),
     [activePreset, quoteOptions],
@@ -519,6 +554,24 @@ export function useClientPartController() {
         return null;
     }
   }, [drawingPreviewLoadError, drawingPreviewState, extractionDiagnostics]);
+
+  useEffect(() => {
+    logQuoteFetchDiagnostics({
+      partId: partDetail?.part?.id ?? null,
+      organizationId: partDetail?.job.organization_id ?? null,
+      quoteDataStatus,
+      quoteDataMessage,
+      rawQuoteRows: partDetail?.part?.vendorQuotes ?? [],
+      diagnostics: quoteDiagnostics,
+    });
+  }, [
+    partDetail?.job.organization_id,
+    partDetail?.part?.id,
+    partDetail?.part?.vendorQuotes,
+    quoteDataMessage,
+    quoteDataStatus,
+    quoteDiagnostics,
+  ]);
 
   useEffect(() => {
     setExcludedVendorKeys(readExcludedVendorKeys(canonicalJobId));
@@ -1019,6 +1072,9 @@ export function useClientPartController() {
     presentation,
     projectCollaborationUnavailable,
     projectMemberships,
+    quoteDataMessage,
+    quoteDataStatus,
+    quoteDiagnostics,
     quoteQuantityInput,
     rankedQuoteOptions,
     removeJobMutation,

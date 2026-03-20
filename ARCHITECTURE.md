@@ -60,6 +60,8 @@ The next-phase domain model should expand that quote-centric shape into an expli
 - initiating automated quote retrieval where supported
 - supporting manual quote entry or imported quote paths
 - normalizing quote outputs into a canonical internal model
+- materializing spreadsheet or manual lane data into `vendor_quote_results` and canonical per-lane `vendor_quote_offers`
+- exposing client-safe quote comparison data through `public.api_list_client_quote_workspace`, rather than direct client reads from internal-only quote tables
 
 ### 7. Internal operations layer
 - estimator review of exceptions and manual holds

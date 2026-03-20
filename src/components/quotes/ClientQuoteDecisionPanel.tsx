@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { BadgeCheck, CircleOff, SlidersHorizontal } from "lucide-react";
+import { BadgeCheck, CircleOff, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import { ClientQuoteComparisonChart } from "@/components/quotes/ClientQuoteComparisonChart";
 import { QuoteStatsBar } from "@/components/quotes/QuoteStatsBar";
 import { QuoteSupplierLegend } from "@/components/quotes/QuoteSupplierLegend";
@@ -22,6 +22,8 @@ import type {
   ClientQuoteSelectionOption,
   QuotePreset,
 } from "@/features/quotes/selection";
+import { formatQuotePlotExclusionReason } from "@/features/quotes/selection";
+import type { QuoteDataStatus, QuoteDiagnostics } from "@/features/quotes/types";
 import { formatCurrency, formatLeadTime } from "@/features/quotes/utils";
 import { getVendorColor } from "@/features/quotes/vendor-colors";
 import { cn } from "@/lib/utils";
@@ -33,6 +35,11 @@ type ClientQuoteDecisionPanelProps = {
   selectedOption: ClientQuoteSelectionOption | null;
   onSelect: (option: ClientQuoteSelectionOption) => void;
   requestedByDate: string | null;
+  quoteDataStatus?: QuoteDataStatus;
+  quoteDataMessage?: string | null;
+  quoteDiagnostics?: QuoteDiagnostics | null;
+  partId?: string | null;
+  organizationId?: string | null;
   activePreset?: QuotePreset | null;
   onPresetSelect?: (preset: QuotePreset) => void;
   onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
@@ -40,6 +47,38 @@ type ClientQuoteDecisionPanelProps = {
   emptyState?: string;
   className?: string;
 };
+
+function QuoteDataStatusCard({
+  icon: Icon,
+  title,
+  body,
+  diagnostics,
+}: {
+  icon: typeof CircleOff;
+  title: string;
+  body: string;
+  diagnostics?: QuoteDiagnostics | null;
+}) {
+  return (
+    <div className="mt-4 rounded-[24px] border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center">
+      <Icon className="mx-auto h-5 w-5 text-white/35" />
+      <p className="mt-3 text-sm font-medium text-white/80">{title}</p>
+      <p className="mt-2 text-sm text-white/55">{body}</p>
+      {diagnostics && diagnostics.excludedReasonCounts.length > 0 ? (
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          {diagnostics.excludedReasonCounts.slice(0, 3).map((entry) => (
+            <span
+              key={entry.reason}
+              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/60"
+            >
+              {formatQuotePlotExclusionReason(entry.reason)}: {entry.count}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 const PRESET_OPTIONS: Array<{ key: QuotePreset; label: string }> = [
   { key: "cheapest", label: "Cheapest" },
@@ -272,6 +311,11 @@ export function ClientQuoteDecisionPanel({
   selectedOption,
   onSelect,
   requestedByDate,
+  quoteDataStatus = "available",
+  quoteDataMessage = null,
+  quoteDiagnostics = null,
+  partId = null,
+  organizationId = null,
   activePreset = null,
   onPresetSelect,
   onToggleVendorExclusion,
@@ -293,11 +337,21 @@ export function ClientQuoteDecisionPanel({
         vendorKeys={vendorKeys}
       />
 
-      {options.length === 0 ? (
-        <div className="mt-4 rounded-[24px] border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center">
-          <CircleOff className="mx-auto h-5 w-5 text-white/35" />
-          <p className="mt-3 text-sm text-white/55">{emptyState}</p>
-        </div>
+      {quoteDataStatus === "schema_unavailable" ? (
+        <QuoteDataStatusCard
+          icon={TriangleAlert}
+          title="Quote comparison is unavailable"
+          body={quoteDataMessage ?? "The quote workspace projection is unavailable in this environment."}
+        />
+      ) : quoteDataStatus === "invalid_for_plotting" ? (
+        <QuoteDataStatusCard
+          icon={TriangleAlert}
+          title="Quote rows were loaded but could not be plotted"
+          body={quoteDataMessage ?? "The quote rows for this part are missing required plotting fields."}
+          diagnostics={quoteDiagnostics}
+        />
+      ) : options.length === 0 ? (
+        <QuoteDataStatusCard icon={CircleOff} title="No quote options yet" body={emptyState} />
       ) : (
         <div className="mt-4 space-y-4">
           <QuoteStatsBar options={options} />
@@ -309,6 +363,8 @@ export function ClientQuoteDecisionPanel({
               options={options}
               selectedKey={selectedOption?.key ?? null}
               hoveredKey={hoveredKey}
+              partId={partId}
+              organizationId={organizationId}
               onSelect={onSelect}
               onHover={setHoveredKey}
             />

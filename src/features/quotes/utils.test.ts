@@ -868,7 +868,7 @@ describe("quotes utils", () => {
         offers: [
           { offerId: "slow", supplier: "A", totalPriceUsd: 200, unitPriceUsd: 100 },
           { offerId: "bad", supplier: "B", totalPriceUsd: "n/a" },
-          { offerId: "fast", supplier: "C", totalPriceUsd: 150, unitPriceUsd: 75 },
+          { offerId: "fast", supplier: "C", totalPriceUsd: "$150.00", unitPriceUsd: "75", leadTimeBusinessDays: "6 business days" },
         ],
       },
       created_at: "2026-03-03T00:00:00Z",
@@ -880,6 +880,7 @@ describe("quotes utils", () => {
       ["fast", 1],
       ["slow", 1],
     ]);
+    expect(getImportedVendorOffers(quote)[0]?.leadTimeBusinessDays).toBe(6);
   });
 
   it("computes headline metrics and projected client prices", () => {
