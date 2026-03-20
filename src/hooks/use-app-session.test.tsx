@@ -9,6 +9,7 @@ import type { Session } from "@supabase/supabase-js";
 
 const fetchAppSessionDataMock = vi.fn<() => Promise<AppSessionData>>();
 const onAuthStateChangeMock = vi.fn();
+const getSessionMock = vi.fn();
 const adminSignOutMock = vi.fn();
 let authStateChangeCallbacks: Array<(event: string, session: Session | null) => void> = [];
 
@@ -23,6 +24,7 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     auth: {
       onAuthStateChange: (...args: unknown[]) => onAuthStateChangeMock(...args),
+      getSession: (...args: unknown[]) => getSessionMock(...args),
       admin: {
         signOut: (...args: unknown[]) => adminSignOutMock(...args),
       },
@@ -106,6 +108,7 @@ describe("useAppSession", () => {
         },
       };
     });
+    getSessionMock.mockResolvedValue({ data: { session: null }, error: null });
     storageMock = createStorageMock();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -176,6 +179,82 @@ describe("useAppSession", () => {
     await waitFor(() => {
       expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it("exposes auth initialization only when a restorable local session exists during startup", async () => {
+    const deferred = deferredPromise<{ data: { session: Session | null }; error: null }>();
+    const tokenKey = getSupabaseAuthStorageKey();
+    storageMock.setItem(tokenKey, JSON.stringify({ access_token: "token-1" }));
+    getSessionMock.mockReturnValueOnce(deferred.promise);
+    fetchAppSessionDataMock.mockResolvedValue({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "anonymous",
+    });
+
+    function InitializingProbe() {
+      const session = useAppSession();
+
+      return <span data-testid="initializing">{session.isAuthInitializing ? "yes" : "no"}</span>;
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/"]}>
+          <InitializingProbe />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("initializing")).toHaveTextContent("yes");
+
+    deferred.resolve({ data: { session: null }, error: null });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("initializing")).toHaveTextContent("no");
+    });
+  });
+
+  it("does not report auth initialization for a cold anonymous startup without a local session", async () => {
+    fetchAppSessionDataMock.mockResolvedValue({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "anonymous",
+    });
+
+    function InitializingProbe() {
+      const session = useAppSession();
+
+      return <span data-testid="initializing">{session.isAuthInitializing ? "yes" : "no"}</span>;
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/"]}>
+          <InitializingProbe />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("initializing")).toHaveTextContent("no");
   });
 
   it("clears a stored token only when the session is explicitly invalid", async () => {

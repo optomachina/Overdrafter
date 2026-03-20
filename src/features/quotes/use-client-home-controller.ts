@@ -90,7 +90,7 @@ export function useClientHomeController() {
   const [searchParams, setSearchParams] = useSearchParams();
   const appSession = useAppSession();
   const memberships = appSession.memberships ?? [];
-  const { user, activeMembership, isLoading, isVerifiedAuth, signOut } = appSession;
+  const { user, activeMembership, isAuthInitializing, isLoading, isVerifiedAuth, signOut } = appSession;
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRefreshingVerification, setIsRefreshingVerification] = useState(false);
@@ -821,6 +821,7 @@ export function useClientHomeController() {
     handleUnpinPart,
     handleUnpinProject,
     isAuthDialogOpen,
+    isAuthInitializing,
     isRefreshingVerification,
     isResendingVerification,
     isSearchOpen,

@@ -5,6 +5,7 @@ import { GuestSidebarCta } from "@/components/chat/GuestSidebarCta";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { SignInDialog } from "@/components/SignInDialog";
+import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ const ClientHome = () => {
     handleUnpinPart,
     handleUnpinProject,
     isAuthDialogOpen,
+    isAuthInitializing,
     isSearchOpen,
     navigate,
     newJobFilePicker,
@@ -62,6 +64,10 @@ const ClientHome = () => {
     role: activeMembership?.role,
     userId: user?.id,
   });
+
+  if (isAuthInitializing && !user) {
+    return <AuthBootstrapScreen message="Restoring your workspace." />;
+  }
 
   const renderAnonymousContent = () => {
     return (

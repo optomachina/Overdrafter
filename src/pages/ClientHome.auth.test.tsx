@@ -6,6 +6,7 @@ import React from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppSessionData } from "@/features/quotes/types";
+import { getSupabaseAuthStorageKey } from "@/hooks/use-app-session";
 import ClientHome from "./ClientHome";
 
 const fetchAppSessionDataMock = vi.fn<() => Promise<AppSessionData>>();
@@ -15,6 +16,7 @@ const updateCurrentUserPasswordMock = vi.fn();
 const signInWithPasswordMock = vi.fn();
 const signUpMock = vi.fn();
 const authGetUserMock = vi.fn();
+const authGetSessionMock = vi.fn();
 const adminSignOutMock = vi.fn();
 const navigateMock = vi.fn();
 const checkClientIntakeCompatibilityMock = vi.fn();
@@ -56,6 +58,7 @@ vi.mock("@/integrations/supabase/client", () => ({
       },
       signInWithPassword: (...args: unknown[]) => signInWithPasswordMock(...args),
       signUp: (...args: unknown[]) => signUpMock(...args),
+      getSession: (...args: unknown[]) => authGetSessionMock(...args),
       getUser: (...args: unknown[]) => authGetUserMock(...args),
       admin: {
         signOut: (...args: unknown[]) => adminSignOutMock(...args),
@@ -155,6 +158,7 @@ vi.mock("@/features/quotes/use-client-home-controller", async () => {
         handleUnpinPart: vi.fn(),
         handleUnpinProject: vi.fn(),
         isAuthDialogOpen,
+        isAuthInitializing: session.isAuthInitializing,
         isSearchOpen,
         navigate: navigateMock,
         newJobFilePicker: {
@@ -192,6 +196,23 @@ function deferredPromise<T>() {
   return { promise, resolve, reject };
 }
 
+function createStorageMock() {
+  const values = new Map<string, string>();
+
+  return {
+    getItem: vi.fn((key: string) => values.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => {
+      values.set(key, value);
+    }),
+    removeItem: vi.fn((key: string) => {
+      values.delete(key);
+    }),
+    clear: vi.fn(() => {
+      values.clear();
+    }),
+  };
+}
+
 function renderClientHome() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -211,20 +232,67 @@ function renderClientHome() {
 }
 
 describe("ClientHome auth flow", () => {
+  let storageMock: ReturnType<typeof createStorageMock>;
+
   beforeEach(() => {
     authStateChangeCallbacks = [];
     navigateMock.mockReset();
     checkClientIntakeCompatibilityMock.mockResolvedValue("available");
     getClientIntakeCompatibilityMessageMock.mockReturnValue("compatibility ok");
     signUpMock.mockResolvedValue({ data: { session: null }, error: null });
+    authGetSessionMock.mockResolvedValue({ data: { session: null }, error: null });
     authGetUserMock.mockResolvedValue({ data: { user: null }, error: null });
     requestPasswordResetMock.mockResolvedValue(undefined);
     resendSignupConfirmationMock.mockResolvedValue(undefined);
     updateCurrentUserPasswordMock.mockResolvedValue(undefined);
+    storageMock = createStorageMock();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: storageMock,
+    });
   });
 
   afterEach(() => {
+    storageMock.clear();
     vi.clearAllMocks();
+  });
+
+  it("shows auth bootstrap screen while a restorable session is still initializing", async () => {
+    const pendingSession = deferredPromise<{ data: { session: null }; error: null }>();
+    window.localStorage.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: "token-1" }));
+    authGetSessionMock.mockReturnValueOnce(pendingSession.promise);
+    fetchAppSessionDataMock.mockResolvedValue({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "anonymous",
+    });
+
+    renderClientHome();
+
+    expect(screen.getByText("Restoring your workspace.")).toBeInTheDocument();
+
+    pendingSession.resolve({ data: { session: null }, error: null });
+
+    await waitFor(() => {
+      expect(screen.getByText("Artifact-first quoting for machined parts.")).toBeInTheDocument();
+    });
+  });
+
+  it("renders the guest workspace once startup auth restoration resolves to anonymous", async () => {
+    fetchAppSessionDataMock.mockResolvedValue({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "anonymous",
+    });
+
+    renderClientHome();
+
+    await waitFor(() => {
+      expect(screen.getByText("Artifact-first quoting for machined parts.")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Restoring your workspace.")).not.toBeInTheDocument();
   });
 
   it("closes the dialog and removes guest login buttons as soon as sign-in emits an auth event", async () => {

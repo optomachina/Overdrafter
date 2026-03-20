@@ -200,4 +200,20 @@ describe("Index client home", () => {
     expect(screen.queryByText("Loading workspace…")).not.toBeInTheDocument();
     expect(screen.getByText("Workspace")).toBeInTheDocument();
   });
+
+  it("holds the route on auth restoration while a restorable session is still initializing", () => {
+    mockUseAppSession.mockReturnValue({
+      user: null,
+      activeMembership: null,
+      isLoading: true,
+      isVerifiedAuth: false,
+      isAuthInitializing: true,
+      signOut: vi.fn(),
+    });
+
+    renderIndex();
+
+    expect(screen.getByText("Restoring your workspace.")).toBeInTheDocument();
+    expect(screen.queryByText("Artifact-first quoting for machined parts.")).not.toBeInTheDocument();
+  });
 });

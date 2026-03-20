@@ -14,6 +14,7 @@ const createSelfServiceOrganizationMock = vi.fn();
 const createJobsFromUploadFilesMock = vi.fn();
 const invalidateClientWorkspaceQueriesMock = vi.fn();
 const onAuthStateChangeMock = vi.fn();
+const getSessionMock = vi.fn();
 const adminSignOutMock = vi.fn();
 const getUserMock = vi.fn();
 let authStateChangeCallbacks: Array<(event: string, session: Session | null) => void> = [];
@@ -64,6 +65,7 @@ vi.mock("@/features/quotes/api/uploads-api", () => ({
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     auth: {
+      getSession: (...args: unknown[]) => getSessionMock(...args),
       getUser: (...args: unknown[]) => getUserMock(...args),
       onAuthStateChange: (...args: unknown[]) => onAuthStateChangeMock(...args),
       admin: {
@@ -185,6 +187,7 @@ function emitSignedInAuthEvent() {
 describe("useClientHomeController membership recovery", () => {
   beforeEach(() => {
     authStateChangeCallbacks = [];
+    getSessionMock.mockResolvedValue({ data: { session: null }, error: null });
     getUserMock.mockResolvedValue({
       data: {
         user: {
