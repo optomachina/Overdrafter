@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "@/components/app/AppShell";
+import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAppSession } from "@/hooks/use-app-session";
@@ -14,10 +15,11 @@ import { InternalJobWorkerQueueCard } from "./internal-job-detail/InternalJobWor
 import { useInternalJobDetailQuery } from "./internal-job-detail/use-internal-job-detail-query";
 import { useInternalJobDetailMutations } from "./internal-job-detail/use-internal-job-detail-mutations";
 import { useInternalJobDetailViewModel } from "./internal-job-detail/internal-job-detail-view-model";
+import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 const InternalJobDetail = () => {
   const navigate = useNavigate();
   const { jobId = "" } = useParams();
-  const { user, activeMembership, isVerifiedAuth, signOut } = useAppSession();
+  const { user, activeMembership, isVerifiedAuth, signOut, isAuthInitializing } = useAppSession();
   const queryState = useInternalJobDetailQuery({
     activeMembership,
     hasUser: Boolean(user),
@@ -44,7 +46,19 @@ const InternalJobDetail = () => {
     mutations.publishMutation.isPending;
   const writeActionsDisabled = !isVerifiedAuth || anyWritePending;
 
+  if (isAuthInitializing) {
+    return <AuthBootstrapScreen message="Restoring your internal review session." />;
+  }
+
   if (!user) {
+    recordWorkspaceSessionDiagnostic(
+      "warn",
+      "internal-job-detail.redirect.unauthenticated",
+      "Redirecting to sign-in after startup auth resolution completed without a user.",
+      {
+        jobId,
+      },
+    );
     return <Navigate to="/?auth=signin" replace />;
   }
 

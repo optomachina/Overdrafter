@@ -16,6 +16,27 @@ test.describe("client session", () => {
     await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible();
     await expect(page.getByText("Q1 Brackets")).toBeVisible();
   });
+
+  test("keeps the client session after a home page reload", async ({ page }) => {
+    await page.goto("/?debug=1");
+
+    await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible();
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible();
+    await expect(page.getByText("Q1 Brackets")).toBeVisible();
+    await expect(page.locator("#auth-email")).toHaveCount(0);
+  });
+
+  test("keeps the client session after reloading a protected part route", async ({ page }) => {
+    await page.goto("/parts/job-1?debug=1");
+
+    await expect(page).toHaveURL(/\/parts\/job-1/);
+    await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible();
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(page).toHaveURL(/\/parts\/job-1/);
+    await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible();
+    await expect(page.locator("#auth-email")).toHaveCount(0);
+  });
 });
 
 test.describe("internal session", () => {

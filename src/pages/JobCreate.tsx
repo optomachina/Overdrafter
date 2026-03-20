@@ -16,6 +16,7 @@ import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShel
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
+import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { InternalDashboardSidebar } from "@/components/internal/InternalDashboardSidebar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ import { formatStatusLabel } from "@/features/quotes/utils";
 import { useAppSession } from "@/hooks/use-app-session";
 import { supabase } from "@/integrations/supabase/client";
 import { isEmailConfirmationRequired } from "@/lib/auth-status";
+import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 import { createCadPreviewSourceFromFile, isStepPreviewableFile } from "@/lib/cad-preview";
 
 function parseJobTags(input: string): string[] {
@@ -57,7 +59,7 @@ const JobCreate = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { user, activeMembership, isVerifiedAuth, signOut } = useAppSession();
+  const { user, activeMembership, isVerifiedAuth, signOut, isAuthInitializing } = useAppSession();
   const useInternalShell = activeMembership?.role !== "client";
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const { accessibleJobsQuery, archivedProjectsQuery, archivedJobsQuery } = useClientWorkspaceData({
@@ -209,7 +211,16 @@ const JobCreate = () => {
     }
   };
 
+  if (isAuthInitializing) {
+    return <AuthBootstrapScreen message="Restoring your upload session." />;
+  }
+
   if (!user) {
+    recordWorkspaceSessionDiagnostic(
+      "warn",
+      "job-create.redirect.unauthenticated",
+      "Redirecting to sign-in after startup auth resolution completed without a user.",
+    );
     return <Navigate to="/?auth=signin" replace />;
   }
 

@@ -15,6 +15,7 @@ const updateCurrentUserPasswordMock = vi.fn();
 const signInWithPasswordMock = vi.fn();
 const signUpMock = vi.fn();
 const authGetUserMock = vi.fn();
+const authGetSessionMock = vi.fn();
 const adminSignOutMock = vi.fn();
 const navigateMock = vi.fn();
 const checkClientIntakeCompatibilityMock = vi.fn();
@@ -56,6 +57,7 @@ vi.mock("@/integrations/supabase/client", () => ({
       },
       signInWithPassword: (...args: unknown[]) => signInWithPasswordMock(...args),
       signUp: (...args: unknown[]) => signUpMock(...args),
+      getSession: (...args: unknown[]) => authGetSessionMock(...args),
       getUser: (...args: unknown[]) => authGetUserMock(...args),
       admin: {
         signOut: (...args: unknown[]) => adminSignOutMock(...args),
@@ -217,6 +219,7 @@ describe("ClientHome auth flow", () => {
     checkClientIntakeCompatibilityMock.mockResolvedValue("available");
     getClientIntakeCompatibilityMessageMock.mockReturnValue("compatibility ok");
     signUpMock.mockResolvedValue({ data: { session: null }, error: null });
+    authGetSessionMock.mockResolvedValue({ data: { session: null }, error: null });
     authGetUserMock.mockResolvedValue({ data: { user: null }, error: null });
     requestPasswordResetMock.mockResolvedValue(undefined);
     resendSignupConfirmationMock.mockResolvedValue(undefined);

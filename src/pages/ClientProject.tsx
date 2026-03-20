@@ -18,6 +18,7 @@ import { ProjectMembersDialog } from "@/components/chat/ProjectMembersDialog";
 import { PromptComposer } from "@/components/chat/PromptComposer";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
+import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientArtifactWorkspace } from "@/components/quotes/ClientArtifactWorkspace";
@@ -173,6 +174,7 @@ const ClientProject = () => {
     summariesByJobId,
     updateProjectMutation,
     user,
+    isAuthInitializing,
     workspaceItemsByJobId,
   } = useClientProjectController();
   const notificationCenter = useWorkspaceNotifications({
@@ -460,6 +462,10 @@ const ClientProject = () => {
       </div>
     );
   };
+
+  if (isAuthInitializing) {
+    return <AuthBootstrapScreen message="Restoring your project workspace." />;
+  }
 
   if (!user) {
     return null;

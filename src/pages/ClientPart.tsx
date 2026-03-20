@@ -13,6 +13,7 @@ import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
+import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientArtifactWorkspace } from "@/components/quotes/ClientArtifactWorkspace";
 import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtractionStatusNotice";
@@ -145,6 +146,7 @@ const ClientPart = () => {
     summariesByJobId,
     summary,
     user,
+    isAuthInitializing,
   } = useClientPartController();
 
   const notificationCenter = useWorkspaceNotifications({
@@ -152,6 +154,10 @@ const ClientPart = () => {
     role: activeMembership?.role,
     userId: user?.id,
   });
+
+  if (isAuthInitializing) {
+    return <AuthBootstrapScreen message="Restoring your part workspace." />;
+  }
 
   if (!user) {
     return null;

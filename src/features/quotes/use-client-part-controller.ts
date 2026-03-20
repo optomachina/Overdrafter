@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useAppSession } from "@/hooks/use-app-session";
+import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 import {
   archiveJob,
   deleteArchivedJobs,
@@ -92,7 +93,7 @@ export function useClientPartController() {
   const { jobId: routeJobId = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, activeMembership, signOut } = useAppSession();
+  const { user, activeMembership, signOut, isAuthInitializing } = useAppSession();
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [showDrawingPreview, setShowDrawingPreview] = useState(false);
   const [drawingPdfUrl, setDrawingPdfUrl] = useState<string | null>(null);
@@ -344,10 +345,20 @@ export function useClientPartController() {
   }, [projectCollaborationUnavailable]);
 
   useEffect(() => {
-    if (!user) {
-      navigate("/?auth=signin", { replace: true });
+    if (isAuthInitializing || user) {
+      return;
     }
-  }, [navigate, user]);
+
+    recordWorkspaceSessionDiagnostic(
+      "warn",
+      "client-part.redirect.unauthenticated",
+      "Redirecting to sign-in after startup auth resolution completed without a user.",
+      {
+        routeJobId,
+      },
+    );
+    navigate("/?auth=signin", { replace: true });
+  }, [isAuthInitializing, navigate, routeJobId, user]);
 
   useEffect(() => {
     if (resolvedJobId && resolvedJobId !== routeJobId) {
@@ -1049,5 +1060,6 @@ export function useClientPartController() {
     summary,
     updatePartRenameValue: setPartRenameValue,
     user,
+    isAuthInitializing,
   };
 }

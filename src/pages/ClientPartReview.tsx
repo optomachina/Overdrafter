@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { Loader2, MoveLeft, MoveRight } from "lucide-react";
+import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { ProcurementHandoffPanel } from "@/components/quotes/ProcurementHandoffPanel";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
@@ -22,11 +23,12 @@ import {
 } from "@/features/quotes/selection";
 import { formatCurrency, formatLeadTime } from "@/features/quotes/utils";
 import { useAppSession } from "@/hooks/use-app-session";
+import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 
 const ClientPartReview = () => {
   const { jobId = "" } = useParams();
   const navigate = useNavigate();
-  const { user } = useAppSession();
+  const { user, isAuthInitializing } = useAppSession();
   const [handoffState, setHandoffState] = useState(createDefaultProcurementHandoffState);
   const [showHandoffSummary, setShowHandoffSummary] = useState(false);
 
@@ -58,7 +60,19 @@ const ClientPartReview = () => {
 
   const handoffSummary = useMemo(() => summarizeProcurementHandoff(handoffState), [handoffState]);
 
+  if (isAuthInitializing) {
+    return <AuthBootstrapScreen message="Restoring your review session." />;
+  }
+
   if (!user) {
+    recordWorkspaceSessionDiagnostic(
+      "warn",
+      "client-part-review.redirect.unauthenticated",
+      "Redirecting to sign-in after startup auth resolution completed without a user.",
+      {
+        jobId,
+      },
+    );
     return <Navigate to="/?auth=signin" replace />;
   }
 

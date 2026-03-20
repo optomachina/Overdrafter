@@ -211,8 +211,8 @@ const supabaseMock = vi.hoisted(() => {
   });
 
   return {
-    authGetUser,
     authGetSession,
+    authGetUser,
     from,
     membershipsEq,
     membershipsOrder,
@@ -288,8 +288,8 @@ const supabaseMock = vi.hoisted(() => {
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     auth: {
-      getUser: supabaseMock.authGetUser,
       getSession: supabaseMock.authGetSession,
+      getUser: supabaseMock.authGetUser,
     },
     from: supabaseMock.from,
     storage: {
@@ -424,7 +424,14 @@ describe("quotes api helpers", () => {
     supabaseMock.projectJobsIn.mockImplementation(() => supabaseMock.projectJobsQuery);
     supabaseMock.projectJobsSelect.mockImplementation(() => supabaseMock.projectJobsQuery);
     supabaseMock.authGetSession.mockResolvedValue({
-      data: { session: { access_token: "token-1", user: { id: "user-1" } } },
+      data: {
+        session: {
+          access_token: "token-1",
+          user: {
+            id: "user-1",
+          },
+        },
+      },
       error: null,
     });
     supabaseMock.authGetUser.mockResolvedValue({
@@ -2795,8 +2802,6 @@ describe("quotes api helpers", () => {
   });
 
   it("returns an anonymous app session without invalid-session state when no auth session exists", async () => {
-    // With the getSession pre-check, a missing local session short-circuits to anonymous
-    // without calling getUser at all.
     supabaseMock.authGetSession.mockResolvedValue({
       data: { session: null },
       error: null,
@@ -2807,6 +2812,23 @@ describe("quotes api helpers", () => {
       memberships: [],
       isVerifiedAuth: false,
       authState: "anonymous",
+    });
+  });
+
+  it("returns session_error when getUser fails while a local session is present", async () => {
+    supabaseMock.authGetUser.mockResolvedValue({
+      data: { user: null },
+      error: {
+        name: "AuthSessionMissingError",
+        message: "Auth session missing!",
+      },
+    });
+
+    await expect(fetchAppSessionData()).resolves.toEqual({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "session_error",
     });
   });
 
@@ -2824,6 +2846,25 @@ describe("quotes api helpers", () => {
       memberships: [],
       isVerifiedAuth: false,
       authState: "invalid_session",
+    });
+  });
+
+  it("returns the authenticated user with membershipError when membership lookup fails", async () => {
+    supabaseMock.membershipsOrder.mockResolvedValue({
+      data: null,
+      error: {
+        message: "temporary membership lookup failure",
+      },
+    });
+
+    await expect(fetchAppSessionData()).resolves.toEqual({
+      user: {
+        id: "user-1",
+      },
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "authenticated",
+      membershipError: "temporary membership lookup failure",
     });
   });
 
