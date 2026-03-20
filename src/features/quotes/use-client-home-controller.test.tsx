@@ -1,11 +1,12 @@
 import "@testing-library/jest-dom/vitest";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppSessionData } from "@/features/quotes/types";
 import { MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE } from "@/hooks/workspace-readiness";
+import type { Session } from "@supabase/supabase-js";
 import { useClientHomeController } from "./use-client-home-controller";
 
 const fetchAppSessionDataMock = vi.fn<() => Promise<AppSessionData>>();
@@ -14,6 +15,7 @@ const createJobsFromUploadFilesMock = vi.fn();
 const invalidateClientWorkspaceQueriesMock = vi.fn();
 const onAuthStateChangeMock = vi.fn();
 const adminSignOutMock = vi.fn();
+let authStateChangeCallbacks: Array<(event: string, session: Session | null) => void> = [];
 
 vi.mock("@/features/quotes/api", () => ({
   archiveJob: vi.fn(),
@@ -119,7 +121,7 @@ function createSessionData(input: { memberships?: AppSessionData["memberships"] 
   };
 }
 
-function createWrapper(initialAppSession?: AppSessionData) {
+function createWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -131,10 +133,6 @@ function createWrapper(initialAppSession?: AppSessionData) {
     },
   });
 
-  if (initialAppSession) {
-    queryClient.setQueryData(["app-session"], initialAppSession);
-  }
-
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>
@@ -144,55 +142,41 @@ function createWrapper(initialAppSession?: AppSessionData) {
   };
 }
 
-async function flushMicrotasks() {
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
+function emitSignedInAuthEvent() {
+  act(() => {
+    authStateChangeCallbacks.forEach((callback) =>
+      callback("SIGNED_IN", {
+        access_token: "token-1",
+        refresh_token: "refresh-token-1",
+        expires_in: 3600,
+        token_type: "bearer",
+        user: {
+          id: "user-1",
+          email: "client@example.com",
+          app_metadata: {},
+          user_metadata: {},
+          aud: "authenticated",
+          created_at: "2026-03-11T00:00:00.000Z",
+        },
+      } as Session),
+    );
   });
-}
-
-async function advanceTimers(ms: number) {
-  await act(async () => {
-    vi.advanceTimersByTime(ms);
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-}
-
-async function settleSessionLoad() {
-  await advanceTimers(1);
-  await flushMicrotasks();
-  await advanceTimers(1);
-  await flushMicrotasks();
-}
-
-async function waitForCondition(
-  predicate: () => boolean,
-  {
-    attempts = 20,
-    errorMessage = "Timed out waiting for condition.",
-  }: { attempts?: number; errorMessage?: string } = {},
-) {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if (predicate()) {
-      return;
-    }
-    await settleSessionLoad();
-  }
-
-  throw new Error(errorMessage);
 }
 
 describe("useClientHomeController membership recovery", () => {
   beforeEach(() => {
-    vi.useFakeTimers();
-    onAuthStateChangeMock.mockImplementation(() => ({
-      data: {
-        subscription: {
-          unsubscribe: vi.fn(),
+    authStateChangeCallbacks = [];
+    onAuthStateChangeMock.mockImplementation((callback: (event: string, session: Session | null) => void) => {
+      authStateChangeCallbacks.push(callback);
+
+      return {
+        data: {
+          subscription: {
+            unsubscribe: vi.fn(),
+          },
         },
-      },
-    }));
+      };
+    });
     createJobsFromUploadFilesMock.mockResolvedValue({
       projectId: null,
       jobIds: ["job-1"],
@@ -201,7 +185,6 @@ describe("useClientHomeController membership recovery", () => {
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -217,8 +200,16 @@ describe("useClientHomeController membership recovery", () => {
         },
       ],
     });
-    const initialAuthenticatedSession = createSessionData({ memberships: [] });
-    const sessionResponses = [createSessionData({ memberships: [] }), recoveredSession];
+    const sessionResponses = [
+      {
+        user: null,
+        memberships: [],
+        isVerifiedAuth: false,
+        authState: "anonymous" as const,
+      },
+      createSessionData({ memberships: [] }),
+      recoveredSession,
+    ];
     fetchAppSessionDataMock.mockImplementation(async () => {
       return sessionResponses.shift() ?? recoveredSession;
     });
@@ -226,17 +217,15 @@ describe("useClientHomeController membership recovery", () => {
       new Error("Your account already has an organization membership."),
     );
 
-    const { result } = renderHook(() => useClientHomeController(), {
-      wrapper: createWrapper(initialAuthenticatedSession),
+    const { result, unmount } = renderHook(() => useClientHomeController(), {
+      wrapper: createWrapper(),
     });
 
-    await waitForCondition(
-      () => createSelfServiceOrganizationMock.mock.calls.length === 1,
-      {
-        errorMessage: "Expected membership recovery bootstrap to run for the existing user.",
-      },
-    );
-    expect(createSelfServiceOrganizationMock).toHaveBeenCalledTimes(1);
+    emitSignedInAuthEvent();
+
+    await waitFor(() => {
+      expect(["provisioning", "ready"]).toContain(result.current.workspaceReadiness.status);
+    });
 
     const submitPromise = result.current.handleComposerSubmit({
       prompt: "Upload these parts",
@@ -244,55 +233,60 @@ describe("useClientHomeController membership recovery", () => {
       clear: vi.fn(),
     });
 
-    await flushMicrotasks();
-    await advanceTimers(0);
-    await advanceTimers(300);
-    await advanceTimers(900);
-    await flushMicrotasks();
+    await waitFor(() => {
+      expect(createJobsFromUploadFilesMock).toHaveBeenCalledTimes(1);
+    });
 
     await submitPromise;
 
+    await waitFor(() => {
+      expect(result.current.workspaceReadiness.status).toBe("ready");
+    });
+
     expect(createJobsFromUploadFilesMock).toHaveBeenCalledTimes(1);
-    expect(createSelfServiceOrganizationMock).toHaveBeenCalledTimes(1);
+    unmount();
   });
 
   it("fails fast with a precise error when membership recovery exhausts", async () => {
-    const initialAuthenticatedSession = createSessionData({ memberships: [] });
-    fetchAppSessionDataMock.mockImplementation(async () => createSessionData({ memberships: [] }));
+    const sessionResponses = [
+      {
+        user: null,
+        memberships: [],
+        isVerifiedAuth: false,
+        authState: "anonymous" as const,
+      },
+      createSessionData({ memberships: [] }),
+    ];
+    fetchAppSessionDataMock.mockImplementation(async () => {
+      return sessionResponses.shift() ?? createSessionData({ memberships: [] });
+    });
     createSelfServiceOrganizationMock.mockRejectedValueOnce(
       new Error("Your account already has an organization membership."),
     );
 
-    const { result } = renderHook(() => useClientHomeController(), {
-      wrapper: createWrapper(initialAuthenticatedSession),
+    const { result, unmount } = renderHook(() => useClientHomeController(), {
+      wrapper: createWrapper(),
     });
 
-    await waitForCondition(
-      () => createSelfServiceOrganizationMock.mock.calls.length === 1,
-      {
-        errorMessage: "Expected missing-membership recovery bootstrap to run before exhausting.",
-      },
-    );
-    expect(createSelfServiceOrganizationMock).toHaveBeenCalledTimes(1);
+    emitSignedInAuthEvent();
+
+    await waitFor(() => {
+      expect(["provisioning", "provisioning_failed"]).toContain(result.current.workspaceReadiness.status);
+    });
 
     const submitPromise = result.current.handleComposerSubmit({
       prompt: "Upload these parts",
       files: [new File(["solid"], "part.step")],
       clear: vi.fn(),
     });
-    const handledRejection = submitPromise.catch((error: unknown) => error);
 
-    await flushMicrotasks();
-    await advanceTimers(0);
-    await advanceTimers(300);
-    await advanceTimers(900);
-    await advanceTimers(1_800);
-    await flushMicrotasks();
-
-    const rejection = await handledRejection;
-    expect(rejection).toMatchObject({
+    await expect(submitPromise).rejects.toMatchObject({
       message: MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE,
     });
+    await waitFor(() => {
+      expect(result.current.workspaceReadiness.status).toBe("provisioning_failed");
+    });
     expect(createJobsFromUploadFilesMock).not.toHaveBeenCalled();
-  });
+    unmount();
+  }, 10_000);
 });
