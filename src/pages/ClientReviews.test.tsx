@@ -266,4 +266,24 @@ describe("client review pages", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/Placeholder surface for shipping method, billing, and purchase-order collection/i)).not.toBeInTheDocument();
   });
+
+  it("holds the protected review route during auth initialization instead of redirecting", () => {
+    mockUseAppSession.mockReturnValue({
+      user: null,
+      activeMembership: null,
+      signOut: vi.fn(),
+      isAuthInitializing: true,
+    });
+
+    renderWithClient(
+      <Routes>
+        <Route path="/parts/:jobId/review" element={<ClientPartReview />} />
+        <Route path="/" element={<div>Signed Out Home</div>} />
+      </Routes>,
+      "/parts/job-1/review",
+    );
+
+    expect(screen.getByText("Restoring your review session.")).toBeInTheDocument();
+    expect(screen.queryByText("Signed Out Home")).not.toBeInTheDocument();
+  });
 });

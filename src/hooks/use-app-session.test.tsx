@@ -10,6 +10,7 @@ import type { Session } from "@supabase/supabase-js";
 const fetchAppSessionDataMock = vi.fn<() => Promise<AppSessionData>>();
 const onAuthStateChangeMock = vi.fn();
 const adminSignOutMock = vi.fn();
+const getSessionMock = vi.fn();
 let authStateChangeCallbacks: Array<(event: string, session: Session | null) => void> = [];
 
 vi.mock("@/features/quotes/api", () => ({
@@ -22,6 +23,7 @@ vi.mock("@/features/quotes/api/session-access", () => ({
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     auth: {
+      getSession: (...args: unknown[]) => getSessionMock(...args),
       onAuthStateChange: (...args: unknown[]) => onAuthStateChangeMock(...args),
       admin: {
         signOut: (...args: unknown[]) => adminSignOutMock(...args),
@@ -37,6 +39,7 @@ function SessionProbe() {
     <div>
       <span data-testid="email">{session.user?.email ?? "anonymous"}</span>
       <span data-testid="auth-state">{session.authState}</span>
+      <span data-testid="auth-initializing">{session.isAuthInitializing ? "yes" : "no"}</span>
       {session.user ? null : <button type="button">Log in</button>}
     </div>
   );
@@ -111,6 +114,10 @@ describe("useAppSession", () => {
       configurable: true,
       value: storageMock,
     });
+    getSessionMock.mockResolvedValue({
+      data: { session: null },
+      error: null,
+    });
   });
 
   afterEach(() => {
@@ -178,9 +185,191 @@ describe("useAppSession", () => {
     });
   });
 
+  it("hydrates a local Supabase session before the network app-session fetch resolves", async () => {
+    const deferred = deferredPromise<AppSessionData>();
+    const localSession = {
+      access_token: "token-1",
+      refresh_token: "refresh-token-1",
+      expires_in: 3600,
+      token_type: "bearer",
+      user: {
+        id: "user-1",
+        email: "client@example.com",
+        app_metadata: {},
+        user_metadata: {},
+        aud: "authenticated",
+        created_at: "2026-03-11T00:00:00.000Z",
+      },
+    } as Session;
+
+    getSessionMock.mockResolvedValueOnce({
+      data: { session: localSession },
+      error: null,
+    });
+    fetchAppSessionDataMock.mockReturnValueOnce(deferred.promise);
+
+    renderProbe();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+    });
+    expect(screen.queryByRole("button", { name: "Log in" })).not.toBeInTheDocument();
+
+    deferred.resolve({
+      user: localSession.user as AppSessionData["user"],
+      memberships: [
+        {
+          id: "membership-1",
+          role: "client",
+          organizationId: "org-1",
+          organizationName: "Client Org",
+          organizationSlug: "client-org",
+        },
+      ],
+      isVerifiedAuth: true,
+      authState: "authenticated",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    });
+  });
+
+  it("keeps the local session during startup session_error retries", async () => {
+    const localSession = {
+      access_token: "token-1",
+      refresh_token: "refresh-token-1",
+      expires_in: 3600,
+      token_type: "bearer",
+      user: {
+        id: "user-1",
+        email: "client@example.com",
+        app_metadata: {},
+        user_metadata: {},
+        aud: "authenticated",
+        created_at: "2026-03-11T00:00:00.000Z",
+      },
+    } as Session;
+
+    getSessionMock.mockResolvedValueOnce({
+      data: { session: localSession },
+      error: null,
+    });
+    fetchAppSessionDataMock
+      .mockResolvedValueOnce({
+        user: null,
+        memberships: [],
+        isVerifiedAuth: false,
+        authState: "session_error",
+      })
+      .mockResolvedValueOnce({
+        user: localSession.user as AppSessionData["user"],
+        memberships: [
+          {
+            id: "membership-1",
+            role: "client",
+            organizationId: "org-1",
+            organizationName: "Client Org",
+            organizationSlug: "client-org",
+          },
+        ],
+        isVerifiedAuth: true,
+        authState: "authenticated",
+      });
+
+    renderProbe();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+    });
+
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    });
+  });
+
+  it("keeps the local session during startup membership retries", async () => {
+    const localSession = {
+      access_token: "token-1",
+      refresh_token: "refresh-token-1",
+      expires_in: 3600,
+      token_type: "bearer",
+      user: {
+        id: "user-1",
+        email: "client@example.com",
+        app_metadata: {},
+        user_metadata: {},
+        aud: "authenticated",
+        created_at: "2026-03-11T00:00:00.000Z",
+      },
+    } as Session;
+
+    getSessionMock.mockResolvedValueOnce({
+      data: { session: localSession },
+      error: null,
+    });
+    fetchAppSessionDataMock
+      .mockResolvedValueOnce({
+        user: localSession.user as AppSessionData["user"],
+        memberships: [],
+        isVerifiedAuth: true,
+        authState: "authenticated",
+        membershipError: "temporary membership fetch failure",
+      })
+      .mockResolvedValueOnce({
+        user: localSession.user as AppSessionData["user"],
+        memberships: [
+          {
+            id: "membership-1",
+            role: "client",
+            organizationId: "org-1",
+            organizationName: "Client Org",
+            organizationSlug: "client-org",
+          },
+        ],
+        isVerifiedAuth: true,
+        authState: "authenticated",
+      });
+
+    renderProbe();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+    });
+
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    });
+  });
+
   it("clears a stored token only when the session is explicitly invalid", async () => {
     const tokenKey = getSupabaseAuthStorageKey();
     storageMock.setItem(tokenKey, JSON.stringify({ access_token: "token-1" }));
+    const localSession = {
+      access_token: "token-1",
+      refresh_token: "refresh-token-1",
+      expires_in: 3600,
+      token_type: "bearer",
+      user: {
+        id: "user-1",
+        email: "client@example.com",
+        app_metadata: {},
+        user_metadata: {},
+        aud: "authenticated",
+        created_at: "2026-03-11T00:00:00.000Z",
+      },
+    } as Session;
+    getSessionMock.mockResolvedValueOnce({
+      data: { session: localSession },
+      error: null,
+    });
     fetchAppSessionDataMock.mockResolvedValueOnce({
       user: null,
       memberships: [],
@@ -192,6 +381,7 @@ describe("useAppSession", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("auth-state")).toHaveTextContent("invalid_session");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
     });
 
     await waitFor(() => {

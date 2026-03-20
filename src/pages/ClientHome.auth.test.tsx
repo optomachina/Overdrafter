@@ -15,6 +15,7 @@ const updateCurrentUserPasswordMock = vi.fn();
 const signInWithPasswordMock = vi.fn();
 const signUpMock = vi.fn();
 const authGetUserMock = vi.fn();
+const authGetSessionMock = vi.fn();
 const adminSignOutMock = vi.fn();
 const navigateMock = vi.fn();
 const checkClientIntakeCompatibilityMock = vi.fn();
@@ -56,6 +57,7 @@ vi.mock("@/integrations/supabase/client", () => ({
       },
       signInWithPassword: (...args: unknown[]) => signInWithPasswordMock(...args),
       signUp: (...args: unknown[]) => signUpMock(...args),
+      getSession: (...args: unknown[]) => authGetSessionMock(...args),
       getUser: (...args: unknown[]) => authGetUserMock(...args),
       admin: {
         signOut: (...args: unknown[]) => adminSignOutMock(...args),
@@ -155,6 +157,7 @@ vi.mock("@/features/quotes/use-client-home-controller", async () => {
         handleUnpinPart: vi.fn(),
         handleUnpinProject: vi.fn(),
         isAuthDialogOpen,
+        isAuthInitializing: session.isAuthInitializing,
         isSearchOpen,
         navigate: navigateMock,
         newJobFilePicker: {
@@ -217,6 +220,7 @@ describe("ClientHome auth flow", () => {
     checkClientIntakeCompatibilityMock.mockResolvedValue("available");
     getClientIntakeCompatibilityMessageMock.mockReturnValue("compatibility ok");
     signUpMock.mockResolvedValue({ data: { session: null }, error: null });
+    authGetSessionMock.mockResolvedValue({ data: { session: null }, error: null });
     authGetUserMock.mockResolvedValue({ data: { user: null }, error: null });
     requestPasswordResetMock.mockResolvedValue(undefined);
     resendSignupConfirmationMock.mockResolvedValue(undefined);
@@ -225,6 +229,42 @@ describe("ClientHome auth flow", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("shows auth bootstrap screen while initial session restore is in progress", async () => {
+    const pendingSession = deferredPromise<{ data: { session: null }; error: null }>();
+    authGetSessionMock.mockReturnValueOnce(pendingSession.promise);
+    fetchAppSessionDataMock.mockResolvedValue({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "anonymous",
+    });
+
+    renderClientHome();
+
+    expect(screen.getByText("Restoring your workspace.")).toBeInTheDocument();
+
+    pendingSession.resolve({ data: { session: null }, error: null });
+    await waitFor(() => {
+      expect(screen.getByText("Artifact-first quoting for machined parts.")).toBeInTheDocument();
+    });
+  });
+
+  it("renders the guest workspace once auth restoration is complete", async () => {
+    fetchAppSessionDataMock.mockResolvedValue({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "anonymous",
+    });
+
+    renderClientHome();
+
+    await waitFor(() => {
+      expect(screen.getByText("Artifact-first quoting for machined parts.")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Restoring your workspace.")).not.toBeInTheDocument();
   });
 
   it("closes the dialog and removes guest login buttons as soon as sign-in emits an auth event", async () => {

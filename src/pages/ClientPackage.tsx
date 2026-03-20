@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
+import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { useAppSession } from "@/hooks/use-app-session";
 import { resendSignupConfirmation } from "@/features/quotes/api/session-access";
 import { fetchClientPackage, selectQuoteOption } from "@/features/quotes/api/workspace-access";
@@ -22,6 +23,7 @@ import {
 } from "@/features/quotes/request-scenarios";
 import { isEmailConfirmationRequired } from "@/lib/auth-status";
 import { supabase } from "@/integrations/supabase/client";
+import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 import { formatCurrency, formatLeadTime, optionLabelForKind } from "@/features/quotes/utils";
 
 const ClientPackage = () => {
@@ -29,7 +31,7 @@ const ClientPackage = () => {
   const params = useParams();
   const packageId = params.packageId ?? "";
   const queryClient = useQueryClient();
-  const { user, isVerifiedAuth, signOut } = useAppSession();
+  const { user, isVerifiedAuth, signOut, isAuthInitializing } = useAppSession();
   const [selectionNote, setSelectionNote] = useState("");
   const [isRefreshingVerification, setIsRefreshingVerification] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
@@ -178,7 +180,19 @@ const ClientPackage = () => {
     },
   });
 
+  if (isAuthInitializing) {
+    return <AuthBootstrapScreen message="Restoring your package session." />;
+  }
+
   if (!user) {
+    recordWorkspaceSessionDiagnostic(
+      "warn",
+      "client-package.redirect.unauthenticated",
+      "Redirecting to sign-in after startup auth resolution completed without a user.",
+      {
+        packageId,
+      },
+    );
     return <Navigate to="/?auth=signin" replace />;
   }
 

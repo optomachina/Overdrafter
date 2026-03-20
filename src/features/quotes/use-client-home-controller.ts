@@ -90,7 +90,15 @@ export function useClientHomeController() {
   const [searchParams, setSearchParams] = useSearchParams();
   const appSession = useAppSession();
   const memberships = appSession.memberships ?? [];
-  const { user, activeMembership, isLoading, isVerifiedAuth, signOut } = appSession;
+  const {
+    user,
+    activeMembership,
+    isLoading,
+    isVerifiedAuth,
+    signOut,
+    isAuthInitializing,
+    membershipError,
+  } = appSession;
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRefreshingVerification, setIsRefreshingVerification] = useState(false);
@@ -318,6 +326,8 @@ export function useClientHomeController() {
   useEffect(() => {
     if (
       !user ||
+      isAuthInitializing ||
+      membershipError ||
       isLoading ||
       activeMembership ||
       !isVerifiedAuth ||
@@ -331,8 +341,10 @@ export function useClientHomeController() {
     activeMembership,
     bootstrapAccountMutation,
     defaultAccountName,
+    isAuthInitializing,
     isLoading,
     isVerifiedAuth,
+    membershipError,
     user,
   ]);
 
@@ -821,6 +833,7 @@ export function useClientHomeController() {
     handleUnpinPart,
     handleUnpinProject,
     isAuthDialogOpen,
+    isAuthInitializing,
     isRefreshingVerification,
     isResendingVerification,
     isSearchOpen,

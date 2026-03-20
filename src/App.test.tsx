@@ -78,6 +78,7 @@ vi.mock("./pages/SharedInvite", () => ({
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     auth: {
+      getSession: vi.fn(() => Promise.resolve({ data: { session: null }, error: null })),
       getUser: vi.fn(),
       onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
     },

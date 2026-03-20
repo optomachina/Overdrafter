@@ -784,4 +784,22 @@ describe("ClientPart", () => {
       consoleErrorSpy.mockRestore();
     }
   });
+
+  it("does not redirect to sign-in while auth restoration is still initializing", () => {
+    mockUseAppSession.mockReturnValue({
+      user: null,
+      activeMembership: null,
+      signOut: vi.fn(),
+      isAuthInitializing: true,
+    });
+    api.fetchAccessibleProjects.mockResolvedValue([]);
+    api.fetchAccessibleJobs.mockResolvedValue([]);
+    api.fetchArchivedProjects.mockResolvedValue([]);
+    api.fetchArchivedJobs.mockResolvedValue([]);
+
+    renderWithClient("/parts/job-1");
+
+    expect(screen.getByText("Restoring your part workspace.")).toBeInTheDocument();
+    expect(screen.getByTestId("location-path")).toHaveTextContent("/parts/job-1");
+  });
 });

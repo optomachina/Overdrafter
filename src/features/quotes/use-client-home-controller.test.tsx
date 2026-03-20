@@ -16,6 +16,7 @@ const invalidateClientWorkspaceQueriesMock = vi.fn();
 const onAuthStateChangeMock = vi.fn();
 const adminSignOutMock = vi.fn();
 const getUserMock = vi.fn();
+const getSessionMock = vi.fn();
 let authStateChangeCallbacks: Array<(event: string, session: Session | null) => void> = [];
 
 vi.mock("@/features/quotes/api/session-access", () => ({
@@ -64,6 +65,7 @@ vi.mock("@/features/quotes/api/uploads-api", () => ({
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     auth: {
+      getSession: (...args: unknown[]) => getSessionMock(...args),
       getUser: (...args: unknown[]) => getUserMock(...args),
       onAuthStateChange: (...args: unknown[]) => onAuthStateChangeMock(...args),
       admin: {
@@ -185,6 +187,25 @@ function emitSignedInAuthEvent() {
 describe("useClientHomeController membership recovery", () => {
   beforeEach(() => {
     authStateChangeCallbacks = [];
+    getSessionMock.mockResolvedValue({
+      data: {
+        session: {
+          access_token: "token-1",
+          refresh_token: "refresh-token-1",
+          expires_in: 3600,
+          token_type: "bearer",
+          user: {
+            id: "user-1",
+            email: "client@example.com",
+            app_metadata: {},
+            user_metadata: {},
+            aud: "authenticated",
+            created_at: "2026-03-11T00:00:00.000Z",
+          },
+        },
+      },
+      error: null,
+    });
     getUserMock.mockResolvedValue({
       data: {
         user: {
