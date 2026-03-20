@@ -8,6 +8,8 @@ const VENDOR_NAMES: VendorName[] = [
   "sendcutsend",
   "partsbadger",
   "fastdms",
+  "devzmanufacturing",
+  "infraredlaboratories",
 ];
 
 function getStorageKey(jobId: string): string {

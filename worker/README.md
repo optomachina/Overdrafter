@@ -182,3 +182,19 @@ Notes:
 - This worker intentionally lives outside the Vite app so browser automation can run in a proper long-lived process.
 - `sendcutsend` is modeled as a CNC manual-follow-up lane in v1.
 - The live Xometry adapter fails closed if login or captcha is encountered.
+
+## Spreadsheet Quote Import
+
+Use the generic workbook importer for spreadsheets shaped like `Quotes Spreadsheet.xlsx`:
+
+```bash
+cd worker
+npm run import:quotes -- --workbook /absolute/path/to/Quotes\ Spreadsheet.xlsx --organization-id <org-id> --existing-shared-project-jobs
+```
+
+Notes:
+
+- `All Quotes` is the source of truth for scatter-chart quote data.
+- `Finishing Quotes` is not imported into `vendor_quote_results` or `vendor_quote_offers`.
+- `--existing-shared-project-jobs` resolves workbook batches like `QB00001` to existing shared-project jobs by project name, part number, and normalized revision, replaces quote data in place for overlapping jobs, and creates a missing shared-project job inside the existing batch project when the workbook contains a new part that does not already exist there.
+- Batches with no supported `All Quotes` supplier rows are skipped explicitly.

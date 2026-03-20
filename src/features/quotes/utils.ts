@@ -40,7 +40,12 @@ export const DEFAULT_APPLICABLE_VENDORS: VendorName[] = [
   "sendcutsend",
 ];
 
-export const MANUAL_IMPORT_VENDORS: VendorName[] = ["partsbadger", "fastdms"];
+export const MANUAL_IMPORT_VENDORS: VendorName[] = [
+  "partsbadger",
+  "fastdms",
+  "devzmanufacturing",
+  "infraredlaboratories",
+];
 
 export function isManualImportVendor(vendor: VendorName): boolean {
   return MANUAL_IMPORT_VENDORS.includes(vendor);
@@ -83,6 +88,10 @@ export function formatVendorName(vendor: VendorName): string {
       return "PartsBadger";
     case "fastdms":
       return "FastDMS";
+    case "devzmanufacturing":
+      return "DEVZ Manufacturing";
+    case "infraredlaboratories":
+      return "Infrared Laboratories";
     default:
       return vendor.charAt(0).toUpperCase() + vendor.slice(1);
   }
