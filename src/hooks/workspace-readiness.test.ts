@@ -164,4 +164,18 @@ describe("deriveWorkspaceReadiness", () => {
       deriveWorkspaceReadiness(base({ isLoading: true, isVerifiedAuth: false })),
     ).toEqual({ status: "loading" });
   });
+
+  it("returns provisioning when membership resolution is retrying after a transient failure", () => {
+    expect(
+      deriveWorkspaceReadiness(
+        base({
+          activeMembership: null,
+          membershipCount: 0,
+          bootstrapStatus: "idle",
+          membershipResolutionStatus: "retrying",
+          membershipResolutionAttempt: 1,
+        }),
+      ),
+    ).toEqual({ status: "provisioning" });
+  });
 });

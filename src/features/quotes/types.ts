@@ -424,7 +424,7 @@ export type AppMembership = {
   organizationSlug: string;
 };
 
-export type AppSessionAuthState = "authenticated" | "anonymous" | "invalid_session";
+export type AppSessionAuthState = "authenticated" | "anonymous" | "invalid_session" | "session_error";
 
 export type ProjectAccessRole = ProjectRole;
 
@@ -499,6 +499,7 @@ export type AppSessionData = {
   memberships: AppMembership[];
   isVerifiedAuth: boolean;
   authState?: AppSessionAuthState;
+  membershipError?: string;
 };
 
 export type PartAggregate = PartRecord & {
