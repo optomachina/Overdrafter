@@ -30,14 +30,19 @@ const InternalJobDetail = () => {
   const mutations = useInternalJobDetailMutations({
     clientSummary: viewModel.clientSummary,
     drafts: viewModel.drafts,
-    forcePublish: !queryState.readinessQuery.data?.ready,
+    forcePublish: queryState.readinessQuery.data?.ready === false,
     jobId,
     latestQuoteRunId: queryState.latestQuoteRun?.id ?? null,
     navigate,
     signOut,
     userEmail: user?.email ?? null,
   });
-  const writeActionsDisabled = !isVerifiedAuth;
+  const anyWritePending =
+    mutations.requestExtractionMutation.isPending ||
+    mutations.saveRequirementsMutation.isPending ||
+    mutations.startQuoteRunMutation.isPending ||
+    mutations.publishMutation.isPending;
+  const writeActionsDisabled = !isVerifiedAuth || anyWritePending;
 
   if (!user) {
     return <Navigate to="/?auth=signin" replace />;
@@ -57,7 +62,7 @@ const InternalJobDetail = () => {
     );
   }
 
-  if (queryState.jobQuery.isError || !queryState.job) {
+  if (!queryState.job) {
     return (
       <AppShell title="Job unavailable" subtitle="The requested job could not be loaded.">
         <Card className="border-destructive/30 bg-destructive/10">

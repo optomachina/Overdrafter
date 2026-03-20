@@ -68,13 +68,18 @@ export function useInternalJobDetailMutations({
   });
 
   const publishMutation = useMutation({
-    mutationFn: () =>
-      publishQuotePackage({
+    mutationFn: async () => {
+      if (!latestQuoteRunId) {
+        throw new Error("No quote run is available to publish.");
+      }
+
+      return publishQuotePackage({
         jobId,
-        quoteRunId: latestQuoteRunId!,
+        quoteRunId: latestQuoteRunId,
         clientSummary,
         force: forcePublish,
-      }),
+      });
+    },
     onSuccess: async () => {
       toast.success("Quote package published.");
       await Promise.all([

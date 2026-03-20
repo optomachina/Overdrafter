@@ -29,6 +29,19 @@ type InternalJobVendorCompareSectionProps = {
   visibleQuoteRows: VendorQuoteAggregate[];
 };
 
+function isSafeExternalQuoteUrl(value: string | null | undefined) {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export function InternalJobVendorCompareSection({
   activeCompareRequestedQuantity,
   compareQuantities,
@@ -115,7 +128,7 @@ export function InternalJobVendorCompareSection({
                     </div>
                     <div>
                       <p className="text-xs uppercase tracking-[0.2em] text-white/40">Quote link</p>
-                      {quote.quote_url ? (
+                      {isSafeExternalQuoteUrl(quote.quote_url) ? (
                         <a
                           href={quote.quote_url}
                           target="_blank"

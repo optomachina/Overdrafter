@@ -75,6 +75,26 @@ function buildJobRequestDefaults(job: JobAggregate | null) {
   };
 }
 
+export function resolveClientSummary({
+  current,
+  didJobChange,
+  jobTitle,
+  latestPackageSummary,
+}: {
+  current: string;
+  didJobChange: boolean;
+  jobTitle: string;
+  latestPackageSummary: string | null | undefined;
+}) {
+  const nextSummary = latestPackageSummary || `Curated CNC quote package for ${jobTitle}.`;
+
+  if (didJobChange) {
+    return nextSummary;
+  }
+
+  return current || nextSummary;
+}
+
 type UseInternalJobDetailViewModelOptions = {
   job: JobAggregate | null;
   latestQuoteRun: QuoteRunAggregate | null;
@@ -96,6 +116,7 @@ export function useInternalJobDetailViewModel({
     drafts: {},
     quoteQuantityInputs: {},
   });
+  const previousJobIdRef = useRef<string | null>(null);
 
   const jobRequestDefaults = useMemo(() => buildJobRequestDefaults(job), [job]);
   const latestPackage = useMemo(() => (job ? getLatestPublishedPackage(job) : null), [job]);
@@ -150,6 +171,8 @@ export function useInternalJobDetailViewModel({
       return;
     }
 
+    const didJobChange = previousJobIdRef.current !== job.job.id;
+
     const nextDraftState = mergeRequirementDraftState({
       parts: job.parts,
       currentDrafts: draftStateRef.current.drafts,
@@ -160,8 +183,14 @@ export function useInternalJobDetailViewModel({
     setDrafts(nextDraftState.drafts);
     setQuoteQuantityInputs(nextDraftState.quoteQuantityInputs);
     setClientSummary((current) =>
-      current || latestPackage?.client_summary || `Curated CNC quote package for ${job.job.title}.`,
+      resolveClientSummary({
+        current,
+        didJobChange,
+        jobTitle: job.job.title,
+        latestPackageSummary: latestPackage?.client_summary,
+      }),
     );
+    previousJobIdRef.current = job.job.id;
   }, [job, jobRequestDefaults, latestPackage?.client_summary]);
 
   const updateDraft = (

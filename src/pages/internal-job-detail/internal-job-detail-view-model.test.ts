@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { PublishedPackageAggregate, VendorQuoteAggregate } from "@/features/quotes/types";
-import { buildOptionKindsByOfferId, buildVisibleQuoteRows } from "./internal-job-detail-view-model";
+import {
+  buildOptionKindsByOfferId,
+  buildVisibleQuoteRows,
+  resolveClientSummary,
+} from "./internal-job-detail-view-model";
 
 function makeQuote(overrides: Partial<VendorQuoteAggregate> = {}): VendorQuoteAggregate {
   return {
@@ -71,5 +75,25 @@ describe("internal job detail view model helpers", () => {
       "quote-2",
       "quote-3",
     ]);
+  });
+
+  it("resets client summary when the active job changes", () => {
+    expect(
+      resolveClientSummary({
+        current: "Old job summary",
+        didJobChange: true,
+        jobTitle: "New job",
+        latestPackageSummary: null,
+      }),
+    ).toBe("Curated CNC quote package for New job.");
+
+    expect(
+      resolveClientSummary({
+        current: "Edited summary",
+        didJobChange: false,
+        jobTitle: "Same job",
+        latestPackageSummary: "Published summary",
+      }),
+    ).toBe("Edited summary");
   });
 });

@@ -90,6 +90,15 @@ export function InternalJobPartRequirementCard({
   const finishConfidence = finishUsesRawField
     ? extraction.rawFields.finish.confidence
     : extraction.finish.confidence;
+  const descriptionInputId = `${part.id}-description-input`;
+  const partNumberInputId = `${part.id}-part-number-input`;
+  const revisionInputId = `${part.id}-revision-input`;
+  const quantityInputId = `${part.id}-quantity-input`;
+  const quoteQuantitiesInputId = `${part.id}-quote-quantities-input`;
+  const requestedByDateInputId = `${part.id}-requested-by-date-input`;
+  const materialInputId = `${part.id}-material-input`;
+  const finishInputId = `${part.id}-finish-input`;
+  const tightestToleranceInputId = `${part.id}-tightest-tolerance-inch-input`;
 
   return (
     <div className="rounded-3xl border border-white/8 bg-black/20 p-5">
@@ -131,8 +140,8 @@ export function InternalJobPartRequirementCard({
       <div className="mt-5 grid gap-5 xl:grid-cols-[13rem_1fr]">
         <div className="space-y-3">
           {part.cadFile ? (
-            cadPreviewable ? (
-              <CadModelThumbnail source={cadPreviewSource!} className="h-52 w-full" />
+            cadPreviewable && cadPreviewSource ? (
+              <CadModelThumbnail source={cadPreviewSource} className="h-52 w-full" />
             ) : (
               <div className="flex h-52 flex-col items-center justify-center rounded-[1.6rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(11,15,24,0.95))] px-4 text-center">
                 <div className="rounded-full border border-white/10 bg-white/5 p-3">
@@ -183,8 +192,9 @@ export function InternalJobPartRequirementCard({
             />
           </div>
           <div className="space-y-2">
-            <Label>Description</Label>
+            <Label htmlFor={descriptionInputId}>Description</Label>
             <Input
+              id={descriptionInputId}
               className="border-white/10 bg-black/20"
               value={currentDraft.description ?? ""}
               disabled={disabled}
@@ -210,8 +220,9 @@ export function InternalJobPartRequirementCard({
             ) : null}
           </div>
           <div className="space-y-2">
-            <Label>Part number</Label>
+            <Label htmlFor={partNumberInputId}>Part number</Label>
             <Input
+              id={partNumberInputId}
               className="border-white/10 bg-black/20"
               value={currentDraft.partNumber ?? ""}
               disabled={disabled}
@@ -237,8 +248,9 @@ export function InternalJobPartRequirementCard({
             ) : null}
           </div>
           <div className="space-y-2">
-            <Label>Revision</Label>
+            <Label htmlFor={revisionInputId}>Revision</Label>
             <Input
+              id={revisionInputId}
               className="border-white/10 bg-black/20"
               value={currentDraft.revision ?? ""}
               disabled={disabled}
@@ -264,9 +276,10 @@ export function InternalJobPartRequirementCard({
             ) : null}
           </div>
           <div className="space-y-2">
-            <Label>Quantity</Label>
+            <Label htmlFor={quantityInputId}>Quantity</Label>
             {showQuoteFields ? (
               <Input
+                id={quantityInputId}
                 type="number"
                 min={1}
                 className="border-white/10 bg-black/20"
@@ -281,10 +294,11 @@ export function InternalJobPartRequirementCard({
             )}
           </div>
           <div className="space-y-2">
-            <Label>Quote quantities</Label>
+            <Label htmlFor={quoteQuantitiesInputId}>Quote quantities</Label>
             {showQuoteFields ? (
               <>
                 <Input
+                  id={quoteQuantitiesInputId}
                   className="border-white/10 bg-black/20"
                   value={quoteQuantityInput}
                   disabled={disabled}
@@ -301,8 +315,9 @@ export function InternalJobPartRequirementCard({
             )}
           </div>
           <div className="space-y-2">
-            <Label>Requested by</Label>
+            <Label htmlFor={requestedByDateInputId}>Requested by</Label>
             <Input
+              id={requestedByDateInputId}
               type="date"
               className="border-white/10 bg-black/20"
               value={currentDraft.requestedByDate ?? ""}
@@ -316,8 +331,9 @@ export function InternalJobPartRequirementCard({
             />
           </div>
           <div className="space-y-2">
-            <Label>Material</Label>
+            <Label htmlFor={materialInputId}>Material</Label>
             <Input
+              id={materialInputId}
               className="border-white/10 bg-black/20"
               value={currentDraft.material ?? ""}
               disabled={disabled}
@@ -337,8 +353,9 @@ export function InternalJobPartRequirementCard({
             </p>
           </div>
           <div className="space-y-2">
-            <Label>Finish</Label>
+            <Label htmlFor={finishInputId}>Finish</Label>
             <Input
+              id={finishInputId}
               className="border-white/10 bg-black/20"
               value={currentDraft.finish ?? ""}
               disabled={disabled}
@@ -362,8 +379,9 @@ export function InternalJobPartRequirementCard({
             ) : null}
           </div>
           <div className="space-y-2">
-            <Label>Tightest tolerance (inches)</Label>
+            <Label htmlFor={tightestToleranceInputId}>Tightest tolerance (inches)</Label>
             <Input
+              id={tightestToleranceInputId}
               type="number"
               step="0.0001"
               className="border-white/10 bg-black/20"
