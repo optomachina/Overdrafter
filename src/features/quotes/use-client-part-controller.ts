@@ -87,11 +87,9 @@ import {
 import { getUserFacingErrorMessage } from "@/lib/error-message";
 import {
   buildRequirementDraft,
-  formatCurrency,
   normalizeDrawingExtraction,
 } from "@/features/quotes/utils";
 import type { DrawingPreviewState } from "@/components/quotes/ClientQuoteAssetPanels";
-import type { ActivityLogEntry } from "@/components/quotes/ActivityLog";
 import type { VendorName } from "@/integrations/supabase/types";
 
 const EMPTY_QUOTE_DIAGNOSTICS: QuoteDiagnostics = {

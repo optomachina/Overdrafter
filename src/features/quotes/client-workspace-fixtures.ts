@@ -27,7 +27,6 @@ import type {
   AppRole,
   ProjectRole,
   VendorName,
-  ProjectInviteStatus,
 } from "@/integrations/supabase/types";
 import type { ProjectJobRecord } from "@/features/quotes/types";
 import {
@@ -1295,16 +1294,6 @@ function getActiveScenarioId(): FixtureScenarioId | null {
   }
 
   return getScenarioIdForSearch(window.location.search);
-}
-
-function withActiveScenario<T>(callback: (state: FixtureState, scenarioId: FixtureScenarioId) => T): T | null {
-  const scenarioId = getActiveScenarioId();
-
-  if (!scenarioId) {
-    return null;
-  }
-
-  return callback(getState(scenarioId), scenarioId);
 }
 
 function requireRecord<T>(value: T | undefined | null, message: string): T {

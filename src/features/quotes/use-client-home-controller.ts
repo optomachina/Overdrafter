@@ -140,7 +140,7 @@ export function useClientHomeController() {
     () => buildSidebarProjectIdsByJobId(projectJobMembershipsQuery.data ?? []),
     [projectJobMembershipsQuery.data],
   );
-  const { remoteProjects, sidebarProjects } = useMemo(
+  const { sidebarProjects } = useMemo(
     () =>
       buildSidebarProjects({
         accessibleProjects: accessibleProjectsQuery.data ?? [],

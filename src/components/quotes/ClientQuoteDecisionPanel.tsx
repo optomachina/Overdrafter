@@ -1,7 +1,12 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import type { ReactNode } from "react";
 import { BadgeCheck, CircleOff, SlidersHorizontal, TriangleAlert } from "lucide-react";
-import { ClientQuoteComparisonChart } from "@/components/quotes/ClientQuoteComparisonChart";
+
+const ClientQuoteComparisonChart = lazy(() =>
+  import("@/components/quotes/ClientQuoteComparisonChart").then((m) => ({
+    default: m.ClientQuoteComparisonChart,
+  })),
+);
 import { QuoteStatsBar } from "@/components/quotes/QuoteStatsBar";
 import { QuoteSupplierLegend } from "@/components/quotes/QuoteSupplierLegend";
 import { ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
@@ -359,15 +364,17 @@ export function ClientQuoteDecisionPanel({
           {selectedOption ? <SelectedOptionBanner option={selectedOption} /> : null}
 
           <div className="rounded-[24px] border border-white/8 bg-black/20 p-4">
-            <ClientQuoteComparisonChart
-              options={options}
-              selectedKey={selectedOption?.key ?? null}
-              hoveredKey={hoveredKey}
-              partId={partId}
-              organizationId={organizationId}
-              onSelect={onSelect}
-              onHover={setHoveredKey}
-            />
+            <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-white/5" />}>
+              <ClientQuoteComparisonChart
+                options={options}
+                selectedKey={selectedOption?.key ?? null}
+                hoveredKey={hoveredKey}
+                partId={partId}
+                organizationId={organizationId}
+                onSelect={onSelect}
+                onHover={setHoveredKey}
+              />
+            </Suspense>
           </div>
 
           <QuoteComparisonTable

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { FolderKanban, Search, Shapes } from "lucide-react";
+import { FolderKanban, Shapes } from "lucide-react";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {

@@ -57,7 +57,6 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
   },
 }));
 
-let lastSidebarProps: Record<string, unknown> | null = null;
 let lastAccountMenuProps: Record<string, unknown> | null = null;
 let lastDrawingPreviewDialogProps: Record<string, unknown> | null = null;
 
@@ -158,8 +157,6 @@ vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
 
 vi.mock("@/components/chat/WorkspaceSidebar", () => ({
   WorkspaceSidebar: (props: Record<string, unknown>) => {
-    lastSidebarProps = props;
-
     return (
       <div>
         <button type="button" onClick={() => void (props.onPrefetchProject as ((id: string) => void) | undefined)?.("project-2")}>
@@ -323,7 +320,6 @@ function createPartDetail(overrides: Record<string, unknown> = {}) {
 
 describe("ClientPart", () => {
   beforeEach(() => {
-    lastSidebarProps = null;
     lastAccountMenuProps = null;
     lastDrawingPreviewDialogProps = null;
     vi.clearAllMocks();
