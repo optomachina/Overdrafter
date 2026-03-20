@@ -3,10 +3,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getFixtureSessionDataForSearch } from "@/features/quotes/client-workspace-fixtures";
-import { fetchAppSessionData } from "@/features/quotes/api";
+import { fetchAppSessionData } from "@/features/quotes/api/session-access";
 import { WORKSPACE_SHARED_STALE_TIME_MS } from "@/features/quotes/workspace-navigation";
 import { supabase } from "@/integrations/supabase/client";
 import { hasVerifiedAuth } from "@/lib/auth-status";
+import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 
 const APP_SESSION_QUERY_KEY = ["app-session"] as const;
 const EMPTY_MEMBERSHIPS: AppMembership[] = [];
@@ -212,6 +213,32 @@ export function useAppSession() {
   });
 
   const memberships = sessionQuery.data?.memberships ?? EMPTY_MEMBERSHIPS;
+  const activeMembership: AppMembership | null = memberships[0] ?? null;
+
+  useEffect(() => {
+    if (sessionQuery.isLoading) {
+      return;
+    }
+
+    recordWorkspaceSessionDiagnostic("info", "use-app-session.derived-state", "Derived app-session hook state.", {
+      authState: sessionQuery.data?.authState ?? "anonymous",
+      isVerifiedAuth: sessionQuery.data?.isVerifiedAuth ?? false,
+      userId: sessionQuery.data?.user?.id ?? null,
+      membershipCount: memberships.length,
+      memberships: memberships.map((membership) => ({
+        organizationId: membership.organizationId,
+        role: membership.role,
+      })),
+      hasActiveMembership: Boolean(activeMembership),
+    });
+  }, [
+    activeMembership,
+    memberships,
+    sessionQuery.data?.authState,
+    sessionQuery.data?.isVerifiedAuth,
+    sessionQuery.data?.user?.id,
+    sessionQuery.isLoading,
+  ]);
 
   useEffect(() => {
     // Only clear localStorage for truly terminal session states — not for transient errors.
@@ -247,8 +274,6 @@ export function useAppSession() {
       });
     }
   };
-
-  const activeMembership: AppMembership | null = memberships[0] ?? null;
 
   return {
     ...sessionQuery,

@@ -10,9 +10,13 @@ import Index from "./Index";
 const mockUseAppSession = vi.fn();
 const mockFetchAccessibleProjects = vi.fn();
 const mockFetchAccessibleJobs = vi.fn();
+const mockFetchArchivedJobs = vi.fn();
+const mockFetchArchivedProjects = vi.fn();
 const mockFetchUngroupedParts = vi.fn();
 const mockFetchJobPartSummariesByJobIds = vi.fn();
 const mockFetchProjectJobMembershipsByJobIds = vi.fn();
+const mockFetchSidebarPins = vi.fn();
+const mockIsProjectNotFoundError = vi.fn<(error: unknown) => boolean>(() => false);
 
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
@@ -42,6 +46,22 @@ vi.mock("@/features/quotes/api", async (importOriginal) => {
     fetchProjectJobMembershipsByJobIds: (...args: unknown[]) => mockFetchProjectJobMembershipsByJobIds(...args),
   };
 });
+vi.mock("@/features/quotes/api/session-access", () => ({
+  createSelfServiceOrganization: vi.fn(),
+}));
+vi.mock("@/features/quotes/api/workspace-access", () => ({
+  fetchAccessibleProjects: (...args: unknown[]) => mockFetchAccessibleProjects(...args),
+  fetchAccessibleJobs: (...args: unknown[]) => mockFetchAccessibleJobs(...args),
+  fetchArchivedJobs: (...args: unknown[]) => mockFetchArchivedJobs(...args),
+  fetchArchivedProjects: (...args: unknown[]) => mockFetchArchivedProjects(...args),
+  fetchJobPartSummariesByJobIds: (...args: unknown[]) => mockFetchJobPartSummariesByJobIds(...args),
+  fetchProjectJobMembershipsByJobIds: (...args: unknown[]) => mockFetchProjectJobMembershipsByJobIds(...args),
+  fetchSidebarPins: (...args: unknown[]) => mockFetchSidebarPins(...args),
+  isProjectNotFoundError: (error: unknown) => mockIsProjectNotFoundError(error),
+}));
+vi.mock("@/features/quotes/api/jobs-api", () => ({
+  fetchUngroupedParts: (...args: unknown[]) => mockFetchUngroupedParts(...args),
+}));
 
 function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
   return {
@@ -87,9 +107,12 @@ describe("Index client home", () => {
   beforeEach(() => {
     mockFetchAccessibleProjects.mockResolvedValue([]);
     mockFetchAccessibleJobs.mockResolvedValue([]);
+    mockFetchArchivedJobs.mockResolvedValue([]);
+    mockFetchArchivedProjects.mockResolvedValue([]);
     mockFetchUngroupedParts.mockResolvedValue([]);
     mockFetchJobPartSummariesByJobIds.mockResolvedValue([]);
     mockFetchProjectJobMembershipsByJobIds.mockResolvedValue([]);
+    mockFetchSidebarPins.mockResolvedValue({ projectIds: [], jobIds: [] });
   });
 
   afterEach(() => {

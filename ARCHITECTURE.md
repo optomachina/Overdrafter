@@ -1,6 +1,6 @@
 # OverDrafter Architecture
 
-Last updated: March 17, 2026
+Last updated: March 19, 2026
 
 ## Purpose
 
@@ -23,6 +23,7 @@ The next-phase domain model should expand that quote-centric shape into an expli
 - assembly and part management inside a project
 - internal estimator interfaces
 - quote comparison and package publication surfaces
+- route-local page composition for complex screens, with reusable quote-domain logic staying in `src/features/quotes/`
 
 ### 2. Backend data and domain layer
 - persistence of workspaces, projects, parts, jobs, files, quotes, packages, and service request records
@@ -66,6 +67,12 @@ The next-phase domain model should expand that quote-centric shape into an expli
 - quote comparison
 - pricing-policy application
 - package curation and publication
+
+Internal review implementation boundary:
+
+- the `/internal/jobs/:jobId` route is now a composition shell backed by route-local modules in `src/pages/internal-job-detail/`
+- reusable quote-state shaping, normalization, and API calls remain in `src/features/quotes/` and `src/features/quotes/api/`
+- `src/features/quotes/api.ts` is no longer a behavior-bearing service module; concrete implementations live under `src/features/quotes/api/*`
 
 ### 8. Collaboration and project-sharing layer
 - project grouping

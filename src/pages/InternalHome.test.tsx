@@ -33,6 +33,21 @@ vi.mock("@/features/quotes/api", () => ({
   updateOrganizationMembershipRole: (...args: unknown[]) =>
     updateOrganizationMembershipRoleMock(...args),
 }));
+vi.mock("@/features/quotes/api/organizations-api", () => ({
+  fetchOrganizationMemberships: (...args: unknown[]) => fetchOrganizationMembershipsMock(...args),
+}));
+vi.mock("@/features/quotes/api/session-access", () => ({
+  resendSignupConfirmation: vi.fn(),
+  updateOrganizationMembershipRole: (...args: unknown[]) => updateOrganizationMembershipRoleMock(...args),
+}));
+vi.mock("@/features/quotes/api/shared/schema-runtime", () => ({
+  isProjectCollaborationSchemaUnavailable: () => false,
+}));
+vi.mock("@/features/quotes/api/workspace-access", () => ({
+  fetchJobsByOrganization: (...args: unknown[]) => fetchJobsByOrganizationMock(...args),
+  fetchPublishedPackagesByOrganization: (...args: unknown[]) =>
+    fetchPublishedPackagesByOrganizationMock(...args),
+}));
 
 vi.mock("@/features/notifications/use-workspace-notifications", async (importOriginal) => {
   const actual =

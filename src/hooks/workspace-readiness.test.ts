@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AppMembership } from "@/features/quotes/types";
 import type { WorkspaceReadinessInput } from "./workspace-readiness";
-import { deriveWorkspaceReadiness } from "./workspace-readiness";
+import {
+  deriveWorkspaceReadiness,
+  MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE,
+} from "./workspace-readiness";
 
 const mockUser = { id: "user-1", email: "user@example.com" } as WorkspaceReadinessInput["user"];
 
@@ -19,8 +22,12 @@ function base(overrides: Partial<WorkspaceReadinessInput> = {}): WorkspaceReadin
     isLoading: false,
     isVerifiedAuth: true,
     activeMembership: mockMembership,
+    membershipCount: 1,
     bootstrapStatus: "idle",
     bootstrapErrorMessage: null,
+    membershipResolutionStatus: "idle",
+    membershipResolutionErrorMessage: null,
+    membershipResolutionAttempt: 0,
     ...overrides,
   };
 }
@@ -36,7 +43,7 @@ describe("deriveWorkspaceReadiness", () => {
 
   it("returns unverified when user is not verified", () => {
     expect(
-      deriveWorkspaceReadiness(base({ isVerifiedAuth: false, activeMembership: null })),
+      deriveWorkspaceReadiness(base({ isVerifiedAuth: false, activeMembership: null, membershipCount: 0 })),
     ).toEqual({ status: "unverified" });
   });
 
@@ -49,19 +56,33 @@ describe("deriveWorkspaceReadiness", () => {
 
   it("returns provisioning when bootstrap is idle and no membership", () => {
     expect(
-      deriveWorkspaceReadiness(base({ activeMembership: null, bootstrapStatus: "idle" })),
+      deriveWorkspaceReadiness(base({ activeMembership: null, membershipCount: 0, bootstrapStatus: "idle" })),
     ).toEqual({ status: "provisioning" });
   });
 
   it("returns provisioning when bootstrap is pending", () => {
     expect(
-      deriveWorkspaceReadiness(base({ activeMembership: null, bootstrapStatus: "pending" })),
+      deriveWorkspaceReadiness(base({ activeMembership: null, membershipCount: 0, bootstrapStatus: "pending" })),
     ).toEqual({ status: "provisioning" });
   });
 
   it("returns provisioning when bootstrap is success but membership not yet propagated", () => {
     expect(
-      deriveWorkspaceReadiness(base({ activeMembership: null, bootstrapStatus: "success" })),
+      deriveWorkspaceReadiness(base({ activeMembership: null, membershipCount: 0, bootstrapStatus: "success" })),
+    ).toEqual({ status: "provisioning" });
+  });
+
+  it("returns provisioning while membership recovery is retrying after bootstrap success", () => {
+    expect(
+      deriveWorkspaceReadiness(
+        base({
+          activeMembership: null,
+          membershipCount: 0,
+          bootstrapStatus: "success",
+          membershipResolutionStatus: "retrying",
+          membershipResolutionAttempt: 2,
+        }),
+      ),
     ).toEqual({ status: "provisioning" });
   });
 
@@ -70,6 +91,7 @@ describe("deriveWorkspaceReadiness", () => {
       deriveWorkspaceReadiness(
         base({
           activeMembership: null,
+          membershipCount: 0,
           bootstrapStatus: "error",
           bootstrapErrorMessage: "User already has an organization membership",
         }),
@@ -77,11 +99,47 @@ describe("deriveWorkspaceReadiness", () => {
     ).toEqual({ status: "provisioning" });
   });
 
+  it("returns provisioning_failed when membership recovery is exhausted after bootstrap success", () => {
+    expect(
+      deriveWorkspaceReadiness(
+        base({
+          activeMembership: null,
+          membershipCount: 0,
+          bootstrapStatus: "success",
+          membershipResolutionStatus: "exhausted",
+          membershipResolutionErrorMessage: MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE,
+        }),
+      ),
+    ).toEqual({
+      status: "provisioning_failed",
+      error: MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE,
+    });
+  });
+
+  it("returns provisioning_failed when benign bootstrap conflict exhausts membership recovery", () => {
+    expect(
+      deriveWorkspaceReadiness(
+        base({
+          activeMembership: null,
+          membershipCount: 0,
+          bootstrapStatus: "error",
+          bootstrapErrorMessage: "User already has an organization membership",
+          membershipResolutionStatus: "exhausted",
+          membershipResolutionErrorMessage: MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE,
+        }),
+      ),
+    ).toEqual({
+      status: "provisioning_failed",
+      error: MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE,
+    });
+  });
+
   it("returns provisioning_failed on other bootstrap errors", () => {
     expect(
       deriveWorkspaceReadiness(
         base({
           activeMembership: null,
+          membershipCount: 0,
           bootstrapStatus: "error",
           bootstrapErrorMessage: "Internal server error",
         }),
@@ -93,6 +151,7 @@ describe("deriveWorkspaceReadiness", () => {
     const result = deriveWorkspaceReadiness(
       base({
         activeMembership: null,
+        membershipCount: 0,
         bootstrapStatus: "error",
         bootstrapErrorMessage: null,
       }),
@@ -106,25 +165,15 @@ describe("deriveWorkspaceReadiness", () => {
     ).toEqual({ status: "loading" });
   });
 
-  it("returns loading when authenticated user has membershipError (retry in progress)", () => {
+  it("returns provisioning when membership resolution is retrying after a transient failure", () => {
     expect(
       deriveWorkspaceReadiness(
         base({
           activeMembership: null,
+          membershipCount: 0,
           bootstrapStatus: "idle",
-          membershipError: "Failed to load memberships",
-        }),
-      ),
-    ).toEqual({ status: "loading" });
-  });
-
-  it("returns provisioning when authenticated user has no membership and no membershipError", () => {
-    expect(
-      deriveWorkspaceReadiness(
-        base({
-          activeMembership: null,
-          bootstrapStatus: "idle",
-          membershipError: undefined,
+          membershipResolutionStatus: "retrying",
+          membershipResolutionAttempt: 1,
         }),
       ),
     ).toEqual({ status: "provisioning" });

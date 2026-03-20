@@ -1,6 +1,11 @@
 import type { User } from "@supabase/supabase-js";
 import type { AppMembership } from "@/features/quotes/types";
 
+export const MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE =
+  "We couldn't find a workspace membership for this account. Refresh once; if it still fails, contact support.";
+
+export type MembershipResolutionStatus = "idle" | "retrying" | "exhausted";
+
 export type WorkspaceReadiness =
   | { status: "anonymous" }
   | { status: "loading" }
@@ -14,9 +19,12 @@ export type WorkspaceReadinessInput = {
   isLoading: boolean;
   isVerifiedAuth: boolean;
   activeMembership: AppMembership | null;
+  membershipCount: number;
   bootstrapStatus: "idle" | "pending" | "success" | "error";
   bootstrapErrorMessage: string | null;
-  membershipError?: string;
+  membershipResolutionStatus: MembershipResolutionStatus;
+  membershipResolutionErrorMessage: string | null;
+  membershipResolutionAttempt: number;
 };
 
 /**
@@ -24,7 +32,16 @@ export type WorkspaceReadinessInput = {
  * Pure function with no side effects.
  */
 export function deriveWorkspaceReadiness(input: WorkspaceReadinessInput): WorkspaceReadiness {
-  const { user, isLoading, isVerifiedAuth, activeMembership, bootstrapStatus, bootstrapErrorMessage, membershipError } = input;
+  const {
+    user,
+    isLoading,
+    isVerifiedAuth,
+    activeMembership,
+    bootstrapStatus,
+    bootstrapErrorMessage,
+    membershipResolutionStatus,
+    membershipResolutionErrorMessage,
+  } = input;
 
   if (!user) {
     return { status: "anonymous" };
@@ -42,13 +59,20 @@ export function deriveWorkspaceReadiness(input: WorkspaceReadinessInput): Worksp
     return { status: "ready", membership: activeMembership };
   }
 
-  // Authenticated but memberships failed to load transiently — stay in loading while retry runs.
-  if (membershipError) {
-    return { status: "loading" };
+  if (membershipResolutionStatus === "exhausted") {
+    return {
+      status: "provisioning_failed",
+      error: membershipResolutionErrorMessage ?? MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE,
+    };
   }
 
   // No membership yet — check bootstrap state
-  if (bootstrapStatus === "idle" || bootstrapStatus === "pending" || bootstrapStatus === "success") {
+  if (
+    membershipResolutionStatus === "retrying" ||
+    bootstrapStatus === "idle" ||
+    bootstrapStatus === "pending" ||
+    bootstrapStatus === "success"
+  ) {
     return { status: "provisioning" };
   }
 

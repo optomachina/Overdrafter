@@ -9,7 +9,7 @@ import {
   fetchJobPartSummariesByJobIds,
   fetchProjectJobMembershipsByJobIds,
   fetchSidebarPins,
-} from "@/features/quotes/api";
+} from "@/features/quotes/api/workspace-access";
 import {
   isVirtualProjectId,
   prefetchPartPage,

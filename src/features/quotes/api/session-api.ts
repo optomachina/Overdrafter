@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { hasVerifiedAuth } from "@/lib/auth-status";
 import { buildAuthRedirectUrl } from "@/lib/auth-redirect";
+import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import { isAuthError } from "@supabase/supabase-js";
@@ -18,11 +19,27 @@ type MembershipJoinRow = {
   } | null;
 };
 
+function emitSessionPayloadDiagnostic(session: AppSessionData, source: string): void {
+  recordWorkspaceSessionDiagnostic("info", source, "Fetched app-session payload.", {
+    authState: session.authState ?? "anonymous",
+    isVerifiedAuth: session.isVerifiedAuth,
+    userId: session.user?.id ?? null,
+    membershipCount: session.memberships.length,
+    memberships: session.memberships.map((membership) => ({
+      organizationId: membership.organizationId,
+      role: membership.role,
+    })),
+    hasDerivedActiveMembership: session.memberships.length > 0,
+  });
+}
+
 export async function fetchAppSessionData(): Promise<AppSessionData> {
   const fixtureGateway = getActiveClientWorkspaceGateway();
 
   if (fixtureGateway) {
-    return fixtureGateway.getSessionData();
+    const session = await fixtureGateway.getSessionData();
+    emitSessionPayloadDiagnostic(session, "session-api.fetch.fixture");
+    return session;
   }
 
   // Check for a locally-persisted session before making any network calls.
@@ -36,12 +53,14 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
 
   if (!hasLocalSession) {
     // No local session — skip the network call entirely.
-    return {
+    const session: AppSessionData = {
       user: null,
       memberships: [],
       isVerifiedAuth: false,
       authState: "anonymous",
     };
+    emitSessionPayloadDiagnostic(session, "session-api.fetch.no-local-session");
+    return session;
   }
 
   const {
@@ -67,42 +86,50 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
     if (isTerminalError) {
       // Truly invalid credentials — safe to treat as permanent logout.
       console.warn("[auth] Terminal auth error — classifying as invalid_session");
-      return {
+      const session: AppSessionData = {
         user: null,
         memberships: [],
         isVerifiedAuth: false,
         authState: "invalid_session",
       };
+      emitSessionPayloadDiagnostic(session, "session-api.fetch.auth-fallback");
+      return session;
     }
 
     if (isSessionMissingError) {
       // AuthSessionMissingError despite a local session — transient race, not a permanent logout.
       console.warn("[auth] AuthSessionMissingError with local session present — classifying as session_error (transient)");
-      return {
+      const session: AppSessionData = {
         user: null,
         memberships: [],
         isVerifiedAuth: false,
         authState: "session_error" as AppSessionData["authState"],
       };
+      emitSessionPayloadDiagnostic(session, "session-api.fetch.auth-fallback");
+      return session;
     }
 
     // Other unexpected errors while a local session exists → transient failure.
     console.warn("[auth] Unexpected getUser() error with local session — classifying as session_error (transient)");
-    return {
+    const transientSession: AppSessionData = {
       user: null,
       memberships: [],
       isVerifiedAuth: false,
       authState: "session_error" as AppSessionData["authState"],
     };
+    emitSessionPayloadDiagnostic(transientSession, "session-api.fetch.auth-fallback");
+    return transientSession;
   }
 
   if (!user) {
-    return {
+    const session: AppSessionData = {
       user: null,
       memberships: [],
       isVerifiedAuth: false,
       authState: "anonymous",
     };
+    emitSessionPayloadDiagnostic(session, "session-api.fetch.no-user");
+    return session;
   }
 
   const membershipQuery = supabase
@@ -111,19 +138,21 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
     .eq("user_id", user.id)
     .order("created_at", { ascending: true });
 
-  const { data, error: membershipError } = (await membershipQuery) as PostgrestResponse<MembershipJoinRow>;
+  const { data, error: membershipQueryError } = (await membershipQuery) as PostgrestResponse<MembershipJoinRow>;
 
-  if (membershipError) {
+  if (membershipQueryError) {
     // Membership query failed, but auth succeeded — return the user with empty memberships
     // and a flag so callers can retry rather than treating this as anonymous.
-    console.warn("[auth] Membership query failed for authenticated user:", membershipError.message);
-    return {
+    console.warn("[auth] Membership query failed for authenticated user:", membershipQueryError.message);
+    const session: AppSessionData = {
       user,
       memberships: [],
       isVerifiedAuth: hasVerifiedAuth(user),
       authState: "authenticated",
-      membershipError: membershipError.message,
+      membershipError: membershipQueryError.message,
     };
+    emitSessionPayloadDiagnostic(session, "session-api.fetch.membership-error");
+    return session;
   }
 
   const memberships: AppMembership[] = (data ?? []).map((row) => ({
@@ -134,12 +163,14 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
     organizationSlug: row.organizations?.slug ?? "unassigned",
   }));
 
-  return {
+  const session: AppSessionData = {
     user,
     memberships,
     isVerifiedAuth: hasVerifiedAuth(user),
     authState: "authenticated",
   };
+  emitSessionPayloadDiagnostic(session, "session-api.fetch.authenticated");
+  return session;
 }
 
 export async function requestPasswordReset(email: string): Promise<void> {

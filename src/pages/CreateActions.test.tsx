@@ -30,6 +30,7 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       fetchAccessibleProjects: vi.fn(),
       fetchArchivedJobs: vi.fn(),
       fetchArchivedProjects: vi.fn(),
+      fetchClientActivityEventsByJobIds: vi.fn(),
       fetchClientQuoteWorkspaceByJobIds: vi.fn(),
       fetchPartDetailByJobId: vi.fn(),
       fetchJobPartSummariesByJobIds: vi.fn(),
@@ -42,6 +43,7 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       getClientIntakeCompatibilityMessage: vi.fn(() => "compatibility ok"),
       inviteProjectMember: vi.fn(),
       isArchivedDeleteCapabilityError: vi.fn(() => false),
+      isProjectNotFoundError: vi.fn(() => false),
       isProjectCollaborationSchemaUnavailable: vi.fn(),
       pinJob: vi.fn(),
       pinProject: vi.fn(),
@@ -73,6 +75,74 @@ vi.mock("@/hooks/use-app-session", () => ({
 }));
 
 vi.mock("@/features/quotes/api", () => api);
+vi.mock("@/features/quotes/api/archive-api", () => ({
+  archiveJob: api.archiveJob,
+  deleteArchivedJobs: api.deleteArchivedJobs,
+  isArchivedDeleteCapabilityError: api.isArchivedDeleteCapabilityError,
+  unarchiveJob: api.unarchiveJob,
+}));
+vi.mock("@/features/quotes/api/compatibility-api", () => ({
+  checkClientIntakeCompatibility: api.checkClientIntakeCompatibility,
+  getClientIntakeCompatibilityMessage: api.getClientIntakeCompatibilityMessage,
+}));
+vi.mock("@/features/quotes/api/extraction-api", () => ({
+  reconcileJobParts: api.reconcileJobParts,
+  requestExtraction: api.requestExtraction,
+}));
+vi.mock("@/features/quotes/api/jobs-api", () => ({
+  createClientDraft: api.createClientDraft,
+  updateClientPartRequest: api.updateClientPartRequest,
+}));
+vi.mock("@/features/quotes/api/projects-api", () => ({
+  archiveProject: api.archiveProject,
+  assignJobToProject: api.assignJobToProject,
+  createProject: api.createProject,
+  dissolveProject: api.dissolveProject,
+  fetchProject: api.fetchProject,
+  fetchProjectInvites: api.fetchProjectInvites,
+  fetchProjectMemberships: api.fetchProjectMemberships,
+  inviteProjectMember: api.inviteProjectMember,
+  pinJob: api.pinJob,
+  pinProject: api.pinProject,
+  removeJobFromProject: api.removeJobFromProject,
+  removeProjectMember: api.removeProjectMember,
+  unarchiveProject: api.unarchiveProject,
+  unpinJob: api.unpinJob,
+  unpinProject: api.unpinProject,
+  updateProject: api.updateProject,
+}));
+vi.mock("@/features/quotes/api/quote-requests-api", () => ({
+  requestQuote: api.requestQuote,
+  requestQuotes: api.requestQuotes,
+  setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
+}));
+vi.mock("@/features/quotes/api/session-access", () => ({
+  createSelfServiceOrganization: api.createSelfServiceOrganization,
+  resendSignupConfirmation: api.resendSignupConfirmation,
+}));
+vi.mock("@/features/quotes/api/shared/schema-runtime", () => ({
+  isProjectCollaborationSchemaUnavailable: api.isProjectCollaborationSchemaUnavailable,
+}));
+vi.mock("@/features/quotes/api/uploads-api", () => ({
+  createJobsFromUploadFiles: api.createJobsFromUploadFiles,
+  uploadFilesToJob: api.uploadFilesToJob,
+}));
+vi.mock("@/features/quotes/api/workspace-access", () => ({
+  fetchAccessibleJobs: api.fetchAccessibleJobs,
+  fetchAccessibleProjects: api.fetchAccessibleProjects,
+  fetchArchivedJobs: api.fetchArchivedJobs,
+  fetchArchivedProjects: api.fetchArchivedProjects,
+  fetchClientActivityEventsByJobIds: api.fetchClientActivityEventsByJobIds,
+  fetchClientQuoteWorkspaceByJobIds: api.fetchClientQuoteWorkspaceByJobIds,
+  fetchJobPartSummariesByJobIds: api.fetchJobPartSummariesByJobIds,
+  fetchJobsByProject: api.fetchJobsByProject,
+  fetchPartDetailByJobId: api.fetchPartDetailByJobId,
+  fetchProject: api.fetchProject,
+  fetchProjectJobMembershipsByJobIds: api.fetchProjectJobMembershipsByJobIds,
+  fetchSidebarPins: api.fetchSidebarPins,
+  isProjectNotFoundError: api.isProjectNotFoundError,
+  resolveClientPartDetailRoute: api.resolveClientPartDetailRoute,
+}));
 
 vi.mock("sonner", () => ({
   toast: toastMock,
@@ -345,6 +415,7 @@ describe("top-level create actions", () => {
       },
     ]);
     api.fetchAccessibleJobs.mockResolvedValue([makeJob()]);
+    api.fetchClientActivityEventsByJobIds.mockResolvedValue([]);
     api.fetchArchivedProjects.mockResolvedValue([]);
     api.fetchArchivedJobs.mockResolvedValue([]);
     api.fetchJobPartSummariesByJobIds.mockResolvedValue([makeSummary()]);

@@ -7,7 +7,7 @@ import {
   fetchProject,
   isProjectNotFoundError,
   resolveClientPartDetailRoute,
-} from "@/features/quotes/api";
+} from "@/features/quotes/api/workspace-access";
 
 export const WORKSPACE_SHARED_STALE_TIME_MS = 30_000;
 export const WORKSPACE_DETAIL_STALE_TIME_MS = 45_000;

@@ -12,7 +12,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
 import { useAppSession } from "@/hooks/use-app-session";
-import { fetchClientPackage, resendSignupConfirmation, selectQuoteOption } from "@/features/quotes/api";
+import { resendSignupConfirmation } from "@/features/quotes/api/session-access";
+import { fetchClientPackage, selectQuoteOption } from "@/features/quotes/api/workspace-access";
 import {
   collectRequestedQuantities,
   groupByRequestedQuantity,

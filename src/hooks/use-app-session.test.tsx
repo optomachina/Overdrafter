@@ -15,6 +15,9 @@ let authStateChangeCallbacks: Array<(event: string, session: Session | null) => 
 vi.mock("@/features/quotes/api", () => ({
   fetchAppSessionData: () => fetchAppSessionDataMock(),
 }));
+vi.mock("@/features/quotes/api/session-access", () => ({
+  fetchAppSessionData: () => fetchAppSessionDataMock(),
+}));
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {

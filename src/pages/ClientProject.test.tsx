@@ -21,6 +21,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
     fetchAccessibleProjects: vi.fn(),
     fetchArchivedJobs: vi.fn(),
     fetchArchivedProjects: vi.fn(),
+    fetchClientActivityEventsByJobIds: vi.fn(),
     fetchClientQuoteWorkspaceByJobIds: vi.fn(),
     fetchJobPartSummariesByJobIds: vi.fn(),
     fetchJobsByProject: vi.fn(),
@@ -58,6 +59,61 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
 }));
 
 vi.mock("@/features/quotes/api", () => api);
+vi.mock("@/features/quotes/api/archive-api", () => ({
+  archiveJob: api.archiveJob,
+  deleteArchivedJobs: api.deleteArchivedJobs,
+  isArchivedDeleteCapabilityError: api.isArchivedDeleteCapabilityError,
+  unarchiveJob: api.unarchiveJob,
+}));
+vi.mock("@/features/quotes/api/extraction-api", () => ({
+  reconcileJobParts: api.reconcileJobParts,
+  requestExtraction: api.requestExtraction,
+}));
+vi.mock("@/features/quotes/api/jobs-api", () => ({
+  createClientDraft: api.createClientDraft,
+  updateClientPartRequest: api.updateClientPartRequest,
+}));
+vi.mock("@/features/quotes/api/projects-api", () => ({
+  archiveProject: api.archiveProject,
+  assignJobToProject: api.assignJobToProject,
+  createProject: api.createProject,
+  dissolveProject: api.dissolveProject,
+  fetchProject: api.fetchProject,
+  fetchProjectInvites: api.fetchProjectInvites,
+  fetchProjectMemberships: api.fetchProjectMemberships,
+  inviteProjectMember: api.inviteProjectMember,
+  pinJob: api.pinJob,
+  pinProject: api.pinProject,
+  removeJobFromProject: api.removeJobFromProject,
+  removeProjectMember: api.removeProjectMember,
+  unarchiveProject: api.unarchiveProject,
+  unpinJob: api.unpinJob,
+  unpinProject: api.unpinProject,
+  updateProject: api.updateProject,
+}));
+vi.mock("@/features/quotes/api/quote-requests-api", () => ({
+  requestQuotes: api.requestQuotes,
+  setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
+}));
+vi.mock("@/features/quotes/api/shared/schema-runtime", () => ({
+  isProjectCollaborationSchemaUnavailable: api.isProjectCollaborationSchemaUnavailable,
+}));
+vi.mock("@/features/quotes/api/uploads-api", () => ({
+  createJobsFromUploadFiles: api.createJobsFromUploadFiles,
+  uploadFilesToJob: api.uploadFilesToJob,
+}));
+vi.mock("@/features/quotes/api/workspace-access", () => ({
+  fetchAccessibleJobs: api.fetchAccessibleJobs,
+  fetchAccessibleProjects: api.fetchAccessibleProjects,
+  fetchArchivedJobs: api.fetchArchivedJobs,
+  fetchArchivedProjects: api.fetchArchivedProjects,
+  fetchClientActivityEventsByJobIds: api.fetchClientActivityEventsByJobIds,
+  fetchClientQuoteWorkspaceByJobIds: api.fetchClientQuoteWorkspaceByJobIds,
+  fetchJobPartSummariesByJobIds: api.fetchJobPartSummariesByJobIds,
+  fetchJobsByProject: api.fetchJobsByProject,
+  fetchProjectJobMembershipsByJobIds: api.fetchProjectJobMembershipsByJobIds,
+  fetchSidebarPins: api.fetchSidebarPins,
+}));
 
 vi.mock("@/features/quotes/workspace-navigation", async () => {
   const actual = await vi.importActual<typeof import("@/features/quotes/workspace-navigation")>(
@@ -187,6 +243,7 @@ describe("ClientProject", () => {
     });
 
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
+    api.fetchClientActivityEventsByJobIds.mockResolvedValue([]);
     api.fetchAccessibleProjects.mockResolvedValue([
       {
         project: {

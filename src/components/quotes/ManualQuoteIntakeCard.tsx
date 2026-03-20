@@ -18,7 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   recordManualVendorQuote,
   uploadManualQuoteEvidence,
-} from "@/features/quotes/api";
+} from "@/features/quotes/api/internal-review";
 import type {
   ManualQuoteOfferInput,
   PartAggregate,

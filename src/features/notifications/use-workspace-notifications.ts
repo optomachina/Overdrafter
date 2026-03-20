@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   fetchClientActivityEventsByJobIds,
-} from "@/features/quotes/api";
+} from "@/features/quotes/api/workspace-access";
 import type { AppMembership, ClientActivityEvent } from "@/features/quotes/types";
 import {
   stableJobIds,

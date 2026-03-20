@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppMembership } from "@/features/quotes/types";
 import { WorkspaceNotReadyError } from "@/lib/workspace-errors";
 import { useWorkspaceReadiness } from "./use-workspace-readiness";
-import type { WorkspaceReadinessInput } from "./workspace-readiness";
+import {
+  MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE,
+  type WorkspaceReadinessInput,
+} from "./workspace-readiness";
 
 const mockUser = { id: "user-1", email: "user@example.com" } as WorkspaceReadinessInput["user"];
 
@@ -22,8 +25,12 @@ function base(overrides: Partial<WorkspaceReadinessInput> = {}): WorkspaceReadin
     isLoading: false,
     isVerifiedAuth: true,
     activeMembership: mockMembership,
+    membershipCount: 1,
     bootstrapStatus: "idle",
     bootstrapErrorMessage: null,
+    membershipResolutionStatus: "idle",
+    membershipResolutionErrorMessage: null,
+    membershipResolutionAttempt: 0,
     ...overrides,
   };
 }
@@ -45,14 +52,14 @@ describe("useWorkspaceReadiness", () => {
   });
 
   it("rejects waitForReady immediately when anonymous", async () => {
-    const { result } = renderHook(() => useWorkspaceReadiness(base({ user: null })));
+    const { result } = renderHook(() => useWorkspaceReadiness(base({ user: null, membershipCount: 0 })));
 
     await expect(result.current.waitForReady()).rejects.toBeInstanceOf(WorkspaceNotReadyError);
   });
 
   it("rejects waitForReady immediately when unverified", async () => {
     const { result } = renderHook(() =>
-      useWorkspaceReadiness(base({ isVerifiedAuth: false, activeMembership: null })),
+      useWorkspaceReadiness(base({ isVerifiedAuth: false, activeMembership: null, membershipCount: 0 })),
     );
 
     await expect(result.current.waitForReady()).rejects.toBeInstanceOf(WorkspaceNotReadyError);
@@ -63,6 +70,7 @@ describe("useWorkspaceReadiness", () => {
       useWorkspaceReadiness(
         base({
           activeMembership: null,
+          membershipCount: 0,
           bootstrapStatus: "error",
           bootstrapErrorMessage: "Internal server error",
         }),
@@ -73,7 +81,13 @@ describe("useWorkspaceReadiness", () => {
   });
 
   it("waits then resolves when workspace transitions from provisioning to ready", async () => {
-    let input = base({ activeMembership: null, bootstrapStatus: "pending" });
+    let input = base({
+      activeMembership: null,
+      membershipCount: 0,
+      bootstrapStatus: "success",
+      membershipResolutionStatus: "retrying",
+      membershipResolutionAttempt: 1,
+    });
     const { result, rerender } = renderHook(() => useWorkspaceReadiness(input));
 
     let resolvedMembership: AppMembership | undefined;
@@ -85,7 +99,7 @@ describe("useWorkspaceReadiness", () => {
     expect(resolvedMembership).toBeUndefined();
 
     // Transition to ready
-    input = base({ activeMembership: mockMembership });
+    input = base({ activeMembership: mockMembership, membershipCount: 1 });
     act(() => {
       rerender();
     });
@@ -95,7 +109,7 @@ describe("useWorkspaceReadiness", () => {
   });
 
   it("rejects after 30s timeout while provisioning", async () => {
-    const input = base({ activeMembership: null, bootstrapStatus: "pending" });
+    const input = base({ activeMembership: null, membershipCount: 0, bootstrapStatus: "pending" });
     const { result } = renderHook(() => useWorkspaceReadiness(input));
 
     let rejected: Error | undefined;
@@ -114,6 +128,51 @@ describe("useWorkspaceReadiness", () => {
   it("exposes readiness status", () => {
     const { result } = renderHook(() => useWorkspaceReadiness(base()));
     expect(result.current.readiness.status).toBe("ready");
+  });
+
+  it("rejects immediately when membership recovery is exhausted", async () => {
+    const { result } = renderHook(() =>
+      useWorkspaceReadiness(
+        base({
+          activeMembership: null,
+          membershipCount: 0,
+          bootstrapStatus: "success",
+          membershipResolutionStatus: "exhausted",
+          membershipResolutionErrorMessage: MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE,
+        }),
+      ),
+    );
+
+    await expect(result.current.waitForReady()).rejects.toMatchObject({
+      message: MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE,
+    });
+  });
+
+  it("does not wait for the 30s timeout once membership recovery is exhausted", async () => {
+    const { result } = renderHook(() =>
+      useWorkspaceReadiness(
+        base({
+          activeMembership: null,
+          membershipCount: 0,
+          bootstrapStatus: "error",
+          bootstrapErrorMessage: "User already has an organization membership",
+          membershipResolutionStatus: "exhausted",
+          membershipResolutionErrorMessage: MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE,
+        }),
+      ),
+    );
+
+    let rejected: Error | undefined;
+    const waitPromise = result.current.waitForReady().catch((error: Error) => {
+      rejected = error;
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(29_000);
+    });
+
+    await waitPromise;
+    expect(rejected?.message).toBe(MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE);
   });
 
   it("WorkspaceNotReadyError has expected toastId", async () => {
