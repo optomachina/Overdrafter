@@ -2,7 +2,6 @@ import type {
   ApprovedPartRequirement,
   ClientExtractionDiagnostics,
   ClientPartMetadataRecord,
-  ClientPartRequirementView,
   DebugExtractionRunRecord,
   DebugExtractionRunSummary,
   DrawingExtractionData,
@@ -30,7 +29,6 @@ import {
 import {
   normalizeRequestedServiceIntent,
   requestedServicesRequireMaterial,
-  requestedServicesSupportQuoteFields,
 } from "@/features/quotes/service-intent";
 
 export const DEFAULT_APPLICABLE_VENDORS: VendorName[] = [
@@ -753,7 +751,6 @@ export function buildRequirementDraft(
   const process = readSpecSnapshotString(approved?.spec_snapshot, "process");
   const notes = readSpecSnapshotString(approved?.spec_snapshot, "notes");
   const metadata = readRfqLineItemExtendedMetadata(approved?.spec_snapshot);
-  const showQuoteFields = requestedServicesSupportQuoteFields(serviceIntent.requestedServiceKinds);
   const materialRequired = requestedServicesRequireMaterial(serviceIntent.requestedServiceKinds);
   const quantity =
     clientRequirement?.quantity ??

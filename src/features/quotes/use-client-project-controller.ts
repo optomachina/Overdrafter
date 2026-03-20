@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { buildActivityLogEntries, groupClientActivityEventsByJobId } from "@/features/quotes/activity-log";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAppSession } from "@/hooks/use-app-session";
+import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 import {
   archiveJob,
   deleteArchivedJobs,
@@ -95,8 +96,6 @@ import {
 } from "@/features/quotes/workspace-navigation";
 import {
   buildRequirementDraft,
-  formatCurrency,
-  formatLeadTime,
 } from "@/features/quotes/utils";
 import type { ActivityLogEntry } from "@/components/quotes/ActivityLog";
 import type { VendorName } from "@/integrations/supabase/types";
@@ -144,7 +143,7 @@ export function useClientProjectController() {
   const { projectId = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, activeMembership, signOut } = useAppSession();
+  const { user, activeMembership, signOut, isAuthInitializing } = useAppSession();
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<JobFilter>("all");
   const [focusedJobId, setFocusedJobId] = useState<string | null>(null);
@@ -673,10 +672,20 @@ export function useClientProjectController() {
   }, [projectQuery.data]);
 
   useEffect(() => {
-    if (!user) {
-      navigate("/?auth=signin", { replace: true });
+    if (isAuthInitializing || user) {
+      return;
     }
-  }, [navigate, user]);
+
+    recordWorkspaceSessionDiagnostic(
+      "warn",
+      "client-project.redirect.unauthenticated",
+      "Redirecting to sign-in after startup auth resolution completed without a user.",
+      {
+        projectId,
+      },
+    );
+    navigate("/?auth=signin", { replace: true });
+  }, [isAuthInitializing, navigate, projectId, user]);
 
   const handlePinProject = async (targetProjectId: string) => {
     try {
@@ -1264,6 +1273,7 @@ export function useClientProjectController() {
     updateProjectMutation,
     dissolveProjectMutation,
     user,
+    isAuthInitializing,
     workspaceItemsByJobId,
   };
 }

@@ -4,7 +4,9 @@ import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { Button } from "@/components/ui/button";
 import type { DrawingPreviewData, JobFileRecord } from "@/features/quotes/types";
 import { createCadPreviewSourceFromJobFile, isStepPreviewableFile } from "@/lib/cad-preview";
-import { downloadStoredFileBlob } from "@/lib/stored-file";
+import type { StoredFileViewerMode } from "@/lib/file-viewer";
+import { resolveStoredFileViewerMode } from "@/lib/file-viewer";
+import { downloadStoredFileBlob, loadStoredDrawingPreviewPages } from "@/lib/stored-file";
 import { cn } from "@/lib/utils";
 
 type DownloadableFile = Pick<JobFileRecord, "storage_bucket" | "storage_path" | "original_name">;
@@ -30,6 +32,7 @@ async function downloadStoredFile(file: DownloadableFile) {
 export function ClientDrawingPreviewPanel({
   drawingFile,
   drawingPreview,
+  viewerMode,
   pdfUrl,
   pages,
   state,
@@ -40,6 +43,7 @@ export function ClientDrawingPreviewPanel({
 }: {
   drawingFile: JobFileRecord | null;
   drawingPreview: DrawingPreviewData;
+  viewerMode?: StoredFileViewerMode;
   pdfUrl?: string | null;
   pages?: DrawingPreviewPage[];
   state?: DrawingPreviewState;
@@ -56,6 +60,7 @@ export function ClientDrawingPreviewPanel({
   const resolvedPages = pages ?? localPages;
   const resolvedLoading = pages ? isLoading : isLocalLoading;
   const hasPdfPreview = typeof pdfUrl === "string" && pdfUrl.length > 0;
+  const resolvedViewerMode = viewerMode ?? resolveStoredFileViewerMode(drawingFile);
 
   useEffect(() => {
     if (pages) {
@@ -63,7 +68,7 @@ export function ClientDrawingPreviewPanel({
     }
 
     let isActive = true;
-    const objectUrls: string[] = [];
+    let objectUrls: string[] = [];
 
     if (!drawingFile || drawingPreview.pages.length === 0) {
       setLocalPages([]);
@@ -73,24 +78,12 @@ export function ClientDrawingPreviewPanel({
 
     setIsLocalLoading(true);
 
-    void Promise.all(
-      drawingPreview.pages.map(async (page) => {
-        const blob = await downloadStoredFileBlob({
-          storage_bucket: page.storageBucket,
-          storage_path: page.storagePath,
-          original_name: drawingFile.original_name,
-        });
-        const url = URL.createObjectURL(blob);
-        objectUrls.push(url);
-
-        return {
-          pageNumber: page.pageNumber,
-          url,
-        };
-      }),
-    )
+    void loadStoredDrawingPreviewPages(drawingFile, drawingPreview.pages)
       .then((nextPages) => {
+        objectUrls = nextPages.map((page) => page.url);
+
         if (!isActive) {
+          objectUrls.forEach((url) => URL.revokeObjectURL(url));
           return;
         }
 
@@ -137,9 +130,11 @@ export function ClientDrawingPreviewPanel({
       case "unavailable":
         return statusMessage ?? "Drawing preview could not be loaded. The original PDF can still be downloaded.";
       default:
-        return "Preview not available yet. The original PDF can still be downloaded.";
+        return resolvedViewerMode === "text"
+          ? "Text previews are not available in the drawing pane. Download the original file instead."
+          : "Preview not available yet. The original PDF can still be downloaded.";
     }
-  }, [resolvedState, statusMessage]);
+  }, [resolvedState, resolvedViewerMode, statusMessage]);
 
   return (
     <section className={cn("rounded-[26px] border border-white/8 bg-[#262626] p-5", className)}>
@@ -182,7 +177,7 @@ export function ClientDrawingPreviewPanel({
         <div className="flex min-h-[320px] items-center justify-center bg-white">
           {resolvedLoading ? (
             <Loader2 className="h-6 w-6 animate-spin text-zinc-500" />
-          ) : hasPdfPreview ? (
+          ) : hasPdfPreview && resolvedViewerMode === "pdf" ? (
             <iframe
               src={pdfUrl}
               title={`${drawingFile?.original_name ?? "Drawing"} PDF preview`}

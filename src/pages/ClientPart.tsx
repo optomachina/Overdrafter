@@ -13,6 +13,7 @@ import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
+import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientArtifactWorkspace } from "@/components/quotes/ClientArtifactWorkspace";
 import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtractionStatusNotice";
@@ -70,6 +71,7 @@ const ClientPart = () => {
     drawingPdfUrl,
     drawingPreview,
     drawingPreviewPageUrls,
+    drawingViewerMode,
     drawingPreviewState,
     drawingPreviewStatusMessage,
     extractionDiagnostics,
@@ -109,7 +111,6 @@ const ClientPart = () => {
     navigate,
     newJobFilePicker,
     partDetail,
-    partDetailQuery,
     partRenameValue,
     pinnedJobIds,
     prefetchPart,
@@ -148,6 +149,7 @@ const ClientPart = () => {
     summariesByJobId,
     summary,
     user,
+    isAuthInitializing,
   } = useClientPartController();
 
   const notificationCenter = useWorkspaceNotifications({
@@ -155,6 +157,10 @@ const ClientPart = () => {
     role: activeMembership?.role,
     userId: user?.id,
   });
+
+  if (isAuthInitializing) {
+    return <AuthBootstrapScreen message="Restoring your part workspace." />;
+  }
 
   if (!user) {
     return null;
@@ -537,8 +543,9 @@ const ClientPart = () => {
                         <ClientDrawingPreviewPanel
                           drawingFile={drawingFile}
                           drawingPreview={drawingPreview ?? { pageCount: 0, thumbnail: null, pages: [] }}
+                          viewerMode={drawingViewerMode}
                           pdfUrl={drawingPdfUrl}
-                          pages={drawingPreviewPageUrls}
+                          pages={drawingPreviewPageUrls.length > 0 ? drawingPreviewPageUrls : undefined}
                           state={drawingPreviewState}
                           statusMessage={drawingPreviewStatusMessage}
                           isLoading={isDrawingPreviewLoading}
@@ -644,6 +651,7 @@ const ClientPart = () => {
           onOpenChange={setShowDrawingPreview}
           fileName={drawingFile.original_name}
           pageCount={drawingPreview?.pageCount ?? 0}
+          viewerMode={drawingViewerMode}
           pdfUrl={drawingPdfUrl}
           pages={drawingPreviewPageUrls}
           isLoading={isDrawingPreviewLoading}

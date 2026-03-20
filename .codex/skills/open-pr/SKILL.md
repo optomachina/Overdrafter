@@ -24,35 +24,36 @@ Create or update the PR for the current branch when publish already happened sep
 gh pr view --json number,url,state,isDraft,headRefName,baseRefName
 ```
 
-5. If no PR exists, create one against `main`:
+5. Build a complete PR body before any PR create or edit call:
+   - write a structured JSON payload for `npm run render:pr-body -- <path-to-json>`
+   - include concrete content for every required section from `.github/pull_request_template.md`
+   - render the markdown to a temporary file and validate it locally with `npm run validate:pr-body -- <path-to-rendered-markdown>`
+6. If no PR exists, create one against `main` with the rendered body:
 
 ```bash
-gh pr create --base main
+gh pr create --base main --body-file /tmp/overdrafter-pr-body.md
 ```
 
-6. Write or refresh the PR body using `.github/pull_request_template.md`.
-7. Fill every required template section before handoff:
-   - `Summary`
-   - `Problem`
-   - `Scope`
-   - `Verification` with exact commands and outcomes
-   - `Tests`
-   - `Migration notes`
-   - `Rollback / risk notes`
-   - `Documentation`
+7. If the PR already exists, refresh it with the rendered body:
+
+```bash
+gh pr edit --body-file /tmp/overdrafter-pr-body.md
+```
+
 8. Validate the live PR body:
 
 ```bash
 gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin
 ```
 
-9. If validation fails, fix the PR body before reporting handoff.
+9. If validation fails, fix the renderer input or rendered markdown and update the PR body before reporting handoff.
 10. Report the PR URL and PR body validation status back to the issue thread or tracker comment.
 
 ## Guardrails
 
 - Prefer `push` over `open-pr` in unattended issue execution.
 - Do not create duplicate PRs for the same branch.
+- Do not create a PR before the rendered body passes `npm run validate:pr-body`.
 - Do not move an issue to `Human Review` until the PR exists.
 - Do not move an issue to `Human Review` until the PR body passes `npm run validate:pr-body`.
 - If GitHub auth is missing, stop and report that explicitly.

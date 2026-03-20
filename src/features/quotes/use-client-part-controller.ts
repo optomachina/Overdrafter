@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useAppSession } from "@/hooks/use-app-session";
+import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 import {
   archiveJob,
   deleteArchivedJobs,
@@ -77,15 +78,18 @@ import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quot
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
 import { prefetchPartPage, prefetchProjectPage, workspaceQueryKeys } from "@/features/quotes/workspace-navigation";
-import { downloadStoredFileBlob } from "@/lib/stored-file";
+import { resolveStoredFileViewerMode } from "@/lib/file-viewer";
+import {
+  downloadStoredFileBlob,
+  loadStoredDrawingPreviewPages,
+  loadStoredPdfObjectUrl,
+} from "@/lib/stored-file";
 import { getUserFacingErrorMessage } from "@/lib/error-message";
 import {
   buildRequirementDraft,
-  formatCurrency,
   normalizeDrawingExtraction,
 } from "@/features/quotes/utils";
 import type { DrawingPreviewState } from "@/components/quotes/ClientQuoteAssetPanels";
-import type { ActivityLogEntry } from "@/components/quotes/ActivityLog";
 import type { VendorName } from "@/integrations/supabase/types";
 
 const EMPTY_QUOTE_DIAGNOSTICS: QuoteDiagnostics = {
@@ -107,7 +111,7 @@ export function useClientPartController() {
   const { jobId: routeJobId = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, activeMembership, signOut } = useAppSession();
+  const { user, activeMembership, signOut, isAuthInitializing } = useAppSession();
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [showDrawingPreview, setShowDrawingPreview] = useState(false);
   const [drawingPdfUrl, setDrawingPdfUrl] = useState<string | null>(null);
@@ -359,10 +363,20 @@ export function useClientPartController() {
   }, [projectCollaborationUnavailable]);
 
   useEffect(() => {
-    if (!user) {
-      navigate("/?auth=signin", { replace: true });
+    if (isAuthInitializing || user) {
+      return;
     }
-  }, [navigate, user]);
+
+    recordWorkspaceSessionDiagnostic(
+      "warn",
+      "client-part.redirect.unauthenticated",
+      "Redirecting to sign-in after startup auth resolution completed without a user.",
+      {
+        routeJobId,
+      },
+    );
+    navigate("/?auth=signin", { replace: true });
+  }, [isAuthInitializing, navigate, routeJobId, user]);
 
   useEffect(() => {
     if (resolvedJobId && resolvedJobId !== routeJobId) {
@@ -394,6 +408,7 @@ export function useClientPartController() {
   const extractionDiagnostics = partDetail?.part?.clientExtraction ?? null;
   const drawingPreview = partDetail?.drawingPreview ?? null;
   const drawingFile = partDetail?.files.find((file) => file.file_kind === "drawing") ?? null;
+  const drawingViewerMode = useMemo(() => resolveStoredFileViewerMode(drawingFile), [drawingFile]);
   const cadFile = partDetail?.files.find((file) => file.file_kind === "cad") ?? null;
   const fallbackRequestDraft = useMemo(() => {
     if (!partDetail?.part) {
@@ -582,6 +597,7 @@ export function useClientPartController() {
     setShowRenameDialog(false);
     setIsPartOptionsOpen(false);
     setDrawingPdfUrl(null);
+    setDrawingPreviewPageUrls([]);
     setDrawingPreviewLoadError(null);
   }, [canonicalJobId]);
 
@@ -599,9 +615,22 @@ export function useClientPartController() {
 
   useEffect(() => {
     let isActive = true;
-    let objectUrl: string | null = null;
+    let pdfObjectUrl: string | null = null;
+    let pageObjectUrls: string[] = [];
+    const drawingPreviewPages = drawingPreview?.pages ?? [];
 
     if (!drawingFile) {
+      setDrawingPdfUrl(null);
+      setDrawingPreviewPageUrls([]);
+      setIsDrawingPreviewLoading(false);
+      setDrawingPreviewLoadError(null);
+      return;
+    }
+
+    const shouldLoadPdfPreview = drawingViewerMode === "pdf";
+    const shouldLoadPagePreviews = drawingPreviewPages.length > 0;
+
+    if (!shouldLoadPdfPreview && !shouldLoadPagePreviews) {
       setDrawingPdfUrl(null);
       setDrawingPreviewPageUrls([]);
       setIsDrawingPreviewLoading(false);
@@ -612,27 +641,46 @@ export function useClientPartController() {
     setIsDrawingPreviewLoading(true);
     setDrawingPreviewLoadError(null);
 
-    void downloadStoredFileBlob(drawingFile)
-      .then((blob) => {
+    void Promise.allSettled([
+      shouldLoadPdfPreview ? loadStoredPdfObjectUrl(drawingFile) : Promise.resolve(null),
+      shouldLoadPagePreviews ? loadStoredDrawingPreviewPages(drawingFile, drawingPreviewPages) : Promise.resolve([]),
+    ])
+      .then(([pdfResult, pagesResult]) => {
+        const nextPdfUrl = pdfResult.status === "fulfilled" ? pdfResult.value : null;
+        const nextPages = pagesResult.status === "fulfilled" ? pagesResult.value : [];
+
         if (!isActive) {
+          if (nextPdfUrl) {
+            URL.revokeObjectURL(nextPdfUrl);
+          }
+          nextPages.forEach((page) => URL.revokeObjectURL(page.url));
           return;
         }
 
-        objectUrl = URL.createObjectURL(blob);
-        setDrawingPdfUrl(objectUrl);
-        setDrawingPreviewPageUrls([]);
+        pdfObjectUrl = nextPdfUrl;
+        pageObjectUrls = nextPages.map((page) => page.url);
+        setDrawingPdfUrl(nextPdfUrl);
+        setDrawingPreviewPageUrls(nextPages);
+
+        if (pdfResult.status === "rejected") {
+          const message = getUserFacingErrorMessage(pdfResult.reason, "Unable to load drawing preview.");
+          if (nextPages.length === 0) {
+            toast.error(message);
+          }
+          setDrawingPreviewLoadError(message);
+          setDrawingPdfUrl(null);
+          return;
+        }
+
+        if (pagesResult.status === "rejected") {
+          const message = getUserFacingErrorMessage(pagesResult.reason, "Unable to load drawing preview.");
+          toast.error(message);
+          setDrawingPreviewLoadError(message);
+          setDrawingPreviewPageUrls([]);
+          return;
+        }
+
         setDrawingPreviewLoadError(null);
-      })
-      .catch((error: unknown) => {
-        if (!isActive) {
-          return;
-        }
-
-        const message = getUserFacingErrorMessage(error, "Unable to load drawing preview.");
-        toast.error(message);
-        setDrawingPreviewLoadError(message);
-        setDrawingPdfUrl(null);
-        setDrawingPreviewPageUrls([]);
       })
       .finally(() => {
         if (isActive) {
@@ -642,11 +690,12 @@ export function useClientPartController() {
 
     return () => {
       isActive = false;
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
+      if (pdfObjectUrl) {
+        URL.revokeObjectURL(pdfObjectUrl);
       }
+      pageObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [drawingFile]);
+  }, [drawingFile, drawingPreview?.pages, drawingViewerMode]);
 
   const handlePinProject = async (projectId: string) => {
     try {
@@ -1022,6 +1071,7 @@ export function useClientPartController() {
     drawingFile,
     extractionDiagnostics,
     drawingPreview,
+    drawingViewerMode,
     drawingPdfUrl,
     drawingPreviewPageUrls,
     drawingPreviewState,
@@ -1105,5 +1155,6 @@ export function useClientPartController() {
     summary,
     updatePartRenameValue: setPartRenameValue,
     user,
+    isAuthInitializing,
   };
 }

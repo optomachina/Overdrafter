@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
+import type { Session } from "@supabase/supabase-js";
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getFixtureSessionDataForSearch } from "@/features/quotes/client-workspace-fixtures";
 import { fetchAppSessionData } from "@/features/quotes/api/session-access";
@@ -8,7 +9,6 @@ import { WORKSPACE_SHARED_STALE_TIME_MS } from "@/features/quotes/workspace-navi
 import { supabase } from "@/integrations/supabase/client";
 import { hasVerifiedAuth } from "@/lib/auth-status";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
-import type { Session } from "@supabase/supabase-js";
 
 const APP_SESSION_QUERY_KEY = ["app-session"] as const;
 const EMPTY_MEMBERSHIPS: AppMembership[] = [];
@@ -18,6 +18,7 @@ const EMPTY_APP_SESSION: AppSessionData = {
   isVerifiedAuth: false,
   authState: "anonymous",
 };
+
 export function getSupabaseAuthStorageKey() {
   try {
     const authUrl = new URL(import.meta.env.VITE_SUPABASE_URL);
@@ -238,9 +239,7 @@ export function useAppSession() {
       );
 
       if (!session) {
-        // Don't immediately wipe the cache on a null session event — it may be a transient
-        // token refresh race. Only clear if we're not mid-auth-transition.
-        if (!pendingAuthTransitionRef.current) {
+        if (!pendingAuthTransitionRef.current && initialAuthCheckRef.current !== "checking") {
           updateInitialAuthCheck("none");
           markInitialRestoreResolved("use-app-session.auth-state-change.signed-out");
           clearAnonymousRetryTimeout();
@@ -300,9 +299,6 @@ export function useAppSession() {
       );
 
       if (result.authState === "authenticated") {
-        pendingAuthTransitionRef.current = false;
-
-        // If auth succeeded but memberships failed transiently, schedule a single retry.
         if (result.membershipError) {
           if (typeof window === "undefined") {
             void queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY });
@@ -312,15 +308,15 @@ export function useAppSession() {
               void queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY });
             }, 0);
           }
+
+          return result;
         }
 
-        if (!result.membershipError) {
-          markInitialRestoreResolved("use-app-session.query.authenticated", {
-            userId: result.user?.id ?? null,
-            membershipCount: result.memberships.length,
-          });
-        }
-
+        pendingAuthTransitionRef.current = false;
+        markInitialRestoreResolved("use-app-session.query.authenticated", {
+          userId: result.user?.id ?? null,
+          membershipCount: result.memberships.length,
+        });
         return result;
       }
 
@@ -331,8 +327,6 @@ export function useAppSession() {
         return result;
       }
 
-      // Transient auth failure (session_error): a local session existed but getUser() failed.
-      // Keep current session data for one retry cycle rather than wiping the cache.
       if (result.authState === "session_error") {
         if (typeof window === "undefined") {
           void queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY });
@@ -343,7 +337,6 @@ export function useAppSession() {
           }, 0);
         }
 
-        // Return current session if we have one; otherwise return anonymous
         return currentSession ?? result;
       }
 
@@ -412,9 +405,6 @@ export function useAppSession() {
   ]);
 
   useEffect(() => {
-    // Only clear localStorage for truly terminal session states — not for transient errors.
-    // "session_error" means the local session may still be valid; wiping it would make a
-    // transient refresh-token failure permanent.
     if (isFixtureSession || sessionQuery.isLoading || sessionQuery.data?.authState !== "invalid_session") {
       return;
     }
@@ -423,6 +413,11 @@ export function useAppSession() {
       return;
     }
 
+    recordWorkspaceSessionDiagnostic(
+      "warn",
+      "use-app-session.invalid-session-clear",
+      "Clearing local Supabase session storage after terminal invalid_session classification.",
+    );
     removeLocalSupabaseSession();
     queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
   }, [isFixtureSession, queryClient, sessionQuery.data?.authState, sessionQuery.isLoading]);

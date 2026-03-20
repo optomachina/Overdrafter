@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { GuestSidebarCta } from "@/components/chat/GuestSidebarCta";
 import { SignInDialog } from "@/components/SignInDialog";
@@ -13,7 +14,7 @@ import { acceptProjectInvite } from "@/features/quotes/api/projects-api";
 const SharedInvite = () => {
   const { inviteToken = "" } = useParams();
   const navigate = useNavigate();
-  const { user, isVerifiedAuth } = useAppSession();
+  const { user, isVerifiedAuth, isAuthInitializing } = useAppSession();
   const [authOpen, setAuthOpen] = useState(false);
   const acceptInviteMutation = useMutation({
     mutationFn: () => acceptProjectInvite(inviteToken),
@@ -27,6 +28,10 @@ const SharedInvite = () => {
   });
 
   useEffect(() => {
+    if (isAuthInitializing) {
+      return;
+    }
+
     if (!user) {
       setAuthOpen(true);
       return;
@@ -35,7 +40,11 @@ const SharedInvite = () => {
     if (isVerifiedAuth && inviteToken && acceptInviteMutation.status === "idle") {
       acceptInviteMutation.mutate();
     }
-  }, [acceptInviteMutation, inviteToken, isVerifiedAuth, user]);
+  }, [acceptInviteMutation, inviteToken, isAuthInitializing, isVerifiedAuth, user]);
+
+  if (isAuthInitializing) {
+    return <AuthBootstrapScreen message="Restoring your invite session." />;
+  }
 
   return (
     <>

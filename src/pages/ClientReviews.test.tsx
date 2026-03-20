@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { PropsWithChildren, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ClientPartReview from "./ClientPartReview";
@@ -265,5 +265,25 @@ describe("client review pages", () => {
       screen.getByText(/captures shipping, billing, and PO context for OverDrafter follow-up/i),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Placeholder surface for shipping method, billing, and purchase-order collection/i)).not.toBeInTheDocument();
+  });
+
+  it("holds the protected review route during auth initialization instead of redirecting", () => {
+    mockUseAppSession.mockReturnValue({
+      user: null,
+      activeMembership: null,
+      signOut: vi.fn(),
+      isAuthInitializing: true,
+    });
+
+    renderWithClient(
+      <Routes>
+        <Route path="/parts/:jobId/review" element={<ClientPartReview />} />
+        <Route path="/" element={<div>Signed Out Home</div>} />
+      </Routes>,
+      "/parts/job-1/review",
+    );
+
+    expect(screen.getByText("Restoring your review session.")).toBeInTheDocument();
+    expect(screen.queryByText("Signed Out Home")).not.toBeInTheDocument();
   });
 });

@@ -135,7 +135,6 @@ vi.mock("sonner", () => ({
   toast: toastMock,
 }));
 
-let lastSidebarProps: Record<string, unknown> | null = null;
 let lastAccountMenuProps: Record<string, unknown> | null = null;
 
 vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
@@ -158,8 +157,6 @@ vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
 
 vi.mock("@/components/chat/WorkspaceSidebar", () => ({
   WorkspaceSidebar: (props: Record<string, unknown>) => {
-    lastSidebarProps = props;
-
     return (
       <div>
         <button type="button" onClick={() => void (props.onPrefetchProject as ((id: string) => void) | undefined)?.("project-2")}>
@@ -219,7 +216,6 @@ function renderWithClient(initialEntry: string) {
 
 describe("ClientProject", () => {
   beforeEach(() => {
-    lastSidebarProps = null;
     lastAccountMenuProps = null;
     vi.clearAllMocks();
     Object.defineProperty(window, "matchMedia", {

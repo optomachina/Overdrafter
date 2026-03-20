@@ -118,7 +118,7 @@ Before opening a PR for nontrivial work:
 1. run the relevant local verification commands
 2. run Codex CLI `/review` against the working tree, commit, or base branch diff
 3. address material findings or be ready to explain why a finding is not actionable
-4. refresh the PR body from `.github/pull_request_template.md` and validate it with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`
+4. render the PR body from structured input with `npm run render:pr-body -- <path-to-json>`, create or update the PR with `--body-file`, and validate it with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`
 
 After the PR opens:
 
@@ -164,6 +164,7 @@ Every meaningful PR should include:
 - migration notes where applicable
 - rollback/risk notes where applicable
 - docs updated or explicit reason none were needed
+- a rendered PR body created from `npm run render:pr-body -- <path-to-json>` and applied with `gh pr create --body-file` or `gh pr edit --body-file`
 - a PR body that passes `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`
 
 Use the repo PR template.

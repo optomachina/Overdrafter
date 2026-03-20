@@ -273,7 +273,6 @@ describe("ClientHome auth flow", () => {
     expect(screen.getByText("Restoring your workspace.")).toBeInTheDocument();
 
     pendingSession.resolve({ data: { session: null }, error: null });
-
     await waitFor(() => {
       expect(screen.getByText("Artifact-first quoting for machined parts.")).toBeInTheDocument();
     });

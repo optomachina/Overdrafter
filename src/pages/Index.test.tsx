@@ -186,19 +186,20 @@ describe("Index client home", () => {
     expect(screen.getByRole("button", { name: /open account menu/i })).toBeInTheDocument();
   });
 
-  it("does not render an intermediate loading page while app session hydrates", () => {
+  it("holds the shell in auth restoration while a restorable session is still initializing", () => {
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
       activeMembership: null,
       isLoading: true,
       isVerifiedAuth: true,
+      isAuthInitializing: true,
       signOut: vi.fn(),
     });
 
     renderIndex();
 
-    expect(screen.queryByText("Loading workspace…")).not.toBeInTheDocument();
-    expect(screen.getByText("Workspace")).toBeInTheDocument();
+    expect(screen.getByText("Restoring your workspace.")).toBeInTheDocument();
+    expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
   });
 
   it("holds the route on auth restoration while a restorable session is still initializing", () => {

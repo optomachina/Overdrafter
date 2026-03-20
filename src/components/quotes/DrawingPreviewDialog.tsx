@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { DrawingPreviewState } from "@/components/quotes/ClientQuoteAssetPanels";
+import type { StoredFileViewerMode } from "@/lib/file-viewer";
+import { resolveStoredFileViewerMode } from "@/lib/file-viewer";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +22,7 @@ type DrawingPreviewDialogProps = {
   onOpenChange: (open: boolean) => void;
   fileName: string;
   pageCount: number;
+  viewerMode?: StoredFileViewerMode;
   pdfUrl?: string | null;
   pages: DrawingPreviewDialogPage[];
   isLoading: boolean;
@@ -33,6 +36,7 @@ export function DrawingPreviewDialog({
   onOpenChange,
   fileName,
   pageCount,
+  viewerMode,
   pdfUrl = null,
   pages,
   isLoading,
@@ -44,6 +48,8 @@ export function DrawingPreviewDialog({
   const pageMap = useMemo(() => new Map(pages.map((page) => [page.pageNumber, page.url])), [pages]);
   const currentPageUrl = pageMap.get(currentPage) ?? null;
   const hasPdfPreview = typeof pdfUrl === "string" && pdfUrl.length > 0;
+  const resolvedViewerMode = viewerMode ?? resolveStoredFileViewerMode({ original_name: fileName });
+  const usesEmbeddedPdfPreview = hasPdfPreview && resolvedViewerMode === "pdf";
   const hasMultiplePages = pageCount > 1;
   const emptyStateMessage =
     state === "failed"
@@ -73,7 +79,7 @@ export function DrawingPreviewDialog({
         return;
       }
 
-      if (!hasMultiplePages) {
+      if (!hasMultiplePages || usesEmbeddedPdfPreview) {
         return;
       }
 
@@ -92,7 +98,7 @@ export function DrawingPreviewDialog({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [hasMultiplePages, onOpenChange, open, pageCount]);
+  }, [hasMultiplePages, onOpenChange, open, pageCount, usesEmbeddedPdfPreview]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -120,9 +126,13 @@ export function DrawingPreviewDialog({
         <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-3">
           <div className="mb-3 flex items-center justify-between px-2">
             <div className="text-sm text-white/55">
-              {hasPdfPreview ? "Original PDF" : pageCount > 0 ? `Page ${currentPage} of ${pageCount}` : "Preview unavailable"}
+              {usesEmbeddedPdfPreview
+                ? "Original PDF"
+                : pageCount > 0
+                  ? `Page ${currentPage} of ${pageCount}`
+                  : "Preview unavailable"}
             </div>
-            {hasMultiplePages && !hasPdfPreview ? (
+            {hasMultiplePages && !usesEmbeddedPdfPreview ? (
               <div className="flex items-center gap-2">
                 <Button
                   type="button"
@@ -155,7 +165,7 @@ export function DrawingPreviewDialog({
               <div className="flex h-full items-center justify-center text-white/55">
                 <Loader2 className="h-6 w-6 animate-spin" />
               </div>
-            ) : hasPdfPreview ? (
+            ) : usesEmbeddedPdfPreview ? (
               <iframe
                 src={pdfUrl}
                 title={`${fileName} PDF preview`}

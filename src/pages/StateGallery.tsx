@@ -1,13 +1,11 @@
 import type { ReactNode } from "react";
 import {
-  AlertTriangle,
   ArrowUpRight,
   BadgeAlert,
   Lock,
   MonitorSmartphone,
   PanelsTopLeft,
   Route,
-  ServerCrash,
   ShieldAlert,
   TriangleAlert,
 } from "lucide-react";
