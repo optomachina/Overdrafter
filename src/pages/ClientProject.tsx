@@ -90,7 +90,6 @@ const ClientProject = () => {
     attachFilesPicker,
     canDissolveProject,
     canManageMembers,
-    canRenameProject,
     filteredJobs,
     focusedActivityEntries,
     focusedDraft,

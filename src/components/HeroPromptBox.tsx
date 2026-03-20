@@ -1,5 +1,5 @@
 import { useState, useRef, ChangeEvent } from "react";
-import { Plus, ArrowRight, Loader2, X } from "lucide-react";
+import { Plus, ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
@@ -70,7 +70,6 @@ export function HeroPromptBox() {
 
       // Upload files to storage
       const uploadPromises = files.map(async (file) => {
-        const fileExt = file.name.split('.').pop();
         const fileName = `${user.id}/${Date.now()}-${file.name}`;
         
         const { error: uploadError } = await supabase.storage

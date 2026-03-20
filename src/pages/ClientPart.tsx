@@ -111,7 +111,6 @@ const ClientPart = () => {
     navigate,
     newJobFilePicker,
     partDetail,
-    partDetailQuery,
     partRenameValue,
     pinnedJobIds,
     prefetchPart,

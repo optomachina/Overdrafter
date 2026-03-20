@@ -96,8 +96,6 @@ import {
 } from "@/features/quotes/workspace-navigation";
 import {
   buildRequirementDraft,
-  formatCurrency,
-  formatLeadTime,
 } from "@/features/quotes/utils";
 import type { ActivityLogEntry } from "@/components/quotes/ActivityLog";
 import type { VendorName } from "@/integrations/supabase/types";

@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
 import type { QuoteDiagnostics } from "@/features/quotes/types";
@@ -68,7 +68,7 @@ function makeDiagnostics(overrides: Partial<QuoteDiagnostics> = {}): QuoteDiagno
 }
 
 describe("ClientQuoteDecisionPanel", () => {
-  it("renders quote data and selects a clicked option", () => {
+  it("renders quote data and selects a clicked option", async () => {
     const onSelect = vi.fn();
     const first = makeOption();
     const second = makeOption({
@@ -93,7 +93,9 @@ describe("ClientQuoteDecisionPanel", () => {
       />,
     );
 
-    expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    });
     expect(screen.getByText("Current selection")).toBeInTheDocument();
     expect(screen.getByText("Proto Labs")).toBeInTheDocument();
 
