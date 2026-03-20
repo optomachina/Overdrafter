@@ -3,37 +3,31 @@ import { ManualQuoteIntakeCard } from "@/components/quotes/ManualQuoteIntakeCard
 import { XometryDebugCard } from "@/components/quotes/XometryDebugCard";
 import type { JobAggregate, QuoteRunAggregate } from "@/features/quotes/types";
 
-type InternalJobExtractionDebugPanelProps = {
-  jobId: string;
-  parts: JobAggregate["parts"];
-  latestQuoteRun: QuoteRunAggregate | null;
-  workQueue: JobAggregate["workQueue"];
-  debugExtractionRuns: JobAggregate["debugExtractionRuns"];
-  drawingPreviewAssets: JobAggregate["drawingPreviewAssets"];
+type InternalJobDebugSectionProps = {
   disabled: boolean;
+  job: JobAggregate;
+  jobId: string;
+  latestQuoteRun: QuoteRunAggregate | null;
   showDebugTools: boolean;
 };
 
-export function InternalJobExtractionDebugPanel({
-  jobId,
-  parts,
-  latestQuoteRun,
-  workQueue,
-  debugExtractionRuns,
-  drawingPreviewAssets,
+export function InternalJobDebugSection({
   disabled,
+  job,
+  jobId,
+  latestQuoteRun,
   showDebugTools,
-}: InternalJobExtractionDebugPanelProps) {
+}: InternalJobDebugSectionProps) {
   return (
-    <div className="space-y-6">
-      <ManualQuoteIntakeCard jobId={jobId} parts={parts} disabled={disabled} />
+    <>
+      <ManualQuoteIntakeCard jobId={jobId} parts={job.parts} disabled={disabled} />
 
       {showDebugTools ? (
         <ExtractionLabCard
           jobId={jobId}
-          parts={parts}
-          debugExtractionRuns={debugExtractionRuns ?? []}
-          drawingPreviewAssets={drawingPreviewAssets ?? []}
+          parts={job.parts}
+          debugExtractionRuns={job.debugExtractionRuns ?? []}
+          drawingPreviewAssets={job.drawingPreviewAssets ?? []}
           disabled={disabled}
         />
       ) : null}
@@ -42,11 +36,11 @@ export function InternalJobExtractionDebugPanel({
         <XometryDebugCard
           jobId={jobId}
           latestQuoteRun={latestQuoteRun}
-          parts={parts}
-          workQueue={workQueue}
+          parts={job.parts}
+          workQueue={job.workQueue}
           disabled={disabled}
         />
       ) : null}
-    </div>
+    </>
   );
 }

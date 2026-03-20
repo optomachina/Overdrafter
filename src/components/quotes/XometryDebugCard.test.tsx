@@ -27,6 +27,10 @@ vi.mock("@/features/quotes/api", () => ({
   enqueueDebugVendorQuote: apiMock.enqueueDebugVendorQuote,
   fetchWorkerReadiness: apiMock.fetchWorkerReadiness,
 }));
+vi.mock("@/features/quotes/api/internal-review", () => ({
+  enqueueDebugVendorQuote: apiMock.enqueueDebugVendorQuote,
+  fetchWorkerReadiness: apiMock.fetchWorkerReadiness,
+}));
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {

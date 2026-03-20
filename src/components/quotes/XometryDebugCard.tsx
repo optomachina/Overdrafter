@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, ChevronDown, Loader2, PlayCircle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { enqueueDebugVendorQuote, fetchWorkerReadiness } from "@/features/quotes/api";
+import { enqueueDebugVendorQuote, fetchWorkerReadiness } from "@/features/quotes/api/internal-review";
 import type {
   PartAggregate,
   QuoteRunAggregate,

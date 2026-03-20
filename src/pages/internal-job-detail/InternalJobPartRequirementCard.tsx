@@ -1,77 +1,104 @@
 import { AlertTriangle, CheckCircle2, FileUp } from "lucide-react";
 import { CadModelThumbnail } from "@/components/CadModelThumbnail";
+import { RfqLineItemMetadataFields } from "@/components/quotes/RfqLineItemMetadataFields";
 import { RequestServiceIntentFields } from "@/components/quotes/RequestServiceIntentFields";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
-import { RfqLineItemMetadataFields } from "@/components/quotes/RfqLineItemMetadataFields";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  getInternalJobDraftSourceLabel,
-  getInternalJobExtractionSourceLabel,
-  INTERNAL_JOB_VENDORS,
-  type InternalJobPartViewModel,
-} from "@/features/quotes/internal-job-detail";
-import { formatRequestedQuoteQuantitiesInput } from "@/features/quotes/request-intake";
+import { requestedServicesSupportQuoteFields } from "@/features/quotes/service-intent";
+import type { ApprovedPartRequirement, PartAggregate, RequirementFieldDisplaySource } from "@/features/quotes/types";
 import { normalizeApprovedRequirementDraft } from "@/features/quotes/request-scenarios";
-import type { ApprovedPartRequirement } from "@/features/quotes/types";
-import { formatStatusLabel, formatVendorName } from "@/features/quotes/utils";
+import {
+  formatStatusLabel,
+  formatVendorName,
+  normalizeDrawingExtraction,
+  resolveRequirementField,
+} from "@/features/quotes/utils";
+import { isStepPreviewableFile } from "@/lib/cad-preview";
+import { INTERNAL_JOB_DETAIL_VENDORS } from "./internal-job-detail-view-model";
 
-type InternalJobPartRequirementsPanelProps = {
-  partViewModels: InternalJobPartViewModel[];
+type InternalJobPartRequirementCardProps = {
+  cadPreviewSource: ReturnType<typeof import("@/lib/cad-preview").createCadPreviewSourceFromJobFile> | null;
   disabled: boolean;
-  updateDraft: (
-    partId: string,
-    updater: (current: ApprovedPartRequirement) => ApprovedPartRequirement,
-  ) => void;
-  setQuoteQuantityInput: (partId: string, value: string) => void;
-  commitQuoteQuantityInput: (partId: string) => void;
+  draft: ApprovedPartRequirement;
+  onDraftChange: (updater: (current: ApprovedPartRequirement) => ApprovedPartRequirement) => void;
+  onDraftQuantityChange: (quantity: number) => void;
+  onQuoteQuantityInputChange: (value: string) => void;
+  onQuoteQuantityInputCommit: () => void;
+  part: PartAggregate;
+  quoteQuantityInput: string;
 };
 
-type PartRequirementCardProps = {
-  partViewModel: InternalJobPartViewModel;
-  disabled: boolean;
-  updateDraft: (
-    partId: string,
-    updater: (current: ApprovedPartRequirement) => ApprovedPartRequirement,
-  ) => void;
-  setQuoteQuantityInput: (partId: string, value: string) => void;
-  commitQuoteQuantityInput: (partId: string) => void;
-};
+function extractionSourceLabel(selectedBy: "parser" | "model" | "review") {
+  switch (selectedBy) {
+    case "model":
+      return "model fallback";
+    case "review":
+      return "manual review";
+    default:
+      return "parser";
+  }
+}
 
-function PartRequirementCard({
-  partViewModel,
+function draftSourceLabel(source: RequirementFieldDisplaySource) {
+  switch (source) {
+    case "client":
+      return "client request";
+    case "approved_user":
+      return "approved user value";
+    case "approved_auto":
+      return "approved auto value";
+    default:
+      return "fresher extraction";
+  }
+}
+
+export function InternalJobPartRequirementCard({
+  cadPreviewSource,
   disabled,
-  updateDraft,
-  setQuoteQuantityInput,
-  commitQuoteQuantityInput,
-}: PartRequirementCardProps) {
-  const {
-    part,
-    draft,
-    extraction,
-    cadPreviewSource,
-    cadPreviewable,
-    quoteQuantityInput,
-    showQuoteFields,
-    descriptionResolution,
-    partNumberResolution,
-    revisionResolution,
-    finishResolution,
-    descriptionSelectedBy,
-    partNumberSelectedBy,
-    revisionSelectedBy,
-    materialSelectedBy,
-    finishSelectedBy,
-    extractedFinishRaw,
-    finishReviewNeeded,
-    finishConfidence,
-  } = partViewModel;
+  draft,
+  onDraftChange,
+  onDraftQuantityChange,
+  onQuoteQuantityInputChange,
+  onQuoteQuantityInputCommit,
+  part,
+  quoteQuantityInput,
+}: InternalJobPartRequirementCardProps) {
+  const extraction = normalizeDrawingExtraction(part.extraction, part.id);
+  const currentDraft = draft;
+  const cadPreviewable = part.cadFile ? isStepPreviewableFile(part.cadFile.original_name) : false;
+  const showQuoteFields = requestedServicesSupportQuoteFields(currentDraft.requestedServiceKinds);
+  const descriptionResolution = resolveRequirementField(part, "description", extraction);
+  const partNumberResolution = resolveRequirementField(part, "partNumber", extraction);
+  const revisionResolution = resolveRequirementField(part, "revision", extraction);
+  const finishResolution = resolveRequirementField(part, "finish", extraction);
+  const descriptionSelectedBy = extraction.fieldSelections?.description ?? "parser";
+  const partNumberSelectedBy = extraction.fieldSelections?.partNumber ?? "parser";
+  const revisionSelectedBy = extraction.fieldSelections?.revision ?? "parser";
+  const materialSelectedBy = extraction.fieldSelections?.material ?? "parser";
+  const finishSelectedBy = extraction.fieldSelections?.finish ?? "parser";
+  const extractedFinishRaw = extraction.rawFields.finish.raw ?? extraction.finish.raw ?? null;
+  const finishUsesRawField = Boolean(extraction.rawFields.finish.raw);
+  const finishReviewNeeded = finishUsesRawField
+    ? extraction.rawFields.finish.reviewNeeded
+    : extraction.finish.reviewNeeded;
+  const finishConfidence = finishUsesRawField
+    ? extraction.rawFields.finish.confidence
+    : extraction.finish.confidence;
+  const descriptionInputId = `${part.id}-description-input`;
+  const partNumberInputId = `${part.id}-part-number-input`;
+  const revisionInputId = `${part.id}-revision-input`;
+  const quantityInputId = `${part.id}-quantity-input`;
+  const quoteQuantitiesInputId = `${part.id}-quote-quantities-input`;
+  const requestedByDateInputId = `${part.id}-requested-by-date-input`;
+  const materialInputId = `${part.id}-material-input`;
+  const finishInputId = `${part.id}-finish-input`;
+  const tightestToleranceInputId = `${part.id}-tightest-tolerance-inch-input`;
 
   return (
-    <div key={part.id} className="rounded-3xl border border-white/8 bg-black/20 p-5">
+    <div className="rounded-3xl border border-white/8 bg-black/20 p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-lg font-medium">{part.name}</p>
@@ -82,18 +109,15 @@ function PartRequirementCard({
             <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
               Drawing: {part.drawingFile?.original_name ?? "Missing"}
             </Badge>
-            <Badge
-              variant="secondary"
-              className="border border-primary/20 bg-primary/10 text-primary"
-            >
+            <Badge variant="secondary" className="border border-primary/20 bg-primary/10 text-primary">
               Extraction: {formatStatusLabel(extraction.status)}
             </Badge>
           </div>
           <RequestSummaryBadges
-            requestedServiceKinds={draft.requestedServiceKinds}
-            quantity={draft.quantity}
-            requestedQuoteQuantities={draft.quoteQuantities}
-            requestedByDate={draft.requestedByDate}
+            requestedServiceKinds={currentDraft.requestedServiceKinds}
+            quantity={currentDraft.quantity}
+            requestedQuoteQuantities={currentDraft.quoteQuantities}
+            requestedByDate={currentDraft.requestedByDate}
             className="mt-3"
           />
         </div>
@@ -133,9 +157,7 @@ function PartRequirementCard({
                 <AlertTriangle className="h-6 w-6 text-amber-300" />
               </div>
               <p className="mt-4 text-sm font-medium text-white">CAD missing</p>
-              <p className="mt-2 text-xs text-white/45">
-                Upload a STEP file to generate a reusable thumbnail.
-              </p>
+              <p className="mt-2 text-xs text-white/45">Upload a STEP file to generate a reusable thumbnail.</p>
             </div>
           )}
 
@@ -150,12 +172,12 @@ function PartRequirementCard({
           <div className="md:col-span-2">
             <RequestServiceIntentFields
               value={{
-                requestedServiceKinds: draft.requestedServiceKinds,
-                primaryServiceKind: draft.primaryServiceKind,
-                serviceNotes: draft.serviceNotes,
+                requestedServiceKinds: currentDraft.requestedServiceKinds,
+                primaryServiceKind: currentDraft.primaryServiceKind,
+                serviceNotes: currentDraft.serviceNotes,
               }}
               onChange={(next) =>
-                updateDraft(part.id, (current) =>
+                onDraftChange((current) =>
                   normalizeApprovedRequirementDraft({
                     ...current,
                     ...next,
@@ -167,13 +189,14 @@ function PartRequirementCard({
             />
           </div>
           <div className="space-y-2">
-            <Label>Description</Label>
+            <Label htmlFor={descriptionInputId}>Description</Label>
             <Input
+              id={descriptionInputId}
               className="border-white/10 bg-black/20"
-              value={draft.description ?? ""}
+              value={currentDraft.description ?? ""}
               disabled={disabled}
               onChange={(event) =>
-                updateDraft(part.id, (current) => ({
+                onDraftChange((current) => ({
                   ...current,
                   description: event.target.value || null,
                 }))
@@ -184,23 +207,24 @@ function PartRequirementCard({
               {extraction.rawFields.description.reviewNeeded
                 ? ` • review needed (${Math.round(extraction.rawFields.description.confidence * 100)}%)`
                 : ""}
-              {` • source: ${getInternalJobExtractionSourceLabel(descriptionSelectedBy)}`}
+              {` • source: ${extractionSourceLabel(descriptionSelectedBy)}`}
             </p>
             {descriptionResolution.staleAuto && descriptionResolution.approvedValue ? (
               <p className="text-xs text-amber-300">
-                Showing {getInternalJobDraftSourceLabel(descriptionResolution.source)} instead of stale auto-approved value:{" "}
+                Showing {draftSourceLabel(descriptionResolution.source)} instead of stale auto-approved value:{" "}
                 {descriptionResolution.approvedValue}
               </p>
             ) : null}
           </div>
           <div className="space-y-2">
-            <Label>Part number</Label>
+            <Label htmlFor={partNumberInputId}>Part number</Label>
             <Input
+              id={partNumberInputId}
               className="border-white/10 bg-black/20"
-              value={draft.partNumber ?? ""}
+              value={currentDraft.partNumber ?? ""}
               disabled={disabled}
               onChange={(event) =>
-                updateDraft(part.id, (current) => ({
+                onDraftChange((current) => ({
                   ...current,
                   partNumber: event.target.value || null,
                 }))
@@ -211,23 +235,24 @@ function PartRequirementCard({
               {extraction.rawFields.partNumber.reviewNeeded
                 ? ` • review needed (${Math.round(extraction.rawFields.partNumber.confidence * 100)}%)`
                 : ""}
-              {` • source: ${getInternalJobExtractionSourceLabel(partNumberSelectedBy)}`}
+              {` • source: ${extractionSourceLabel(partNumberSelectedBy)}`}
             </p>
             {partNumberResolution.staleAuto && partNumberResolution.approvedValue ? (
               <p className="text-xs text-amber-300">
-                Showing {getInternalJobDraftSourceLabel(partNumberResolution.source)} instead of stale auto-approved value:{" "}
+                Showing {draftSourceLabel(partNumberResolution.source)} instead of stale auto-approved value:{" "}
                 {partNumberResolution.approvedValue}
               </p>
             ) : null}
           </div>
           <div className="space-y-2">
-            <Label>Revision</Label>
+            <Label htmlFor={revisionInputId}>Revision</Label>
             <Input
+              id={revisionInputId}
               className="border-white/10 bg-black/20"
-              value={draft.revision ?? ""}
+              value={currentDraft.revision ?? ""}
               disabled={disabled}
               onChange={(event) =>
-                updateDraft(part.id, (current) => ({
+                onDraftChange((current) => ({
                   ...current,
                   revision: event.target.value || null,
                 }))
@@ -238,35 +263,26 @@ function PartRequirementCard({
               {extraction.rawFields.revision.reviewNeeded
                 ? ` • review needed (${Math.round(extraction.rawFields.revision.confidence * 100)}%)`
                 : ""}
-              {` • source: ${getInternalJobExtractionSourceLabel(revisionSelectedBy)}`}
+              {` • source: ${extractionSourceLabel(revisionSelectedBy)}`}
             </p>
             {revisionResolution.staleAuto && revisionResolution.approvedValue ? (
               <p className="text-xs text-amber-300">
-                Showing {getInternalJobDraftSourceLabel(revisionResolution.source)} instead of stale auto-approved value:{" "}
+                Showing {draftSourceLabel(revisionResolution.source)} instead of stale auto-approved value:{" "}
                 {revisionResolution.approvedValue}
               </p>
             ) : null}
           </div>
           <div className="space-y-2">
-            <Label>Quantity</Label>
+            <Label htmlFor={quantityInputId}>Quantity</Label>
             {showQuoteFields ? (
               <Input
+                id={quantityInputId}
                 type="number"
                 min={1}
                 className="border-white/10 bg-black/20"
-                value={draft.quantity}
+                value={currentDraft.quantity}
                 disabled={disabled}
-                onChange={(event) => {
-                  const nextDraft = normalizeApprovedRequirementDraft({
-                    ...draft,
-                    quantity: Number(event.target.value || 1),
-                  });
-                  setQuoteQuantityInput(
-                    part.id,
-                    formatRequestedQuoteQuantitiesInput(nextDraft.quoteQuantities),
-                  );
-                  updateDraft(part.id, () => nextDraft);
-                }}
+                onChange={(event) => onDraftQuantityChange(Number(event.target.value || 1))}
               />
             ) : (
               <p className="rounded-2xl border border-white/8 bg-white/5 px-4 py-3 text-sm text-white/45">
@@ -275,20 +291,19 @@ function PartRequirementCard({
             )}
           </div>
           <div className="space-y-2">
-            <Label>Quote quantities</Label>
+            <Label htmlFor={quoteQuantitiesInputId}>Quote quantities</Label>
             {showQuoteFields ? (
               <>
                 <Input
+                  id={quoteQuantitiesInputId}
                   className="border-white/10 bg-black/20"
                   value={quoteQuantityInput}
                   disabled={disabled}
                   placeholder="1/10/100"
-                  onChange={(event) => setQuoteQuantityInput(part.id, event.target.value)}
-                  onBlur={() => commitQuoteQuantityInput(part.id)}
+                  onChange={(event) => onQuoteQuantityInputChange(event.target.value)}
+                  onBlur={onQuoteQuantityInputCommit}
                 />
-                <p className="text-xs text-white/45">
-                  Use slash-delimited quantities like 1/10/100.
-                </p>
+                <p className="text-xs text-white/45">Use slash-delimited quantities like 1/10/100.</p>
               </>
             ) : (
               <p className="rounded-2xl border border-white/8 bg-white/5 px-4 py-3 text-sm text-white/45">
@@ -297,14 +312,15 @@ function PartRequirementCard({
             )}
           </div>
           <div className="space-y-2">
-            <Label>Requested by</Label>
+            <Label htmlFor={requestedByDateInputId}>Requested by</Label>
             <Input
+              id={requestedByDateInputId}
               type="date"
               className="border-white/10 bg-black/20"
-              value={draft.requestedByDate ?? ""}
+              value={currentDraft.requestedByDate ?? ""}
               disabled={disabled}
               onChange={(event) =>
-                updateDraft(part.id, (current) => ({
+                onDraftChange((current) => ({
                   ...current,
                   requestedByDate: event.target.value || null,
                 }))
@@ -312,13 +328,14 @@ function PartRequirementCard({
             />
           </div>
           <div className="space-y-2">
-            <Label>Material</Label>
+            <Label htmlFor={materialInputId}>Material</Label>
             <Input
+              id={materialInputId}
               className="border-white/10 bg-black/20"
-              value={draft.material ?? ""}
+              value={currentDraft.material ?? ""}
               disabled={disabled}
               onChange={(event) =>
-                updateDraft(part.id, (current) => ({
+                onDraftChange((current) => ({
                   ...current,
                   material: event.target.value,
                 }))
@@ -329,17 +346,18 @@ function PartRequirementCard({
               {extraction.material.reviewNeeded
                 ? ` • review needed (${Math.round(extraction.material.confidence * 100)}%)`
                 : ""}
-              {` • source: ${getInternalJobExtractionSourceLabel(materialSelectedBy)}`}
+              {` • source: ${extractionSourceLabel(materialSelectedBy)}`}
             </p>
           </div>
           <div className="space-y-2">
-            <Label>Finish</Label>
+            <Label htmlFor={finishInputId}>Finish</Label>
             <Input
+              id={finishInputId}
               className="border-white/10 bg-black/20"
-              value={draft.finish ?? ""}
+              value={currentDraft.finish ?? ""}
               disabled={disabled}
               onChange={(event) =>
-                updateDraft(part.id, (current) => ({
+                onDraftChange((current) => ({
                   ...current,
                   finish: event.target.value || null,
                 }))
@@ -347,36 +365,33 @@ function PartRequirementCard({
             />
             <p className="text-xs text-white/45">
               Extracted raw: {extractedFinishRaw || "Not found"}
-              {finishReviewNeeded
-                ? ` • review needed (${Math.round(finishConfidence * 100)}%)`
-                : ""}
-              {` • source: ${getInternalJobExtractionSourceLabel(finishSelectedBy)}`}
+              {finishReviewNeeded ? ` • review needed (${Math.round(finishConfidence * 100)}%)` : ""}
+              {` • source: ${extractionSourceLabel(finishSelectedBy)}`}
             </p>
             {finishResolution.staleAuto && finishResolution.approvedValue ? (
               <p className="text-xs text-amber-300">
-                Showing {getInternalJobDraftSourceLabel(finishResolution.source)} instead of stale auto-approved value:{" "}
+                Showing {draftSourceLabel(finishResolution.source)} instead of stale auto-approved value:{" "}
                 {finishResolution.approvedValue}
               </p>
             ) : null}
           </div>
           <div className="space-y-2">
-            <Label>Tightest tolerance (inches)</Label>
+            <Label htmlFor={tightestToleranceInputId}>Tightest tolerance (inches)</Label>
             <Input
+              id={tightestToleranceInputId}
               type="number"
               step="0.0001"
               className="border-white/10 bg-black/20"
-              value={draft.tightestToleranceInch ?? ""}
+              value={currentDraft.tightestToleranceInch ?? ""}
               disabled={disabled}
               onChange={(event) =>
-                updateDraft(part.id, (current) => ({
+                onDraftChange((current) => ({
                   ...current,
                   tightestToleranceInch: event.target.value ? Number(event.target.value) : null,
                 }))
               }
             />
-            <p className="text-xs text-white/45">
-              Extracted: {extraction.tightestTolerance.raw || "Not found"}
-            </p>
+            <p className="text-xs text-white/45">Extracted: {extraction.tightestTolerance.raw || "Not found"}</p>
           </div>
         </div>
       </div>
@@ -394,15 +409,15 @@ function PartRequirementCard({
           <RfqLineItemMetadataFields
             idPrefix={`internal-${part.id}`}
             value={{
-              shipping: draft.shipping,
-              certifications: draft.certifications,
-              sourcing: draft.sourcing,
-              release: draft.release,
+              shipping: currentDraft.shipping,
+              certifications: currentDraft.certifications,
+              sourcing: currentDraft.sourcing,
+              release: currentDraft.release,
             }}
             mode="internal"
             disabled={disabled}
             onChange={(next) =>
-              updateDraft(part.id, (current) =>
+              onDraftChange((current) =>
                 normalizeApprovedRequirementDraft({
                   ...current,
                   ...next,
@@ -416,8 +431,8 @@ function PartRequirementCard({
       <div className="mt-5">
         <Label>Applicable vendors</Label>
         <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {INTERNAL_JOB_VENDORS.map((vendor) => {
-            const checked = draft.applicableVendors.includes(vendor);
+          {INTERNAL_JOB_DETAIL_VENDORS.map((vendor) => {
+            const checked = currentDraft.applicableVendors.includes(vendor);
 
             return (
               <label
@@ -428,7 +443,7 @@ function PartRequirementCard({
                   checked={checked}
                   disabled={disabled}
                   onCheckedChange={(nextChecked) =>
-                    updateDraft(part.id, (current) => ({
+                    onDraftChange((current) => ({
                       ...current,
                       applicableVendors: nextChecked
                         ? [...current.applicableVendors, vendor]
@@ -465,33 +480,5 @@ function PartRequirementCard({
         </div>
       ) : null}
     </div>
-  );
-}
-
-export function InternalJobPartRequirementsPanel({
-  partViewModels,
-  disabled,
-  updateDraft,
-  setQuoteQuantityInput,
-  commitQuoteQuantityInput,
-}: InternalJobPartRequirementsPanelProps) {
-  return (
-    <Card className="border-white/10 bg-white/5">
-      <CardHeader>
-        <CardTitle>Parts and approved requirements</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        {partViewModels.map((partViewModel) => (
-          <PartRequirementCard
-            key={partViewModel.part.id}
-            partViewModel={partViewModel}
-            disabled={disabled}
-            updateDraft={updateDraft}
-            setQuoteQuantityInput={setQuoteQuantityInput}
-            commitQuoteQuantityInput={commitQuoteQuantityInput}
-          />
-        ))}
-      </CardContent>
-    </Card>
   );
 }

@@ -29,6 +29,16 @@ vi.mock("@/features/quotes/api", () => ({
   resendSignupConfirmation: (...args: unknown[]) => resendSignupConfirmationMock(...args),
   updateCurrentUserPassword: (...args: unknown[]) => updateCurrentUserPasswordMock(...args),
 }));
+vi.mock("@/features/quotes/api/compatibility-api", () => ({
+  checkClientIntakeCompatibility: (...args: unknown[]) => checkClientIntakeCompatibilityMock(...args),
+  getClientIntakeCompatibilityMessage: (...args: unknown[]) => getClientIntakeCompatibilityMessageMock(...args),
+}));
+vi.mock("@/features/quotes/api/session-access", () => ({
+  fetchAppSessionData: () => fetchAppSessionDataMock(),
+  requestPasswordReset: (...args: unknown[]) => requestPasswordResetMock(...args),
+  resendSignupConfirmation: (...args: unknown[]) => resendSignupConfirmationMock(...args),
+  updateCurrentUserPassword: (...args: unknown[]) => updateCurrentUserPasswordMock(...args),
+}));
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {

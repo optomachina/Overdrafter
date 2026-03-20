@@ -2,33 +2,33 @@ import { CheckCircle2, Loader2, PlayCircle, ScanSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type InternalJobHeaderActionsProps = {
-  disabled: boolean;
-  isQueueingExtraction: boolean;
-  isSavingRequirements: boolean;
-  isStartingQuoteRun: boolean;
-  onQueueExtraction: () => void;
-  onSaveApprovedRequirements: () => void;
+  onRequestExtraction: () => void;
+  onSaveRequirements: () => void;
   onStartQuoteRun: () => void;
+  requestExtractionPending: boolean;
+  saveRequirementsPending: boolean;
+  startQuoteRunPending: boolean;
+  writeActionsDisabled: boolean;
 };
 
 export function InternalJobHeaderActions({
-  disabled,
-  isQueueingExtraction,
-  isSavingRequirements,
-  isStartingQuoteRun,
-  onQueueExtraction,
-  onSaveApprovedRequirements,
+  onRequestExtraction,
+  onSaveRequirements,
   onStartQuoteRun,
+  requestExtractionPending,
+  saveRequirementsPending,
+  startQuoteRunPending,
+  writeActionsDisabled,
 }: InternalJobHeaderActionsProps) {
   return (
     <>
       <Button
         variant="outline"
         className="border-white/10 bg-white/5"
-        onClick={onQueueExtraction}
-        disabled={disabled || isQueueingExtraction}
+        onClick={onRequestExtraction}
+        disabled={writeActionsDisabled || requestExtractionPending}
       >
-        {isQueueingExtraction ? (
+        {requestExtractionPending ? (
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         ) : (
           <ScanSearch className="mr-2 h-4 w-4" />
@@ -38,10 +38,10 @@ export function InternalJobHeaderActions({
       <Button
         variant="outline"
         className="border-white/10 bg-white/5"
-        onClick={onSaveApprovedRequirements}
-        disabled={disabled || isSavingRequirements}
+        onClick={onSaveRequirements}
+        disabled={writeActionsDisabled || saveRequirementsPending}
       >
-        {isSavingRequirements ? (
+        {saveRequirementsPending ? (
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         ) : (
           <CheckCircle2 className="mr-2 h-4 w-4" />
@@ -51,9 +51,9 @@ export function InternalJobHeaderActions({
       <Button
         className="rounded-full"
         onClick={onStartQuoteRun}
-        disabled={disabled || isStartingQuoteRun}
+        disabled={writeActionsDisabled || startQuoteRunPending}
       >
-        {isStartingQuoteRun ? (
+        {startQuoteRunPending ? (
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         ) : (
           <PlayCircle className="mr-2 h-4 w-4" />

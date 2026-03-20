@@ -4,33 +4,29 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import type {
-  PublishedPackageAggregate,
-  QuoteRunAggregate,
-  QuoteRunReadiness,
-} from "@/features/quotes/types";
+import type { PublishedPackageAggregate, QuoteRunAggregate, QuoteRunReadiness } from "@/features/quotes/types";
 
-type InternalJobPublicationReadinessPanelProps = {
-  latestQuoteRun: QuoteRunAggregate | null;
-  latestPackage: PublishedPackageAggregate | null;
-  readiness: QuoteRunReadiness | undefined;
+type InternalJobPublicationCardProps = {
   clientSummary: string;
-  disabled: boolean;
-  isPublishing: boolean;
+  latestPackage: PublishedPackageAggregate | null;
+  latestQuoteRun: QuoteRunAggregate | null;
   onClientSummaryChange: (value: string) => void;
   onPublish: () => void;
+  publishPending: boolean;
+  readiness: QuoteRunReadiness | undefined;
+  writeActionsDisabled: boolean;
 };
 
-export function InternalJobPublicationReadinessPanel({
-  latestQuoteRun,
-  latestPackage,
-  readiness,
+export function InternalJobPublicationCard({
   clientSummary,
-  disabled,
-  isPublishing,
+  latestPackage,
+  latestQuoteRun,
   onClientSummaryChange,
   onPublish,
-}: InternalJobPublicationReadinessPanelProps) {
+  publishPending,
+  readiness,
+  writeActionsDisabled,
+}: InternalJobPublicationCardProps) {
   return (
     <Card className="border-white/10 bg-white/5">
       <CardHeader>
@@ -62,7 +58,7 @@ export function InternalJobPublicationReadinessPanel({
             <Textarea
               className="min-h-28 border-white/10 bg-black/20"
               value={clientSummary}
-              disabled={disabled}
+              disabled={writeActionsDisabled}
               onChange={(event) => onClientSummaryChange(event.target.value)}
               placeholder="Client-facing summary"
             />
@@ -76,9 +72,9 @@ export function InternalJobPublicationReadinessPanel({
             <Button
               className="w-full rounded-full"
               onClick={onPublish}
-              disabled={disabled || !latestQuoteRun || isPublishing}
+              disabled={writeActionsDisabled || !latestQuoteRun || publishPending}
             >
-              {isPublishing ? (
+              {publishPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : readiness?.ready ? (
                 <Rocket className="mr-2 h-4 w-4" />

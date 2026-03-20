@@ -31,6 +31,14 @@ vi.mock("@/features/quotes/api", () => ({
   isProjectNotFoundError,
   resolveClientPartDetailRoute,
 }));
+vi.mock("@/features/quotes/api/workspace-access", () => ({
+  fetchPartDetailByJobId,
+  fetchClientQuoteWorkspaceByJobIds,
+  fetchJobsByProject,
+  fetchProject,
+  isProjectNotFoundError,
+  resolveClientPartDetailRoute,
+}));
 
 describe("workspace navigation prefetch", () => {
   let queryClient: QueryClient;

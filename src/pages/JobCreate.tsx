@@ -26,13 +26,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import {
   createJob,
-  inferFileKind,
-  isProjectCollaborationSchemaUnavailable,
-  reconcileJobParts,
-  requestExtraction,
-  resendSignupConfirmation,
-  uploadFilesToJob,
-} from "@/features/quotes/api";
+} from "@/features/quotes/api/jobs-api";
+import { reconcileJobParts, requestExtraction } from "@/features/quotes/api/extraction-api";
+import { resendSignupConfirmation } from "@/features/quotes/api/session-access";
+import { inferFileKind, uploadFilesToJob } from "@/features/quotes/api/uploads-api";
+import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import {
   ALLOWED_QUOTE_UPLOAD_EXTENSIONS,
   validateQuoteFiles,

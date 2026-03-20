@@ -3,8 +3,11 @@ import { RequestedQuantityFilter } from "@/components/quotes/RequestedQuantityFi
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import type {
+  JobAggregate,
+  VendorQuoteAggregate,
+} from "@/features/quotes/types";
 import type { RequestedQuantityFilterValue } from "@/features/quotes/request-scenarios";
-import type { PartAggregate, VendorQuoteAggregate } from "@/features/quotes/types";
 import {
   formatCurrency,
   formatLeadTime,
@@ -16,29 +19,39 @@ import {
   projectedClientPrice,
 } from "@/features/quotes/utils";
 
-type InternalJobVendorComparePanelProps = {
-  parts: PartAggregate[];
-  compareQuantities: number[];
+type InternalJobVendorCompareSectionProps = {
   activeCompareRequestedQuantity: RequestedQuantityFilterValue | null;
-  visibleQuoteRows: VendorQuoteAggregate[];
-  quoteRows: VendorQuoteAggregate[];
+  compareQuantities: number[];
+  job: JobAggregate;
+  onChangeQuantity: (value: RequestedQuantityFilterValue | null) => void;
   optionKindsByOfferId: Map<string, string[]>;
-  onRequestedQuantityChange: (value: RequestedQuantityFilterValue | null) => void;
+  quoteRows: VendorQuoteAggregate[];
+  visibleQuoteRows: VendorQuoteAggregate[];
 };
 
-export function InternalJobVendorComparePanel({
-  parts,
-  compareQuantities,
+function isSafeExternalQuoteUrl(value: string | null | undefined) {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export function InternalJobVendorCompareSection({
   activeCompareRequestedQuantity,
-  visibleQuoteRows,
-  quoteRows,
+  compareQuantities,
+  job,
+  onChangeQuantity,
   optionKindsByOfferId,
-  onRequestedQuantityChange,
-}: InternalJobVendorComparePanelProps) {
-  const emptyQuantityLabel =
-    activeCompareRequestedQuantity === null || activeCompareRequestedQuantity === "all"
-      ? "all quantities"
-      : `qty ${activeCompareRequestedQuantity}`;
+  quoteRows,
+  visibleQuoteRows,
+}: InternalJobVendorCompareSectionProps) {
+  const partById = new Map(job.parts.map((part) => [part.id, part]));
 
   return (
     <section className="mt-8">
@@ -50,7 +63,7 @@ export function InternalJobVendorComparePanel({
           <RequestedQuantityFilter
             quantities={compareQuantities}
             value={activeCompareRequestedQuantity}
-            onChange={onRequestedQuantityChange}
+            onChange={onChangeQuantity}
           />
           {!quoteRows.length ? (
             <p className="text-sm text-white/55">
@@ -58,20 +71,17 @@ export function InternalJobVendorComparePanel({
             </p>
           ) : visibleQuoteRows.length === 0 ? (
             <p className="text-sm text-white/55">
-              No vendor quote rows are available for {emptyQuantityLabel}.
+              No vendor quote rows are available for qty {activeCompareRequestedQuantity}.
             </p>
           ) : (
             visibleQuoteRows.map((quote) => {
-              const part = parts.find((item) => item.id === quote.part_id);
+              const part = partById.get(quote.part_id);
               const importedOffers = getImportedVendorOffers(quote);
               const isManualVendor = isManualImportVendor(quote.vendor);
               const isManualIntake = hasManualQuoteIntakeSource(quote);
 
               return (
-                <div
-                  key={quote.id}
-                  className="rounded-3xl border border-white/8 bg-black/20 p-5"
-                >
+                <div key={quote.id} className="rounded-3xl border border-white/8 bg-black/20 p-5">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
                       <p className="text-lg font-medium">{part?.name ?? "Unknown part"}</p>
@@ -118,7 +128,7 @@ export function InternalJobVendorComparePanel({
                     </div>
                     <div>
                       <p className="text-xs uppercase tracking-[0.2em] text-white/40">Quote link</p>
-                      {quote.quote_url ? (
+                      {isSafeExternalQuoteUrl(quote.quote_url) ? (
                         <a
                           href={quote.quote_url}
                           target="_blank"
@@ -153,17 +163,11 @@ export function InternalJobVendorComparePanel({
                       </div>
                       <div className="mt-4 grid gap-3">
                         {importedOffers.map((offer) => {
-                          const laneLabel =
-                            offer.laneLabel || [offer.sourcing, offer.tier].filter(Boolean).join(" / ");
-                          const publishedOptionKinds = offer.id
-                            ? optionKindsByOfferId.get(offer.id) ?? []
-                            : [];
+                          const laneLabel = offer.laneLabel || [offer.sourcing, offer.tier].filter(Boolean).join(" / ");
+                          const publishedOptionKinds = offer.id ? optionKindsByOfferId.get(offer.id) ?? [] : [];
 
                           return (
-                            <div
-                              key={offer.offerId}
-                              className="rounded-2xl border border-white/8 bg-black/20 p-4"
-                            >
+                            <div key={offer.offerId} className="rounded-2xl border border-white/8 bg-black/20 p-4">
                               <div className="flex flex-wrap items-start justify-between gap-4">
                                 <div>
                                   <p className="font-medium text-white">{laneLabel || offer.supplier}</p>
@@ -209,20 +213,14 @@ export function InternalJobVendorComparePanel({
                                   </div>
                                 </div>
                                 <div className="text-right">
-                                  <p className="text-lg font-medium text-white">
-                                    {formatCurrency(offer.totalPriceUsd)}
-                                  </p>
-                                  <p className="text-sm text-white/50">
-                                    {formatLeadTime(offer.leadTimeBusinessDays)}
-                                  </p>
+                                  <p className="text-lg font-medium text-white">{formatCurrency(offer.totalPriceUsd)}</p>
+                                  <p className="text-sm text-white/50">{formatLeadTime(offer.leadTimeBusinessDays)}</p>
                                 </div>
                               </div>
                               <div className="mt-4 grid gap-3 text-sm text-white/55 md:grid-cols-3">
                                 <div>
                                   <p className="text-xs uppercase tracking-[0.2em] text-white/35">Unit</p>
-                                  <p className="mt-1 text-white/75">
-                                    {formatCurrency(offer.unitPriceUsd)}
-                                  </p>
+                                  <p className="mt-1 text-white/75">{formatCurrency(offer.unitPriceUsd)}</p>
                                 </div>
                                 <div>
                                   <p className="text-xs uppercase tracking-[0.2em] text-white/35">Material</p>
@@ -233,9 +231,7 @@ export function InternalJobVendorComparePanel({
                                   <p className="mt-1 text-white/75">{offer.finish || "N/A"}</p>
                                 </div>
                               </div>
-                              {offer.notes ? (
-                                <p className="mt-3 text-sm text-white/55">{offer.notes}</p>
-                              ) : null}
+                              {offer.notes ? <p className="mt-3 text-sm text-white/55">{offer.notes}</p> : null}
                             </div>
                           );
                         })}

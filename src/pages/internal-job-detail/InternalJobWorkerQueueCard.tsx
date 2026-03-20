@@ -3,20 +3,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { WorkQueueRecord } from "@/features/quotes/types";
 import { formatStatusLabel } from "@/features/quotes/utils";
 
-type InternalJobWorkerQueuePanelProps = {
-  workQueue: WorkQueueRecord[];
+type InternalJobWorkerQueueCardProps = {
+  tasks: WorkQueueRecord[];
 };
 
-export function InternalJobWorkerQueuePanel({
-  workQueue,
-}: InternalJobWorkerQueuePanelProps) {
+export function InternalJobWorkerQueueCard({ tasks }: InternalJobWorkerQueueCardProps) {
   return (
     <Card className="border-white/10 bg-white/5">
       <CardHeader>
         <CardTitle>Worker queue</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {workQueue.slice(0, 8).map((task) => (
+        {tasks.slice(0, 8).map((task) => (
           <div
             key={task.id}
             className="flex items-center justify-between rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm"

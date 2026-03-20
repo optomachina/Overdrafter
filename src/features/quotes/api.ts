@@ -1,3 +1,4 @@
+// Deprecated compatibility shim. Prefer narrower imports from `@/features/quotes/api/*`.
 export {
   ClientIntakeCompatibilityError,
   checkClientIntakeCompatibility,

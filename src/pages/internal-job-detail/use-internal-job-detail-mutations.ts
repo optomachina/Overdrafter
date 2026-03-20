@@ -1,54 +1,37 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import type { NavigateFunction } from "react-router-dom";
 import { toast } from "sonner";
-import {
-  approveJobRequirements,
-  publishQuotePackage,
-  requestExtraction,
-  resendSignupConfirmation,
-  startQuoteRun,
-} from "@/features/quotes/api";
-import type { ApprovedPartRequirement } from "@/features/quotes/types";
-import { isEmailConfirmationRequired } from "@/lib/auth-status";
 import { supabase } from "@/integrations/supabase/client";
+import { isEmailConfirmationRequired } from "@/lib/auth-status";
+import { approveJobRequirements, requestExtraction } from "@/features/quotes/api/extraction-api";
+import { publishQuotePackage } from "@/features/quotes/api/packages-api";
+import { resendSignupConfirmation } from "@/features/quotes/api/session-api";
+import { startQuoteRun } from "@/features/quotes/api/quote-requests-api";
+import { normalizeApprovedRequirementDraft } from "@/features/quotes/request-scenarios";
+import type { ApprovedPartRequirement } from "@/features/quotes/types";
 
-type UseInternalJobDetailMutationsInput = {
-  jobId: string;
-  normalizedApprovedDrafts: ApprovedPartRequirement[];
-  latestQuoteRunId: string | null;
+type UseInternalJobDetailMutationsOptions = {
   clientSummary: string;
-  readinessReady: boolean | undefined;
-  userEmail: string | undefined;
+  drafts: Record<string, ApprovedPartRequirement>;
+  forcePublish: boolean;
+  jobId: string;
+  latestQuoteRunId: string | null;
+  navigate: NavigateFunction;
   signOut: () => Promise<void>;
-};
-
-export type UseInternalJobDetailMutationsResult = {
-  queueExtraction: () => void;
-  saveApprovedRequirements: () => void;
-  startQuoteRun: () => void;
-  publishPackage: () => void;
-  refreshVerification: () => Promise<void>;
-  resendVerification: () => Promise<void>;
-  changeEmail: () => Promise<void>;
-  isQueueingExtraction: boolean;
-  isSavingRequirements: boolean;
-  isStartingQuoteRun: boolean;
-  isPublishingPackage: boolean;
-  isRefreshingVerification: boolean;
-  isResendingVerification: boolean;
+  userEmail: string | null;
 };
 
 export function useInternalJobDetailMutations({
-  jobId,
-  normalizedApprovedDrafts,
-  latestQuoteRunId,
   clientSummary,
-  readinessReady,
-  userEmail,
+  drafts,
+  forcePublish,
+  jobId,
+  latestQuoteRunId,
+  navigate,
   signOut,
-}: UseInternalJobDetailMutationsInput): UseInternalJobDetailMutationsResult {
-  const navigate = useNavigate();
+  userEmail,
+}: UseInternalJobDetailMutationsOptions) {
   const queryClient = useQueryClient();
   const [isRefreshingVerification, setIsRefreshingVerification] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
@@ -63,7 +46,11 @@ export function useInternalJobDetailMutations({
   });
 
   const saveRequirementsMutation = useMutation({
-    mutationFn: () => approveJobRequirements(jobId, normalizedApprovedDrafts),
+    mutationFn: () =>
+      approveJobRequirements(
+        jobId,
+        Object.values(drafts).map((draft) => normalizeApprovedRequirementDraft(draft)),
+      ),
     onSuccess: async (approvedCount) => {
       toast.success(`Approved ${approvedCount} part requirement set(s).`);
       await queryClient.invalidateQueries({ queryKey: ["job", jobId] });
@@ -81,16 +68,16 @@ export function useInternalJobDetailMutations({
   });
 
   const publishMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!latestQuoteRunId) {
-        throw new Error("A latest quote run is required before publishing a quote package.");
+        throw new Error("No quote run is available to publish.");
       }
 
       return publishQuotePackage({
         jobId,
         quoteRunId: latestQuoteRunId,
         clientSummary,
-        force: !readinessReady,
+        force: forcePublish,
       });
     },
     onSuccess: async () => {
@@ -103,7 +90,7 @@ export function useInternalJobDetailMutations({
     onError: (error: Error) => toast.error(error.message || "Failed to publish quote package."),
   });
 
-  const refreshVerification = async () => {
+  const handleRefreshVerification = async () => {
     setIsRefreshingVerification(true);
 
     try {
@@ -130,7 +117,7 @@ export function useInternalJobDetailMutations({
     }
   };
 
-  const resendVerification = async () => {
+  const handleResendVerification = async () => {
     if (!userEmail) {
       toast.error("No email is available for this account.");
       return;
@@ -148,7 +135,7 @@ export function useInternalJobDetailMutations({
     }
   };
 
-  const changeEmail = async () => {
+  const handleChangeEmail = async () => {
     try {
       await signOut();
       navigate("/?auth=signup", { replace: true });
@@ -158,18 +145,14 @@ export function useInternalJobDetailMutations({
   };
 
   return {
-    queueExtraction: () => requestExtractionMutation.mutate(),
-    saveApprovedRequirements: () => saveRequirementsMutation.mutate(),
-    startQuoteRun: () => startQuoteRunMutation.mutate(),
-    publishPackage: () => publishMutation.mutate(),
-    refreshVerification,
-    resendVerification,
-    changeEmail,
-    isQueueingExtraction: requestExtractionMutation.isPending,
-    isSavingRequirements: saveRequirementsMutation.isPending,
-    isStartingQuoteRun: startQuoteRunMutation.isPending,
-    isPublishingPackage: publishMutation.isPending,
+    handleChangeEmail,
+    handleRefreshVerification,
+    handleResendVerification,
     isRefreshingVerification,
     isResendingVerification,
+    publishMutation,
+    requestExtractionMutation,
+    saveRequirementsMutation,
+    startQuoteRunMutation,
   };
 }

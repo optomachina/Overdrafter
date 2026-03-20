@@ -27,6 +27,23 @@ vi.mock("@/features/quotes/api", () => ({
   resendSignupConfirmation: vi.fn(),
   uploadFilesToJob: vi.fn(),
 }));
+vi.mock("@/features/quotes/api/jobs-api", () => ({
+  createJob: vi.fn(),
+}));
+vi.mock("@/features/quotes/api/extraction-api", () => ({
+  reconcileJobParts: vi.fn(),
+  requestExtraction: vi.fn(),
+}));
+vi.mock("@/features/quotes/api/session-access", () => ({
+  resendSignupConfirmation: vi.fn(),
+}));
+vi.mock("@/features/quotes/api/uploads-api", () => ({
+  inferFileKind: vi.fn(() => "step"),
+  uploadFilesToJob: vi.fn(),
+}));
+vi.mock("@/features/quotes/api/shared/schema-runtime", () => ({
+  isProjectCollaborationSchemaUnavailable: () => false,
+}));
 
 vi.mock("@/features/notifications/use-workspace-notifications", async (importOriginal) => {
   const actual =

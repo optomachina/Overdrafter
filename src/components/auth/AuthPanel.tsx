@@ -17,7 +17,7 @@ import {
   requestPasswordReset,
   resendSignupConfirmation,
   updateCurrentUserPassword,
-} from "@/features/quotes/api";
+} from "@/features/quotes/api/session-access";
 
 export type AuthPanelMode =
   | "sign-in"

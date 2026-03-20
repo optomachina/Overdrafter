@@ -5,32 +5,33 @@ import { toast } from "sonner";
 import { useAppSession } from "@/hooks/use-app-session";
 import {
   archiveJob,
+  deleteArchivedJobs,
+  isArchivedDeleteCapabilityError,
+  unarchiveJob,
+} from "@/features/quotes/api/archive-api";
+import {
   archiveProject,
   assignJobToProject,
-  createJobsFromUploadFiles,
   createProject,
-  deleteArchivedJobs,
-  fetchClientActivityEventsByJobIds,
   dissolveProject,
-  fetchPartDetailByJobId,
-  isArchivedDeleteCapabilityError,
-  isProjectCollaborationSchemaUnavailable,
   pinJob,
   pinProject,
-  reconcileJobParts,
   removeJobFromProject,
-  requestExtraction,
-  requestQuote,
-  resolveClientPartDetailRoute,
-  setJobSelectedVendorQuoteOffer,
-  unarchiveJob,
   unarchiveProject,
   unpinJob,
   unpinProject,
-  updateClientPartRequest,
   updateProject,
-  uploadFilesToJob,
-} from "@/features/quotes/api";
+} from "@/features/quotes/api/projects-api";
+import { reconcileJobParts, requestExtraction } from "@/features/quotes/api/extraction-api";
+import { requestQuote, setJobSelectedVendorQuoteOffer } from "@/features/quotes/api/quote-requests-api";
+import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
+import { createJobsFromUploadFiles, uploadFilesToJob } from "@/features/quotes/api/uploads-api";
+import {
+  fetchClientActivityEventsByJobIds,
+  fetchPartDetailByJobId,
+  resolveClientPartDetailRoute,
+} from "@/features/quotes/api/workspace-access";
+import { updateClientPartRequest } from "@/features/quotes/api/jobs-api";
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { buildActivityLogEntries } from "@/features/quotes/activity-log";
 import { formatPartLabel, getClientItemPresentation } from "@/features/quotes/client-presentation";

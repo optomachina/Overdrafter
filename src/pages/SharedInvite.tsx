@@ -8,7 +8,7 @@ import { GuestSidebarCta } from "@/components/chat/GuestSidebarCta";
 import { SignInDialog } from "@/components/SignInDialog";
 import { Button } from "@/components/ui/button";
 import { useAppSession } from "@/hooks/use-app-session";
-import { acceptProjectInvite } from "@/features/quotes/api";
+import { acceptProjectInvite } from "@/features/quotes/api/projects-api";
 
 const SharedInvite = () => {
   const { inviteToken = "" } = useParams();

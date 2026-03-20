@@ -19,6 +19,13 @@ const { api, mockUseAppSession } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/features/quotes/api", () => api);
+vi.mock("@/features/quotes/api/workspace-access", () => ({
+  fetchAccessibleJobs: api.fetchAccessibleJobs,
+  fetchClientQuoteWorkspaceByJobIds: api.fetchClientQuoteWorkspaceByJobIds,
+  fetchJobPartSummariesByJobIds: api.fetchJobPartSummariesByJobIds,
+  fetchJobsByProject: api.fetchJobsByProject,
+  fetchProject: api.fetchProject,
+}));
 
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),

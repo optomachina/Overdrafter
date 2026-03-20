@@ -1,6 +1,6 @@
 # OverDrafter Repo Map
 
-Last updated: March 13, 2026
+Last updated: March 19, 2026
 
 > Status: Non-canonical support document. Use this file for orientation only.
 >
@@ -29,8 +29,10 @@ Last updated: March 13, 2026
 - `src/main.tsx` - Vite browser entrypoint.
 - `src/App.tsx` - top-level route composition.
 - `src/pages/` - route-level screens.
+- `src/pages/internal-job-detail/` - route-local query, mutation, view-model, and section modules for `/internal/jobs/:jobId`.
 - `src/components/` - reusable UI, auth, project, and quote presentation components.
-- `src/features/quotes/` - quote-domain controllers, API integration, request intake logic, and tests.
+- `src/features/quotes/` - quote-domain controllers, request intake logic, selectors, shared utilities, and tests.
+- `src/features/quotes/api/` - concrete quote API modules and narrow barrels; `src/features/quotes/api.ts` remains only as a deprecated compatibility shim.
 - `src/lib/` and `src/integrations/` - shared utilities and Supabase client wiring.
 - `public/` - static assets emitted directly by the web app.
 
