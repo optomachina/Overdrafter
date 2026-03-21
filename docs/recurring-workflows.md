@@ -1,6 +1,6 @@
 # Recurring Contributor and Codex Workflows
 
-Last updated: March 13, 2026
+Last updated: March 20, 2026
 
 ## Purpose
 
@@ -68,7 +68,7 @@ Always record:
 - the exact commands run
 - whether each command passed, failed, or was intentionally skipped
 - which debugging lane was used when browser or Supabase validation mattered
-- whether the live PR body passed `npm run validate:pr-body`
+- whether the live PR body was validated with `npm run validate:pr-body` when the helper flow was used
 - tests added or updated, or why none were practical
 - docs updated, or why no doc update was needed
 - migration impact and rollback notes when relevant
@@ -76,17 +76,17 @@ Always record:
 
 Useful supporting evidence includes screenshots, fixture URLs, diagnostics snapshots, and Playwright artifacts when they materially support the change.
 
-## PR body generation flow
+## Optional PR body helper flow
 
 Do not open or refresh a PR with placeholder template text.
 
-Use this sequence instead:
+When you want a structured PR body and consistent template formatting, use this sequence:
 
 1. Write a structured JSON payload for `npm run render:pr-body -- <path-to-json>`.
 2. Include concrete values for `Summary`, `Problem`, `Scope`, `Verification`, `Tests`, `Migration notes`, `Rollback / risk notes`, and `Documentation`.
 3. Render the markdown to a temporary file and validate it locally with `npm run validate:pr-body -- <path-to-rendered-markdown>`.
 4. Create the PR with `gh pr create --base main --body-file <path-to-rendered-markdown>` or refresh it with `gh pr edit --body-file <path-to-rendered-markdown>`.
-5. Validate the live PR body with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
+5. Optionally validate the live PR body with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
 
 Renderer input shape:
 
@@ -125,10 +125,10 @@ Before moving an issue to `Human Review`:
 2. Run the required verification and record the outcomes.
 3. Run `./scripts/symphony-preflight.sh` again.
 4. Use the `commit` skill for the local git commit.
-5. Use the `push` skill to publish the branch and ensure the PR exists with a rendered `--body-file`.
-6. Validate the live PR body with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
-7. Use the `linear` skill to add the branch, PR URL, changed files, verification evidence, and PR body validation result to the issue workpad or comments.
-8. Move the issue to `Human Review` only after the commit, push, PR, validated PR body, and workpad evidence all exist.
+5. Use the `push` skill to publish the branch and ensure the PR exists with a concrete description that matches the diff. Use a rendered `--body-file` when the helper flow is useful.
+6. If you used the helper flow, validate the live PR body with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
+7. Use the `linear` skill to add the branch, PR URL, changed files, verification evidence, and any PR-body helper validation result to the issue workpad or comments.
+8. Move the issue to `Human Review` only after the commit, push, PR, and workpad evidence all exist.
 
 If verification finds unrelated baseline failures outside the issue scope, document them precisely and still hand off. If the current change introduced the failure, keep the issue in an implementation state until it is resolved.
 

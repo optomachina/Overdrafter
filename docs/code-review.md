@@ -1,6 +1,6 @@
 # Code Review Policy
 
-Last updated: March 13, 2026
+Last updated: March 20, 2026
 
 Use this document with `AGENTS.md` when reviewing changes locally with Codex CLI or in GitHub via Codex review.
 
@@ -31,7 +31,7 @@ Reviewers should prioritize:
 ## Local and GitHub usage
 
 - Before opening a PR, run local verification and use Codex CLI `/review` against the working tree, commit, or base branch.
-- Before handing a PR off for review, validate the live PR body with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
+- Before handing a PR off for review, make sure the PR description reflects the actual change. `npm run validate:pr-body` remains available as an optional helper if you want the structured template flow.
 - On GitHub, native automatic Codex review is the baseline PR review layer when enabled for the repository.
 - `@codex review` is an optional follow-up path when maintainers want a fresh pass after updates.
 - Codex review does not replace `npm run verify`, CI, or human approval.
