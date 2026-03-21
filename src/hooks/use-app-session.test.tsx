@@ -322,7 +322,7 @@ describe("useAppSession", () => {
     expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
   });
 
-  it("keeps the local session during startup session_error retries", async () => {
+  it("keeps the local session visible during startup session_error retries without restoring the gate", async () => {
     const localSession = {
       access_token: "token-1",
       refresh_token: "refresh-token-1",
@@ -369,7 +369,7 @@ describe("useAppSession", () => {
     await waitFor(() => {
       expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
       expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
-      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
     });
 
     await waitFor(() => {
@@ -378,7 +378,7 @@ describe("useAppSession", () => {
     });
   });
 
-  it("keeps the local session during startup membership retries", async () => {
+  it("keeps the local session visible during startup membership retries without restoring the gate", async () => {
     const localSession = {
       access_token: "token-1",
       refresh_token: "refresh-token-1",
@@ -425,7 +425,7 @@ describe("useAppSession", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
-      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
     });
 
     await waitFor(() => {
