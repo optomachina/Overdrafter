@@ -7,6 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobRecord } from "@/features/quotes/types";
 import Index from "./Index";
 
+const guestLandingHeading = /from part files\s*to vetted quotes\.\s*in one workspace\./i;
+const guestLandingBody =
+  /upload your CAD and drawing package\. OverDrafter extracts specs, dispatches vendor quotes, and keeps parts, projects, and options organized/i;
+
 const mockUseAppSession = vi.fn();
 const mockFetchAccessibleProjects = vi.fn();
 const mockFetchAccessibleJobs = vi.fn();
@@ -132,11 +136,9 @@ describe("Index client home", () => {
 
     expect(screen.getAllByRole("button", { name: /^log in$/i }).length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole("button", { name: /sign up for free/i })).toBeInTheDocument();
-    expect(screen.getByText("Artifact-first quoting for machined parts.")).toBeInTheDocument();
-    expect(screen.getByText("Get quotes tailored to you")).toBeInTheDocument();
-    expect(
-      screen.getByText(/Log in to get quotes based on price and lead time, plus upload files\./i),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
+    expect(screen.getByText(guestLandingBody)).toBeInTheDocument();
+    expect(screen.getByText("How it works")).toBeInTheDocument();
   });
 
   it("renders accessible projects on the new client home", async () => {
@@ -233,6 +235,6 @@ describe("Index client home", () => {
     renderIndex();
 
     expect(screen.getByText("Restoring your workspace.")).toBeInTheDocument();
-    expect(screen.queryByText("Artifact-first quoting for machined parts.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: guestLandingHeading })).not.toBeInTheDocument();
   });
 });
