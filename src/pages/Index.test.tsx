@@ -186,6 +186,21 @@ describe("Index client home", () => {
     expect(screen.getByRole("button", { name: /open account menu/i })).toBeInTheDocument();
   });
 
+  it("holds the shell in auth restoration while auth is still unknown", () => {
+    mockUseAppSession.mockReturnValue({
+      user: null,
+      activeMembership: null,
+      isLoading: true,
+      isVerifiedAuth: false,
+      isAuthInitializing: true,
+      signOut: vi.fn(),
+    });
+
+    renderIndex();
+
+    expect(screen.getByText("Restoring your workspace.")).toBeInTheDocument();
+    expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
+  });
   it("renders the client home while membership recovery continues for an authenticated user", async () => {
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
