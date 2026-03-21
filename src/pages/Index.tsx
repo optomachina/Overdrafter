@@ -4,9 +4,9 @@ import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { useAppSession } from "@/hooks/use-app-session";
 
 const Index = () => {
-  const { activeMembership, isAuthInitializing } = useAppSession();
+  const { user, activeMembership, isAuthInitializing } = useAppSession();
 
-  if (isAuthInitializing) {
+  if (isAuthInitializing && !user) {
     return <AuthBootstrapScreen message="Restoring your workspace." />;
   }
 

@@ -5,12 +5,17 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getSupabaseAuthStorageKey, useAppSession } from "@/hooks/use-app-session";
 import type { AppSessionData } from "@/features/quotes/types";
+import {
+  resetStartupAuthBootstrapForTests,
+  STARTUP_AUTH_TIMEOUT_MS,
+} from "@/features/quotes/api/shared/startup-auth";
 import type { Session } from "@supabase/supabase-js";
 
 const fetchAppSessionDataMock = vi.fn<() => Promise<AppSessionData>>();
 const onAuthStateChangeMock = vi.fn();
 const adminSignOutMock = vi.fn();
 const getSessionMock = vi.fn();
+const getUserMock = vi.fn();
 let authStateChangeCallbacks: Array<(event: string, session: Session | null) => void> = [];
 
 vi.mock("@/features/quotes/api", () => ({
@@ -24,6 +29,7 @@ vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     auth: {
       getSession: (...args: unknown[]) => getSessionMock(...args),
+      getUser: (...args: unknown[]) => getUserMock(...args),
       onAuthStateChange: (...args: unknown[]) => onAuthStateChangeMock(...args),
       admin: {
         signOut: (...args: unknown[]) => adminSignOutMock(...args),
@@ -114,8 +120,18 @@ describe("useAppSession", () => {
       configurable: true,
       value: storageMock,
     });
+    resetStartupAuthBootstrapForTests();
     getSessionMock.mockResolvedValue({
       data: { session: null },
+      error: null,
+    });
+    getUserMock.mockResolvedValue({
+      data: {
+        user: {
+          id: "user-1",
+          email: "client@example.com",
+        },
+      },
       error: null,
     });
   });
@@ -123,6 +139,8 @@ describe("useAppSession", () => {
   afterEach(() => {
     cleanup();
     storageMock.clear();
+    resetStartupAuthBootstrapForTests();
+    vi.useRealTimers();
     vi.clearAllMocks();
     vi.unstubAllEnvs();
   });
@@ -258,6 +276,37 @@ describe("useAppSession", () => {
     await waitFor(() => {
       expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
     });
+  });
+
+  it("clears auth initialization after a stale stored token times out during startup", async () => {
+    vi.useFakeTimers();
+    const deferred = deferredPromise<AppSessionData>();
+    const tokenKey = getSupabaseAuthStorageKey();
+    storageMock.setItem(tokenKey, JSON.stringify({ access_token: "token-1" }));
+    getSessionMock.mockReturnValueOnce(new Promise(() => undefined));
+    fetchAppSessionDataMock.mockReturnValueOnce(deferred.promise);
+
+    renderProbe();
+
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS);
+    });
+
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+
+    await act(async () => {
+      deferred.resolve({
+        user: null,
+        memberships: [],
+        isVerifiedAuth: false,
+        authState: "invalid_session",
+      });
+      await Promise.resolve();
+    });
+
+    expect(storageMock.getItem(tokenKey)).toBeNull();
   });
 
   it("does not report auth initialization for a cold anonymous startup without a local session", async () => {

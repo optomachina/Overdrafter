@@ -4,9 +4,8 @@ import { buildAuthRedirectUrl } from "@/lib/auth-redirect";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
-import { isAuthError } from "@supabase/supabase-js";
 import type { PostgrestResponse } from "@supabase/supabase-js";
-import { isDeletedAuthUserError, isInvalidRefreshTokenError } from "./shared/schema-errors";
+import { readStartupSupabaseBootstrap } from "./shared/startup-auth";
 
 type MembershipJoinRow = {
   id: string;
@@ -42,94 +41,53 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
     return session;
   }
 
-  const {
-    data: { session: localSession },
-    error: sessionError,
-  } = await supabase.auth.getSession();
-
-  if (sessionError) {
-    recordWorkspaceSessionDiagnostic(
-      "warn",
-      "session-api.fetch.get-session-error",
-      "Supabase getSession() failed during app-session fetch.",
-      {
-        error: sessionError.message,
-      },
-    );
-  }
-
-  const hasLocalSession = localSession !== null;
+  const bootstrap = await readStartupSupabaseBootstrap();
+  const hasLocalSession = bootstrap.session !== null;
   recordWorkspaceSessionDiagnostic(
     "info",
     "session-api.fetch.local-session-check",
     "Checked browser-persisted Supabase session before network auth fetch.",
     {
       hasLocalSession,
-      userId: localSession?.user?.id ?? null,
-      sessionError: sessionError?.message ?? null,
+      userId: bootstrap.session?.user?.id ?? null,
+      authState: bootstrap.authState,
     },
   );
 
-  if (!hasLocalSession) {
+  if (bootstrap.authState === "anonymous") {
     const session: AppSessionData = {
       user: null,
       memberships: [],
       isVerifiedAuth: false,
       authState: "anonymous",
     };
-    emitSessionPayloadDiagnostic(session, "session-api.fetch.no-local-session");
+    emitSessionPayloadDiagnostic(session, "session-api.fetch.anonymous");
     return session;
   }
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  if (bootstrap.authState === "invalid_session") {
+    const session: AppSessionData = {
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "invalid_session",
+    };
+    emitSessionPayloadDiagnostic(session, "session-api.fetch.invalid-session");
+    return session;
+  }
 
-  if (userError) {
-    const authErrorName =
-      typeof (userError as { name?: unknown })?.name === "string"
-        ? (userError as { name: string }).name
-        : userError instanceof Error
-          ? userError.name
-          : "";
-
-    const isTerminalError = isDeletedAuthUserError(userError) || isInvalidRefreshTokenError(userError);
-    const isSessionMissingError =
-      (isAuthError(userError) && authErrorName === "AuthSessionMissingError") ||
-      authErrorName === "AuthSessionMissingError";
-
-    if (isTerminalError || isSessionMissingError) {
-      const session: AppSessionData = {
-        user: null,
-        memberships: [],
-        isVerifiedAuth: false,
-        authState: isTerminalError ? "invalid_session" : "session_error",
-      };
-      emitSessionPayloadDiagnostic(session, "session-api.fetch.auth-fallback");
-      return session;
-    }
-
+  if (bootstrap.authState === "session_error") {
     const session: AppSessionData = {
       user: null,
       memberships: [],
       isVerifiedAuth: false,
       authState: "session_error",
     };
-    emitSessionPayloadDiagnostic(session, "session-api.fetch.transient-auth-error");
+    emitSessionPayloadDiagnostic(session, "session-api.fetch.session-error");
     return session;
   }
 
-  if (!user) {
-    const session: AppSessionData = {
-      user: null,
-      memberships: [],
-      isVerifiedAuth: false,
-      authState: "anonymous",
-    };
-    emitSessionPayloadDiagnostic(session, "session-api.fetch.no-user");
-    return session;
-  }
+  const user = bootstrap.user;
 
   const membershipQuery = supabase
     .from("organization_memberships")

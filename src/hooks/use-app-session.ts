@@ -5,6 +5,11 @@ import type { Session } from "@supabase/supabase-js";
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getFixtureSessionDataForSearch } from "@/features/quotes/client-workspace-fixtures";
 import { fetchAppSessionData } from "@/features/quotes/api/session-access";
+import {
+  getStoredSupabaseAccessToken,
+  readStartupSupabaseBootstrap,
+  removeStoredSupabaseSession,
+} from "@/features/quotes/api/shared/startup-auth";
 import { WORKSPACE_SHARED_STALE_TIME_MS } from "@/features/quotes/workspace-navigation";
 import { supabase } from "@/integrations/supabase/client";
 import { hasVerifiedAuth } from "@/lib/auth-status";
@@ -19,47 +24,9 @@ const EMPTY_APP_SESSION: AppSessionData = {
   authState: "anonymous",
 };
 
-export function getSupabaseAuthStorageKey() {
-  try {
-    const authUrl = new URL(import.meta.env.VITE_SUPABASE_URL);
-    return `sb-${authUrl.hostname.split(".")[0]}-auth-token`;
-  } catch {
-    return "supabase.auth.token";
-  }
-}
-
-type SupabaseAuthSessionStorage = {
-  access_token?: string;
-};
+export { getSupabaseAuthStorageKey } from "@/features/quotes/api/shared/startup-auth";
 
 type InitialAuthCheckState = "checking" | "none" | "present";
-
-function getStoredAccessToken(): string | null {
-  try {
-    const storageKey = getSupabaseAuthStorageKey();
-    const rawSession = window.localStorage.getItem(storageKey);
-
-    if (!rawSession) {
-      return null;
-    }
-
-    const parsedSession = JSON.parse(rawSession) as SupabaseAuthSessionStorage | null;
-    return typeof parsedSession?.access_token === "string" ? parsedSession.access_token : null;
-  } catch {
-    return null;
-  }
-}
-
-function removeLocalSupabaseSession() {
-  try {
-    const storageKey = getSupabaseAuthStorageKey();
-    window.localStorage.removeItem(storageKey);
-    window.localStorage.removeItem(`${storageKey}-code-verifier`);
-    window.localStorage.removeItem(`${storageKey}-user`);
-  } catch {
-    // Ignore storage removal failures in unsupported or private contexts.
-  }
-}
 
 export function useAppSession() {
   const location = useLocation();
@@ -68,9 +35,10 @@ export function useAppSession() {
   const anonymousRetryTimeoutRef = useRef<number | null>(null);
   const initialAuthCheckRef = useRef<InitialAuthCheckState>("checking");
   const hasResolvedInitialRestoreRef = useRef(false);
+  const terminalStartupAuthStateRef = useRef<"invalid_session" | null>(null);
   const fixtureSession = getFixtureSessionDataForSearch(location.search);
   const isFixtureSession = fixtureSession !== null;
-  const startupHadStoredTokenRef = useRef(Boolean(fixtureSession ? false : getStoredAccessToken()));
+  const startupHadStoredTokenRef = useRef(Boolean(fixtureSession ? false : getStoredSupabaseAccessToken()));
   const [initialAuthCheck, setInitialAuthCheck] = useState<InitialAuthCheckState>(
     fixtureSession ? "none" : "checking",
   );
@@ -146,21 +114,23 @@ export function useAppSession() {
       },
     );
 
-    void supabase.auth
-      .getSession()
-      .then(({ data: { session }, error }) => {
+    void readStartupSupabaseBootstrap()
+      .then((bootstrap) => {
         if (cancelled) {
           return;
         }
 
-        if (error) {
+        if (bootstrap.authState === "invalid_session" || bootstrap.authState === "anonymous") {
           pendingAuthTransitionRef.current = false;
           updateInitialAuthCheck("none");
-          markInitialRestoreResolved("use-app-session.initial-check.error", {
-            error: error.message,
+          markInitialRestoreResolved("use-app-session.initial-check.timeout", {
+            authState: bootstrap.authState,
+            hadStoredAccessToken: bootstrap.hadStoredAccessToken,
           });
           return;
         }
+
+        const session = bootstrap.session;
 
         if (!session) {
           pendingAuthTransitionRef.current = false;
@@ -169,9 +139,27 @@ export function useAppSession() {
           return;
         }
 
+        if (
+          terminalStartupAuthStateRef.current === "invalid_session" ||
+          (bootstrap.hadStoredAccessToken && !getStoredSupabaseAccessToken())
+        ) {
+          pendingAuthTransitionRef.current = false;
+          updateInitialAuthCheck("none");
+          markInitialRestoreResolved("use-app-session.initial-check.discarded-terminal-state", {
+            authState: terminalStartupAuthStateRef.current ?? "anonymous",
+            hadStoredAccessToken: bootstrap.hadStoredAccessToken,
+          });
+          return;
+        }
+
         pendingAuthTransitionRef.current = true;
         updateInitialAuthCheck("present");
-        seedSessionFromSupabaseSession(session, "use-app-session.initial-check.seed");
+        seedSessionFromSupabaseSession(
+          session,
+          bootstrap.authState === "session_error"
+            ? "use-app-session.initial-check.seed-session-error"
+            : "use-app-session.initial-check.seed",
+        );
       })
       .catch((error: unknown) => {
         if (cancelled) {
@@ -260,6 +248,7 @@ export function useAppSession() {
       }
 
       pendingAuthTransitionRef.current = true;
+      terminalStartupAuthStateRef.current = null;
       updateInitialAuthCheck("present");
       seedSessionFromSupabaseSession(session, "use-app-session.auth-state-change.seed");
       scheduleSessionRefresh();
@@ -299,6 +288,7 @@ export function useAppSession() {
       );
 
       if (result.authState === "authenticated") {
+        terminalStartupAuthStateRef.current = null;
         if (result.membershipError) {
           if (typeof window === "undefined") {
             void queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY });
@@ -321,6 +311,7 @@ export function useAppSession() {
       }
 
       if (result.authState === "invalid_session") {
+        terminalStartupAuthStateRef.current = "invalid_session";
         pendingAuthTransitionRef.current = false;
         updateInitialAuthCheck("none");
         markInitialRestoreResolved("use-app-session.query.invalid-session");
@@ -409,7 +400,7 @@ export function useAppSession() {
       return;
     }
 
-    if (!getStoredAccessToken()) {
+    if (!getStoredSupabaseAccessToken()) {
       return;
     }
 
@@ -418,7 +409,7 @@ export function useAppSession() {
       "use-app-session.invalid-session-clear",
       "Clearing local Supabase session storage after terminal invalid_session classification.",
     );
-    removeLocalSupabaseSession();
+    removeStoredSupabaseSession();
     queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
   }, [isFixtureSession, queryClient, sessionQuery.data?.authState, sessionQuery.isLoading]);
 
@@ -429,7 +420,7 @@ export function useAppSession() {
     }
 
     void queryClient.cancelQueries({ queryKey: APP_SESSION_QUERY_KEY });
-    const accessToken = getStoredAccessToken();
+    const accessToken = getStoredSupabaseAccessToken();
 
     recordWorkspaceSessionDiagnostic(
       "info",
@@ -443,7 +434,7 @@ export function useAppSession() {
     updateInitialAuthCheck("none");
     hasResolvedInitialRestoreRef.current = true;
     setHasResolvedInitialRestore(true);
-    removeLocalSupabaseSession();
+    removeStoredSupabaseSession();
     queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
 
     if (accessToken) {

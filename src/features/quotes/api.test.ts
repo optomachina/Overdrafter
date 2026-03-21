@@ -4,6 +4,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { getArchivedDeleteReporting } from "./archive-delete-errors";
+import {
+  getSupabaseAuthStorageKey,
+  resetStartupAuthBootstrapForTests,
+  STARTUP_AUTH_TIMEOUT_MS,
+} from "./api/shared/startup-auth";
 
 const toastMock = vi.hoisted(() => ({
   error: vi.fn(),
@@ -318,6 +323,23 @@ function createMockFile(contents: string, name: string, options: { type?: string
   } as unknown as File;
 }
 
+function createStorageMock() {
+  const values = new Map<string, string>();
+
+  return {
+    getItem: vi.fn((key: string) => values.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => {
+      values.set(key, value);
+    }),
+    removeItem: vi.fn((key: string) => {
+      values.delete(key);
+    }),
+    clear: vi.fn(() => {
+      values.clear();
+    }),
+  };
+}
+
 import {
   ClientIntakeCompatibilityError,
   checkClientIntakeCompatibility,
@@ -396,9 +418,17 @@ function countRequestedServiceKindReads(content: string): number {
 }
 
 describe("quotes api helpers", () => {
+  let storageMock: ReturnType<typeof createStorageMock>;
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-03T12:34:56.000Z"));
+    storageMock = createStorageMock();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: storageMock,
+    });
+    resetStartupAuthBootstrapForTests();
     resetClientIntakeSchemaAvailabilityForTests();
     resetJobArchivingSchemaAvailabilityForTests();
     resetProjectCollaborationSchemaAvailabilityForTests();
@@ -467,6 +497,8 @@ describe("quotes api helpers", () => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+    storageMock.clear();
+    resetStartupAuthBootstrapForTests();
   });
 
   it("infers CAD, drawing, and other file kinds case-insensitively", () => {
@@ -2808,6 +2840,38 @@ describe("quotes api helpers", () => {
     });
 
     await expect(fetchAppSessionData()).resolves.toEqual({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "anonymous",
+    });
+  });
+
+  it("returns an invalid session when startup getSession times out with a stored access token", async () => {
+    window.localStorage.setItem(
+      getSupabaseAuthStorageKey(),
+      JSON.stringify({ access_token: "token-1" }),
+    );
+    supabaseMock.authGetSession.mockReturnValueOnce(new Promise(() => undefined));
+
+    const sessionPromise = fetchAppSessionData();
+    await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS);
+
+    await expect(sessionPromise).resolves.toEqual({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "invalid_session",
+    });
+  });
+
+  it("returns an anonymous app session when startup getSession times out without a stored access token", async () => {
+    supabaseMock.authGetSession.mockReturnValueOnce(new Promise(() => undefined));
+
+    const sessionPromise = fetchAppSessionData();
+    await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS);
+
+    await expect(sessionPromise).resolves.toEqual({
       user: null,
       memberships: [],
       isVerifiedAuth: false,

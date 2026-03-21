@@ -186,7 +186,7 @@ describe("Index client home", () => {
     expect(screen.getByRole("button", { name: /open account menu/i })).toBeInTheDocument();
   });
 
-  it("holds the shell in auth restoration while a restorable session is still initializing", () => {
+  it("renders the client home while membership recovery continues for an authenticated user", async () => {
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
       activeMembership: null,
@@ -198,8 +198,11 @@ describe("Index client home", () => {
 
     renderIndex();
 
-    expect(screen.getByText("Restoring your workspace.")).toBeInTheDocument();
-    expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
+    expect(screen.queryByText("Restoring your workspace.")).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText("Start with a part package or open an existing project.")).toBeInTheDocument();
+    });
   });
 
   it("holds the route on auth restoration while a restorable session is still initializing", () => {
