@@ -6,6 +6,10 @@ import React from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppSessionData } from "@/features/quotes/types";
+import {
+  resetStartupAuthBootstrapForTests,
+  STARTUP_AUTH_TIMEOUT_MS,
+} from "@/features/quotes/api/shared/startup-auth";
 import { getSupabaseAuthStorageKey } from "@/hooks/use-app-session";
 import ClientHome from "./ClientHome";
 
@@ -250,10 +254,13 @@ describe("ClientHome auth flow", () => {
       configurable: true,
       value: storageMock,
     });
+    resetStartupAuthBootstrapForTests();
   });
 
   afterEach(() => {
     storageMock.clear();
+    resetStartupAuthBootstrapForTests();
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -292,6 +299,32 @@ describe("ClientHome auth flow", () => {
       expect(screen.getByText("Artifact-first quoting for machined parts.")).toBeInTheDocument();
     });
     expect(screen.queryByText("Restoring your workspace.")).not.toBeInTheDocument();
+  });
+
+  it("leaves the restore screen after a stale local session times out during startup", async () => {
+    vi.useFakeTimers();
+    const deferredSession = deferredPromise<AppSessionData>();
+    window.localStorage.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: "token-1" }));
+    authGetSessionMock.mockReturnValueOnce(new Promise(() => undefined));
+    fetchAppSessionDataMock.mockReturnValueOnce(deferredSession.promise);
+
+    renderClientHome();
+
+    expect(screen.getByText("Restoring your workspace.")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS);
+    });
+
+    expect(screen.getByText("Artifact-first quoting for machined parts.")).toBeInTheDocument();
+    expect(screen.queryByText("Restoring your workspace.")).not.toBeInTheDocument();
+
+    deferredSession.resolve({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "invalid_session",
+    });
   });
 
   it("closes the dialog and removes guest login buttons as soon as sign-in emits an auth event", async () => {

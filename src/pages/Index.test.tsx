@@ -201,7 +201,6 @@ describe("Index client home", () => {
     expect(screen.getByText("Restoring your workspace.")).toBeInTheDocument();
     expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
   });
-
   it("renders the client home while membership recovery continues for an authenticated user", async () => {
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },

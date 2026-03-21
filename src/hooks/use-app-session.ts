@@ -1,10 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getFixtureSessionDataForSearch } from "@/features/quotes/client-workspace-fixtures";
 import { fetchAppSessionData } from "@/features/quotes/api/session-access";
+import {
+  getStoredSupabaseAccessToken,
+  readStartupSupabaseBootstrap,
+  removeStoredSupabaseSession,
+} from "@/features/quotes/api/shared/startup-auth";
 import { WORKSPACE_SHARED_STALE_TIME_MS } from "@/features/quotes/workspace-navigation";
 import { supabase } from "@/integrations/supabase/client";
 import { hasVerifiedAuth } from "@/lib/auth-status";
@@ -19,62 +24,55 @@ const EMPTY_APP_SESSION: AppSessionData = {
   authState: "anonymous",
 };
 
-export function getSupabaseAuthStorageKey() {
-  try {
-    const authUrl = new URL(import.meta.env.VITE_SUPABASE_URL);
-    return `sb-${authUrl.hostname.split(".")[0]}-auth-token`;
-  } catch {
-    return "supabase.auth.token";
-  }
-}
-
-type SupabaseAuthSessionStorage = {
-  access_token?: string;
-};
+export { getSupabaseAuthStorageKey } from "@/features/quotes/api/shared/startup-auth";
 
 type InitialAuthCheckState = "checking" | "none" | "present";
+type AnonymousFallbackState = "disabled" | "allowed" | "retrying";
 
-function getStoredAccessToken(): string | null {
-  try {
-    const storageKey = getSupabaseAuthStorageKey();
-    const rawSession = window.localStorage.getItem(storageKey);
-
-    if (!rawSession) {
-      return null;
-    }
-
-    const parsedSession = JSON.parse(rawSession) as SupabaseAuthSessionStorage | null;
-    return typeof parsedSession?.access_token === "string" ? parsedSession.access_token : null;
-  } catch {
-    return null;
-  }
+function isSameUser(session: AppSessionData | null | undefined, userId: string): boolean {
+  return session?.authState === "authenticated" && session.user?.id === userId;
 }
 
-function removeLocalSupabaseSession() {
-  try {
-    const storageKey = getSupabaseAuthStorageKey();
-    window.localStorage.removeItem(storageKey);
-    window.localStorage.removeItem(`${storageKey}-code-verifier`);
-    window.localStorage.removeItem(`${storageKey}-user`);
-  } catch {
-    // Ignore storage removal failures in unsupported or private contexts.
-  }
+function buildOptimisticSession(session: Session, candidates: Array<AppSessionData | null | undefined>): AppSessionData {
+  const preserved = candidates.find((candidate) => isSameUser(candidate, session.user.id));
+
+  return {
+    user: session.user,
+    memberships: preserved?.memberships ?? EMPTY_MEMBERSHIPS,
+    isVerifiedAuth: hasVerifiedAuth(session.user),
+    authState: "authenticated",
+    membershipError: preserved?.membershipError,
+  };
 }
 
 export function useAppSession() {
   const location = useLocation();
   const queryClient = useQueryClient();
-  const pendingAuthTransitionRef = useRef(false);
-  const anonymousRetryTimeoutRef = useRef<number | null>(null);
-  const initialAuthCheckRef = useRef<InitialAuthCheckState>("checking");
-  const hasResolvedInitialRestoreRef = useRef(false);
   const fixtureSession = getFixtureSessionDataForSearch(location.search);
   const isFixtureSession = fixtureSession !== null;
-  const startupHadStoredTokenRef = useRef(Boolean(fixtureSession ? false : getStoredAccessToken()));
+  const retryTimeoutRef = useRef<number | null>(null);
+  const initialAuthCheckRef = useRef<InitialAuthCheckState>("checking");
+  const hasResolvedInitialRestoreRef = useRef(false);
+  const terminalStartupAuthStateRef = useRef<"invalid_session" | null>(null);
+  const seededUserIdRef = useRef<string | null>(fixtureSession?.user?.id ?? null);
+  const optimisticSessionRef = useRef<AppSessionData | null>(fixtureSession ?? null);
+  const anonymousFallbackAttemptedAtRef = useRef<number | null>(null);
+  const anonymousFallbackBaselineAtRef = useRef<number>(0);
+  const sessionRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
+  const startupHadStoredTokenRef = useRef(false);
+  const sessionErrorRetriedRef = useRef(false);
+  const membershipErrorRetriedRef = useRef(false);
+  if (!startupHadStoredTokenRef.current && !fixtureSession) {
+    startupHadStoredTokenRef.current = Boolean(getStoredSupabaseAccessToken());
+  }
+
   const [initialAuthCheck, setInitialAuthCheck] = useState<InitialAuthCheckState>(
     fixtureSession ? "none" : "checking",
   );
   const [hasResolvedInitialRestore, setHasResolvedInitialRestore] = useState(Boolean(fixtureSession));
+  const [optimisticSession, setOptimisticSession] = useState<AppSessionData | null>(fixtureSession ?? null);
+  const [anonymousFallbackState, setAnonymousFallbackState] = useState<AnonymousFallbackState>("disabled");
+
   const sessionQueryKey = isFixtureSession
     ? [...APP_SESSION_QUERY_KEY, "fixture", location.pathname, location.search]
     : APP_SESSION_QUERY_KEY;
@@ -102,29 +100,70 @@ export function useAppSession() {
     );
   }, []);
 
-  const seedSessionFromSupabaseSession = useCallback(
-    (session: Session, source: string) => {
-      const currentSession = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
-      queryClient.setQueryData<AppSessionData>(APP_SESSION_QUERY_KEY, (current) => ({
-        user: session.user,
-        memberships:
-          current?.user?.id === session.user.id
-            ? current.memberships
-            : currentSession?.memberships ?? EMPTY_MEMBERSHIPS,
-        isVerifiedAuth: hasVerifiedAuth(session.user),
-        authState: "authenticated",
-      }));
+  const clearScheduledRetry = useCallback(() => {
+    if (retryTimeoutRef.current !== null && typeof window !== "undefined") {
+      window.clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+  }, []);
+
+  const resetRetryFlags = useCallback(() => {
+    sessionErrorRetriedRef.current = false;
+    membershipErrorRetriedRef.current = false;
+  }, []);
+
+  const scheduleSessionRefresh = useCallback(
+    (source: string, details?: Record<string, unknown>) => {
       recordWorkspaceSessionDiagnostic(
         "info",
         source,
-        "Seeded app-session cache from a Supabase auth session.",
+        "Scheduling an immediate app-session refetch.",
+        details,
+      );
+
+      if (typeof window === "undefined") {
+        void sessionRefetchRef.current?.();
+        return;
+      }
+
+      if (retryTimeoutRef.current !== null) {
+        return;
+      }
+
+      retryTimeoutRef.current = window.setTimeout(() => {
+        retryTimeoutRef.current = null;
+        void sessionRefetchRef.current?.();
+      }, 0);
+    },
+    [],
+  );
+
+  const seedSessionFromSupabaseSession = useCallback(
+    (session: Session, source: string) => {
+      const currentSession = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
+      const currentQueryState = queryClient.getQueryState<AppSessionData>(APP_SESSION_QUERY_KEY);
+      const seededSession = buildOptimisticSession(session, [currentSession, optimisticSessionRef.current]);
+      seededUserIdRef.current = session.user.id;
+      optimisticSessionRef.current = seededSession;
+      setOptimisticSession(seededSession);
+      setAnonymousFallbackState("allowed");
+      anonymousFallbackBaselineAtRef.current = currentQueryState?.dataUpdatedAt ?? 0;
+      anonymousFallbackAttemptedAtRef.current = null;
+      terminalStartupAuthStateRef.current = null;
+      resetRetryFlags();
+      recordWorkspaceSessionDiagnostic(
+        "info",
+        source,
+        "Seeded local app-session state from a Supabase auth session.",
         {
           userId: session.user.id,
           email: session.user.email ?? null,
+          preservedMembershipCount: seededSession.memberships.length,
+          preservedMembershipError: seededSession.membershipError ?? null,
         },
       );
     },
-    [queryClient],
+    [queryClient, resetRetryFlags],
   );
 
   useEffect(() => {
@@ -146,81 +185,111 @@ export function useAppSession() {
       },
     );
 
-    void supabase.auth
-      .getSession()
-      .then(({ data: { session }, error }) => {
+    void readStartupSupabaseBootstrap()
+      .then((bootstrap) => {
         if (cancelled) {
           return;
         }
 
-        if (error) {
-          pendingAuthTransitionRef.current = false;
+        if (bootstrap.authState === "invalid_session" || bootstrap.authState === "anonymous") {
+          if (seededUserIdRef.current) {
+            updateInitialAuthCheck("none");
+            markInitialRestoreResolved("use-app-session.initial-check.discarded-stale-anonymous", {
+              authState: bootstrap.authState,
+              seededUserId: seededUserIdRef.current,
+            });
+            return;
+          }
+
+          pendingAnonymousCleanup();
           updateInitialAuthCheck("none");
-          markInitialRestoreResolved("use-app-session.initial-check.error", {
-            error: error.message,
+          markInitialRestoreResolved("use-app-session.initial-check.settled-anonymous", {
+            authState: bootstrap.authState,
+            hadStoredAccessToken: bootstrap.hadStoredAccessToken,
           });
           return;
         }
 
+        const session = bootstrap.session;
+
         if (!session) {
-          pendingAuthTransitionRef.current = false;
+          if (seededUserIdRef.current) {
+            updateInitialAuthCheck("none");
+            markInitialRestoreResolved("use-app-session.initial-check.discarded-stale-empty-session", {
+              seededUserId: seededUserIdRef.current,
+            });
+            return;
+          }
+
+          pendingAnonymousCleanup();
           updateInitialAuthCheck("none");
           markInitialRestoreResolved("use-app-session.initial-check.no-session");
           return;
         }
 
-        pendingAuthTransitionRef.current = true;
+        if (
+          terminalStartupAuthStateRef.current === "invalid_session" ||
+          (bootstrap.hadStoredAccessToken && !getStoredSupabaseAccessToken())
+        ) {
+          pendingAnonymousCleanup();
+          updateInitialAuthCheck("none");
+          markInitialRestoreResolved("use-app-session.initial-check.discarded-terminal-state", {
+            authState: terminalStartupAuthStateRef.current ?? "anonymous",
+            hadStoredAccessToken: bootstrap.hadStoredAccessToken,
+          });
+          return;
+        }
+
         updateInitialAuthCheck("present");
-        seedSessionFromSupabaseSession(session, "use-app-session.initial-check.seed");
+        seedSessionFromSupabaseSession(
+          session,
+          bootstrap.authState === "session_error"
+            ? "use-app-session.initial-check.seed-session-error"
+            : "use-app-session.initial-check.seed",
+        );
+        markInitialRestoreResolved("use-app-session.initial-check.seeded-session", {
+          authState: bootstrap.authState,
+          userId: session.user.id,
+        });
       })
       .catch((error: unknown) => {
         if (cancelled) {
           return;
         }
 
-        pendingAuthTransitionRef.current = false;
+        pendingAnonymousCleanup();
         updateInitialAuthCheck("none");
         markInitialRestoreResolved("use-app-session.initial-check.unexpected-error", {
           error: error instanceof Error ? error.message : String(error),
         });
       });
 
+    function pendingAnonymousCleanup() {
+      clearScheduledRetry();
+      optimisticSessionRef.current = null;
+      anonymousFallbackBaselineAtRef.current = 0;
+      anonymousFallbackAttemptedAtRef.current = null;
+      setOptimisticSession(null);
+      setAnonymousFallbackState("disabled");
+      resetRetryFlags();
+    }
+
     return () => {
       cancelled = true;
     };
-  }, [isFixtureSession, markInitialRestoreResolved, queryClient, seedSessionFromSupabaseSession, updateInitialAuthCheck]);
+  }, [
+    clearScheduledRetry,
+    isFixtureSession,
+    markInitialRestoreResolved,
+    resetRetryFlags,
+    seedSessionFromSupabaseSession,
+    updateInitialAuthCheck,
+  ]);
 
   useEffect(() => {
     if (isFixtureSession) {
       return;
     }
-
-    let refreshTimeoutId: number | null = null;
-
-    const clearAnonymousRetryTimeout = () => {
-      if (anonymousRetryTimeoutRef.current !== null && typeof window !== "undefined") {
-        window.clearTimeout(anonymousRetryTimeoutRef.current);
-        anonymousRetryTimeoutRef.current = null;
-      }
-    };
-
-    const scheduleSessionRefresh = () => {
-      // Supabase fires auth callbacks while holding an internal lock.
-      // Deferring the refetch avoids re-entering auth APIs during sign-in/out.
-      if (typeof window === "undefined") {
-        void queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY });
-        return;
-      }
-
-      if (refreshTimeoutId !== null) {
-        window.clearTimeout(refreshTimeoutId);
-      }
-
-      refreshTimeoutId = window.setTimeout(() => {
-        refreshTimeoutId = null;
-        void queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY });
-      }, 0);
-    };
 
     const {
       data: { subscription },
@@ -239,10 +308,18 @@ export function useAppSession() {
       );
 
       if (!session) {
-        if (!pendingAuthTransitionRef.current && initialAuthCheckRef.current !== "checking") {
+        seededUserIdRef.current = null;
+        clearScheduledRetry();
+        optimisticSessionRef.current = null;
+        anonymousFallbackBaselineAtRef.current = 0;
+        anonymousFallbackAttemptedAtRef.current = null;
+        setAnonymousFallbackState("disabled");
+        setOptimisticSession(null);
+        resetRetryFlags();
+
+        if (initialAuthCheckRef.current !== "checking") {
           updateInitialAuthCheck("none");
           markInitialRestoreResolved("use-app-session.auth-state-change.signed-out");
-          clearAnonymousRetryTimeout();
           queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
           return;
         }
@@ -253,37 +330,47 @@ export function useAppSession() {
           "Deferred clearing auth state for a null auth event while startup restoration is still in progress.",
           {
             initialAuthCheck: initialAuthCheckRef.current,
-            pendingAuthTransition: pendingAuthTransitionRef.current,
           },
         );
         return;
       }
 
-      pendingAuthTransitionRef.current = true;
+      terminalStartupAuthStateRef.current = null;
       updateInitialAuthCheck("present");
       seedSessionFromSupabaseSession(session, "use-app-session.auth-state-change.seed");
-      scheduleSessionRefresh();
+      markInitialRestoreResolved("use-app-session.auth-state-change.seeded-session", {
+        event,
+        userId: session.user.id,
+      });
+      scheduleSessionRefresh("use-app-session.auth-state-change.refresh", {
+        event,
+        userId: session.user.id,
+      });
     });
 
     return () => {
-      if (refreshTimeoutId !== null && typeof window !== "undefined") {
-        window.clearTimeout(refreshTimeoutId);
-      }
-      clearAnonymousRetryTimeout();
-
+      clearScheduledRetry();
       subscription.unsubscribe();
     };
-  }, [isFixtureSession, markInitialRestoreResolved, queryClient, seedSessionFromSupabaseSession, updateInitialAuthCheck]);
+  }, [
+    clearScheduledRetry,
+    isFixtureSession,
+    markInitialRestoreResolved,
+    queryClient,
+    resetRetryFlags,
+    scheduleSessionRefresh,
+    seedSessionFromSupabaseSession,
+    updateInitialAuthCheck,
+  ]);
 
   const sessionQuery = useQuery({
     queryKey: sessionQueryKey,
-    queryFn: async () => {
+    queryFn: async (): Promise<AppSessionData> => {
       if (fixtureSession) {
         return fixtureSession;
       }
 
       const result = await fetchAppSessionData();
-      const currentSession = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
 
       recordWorkspaceSessionDiagnostic(
         result.authState === "invalid_session" ? "warn" : "info",
@@ -298,78 +385,165 @@ export function useAppSession() {
         },
       );
 
-      if (result.authState === "authenticated") {
-        if (result.membershipError) {
-          if (typeof window === "undefined") {
-            void queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY });
-          } else if (anonymousRetryTimeoutRef.current === null) {
-            anonymousRetryTimeoutRef.current = window.setTimeout(() => {
-              anonymousRetryTimeoutRef.current = null;
-              void queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY });
-            }, 0);
-          }
-
-          return result;
-        }
-
-        pendingAuthTransitionRef.current = false;
-        markInitialRestoreResolved("use-app-session.query.authenticated", {
-          userId: result.user?.id ?? null,
-          membershipCount: result.memberships.length,
-        });
-        return result;
-      }
-
-      if (result.authState === "invalid_session") {
-        pendingAuthTransitionRef.current = false;
-        updateInitialAuthCheck("none");
-        markInitialRestoreResolved("use-app-session.query.invalid-session");
-        return result;
-      }
-
-      if (result.authState === "session_error") {
-        if (typeof window === "undefined") {
-          void queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY });
-        } else if (anonymousRetryTimeoutRef.current === null) {
-          anonymousRetryTimeoutRef.current = window.setTimeout(() => {
-            anonymousRetryTimeoutRef.current = null;
-            void queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY });
-          }, 0);
-        }
-
-        return currentSession ?? result;
-      }
-
-      if (
-        result.authState === "anonymous" &&
-        pendingAuthTransitionRef.current &&
-        currentSession?.authState === "authenticated" &&
-        currentSession.user
-      ) {
-        pendingAuthTransitionRef.current = false;
-
-        if (typeof window === "undefined") {
-          void queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY });
-        } else if (anonymousRetryTimeoutRef.current === null) {
-          anonymousRetryTimeoutRef.current = window.setTimeout(() => {
-            anonymousRetryTimeoutRef.current = null;
-            void queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY });
-          }, 0);
-        }
-
-        return currentSession;
-      }
-
-      pendingAuthTransitionRef.current = false;
-      updateInitialAuthCheck("none");
-      markInitialRestoreResolved("use-app-session.query.anonymous");
       return result;
     },
     initialData: fixtureSession ?? undefined,
     staleTime: fixtureSession ? Infinity : WORKSPACE_SHARED_STALE_TIME_MS,
   });
 
-  const memberships = sessionQuery.data?.memberships ?? EMPTY_MEMBERSHIPS;
+  useEffect(() => {
+    sessionRefetchRef.current = async () => sessionQuery.refetch();
+  }, [sessionQuery]);
+
+  useEffect(() => {
+    if (isFixtureSession || sessionQuery.isLoading || !sessionQuery.data) {
+      return;
+    }
+
+    const querySession = sessionQuery.data;
+
+    if (querySession.authState === "authenticated") {
+      terminalStartupAuthStateRef.current = null;
+      seededUserIdRef.current = querySession.user?.id ?? null;
+      updateInitialAuthCheck("none");
+      markInitialRestoreResolved("use-app-session.query.authenticated", {
+        userId: querySession.user?.id ?? null,
+        membershipCount: querySession.memberships.length,
+        membershipError: querySession.membershipError ?? null,
+      });
+
+      optimisticSessionRef.current = querySession;
+      setOptimisticSession(querySession);
+      setAnonymousFallbackState("disabled");
+      anonymousFallbackBaselineAtRef.current = 0;
+      anonymousFallbackAttemptedAtRef.current = null;
+      sessionErrorRetriedRef.current = false;
+
+      if (querySession.membershipError) {
+        if (!membershipErrorRetriedRef.current) {
+          membershipErrorRetriedRef.current = true;
+          scheduleSessionRefresh("use-app-session.query.membership-retry", {
+            userId: querySession.user?.id ?? null,
+            membershipError: querySession.membershipError,
+          });
+        }
+        return;
+      }
+
+      membershipErrorRetriedRef.current = false;
+      return;
+    }
+
+    updateInitialAuthCheck("none");
+
+    if (querySession.authState === "invalid_session") {
+      terminalStartupAuthStateRef.current = "invalid_session";
+      seededUserIdRef.current = null;
+      clearScheduledRetry();
+      optimisticSessionRef.current = null;
+      anonymousFallbackBaselineAtRef.current = 0;
+      anonymousFallbackAttemptedAtRef.current = null;
+      setOptimisticSession(null);
+      setAnonymousFallbackState("disabled");
+      resetRetryFlags();
+      markInitialRestoreResolved("use-app-session.query.invalid-session");
+      return;
+    }
+
+    if (querySession.authState === "session_error") {
+      markInitialRestoreResolved("use-app-session.query.session-error");
+      if (!sessionErrorRetriedRef.current) {
+        sessionErrorRetriedRef.current = true;
+        scheduleSessionRefresh("use-app-session.query.session-error-retry", {
+          userId: optimisticSession?.user?.id ?? null,
+        });
+      }
+      return;
+    }
+
+    markInitialRestoreResolved("use-app-session.query.anonymous");
+
+    if (optimisticSession && anonymousFallbackState === "allowed") {
+      if (sessionQuery.dataUpdatedAt <= anonymousFallbackBaselineAtRef.current) {
+        return;
+      }
+
+      setAnonymousFallbackState("retrying");
+      anonymousFallbackAttemptedAtRef.current = sessionQuery.dataUpdatedAt;
+      scheduleSessionRefresh("use-app-session.query.anonymous-retry", {
+        userId: optimisticSession?.user?.id ?? null,
+      });
+      return;
+    }
+
+    if (optimisticSession && anonymousFallbackState === "retrying") {
+      if (anonymousFallbackAttemptedAtRef.current === sessionQuery.dataUpdatedAt) {
+        return;
+      }
+
+      seededUserIdRef.current = null;
+      optimisticSessionRef.current = null;
+      anonymousFallbackBaselineAtRef.current = 0;
+      anonymousFallbackAttemptedAtRef.current = null;
+      setAnonymousFallbackState("disabled");
+      setOptimisticSession(null);
+      resetRetryFlags();
+      return;
+    }
+
+    clearScheduledRetry();
+    seededUserIdRef.current = null;
+    optimisticSessionRef.current = null;
+    anonymousFallbackBaselineAtRef.current = 0;
+    anonymousFallbackAttemptedAtRef.current = null;
+    setOptimisticSession(null);
+    setAnonymousFallbackState("disabled");
+    resetRetryFlags();
+  }, [
+    anonymousFallbackState,
+    clearScheduledRetry,
+    isFixtureSession,
+    markInitialRestoreResolved,
+    optimisticSession,
+    resetRetryFlags,
+    scheduleSessionRefresh,
+    sessionQuery.data,
+    sessionQuery.dataUpdatedAt,
+    sessionQuery.isLoading,
+    updateInitialAuthCheck,
+  ]);
+
+  const effectiveSession = useMemo<AppSessionData>(() => {
+    if (fixtureSession) {
+      return fixtureSession;
+    }
+
+    const querySession = sessionQuery.data;
+
+    if (querySession?.authState === "authenticated") {
+      return querySession;
+    }
+
+    if (querySession?.authState === "invalid_session") {
+      return EMPTY_APP_SESSION;
+    }
+
+    if (querySession?.authState === "session_error" && optimisticSession) {
+      return optimisticSession;
+    }
+
+    if (querySession?.authState === "anonymous" && optimisticSession && anonymousFallbackState !== "disabled") {
+      return optimisticSession;
+    }
+
+    if (!querySession && optimisticSession) {
+      return optimisticSession;
+    }
+
+    return querySession ?? EMPTY_APP_SESSION;
+  }, [anonymousFallbackState, fixtureSession, optimisticSession, sessionQuery.data]);
+
+  const memberships = effectiveSession.memberships ?? EMPTY_MEMBERSHIPS;
   const activeMembership: AppMembership | null = memberships[0] ?? null;
   const isAuthInitializing =
     !hasResolvedInitialRestore &&
@@ -381,9 +555,10 @@ export function useAppSession() {
     }
 
     recordWorkspaceSessionDiagnostic("info", "use-app-session.derived-state", "Derived app-session hook state.", {
-      authState: sessionQuery.data?.authState ?? "anonymous",
-      isVerifiedAuth: sessionQuery.data?.isVerifiedAuth ?? false,
-      userId: sessionQuery.data?.user?.id ?? null,
+      authState: effectiveSession.authState,
+      queryAuthState: sessionQuery.data?.authState ?? "anonymous",
+      isVerifiedAuth: effectiveSession.isVerifiedAuth,
+      userId: effectiveSession.user?.id ?? null,
       membershipCount: memberships.length,
       memberships: memberships.map((membership) => ({
         organizationId: membership.organizationId,
@@ -391,16 +566,17 @@ export function useAppSession() {
       })),
       hasActiveMembership: Boolean(activeMembership),
       isAuthInitializing,
-      membershipError: sessionQuery.data?.membershipError ?? null,
+      membershipError: effectiveSession.membershipError ?? null,
     });
   }, [
     activeMembership,
+    effectiveSession.authState,
+    effectiveSession.isVerifiedAuth,
+    effectiveSession.membershipError,
+    effectiveSession.user?.id,
     isAuthInitializing,
     memberships,
     sessionQuery.data?.authState,
-    sessionQuery.data?.isVerifiedAuth,
-    sessionQuery.data?.membershipError,
-    sessionQuery.data?.user?.id,
     sessionQuery.isLoading,
   ]);
 
@@ -409,7 +585,7 @@ export function useAppSession() {
       return;
     }
 
-    if (!getStoredAccessToken()) {
+    if (!getStoredSupabaseAccessToken()) {
       return;
     }
 
@@ -418,7 +594,7 @@ export function useAppSession() {
       "use-app-session.invalid-session-clear",
       "Clearing local Supabase session storage after terminal invalid_session classification.",
     );
-    removeLocalSupabaseSession();
+    removeStoredSupabaseSession();
     queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
   }, [isFixtureSession, queryClient, sessionQuery.data?.authState, sessionQuery.isLoading]);
 
@@ -429,7 +605,7 @@ export function useAppSession() {
     }
 
     void queryClient.cancelQueries({ queryKey: APP_SESSION_QUERY_KEY });
-    const accessToken = getStoredAccessToken();
+    const accessToken = getStoredSupabaseAccessToken();
 
     recordWorkspaceSessionDiagnostic(
       "info",
@@ -440,10 +616,18 @@ export function useAppSession() {
       },
     );
 
+    clearScheduledRetry();
+    resetRetryFlags();
+    seededUserIdRef.current = null;
+    optimisticSessionRef.current = null;
+    anonymousFallbackBaselineAtRef.current = 0;
+    anonymousFallbackAttemptedAtRef.current = null;
+    setOptimisticSession(null);
+    setAnonymousFallbackState("disabled");
     updateInitialAuthCheck("none");
     hasResolvedInitialRestoreRef.current = true;
     setHasResolvedInitialRestore(true);
-    removeLocalSupabaseSession();
+    removeStoredSupabaseSession();
     queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
 
     if (accessToken) {
@@ -455,11 +639,12 @@ export function useAppSession() {
 
   return {
     ...sessionQuery,
-    user: sessionQuery.data?.user ?? null,
+    data: effectiveSession,
+    user: effectiveSession.user,
     memberships,
-    isVerifiedAuth: sessionQuery.data?.isVerifiedAuth ?? false,
-    authState: sessionQuery.data?.authState ?? "anonymous",
-    membershipError: sessionQuery.data?.membershipError ?? null,
+    isVerifiedAuth: effectiveSession.isVerifiedAuth,
+    authState: effectiveSession.authState,
+    membershipError: effectiveSession.membershipError ?? null,
     isAuthInitializing,
     hasResolvedInitialAuth: hasResolvedInitialRestore,
     initialAuthCheck,
