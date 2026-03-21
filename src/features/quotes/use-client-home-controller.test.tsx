@@ -394,6 +394,20 @@ describe("useClientHomeController membership recovery", () => {
       );
     });
 
+    expect(useWarmClientWorkspaceNavigationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enabled: false,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(useWarmClientWorkspaceNavigationMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          enabled: true,
+        }),
+      );
+    });
+
     unmount();
   });
 });

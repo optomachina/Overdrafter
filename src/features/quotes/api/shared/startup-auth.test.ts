@@ -128,6 +128,43 @@ describe("startup auth helpers", () => {
     });
   });
 
+  it("classifies a terminal getSession invalid refresh token failure as invalid_session", async () => {
+    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: "token-1" }));
+    authGetSessionMock.mockResolvedValue({
+      data: { session: null },
+      error: {
+        name: "AuthApiError",
+        message: "Invalid Refresh Token: Refresh Token Not Found",
+      },
+    });
+
+    await expect(readStartupSupabaseBootstrap()).resolves.toEqual({
+      authState: "invalid_session",
+      session: null,
+      user: null,
+      hadStoredAccessToken: true,
+    });
+  });
+
+  it("classifies a terminal getSession deleted-user failure as invalid_session", async () => {
+    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: "token-1" }));
+    authGetSessionMock.mockResolvedValue({
+      data: { session: null },
+      error: {
+        code: "user_not_found",
+        message: "User from sub claim in JWT does not exist",
+        name: "AuthApiError",
+      },
+    });
+
+    await expect(readStartupSupabaseBootstrap()).resolves.toEqual({
+      authState: "invalid_session",
+      session: null,
+      user: null,
+      hadStoredAccessToken: true,
+    });
+  });
+
   it("keeps invalid refresh token failures terminal", async () => {
     authGetSessionMock.mockResolvedValue({
       data: {

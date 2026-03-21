@@ -46,6 +46,8 @@ function SessionProbe() {
       <span data-testid="email">{session.user?.email ?? "anonymous"}</span>
       <span data-testid="auth-state">{session.authState}</span>
       <span data-testid="auth-initializing">{session.isAuthInitializing ? "yes" : "no"}</span>
+      <span data-testid="membership-count">{session.memberships.length}</span>
+      <span data-testid="membership-error">{session.membershipError ?? "none"}</span>
       {session.user ? null : <button type="button">Log in</button>}
     </div>
   );
@@ -597,6 +599,76 @@ describe("useAppSession", () => {
     // Retry should have been scheduled
     await waitFor(() => {
       expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("clears memberships and membershipError when a signed-in auth event seeds a different user", async () => {
+    const deferred = deferredPromise<AppSessionData>();
+    fetchAppSessionDataMock
+      .mockResolvedValueOnce({
+        user: {
+          id: "user-1",
+          email: "client@example.com",
+        } as AppSessionData["user"],
+        memberships: [
+          {
+            id: "membership-1",
+            role: "client",
+            organizationId: "org-1",
+            organizationName: "Client Org",
+            organizationSlug: "client-org",
+          },
+        ],
+        isVerifiedAuth: true,
+        authState: "authenticated",
+        membershipError: "Failed to load memberships",
+      })
+      .mockReturnValueOnce(deferred.promise);
+
+    renderProbe();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+      expect(screen.getByTestId("membership-error")).toHaveTextContent("Failed to load memberships");
+    });
+
+    act(() => {
+      authStateChangeCallbacks.forEach((callback) =>
+        callback("SIGNED_IN", {
+          access_token: "token-2",
+          refresh_token: "refresh-token-2",
+          expires_in: 3600,
+          token_type: "bearer",
+          user: {
+            id: "user-2",
+            email: "other@example.com",
+            app_metadata: {},
+            user_metadata: {},
+            aud: "authenticated",
+            created_at: "2026-03-11T00:00:00.000Z",
+          },
+        } as Session),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email")).toHaveTextContent("other@example.com");
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+      expect(screen.getByTestId("membership-count")).toHaveTextContent("0");
+      expect(screen.getByTestId("membership-error")).toHaveTextContent("none");
+    });
+
+    await act(async () => {
+      deferred.resolve({
+        user: {
+          id: "user-2",
+          email: "other@example.com",
+        } as AppSessionData["user"],
+        memberships: [],
+        isVerifiedAuth: true,
+        authState: "authenticated",
+      });
     });
   });
 

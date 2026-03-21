@@ -99,19 +99,12 @@ export function useAppSession() {
 
   const seedSessionFromSupabaseSession = useCallback(
     (session: Session, source: string) => {
-      const currentSession = queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
       queryClient.setQueryData<AppSessionData>(APP_SESSION_QUERY_KEY, (current) => ({
         user: session.user,
-        memberships:
-          current?.user?.id === session.user.id
-            ? current.memberships
-            : currentSession?.memberships ?? EMPTY_MEMBERSHIPS,
+        memberships: current?.user?.id === session.user.id ? current.memberships : EMPTY_MEMBERSHIPS,
         isVerifiedAuth: hasVerifiedAuth(session.user),
         authState: "authenticated",
-        membershipError:
-          current?.user?.id === session.user.id
-            ? current.membershipError
-            : currentSession?.membershipError ?? undefined,
+        membershipError: current?.user?.id === session.user.id ? current.membershipError : undefined,
       }));
       recordWorkspaceSessionDiagnostic(
         "info",

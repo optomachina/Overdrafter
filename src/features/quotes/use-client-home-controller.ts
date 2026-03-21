@@ -500,8 +500,10 @@ export function useClientHomeController() {
     user,
   ]);
 
+  const shouldWarmWorkspaceNavigation = Boolean(user) && authState === "authenticated" && !isLoading;
+
   useWarmClientWorkspaceNavigation({
-    enabled: hasWorkspaceAuthContext && !isLoading,
+    enabled: shouldWarmWorkspaceNavigation,
     canPrefetchProjects: !projectCollaborationUnavailable,
     projects: sidebarProjects,
     jobs: accessibleJobsQuery.data ?? [],

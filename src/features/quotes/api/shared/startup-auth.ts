@@ -48,7 +48,7 @@ type StartupSessionReadResult =
   | {
       status: "resolved";
       session: Session | null;
-      sessionErrorMessage: string | null;
+      sessionError: unknown | null;
       hadStoredAccessToken: boolean;
     }
   | {
@@ -244,7 +244,7 @@ async function readSupabaseSessionSnapshot(options: {
     return {
       status: "resolved",
       session,
-      sessionErrorMessage: error?.message ?? null,
+      sessionError: error ?? null,
       hadStoredAccessToken,
     };
   })();
@@ -341,7 +341,19 @@ async function readSupabaseBootstrap(options: {
     }
 
     if (!sessionRead.session) {
-      if (sessionRead.sessionErrorMessage && sessionRead.hadStoredAccessToken) {
+      if (
+        sessionRead.sessionError &&
+        (isDeletedAuthUserError(sessionRead.sessionError) || isInvalidRefreshTokenError(sessionRead.sessionError))
+      ) {
+        return {
+          authState: "invalid_session",
+          hadStoredAccessToken: sessionRead.hadStoredAccessToken,
+          session: null,
+          user: null,
+        };
+      }
+
+      if (sessionRead.sessionError && sessionRead.hadStoredAccessToken) {
         return {
           authState: "session_error",
           hadStoredAccessToken: sessionRead.hadStoredAccessToken,
