@@ -603,7 +603,7 @@ const ClientProject = () => {
           </div>
 
           {/* Stats row */}
-          <div className="grid grid-cols-4 gap-[10px]">
+          <div className="grid grid-cols-2 gap-[10px] md:grid-cols-4">
             <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
               <p className="mb-[4px] text-[11px] text-white/45">Total parts</p>
               <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{projectJobs.length}</p>
@@ -670,8 +670,17 @@ const ClientProject = () => {
                   return (
                     <div
                       key={job.id}
-                      className="grid grid-cols-[2fr_1fr_1fr_1fr_100px] border-b border-white/[0.04] px-[18px] py-[13px] last:border-0 items-center hover:bg-white/[0.02] cursor-pointer transition"
+                      className="grid grid-cols-[2fr_1fr_1fr_1fr_100px] border-b border-white/[0.04] px-[18px] py-[13px] last:border-0 items-center hover:bg-white/[0.02] cursor-pointer transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 focus-visible:ring-inset"
                       onClick={() => handleOpenJobDrawer(job.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          handleOpenJobDrawer(job.id);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Open ${presentation.title} line item`}
                     >
                       {/* Part column */}
                       <div className="min-w-0">

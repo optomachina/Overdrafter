@@ -136,8 +136,17 @@ const ClientHome = () => {
 
         {/* Drop zone */}
         <div
-          className="border-2 border-dashed border-white/[0.12] rounded-[24px] p-[50px_30px] text-center bg-black/[0.15] hover:border-white/[0.22] hover:bg-white/[0.02] cursor-pointer mb-[20px] transition"
+          className="border-2 border-dashed border-white/[0.12] rounded-[24px] p-[50px_30px] text-center bg-black/[0.15] hover:border-white/[0.22] hover:bg-white/[0.02] cursor-pointer mb-[20px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
           onClick={newJobFilePicker.openFilePicker}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              newJobFilePicker.openFilePicker();
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label="Upload files"
         >
           <UploadCloud className="h-9 w-9 opacity-50 mx-auto mb-[14px]" />
           <div className="text-[16px] font-semibold mb-[6px] text-white">Drop files here, or click to browse</div>
