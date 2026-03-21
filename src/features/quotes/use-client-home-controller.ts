@@ -92,6 +92,7 @@ export function useClientHomeController() {
   const memberships = appSession.memberships ?? [];
   const {
     user,
+    authState,
     activeMembership,
     isLoading,
     isVerifiedAuth,
@@ -99,6 +100,8 @@ export function useClientHomeController() {
     isAuthInitializing,
     membershipError,
   } = appSession;
+  const hasWorkspaceAuthContext =
+    Boolean(user) && authState !== "anonymous" && authState !== "invalid_session";
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRefreshingVerification, setIsRefreshingVerification] = useState(false);
@@ -124,7 +127,7 @@ export function useClientHomeController() {
     archivedJobsQuery,
     summariesByJobId,
   } = useClientWorkspaceData({
-    enabled: Boolean(user),
+    enabled: hasWorkspaceAuthContext,
     userId: user?.id,
     projectCollaborationUnavailable,
   });
@@ -497,8 +500,10 @@ export function useClientHomeController() {
     user,
   ]);
 
+  const shouldWarmWorkspaceNavigation = Boolean(user) && authState === "authenticated" && !isLoading;
+
   useWarmClientWorkspaceNavigation({
-    enabled: Boolean(user) && !isLoading,
+    enabled: shouldWarmWorkspaceNavigation,
     canPrefetchProjects: !projectCollaborationUnavailable,
     projects: sidebarProjects,
     jobs: accessibleJobsQuery.data ?? [],

@@ -323,7 +323,7 @@ describe("ClientHome auth flow", () => {
       user: null,
       memberships: [],
       isVerifiedAuth: false,
-      authState: "invalid_session",
+      authState: "session_error",
     });
   });
 

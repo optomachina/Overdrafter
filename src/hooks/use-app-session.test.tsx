@@ -46,6 +46,8 @@ function SessionProbe() {
       <span data-testid="email">{session.user?.email ?? "anonymous"}</span>
       <span data-testid="auth-state">{session.authState}</span>
       <span data-testid="auth-initializing">{session.isAuthInitializing ? "yes" : "no"}</span>
+      <span data-testid="membership-count">{session.memberships.length}</span>
+      <span data-testid="membership-error">{session.membershipError ?? "none"}</span>
       {session.user ? null : <button type="button">Log in</button>}
     </div>
   );
@@ -231,7 +233,7 @@ describe("useAppSession", () => {
     await waitFor(() => {
       expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
       expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
-      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
     });
     expect(screen.queryByRole("button", { name: "Log in" })).not.toBeInTheDocument();
 
@@ -278,7 +280,7 @@ describe("useAppSession", () => {
     });
   });
 
-  it("clears auth initialization after a stale stored token times out during startup", async () => {
+  it("does not clear local storage when a stored-token startup read times out", async () => {
     vi.useFakeTimers();
     const deferred = deferredPromise<AppSessionData>();
     const tokenKey = getSupabaseAuthStorageKey();
@@ -303,13 +305,11 @@ describe("useAppSession", () => {
         user: null,
         memberships: [],
         isVerifiedAuth: false,
-        authState: "invalid_session",
+        authState: "session_error",
       });
     });
 
-    await waitFor(() => {
-      expect(storageMock.getItem(tokenKey)).toBeNull();
-    });
+    expect(storageMock.getItem(tokenKey)).not.toBeNull();
   });
 
   it("does not report auth initialization for a cold anonymous startup without a local session", async () => {
@@ -326,6 +326,7 @@ describe("useAppSession", () => {
   });
 
   it("keeps the local session visible during startup session_error retries without restoring the gate", async () => {
+    const retryDeferred = deferredPromise<AppSessionData>();
     const localSession = {
       access_token: "token-1",
       refresh_token: "refresh-token-1",
@@ -352,7 +353,18 @@ describe("useAppSession", () => {
         isVerifiedAuth: false,
         authState: "session_error",
       })
-      .mockResolvedValueOnce({
+      .mockReturnValueOnce(retryDeferred.promise);
+    renderProbe();
+
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+    });
+
+    await act(async () => {
+      retryDeferred.resolve({
         user: localSession.user as AppSessionData["user"],
         memberships: [
           {
@@ -366,22 +378,15 @@ describe("useAppSession", () => {
         isVerifiedAuth: true,
         authState: "authenticated",
       });
-
-    renderProbe();
-
-    await waitFor(() => {
-      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
-      expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
-      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
     });
 
     await waitFor(() => {
-      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
       expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
     });
   });
 
   it("keeps the local session visible during startup membership retries without restoring the gate", async () => {
+    const retryDeferred = deferredPromise<AppSessionData>();
     const localSession = {
       access_token: "token-1",
       refresh_token: "refresh-token-1",
@@ -409,7 +414,18 @@ describe("useAppSession", () => {
         authState: "authenticated",
         membershipError: "temporary membership fetch failure",
       })
-      .mockResolvedValueOnce({
+      .mockReturnValueOnce(retryDeferred.promise);
+
+    renderProbe();
+
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+    });
+
+    await act(async () => {
+      retryDeferred.resolve({
         user: localSession.user as AppSessionData["user"],
         memberships: [
           {
@@ -423,16 +439,9 @@ describe("useAppSession", () => {
         isVerifiedAuth: true,
         authState: "authenticated",
       });
-
-    renderProbe();
-
-    await waitFor(() => {
-      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
-      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
     });
 
     await waitFor(() => {
-      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
       expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
     });
   });
@@ -590,6 +599,76 @@ describe("useAppSession", () => {
     // Retry should have been scheduled
     await waitFor(() => {
       expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("clears memberships and membershipError when a signed-in auth event seeds a different user", async () => {
+    const deferred = deferredPromise<AppSessionData>();
+    fetchAppSessionDataMock
+      .mockResolvedValueOnce({
+        user: {
+          id: "user-1",
+          email: "client@example.com",
+        } as AppSessionData["user"],
+        memberships: [
+          {
+            id: "membership-1",
+            role: "client",
+            organizationId: "org-1",
+            organizationName: "Client Org",
+            organizationSlug: "client-org",
+          },
+        ],
+        isVerifiedAuth: true,
+        authState: "authenticated",
+        membershipError: "Failed to load memberships",
+      })
+      .mockReturnValueOnce(deferred.promise);
+
+    renderProbe();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
+      expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+      expect(screen.getByTestId("membership-error")).toHaveTextContent("Failed to load memberships");
+    });
+
+    act(() => {
+      authStateChangeCallbacks.forEach((callback) =>
+        callback("SIGNED_IN", {
+          access_token: "token-2",
+          refresh_token: "refresh-token-2",
+          expires_in: 3600,
+          token_type: "bearer",
+          user: {
+            id: "user-2",
+            email: "other@example.com",
+            app_metadata: {},
+            user_metadata: {},
+            aud: "authenticated",
+            created_at: "2026-03-11T00:00:00.000Z",
+          },
+        } as Session),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email")).toHaveTextContent("other@example.com");
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+      expect(screen.getByTestId("membership-count")).toHaveTextContent("0");
+      expect(screen.getByTestId("membership-error")).toHaveTextContent("none");
+    });
+
+    await act(async () => {
+      deferred.resolve({
+        user: {
+          id: "user-2",
+          email: "other@example.com",
+        } as AppSessionData["user"],
+        memberships: [],
+        isVerifiedAuth: true,
+        authState: "authenticated",
+      });
     });
   });
 

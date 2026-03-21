@@ -77,6 +77,21 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
   }
 
   if (bootstrap.authState === "session_error") {
+    recordWorkspaceSessionDiagnostic(
+      "warn",
+      "session-api.fetch.session-error",
+      "Auth bootstrap returned a transient or ambiguous session state.",
+      {
+        hadStoredAccessToken: bootstrap.hadStoredAccessToken,
+        hasBootstrapSession: Boolean(bootstrap.session),
+        bootstrapUserId: bootstrap.session?.user?.id ?? null,
+      },
+    );
+  }
+
+  const user = bootstrap.user ?? bootstrap.session?.user ?? null;
+
+  if (!user) {
     const session: AppSessionData = {
       user: null,
       memberships: [],
@@ -86,8 +101,6 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
     emitSessionPayloadDiagnostic(session, "session-api.fetch.session-error");
     return session;
   }
-
-  const user = bootstrap.user;
 
   const membershipQuery = supabase
     .from("organization_memberships")
