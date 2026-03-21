@@ -1,4 +1,4 @@
-Remove the prompt text once each section is filled. Pull requests are validated for missing required sections and obvious leftover template placeholders. For Codex-driven work, prefer generating the body with `npm run render:pr-body -- <path-to-json>` and use `gh pr create --body-file` or `gh pr edit --body-file` instead of opening a blank PR first.
+Remove the prompt text once each section is filled. Keep the PR description concrete and aligned with the actual diff. For Codex-driven work, `npm run render:pr-body -- <path-to-json>` and `npm run validate:pr-body` remain available as optional helpers when a structured PR body is useful.
 
 ## Summary
 

@@ -20,26 +20,6 @@ permissions:
   contents: read
 
 jobs:
-  validate-pr-body:
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Validate PR body
-        env:
-          PR_BODY: ${{ github.event.pull_request.body || '' }}
-        run: |
-          printf '%s' "$PR_BODY" | npm run validate:pr-body -- --stdin
-
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -152,7 +132,6 @@ jobs:
     name: ci
     if: ${{ always() }}
     needs:
-      - validate-pr-body
       - lint
       - typecheck
       - test
@@ -164,22 +143,19 @@ jobs:
     steps:
       - name: Check dependency results
         env:
-          PR_BODY_RESULT: ${{ needs.validate-pr-body.result }}
           LINT_RESULT: ${{ needs.lint.result }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
           TEST_RESULT: ${{ needs.test.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           WORKER_RESULT: ${{ needs.verify-worker.result }}
         run: |
-          echo "validate-pr-body=$PR_BODY_RESULT"
           echo "lint=$LINT_RESULT"
           echo "typecheck=$TYPECHECK_RESULT"
           echo "test=$TEST_RESULT"
           echo "build=$BUILD_RESULT"
           echo "verify-worker=$WORKER_RESULT"
 
-          if { [ "$PR_BODY_RESULT" != "success" ] && [ "$PR_BODY_RESULT" != "skipped" ]; } || \
-             [ "$LINT_RESULT" != "success" ] || \
+          if [ "$LINT_RESULT" != "success" ] || \
              [ "$TYPECHECK_RESULT" != "success" ] || \
              [ "$TEST_RESULT" != "success" ] || \
              [ "$BUILD_RESULT" != "success" ] || \
