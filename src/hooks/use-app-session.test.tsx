@@ -231,7 +231,7 @@ describe("useAppSession", () => {
     await waitFor(() => {
       expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
       expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
-      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
     });
     expect(screen.queryByRole("button", { name: "Log in" })).not.toBeInTheDocument();
 
@@ -296,6 +296,8 @@ describe("useAppSession", () => {
 
     expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
 
+    vi.useRealTimers();
+
     await act(async () => {
       deferred.resolve({
         user: null,
@@ -303,10 +305,11 @@ describe("useAppSession", () => {
         isVerifiedAuth: false,
         authState: "invalid_session",
       });
-      await Promise.resolve();
     });
 
-    expect(storageMock.getItem(tokenKey)).toBeNull();
+    await waitFor(() => {
+      expect(storageMock.getItem(tokenKey)).toBeNull();
+    });
   });
 
   it("does not report auth initialization for a cold anonymous startup without a local session", async () => {

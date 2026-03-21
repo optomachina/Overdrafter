@@ -5,7 +5,7 @@ import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagno
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import type { PostgrestResponse } from "@supabase/supabase-js";
-import { readStartupSupabaseBootstrap } from "./shared/startup-auth";
+import { readLiveSupabaseBootstrap } from "./shared/startup-auth";
 
 type MembershipJoinRow = {
   id: string;
@@ -41,7 +41,7 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
     return session;
   }
 
-  const bootstrap = await readStartupSupabaseBootstrap();
+  const bootstrap = await readLiveSupabaseBootstrap();
   const hasLocalSession = bootstrap.session !== null;
   recordWorkspaceSessionDiagnostic(
     "info",

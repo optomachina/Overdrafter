@@ -2847,6 +2847,75 @@ describe("quotes api helpers", () => {
     });
   });
 
+  it("reads live auth state on later app-session fetches instead of reusing the startup snapshot", async () => {
+    supabaseMock.authGetSession
+      .mockResolvedValueOnce({
+        data: { session: null },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: {
+          session: {
+            access_token: "token-2",
+            user: {
+              id: "user-2",
+              email: "client@example.com",
+            },
+          },
+        },
+        error: null,
+      });
+    supabaseMock.authGetUser.mockResolvedValueOnce({
+      data: {
+        user: {
+          id: "user-2",
+          email: "client@example.com",
+        },
+      },
+      error: null,
+    });
+    supabaseMock.membershipsOrder.mockResolvedValueOnce({
+      data: [
+        {
+          id: "membership-1",
+          organization_id: "org-1",
+          role: "client",
+          organizations: {
+            id: "org-1",
+            name: "Client Org",
+            slug: "client-org",
+          },
+        },
+      ],
+      error: null,
+    });
+
+    await expect(fetchAppSessionData()).resolves.toEqual({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "anonymous",
+    });
+
+    await expect(fetchAppSessionData()).resolves.toEqual({
+      user: {
+        id: "user-2",
+        email: "client@example.com",
+      },
+      memberships: [
+        {
+          id: "membership-1",
+          role: "client",
+          organizationId: "org-1",
+          organizationName: "Client Org",
+          organizationSlug: "client-org",
+        },
+      ],
+      isVerifiedAuth: false,
+      authState: "authenticated",
+    });
+  });
+
   it("returns an invalid session when startup getSession times out with a stored access token", async () => {
     window.localStorage.setItem(
       getSupabaseAuthStorageKey(),
