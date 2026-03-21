@@ -49,7 +49,6 @@ import { useClientProjectController } from "@/features/quotes/use-client-project
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {
   buildClientWorkspaceState,
-  summarizeClientWorkspaceStates,
 } from "@/features/quotes/client-workspace-state";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import { formatStatusLabel, normalizeDrawingExtraction } from "@/features/quotes/utils";
@@ -180,10 +179,6 @@ const ClientProject = () => {
       ),
     [optionsByJobId, projectJobs, requestDraftsByJobId, selectedOptionsByJobId, summariesByJobId, workspaceItemsByJobId],
   );
-  const projectStateSummary = useMemo(
-    () => summarizeClientWorkspaceStates(Array.from(workspaceStatesByJobId.values())),
-    [workspaceStatesByJobId],
-  );
   const focusedWorkspaceState = focusedJob ? workspaceStatesByJobId.get(focusedJob.id) ?? null : null;
   const quoteRequestViewModelsByJobId = useMemo(
     () =>
@@ -207,6 +202,52 @@ const ClientProject = () => {
   const focusedQuoteRequestViewModel = focusedJob
     ? quoteRequestViewModelsByJobId.get(focusedJob.id) ?? null
     : null;
+  const projectRequestableJobIds = useMemo(
+    () =>
+      projectJobs
+        .map((job) => [job.id, quoteRequestViewModelsByJobId.get(job.id) ?? null] as const)
+        .filter(
+          (entry): entry is readonly [string, NonNullable<typeof entry[1]>] =>
+            Boolean(entry[1]) &&
+            entry[1]!.action.kind === "request" &&
+            !entry[1]!.action.disabled,
+        )
+        .map(([jobId]) => jobId),
+    [projectJobs, quoteRequestViewModelsByJobId],
+  );
+  const projectQuoteRequestSummary = useMemo(
+    () =>
+      Array.from(quoteRequestViewModelsByJobId.values()).reduce(
+        (summary, model) => {
+          switch (model.status) {
+            case "queued":
+            case "requesting":
+              summary.requesting += 1;
+              break;
+            case "received":
+              summary.received += 1;
+              break;
+            case "failed":
+            case "canceled":
+              summary.needsAttention += 1;
+              break;
+            case "not_requested":
+            default:
+              summary.notRequested += 1;
+              break;
+          }
+
+          return summary;
+        },
+        {
+          received: 0,
+          requesting: 0,
+          notRequested: 0,
+          needsAttention: 0,
+        },
+      ),
+    [quoteRequestViewModelsByJobId],
+  );
   const focusedExtraction =
     focusedWorkspaceItem?.part ? normalizeDrawingExtraction(focusedWorkspaceItem.part.extraction, focusedWorkspaceItem.part.id) : null;
 
@@ -501,28 +542,55 @@ const ClientProject = () => {
             <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-white">
               {projectQuery.data?.name ?? "Project"}
             </h1>
+            <p className="mt-2 text-sm text-white/55">
+              Scan and manage parts across this project. Select a line item to inspect its artifacts and quotes.
+            </p>
 
             {/* Status badge row */}
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              {projectStateSummary.ready > 0 && (
+              {projectQuoteRequestSummary.received > 0 && (
                 <Badge className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">
-                  Quoted: {projectStateSummary.ready}
+                  Quoted: {projectQuoteRequestSummary.received}
                 </Badge>
               )}
-              {projectStateSummary.warning > 0 && (
+              {projectQuoteRequestSummary.requesting > 0 && (
                 <Badge className="border border-amber-400/20 bg-amber-500/10 text-amber-100">
-                  Requesting: {projectStateSummary.warning}
+                  Requesting: {projectQuoteRequestSummary.requesting}
                 </Badge>
               )}
-              {projectStateSummary.blocked > 0 && (
+              {projectQuoteRequestSummary.notRequested > 0 && (
                 <Badge className="border border-white/10 bg-white/6 text-white/70">
-                  Not started: {projectStateSummary.blocked}
+                  Not requested: {projectQuoteRequestSummary.notRequested}
+                </Badge>
+              )}
+              {projectQuoteRequestSummary.needsAttention > 0 && (
+                <Badge className="border border-rose-400/20 bg-rose-500/10 text-rose-100">
+                  Needs attention: {projectQuoteRequestSummary.needsAttention}
                 </Badge>
               )}
             </div>
 
             {/* Header actions */}
             <div className="mt-4 flex flex-wrap items-center gap-2">
+              {!projectCollaborationUnavailable ? (
+                <Button type="button" className="rounded-full" onClick={() => setShowAddPart(true)}>
+                  <ArrowRight className="mr-2 h-4 w-4" />
+                  Add parts
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                className="rounded-full"
+                disabled={requestProjectQuotesMutation.isPending || projectRequestableJobIds.length === 0}
+                onClick={() => {
+                  void handleRequestProjectQuotes(projectRequestableJobIds);
+                }}
+              >
+                {requestProjectQuotesMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {projectRequestableJobIds.length > 0
+                  ? `Request ${projectRequestableJobIds.length} quote${projectRequestableJobIds.length === 1 ? "" : "s"}`
+                  : "Request quotes"}
+              </Button>
               <Button
                 type="button"
                 variant="outline"
@@ -531,12 +599,6 @@ const ClientProject = () => {
               >
                 Share
               </Button>
-              {!projectCollaborationUnavailable ? (
-                <Button type="button" className="rounded-full" onClick={() => setShowAddPart(true)}>
-                  <ArrowRight className="mr-2 h-4 w-4" />
-                  Add parts
-                </Button>
-              ) : null}
             </div>
           </div>
 
@@ -548,15 +610,15 @@ const ClientProject = () => {
             </div>
             <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
               <p className="mb-[4px] text-[11px] text-white/45">Quoted</p>
-              <p className="text-[24px] font-bold tracking-[-0.02em] text-emerald-400">{projectStateSummary.ready}</p>
+              <p className="text-[24px] font-bold tracking-[-0.02em] text-emerald-400">{projectQuoteRequestSummary.received}</p>
             </div>
             <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
-              <p className="mb-[4px] text-[11px] text-white/45">In progress</p>
-              <p className="text-[24px] font-bold tracking-[-0.02em] text-amber-400">{projectStateSummary.warning}</p>
+              <p className="mb-[4px] text-[11px] text-white/45">Requesting</p>
+              <p className="text-[24px] font-bold tracking-[-0.02em] text-amber-400">{projectQuoteRequestSummary.requesting}</p>
             </div>
             <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
-              <p className="mb-[4px] text-[11px] text-white/45">Not started</p>
-              <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{projectStateSummary.blocked}</p>
+              <p className="mb-[4px] text-[11px] text-white/45">Not requested</p>
+              <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{projectQuoteRequestSummary.notRequested}</p>
             </div>
           </div>
 
@@ -582,10 +644,7 @@ const ClientProject = () => {
                   const workspaceItem = workspaceItemsByJobId.get(job.id) ?? null;
                   const summary = workspaceItem?.summary ?? summariesByJobId.get(job.id) ?? null;
                   const presentation = getClientItemPresentation(job, summary);
-                  const workspaceState = workspaceStatesByJobId.get(job.id) ?? null;
-
-                  const isQuoted = workspaceState?.tone === "ready";
-                  const isRequesting = workspaceState?.tone === "warning";
+                  const quoteRequestViewModel = quoteRequestViewModelsByJobId.get(job.id) ?? null;
 
                   const fileType = workspaceItem?.part?.cadFile
                     ? "STEP/SLDPRT"
@@ -594,6 +653,19 @@ const ClientProject = () => {
                       : "Unknown";
                   const revision = summary?.revision ?? "—";
                   const quantity = summary?.quantity ?? "—";
+                  const quoteStatusLabel = quoteRequestViewModel?.label ?? formatStatusLabel(job.status);
+                  const quoteStatusClassName =
+                    quoteRequestViewModel?.status === "received"
+                      ? "border border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
+                      : quoteRequestViewModel?.status === "queued" || quoteRequestViewModel?.status === "requesting"
+                        ? "border border-amber-400/20 bg-amber-500/10 text-amber-100"
+                        : quoteRequestViewModel?.status === "failed" || quoteRequestViewModel?.status === "canceled"
+                          ? "border border-rose-400/20 bg-rose-500/10 text-rose-100"
+                          : "border border-white/10 bg-white/6 text-white/70";
+                  const canTriggerRequest =
+                    quoteRequestViewModel &&
+                    !quoteRequestViewModel.action.disabled &&
+                    (quoteRequestViewModel.action.kind === "request" || quoteRequestViewModel.action.kind === "retry");
 
                   return (
                     <div
@@ -617,24 +689,27 @@ const ClientProject = () => {
 
                       {/* Quote status badge */}
                       <div>
-                        {isQuoted ? (
-                          <Badge className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">
-                            Quoted
-                          </Badge>
-                        ) : isRequesting ? (
-                          <Badge className="border border-amber-400/20 bg-amber-500/10 text-amber-100">
-                            Requesting
-                          </Badge>
-                        ) : (
-                          <Badge className="border border-white/10 bg-white/6 text-white/70">
-                            Not started
-                          </Badge>
-                        )}
+                        <Badge className={quoteStatusClassName}>{quoteStatusLabel}</Badge>
                       </div>
 
                       {/* Action button */}
                       <div className="text-right">
-                        {isQuoted || isRequesting ? (
+                        {canTriggerRequest ? (
+                          <Button
+                            type="button"
+                            className="rounded-[6px] h-auto px-2 py-1 text-xs"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleRequestProjectQuotes(
+                                [job.id],
+                                quoteRequestViewModel.action.kind === "retry",
+                              );
+                            }}
+                          >
+                            {quoteRequestViewModel.action.kind === "retry" ? "Retry" : "Request"}
+                            <ArrowRight className="ml-1 h-3 w-3" />
+                          </Button>
+                        ) : (
                           <Button
                             type="button"
                             variant="outline"
@@ -645,17 +720,6 @@ const ClientProject = () => {
                             }}
                           >
                             View <ArrowRight className="ml-1 h-3 w-3" />
-                          </Button>
-                        ) : (
-                          <Button
-                            type="button"
-                            className="rounded-[6px] h-auto px-2 py-1 text-xs"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void handleRequestProjectQuotes([job.id]);
-                            }}
-                          >
-                            Request <ArrowRight className="ml-1 h-3 w-3" />
                           </Button>
                         )}
                       </div>
