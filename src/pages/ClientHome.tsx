@@ -1,7 +1,6 @@
 import { PlusSquare, Search, Upload } from "lucide-react";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
-import { GuestSidebarCta } from "@/components/chat/GuestSidebarCta";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { SignInDialog } from "@/components/SignInDialog";
@@ -414,6 +413,7 @@ const ClientHome = () => {
   return (
     <>
       <ClientWorkspaceShell
+        showSidebar={Boolean(user)}
         onLogoClick={() => navigate("/")}
         topRightContent={
           user ? null : (
@@ -517,9 +517,7 @@ const ClientHome = () => {
               onUnarchivePart={handleUnarchivePart}
               onDeleteArchivedParts={handleDeleteArchivedParts}
             />
-          ) : (
-            <GuestSidebarCta onLogIn={() => openAuth("signin")} />
-          )
+          ) : null
         }
       >
         {user ? renderSignedInContent() : renderAnonymousContent()}

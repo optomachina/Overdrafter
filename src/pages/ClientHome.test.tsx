@@ -7,17 +7,19 @@ import ClientHome from "./ClientHome";
 vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
   ClientWorkspaceShell: ({
     children,
+    showSidebar = true,
     sidebarContent,
     sidebarFooter,
   }: {
     children: ReactNode;
+    showSidebar?: boolean;
     sidebarContent?: ReactNode;
     sidebarFooter?: ReactNode;
   }) => (
     <div>
-      <div>{sidebarContent}</div>
+      {showSidebar ? <div>{sidebarContent}</div> : null}
       <div>{children}</div>
-      <div>{sidebarFooter}</div>
+      {showSidebar ? <div>{sidebarFooter}</div> : null}
     </div>
   ),
 }));
@@ -150,5 +152,6 @@ describe("ClientHome", () => {
     expect(screen.getByText("Recent parts")).toBeInTheDocument();
     expect(screen.getByText("Q1 Brackets")).toBeInTheDocument();
     expect(screen.getByText("BRKT-001 rev A")).toBeInTheDocument();
+    expect(screen.getByText("Sidebar")).toBeInTheDocument();
   });
 });

@@ -84,11 +84,13 @@ vi.mock("react-router-dom", async (importOriginal) => {
 
 vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
   ClientWorkspaceShell: ({
+    showSidebar = true,
     topRightContent,
     sidebarContent,
     sidebarFooter,
     children,
   }: {
+    showSidebar?: boolean;
     topRightContent?: React.ReactNode;
     sidebarContent?: React.ReactNode;
     sidebarFooter?: React.ReactNode;
@@ -96,9 +98,9 @@ vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
   }) => (
     <div>
       <div data-testid="top-right">{topRightContent}</div>
-      <div data-testid="sidebar">{sidebarContent}</div>
+      {showSidebar ? <div data-testid="sidebar">{sidebarContent}</div> : null}
       <div data-testid="content">{children}</div>
-      <div data-testid="sidebar-footer">{sidebarFooter}</div>
+      {showSidebar ? <div data-testid="sidebar-footer">{sidebarFooter}</div> : null}
     </div>
   ),
 }));
@@ -241,6 +243,8 @@ function expectGuestLandingVisible() {
   expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: /how it works/i })).toBeInTheDocument();
   expect(screen.getAllByRole("button", { name: /^log in$/i }).length).toBeGreaterThanOrEqual(2);
+  expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
+  expect(screen.queryByTestId("sidebar-footer")).not.toBeInTheDocument();
 }
 
 describe("ClientHome auth flow", () => {
