@@ -2916,7 +2916,7 @@ describe("quotes api helpers", () => {
     });
   });
 
-  it("returns an invalid session when startup getSession times out with a stored access token", async () => {
+  it("does not treat a stored-token startup getSession timeout as invalid_session", async () => {
     window.localStorage.setItem(
       getSupabaseAuthStorageKey(),
       JSON.stringify({ access_token: "token-1" }),
@@ -2930,7 +2930,7 @@ describe("quotes api helpers", () => {
       user: null,
       memberships: [],
       isVerifiedAuth: false,
-      authState: "invalid_session",
+      authState: "session_error",
     });
   });
 
@@ -2948,7 +2948,22 @@ describe("quotes api helpers", () => {
     });
   });
 
-  it("returns session_error when getUser fails while a local session is present", async () => {
+  it("preserves authenticated context when getUser fails while a local session is present", async () => {
+    supabaseMock.membershipsOrder.mockResolvedValueOnce({
+      data: [
+        {
+          id: "membership-1",
+          organization_id: "org-123",
+          role: "client",
+          organizations: {
+            id: "org-123",
+            name: "Acme",
+            slug: "acme",
+          },
+        },
+      ],
+      error: null,
+    });
     supabaseMock.authGetUser.mockResolvedValue({
       data: { user: null },
       error: {
@@ -2958,10 +2973,59 @@ describe("quotes api helpers", () => {
     });
 
     await expect(fetchAppSessionData()).resolves.toEqual({
-      user: null,
-      memberships: [],
+      user: {
+        id: "user-1",
+      },
+      memberships: [
+        {
+          id: "membership-1",
+          role: "client",
+          organizationId: "org-123",
+          organizationName: "Acme",
+          organizationSlug: "acme",
+        },
+      ],
       isVerifiedAuth: false,
-      authState: "session_error",
+      authState: "authenticated",
+    });
+  });
+
+  it("preserves authenticated context when getUser stalls after getSession succeeds", async () => {
+    supabaseMock.membershipsOrder.mockResolvedValueOnce({
+      data: [
+        {
+          id: "membership-1",
+          organization_id: "org-123",
+          role: "client",
+          organizations: {
+            id: "org-123",
+            name: "Acme",
+            slug: "acme",
+          },
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.authGetUser.mockReturnValueOnce(new Promise(() => undefined));
+
+    const sessionPromise = fetchAppSessionData();
+    await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS);
+
+    await expect(sessionPromise).resolves.toEqual({
+      user: {
+        id: "user-1",
+      },
+      memberships: [
+        {
+          id: "membership-1",
+          role: "client",
+          organizationId: "org-123",
+          organizationName: "Acme",
+          organizationSlug: "acme",
+        },
+      ],
+      isVerifiedAuth: false,
+      authState: "authenticated",
     });
   });
 

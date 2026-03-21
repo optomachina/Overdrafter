@@ -9,7 +9,7 @@ import { isDeletedAuthUserError, isInvalidRefreshTokenError } from "./schema-err
  *
  * Timed-out reads are classified as:
  * - `anonymous` when no persisted browser access token exists
- * - `invalid_session` when a persisted browser access token exists
+ * - `session_error` when a persisted browser access token exists
  */
 export const STARTUP_AUTH_TIMEOUT_MS = 5_000;
 
@@ -17,7 +17,7 @@ type SupabaseAuthSessionStorage = {
   access_token?: string;
 };
 
-type TimeoutClassification = "anonymous" | "invalid_session";
+type TimeoutClassification = "anonymous" | "session_error";
 
 type TimedResult<T> =
   | {
@@ -70,7 +70,7 @@ type StartupUserReadResult =
     }
   | {
       status: "timed_out";
-      authState: TimeoutClassification;
+      authState: "session_error";
       hadStoredAccessToken: boolean;
     };
 
@@ -99,7 +99,7 @@ type StartupAuthBootstrapResult =
   | {
       authState: "session_error";
       hadStoredAccessToken: boolean;
-      session: Session;
+      session: Session | null;
       user: null;
     }
   | {
@@ -169,7 +169,7 @@ export function removeStoredSupabaseSession() {
 }
 
 function classifyTimeout(hadStoredAccessToken: boolean): TimeoutClassification {
-  return hadStoredAccessToken ? "invalid_session" : "anonymous";
+  return hadStoredAccessToken ? "session_error" : "anonymous";
 }
 
 function withStartupTimeout<T>(promise: Promise<T>): Promise<TimedResult<T>> {
@@ -270,7 +270,7 @@ async function readSupabaseUserSnapshot(
     const result = await withStartupTimeout(supabase.auth.getUser());
 
     if (!isResolvedTimedResult(result)) {
-      const authState = classifyTimeout(hadStoredAccessToken);
+      const authState: TimeoutClassification = "session_error";
       recordWorkspaceSessionDiagnostic(
         "warn",
         "startup-auth.get-user.timeout",
@@ -341,6 +341,15 @@ async function readSupabaseBootstrap(options: {
     }
 
     if (!sessionRead.session) {
+      if (sessionRead.sessionErrorMessage && sessionRead.hadStoredAccessToken) {
+        return {
+          authState: "session_error",
+          hadStoredAccessToken: sessionRead.hadStoredAccessToken,
+          session: null,
+          user: null,
+        };
+      }
+
       return {
         authState: "anonymous",
         hadStoredAccessToken: sessionRead.hadStoredAccessToken,
@@ -357,7 +366,7 @@ async function readSupabaseBootstrap(options: {
       return {
         authState: userRead.authState,
         hadStoredAccessToken: userRead.hadStoredAccessToken,
-        session: null,
+        session: sessionRead.session,
         user: null,
       };
     }

@@ -60,7 +60,7 @@ describe("startup auth helpers", () => {
     vi.unstubAllEnvs();
   });
 
-  it("classifies a stored-token getSession timeout as invalid_session", async () => {
+  it("classifies a stored-token getSession timeout as session_error without clearing auth context", async () => {
     storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: "token-1" }));
     authGetSessionMock.mockReturnValue(new Promise(() => undefined));
 
@@ -68,7 +68,7 @@ describe("startup auth helpers", () => {
     await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS);
 
     await expect(readPromise).resolves.toEqual({
-      authState: "invalid_session",
+      authState: "session_error",
       session: null,
       user: null,
       hadStoredAccessToken: true,
@@ -89,7 +89,7 @@ describe("startup auth helpers", () => {
     });
   });
 
-  it("classifies a stored-token getUser timeout as invalid_session", async () => {
+  it("classifies a stored-token getUser timeout as session_error and preserves the resolved session", async () => {
     storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: "token-1" }));
     authGetSessionMock.mockResolvedValue({
       data: {
@@ -115,11 +115,89 @@ describe("startup auth helpers", () => {
     const readPromise = readStartupSupabaseBootstrap();
     await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS);
 
-    await expect(readPromise).resolves.toEqual({
+    await expect(readPromise).resolves.toMatchObject({
+      authState: "session_error",
+      session: expect.objectContaining({
+        access_token: "token-1",
+        user: expect.objectContaining({
+          id: "user-1",
+        }),
+      }),
+      user: null,
+      hadStoredAccessToken: true,
+    });
+  });
+
+  it("keeps invalid refresh token failures terminal", async () => {
+    authGetSessionMock.mockResolvedValue({
+      data: {
+        session: {
+          access_token: "token-1",
+          refresh_token: "refresh-token-1",
+          expires_in: 3600,
+          token_type: "bearer",
+          user: {
+            id: "user-1",
+            email: "client@example.com",
+            app_metadata: {},
+            user_metadata: {},
+            aud: "authenticated",
+            created_at: "2026-03-20T00:00:00.000Z",
+          },
+        },
+      },
+      error: null,
+    });
+    authGetUserMock.mockResolvedValue({
+      data: { user: null },
+      error: {
+        name: "AuthApiError",
+        message: "Invalid Refresh Token: Refresh Token Not Found",
+      },
+    });
+
+    await expect(readStartupSupabaseBootstrap()).resolves.toEqual({
       authState: "invalid_session",
       session: null,
       user: null,
-      hadStoredAccessToken: true,
+      hadStoredAccessToken: false,
+    });
+  });
+
+  it("keeps deleted-user failures terminal", async () => {
+    authGetSessionMock.mockResolvedValue({
+      data: {
+        session: {
+          access_token: "token-1",
+          refresh_token: "refresh-token-1",
+          expires_in: 3600,
+          token_type: "bearer",
+          user: {
+            id: "user-1",
+            email: "client@example.com",
+            app_metadata: {},
+            user_metadata: {},
+            aud: "authenticated",
+            created_at: "2026-03-20T00:00:00.000Z",
+          },
+        },
+      },
+      error: null,
+    });
+    authGetUserMock.mockResolvedValue({
+      data: { user: null },
+      error: {
+        code: "user_not_found",
+        message: "User from sub claim in JWT does not exist",
+        name: "AuthApiError",
+      },
+    });
+
+    await expect(readStartupSupabaseBootstrap()).resolves.toEqual({
+      authState: "invalid_session",
+      session: null,
+      user: null,
+      hadStoredAccessToken: false,
     });
   });
 

@@ -17,6 +17,8 @@ const onAuthStateChangeMock = vi.fn();
 const getSessionMock = vi.fn();
 const adminSignOutMock = vi.fn();
 const getUserMock = vi.fn();
+const useClientWorkspaceDataMock = vi.fn();
+const useWarmClientWorkspaceNavigationMock = vi.fn();
 let authStateChangeCallbacks: Array<(event: string, session: Session | null) => void> = [];
 
 vi.mock("@/features/quotes/api/session-access", () => ({
@@ -98,7 +100,12 @@ vi.mock("@/features/quotes/archive-delete-errors", () => ({
 
 vi.mock("@/features/quotes/use-client-workspace-data", () => ({
   invalidateClientWorkspaceQueries: (...args: unknown[]) => invalidateClientWorkspaceQueriesMock(...args),
-  useClientWorkspaceData: vi.fn(() => ({
+  useClientWorkspaceData: (...args: unknown[]) => useClientWorkspaceDataMock(...args),
+  useWarmClientWorkspaceNavigation: (...args: unknown[]) => useWarmClientWorkspaceNavigationMock(...args),
+}));
+
+function createWorkspaceDataResult() {
+  return {
     accessibleProjectsQuery: { data: [], isLoading: false },
     accessibleJobsQuery: { data: [], isLoading: false },
     accessibleJobIds: [],
@@ -109,9 +116,8 @@ vi.mock("@/features/quotes/use-client-workspace-data", () => ({
     archivedProjectsQuery: { data: [], isLoading: false },
     archivedJobsQuery: { data: [], isLoading: false },
     summariesByJobId: new Map(),
-  })),
-  useWarmClientWorkspaceNavigation: vi.fn(),
-}));
+  };
+}
 
 vi.mock("@/features/quotes/workspace-navigation", () => ({
   WORKSPACE_SHARED_STALE_TIME_MS: 30_000,
@@ -187,6 +193,8 @@ function emitSignedInAuthEvent() {
 describe("useClientHomeController membership recovery", () => {
   beforeEach(() => {
     authStateChangeCallbacks = [];
+    useClientWorkspaceDataMock.mockImplementation(() => createWorkspaceDataResult());
+    useWarmClientWorkspaceNavigationMock.mockImplementation(() => undefined);
     getSessionMock.mockResolvedValue({
       data: {
         session: {
@@ -342,4 +350,50 @@ describe("useClientHomeController membership recovery", () => {
     expect(createJobsFromUploadFilesMock).not.toHaveBeenCalled();
     unmount();
   }, 10_000);
+
+  it("keeps workspace queries enabled while a signed-in session is retried through session_error", async () => {
+    const localSession = createSessionData({
+      memberships: [
+        {
+          id: "membership-1",
+          role: "client",
+          organizationId: "org-1",
+          organizationName: "Client Org",
+          organizationSlug: "client-org",
+        },
+      ],
+    });
+
+    fetchAppSessionDataMock
+      .mockResolvedValueOnce({
+        user: null,
+        memberships: [],
+        isVerifiedAuth: false,
+        authState: "anonymous",
+      })
+      .mockResolvedValueOnce({
+        user: null,
+        memberships: [],
+        isVerifiedAuth: false,
+        authState: "session_error",
+      })
+      .mockResolvedValueOnce(localSession);
+
+    const { unmount } = renderHook(() => useClientHomeController(), {
+      wrapper: createWrapper(),
+    });
+
+    emitSignedInAuthEvent();
+
+    await waitFor(() => {
+      expect(useClientWorkspaceDataMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          enabled: true,
+          userId: "user-1",
+        }),
+      );
+    });
+
+    unmount();
+  });
 });

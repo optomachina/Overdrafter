@@ -231,7 +231,7 @@ describe("useAppSession", () => {
     await waitFor(() => {
       expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
       expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
-      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
     });
     expect(screen.queryByRole("button", { name: "Log in" })).not.toBeInTheDocument();
 
@@ -278,7 +278,7 @@ describe("useAppSession", () => {
     });
   });
 
-  it("clears auth initialization after a stale stored token times out during startup", async () => {
+  it("does not clear local storage when a stored-token startup read times out", async () => {
     vi.useFakeTimers();
     const deferred = deferredPromise<AppSessionData>();
     const tokenKey = getSupabaseAuthStorageKey();
@@ -303,13 +303,11 @@ describe("useAppSession", () => {
         user: null,
         memberships: [],
         isVerifiedAuth: false,
-        authState: "invalid_session",
+        authState: "session_error",
       });
     });
 
-    await waitFor(() => {
-      expect(storageMock.getItem(tokenKey)).toBeNull();
-    });
+    expect(storageMock.getItem(tokenKey)).not.toBeNull();
   });
 
   it("does not report auth initialization for a cold anonymous startup without a local session", async () => {
@@ -372,7 +370,7 @@ describe("useAppSession", () => {
     await waitFor(() => {
       expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
       expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
-      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
     });
 
     await waitFor(() => {
@@ -428,7 +426,7 @@ describe("useAppSession", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("email")).toHaveTextContent("client@example.com");
-      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
     });
 
     await waitFor(() => {
