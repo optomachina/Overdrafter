@@ -78,7 +78,7 @@ const ClientHome = () => {
             // manufacturing workspace
           </p>
 
-          <h1 className="text-[60px] font-bold tracking-[-0.04em] leading-[1.0] text-white">
+          <h1 className="text-[38px] font-bold leading-[1.0] tracking-[-0.04em] text-white sm:text-[48px] lg:text-[60px]">
             From part files
             <br />
             to vetted quotes.{' '}
@@ -89,7 +89,7 @@ const ClientHome = () => {
             Upload your CAD and drawing package. OverDrafter extracts specs, dispatches vendor quotes, and keeps parts, projects, and options organized — start to selection.
           </p>
 
-          <div className="mt-[34px] flex gap-[10px] items-center">
+          <div className="mt-[34px] flex flex-col items-stretch gap-[10px] sm:flex-row sm:items-center">
             <Button
               type="button"
               className="rounded-full"
@@ -103,7 +103,7 @@ const ClientHome = () => {
               className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
               onClick={() => openAuth("signin")}
             >
-              See a demo →
+              Log in
             </Button>
           </div>
 
@@ -115,13 +115,13 @@ const ClientHome = () => {
         {/* Section 2: How it works */}
         <section className="mt-[80px]">
           <div className="flex items-center gap-4 mb-[36px]">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
+            <h2 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
               How it works
-            </p>
+            </h2>
             <div className="flex-1 h-px bg-white/[0.08]" />
           </div>
 
-          <div className="grid grid-cols-2 gap-[14px]">
+          <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-2">
             {/* Card 1: Upload */}
             <div className="bg-ws-card border border-ws-border-subtle rounded-[20px] p-[24px]">
               <p className="text-[10px] font-semibold font-mono tracking-[0.1em] text-white/35 mb-[10px]">
