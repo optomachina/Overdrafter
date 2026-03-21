@@ -71,53 +71,197 @@ const ClientHome = () => {
 
   const renderAnonymousContent = () => {
     return (
-      <div className="mx-auto flex w-full max-w-[860px] flex-1 flex-col px-6 pb-20 pt-12">
-        <div>
-          <p className="ws-section-label">Manufacturing workspace</p>
-          <h1 className="mt-3 text-[2.75rem] font-semibold tracking-tight text-white md:text-[2.75rem]">
-            Artifact-first quoting for machined parts.
-          </h1>
-          <p className="mt-4 max-w-xl text-base text-white/55">
-            Upload your CAD and drawing package. OverDrafter extracts part metadata, surfaces vendor quotes, and keeps everything in one workspace.
+      <div className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col px-6 pb-20">
+        {/* Section 1: Hero */}
+        <section className="pt-16">
+          <p className="font-mono text-[11px] font-medium tracking-[0.08em] text-white/35 mb-[22px]">
+            // manufacturing workspace
           </p>
-        </div>
 
-        <div className="mt-8 flex flex-wrap gap-3">
-          <Button
-            type="button"
-            className="rounded-full px-6 shadow-lg shadow-white/5"
-            onClick={() => openAuth("signup")}
-          >
-            <Upload className="mr-2 h-4 w-4" />
-            Get started free
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-full border-white/10 bg-transparent px-6 text-white hover:bg-white/6"
-            onClick={() => openAuth("signin")}
-          >
-            Log in
-          </Button>
-        </div>
+          <h1 className="text-[60px] font-bold tracking-[-0.04em] leading-[1.0] text-white">
+            From part files
+            <br />
+            to vetted quotes.{' '}
+            <em className="not-italic text-white/55">In one workspace.</em>
+          </h1>
 
-        <div className="mt-12">
-          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Quick start</p>
-          <div className="mt-3 divide-y divide-white/6 rounded-[20px] border border-white/8 bg-black/20">
-            {quickStartItems.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => openAuth("signup")}
-                className="flex w-full items-center gap-4 px-5 py-4 text-left text-sm text-white/60 transition hover:bg-white/4 hover:text-white/90 first:rounded-t-[20px] last:rounded-b-[20px]"
-              >
-                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${item.action === "upload" ? "bg-emerald-400/40" : "bg-blue-400/40"}`} />
-                <span>{item.label}</span>
-              </button>
-            ))}
+          <p className="text-[17px] leading-[1.65] text-white/55 max-w-[520px] mt-[22px]">
+            Upload your CAD and drawing package. OverDrafter extracts specs, dispatches vendor quotes, and keeps parts, projects, and options organized — start to selection.
+          </p>
+
+          <div className="mt-[34px] flex gap-[10px] items-center">
+            <Button
+              type="button"
+              className="rounded-full"
+              onClick={() => openAuth("signup")}
+            >
+              Get started free
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+              onClick={() => openAuth("signin")}
+            >
+              See a demo →
+            </Button>
           </div>
-        </div>
 
+          <p className="mt-[12px] text-[11px] text-white/35">
+            No vendor account needed. Email or social sign-in.
+          </p>
+        </section>
+
+        {/* Section 2: How it works */}
+        <section className="mt-[80px]">
+          <div className="flex items-center gap-4 mb-[36px]">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
+              How it works
+            </p>
+            <div className="flex-1 h-px bg-white/[0.08]" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-[14px]">
+            {/* Card 1: Upload */}
+            <div className="bg-ws-card border border-ws-border-subtle rounded-[20px] p-[24px]">
+              <p className="text-[10px] font-semibold font-mono tracking-[0.1em] text-white/35 mb-[10px]">
+                01 / UPLOAD
+              </p>
+              <h3 className="text-[15px] font-semibold mb-[8px] text-white">
+                Drop your part package.
+              </h3>
+              <p className="text-[13px] leading-[1.6] text-white/55 mb-[16px]">
+                Upload STEP files and PDF drawings together. Files are matched into parts automatically by filename — CAD and drawing stay paired from the start.
+              </p>
+
+              {/* Mock file list */}
+              <div>
+                <div className="flex items-center justify-between text-[12px] py-[6px] border-b border-white/[0.04]">
+                  <span className="text-white">FLT-BRACKET-01.step</span>
+                  <div className="flex items-center gap-[8px]">
+                    <span className="text-white/45">STEP · 1.4 MB</span>
+                    <span className="bg-emerald-400/10 border border-emerald-400/20 text-emerald-400 text-[10px] font-semibold px-[6px] py-[2px] rounded-[5px]">
+                      CAD
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-[12px] py-[6px]">
+                  <span className="text-white">FLT-BRACKET-01.pdf</span>
+                  <div className="flex items-center gap-[8px]">
+                    <span className="text-white/45">Drawing · 0.3 MB</span>
+                    <span className="bg-blue-400/10 border border-blue-400/20 text-blue-400 text-[10px] font-semibold px-[6px] py-[2px] rounded-[5px]">
+                      Drawing
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Success bar */}
+              <div className="bg-emerald-400/10 border border-emerald-400/30 rounded-[9px] text-[11px] text-emerald-400 px-[10px] py-[8px] mt-[10px]">
+                ✓ 1 CAD/PDF pair matched automatically
+              </div>
+            </div>
+
+            {/* Card 2: Extract */}
+            <div className="bg-ws-card border border-ws-border-subtle rounded-[20px] p-[24px]">
+              <p className="text-[10px] font-semibold font-mono tracking-[0.1em] text-white/35 mb-[10px]">
+                02 / EXTRACT
+              </p>
+              <h3 className="text-[15px] font-semibold mb-[8px] text-white">
+                Specs pulled from your drawing.
+              </h3>
+              <p className="text-[13px] leading-[1.6] text-white/55 mb-[16px]">
+                Material, finish, tolerances, revision, and thread callouts are extracted from drawing title blocks. Review and correct before quoting — always traceable.
+              </p>
+
+              {/* Mock table */}
+              <div className="space-y-[6px]">
+                {[
+                  { label: 'Material', value: '6061-T6 Aluminum' },
+                  { label: 'Finish', value: 'Clear Anodize Type II' },
+                  { label: 'Tolerance', value: '±0.005 in' },
+                  { label: 'Quantity', value: '25 pcs' },
+                  { label: 'Revision', value: 'Rev C' },
+                ].map((row) => (
+                  <div key={row.label} className="flex text-[12px]">
+                    <span className="text-white/45 w-[44%]">{row.label}</span>
+                    <span className="text-white font-medium">{row.value}</span>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-[11px] text-white/35 mt-[8px]">
+                Source: drawing title block · FLT-BRACKET-01.pdf
+              </p>
+            </div>
+
+            {/* Card 3: Quote */}
+            <div className="bg-ws-card border border-ws-border-subtle rounded-[20px] p-[24px]">
+              <p className="text-[10px] font-semibold font-mono tracking-[0.1em] text-white/35 mb-[10px]">
+                03 / QUOTE
+              </p>
+              <h3 className="text-[15px] font-semibold mb-[8px] text-white">
+                Vendor quotes dispatched automatically.
+              </h3>
+              <p className="text-[13px] leading-[1.6] text-white/55 mb-[16px]">
+                Click "Request Quote" and OverDrafter routes your validated package to enabled vendors. Track each request in real time — queued, requesting, received, or failed.
+              </p>
+
+              {/* Mock status rows */}
+              <div>
+                <div className="bg-amber-400/10 border border-amber-400/30 rounded-[10px] px-[11px] py-[9px] mb-[6px] flex items-center justify-between">
+                  <span className="text-[12px] font-semibold text-amber-400">Requesting</span>
+                  <span className="text-[11px] text-white/45">Xometry · 2 min</span>
+                </div>
+                <div className="bg-emerald-400/10 border border-emerald-400/30 rounded-[10px] px-[11px] py-[9px] flex items-center justify-between">
+                  <span className="text-[12px] font-semibold text-emerald-400">Received</span>
+                  <span className="text-[11px] text-white/45">Quote package ready for review</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 4: Select */}
+            <div className="bg-ws-card border border-ws-border-subtle rounded-[20px] p-[24px]">
+              <p className="text-[10px] font-semibold font-mono tracking-[0.1em] text-white/35 mb-[10px]">
+                04 / SELECT
+              </p>
+              <h3 className="text-[15px] font-semibold mb-[8px] text-white">
+                Compare and choose the best fit.
+              </h3>
+              <p className="text-[13px] leading-[1.6] text-white/55 mb-[16px]">
+                Published options appear side by side. Price, lead time, process, and certification — all visible. Select and your choice is recorded in the project workspace.
+              </p>
+
+              {/* Mock quote rows */}
+              <div className="space-y-[6px]">
+                {/* Option A */}
+                <div className="flex items-center justify-between border border-ws-border-subtle rounded-[12px] p-[10px_12px] bg-white/[0.02]">
+                  <div className="flex items-center gap-[8px] min-w-0">
+                    <div>
+                      <div className="flex items-center gap-[5px]">
+                        <span className="text-[12px] font-semibold text-white">Xometry — CNC Machining</span>
+                        <span className="bg-emerald-400/10 border border-emerald-400/20 text-emerald-400 text-[9px] font-bold uppercase tracking-[0.1em] rounded-[5px] px-[6px] py-[2px]">
+                          Best price
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-white/45 mt-[2px]">12 bd · AS9100</p>
+                    </div>
+                  </div>
+                  <span className="text-[16px] font-bold text-white shrink-0">$487</span>
+                </div>
+
+                {/* Option B */}
+                <div className="flex items-center justify-between border border-ws-border-subtle rounded-[12px] p-[10px_12px] bg-white/[0.02]">
+                  <div>
+                    <p className="text-[12px] font-semibold text-white">Precision Shop</p>
+                    <p className="text-[11px] text-white/45 mt-[2px]">7 bd · Fastest · ISO 9001</p>
+                  </div>
+                  <span className="text-[16px] font-bold text-white shrink-0">$612</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     );
   };
