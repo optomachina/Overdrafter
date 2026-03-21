@@ -44,7 +44,7 @@ function isResolvedTimedResult<T>(
  * {@link STARTUP_AUTH_TIMEOUT_MS}. `timed_out` means the read exceeded the
  * deadline and was classified from local storage state.
  */
-export type StartupSessionReadResult =
+type StartupSessionReadResult =
   | {
       status: "resolved";
       session: Session | null;
@@ -61,7 +61,7 @@ export type StartupSessionReadResult =
  * Result of resolving the authenticated Supabase user from the current browser
  * session. Timeout classification matches {@link STARTUP_AUTH_TIMEOUT_MS}.
  */
-export type StartupUserReadResult =
+type StartupUserReadResult =
   | {
       status: "resolved";
       user: User | null;
@@ -83,7 +83,7 @@ export type StartupUserReadResult =
  * - `session_error`: includes `session` but no verified `user`
  * - `anonymous` / `invalid_session`: both return `session: null` and `user: null`
  */
-export type StartupAuthBootstrapResult =
+type StartupAuthBootstrapResult =
   | {
       authState: "anonymous";
       hadStoredAccessToken: boolean;
@@ -425,28 +425,6 @@ async function readSupabaseBootstrap(options: {
   }
 
   return bootstrapPromise;
-}
-
-/**
- * Reads the browser-persisted Supabase session once for startup restoration and
- * memoizes the resulting promise for the lifetime of the page.
- *
- * Expected caller: the initial auth bootstrap path in `useAppSession()`.
- */
-export async function readStartupSupabaseSession(): Promise<StartupSessionReadResult> {
-  return readSupabaseSessionSnapshot({ memoize: true });
-}
-
-/**
- * Reads the Supabase user once for startup restoration and memoizes the result
- * for the lifetime of the page.
- *
- * Expected caller: {@link readStartupSupabaseBootstrap}.
- */
-export async function readStartupSupabaseUser(
-  hadStoredAccessToken: boolean,
-): Promise<StartupUserReadResult> {
-  return readSupabaseUserSnapshot(hadStoredAccessToken, { memoize: true });
 }
 
 /**

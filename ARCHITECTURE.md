@@ -16,7 +16,8 @@ The next-phase domain model should expand that quote-centric shape into an expli
 
 ### 1. Web application layer
 - authentication entry points
-- client auth bootstrap reads the browser-persisted Supabase session before protected-route decisions run, and route guards must wait for initial auth restoration before treating the user as signed out
+- client auth bootstrap performs one browser-local Supabase session restore before protected-route decisions run, and later session refreshes use live auth reads rather than the memoized startup snapshot
+- route guards must wait for initial auth restoration before treating the user as signed out
 - workspace-facing navigation and application shell
 - client intake UI
 - artifact-first client workspaces with contextual intelligence rails and chat as a secondary tool

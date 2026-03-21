@@ -2,8 +2,8 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getSupabaseAuthStorageKey,
-  readStartupSupabaseSession,
-  readStartupSupabaseUser,
+  readLiveSupabaseBootstrap,
+  readStartupSupabaseBootstrap,
   resetStartupAuthBootstrapForTests,
   STARTUP_AUTH_TIMEOUT_MS,
 } from "./startup-auth";
@@ -64,12 +64,13 @@ describe("startup auth helpers", () => {
     storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: "token-1" }));
     authGetSessionMock.mockReturnValue(new Promise(() => undefined));
 
-    const readPromise = readStartupSupabaseSession();
+    const readPromise = readStartupSupabaseBootstrap();
     await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS);
 
     await expect(readPromise).resolves.toEqual({
-      status: "timed_out",
       authState: "invalid_session",
+      session: null,
+      user: null,
       hadStoredAccessToken: true,
     });
   });
@@ -77,26 +78,103 @@ describe("startup auth helpers", () => {
   it("classifies a no-token getSession timeout as anonymous", async () => {
     authGetSessionMock.mockReturnValue(new Promise(() => undefined));
 
-    const readPromise = readStartupSupabaseSession();
+    const readPromise = readStartupSupabaseBootstrap();
     await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS);
 
     await expect(readPromise).resolves.toEqual({
-      status: "timed_out",
       authState: "anonymous",
+      session: null,
+      user: null,
       hadStoredAccessToken: false,
     });
   });
 
   it("classifies a stored-token getUser timeout as invalid_session", async () => {
+    storageMock.setItem(getSupabaseAuthStorageKey(), JSON.stringify({ access_token: "token-1" }));
+    authGetSessionMock.mockResolvedValue({
+      data: {
+        session: {
+          access_token: "token-1",
+          refresh_token: "refresh-token-1",
+          expires_in: 3600,
+          token_type: "bearer",
+          user: {
+            id: "user-1",
+            email: "client@example.com",
+            app_metadata: {},
+            user_metadata: {},
+            aud: "authenticated",
+            created_at: "2026-03-20T00:00:00.000Z",
+          },
+        },
+      },
+      error: null,
+    });
     authGetUserMock.mockReturnValue(new Promise(() => undefined));
 
-    const readPromise = readStartupSupabaseUser(true);
+    const readPromise = readStartupSupabaseBootstrap();
     await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS);
 
     await expect(readPromise).resolves.toEqual({
-      status: "timed_out",
       authState: "invalid_session",
+      session: null,
+      user: null,
       hadStoredAccessToken: true,
+    });
+  });
+
+  it("uses live auth reads instead of reusing the memoized startup snapshot", async () => {
+    authGetSessionMock
+      .mockResolvedValueOnce({
+        data: { session: null },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: {
+          session: {
+            access_token: "token-2",
+            refresh_token: "refresh-token-2",
+            expires_in: 3600,
+            token_type: "bearer",
+            user: {
+              id: "user-2",
+              email: "client@example.com",
+              app_metadata: {},
+              user_metadata: {},
+              aud: "authenticated",
+              created_at: "2026-03-20T00:00:00.000Z",
+            },
+          },
+        },
+        error: null,
+      });
+    authGetUserMock.mockResolvedValue({
+      data: {
+        user: {
+          id: "user-2",
+          email: "client@example.com",
+        },
+      },
+      error: null,
+    });
+
+    await expect(readStartupSupabaseBootstrap()).resolves.toEqual({
+      authState: "anonymous",
+      hadStoredAccessToken: false,
+      session: null,
+      user: null,
+    });
+
+    await expect(readLiveSupabaseBootstrap()).resolves.toMatchObject({
+      authState: "authenticated",
+      hadStoredAccessToken: false,
+      session: expect.objectContaining({
+        access_token: "token-2",
+      }),
+      user: expect.objectContaining({
+        id: "user-2",
+        email: "client@example.com",
+      }),
     });
   });
 });
