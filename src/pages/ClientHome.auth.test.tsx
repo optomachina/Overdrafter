@@ -13,6 +13,8 @@ import {
 import { getSupabaseAuthStorageKey } from "@/hooks/use-app-session";
 import ClientHome from "./ClientHome";
 
+const guestLandingHeading = /from part files\s*to vetted quotes\.\s*in one workspace\./i;
+
 const fetchAppSessionDataMock = vi.fn<() => Promise<AppSessionData>>();
 const requestPasswordResetMock = vi.fn();
 const resendSignupConfirmationMock = vi.fn();
@@ -82,11 +84,13 @@ vi.mock("react-router-dom", async (importOriginal) => {
 
 vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
   ClientWorkspaceShell: ({
+    showSidebar = true,
     topRightContent,
     sidebarContent,
     sidebarFooter,
     children,
   }: {
+    showSidebar?: boolean;
     topRightContent?: React.ReactNode;
     sidebarContent?: React.ReactNode;
     sidebarFooter?: React.ReactNode;
@@ -94,9 +98,9 @@ vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
   }) => (
     <div>
       <div data-testid="top-right">{topRightContent}</div>
-      <div data-testid="sidebar">{sidebarContent}</div>
+      {showSidebar ? <div data-testid="sidebar">{sidebarContent}</div> : null}
       <div data-testid="content">{children}</div>
-      <div data-testid="sidebar-footer">{sidebarFooter}</div>
+      {showSidebar ? <div data-testid="sidebar-footer">{sidebarFooter}</div> : null}
     </div>
   ),
 }));
@@ -235,6 +239,14 @@ function renderClientHome() {
   );
 }
 
+function expectGuestLandingVisible() {
+  expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: /how it works/i })).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: /^log in$/i }).length).toBeGreaterThanOrEqual(2);
+  expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
+  expect(screen.queryByTestId("sidebar-footer")).not.toBeInTheDocument();
+}
+
 describe("ClientHome auth flow", () => {
   let storageMock: ReturnType<typeof createStorageMock>;
 
@@ -281,7 +293,7 @@ describe("ClientHome auth flow", () => {
 
     pendingSession.resolve({ data: { session: null }, error: null });
     await waitFor(() => {
-      expect(screen.getByText("Artifact-first quoting for machined parts.")).toBeInTheDocument();
+      expectGuestLandingVisible();
     });
   });
 
@@ -296,7 +308,7 @@ describe("ClientHome auth flow", () => {
     renderClientHome();
 
     await waitFor(() => {
-      expect(screen.getByText("Artifact-first quoting for machined parts.")).toBeInTheDocument();
+      expectGuestLandingVisible();
     });
     expect(screen.queryByText("Restoring your workspace.")).not.toBeInTheDocument();
   });
@@ -316,7 +328,7 @@ describe("ClientHome auth flow", () => {
       await vi.advanceTimersByTimeAsync(STARTUP_AUTH_TIMEOUT_MS);
     });
 
-    expect(screen.getByText("Artifact-first quoting for machined parts.")).toBeInTheDocument();
+    expectGuestLandingVisible();
     expect(screen.queryByText("Restoring your workspace.")).not.toBeInTheDocument();
 
     deferredSession.resolve({

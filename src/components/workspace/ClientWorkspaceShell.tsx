@@ -51,6 +51,7 @@ type ClientWorkspaceShellProps = {
   sidebarContent: ReactNode;
   sidebarFooter?: ReactNode;
   sidebarRailActions?: SidebarRailAction[];
+  showSidebar?: boolean;
   onLogoClick?: () => void;
   children: ReactNode;
 };
@@ -344,6 +345,7 @@ export function ClientWorkspaceShell({
   sidebarContent,
   sidebarFooter,
   sidebarRailActions,
+  showSidebar = true,
   onLogoClick,
   children,
 }: ClientWorkspaceShellProps) {
@@ -366,34 +368,36 @@ export function ClientWorkspaceShell({
     <TooltipProvider delayDuration={SIDEBAR_TOOLTIP_DELAY_MS}>
       <div className="workspace-shell min-h-screen bg-[#212121] text-white">
         <div className="flex min-h-screen">
-          <aside
-            className={cn(
-              "sticky top-0 hidden shrink-0 self-start overflow-visible border-r border-white/[0.08] shadow-[1px_0_0_0_rgba(255,255,255,0.02)] transition-[width] duration-200 ease-out md:block",
-            )}
-            style={{
-              width: desktopSidebarCollapsed ? DESKTOP_SIDEBAR_COLLAPSED_WIDTH : DESKTOP_SIDEBAR_EXPANDED_WIDTH,
-            }}
-          >
-            <div className="h-screen">
-              <div className={cn("h-full", desktopSidebarCollapsed && "hidden")}>
-                <SidebarScaffold
-                  sidebarContent={sidebarContent}
-                  sidebarFooter={sidebarFooter}
-                  onCollapse={() => setDesktopSidebarCollapsed(true)}
-                  onLogoClick={onLogoClick}
-                />
+          {showSidebar ? (
+            <aside
+              className={cn(
+                "sticky top-0 hidden shrink-0 self-start overflow-visible border-r border-white/[0.08] shadow-[1px_0_0_0_rgba(255,255,255,0.02)] transition-[width] duration-200 ease-out md:block",
+              )}
+              style={{
+                width: desktopSidebarCollapsed ? DESKTOP_SIDEBAR_COLLAPSED_WIDTH : DESKTOP_SIDEBAR_EXPANDED_WIDTH,
+              }}
+            >
+              <div className="h-screen">
+                <div className={cn("h-full", desktopSidebarCollapsed && "hidden")}>
+                  <SidebarScaffold
+                    sidebarContent={sidebarContent}
+                    sidebarFooter={sidebarFooter}
+                    onCollapse={() => setDesktopSidebarCollapsed(true)}
+                    onLogoClick={onLogoClick}
+                  />
+                </div>
+                <div className={cn("h-full", desktopSidebarCollapsed ? "block" : "hidden")}>
+                  <CollapsedSidebarRail
+                    sidebarRailActions={sidebarRailActions}
+                    onOpen={() => setDesktopSidebarCollapsed(false)}
+                  />
+                </div>
               </div>
-              <div className={cn("h-full", desktopSidebarCollapsed ? "block" : "hidden")}>
-                <CollapsedSidebarRail
-                  sidebarRailActions={sidebarRailActions}
-                  onOpen={() => setDesktopSidebarCollapsed(false)}
-                />
-              </div>
-            </div>
-          </aside>
+            </aside>
+          ) : null}
 
           <div className="relative flex min-h-screen flex-1 flex-col">
-            {desktopSidebarCollapsed ? (
+            {showSidebar && desktopSidebarCollapsed ? (
               <button
                 type="button"
                 aria-label="Open sidebar"
@@ -402,29 +406,31 @@ export function ClientWorkspaceShell({
               />
             ) : null}
             <header className="flex items-center justify-between gap-3 px-4 py-3 md:px-6">
-              <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-                <SheetTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="rounded-[10px] text-white/[0.96] hover:bg-white/[0.06] hover:text-white md:hidden"
+              {showSidebar ? (
+                <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+                  <SheetTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="rounded-[10px] text-white/[0.96] hover:bg-white/[0.06] hover:text-white md:hidden"
+                    >
+                      <PanelLeftOpen className="h-5 w-5" />
+                      <span className="sr-only">Open sidebar</span>
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent
+                    side="left"
+                    className="workspace-shell w-[260px] border-r border-white/[0.08] bg-[#171717] p-0 text-white sm:max-w-[260px] [&>button]:hidden"
                   >
-                    <PanelLeftOpen className="h-5 w-5" />
-                    <span className="sr-only">Open sidebar</span>
-                  </Button>
-                </SheetTrigger>
-                <SheetContent
-                  side="left"
-                  className="workspace-shell w-[260px] border-r border-white/[0.08] bg-[#171717] p-0 text-white sm:max-w-[260px] [&>button]:hidden"
-                >
-                  <SidebarScaffold
-                    sidebarContent={sidebarContent}
-                    sidebarFooter={sidebarFooter}
-                    onCollapse={() => setMobileSidebarOpen(false)}
-                    onLogoClick={onLogoClick}
-                  />
-                </SheetContent>
-              </Sheet>
+                    <SidebarScaffold
+                      sidebarContent={sidebarContent}
+                      sidebarFooter={sidebarFooter}
+                      onCollapse={() => setMobileSidebarOpen(false)}
+                      onLogoClick={onLogoClick}
+                    />
+                  </SheetContent>
+                </Sheet>
+              ) : null}
 
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <BrandLabelTag
