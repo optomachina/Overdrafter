@@ -132,6 +132,10 @@ export function QuoteList({
           return (
             <div
               key={quote.offerId}
+              role="button"
+              tabIndex={0}
+              aria-pressed={isSelected}
+              aria-label={`${quote.vendorLabel} ${quote.offerId}`}
               className={cn(
                 "flex cursor-pointer items-center gap-3 rounded-[14px] border px-4 py-3.5 transition",
                 isSelected
@@ -140,6 +144,16 @@ export function QuoteList({
                 quote.excluded && "opacity-55",
               )}
               onClick={() => onSelect(isSelected ? null : quote.offerId)}
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) {
+                  return;
+                }
+
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect(isSelected ? null : quote.offerId);
+                }
+              }}
             >
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-full"

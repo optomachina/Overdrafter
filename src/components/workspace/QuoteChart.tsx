@@ -147,8 +147,19 @@ export function QuoteChart({ quotes, selectedOfferId, onSelect }: QuoteChartProp
         strokeWidth={isSelected ? 2 : 0}
         data-testid={`quote-point-${point.offerId}`}
         aria-label={`${point.vendorLabel} ${point.offerId}`}
+        aria-pressed={isSelected}
+        role="button"
+        tabIndex={0}
         className="cursor-pointer transition-all duration-150"
         onClick={handleClick}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect(isSelected ? null : point.offerId);
+          }
+        }}
+        onFocus={() => setHoveredOfferId(point.offerId)}
+        onBlur={() => setHoveredOfferId((current) => (current === point.offerId ? null : current))}
         onMouseEnter={() => setHoveredOfferId(point.offerId)}
         onMouseLeave={() => setHoveredOfferId((current) => (current === point.offerId ? null : current))}
       />

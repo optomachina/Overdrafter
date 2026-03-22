@@ -53,6 +53,45 @@ function makeDiagnostics(): QuoteDiagnostics {
 }
 
 describe("QuoteList", () => {
+  it("renders schema and invalid-for-plotting status cards", () => {
+    const { rerender } = render(
+      <QuoteList
+        quotes={[]}
+        selectedOfferId={null}
+        onSelect={vi.fn()}
+        quoteDataStatus="schema_unavailable"
+        quoteDataMessage="Apply the latest migrations."
+        quoteDiagnostics={makeDiagnostics()}
+        activePreset={null}
+        onPresetSelect={vi.fn()}
+        onToggleVendorExclusion={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Quote comparison is unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Apply the latest migrations.")).toBeInTheDocument();
+
+    rerender(
+      <QuoteList
+        quotes={[]}
+        selectedOfferId={null}
+        onSelect={vi.fn()}
+        quoteDataStatus="invalid_for_plotting"
+        quoteDataMessage="Rows were excluded before plotting."
+        quoteDiagnostics={{
+          ...makeDiagnostics(),
+          excludedReasonCounts: [{ reason: "invalid_total_price_format", count: 1 }],
+        }}
+        activePreset={null}
+        onPresetSelect={vi.fn()}
+        onToggleVendorExclusion={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Quote rows were loaded but need review")).toBeInTheDocument();
+    expect(screen.getByText("Rows were excluded before plotting.")).toBeInTheDocument();
+  });
+
   it("sorts quotes by price, sinks excluded rows, and renders best/fastest badges", () => {
     const quotes = [
       makeQuote({ offerId: "offer-3", key: "offer-3", vendorLabel: "Protolabs", unitPriceUsd: 88, leadTimeBusinessDays: 5 }),
@@ -117,6 +156,69 @@ describe("QuoteList", () => {
     );
 
     fireEvent.click(screen.getByText("Selected ✓"));
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+  });
+
+  it("triggers preset and vendor exclusion callbacks", () => {
+    const onPresetSelect = vi.fn();
+    const onToggleVendorExclusion = vi.fn();
+
+    render(
+      <QuoteList
+        quotes={[makeQuote()]}
+        selectedOfferId={null}
+        onSelect={vi.fn()}
+        quoteDataStatus="available"
+        quoteDataMessage={null}
+        quoteDiagnostics={makeDiagnostics()}
+        activePreset={null}
+        onPresetSelect={onPresetSelect}
+        onToggleVendorExclusion={onToggleVendorExclusion}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Cheapest" }));
+    expect(onPresetSelect).toHaveBeenCalledWith("cheapest");
+
+    fireEvent.click(screen.getByRole("button", { name: "Exclude" }));
+    expect(onToggleVendorExclusion).toHaveBeenCalledWith("xometry", true);
+  });
+
+  it("supports keyboard toggling on the quote row", () => {
+    const onSelect = vi.fn();
+
+    const { rerender } = render(
+      <QuoteList
+        quotes={[makeQuote()]}
+        selectedOfferId={null}
+        onSelect={onSelect}
+        quoteDataStatus="available"
+        quoteDataMessage={null}
+        quoteDiagnostics={makeDiagnostics()}
+        activePreset={null}
+        onPresetSelect={vi.fn()}
+        onToggleVendorExclusion={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByRole("button", { name: /xometry offer-1/i }), { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith("offer-1");
+
+    rerender(
+      <QuoteList
+        quotes={[makeQuote()]}
+        selectedOfferId="offer-1"
+        onSelect={onSelect}
+        quoteDataStatus="available"
+        quoteDataMessage={null}
+        quoteDiagnostics={makeDiagnostics()}
+        activePreset={null}
+        onPresetSelect={vi.fn()}
+        onToggleVendorExclusion={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByRole("button", { name: /xometry offer-1/i }), { key: " " });
     expect(onSelect).toHaveBeenLastCalledWith(null);
   });
 });

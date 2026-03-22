@@ -158,6 +158,24 @@ function makeQuote(overrides: Partial<ClientQuoteSelectionOption> = {}): ClientQ
 }
 
 describe("QuoteChart", () => {
+  it("does not render points for invalid chart data", () => {
+    render(
+      <QuoteChart
+        quotes={[
+          makeQuote({ offerId: "valid-1", key: "valid-1" }),
+          makeQuote({ offerId: "bad-lead", key: "bad-lead", leadTimeBusinessDays: null }),
+          makeQuote({ offerId: "bad-price", key: "bad-price", unitPriceUsd: Number.NaN }),
+        ]}
+        selectedOfferId={null}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("quote-point-valid-1")).toBeInTheDocument();
+    expect(screen.queryByTestId("quote-point-bad-lead")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("quote-point-bad-price")).not.toBeInTheDocument();
+  });
+
   it("renders vendor legend entries and bubble points grouped by vendor", () => {
     render(
       <QuoteChart
@@ -207,6 +225,21 @@ describe("QuoteChart", () => {
     expect(onSelect).toHaveBeenLastCalledWith(null);
 
     fireEvent.click(screen.getByTestId("scatter-chart"));
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+  });
+
+  it("supports keyboard selection for chart points", () => {
+    const onSelect = vi.fn();
+
+    const { rerender } = render(
+      <QuoteChart quotes={[makeQuote()]} selectedOfferId={null} onSelect={onSelect} />,
+    );
+
+    fireEvent.keyDown(screen.getByTestId("quote-point-offer-1"), { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith("offer-1");
+
+    rerender(<QuoteChart quotes={[makeQuote()]} selectedOfferId="offer-1" onSelect={onSelect} />);
+    fireEvent.keyDown(screen.getByTestId("quote-point-offer-1"), { key: " " });
     expect(onSelect).toHaveBeenLastCalledWith(null);
   });
 });
