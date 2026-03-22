@@ -196,10 +196,6 @@ vi.mock("@/components/quotes/ClientQuoteAssetPanels", () => ({
     ),
 }));
 
-vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
-  ClientQuoteComparisonChart: () => <div>Chart</div>,
-}));
-
 vi.mock("@/components/quotes/DrawingPreviewDialog", () => ({
   DrawingPreviewDialog: (props: Record<string, unknown>) => {
     lastDrawingPreviewDialogProps = props;
@@ -213,6 +209,115 @@ vi.mock("@/components/quotes/ClientPartRequestEditor", () => ({
       Save Request
     </button>
   ),
+}));
+
+vi.mock("@/components/quotes/ClientExtractionStatusNotice", () => ({
+  ClientExtractionStatusNotice: ({
+    diagnostics,
+  }: {
+    diagnostics?: {
+      lifecycle?: string;
+      missingFields?: string[];
+      lastFailureMessage?: string | null;
+    } | null;
+  }) => {
+    if (diagnostics?.lifecycle === "extracting") {
+      return <div>Drawing extraction in progress</div>;
+    }
+
+    if (diagnostics?.lifecycle === "partial") {
+      return (
+        <div>
+          <div>Partial drawing metadata found</div>
+          <div>Missing: {(diagnostics.missingFields ?? []).join(", ")}</div>
+        </div>
+      );
+    }
+
+    if (diagnostics?.lifecycle === "failed") {
+      return (
+        <div>
+          <div>Drawing extraction failed</div>
+          <div>{diagnostics.lastFailureMessage}</div>
+        </div>
+      );
+    }
+
+    return null;
+  },
+}));
+
+vi.mock("@/components/quotes/ClientWorkspacePanelContent", () => ({
+  ClientQuoteRequestStatusCard: ({
+    actionLabel,
+    actionDisabled,
+    onAction,
+  }: {
+    actionLabel?: string;
+    actionDisabled?: boolean;
+    onAction?: (() => void) | null;
+  }) =>
+    onAction ? (
+      <button type="button" disabled={actionDisabled} onClick={() => onAction()}>
+        {actionLabel ?? "Request Quote"}
+      </button>
+    ) : null,
+}));
+
+vi.mock("@/components/workspace/QuoteStatBar", () => ({
+  QuoteStatBar: () => <div>Quote stats</div>,
+}));
+
+vi.mock("@/components/workspace/QuoteChart", () => ({
+  QuoteChart: () => <div>Chart</div>,
+}));
+
+vi.mock("@/components/workspace/QuoteList", () => ({
+  QuoteList: ({ quotes }: { quotes?: Array<{ vendorLabel?: string; tier?: string | null }> }) => (
+    <div>
+      Quote list
+      {quotes?.map((quote) => (
+        <div key={`${quote.vendorLabel}-${quote.tier}`}>{[quote.vendorLabel, quote.tier].filter(Boolean).join(" · ")}</div>
+      ))}
+    </div>
+  ),
+}));
+
+vi.mock("@/components/workspace/PartInfoPanel", () => ({
+  PartInfoPanel: ({
+    statusContent,
+    onSave,
+  }: {
+    statusContent?: ReactNode;
+    onSave?: () => void;
+  }) => (
+    <div>
+      <div>Part information</div>
+      {statusContent}
+      <button type="button" onClick={() => onSave?.()}>
+        Save Request
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock("@/components/workspace/CadPanel", () => ({
+  CadPanel: () => <div>CAD panel</div>,
+}));
+
+vi.mock("@/components/workspace/PdfPanel", () => ({
+  PdfPanel: ({
+    drawingFile,
+    drawingPdfUrl,
+  }: {
+    drawingFile?: { original_name?: string | null } | null;
+    drawingPdfUrl?: string | null;
+  }) =>
+    drawingPdfUrl ? (
+      <iframe title={`${drawingFile?.original_name ?? "Drawing"} PDF preview`} src={drawingPdfUrl} />
+    ) : (
+      <div>PDF panel</div>
+    ),
 }));
 
 function renderWithClient(initialEntry: string) {
@@ -407,8 +512,9 @@ describe("ClientPart", () => {
       expect(screen.getByRole("button", { name: "A" })).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Artifact workspace")).toBeInTheDocument();
-    expect(screen.getByText("Part context")).toBeInTheDocument();
+    expect(screen.getByText("Quote stats")).toBeInTheDocument();
+    expect(screen.getByText("Quote list")).toBeInTheDocument();
+    expect(screen.getByText("Part information")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /prev rev/i })).toBeInTheDocument();
     expect(screen.queryByText("This part could not be loaded.")).not.toBeInTheDocument();
     expect(api.fetchPartDetailByJobId).toHaveBeenCalledTimes(1);
@@ -482,11 +588,11 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByText("USA / Standard")).toBeInTheDocument();
+      expect(screen.getByText("Xometry · Standard")).toBeInTheDocument();
     });
 
     expect(screen.getByText("Chart")).toBeInTheDocument();
-    expect(screen.queryByText("No quote options are available yet.")).not.toBeInTheDocument();
+    expect(screen.getByText("Quote list")).toBeInTheDocument();
   });
 
   it("canonicalizes legacy part-id routes onto the owning job route", async () => {
