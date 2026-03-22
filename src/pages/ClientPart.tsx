@@ -194,9 +194,8 @@ const ClientPart = () => {
   };
 
   const handleWorkspaceOfferSelect = (offerId: string | null) => {
-    setSelectedOfferId(offerId);
-
     if (offerId === null) {
+      setSelectedOfferId(null);
       handleSelectQuoteOption(null);
       return;
     }
@@ -207,6 +206,7 @@ const ClientPart = () => {
       return;
     }
 
+    setSelectedOfferId(offerId);
     handleSelectQuoteOption(nextOption);
   };
 
