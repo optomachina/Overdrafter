@@ -27,6 +27,7 @@ const adminSignOutMock = vi.fn();
 const navigateMock = vi.fn();
 const checkClientIntakeCompatibilityMock = vi.fn();
 const getClientIntakeCompatibilityMessageMock = vi.fn();
+const openFilePickerMock = vi.fn();
 let authStateChangeCallbacks: Array<(event: string, session: Session | null) => void> = [];
 
 vi.mock("@/features/quotes/api", () => ({
@@ -173,7 +174,7 @@ vi.mock("@/features/quotes/use-client-home-controller", async () => {
           accept: "",
           handleFileInputChange: vi.fn(),
           inputRef,
-          openFilePicker: vi.fn(),
+          openFilePicker: openFilePickerMock,
         },
         openAuth: () => setIsAuthDialogOpen(true),
         prefetchPart: vi.fn(),
@@ -261,6 +262,7 @@ describe("ClientHome auth flow", () => {
     requestPasswordResetMock.mockResolvedValue(undefined);
     resendSignupConfirmationMock.mockResolvedValue(undefined);
     updateCurrentUserPasswordMock.mockResolvedValue(undefined);
+    openFilePickerMock.mockReset();
     storageMock = createStorageMock();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -434,5 +436,33 @@ describe("ClientHome auth flow", () => {
     await waitFor(() => {
       expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it("exposes the onboarding upload drop zone as a keyboard-accessible button", async () => {
+    fetchAppSessionDataMock.mockResolvedValue({
+      user: {
+        id: "user-1",
+        email: "client@example.com",
+      } as AppSessionData["user"],
+      memberships: [
+        {
+          id: "membership-1",
+          role: "client",
+          organizationId: "org-1",
+          organizationName: "Client Org",
+          organizationSlug: "client-org",
+        },
+      ],
+      isVerifiedAuth: true,
+      authState: "authenticated",
+    });
+
+    renderClientHome();
+
+    const uploadButton = await screen.findByRole("button", { name: "Upload files" });
+
+    fireEvent.keyDown(uploadButton, { key: "Enter" });
+
+    expect(openFilePickerMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,4 +1,4 @@
-import { PlusSquare, Search, Upload } from "lucide-react";
+import { PlusSquare, Search, Upload, UploadCloud } from "lucide-react";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
@@ -265,6 +265,87 @@ const ClientHome = () => {
     );
   };
 
+  const renderOnboardContent = () => {
+    return (
+      <div className="mx-auto flex w-full max-w-[620px] flex-1 flex-col px-6 py-10">
+        <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-white mb-[10px]">
+          Upload your first part package to get started.
+        </h1>
+
+        <p className="text-[15px] leading-[1.65] text-white/55 mb-[28px]">
+          Drop your STEP files and PDF drawings together. OverDrafter will extract specs from your drawings, match files
+          into parts, and get you to a quote in minutes.
+        </p>
+
+        {/* Drop zone */}
+        <div
+          className="border-2 border-dashed border-white/[0.12] rounded-[24px] p-[50px_30px] text-center bg-black/[0.15] hover:border-white/[0.22] hover:bg-white/[0.02] cursor-pointer mb-[20px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+          onClick={newJobFilePicker.openFilePicker}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              newJobFilePicker.openFilePicker();
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label="Upload files"
+        >
+          <UploadCloud className="h-9 w-9 opacity-50 mx-auto mb-[14px]" />
+          <div className="text-[16px] font-semibold mb-[6px] text-white">Drop files here, or click to browse</div>
+          <p className="text-[13px] text-white/45 leading-[1.55]">
+            Upload STEP files and PDF drawings together. OverDrafter matches them by filename automatically.
+          </p>
+
+          {/* Format chips */}
+          <div className="mt-[12px] flex justify-center flex-wrap gap-[6px]">
+            {[".step", ".stp", ".iges", ".sldprt", ".x_t", ".pdf"].map((format) => (
+              <div
+                key={format}
+                className="font-mono text-[11px] text-white/45 bg-white/5 border border-ws-border-subtle rounded-[6px] px-[9px] py-[3px]"
+              >
+                {format}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Tip cards */}
+        <div className="grid grid-cols-2 gap-[10px]">
+          <div className="bg-ws-card border border-ws-border-subtle rounded-[16px] p-[16px]">
+            <div className="text-[13px] font-semibold mb-[6px] text-white">Pair your files</div>
+            <div className="text-[12px] leading-[1.6] text-white/55">
+              Name your STEP and PDF the same way — <code className="text-white/45">PART-01.step</code> +{" "}
+              <code className="text-white/45">PART-01.pdf</code> — and they'll pair automatically.
+            </div>
+          </div>
+
+          <div className="bg-ws-card border border-ws-border-subtle rounded-[16px] p-[16px]">
+            <div className="text-[13px] font-semibold mb-[6px] text-white">Upload multiple parts</div>
+            <div className="text-[12px] leading-[1.6] text-white/55">
+              Select all your files at once. OverDrafter creates individual part workspaces for each matched pair.
+            </div>
+          </div>
+
+          <div className="bg-ws-card border border-ws-border-subtle rounded-[16px] p-[16px]">
+            <div className="text-[13px] font-semibold mb-[6px] text-white">Projects come later</div>
+            <div className="text-[12px] leading-[1.6] text-white/55">
+              Upload parts first. You can group them into a project after — or let OverDrafter suggest one based on your
+              filenames.
+            </div>
+          </div>
+
+          <div className="bg-ws-card border border-ws-border-subtle rounded-[16px] p-[16px]">
+            <div className="text-[13px] font-semibold mb-[6px] text-white">Extraction is automatic</div>
+            <div className="text-[12px] leading-[1.6] text-white/55">
+              Material, finish, and tolerance are pulled from your drawing title block — no manual entry needed.
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderSignedInContent = () => {
     const recentProjects = sidebarProjects.slice(0, 4);
     const recentJobs = [...(accessibleJobsQuery.data ?? [])]
@@ -520,7 +601,11 @@ const ClientHome = () => {
           ) : null
         }
       >
-        {user ? renderSignedInContent() : renderAnonymousContent()}
+        {user && activeMembership && accessibleJobsQuery.isLoading === false && (accessibleJobsQuery.data ?? []).length === 0
+          ? renderOnboardContent()
+          : user
+            ? renderSignedInContent()
+            : renderAnonymousContent()}
       </ClientWorkspaceShell>
 
       <input

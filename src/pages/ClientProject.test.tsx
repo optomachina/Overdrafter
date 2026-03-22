@@ -447,6 +447,7 @@ describe("ClientProject", () => {
 
     expect(screen.getByText(/Scan and manage parts/i)).toBeInTheDocument();
     expect(screen.getByText("Selected part workspace")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open .* line item/i })).toBeInTheDocument();
   });
 
   it("passes collaboration-disabled project prefetch through to the sidebar callback", async () => {
