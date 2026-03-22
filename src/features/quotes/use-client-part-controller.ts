@@ -281,7 +281,7 @@ export function useClientPartController() {
   });
 
   const selectOfferMutation = useMutation({
-    mutationFn: (offerId: string) => setJobSelectedVendorQuoteOffer(canonicalJobId, offerId),
+    mutationFn: (offerId: string | null) => setJobSelectedVendorQuoteOffer(canonicalJobId, offerId),
     onSuccess: async () => {
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
       toast.success("Selected quote updated.");
@@ -953,7 +953,13 @@ export function useClientPartController() {
     }
   };
 
-  const handleSelectQuoteOption = (option: ClientQuoteSelectionOption) => {
+  const handleSelectQuoteOption = (option: ClientQuoteSelectionOption | null) => {
+    if (option === null) {
+      setActivePreset(null);
+      selectOfferMutation.mutate(null);
+      return;
+    }
+
     if (!option.persistedOfferId) {
       toast.error("This quote option is not ready to select yet.");
       return;

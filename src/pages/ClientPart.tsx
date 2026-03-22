@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   FolderInput,
   Loader2,
@@ -11,29 +12,21 @@ import {
 import { PartDropdownMenuActions } from "@/components/chat/PartActionsMenu";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
+import { CadPanel } from "@/components/workspace/CadPanel";
+import { PartInfoPanel } from "@/components/workspace/PartInfoPanel";
+import { PdfPanel } from "@/components/workspace/PdfPanel";
+import { QuoteChart } from "@/components/workspace/QuoteChart";
+import { QuoteList } from "@/components/workspace/QuoteList";
+import { QuoteStatBar } from "@/components/workspace/QuoteStatBar";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
-import { ActivityLog } from "@/components/quotes/ActivityLog";
-import { ClientArtifactWorkspace } from "@/components/quotes/ClientArtifactWorkspace";
 import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtractionStatusNotice";
-import { ClientIntelligencePanel } from "@/components/quotes/ClientIntelligencePanel";
 import { ClientPartHeader } from "@/components/quotes/ClientPartHeader";
-import { ClientPartRequestEditor } from "@/components/quotes/ClientPartRequestEditor";
-import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
-import {
-  ClientCadPreviewPanel,
-  ClientDrawingPreviewPanel,
-} from "@/components/quotes/ClientQuoteAssetPanels";
 import { ClientWorkspaceStateSummary, ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { DrawingPreviewDialog } from "@/components/quotes/DrawingPreviewDialog";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
-import {
-  ClientDfmPanel,
-  ClientMetadataPanel,
-  ClientQuoteRequestStatusCard,
-  ClientReadOnlyChatPanel,
-} from "@/components/quotes/ClientWorkspacePanelContent";
+import { ClientQuoteRequestStatusCard } from "@/components/quotes/ClientWorkspacePanelContent";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,7 +51,6 @@ const ClientPart = () => {
     accessibleJobsQuery,
     activeMembership,
     activePreset,
-    activityEntries,
     archivedJobsQuery,
     archivedProjectsQuery,
     assignJobMutation,
@@ -158,6 +150,12 @@ const ClientPart = () => {
     userId: user?.id,
   });
 
+  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(selectedQuoteOption?.offerId ?? null);
+
+  useEffect(() => {
+    setSelectedOfferId(selectedQuoteOption?.offerId ?? null);
+  }, [selectedQuoteOption?.offerId]);
+
   if (isAuthInitializing) {
     return <AuthBootstrapScreen message="Restoring your part workspace." />;
   }
@@ -195,89 +193,22 @@ const ClientPart = () => {
     void handleRequestQuote(quoteRequestViewModel.action.kind === "retry");
   };
 
-  const renderVendorExclusionControls = () => {
-    const visibleOptions = rankedQuoteOptions.slice(0, 6);
+  const handleWorkspaceOfferSelect = (offerId: string | null) => {
+    setSelectedOfferId(offerId);
 
-    if (visibleOptions.length === 0) {
-      return null;
+    if (offerId === null) {
+      handleSelectQuoteOption(null);
+      return;
     }
 
-    return (
-      <section className="rounded-[24px] border border-ws-border-subtle bg-ws-inset p-4">
-        <p className="ws-subsection-label">Vendor visibility</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {visibleOptions.map((option) => (
-            <Button
-              key={`${option.vendorKey}:${option.key}`}
-              type="button"
-              variant="outline"
-              className={cn(
-                "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
-                option.excluded && "border-amber-400/20 bg-amber-500/10 text-amber-100 hover:bg-amber-500/15",
-              )}
-              onClick={() => handleToggleVendorExclusion(option.vendorKey, !option.excluded)}
-            >
-              {option.excluded ? `Include ${option.vendorLabel}` : `Exclude ${option.vendorLabel}`}
-            </Button>
-          ))}
-        </div>
-      </section>
-    );
+    const nextOption = rankedQuoteOptions.find((option) => option.offerId === offerId) ?? null;
+
+    if (!nextOption) {
+      return;
+    }
+
+    handleSelectQuoteOption(nextOption);
   };
-
-  const quoteRailContent = (
-    <div className="space-y-4">
-      <section className="rounded-[24px] border border-ws-border-subtle bg-ws-inset p-4">
-        <p className="ws-subsection-label">Request summary</p>
-        <RequestSummaryBadges
-          requestedServiceKinds={effectiveRequestDraft?.requestedServiceKinds ?? summary?.requestedServiceKinds ?? []}
-          quantity={requestSummaryQuantity}
-          requestedQuoteQuantities={requestQuantities}
-          requestedByDate={requestSummaryRequestedByDate}
-          className="mt-3"
-        />
-      </section>
-
-      <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
-
-      {quoteRequestViewModel ? (
-        <ClientQuoteRequestStatusCard
-          tone={quoteRequestViewModel.tone}
-          label={quoteRequestViewModel.label}
-          detail={quoteRequestViewModel.detail}
-          actionLabel={quoteRequestViewModel.action.label}
-          actionDisabled={quoteRequestViewModel.action.disabled}
-          blockerReasons={quoteRequestViewModel.blockerReasons}
-          isBusy={isRequestingQuote}
-          onAction={quoteRequestViewModel.action.kind === "none" ? null : handleQuoteRequestAction}
-        />
-      ) : null}
-
-      {renderVendorExclusionControls()}
-
-      <section className="rounded-[24px] border border-ws-border-subtle bg-ws-inset p-4">
-        <div className="mb-4">
-          <p className="ws-subsection-label">Request details</p>
-          <p className="mt-2 text-sm text-white/55">
-            Keep quote-safe metadata and revision uploads connected to this part.
-          </p>
-        </div>
-        {effectiveRequestDraft ? (
-          <ClientPartRequestEditor
-            draft={effectiveRequestDraft}
-            quoteQuantityInput={quoteQuantityInput}
-            onQuoteQuantityInputChange={setQuoteQuantityInput}
-            onChange={handleDraftChange}
-            onSave={handleSaveRequest}
-            onUploadRevision={attachFilesPicker.openFilePicker}
-            isSaving={saveRequestMutation.isPending}
-          />
-        ) : (
-          <p className="text-sm text-white/45">Part details are still loading.</p>
-        )}
-      </section>
-    </div>
-  );
 
   return (
     <>
@@ -530,78 +461,72 @@ const ClientPart = () => {
 
               {workspaceState ? <ClientWorkspaceStateSummary state={workspaceState} /> : null}
 
-              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-                <div className="space-y-6">
-                  {/* Artifact stage */}
-                  <div>
-                    <p className="ws-section-label mb-3">Artifact stage</p>
-                    <ClientArtifactWorkspace
-                      itemKey={jobId}
-                      hasCad={Boolean(cadFile)}
-                      hasDrawing={Boolean(drawingFile)}
-                      drawingPanel={
-                        <ClientDrawingPreviewPanel
-                          drawingFile={drawingFile}
-                          drawingPreview={drawingPreview ?? { pageCount: 0, thumbnail: null, pages: [] }}
-                          viewerMode={drawingViewerMode}
-                          pdfUrl={drawingPdfUrl}
-                          pages={drawingPreviewPageUrls.length > 0 ? drawingPreviewPageUrls : undefined}
-                          state={drawingPreviewState}
-                          statusMessage={drawingPreviewStatusMessage}
-                          isLoading={isDrawingPreviewLoading}
-                          onOpenDialog={drawingFile ? () => setShowDrawingPreview(true) : undefined}
-                        />
-                      }
-                      cadPanel={<ClientCadPreviewPanel cadFile={cadFile} />}
-                    />
-                  </div>
-
-                  {/* Quote intelligence */}
-                  <div>
-                    <p className="ws-section-label mb-3">Quote intelligence</p>
-                    <ClientQuoteDecisionPanel
-                      options={rankedQuoteOptions}
-                      selectedOption={selectedQuoteOption}
-                      onSelect={handleSelectQuoteOption}
-                      requestedByDate={requestSummaryRequestedByDate}
-                      quoteDataStatus={quoteDataStatus}
-                      quoteDataMessage={quoteDataMessage}
-                      quoteDiagnostics={quoteDiagnostics}
-                      partId={partDetail.part?.id ?? null}
-                      organizationId={partDetail.job.organization_id}
-                      activePreset={activePreset}
-                      onPresetSelect={handlePresetSelection}
-                      onToggleVendorExclusion={handleToggleVendorExclusion}
-                      emptyState={
-                        cadFile
-                          ? "No quote options are available yet."
-                          : "Upload a CAD model before quote options can be compared."
-                      }
-                    />
-                  </div>
+              <div className="grid items-start gap-4 xl:grid-cols-[2fr_1fr]">
+                <div className="flex flex-col gap-4">
+                  <QuoteStatBar quotes={rankedQuoteOptions} />
+                  <QuoteChart
+                    quotes={rankedQuoteOptions}
+                    selectedOfferId={selectedOfferId}
+                    onSelect={handleWorkspaceOfferSelect}
+                  />
+                  <QuoteList
+                    quotes={rankedQuoteOptions}
+                    selectedOfferId={selectedOfferId}
+                    onSelect={handleWorkspaceOfferSelect}
+                    requestedByDate={requestSummaryRequestedByDate}
+                    quoteDataStatus={quoteDataStatus}
+                    quoteDataMessage={quoteDataMessage}
+                    quoteDiagnostics={quoteDiagnostics}
+                    activePreset={activePreset}
+                    onPresetSelect={handlePresetSelection}
+                    onToggleVendorExclusion={handleToggleVendorExclusion}
+                  />
                 </div>
 
-                <ClientIntelligencePanel
-                  itemKey={jobId}
-                  quoteContent={quoteRailContent}
-                  metadataContent={
-                    <ClientMetadataPanel
-                      summary={summary}
-                      part={partDetail.part}
-                      extraction={extraction}
-                      quoteOptions={rankedQuoteOptions}
-                    />
-                  }
-                  dfmContent={<ClientDfmPanel quoteOptions={rankedQuoteOptions} />}
-                  historyContent={<ActivityLog entries={activityEntries} />}
-                  chatContent={
-                    <ClientReadOnlyChatPanel
-                      partLabel={displayPartTitle}
-                      latestQuoteRequest={partDetail.latestQuoteRequest}
-                      latestQuoteRun={partDetail.latestQuoteRun}
-                    />
-                  }
-                />
+                <div className="flex flex-col gap-6">
+                  <PartInfoPanel
+                    part={partDetail.part}
+                    summary={summary}
+                    extraction={extraction}
+                    effectiveRequestDraft={effectiveRequestDraft}
+                    quoteQuantityInput={quoteQuantityInput}
+                    onQuoteQuantityInputChange={setQuoteQuantityInput}
+                    onDraftChange={handleDraftChange}
+                    onSave={handleSaveRequest}
+                    onUploadRevision={attachFilesPicker.openFilePicker}
+                    isSaving={saveRequestMutation.isPending}
+                    drawingFileName={drawingFile?.original_name ?? null}
+                    statusContent={
+                      <>
+                        <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
+                        {quoteRequestViewModel ? (
+                          <ClientQuoteRequestStatusCard
+                            tone={quoteRequestViewModel.tone}
+                            label={quoteRequestViewModel.label}
+                            detail={quoteRequestViewModel.detail}
+                            actionLabel={quoteRequestViewModel.action.label}
+                            actionDisabled={quoteRequestViewModel.action.disabled}
+                            blockerReasons={quoteRequestViewModel.blockerReasons}
+                            isBusy={isRequestingQuote}
+                            onAction={quoteRequestViewModel.action.kind === "none" ? null : handleQuoteRequestAction}
+                          />
+                        ) : null}
+                      </>
+                    }
+                  />
+                  <CadPanel cadFile={cadFile} />
+                  <PdfPanel
+                    drawingFile={drawingFile}
+                    drawingPreview={drawingPreview}
+                    drawingPdfUrl={drawingPdfUrl}
+                    drawingPreviewPageUrls={drawingPreviewPageUrls}
+                    drawingViewerMode={drawingViewerMode}
+                    drawingPreviewState={drawingPreviewState}
+                    drawingPreviewStatusMessage={drawingPreviewStatusMessage}
+                    isLoading={isDrawingPreviewLoading}
+                    onOpenDialog={drawingFile ? () => setShowDrawingPreview(true) : undefined}
+                  />
+                </div>
               </div>
             </>
           ) : (

@@ -302,6 +302,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 vi.mock("recharts", () => ({
   CartesianGrid: () => null,
+  Label: () => null,
   Legend: () => null,
   ResponsiveContainer: ({ children }: PropsWithChildren) => <div>{children}</div>,
   Scatter: () => null,

@@ -9,9 +9,10 @@
 
 ## Layout
 - Header with part title, project/batch badges, request summary badges, and actions for project membership, file attach, and review.
-- Upper comparison region with adjacent drawing and CAD/isometric panels.
-- Quote comparison section with preset controls, scatter chart, and ranked quote list.
-- Lower detail region with a collapsible editable metadata/RFQ form and a lightweight activity log.
+- Main comparison region uses a 2:1 B2 labeled-rail split.
+- Left column contains quote stat cards, the scatter chart, and the ranked quote list.
+- Right rail contains part information and request editing first, then CAD preview, then PDF drawing preview.
+- Quote-request status and extraction-state messaging remain visible in the part-information section so the route keeps the existing request workflow while adopting the new layout.
 
 ## Quote Selection
 - Uses `src/features/quotes/selection.ts` for normalized client-facing quote options.
