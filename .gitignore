@@ -35,3 +35,4 @@ worker/.env
 playwright/.auth/
 playwright-report/
 test-results/
+.gstack/
