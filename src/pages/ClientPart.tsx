@@ -1,16 +1,22 @@
 import { useEffect, useState } from "react";
 import {
+  CalendarClock,
   FolderInput,
+  History,
   Loader2,
+  MessageSquare,
   MoreHorizontal,
   MoveRight,
   PlusSquare,
   Search,
+  Star,
+  StarOff,
+  Trash2,
   Upload,
   XCircle,
 } from "lucide-react";
-import { PartDropdownMenuActions } from "@/components/chat/PartActionsMenu";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
+import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { CadPanel } from "@/components/workspace/CadPanel";
 import { PartInfoPanel } from "@/components/workspace/PartInfoPanel";
@@ -38,19 +44,52 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import { useClientPartController } from "@/features/quotes/use-client-part-controller";
 import { buildClientWorkspaceState } from "@/features/quotes/client-workspace-state";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import { formatStatusLabel } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+
+type LocalComment = {
+  id: string;
+  body: string;
+  createdAt: string;
+  authorLabel: string;
+};
+
+const QUICK_DUE_DATE_PRESETS = [
+  { label: "Tomorrow", days: 1 },
+  { label: "In 3 days", days: 3 },
+  { label: "Next week", days: 7 },
+  { label: "In 2 weeks", days: 14 },
+] as const;
+
+function addDays(days: number): string {
+  const next = new Date();
+  next.setDate(next.getDate() + days);
+  return next.toISOString().slice(0, 10);
+}
 
 const ClientPart = () => {
   const {
     accessibleJobsQuery,
     activeMembership,
     activePreset,
+    activityEntries,
     archivedJobsQuery,
     archivedProjectsQuery,
     assignJobMutation,
@@ -85,6 +124,7 @@ const ClientPart = () => {
     handleRenameProject,
     handleRequestQuote,
     handleSaveRequest,
+    handleSaveRequestPatch,
     handleSelectQuoteOption,
     handleToggleCurrentPartPin,
     handleToggleVendorExclusion,
@@ -95,7 +135,6 @@ const ClientPart = () => {
     isPartDetailLoading,
     isPartArchiveBusy,
     isPartOptionsOpen,
-    isPartPinBusy,
     isRequestingQuote,
     isRenamingPart,
     isSearchOpen,
@@ -151,10 +190,47 @@ const ClientPart = () => {
   });
 
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(selectedQuoteOption?.offerId ?? null);
+  const [comments, setComments] = useState<LocalComment[]>([]);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [isDueDateDialogOpen, setIsDueDateDialogOpen] = useState(false);
+  const [dueDateDraft, setDueDateDraft] = useState(requestSummaryRequestedByDate ?? "");
+  const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
 
   useEffect(() => {
     setSelectedOfferId(selectedQuoteOption?.offerId ?? null);
   }, [selectedQuoteOption?.offerId]);
+
+  useEffect(() => {
+    setDueDateDraft(requestSummaryRequestedByDate ?? "");
+  }, [requestSummaryRequestedByDate]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        (target instanceof HTMLElement &&
+          (target.isContentEditable ||
+            target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.tagName === "SELECT"))
+      ) {
+        return;
+      }
+
+      if (event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        void handleToggleCurrentPartPin();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleToggleCurrentPartPin]);
 
   if (isAuthInitializing) {
     return <AuthBootstrapScreen message="Restoring your part workspace." />;
@@ -208,6 +284,36 @@ const ClientPart = () => {
 
     setSelectedOfferId(offerId);
     handleSelectQuoteOption(nextOption);
+  };
+
+  const isFavorite = pinnedJobIds.includes(jobId);
+  const breadcrumbProject = projectMemberships[0]?.project ?? null;
+
+  const handleAddComment = () => {
+    const body = commentDraft.trim();
+
+    if (!body) {
+      return;
+    }
+
+    setComments((current) => [
+      {
+        id: `${jobId}-${Date.now()}`,
+        body,
+        createdAt: new Date().toISOString(),
+        authorLabel: user.email ?? "You",
+      },
+      ...current,
+    ]);
+    setCommentDraft("");
+    toast.success("Comment added.");
+  };
+
+  const handleSaveDueDate = () => {
+    handleSaveRequestPatch({
+      requestedByDate: dueDateDraft.trim().length > 0 ? dueDateDraft : null,
+    });
+    setIsDueDateDialogOpen(false);
   };
 
   return (
@@ -274,7 +380,7 @@ const ClientPart = () => {
           ) : partDetail?.job && presentation ? (
             <>
               <ClientPartHeader
-                eyebrow="Part workspace"
+                eyebrow="Issue detail"
                 title={displayPartTitle}
                 description={presentation.description}
                 badges={
@@ -311,17 +417,64 @@ const ClientPart = () => {
                   </>
                 }
                 details={
-                  <RequestSummaryBadges
-                    requestedServiceKinds={
-                      effectiveRequestDraft?.requestedServiceKinds ?? summary?.requestedServiceKinds ?? []
-                    }
-                    quantity={requestSummaryQuantity}
-                    requestedQuoteQuantities={requestQuantities}
-                    requestedByDate={requestSummaryRequestedByDate}
-                  />
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-white/55">
+                      <button
+                        type="button"
+                        className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-white/70 transition hover:bg-white/8 hover:text-white"
+                        onClick={() => navigate("/")}
+                      >
+                        Workspace
+                      </button>
+                      {breadcrumbProject ? (
+                        <>
+                          <span className="text-white/25">/</span>
+                          <button
+                            type="button"
+                            className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-white/70 transition hover:bg-white/8 hover:text-white"
+                            onClick={() => navigate(`/projects/${breadcrumbProject.id}`)}
+                          >
+                            {breadcrumbProject.name}
+                          </button>
+                        </>
+                      ) : null}
+                      <span className="text-white/25">/</span>
+                      <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-white">
+                        {displayPartTitle}
+                      </span>
+                    </div>
+                    <RequestSummaryBadges
+                      requestedServiceKinds={
+                        effectiveRequestDraft?.requestedServiceKinds ?? summary?.requestedServiceKinds ?? []
+                      }
+                      quantity={requestSummaryQuantity}
+                      requestedQuoteQuantities={requestQuantities}
+                      requestedByDate={requestSummaryRequestedByDate}
+                    />
+                  </div>
                 }
                 actions={
                   <>
+                    <TooltipProvider delayDuration={150}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            aria-label={isFavorite ? "Unfavorite part" : "Favorite part"}
+                            className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                            onClick={() => void handleToggleCurrentPartPin()}
+                          >
+                            {isFavorite ? <Star className="fill-current" /> : <StarOff />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {isFavorite ? "Remove favorite" : "Favorite"} <span className="ml-2 text-white/45">F</span>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+
                     {revisionOptions.length > 1 ? (
                       <>
                         <Button
@@ -395,65 +548,65 @@ const ClientPart = () => {
                         <Button
                           type="button"
                           variant="outline"
-                          aria-label="Part options"
+                          size="icon"
+                          aria-label="Issue detail actions"
                           className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
                         >
-                          <MoreHorizontal className="mr-2 h-4 w-4" />
-                          Options
+                          <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <PartDropdownMenuActions
-                        onEditPart={() => navigate(`/parts/${jobId}`)}
-                        onRenamePart={() => {
-                          setPartRenameValue(currentPartName);
-                          setShowRenameDialog(true);
-                          setIsPartOptionsOpen(false);
-                        }}
-                        onCreateProject={
-                          !projectCollaborationUnavailable
-                            ? () => {
-                                setIsPartOptionsOpen(false);
-                                void handleCreateProjectFromSelection([jobId]);
-                              }
-                            : undefined
-                        }
-                        addableProjects={currentProjectOptions
-                          .filter((project) => !(partDetail?.projectIds ?? []).includes(project.project.id))
-                          .map((project) => ({ id: project.project.id, name: project.project.name }))}
-                        removableProjects={currentProjectOptions
-                          .filter((project) => (partDetail?.projectIds ?? []).includes(project.project.id))
-                          .map((project) => ({ id: project.project.id, name: project.project.name }))}
-                        singleRemoveLabel="Remove from project"
-                        isMoveBusy={assignJobMutation.isPending || removeJobMutation.isPending}
-                        onAddToProject={
-                          !projectCollaborationUnavailable
-                            ? (projectId) => {
-                                assignJobMutation.mutate(projectId);
-                                setIsPartOptionsOpen(false);
-                              }
-                            : undefined
-                        }
-                        onRemoveFromProject={
-                          !projectCollaborationUnavailable
-                            ? (projectId) => {
-                                removeJobMutation.mutate(projectId);
-                                setIsPartOptionsOpen(false);
-                              }
-                            : undefined
-                        }
-                        onArchivePart={() => {
-                          setIsPartOptionsOpen(false);
-                          setIsPartArchiveBusy(true);
-                          void handleArchivePart(jobId).finally(() => setIsPartArchiveBusy(false));
-                        }}
-                        isArchiveBusy={isPartArchiveBusy}
-                        pinLabel={pinnedJobIds.includes(jobId) ? "Unpin" : "Pin"}
-                        onTogglePin={() => {
-                          setIsPartOptionsOpen(false);
-                          void handleToggleCurrentPartPin();
-                        }}
-                        isPinBusy={isPartPinBusy}
-                      />
+                      <DropdownMenuContent align="end" className="w-64 border-white/10 bg-[#1f1f1f] text-white">
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            setIsPartOptionsOpen(false);
+                            setIsDueDateDialogOpen(true);
+                          }}
+                        >
+                          <CalendarClock className="mr-2 h-4 w-4" />
+                          Set due date
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            setIsPartOptionsOpen(false);
+                            toast.message("Make a copy is not wired for part workspaces yet.");
+                          }}
+                        >
+                          <MessageSquare className="mr-2 h-4 w-4" />
+                          Make a copy
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            setIsPartOptionsOpen(false);
+                            void handleToggleCurrentPartPin();
+                          }}
+                        >
+                          <Star className="mr-2 h-4 w-4" />
+                          {isFavorite ? "Unfavorite" : "Favorite"}
+                          <DropdownMenuShortcut>F</DropdownMenuShortcut>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            setIsPartOptionsOpen(false);
+                            setIsVersionHistoryOpen(true);
+                          }}
+                        >
+                          <History className="mr-2 h-4 w-4" />
+                          Show version history
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator className="bg-white/10" />
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            setIsPartOptionsOpen(false);
+                            setIsPartArchiveBusy(true);
+                            void handleArchivePart(jobId).finally(() => setIsPartArchiveBusy(false));
+                          }}
+                          disabled={isPartArchiveBusy}
+                          className="text-rose-200 focus:bg-rose-500/10 focus:text-rose-100"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
                     </DropdownMenu>
                   </>
                 }
@@ -528,6 +681,66 @@ const ClientPart = () => {
                   />
                 </div>
               </div>
+
+              <section className="rounded-[30px] border border-white/8 bg-[#262626] p-5 md:p-6">
+                <p className="text-xs uppercase tracking-[0.18em] text-white/35">Activity</p>
+                <h2 className="mt-2 text-xl font-semibold text-white">Comments and history</h2>
+                <p className="mt-1 text-sm text-white/55">
+                  Leave a comment and review the workflow timeline for this part.
+                </p>
+
+                <div className="mt-5 rounded-[24px] border border-white/8 bg-black/20 p-4">
+                  <label htmlFor="part-comment" className="text-sm font-medium text-white/80">
+                    Leave a comment
+                  </label>
+                  <Textarea
+                    id="part-comment"
+                    value={commentDraft}
+                    onChange={(event) => setCommentDraft(event.target.value)}
+                    placeholder="Add context, decisions, or a follow-up note."
+                    className="mt-3 min-h-28 border-white/10 bg-[#171717] text-white placeholder:text-white/30"
+                  />
+                  <div className="mt-3 flex justify-end">
+                    <Button type="button" onClick={handleAddComment} disabled={commentDraft.trim().length === 0}>
+                      <MessageSquare className="mr-2 h-4 w-4" />
+                      Comment
+                    </Button>
+                  </div>
+                </div>
+
+                <Tabs defaultValue="activity" className="mt-5">
+                  <TabsList className="h-auto flex-wrap justify-start gap-2 rounded-[16px] bg-black/20 p-1.5">
+                    <TabsTrigger value="activity">Activity</TabsTrigger>
+                    <TabsTrigger value="comments">Comments</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="activity" className="mt-4">
+                    <ActivityLog entries={activityEntries} />
+                  </TabsContent>
+                  <TabsContent value="comments" className="mt-4">
+                    <div className="rounded-[24px] border border-white/8 bg-[#262626] p-5">
+                      {comments.length === 0 ? (
+                        <p className="text-sm text-white/45">No comments yet.</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {comments.map((comment) => (
+                            <article key={comment.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="text-sm font-medium text-white">{comment.authorLabel}</p>
+                                <p className="text-xs uppercase tracking-[0.16em] text-white/35">
+                                  {new Date(comment.createdAt).toLocaleString()}
+                                </p>
+                              </div>
+                              <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-white/65">
+                                {comment.body}
+                              </p>
+                            </article>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </section>
             </>
           ) : (
             <div className="rounded-[26px] border border-white/8 bg-[#262626] px-6 py-12 text-center text-white/45">
@@ -661,6 +874,93 @@ const ClientPart = () => {
               Close
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isDueDateDialogOpen} onOpenChange={setIsDueDateDialogOpen}>
+        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
+          <DialogHeader>
+            <DialogTitle>Set due date</DialogTitle>
+            <DialogDescription className="text-white/55">
+              Pick a common due date or type a specific date for this part request.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2">
+              {QUICK_DUE_DATE_PRESETS.map((preset) => (
+                <Button
+                  key={preset.label}
+                  type="button"
+                  variant="outline"
+                  className="justify-start border-white/10 bg-transparent text-white hover:bg-white/6"
+                  onClick={() => setDueDateDraft(addDays(preset.days))}
+                >
+                  {preset.label}
+                </Button>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="part-due-date" className="text-sm font-medium text-white/80">
+                Due date
+              </label>
+              <Input
+                id="part-due-date"
+                type="date"
+                value={dueDateDraft}
+                onChange={(event) => setDueDateDraft(event.target.value)}
+                className="border-white/10 bg-[#171717] text-white"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="border-white/10 bg-transparent text-white hover:bg-white/6"
+              onClick={() => setDueDateDraft("")}
+            >
+              Clear
+            </Button>
+            <Button type="button" onClick={handleSaveDueDate}>
+              Save due date
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isVersionHistoryOpen} onOpenChange={setIsVersionHistoryOpen}>
+        <DialogContent className="max-w-3xl border-white/10 bg-[#1f1f1f] text-white">
+          <DialogHeader>
+            <DialogTitle>Version history</DialogTitle>
+            <DialogDescription className="text-white/55">
+              Review client-visible activity and comments for this part.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ActivityLog entries={activityEntries} className="bg-[#262626]" />
+            <div className="rounded-[24px] border border-white/8 bg-[#262626] p-5">
+              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Comments</p>
+              {comments.length === 0 ? (
+                <p className="mt-4 text-sm text-white/45">No comments yet.</p>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  {comments.map((comment) => (
+                    <article key={comment.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                      <p className="text-sm font-medium text-white">{comment.authorLabel}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.16em] text-white/35">
+                        {new Date(comment.createdAt).toLocaleString()}
+                      </p>
+                      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-white/65">{comment.body}</p>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </>
