@@ -3,6 +3,7 @@ import { ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceSta
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type {
+  ClientQuoteRequestStatus,
   DrawingExtractionData,
   JobPartSummary,
   PartAggregate,
@@ -14,6 +15,7 @@ import { formatStatusLabel } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
 
 type ClientQuoteRequestStatusCardProps = {
+  status: ClientQuoteRequestStatus;
   tone: "ready" | "warning" | "danger" | "blocked";
   label: string;
   detail: string;
@@ -64,6 +66,7 @@ function formatMaybeNumber(value: number | null | undefined, fallback = "Not ava
 }
 
 export function ClientQuoteRequestStatusCard({
+  status,
   tone,
   label,
   detail,
@@ -74,6 +77,8 @@ export function ClientQuoteRequestStatusCard({
   onAction,
   className,
 }: ClientQuoteRequestStatusCardProps) {
+  const isActionUnavailable = isBusy || actionDisabled;
+
   return (
     <section
       className={cn(
@@ -87,21 +92,28 @@ export function ClientQuoteRequestStatusCard({
       )}
     >
       <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <ClientWorkspaceToneBadge
-            tone={tone === "danger" ? "blocked" : tone}
-            label={`Quote ${label}`}
-            className="tracking-normal normal-case"
-          />
-          <p className="text-sm font-medium text-white">Xometry request status</p>
+        <div aria-live="polite" aria-atomic="true" className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <ClientWorkspaceToneBadge
+              tone={tone === "danger" ? "blocked" : tone}
+              label={`Quote ${label}`}
+              className="tracking-normal normal-case"
+            />
+            <p className="text-sm font-medium text-white">Xometry request status</p>
+          </div>
+          {status === "failed" ? (
+            <p role="alert" className="text-sm text-white/75">{detail}</p>
+          ) : (
+            <p className="text-sm text-white/75">{detail}</p>
+          )}
         </div>
-        <p className="text-sm text-white/75">{detail}</p>
         {onAction && actionLabel ? (
           <div>
             <Button
               type="button"
               className="rounded-full"
-              disabled={isBusy || actionDisabled}
+              disabled={isActionUnavailable}
+              aria-disabled={isActionUnavailable ? "true" : undefined}
               onClick={onAction}
             >
               {actionLabel}

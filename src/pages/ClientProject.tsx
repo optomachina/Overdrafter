@@ -414,6 +414,7 @@ const ClientProject = () => {
 
         {focusedQuoteRequestViewModel ? (
           <ClientQuoteRequestStatusCard
+            status={focusedQuoteRequestViewModel.status}
             tone={focusedQuoteRequestViewModel.tone}
             label={focusedQuoteRequestViewModel.label}
             detail={focusedQuoteRequestViewModel.detail}
