@@ -1032,19 +1032,12 @@ export function useClientPartController() {
       return;
     }
 
-    const nextQuantities = parseRequestedQuoteQuantitiesInput(
-      quoteQuantityInput,
-      effectiveRequestDraft.quantity,
-    );
-
     const payload = {
       ...effectiveRequestDraft,
       ...next,
-      requestedQuoteQuantities: nextQuantities,
     } satisfies ClientPartRequestUpdateInput;
 
     setRequestDraft(payload);
-    setQuoteQuantityInput(formatRequestedQuoteQuantitiesInput(nextQuantities));
     saveRequestMutation.mutate(payload);
   };
 

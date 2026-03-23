@@ -78,10 +78,17 @@ const QUICK_DUE_DATE_PRESETS = [
   { label: "In 2 weeks", days: 14 },
 ] as const;
 
+function formatLocalDateInputValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function addDays(days: number): string {
   const next = new Date();
   next.setDate(next.getDate() + days);
-  return next.toISOString().slice(0, 10);
+  return formatLocalDateInputValue(next);
 }
 
 const ClientPart = () => {
