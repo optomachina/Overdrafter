@@ -39,7 +39,7 @@ function QuoteStatusCard({
   const Icon = tone === "warning" ? TriangleAlert : CircleOff;
 
   return (
-    <div className="rounded-[14px] border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center">
+    <div className="rounded border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center">
       <Icon className="mx-auto h-5 w-5 text-white/35" />
       <p className="mt-3 text-sm font-medium text-white/80">{title}</p>
       <p className="mt-2 text-sm text-white/55">{body}</p>
@@ -137,7 +137,7 @@ export function QuoteList({
               aria-pressed={isSelected}
               aria-label={`${quote.vendorLabel} ${quote.offerId}`}
               className={cn(
-                "flex cursor-pointer items-center gap-3 rounded-[14px] border px-4 py-3.5 transition",
+                "flex cursor-pointer items-center gap-3 rounded border px-4 py-3.5 transition",
                 isSelected
                   ? "border-white/25 bg-white/5"
                   : "border-ws-border-subtle bg-ws-card hover:border-white/12",
@@ -225,7 +225,7 @@ export function QuoteList({
   }
 
   return (
-    <div className="rounded-[14px] border border-ws-border-subtle bg-ws-card p-3">
+    <div className="rounded border border-ws-border-subtle bg-ws-card p-3">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span className="inline-flex items-center rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/55">
           <SlidersHorizontal className="mr-2 h-3.5 w-3.5" />

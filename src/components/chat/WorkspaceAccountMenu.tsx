@@ -103,15 +103,15 @@ type ReleaseNote = {
 };
 
 const MENU_CONTENT_CLASS =
-  "workspace-shell z-[70] w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 box-border rounded-[30px] border border-white/[0.08] bg-[#2a2a2a] p-2.5 text-white shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
+  "workspace-shell z-[70] w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 box-border rounded-surface-lg border border-white/[0.08] bg-[#2a2a2a] p-2.5 text-white shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
 const SUBMENU_CONTENT_CLASS =
-  "workspace-shell z-[71] w-[320px] rounded-[30px] border border-white/[0.08] bg-[#2a2a2a] p-2.5 text-white shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
+  "workspace-shell z-[71] w-[320px] rounded-surface-lg border border-white/[0.08] bg-[#2a2a2a] p-2.5 text-white shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
 const MENU_ITEM_CLASS =
-  "gap-3.5 rounded-[20px] px-4 py-3 text-[15px] font-normal leading-6 text-white/[0.96] focus:bg-white/[0.08] focus:text-white";
+  "gap-3.5 rounded-surface-lg px-4 py-3 text-[15px] font-normal leading-6 text-white/[0.96] focus:bg-white/[0.08] focus:text-white";
 const MENU_ICON_CLASS = "h-[22px] w-[22px] shrink-0 text-white/[0.92]";
 const PANEL_SHEET_CLASS =
   "workspace-shell w-[min(100vw,30rem)] border-l border-white/[0.08] bg-[#2a2a2a] p-0 text-white sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-full [&>button]:bg-white/[0.06] [&>button]:p-2 [&>button]:text-white/72 [&>button]:hover:bg-white/[0.1] [&>button]:hover:text-white";
-const PANEL_CARD_CLASS = "rounded-[22px] border border-white/[0.08] bg-black/20 p-4";
+const PANEL_CARD_CLASS = "rounded-surface-lg border border-white/[0.08] bg-black/20 p-4";
 const NOTIFICATION_BADGE_CLASS =
   "rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300";
 
@@ -273,7 +273,7 @@ function HelpCenterButton({
   return (
     <button
       type="button"
-      className="flex w-full items-center gap-3 rounded-[20px] border border-white/[0.08] bg-white/[0.02] px-4 py-4 text-left transition hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+      className="flex w-full items-center gap-3 rounded-surface-lg border border-white/[0.08] bg-white/[0.02] px-4 py-4 text-left transition hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
       onClick={onClick}
     >
       <Icon className="h-5 w-5 shrink-0 text-white/[0.92]" strokeWidth={1.85} />
@@ -292,7 +292,7 @@ function ShortcutKeys({ keys }: { keys: string[] }) {
       {keys.map((key) => (
         <kbd
           key={key}
-          className="rounded-[10px] border border-white/[0.08] bg-white/[0.06] px-2.5 py-1 text-xs font-medium text-white/88"
+          className="rounded border border-white/[0.08] bg-white/[0.06] px-2.5 py-1 text-xs font-medium text-white/88"
         >
           {key}
         </kbd>
@@ -584,7 +584,7 @@ export function WorkspaceAccountMenu({
                   return (
                     <div
                       key={notificationType}
-                      className="rounded-[18px] border border-white/[0.08] bg-white/[0.03] p-4"
+                      className="rounded border border-white/[0.08] bg-white/[0.03] p-4"
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0">
@@ -607,7 +607,7 @@ export function WorkspaceAccountMenu({
                             <label
                               key={`${notificationType}-${channel}`}
                               className={cn(
-                                "flex items-center justify-between gap-4 rounded-[16px] border border-white/[0.08] px-4 py-3",
+                                "flex items-center justify-between gap-4 rounded border border-white/[0.08] px-4 py-3",
                                 isDisabled ? "opacity-60" : "bg-black/10",
                               )}
                             >
@@ -666,7 +666,7 @@ export function WorkspaceAccountMenu({
                       <article
                         key={item.id}
                         className={cn(
-                          "rounded-[18px] border p-4",
+                          "rounded border p-4",
                           item.isSeen
                             ? "border-white/[0.08] bg-white/[0.03]"
                             : "border-emerald-500/[0.28] bg-emerald-500/[0.08]",
@@ -1042,7 +1042,7 @@ export function WorkspaceAccountMenu({
             aria-label="Open account menu"
             disabled={isSigningOut}
             className={cn(
-              "workspace-shell group/account flex w-full items-center gap-3 rounded-[24px] px-3 py-2.5 text-left text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-60",
+              "workspace-shell group/account flex w-full items-center gap-3 rounded-surface-lg px-3 py-2.5 text-left text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-60",
               menuOpen ? "bg-white/[0.06]" : "bg-transparent hover:bg-white/[0.06] focus-visible:bg-white/[0.06]",
             )}
           >

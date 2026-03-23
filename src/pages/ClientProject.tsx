@@ -288,7 +288,7 @@ const ClientProject = () => {
     if (!focusedJob || !focusedWorkspaceItem || !focusedPresentation) {
       return (
         <div className="space-y-4">
-          <div className="rounded-[24px] border border-white/10 bg-black/20 p-5">
+          <div className="rounded-surface-lg border border-white/10 bg-black/20 p-5">
             <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Inspector</p>
             <h2 className="mt-3 text-lg font-semibold text-white">Project detail rail</h2>
             <p className="mt-2 text-sm text-white/55">
@@ -297,7 +297,7 @@ const ClientProject = () => {
           </div>
 
           <Collapsible defaultOpen>
-            <div className="rounded-[24px] border border-white/10 bg-black/20">
+            <div className="rounded-surface-lg border border-white/10 bg-black/20">
               <CollapsibleTrigger className="flex w-full items-center justify-between px-5 py-4 text-left">
                 <div>
                   <p className="text-sm font-medium text-white">Properties</p>
@@ -312,7 +312,7 @@ const ClientProject = () => {
           </Collapsible>
 
           <Collapsible defaultOpen>
-            <div className="rounded-[24px] border border-white/10 bg-black/20">
+            <div className="rounded-surface-lg border border-white/10 bg-black/20">
               <CollapsibleTrigger className="flex w-full items-center justify-between px-5 py-4 text-left">
                 <div>
                   <p className="text-sm font-medium text-white">Project</p>
@@ -346,7 +346,7 @@ const ClientProject = () => {
 
     return (
       <div className="space-y-4">
-        <div className="rounded-[24px] border border-white/10 bg-black/20 p-5">
+        <div className="rounded-surface-lg border border-white/10 bg-black/20 p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Selected part</p>
@@ -435,7 +435,7 @@ const ClientProject = () => {
         ) : null}
 
         {visibleOptions.length > 0 ? (
-          <div className="rounded-[24px] border border-white/10 bg-black/20 p-5">
+          <div className="rounded-surface-lg border border-white/10 bg-black/20 p-5">
             <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Vendor visibility</p>
             <div className="mt-3 flex flex-wrap gap-2">
               {visibleOptions.map((option) => (
@@ -457,7 +457,7 @@ const ClientProject = () => {
         ) : null}
 
         <Collapsible defaultOpen>
-          <div className="rounded-[24px] border border-white/10 bg-black/20">
+          <div className="rounded-surface-lg border border-white/10 bg-black/20">
             <CollapsibleTrigger className="flex w-full items-center justify-between px-5 py-4 text-left">
               <div>
                 <p className="text-sm font-medium text-white">Properties</p>
@@ -494,7 +494,7 @@ const ClientProject = () => {
               </div>
 
               {focusedDraft ? (
-                <div className="rounded-[20px] border border-white/8 bg-white/[0.03] p-4">
+                <div className="rounded-surface-lg border border-white/8 bg-white/[0.03] p-4">
                   <p className="text-sm font-medium text-white">Request details</p>
                   <p className="mt-1 text-xs text-white/45">
                     Quote-safe request editing stays available in the inspector while the deep artifact workspace remains on the part route.
@@ -517,7 +517,7 @@ const ClientProject = () => {
         </Collapsible>
 
         <Collapsible defaultOpen>
-          <div className="rounded-[24px] border border-white/10 bg-black/20">
+          <div className="rounded-surface-lg border border-white/10 bg-black/20">
             <CollapsibleTrigger className="flex w-full items-center justify-between px-5 py-4 text-left">
               <div>
                 <p className="text-sm font-medium text-white">Project</p>
@@ -690,28 +690,28 @@ const ClientProject = () => {
           </div>
 
           {/* Stats row */}
-          <div className="grid grid-cols-2 gap-[10px] md:grid-cols-4">
-            <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
-              <p className="mb-[4px] text-[11px] text-white/45">Total parts</p>
+          <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+            <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
+              <p className="mb-1 text-[11px] text-white/45">Total parts</p>
               <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{projectJobs.length}</p>
             </div>
-            <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
-              <p className="mb-[4px] text-[11px] text-white/45">Quoted</p>
+            <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
+              <p className="mb-1 text-[11px] text-white/45">Quoted</p>
               <p className="text-[24px] font-bold tracking-[-0.02em] text-emerald-400">{projectQuoteRequestSummary.received}</p>
             </div>
-            <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
-              <p className="mb-[4px] text-[11px] text-white/45">Requesting</p>
+            <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
+              <p className="mb-1 text-[11px] text-white/45">Requesting</p>
               <p className="text-[24px] font-bold tracking-[-0.02em] text-amber-400">{projectQuoteRequestSummary.requesting}</p>
             </div>
-            <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
-              <p className="mb-[4px] text-[11px] text-white/45">Not requested</p>
+            <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
+              <p className="mb-1 text-[11px] text-white/45">Not requested</p>
               <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{projectQuoteRequestSummary.notRequested}</p>
             </div>
           </div>
 
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
             <div className="space-y-4">
-              <div className="rounded-[24px] border border-ws-border-subtle bg-ws-card p-4">
+              <div className="rounded-surface-lg border border-ws-border-subtle bg-ws-card p-4">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
                     <Input
@@ -752,30 +752,30 @@ const ClientProject = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-[10px] md:grid-cols-4">
-                <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
-                  <p className="mb-[4px] text-[11px] text-white/45">Selected total</p>
+              <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+                <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
+                  <p className="mb-1 text-[11px] text-white/45">Selected total</p>
                   <p className="text-[24px] font-bold tracking-[-0.02em] text-white">
                     {formatCurrency(projectSelectionSummary.totalPriceUsd)}
                   </p>
                 </div>
-                <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
-                  <p className="mb-[4px] text-[11px] text-white/45">Selected lines</p>
+                <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
+                  <p className="mb-1 text-[11px] text-white/45">Selected lines</p>
                   <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{projectSelectionSummary.selectedCount}</p>
                 </div>
-                <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
-                  <p className="mb-[4px] text-[11px] text-white/45">Domestic</p>
+                <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
+                  <p className="mb-1 text-[11px] text-white/45">Domestic</p>
                   <p className="text-[24px] font-bold tracking-[-0.02em] text-emerald-400">{projectSelectionSummary.domesticCount}</p>
                 </div>
-                <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
-                  <p className="mb-[4px] text-[11px] text-white/45">Foreign / unknown</p>
+                <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
+                  <p className="mb-1 text-[11px] text-white/45">Foreign / unknown</p>
                   <p className="text-[24px] font-bold tracking-[-0.02em] text-white">
                     {projectSelectionSummary.foreignCount + projectSelectionSummary.unknownCount}
                   </p>
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-[24px] border border-ws-border-subtle bg-ws-card">
+              <div className="overflow-hidden rounded-surface-lg border border-ws-border-subtle bg-ws-card">
                 {projectJobsQuery.isLoading || projectWorkspaceItemsQuery.isLoading ? (
                   <div className="flex min-h-[240px] items-center justify-center">
                     <Loader2 className="h-6 w-6 animate-spin text-white/60" />
@@ -784,7 +784,7 @@ const ClientProject = () => {
                   <div className="px-6 py-12 text-center text-white/45">No parts match the current project filter.</div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <div className="grid min-w-[1040px] grid-cols-[1.4fr_1.8fr_120px_88px_88px_1fr_140px_120px] border-b border-white/[0.04] bg-white/[0.02] px-[18px] py-[10px]">
+                    <div className="grid min-w-[1040px] grid-cols-[1.4fr_1.8fr_120px_88px_88px_1fr_140px_120px] border-b border-white/[0.04] bg-white/[0.02] px-5 py-2.5">
                       <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Part</div>
                       <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Description</div>
                       <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Assignee</div>
@@ -827,7 +827,7 @@ const ClientProject = () => {
                         <div
                           key={job.id}
                           className={cn(
-                            "grid min-w-[1040px] grid-cols-[1.4fr_1.8fr_120px_88px_88px_1fr_140px_120px] items-center border-b border-white/[0.04] px-[18px] py-[13px] last:border-0 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 focus-visible:ring-inset",
+                            "grid min-w-[1040px] grid-cols-[1.4fr_1.8fr_120px_88px_88px_1fr_140px_120px] items-center border-b border-white/[0.04] px-5 py-3 last:border-0 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 focus-visible:ring-inset",
                             isSelected ? "bg-white/[0.06]" : "hover:bg-white/[0.02]",
                           )}
                           onClick={() => handleOpenJobDrawer(job.id)}
@@ -891,7 +891,7 @@ const ClientProject = () => {
                             {canTriggerRequest ? (
                               <Button
                                 type="button"
-                                className="h-auto rounded-[6px] px-2 py-1 text-xs"
+                                className="h-auto rounded-surface-sm px-2 py-1 text-xs"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   void handleRequestProjectQuotes(
@@ -907,7 +907,7 @@ const ClientProject = () => {
                               <Button
                                 type="button"
                                 variant="outline"
-                                className="h-auto rounded-[6px] border-white/10 bg-transparent px-2 py-1 text-xs text-white hover:bg-white/6"
+                                className="h-auto rounded-surface-sm border-white/10 bg-transparent px-2 py-1 text-xs text-white hover:bg-white/6"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   navigate(`/parts/${job.id}`);

@@ -14,7 +14,7 @@ const DESKTOP_SIDEBAR_COLLAPSED_WIDTH = "52px";
 const SIDEBAR_TOOLTIP_DELAY_MS = 120;
 const CURSOR_TOOLTIP_OFFSET = 14;
 const SIDEBAR_ICON_TOOLTIP_CLASS_NAME =
-  "workspace-shell rounded-lg border-transparent bg-[#0f0f0f] px-2.5 py-1.5 text-[11px] font-medium text-white shadow-[0_10px_30px_rgba(0,0,0,0.45)]";
+  "workspace-shell rounded-lg border-transparent bg-ws-deep px-2.5 py-1.5 text-[11px] font-medium text-white shadow-[0_10px_30px_rgba(0,0,0,0.45)]";
 const BRAND_NAME = "OverDrafter";
 
 function readDesktopSidebarCollapsed() {
@@ -202,7 +202,7 @@ function SidebarIconButton({
         hideCursorTooltip();
       }}
       className={cn(
-        "flex h-9 w-9 items-center justify-center rounded-[10px] border text-white/[0.96] transition-colors duration-150",
+        "flex h-9 w-9 items-center justify-center rounded border text-white/[0.96] transition-colors duration-150",
         isActive
           ? "border-white/[0.12] bg-white/[0.1] text-white"
           : "border-transparent hover:border-white/[0.08] hover:bg-white/[0.06] hover:text-white",
@@ -260,14 +260,14 @@ function SidebarScaffold({
   onLogoClick?: () => void;
 }) {
   return (
-    <div className="workspace-shell flex h-full flex-col bg-[#171717] text-white">
+    <div className="workspace-shell flex h-full flex-col bg-ws-shell text-white">
       <div className="flex items-center justify-between gap-3 pb-3 pl-2 pr-2 pt-3">
         {onLogoClick ? (
           <button
             type="button"
             onClick={onLogoClick}
             aria-label={`${BRAND_NAME} home`}
-            className="grid h-9 w-9 place-items-center rounded-[10px] text-left transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+            className="grid h-9 w-9 place-items-center rounded text-left transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
           >
             <img src={logoMark} alt="OverDrafter logo" className="h-6 w-6 object-contain" />
           </button>
@@ -301,7 +301,7 @@ function CollapsedSidebarRail({
 }) {
   return (
     <div
-      className="workspace-shell group flex h-full cursor-e-resize flex-col items-center gap-3 bg-[#171717] px-2 py-3 text-white"
+      className="workspace-shell group flex h-full cursor-e-resize flex-col items-center gap-3 bg-ws-shell px-2 py-3 text-white"
       onClick={onOpen}
     >
       <div className="flex h-9 w-full items-center justify-center">
@@ -366,7 +366,7 @@ export function ClientWorkspaceShell({
 
   return (
     <TooltipProvider delayDuration={SIDEBAR_TOOLTIP_DELAY_MS}>
-      <div className="workspace-shell min-h-svh bg-[#212121] text-white">
+      <div className="workspace-shell min-h-svh bg-ws-overlay text-white">
         <div className="flex min-h-svh">
           {showSidebar ? (
             <aside
@@ -412,7 +412,7 @@ export function ClientWorkspaceShell({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="rounded-[10px] text-white/[0.96] hover:bg-white/[0.06] hover:text-white md:hidden"
+                      className="rounded text-white/[0.96] hover:bg-white/[0.06] hover:text-white md:hidden"
                     >
                       <PanelLeftOpen className="h-5 w-5" />
                       <span className="sr-only">Open sidebar</span>
@@ -420,7 +420,7 @@ export function ClientWorkspaceShell({
                   </SheetTrigger>
                   <SheetContent
                     side="left"
-                    className="workspace-shell w-[260px] border-r border-white/[0.08] bg-[#171717] p-0 text-white sm:max-w-[260px] [&>button]:hidden"
+                    className="workspace-shell w-[260px] border-r border-white/[0.08] bg-ws-shell p-0 text-white sm:max-w-[260px] [&>button]:hidden"
                   >
                     <SidebarScaffold
                       sidebarContent={sidebarContent}
