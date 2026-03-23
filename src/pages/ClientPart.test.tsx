@@ -425,13 +425,37 @@ function createPartDetail(overrides: Record<string, unknown> = {}) {
 
 describe("ClientPart", () => {
   beforeEach(() => {
+    const localStorageState = new Map<string, string>();
     lastAccountMenuProps = null;
     lastDrawingPreviewDialogProps = null;
     vi.clearAllMocks();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      writable: true,
+      value: {
+        getItem: vi.fn((key: string) => localStorageState.get(key) ?? null),
+        setItem: vi.fn((key: string, value: string) => {
+          localStorageState.set(key, value);
+        }),
+        removeItem: vi.fn((key: string) => {
+          localStorageState.delete(key);
+        }),
+        clear: vi.fn(() => {
+          localStorageState.clear();
+        }),
+      },
+    });
     Object.defineProperty(URL, "revokeObjectURL", {
       configurable: true,
       writable: true,
       value: vi.fn(),
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      writable: true,
+      value: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+      },
     });
 
     mockUseAppSession.mockReturnValue({
@@ -724,6 +748,63 @@ describe("ClientPart", () => {
 
     await waitFor(() => {
       expect(api.requestQuote).toHaveBeenCalledWith("job-1", false);
+    });
+  });
+
+  it("saves a due date from the detail actions menu", async () => {
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /issue detail actions/i })).toBeInTheDocument();
+    });
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /issue detail actions/i }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /set due date/i }));
+    fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-04-22" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save due date" }));
+
+    await waitFor(() => {
+      expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+        "job-1",
+        expect.objectContaining({ requestedByDate: "2026-04-22" }),
+      );
+    });
+  });
+
+  it("adds browser-local comments in the activity section", async () => {
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Leave a comment")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Leave a comment"), {
+      target: { value: "Need vendor follow-up before approving." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+
+    await waitFor(() => {
+      expect(window.localStorage.setItem).toHaveBeenCalledWith(
+        "client-part-comments:job-1",
+        expect.stringContaining("Need vendor follow-up before approving."),
+      );
+    });
+  });
+
+  it("toggles favorite with the F hotkey", async () => {
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /favorite part/i })).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(window, { key: "f" });
+
+    await waitFor(() => {
+      expect(api.pinJob).toHaveBeenCalledWith("job-1");
     });
   });
 

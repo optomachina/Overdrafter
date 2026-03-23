@@ -1027,6 +1027,27 @@ export function useClientPartController() {
     saveRequestMutation.mutate(payload);
   };
 
+  const handleSaveRequestPatch = (next: Partial<ClientPartRequestUpdateInput>) => {
+    if (!effectiveRequestDraft) {
+      return;
+    }
+
+    const nextQuantities = parseRequestedQuoteQuantitiesInput(
+      quoteQuantityInput,
+      effectiveRequestDraft.quantity,
+    );
+
+    const payload = {
+      ...effectiveRequestDraft,
+      ...next,
+      requestedQuoteQuantities: nextQuantities,
+    } satisfies ClientPartRequestUpdateInput;
+
+    setRequestDraft(payload);
+    setQuoteQuantityInput(formatRequestedQuoteQuantitiesInput(nextQuantities));
+    saveRequestMutation.mutate(payload);
+  };
+
   const handleRequestQuote = async (forceRetry = false) => {
     await requestQuoteMutation.mutateAsync({ forceRetry });
   };
@@ -1101,6 +1122,7 @@ export function useClientPartController() {
     handleRenameProject,
     handleRequestQuote,
     handleSaveRequest,
+    handleSaveRequestPatch,
     handleSelectQuoteOption,
     handleToggleCurrentPartPin,
     handleToggleVendorExclusion,

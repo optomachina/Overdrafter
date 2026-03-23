@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
-import type { Session } from "@supabase/supabase-js";
+import { isAuthSessionMissingError, type Session } from "@supabase/supabase-js";
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getFixtureSessionDataForSearch } from "@/features/quotes/client-workspace-fixtures";
 import { fetchAppSessionData } from "@/features/quotes/api/session-access";
@@ -434,11 +434,33 @@ export function useAppSession() {
     removeStoredSupabaseSession();
     queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
 
-    if (accessToken) {
-      void supabase.auth.admin.signOut(accessToken, "global").catch((error: unknown) => {
-        console.warn("Failed to revoke remote auth session during sign out.", error);
-      });
+    const { error } = await supabase.auth.signOut({ scope: "global" });
+
+    if (!error) {
+      return;
     }
+
+    if (isAuthSessionMissingError(error)) {
+      recordWorkspaceSessionDiagnostic(
+        "info",
+        "use-app-session.sign-out.missing-session",
+        "Supabase signOut reported no remaining browser session after optimistic logout.",
+      );
+      removeStoredSupabaseSession();
+      queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
+      return;
+    }
+
+    recordWorkspaceSessionDiagnostic(
+      "warn",
+      "use-app-session.sign-out.failed",
+      "Supabase signOut failed after optimistic logout.",
+      {
+        error: String(error),
+        hasAccessToken: Boolean(accessToken),
+      },
+    );
+    throw error;
   };
 
   return {
