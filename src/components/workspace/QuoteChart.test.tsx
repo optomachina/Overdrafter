@@ -42,7 +42,7 @@ vi.mock("recharts", () => {
       cx: number;
       cy: number;
       payload: ClientQuoteSelectionOption;
-    }) => ReactElement | null;
+    }) => ReactElement<React.SVGProps<SVGCircleElement>> | null;
   }) {
     const context = useContext(ChartContext);
 
@@ -59,7 +59,7 @@ vi.mock("recharts", () => {
             return null;
           }
 
-          return React.cloneElement(element, {
+          return React.cloneElement<React.SVGProps<SVGCircleElement>>(element, {
             key: point.offerId,
             onMouseEnter: (event: React.MouseEvent<SVGCircleElement>) => {
               context.setActivePayload([{ payload: point }]);
