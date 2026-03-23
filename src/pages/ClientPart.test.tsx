@@ -785,10 +785,11 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("menuitem", { name: /set due date/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
     });
 
-    fireEvent.click(screen.getByRole("menuitem", { name: /set due date/i }));
+    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /set due date/i }));
     fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-04-22" } });
     fireEvent.click(screen.getByRole("button", { name: "Save due date" }));
 
@@ -870,7 +871,7 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("menuitem", { name: /set due date/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
     });
 
     const RealDate = Date;
@@ -888,10 +889,11 @@ describe("ClientPart", () => {
 
     vi.stubGlobal("Date", MockDate);
 
-    fireEvent.click(screen.getByRole("menuitem", { name: /set due date/i }));
+    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /set due date/i }));
     fireEvent.click(screen.getByRole("button", { name: "Tomorrow" }));
 
-    expect(screen.getByLabelText("Due date")).toHaveValue("2026-03-23");
+    expect((screen.getByLabelText("Due date") as HTMLInputElement).value).toBe("2026-03-23");
 
     vi.unstubAllGlobals();
   });
@@ -900,11 +902,12 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("menuitem", { name: /archive part/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
     });
 
-    expect(screen.getByRole("menuitem", { name: /archive part/i })).toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: /^delete$/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
+    expect(await screen.findByRole("menuitem", { name: /archive part/i })).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /^delete$/i })).toBeNull();
   });
 
   it("shows a processing notice while drawing extraction is still running", async () => {
