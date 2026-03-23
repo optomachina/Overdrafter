@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import {
   ContextMenuContent,
   ContextMenuItem,
@@ -39,6 +39,7 @@ export type PartActionsMenuProps = {
   pinLabel: string;
   onTogglePin: () => void;
   isPinBusy?: boolean;
+  extraContent?: ReactNode;
 };
 
 type PartActionPrimitives = {
@@ -74,6 +75,7 @@ function renderSharedPartActions(
     pinLabel,
     onTogglePin,
     isPinBusy = false,
+    extraContent = null,
   }: PartActionsMenuProps,
   contentProps: Record<string, unknown> = {},
 ) {
@@ -178,6 +180,12 @@ function renderSharedPartActions(
           >
             {pinLabel}
           </Item>
+          {extraContent ? (
+            <>
+              <Separator />
+              {extraContent}
+            </>
+          ) : null}
         </>
       )}
     </Content>

@@ -15,6 +15,7 @@ import {
   Upload,
   XCircle,
 } from "lucide-react";
+import { PartDropdownMenuActions } from "@/components/chat/PartActionsMenu";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
@@ -556,64 +557,117 @@ const ClientPart = () => {
                           type="button"
                           variant="outline"
                           size="icon"
-                          aria-label="Issue detail actions"
+                          aria-label="Part options"
                           className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
                         >
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-64 border-white/10 bg-[#1f1f1f] text-white">
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            setIsPartOptionsOpen(false);
-                            setIsDueDateDialogOpen(true);
-                          }}
-                        >
-                          <CalendarClock className="mr-2 h-4 w-4" />
-                          Set due date
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            setIsPartOptionsOpen(false);
-                            toast.message("Make a copy is not wired for part workspaces yet.");
-                          }}
-                        >
-                          <MessageSquare className="mr-2 h-4 w-4" />
-                          Make a copy
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            setIsPartOptionsOpen(false);
-                            void handleToggleCurrentPartPin();
-                          }}
-                        >
-                          <Star className="mr-2 h-4 w-4" />
-                          {isFavorite ? "Unfavorite" : "Favorite"}
-                          <DropdownMenuShortcut>F</DropdownMenuShortcut>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            setIsPartOptionsOpen(false);
-                            setIsVersionHistoryOpen(true);
-                          }}
-                        >
-                          <History className="mr-2 h-4 w-4" />
-                          Show version history
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator className="bg-white/10" />
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            setIsPartOptionsOpen(false);
-                            setIsPartArchiveBusy(true);
-                            void handleArchivePart(jobId).finally(() => setIsPartArchiveBusy(false));
-                          }}
-                          disabled={isPartArchiveBusy}
-                          className="text-rose-200 focus:bg-rose-500/10 focus:text-rose-100"
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
+                      <PartDropdownMenuActions
+                        onEditPart={() => navigate(`/parts/${jobId}`)}
+                        onRenamePart={() => {
+                          setPartRenameValue(currentPartName);
+                          setShowRenameDialog(true);
+                          setIsPartOptionsOpen(false);
+                        }}
+                        onCreateProject={
+                          !projectCollaborationUnavailable
+                            ? () => {
+                                setIsPartOptionsOpen(false);
+                                void handleCreateProjectFromSelection([jobId]);
+                              }
+                            : undefined
+                        }
+                        addableProjects={currentProjectOptions
+                          .filter((project) => !(partDetail?.projectIds ?? []).includes(project.project.id))
+                          .map((project) => ({ id: project.project.id, name: project.project.name }))}
+                        removableProjects={currentProjectOptions
+                          .filter((project) => (partDetail?.projectIds ?? []).includes(project.project.id))
+                          .map((project) => ({ id: project.project.id, name: project.project.name }))}
+                        singleRemoveLabel="Remove from project"
+                        isMoveBusy={assignJobMutation.isPending || removeJobMutation.isPending}
+                        onAddToProject={
+                          !projectCollaborationUnavailable
+                            ? (projectId) => {
+                                assignJobMutation.mutate(projectId);
+                                setIsPartOptionsOpen(false);
+                              }
+                            : undefined
+                        }
+                        onRemoveFromProject={
+                          !projectCollaborationUnavailable
+                            ? (projectId) => {
+                                removeJobMutation.mutate(projectId);
+                                setIsPartOptionsOpen(false);
+                              }
+                            : undefined
+                        }
+                        onArchivePart={() => {
+                          setIsPartOptionsOpen(false);
+                          setIsPartArchiveBusy(true);
+                          void handleArchivePart(jobId).finally(() => setIsPartArchiveBusy(false));
+                        }}
+                        isArchiveBusy={isPartArchiveBusy}
+                        pinLabel={pinnedJobIds.includes(jobId) ? "Unpin" : "Pin"}
+                        onTogglePin={() => {
+                          setIsPartOptionsOpen(false);
+                          void handleToggleCurrentPartPin();
+                        }}
+                        extraContent={
+                          <>
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setIsPartOptionsOpen(false);
+                                setIsDueDateDialogOpen(true);
+                              }}
+                            >
+                              <CalendarClock className="mr-2 h-4 w-4" />
+                              Set due date
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setIsPartOptionsOpen(false);
+                                toast.message("Make a copy is not wired for part workspaces yet.");
+                              }}
+                            >
+                              <MessageSquare className="mr-2 h-4 w-4" />
+                              Make a copy
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setIsPartOptionsOpen(false);
+                                setIsVersionHistoryOpen(true);
+                              }}
+                            >
+                              <History className="mr-2 h-4 w-4" />
+                              Show version history
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator className="bg-white/10" />
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setIsPartOptionsOpen(false);
+                                setIsPartArchiveBusy(true);
+                                void handleArchivePart(jobId).finally(() => setIsPartArchiveBusy(false));
+                              }}
+                              disabled={isPartArchiveBusy}
+                              className="text-rose-200 focus:bg-rose-500/10 focus:text-rose-100"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                setIsPartOptionsOpen(false);
+                                void handleToggleCurrentPartPin();
+                              }}
+                            >
+                              <Star className="mr-2 h-4 w-4" />
+                              {isFavorite ? "Unfavorite" : "Favorite"}
+                              <DropdownMenuShortcut>F</DropdownMenuShortcut>
+                            </DropdownMenuItem>
+                          </>
+                        }
+                      />
                     </DropdownMenu>
                   </>
                 }
