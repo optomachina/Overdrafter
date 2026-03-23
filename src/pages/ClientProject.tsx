@@ -143,6 +143,8 @@ const ClientProject = () => {
     prefetchProject,
     projectCollaborationUnavailable,
     projectId,
+    projectAssigneeLookupFailed,
+    projectAssigneeLookupReady,
     projectInvitesQuery,
     projectAssigneesByUserId,
     projectJobs,
@@ -814,10 +816,10 @@ const ClientProject = () => {
                         (quoteRequestViewModel.action.kind === "request" || quoteRequestViewModel.action.kind === "retry");
                       // Until a dedicated part assignee field exists, the ledger uses the
                       // project-scoped creator on project_jobs as the narrowest ownership signal.
-                      const projectJobMembership = projectJobMembershipsByCompositeKey.get(`${projectId}:${job.id}`) ?? null;
+                      const projectJobMembership = projectJobMembershipsByCompositeKey?.get(`${projectId}:${job.id}`) ?? null;
                       const assigneeProfile =
                         projectJobMembership?.created_by
-                          ? projectAssigneesByUserId.get(projectJobMembership.created_by) ?? null
+                          ? projectAssigneesByUserId?.get(projectJobMembership.created_by) ?? null
                           : null;
                       const assignee = buildProjectAssigneeBadgeModel(assigneeProfile);
 
@@ -848,7 +850,11 @@ const ClientProject = () => {
                             <p className="truncate text-[13px] text-white/65">{presentation.description}</p>
                           </div>
                           <div>
-                            {assignee.isUnassigned || !assignee.initials ? (
+                            {!projectAssigneeLookupReady && !projectAssigneeLookupFailed ? (
+                              <span className="text-[12px] text-white/35">Loading</span>
+                            ) : projectAssigneeLookupFailed ? (
+                              <span className="text-[12px] text-white/35">Unavailable</span>
+                            ) : assignee.isUnassigned || !assignee.initials ? (
                               <span className="text-[12px] text-white/45">Unassigned</span>
                             ) : (
                               <div

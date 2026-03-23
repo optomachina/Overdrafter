@@ -217,6 +217,17 @@ function renderWithClient(initialEntry: string) {
   );
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
+
 describe("ClientProject", () => {
   beforeEach(() => {
     lastAccountMenuProps = null;
@@ -517,6 +528,53 @@ describe("ClientProject", () => {
     await waitFor(() => {
       expect(screen.getByText("Unassigned")).toBeInTheDocument();
     });
+  });
+
+  it("does not render unassigned while assignee lookups are still pending", async () => {
+    const assigneeProfiles = createDeferredPromise<
+      Array<{
+        userId: string;
+        email: string;
+        givenName: string;
+        familyName: string;
+        fullName: string;
+      }>
+    >();
+    api.fetchProjectAssigneeProfiles.mockReturnValue(assigneeProfiles.promise);
+
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("Loading")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
+
+    assigneeProfiles.resolve([
+      {
+        userId: "user-1",
+        email: "client@example.com",
+        givenName: "Blaine",
+        familyName: "Wilson",
+        fullName: "Blaine Wilson",
+      },
+    ]);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Assignee: Blaine Wilson")).toBeInTheDocument();
+    });
+  });
+
+  it("renders assignee lookup failure without falling back to unassigned", async () => {
+    api.fetchProjectAssigneeProfiles.mockRejectedValue(new Error("lookup failed"));
+
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
   });
 
   it("logs structured archived delete failures through the account menu callback", async () => {

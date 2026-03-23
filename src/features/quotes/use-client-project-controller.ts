@@ -221,19 +221,28 @@ export function useClientProjectController() {
   });
   const projectJobs = useMemo(() => projectJobsQuery.data ?? [], [projectJobsQuery.data]);
   const projectAssigneesByUserId = useMemo(
-    () => new Map((projectAssigneesQuery.data ?? []).map((profile) => [profile.userId, profile])),
-    [projectAssigneesQuery.data],
+    () =>
+      projectAssigneesQuery.isSuccess
+        ? new Map(projectAssigneesQuery.data.map((profile) => [profile.userId, profile]))
+        : null,
+    [projectAssigneesQuery.data, projectAssigneesQuery.isSuccess],
   );
   const projectJobMembershipsByCompositeKey = useMemo(
     () =>
-      new Map(
-        (sidebarProjectJobMembershipsQuery.data ?? []).map((membership) => [
-          `${membership.project_id}:${membership.job_id}`,
-          membership,
-        ]),
-      ),
-    [sidebarProjectJobMembershipsQuery.data],
+      sidebarProjectJobMembershipsQuery.isSuccess
+        ? new Map(
+            sidebarProjectJobMembershipsQuery.data.map((membership) => [
+              `${membership.project_id}:${membership.job_id}`,
+              membership,
+            ]),
+          )
+        : null,
+    [sidebarProjectJobMembershipsQuery.data, sidebarProjectJobMembershipsQuery.isSuccess],
   );
+  const projectAssigneeLookupReady =
+    projectAssigneesQuery.isSuccess && sidebarProjectJobMembershipsQuery.isSuccess;
+  const projectAssigneeLookupFailed =
+    projectAssigneesQuery.isError || sidebarProjectJobMembershipsQuery.isError;
   const projectJobIds = useMemo(() => stableJobIds(projectJobs.map((job) => job.id)), [projectJobs]);
   const projectWorkspaceItemsQuery = useQuery({
     queryKey: workspaceQueryKeys.clientQuoteWorkspace(projectJobIds),
@@ -1265,6 +1274,8 @@ export function useClientProjectController() {
     prefetchProject,
     projectCollaborationUnavailable,
     projectId,
+    projectAssigneeLookupFailed,
+    projectAssigneeLookupReady,
     projectInvitesQuery,
     projectAssigneesByUserId,
     projectJobs,
