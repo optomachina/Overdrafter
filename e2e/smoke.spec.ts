@@ -37,6 +37,33 @@ test.describe("client session", () => {
     await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible();
     await expect(page.locator("#auth-email")).toHaveCount(0);
   });
+
+  test("restores the homepage workspace after logging out, logging back in, and reloading", async ({ page }) => {
+    await page.goto("/?debug=1");
+
+    await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible();
+    await expect(page.getByText("Q1 Brackets")).toBeVisible();
+
+    await page.getByRole("button", { name: /open account menu/i }).click();
+    await page.getByRole("menuitem", { name: "Log out" }).click();
+    await page.getByRole("button", { name: "Log out" }).click();
+
+    await expect(page.locator("#auth-email")).toBeVisible();
+
+    await page.locator("#auth-email").fill("client.demo@overdrafter.local");
+    await page.locator("#auth-password").fill("Overdrafter123!");
+    await page.getByRole("button", { name: /^Log in$/ }).click();
+
+    await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible();
+    await expect(page.getByText("Q1 Brackets")).toBeVisible();
+    await expect(page.locator("#auth-email")).toHaveCount(0);
+
+    await page.reload({ waitUntil: "networkidle" });
+
+    await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible();
+    await expect(page.getByText("Q1 Brackets")).toBeVisible();
+    await expect(page.locator("#auth-email")).toHaveCount(0);
+  });
 });
 
 test.describe("internal session", () => {

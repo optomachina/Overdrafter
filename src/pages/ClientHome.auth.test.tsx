@@ -23,7 +23,7 @@ const signInWithPasswordMock = vi.fn();
 const signUpMock = vi.fn();
 const authGetUserMock = vi.fn();
 const authGetSessionMock = vi.fn();
-const adminSignOutMock = vi.fn();
+const signOutMock = vi.fn();
 const navigateMock = vi.fn();
 const checkClientIntakeCompatibilityMock = vi.fn();
 const getClientIntakeCompatibilityMessageMock = vi.fn();
@@ -67,9 +67,7 @@ vi.mock("@/integrations/supabase/client", () => ({
       signUp: (...args: unknown[]) => signUpMock(...args),
       getSession: (...args: unknown[]) => authGetSessionMock(...args),
       getUser: (...args: unknown[]) => authGetUserMock(...args),
-      admin: {
-        signOut: (...args: unknown[]) => adminSignOutMock(...args),
-      },
+      signOut: (...args: unknown[]) => signOutMock(...args),
     },
   },
 }));
@@ -124,7 +122,14 @@ vi.mock("@/components/chat/WorkspaceSidebar", () => ({
 }));
 
 vi.mock("@/components/chat/WorkspaceAccountMenu", () => ({
-  WorkspaceAccountMenu: () => <div>Account menu</div>,
+  WorkspaceAccountMenu: ({ onSignOut }: { onSignOut: () => Promise<void> | void }) => (
+    <div>
+      <div>Account menu</div>
+      <button type="button" onClick={() => void onSignOut()}>
+        Log out
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/chat/GuestSidebarCta", () => ({
@@ -240,6 +245,63 @@ function renderClientHome() {
   );
 }
 
+function createSupabaseSession(email: string): Session {
+  return {
+    access_token: `token:${email}`,
+    refresh_token: `refresh:${email}`,
+    expires_in: 3600,
+    token_type: "bearer",
+    user: {
+      id: "user-1",
+      email,
+      app_metadata: {},
+      user_metadata: {},
+      aud: "authenticated",
+      created_at: "2026-03-11T00:00:00.000Z",
+    },
+  } as Session;
+}
+
+function createAuthenticatedSession(email: string): AppSessionData {
+  return {
+    user: {
+      id: "user-1",
+      email,
+    } as AppSessionData["user"],
+    memberships: [
+      {
+        id: "membership-1",
+        role: "client",
+        organizationId: "org-1",
+        organizationName: "Client Org",
+        organizationSlug: "client-org",
+      },
+    ],
+    isVerifiedAuth: true,
+    authState: "authenticated",
+  };
+}
+
+async function submitPasswordLogin(email: string, password = "Overdrafter123!") {
+  fireEvent.click(screen.getAllByRole("button", { name: /^log in$/i })[0]);
+
+  expect(screen.getByText("Log in to OverDrafter")).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText("Email"), {
+    target: { value: email },
+  });
+  fireEvent.change(screen.getByLabelText("Password"), {
+    target: { value: password },
+  });
+  const dialog = screen.getByRole("dialog");
+  const submitButton = within(dialog)
+    .getAllByRole("button", { name: /^log in$/i })
+    .find((element) => element.getAttribute("type") === "submit");
+
+  expect(submitButton).toBeTruthy();
+  fireEvent.click(submitButton!);
+}
+
 function expectGuestLandingVisible() {
   expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: /how it works/i })).toBeInTheDocument();
@@ -259,6 +321,7 @@ describe("ClientHome auth flow", () => {
     signUpMock.mockResolvedValue({ data: { session: null }, error: null });
     authGetSessionMock.mockResolvedValue({ data: { session: null }, error: null });
     authGetUserMock.mockResolvedValue({ data: { user: null }, error: null });
+    signOutMock.mockResolvedValue({ error: null });
     requestPasswordResetMock.mockResolvedValue(undefined);
     resendSignupConfirmationMock.mockResolvedValue(undefined);
     updateCurrentUserPasswordMock.mockResolvedValue(undefined);
@@ -353,20 +416,14 @@ describe("ClientHome auth flow", () => {
       .mockReturnValueOnce(membershipHydration.promise);
 
     signInWithPasswordMock.mockImplementation(async ({ email }: { email: string }) => {
-      const session = {
-        access_token: "token-1",
-        refresh_token: "refresh-token-1",
-        expires_in: 3600,
-        token_type: "bearer",
-        user: {
-          id: "user-1",
-          email,
-          app_metadata: {},
-          user_metadata: {},
-          aud: "authenticated",
-          created_at: "2026-03-11T00:00:00.000Z",
-        },
-      } as Session;
+      const session = createSupabaseSession(email);
+      window.localStorage.setItem(
+        getSupabaseAuthStorageKey(),
+        JSON.stringify({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+        }),
+      );
 
       act(() => {
         authStateChangeCallbacks.forEach((callback) => callback("SIGNED_IN", session));
@@ -384,23 +441,7 @@ describe("ClientHome auth flow", () => {
       expect(screen.getAllByRole("button", { name: /^log in$/i }).length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getAllByRole("button", { name: /^log in$/i })[0]);
-
-    expect(screen.getByText("Log in to OverDrafter")).toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText("Email"), {
-      target: { value: "client@example.com" },
-    });
-    fireEvent.change(screen.getByLabelText("Password"), {
-      target: { value: "Overdrafter123!" },
-    });
-    const dialog = screen.getByRole("dialog");
-    const submitButton = within(dialog)
-      .getAllByRole("button", { name: /^log in$/i })
-      .find((element) => element.getAttribute("type") === "submit");
-
-    expect(submitButton).toBeTruthy();
-    fireEvent.click(submitButton!);
+    await submitPasswordLogin("client@example.com");
 
     await waitFor(() => {
       expect(signInWithPasswordMock).toHaveBeenCalledWith({
@@ -438,24 +479,93 @@ describe("ClientHome auth flow", () => {
     });
   });
 
-  it("exposes the onboarding upload drop zone as a keyboard-accessible button", async () => {
-    fetchAppSessionDataMock.mockResolvedValue({
-      user: {
-        id: "user-1",
-        email: "client@example.com",
-      } as AppSessionData["user"],
-      memberships: [
-        {
-          id: "membership-1",
-          role: "client",
-          organizationId: "org-1",
-          organizationName: "Client Org",
-          organizationSlug: "client-org",
-        },
-      ],
-      isVerifiedAuth: true,
-      authState: "authenticated",
+  it("keeps the homepage workspace after logout, login, and a reload-style remount", async () => {
+    const email = "client.demo@overdrafter.local";
+    const tokenKey = getSupabaseAuthStorageKey();
+    const restoredSupabaseSession = createSupabaseSession(email);
+    fetchAppSessionDataMock.mockImplementation(async () => {
+      const callIndex = fetchAppSessionDataMock.mock.calls.length;
+
+      if (callIndex === 1) {
+        return {
+          user: null,
+          memberships: [],
+          isVerifiedAuth: false,
+          authState: "anonymous",
+        };
+      }
+
+      return createAuthenticatedSession(email);
     });
+    signInWithPasswordMock.mockImplementation(async ({ email: signInEmail }: { email: string }) => {
+      const session = createSupabaseSession(signInEmail);
+      window.localStorage.setItem(
+        tokenKey,
+        JSON.stringify({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+        }),
+      );
+
+      act(() => {
+        authStateChangeCallbacks.forEach((callback) => callback("SIGNED_IN", session));
+      });
+
+      return {
+        data: { user: session.user, session },
+        error: null,
+      };
+    });
+
+    const firstRender = renderClientHome();
+
+    await waitFor(() => {
+      expectGuestLandingVisible();
+    });
+
+    await submitPasswordLogin(email);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Upload files" })).toBeInTheDocument();
+      expect(screen.queryAllByRole("button", { name: /^log in$/i })).toHaveLength(0);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
+
+    await waitFor(() => {
+      expect(signOutMock).toHaveBeenCalledWith({ scope: "global" });
+      expectGuestLandingVisible();
+      expect(window.localStorage.getItem(tokenKey)).toBeNull();
+    });
+
+    await submitPasswordLogin(email);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Upload files" })).toBeInTheDocument();
+      expect(fetchAppSessionDataMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    });
+
+    authGetSessionMock.mockResolvedValueOnce({
+      data: { session: restoredSupabaseSession },
+      error: null,
+    });
+    authGetUserMock.mockResolvedValueOnce({
+      data: { user: restoredSupabaseSession.user },
+      error: null,
+    });
+
+    firstRender.unmount();
+    resetStartupAuthBootstrapForTests();
+    renderClientHome();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Upload files" })).toBeInTheDocument();
+      expect(screen.queryAllByRole("button", { name: /^log in$/i })).toHaveLength(0);
+    });
+  });
+
+  it("exposes the onboarding upload drop zone as a keyboard-accessible button", async () => {
+    fetchAppSessionDataMock.mockResolvedValue(createAuthenticatedSession("client@example.com"));
 
     renderClientHome();
 

@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,11 +9,11 @@ import {
   resetStartupAuthBootstrapForTests,
   STARTUP_AUTH_TIMEOUT_MS,
 } from "@/features/quotes/api/shared/startup-auth";
-import type { Session } from "@supabase/supabase-js";
+import { AuthSessionMissingError, type Session } from "@supabase/supabase-js";
 
 const fetchAppSessionDataMock = vi.fn<() => Promise<AppSessionData>>();
 const onAuthStateChangeMock = vi.fn();
-const adminSignOutMock = vi.fn();
+const signOutMock = vi.fn();
 const getSessionMock = vi.fn();
 const getUserMock = vi.fn();
 let authStateChangeCallbacks: Array<(event: string, session: Session | null) => void> = [];
@@ -31,9 +31,7 @@ vi.mock("@/integrations/supabase/client", () => ({
       getSession: (...args: unknown[]) => getSessionMock(...args),
       getUser: (...args: unknown[]) => getUserMock(...args),
       onAuthStateChange: (...args: unknown[]) => onAuthStateChangeMock(...args),
-      admin: {
-        signOut: (...args: unknown[]) => adminSignOutMock(...args),
-      },
+      signOut: (...args: unknown[]) => signOutMock(...args),
     },
   },
 }));
@@ -48,7 +46,13 @@ function SessionProbe() {
       <span data-testid="auth-initializing">{session.isAuthInitializing ? "yes" : "no"}</span>
       <span data-testid="membership-count">{session.memberships.length}</span>
       <span data-testid="membership-error">{session.membershipError ?? "none"}</span>
-      {session.user ? null : <button type="button">Log in</button>}
+      {session.user ? (
+        <button type="button" onClick={() => void session.signOut()}>
+          Log out
+        </button>
+      ) : (
+        <button type="button">Log in</button>
+      )}
     </div>
   );
 }
@@ -127,6 +131,7 @@ describe("useAppSession", () => {
       data: { session: null },
       error: null,
     });
+    signOutMock.mockResolvedValue({ error: null });
     getUserMock.mockResolvedValue({
       data: {
         user: {
@@ -323,6 +328,161 @@ describe("useAppSession", () => {
     renderProbe();
 
     expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+  });
+
+  it("supports signing out and then signing back in from the same tab", async () => {
+    fetchAppSessionDataMock
+      .mockResolvedValueOnce({
+        user: {
+          id: "user-1",
+          email: "client@example.com",
+        } as AppSessionData["user"],
+        memberships: [
+          {
+            id: "membership-1",
+            role: "client",
+            organizationId: "org-1",
+            organizationName: "Client Org",
+            organizationSlug: "client-org",
+          },
+        ],
+        isVerifiedAuth: true,
+        authState: "authenticated",
+      })
+      .mockResolvedValueOnce({
+        user: {
+          id: "user-1",
+          email: "client@example.com",
+        } as AppSessionData["user"],
+        memberships: [
+          {
+            id: "membership-1",
+            role: "client",
+            organizationId: "org-1",
+            organizationName: "Client Org",
+            organizationSlug: "client-org",
+          },
+        ],
+        isVerifiedAuth: true,
+        authState: "authenticated",
+      });
+
+    renderProbe();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+      expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
+
+    await waitFor(() => {
+      expect(signOutMock).toHaveBeenCalledWith({ scope: "global" });
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
+      expect(screen.getByRole("button", { name: "Log in" })).toBeInTheDocument();
+    });
+
+    act(() => {
+      authStateChangeCallbacks.forEach((callback) =>
+        callback("SIGNED_IN", {
+          access_token: "token-2",
+          refresh_token: "refresh-token-2",
+          expires_in: 3600,
+          token_type: "bearer",
+          user: {
+            id: "user-1",
+            email: "client@example.com",
+            app_metadata: {},
+            user_metadata: {},
+            aud: "authenticated",
+            created_at: "2026-03-11T00:00:00.000Z",
+          },
+        } as Session),
+      );
+    });
+
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
+      expect(screen.queryByRole("button", { name: "Log in" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("treats an already-missing session during sign-out as a completed logout", async () => {
+    const tokenKey = getSupabaseAuthStorageKey();
+    storageMock.setItem(tokenKey, JSON.stringify({ access_token: "token-1" }));
+    fetchAppSessionDataMock.mockResolvedValueOnce({
+      user: {
+        id: "user-1",
+        email: "client@example.com",
+      } as AppSessionData["user"],
+      memberships: [
+        {
+          id: "membership-1",
+          role: "client",
+          organizationId: "org-1",
+          organizationName: "Client Org",
+          organizationSlug: "client-org",
+        },
+      ],
+      isVerifiedAuth: true,
+      authState: "authenticated",
+    });
+    signOutMock.mockResolvedValueOnce({
+      error: new AuthSessionMissingError(),
+    });
+
+    renderProbe();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
+      expect(storageMock.getItem(tokenKey)).toBeNull();
+    });
+  });
+
+  it("keeps logout complete when the remote sign-out call fails", async () => {
+    const tokenKey = getSupabaseAuthStorageKey();
+    storageMock.setItem(tokenKey, JSON.stringify({ access_token: "token-1" }));
+    fetchAppSessionDataMock.mockResolvedValueOnce({
+      user: {
+        id: "user-1",
+        email: "client@example.com",
+      } as AppSessionData["user"],
+      memberships: [
+        {
+          id: "membership-1",
+          role: "client",
+          organizationId: "org-1",
+          organizationName: "Client Org",
+          organizationSlug: "client-org",
+        },
+      ],
+      isVerifiedAuth: true,
+      authState: "authenticated",
+    });
+    signOutMock.mockResolvedValueOnce({
+      error: new Error("network down"),
+    });
+
+    renderProbe();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
+
+    await waitFor(() => {
+      expect(signOutMock).toHaveBeenCalledWith({ scope: "global" });
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
+      expect(storageMock.getItem(tokenKey)).toBeNull();
+    });
   });
 
   it("keeps the local session visible during startup session_error retries without restoring the gate", async () => {

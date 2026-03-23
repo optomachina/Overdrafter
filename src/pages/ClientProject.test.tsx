@@ -208,6 +208,7 @@ function renderWithClient(initialEntry: string) {
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/projects/:projectId" element={<ClientProject />} />
+          <Route path="/parts/:jobId" element={<div>Part Route</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -438,7 +439,7 @@ describe("ClientProject", () => {
     ]);
   });
 
-  it("renders a normal project route without changing its header content", async () => {
+  it("renders the ledger with a default inspector and supports selection shortcuts", async () => {
     renderWithClient("/projects/project-1");
 
     await waitFor(() => {
@@ -446,8 +447,23 @@ describe("ClientProject", () => {
     });
 
     expect(screen.getByText(/Scan and manage parts/i)).toBeInTheDocument();
-    expect(screen.getByText("Selected part workspace")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /open .* line item/i })).toBeInTheDocument();
+    expect(screen.getByText("Project detail rail")).toBeInTheDocument();
+
+    const row = screen.getByRole("button", { name: /open .* line item/i });
+    fireEvent.click(row);
+
+    expect(screen.getByRole("button", { name: "Clear selected part" })).toBeInTheDocument();
+    expect(screen.getByText("Selected part")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(screen.getByText("Project detail rail")).toBeInTheDocument();
+
+    fireEvent.doubleClick(row);
+
+    await waitFor(() => {
+      expect(screen.getByText("Part Route")).toBeInTheDocument();
+    });
   });
 
   it("passes collaboration-disabled project prefetch through to the sidebar callback", async () => {
