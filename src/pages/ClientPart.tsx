@@ -398,7 +398,6 @@ const ClientPart = () => {
     writeStoredSubscribed(storageScopeKey, jobId, next);
     toast.success(next ? "Subscribed to updates." : "Unsubscribed from updates.");
   };
-
   const handleSaveDueDate = () => {
     handleSaveRequestPatch({
       requestedByDate: dueDateDraft.trim().length > 0 ? dueDateDraft : null,
@@ -533,7 +532,6 @@ const ClientPart = () => {
                         {displayPartTitle}
                       </span>
                     </div>
-
                     <RequestSummaryBadges
                       requestedServiceKinds={
                         effectiveRequestDraft?.requestedServiceKinds ?? summary?.requestedServiceKinds ?? []
@@ -851,7 +849,6 @@ const ClientPart = () => {
                   <TabsContent value="activity" className="mt-4">
                     <ActivityLog entries={activityEntries} />
                   </TabsContent>
-
                   <TabsContent value="comments" className="mt-4">
                     <div className="rounded-[24px] border border-white/8 bg-[#262626] p-5">
                       {comments.length === 0 ? (
