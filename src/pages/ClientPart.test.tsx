@@ -758,10 +758,7 @@ describe("ClientPart", () => {
       expect(screen.getByRole("button", { name: /issue detail actions/i })).toBeInTheDocument();
     });
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: /issue detail actions/i }), {
-      button: 0,
-      ctrlKey: false,
-    });
+    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /set due date/i }));
     fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-04-22" } });
     fireEvent.click(screen.getByRole("button", { name: "Save due date" }));
