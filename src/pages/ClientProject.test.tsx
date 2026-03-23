@@ -208,6 +208,7 @@ function renderWithClient(initialEntry: string) {
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/projects/:projectId" element={<ClientProject />} />
+          <Route path="/parts/:jobId" element={<div>Part Route</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -438,16 +439,18 @@ describe("ClientProject", () => {
     ]);
   });
 
-  it("renders a normal project route without changing its header content", async () => {
+  it("renders the project ledger with the default inspector state", async () => {
     renderWithClient("/projects/project-1");
 
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Bracket Project" })).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/Scan and manage parts/i)).toBeInTheDocument();
-    expect(screen.getByText("Selected part workspace")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /open .* line item/i })).toBeInTheDocument();
+    expect(screen.getByText(/single-click inspects in place/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "No part selected" })).toBeInTheDocument();
+    expect(screen.getByText("Part Number")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /filter: all parts/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /hide rail/i })).toBeInTheDocument();
   });
 
   it("passes collaboration-disabled project prefetch through to the sidebar callback", async () => {
@@ -477,6 +480,45 @@ describe("ClientProject", () => {
 
     await waitFor(() => {
       expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
+    });
+  });
+
+  it("selects a row and updates the docked inspector without navigating away", async () => {
+    renderWithClient("/projects/project-1");
+
+    const row = (await screen.findByText("BRKT-001")).closest("button");
+    expect(row).not.toBeNull();
+    fireEvent.click(row!);
+
+    expect(screen.getByRole("heading", { name: "BRKT-001 rev A" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open part workspace/i })).toBeInTheDocument();
+    expect(screen.queryByText("Part Route")).not.toBeInTheDocument();
+  });
+
+  it("double-clicks a row to open the part route", async () => {
+    renderWithClient("/projects/project-1");
+
+    const row = (await screen.findByText("BRKT-001")).closest("button");
+    expect(row).not.toBeNull();
+    fireEvent.doubleClick(row!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Part Route")).toBeInTheDocument();
+    });
+  });
+
+  it("clears the selected row when Escape is pressed", async () => {
+    renderWithClient("/projects/project-1");
+
+    const row = (await screen.findByText("BRKT-001")).closest("button");
+    expect(row).not.toBeNull();
+    fireEvent.click(row!);
+    expect(screen.getByRole("heading", { name: "BRKT-001 rev A" })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "No part selected" })).toBeInTheDocument();
     });
   });
 

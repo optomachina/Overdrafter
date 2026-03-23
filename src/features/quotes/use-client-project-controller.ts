@@ -147,6 +147,7 @@ export function useClientProjectController() {
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<JobFilter>("all");
   const [focusedJobId, setFocusedJobId] = useState<string | null>(null);
+  const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   const [showAddPart, setShowAddPart] = useState(false);
   const [showRename, setShowRename] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
@@ -600,8 +601,8 @@ export function useClientProjectController() {
       return;
     }
 
-    if (!focusedJobId || !filteredJobs.some((job) => job.id === focusedJobId)) {
-      setFocusedJobId(filteredJobs[0].id);
+    if (focusedJobId && !filteredJobs.some((job) => job.id === focusedJobId)) {
+      setFocusedJobId(null);
     }
   }, [filteredJobs, focusedJobId]);
 
@@ -915,9 +916,18 @@ export function useClientProjectController() {
 
   const handleOpenJobDrawer = (jobId: string) => {
     setFocusedJobId(jobId);
+    setIsInspectorOpen(true);
 
     if (isMobile) {
       setMobileDrawerOpen(true);
+    }
+  };
+
+  const handleClearFocusedJob = () => {
+    setFocusedJobId(null);
+
+    if (isMobile) {
+      setMobileDrawerOpen(false);
     }
   };
 
@@ -1200,6 +1210,7 @@ export function useClientProjectController() {
     focusedSelectedOption,
     focusedSummary,
     focusedWorkspaceItem,
+    handleClearFocusedJob,
     handleAddPartSubmit,
     handleArchivePart,
     handleArchiveProject,
@@ -1226,6 +1237,7 @@ export function useClientProjectController() {
     handleUnpinPart,
     handleUnpinProject,
     isMobile,
+    isInspectorOpen,
     isSearchOpen,
     lastBulkAction,
     mobileDrawerOpen,
@@ -1251,6 +1263,7 @@ export function useClientProjectController() {
     selectedOptionsByJobId,
     requestProjectQuotesMutation,
     setActiveFilter,
+    setIsInspectorOpen,
     setIsSearchOpen,
     setMobileDrawerOpen,
     setProjectName,
