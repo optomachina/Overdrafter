@@ -1,4 +1,8 @@
-Remove the prompt text once each section is filled. Keep the PR description concrete and aligned with the actual diff. For Codex-driven work, `npm run render:pr-body -- <path-to-json>` and `npm run validate:pr-body` remain available as optional helpers when a structured PR body is useful.
+Remove the prompt text once each section is filled. Keep the PR description concrete and aligned with the actual diff.
+
+## Linear issue ID
+
+- Issue: <!-- e.g. OD-123 -->
 
 ## Summary
 
@@ -8,6 +12,15 @@ Describe the change briefly.
 
 What problem does this PR solve?
 
+## Acceptance criteria addressed
+
+- [ ]
+- [ ]
+
+## Files changed
+
+List key files or areas touched.
+
 ## Scope
 
 What is included in this PR?
@@ -15,11 +28,7 @@ What is intentionally not included?
 
 ## Verification
 
-List the exact commands run locally and whether they passed. Prefer `npm run verify` unless a narrower command set was the right fit for the change. If unrelated baseline failures surfaced, describe them separately from current-change failures.
-
-- [ ] `npm run verify`
-- [ ] narrower commands were used intentionally and are listed below
-- [ ] other relevant verification
+List exact commands run locally and whether they passed.
 
 Commands run:
 
@@ -30,35 +39,24 @@ Commands run:
 Results:
 
 - [ ] all listed verification passed
-- [ ] unrelated baseline failure(s) are described below
-- [ ] narrower verification was intentionally sufficient and is justified below
+- [ ] unrelated baseline failures are described below
 
 Baseline failures or exceptions:
 
-## Tests
+## Tests run
 
 - What tests were added or updated?
 - If none were added, explain why.
 
-## Migration notes
-
-- [ ] No migration impact
-- [ ] Migration impact exists and is described below
-
-Details:
-
-## Rollback / risk notes
+## Risks / rollback notes
 
 - What could go wrong?
 - How would this be rolled back if needed?
 
-## Documentation
+## Screenshots or videos (if UI)
 
-- [ ] Docs updated
-- [ ] No doc updates needed
+Add screenshots, videos, logs, or other evidence.
 
-Details:
+## Follow-up items
 
-## Screenshots or evidence
-
-Add screenshots, logs, or other proof if useful.
+- [ ]

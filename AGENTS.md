@@ -226,3 +226,16 @@ If present, local override files take precedence for their directory:
 - `src/features/quotes/AGENTS.override.md`
 
 If no override exists, follow this root file.
+
+## Solo Linear workflow addendum (free plan)
+
+- Treat Linear as the system of record for issue ID, acceptance criteria, status, and priority.
+- Restate issue acceptance criteria before implementation starts.
+- Prefer the smallest safe change that satisfies the issue.
+- Do not invent APIs, routes, database fields, or contracts without checking code first.
+- For billing, auth, data import, PDF/file ingestion, and quote logic, include failure-state handling and logging.
+- Run relevant tests before marking work complete.
+- Use skills for repeatable workflows rather than expanding this file indefinitely.
+- If recurring review feedback repeats, update this file or the nearest local instruction file.
+- Include Linear issue ID in branch names when available (`feature/OD-123-short-slug`).
+- Include Linear issue ID in PR titles when available (`OD-123: concise summary`).
