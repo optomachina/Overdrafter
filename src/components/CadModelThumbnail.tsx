@@ -212,7 +212,7 @@ export function CadModelThumbnail({ source, className }: CadModelThumbnailProps)
     <div
       aria-label={`CAD preview for ${source.fileName}`}
       className={cn(
-        "relative isolate overflow-hidden rounded-[1.4rem] border border-white/12 bg-[radial-gradient(circle_at_top,hsl(var(--primary)/0.18),transparent_52%),linear-gradient(180deg,rgba(255,255,255,0.16),rgba(7,11,18,0.92))] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
+        "relative isolate overflow-hidden rounded-surface-lg border border-white/12 bg-[radial-gradient(circle_at_top,hsl(var(--primary)/0.18),transparent_52%),linear-gradient(180deg,rgba(255,255,255,0.16),rgba(7,11,18,0.92))] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
         className,
       )}
     >

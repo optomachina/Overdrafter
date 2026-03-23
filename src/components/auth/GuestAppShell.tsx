@@ -110,7 +110,7 @@ export function GuestAppShell({
             <button
               type="button"
               className={cn(
-                "group flex w-full items-center gap-3 rounded-[34px] border border-white/10 bg-white/[0.09] px-4 py-3 text-left shadow-[0_20px_40px_rgba(0,0,0,0.2)] transition-[border-color,background-color] hover:border-white/20 hover:bg-white/[0.12]",
+                "group flex w-full items-center gap-3 rounded-surface-lg border border-white/10 bg-white/[0.09] px-4 py-3 text-left shadow-[0_20px_40px_rgba(0,0,0,0.2)] transition-[border-color,background-color] hover:border-white/20 hover:bg-white/[0.12]",
                 authOpen && "border-primary/50",
               )}
               onClick={openSignIn}
@@ -142,7 +142,7 @@ export function GuestAppShell({
 
         {!authOpen ? (
           <div className="fixed inset-x-0 bottom-0 z-20 px-3 pb-3 sm:left-1/2 sm:max-w-[620px] sm:-translate-x-1/2 sm:px-0">
-            <div className="rounded-[28px] border border-white/10 bg-[#090b10]/96 p-4 shadow-[0_-8px_40px_rgba(0,0,0,0.45)] backdrop-blur">
+            <div className="rounded-surface-lg border border-white/10 bg-ws-deep/96 p-4 shadow-[0_-8px_40px_rgba(0,0,0,0.45)] backdrop-blur">
               <div className="flex items-center gap-3 text-white/82">
                 <GoogleIcon className="h-10 w-10" />
                 <p className="flex-1 text-lg font-medium leading-tight">Sign in to OverDrafter with Google</p>
@@ -158,7 +158,7 @@ export function GuestAppShell({
 
               <Button
                 type="button"
-                className="mt-4 h-11 w-full rounded-full bg-[#1c64f2] text-lg font-medium text-white hover:bg-[#1d5de0]"
+                className="mt-4 h-11 w-full rounded-full bg-primary text-lg font-medium text-primary-foreground hover:bg-primary/90"
                 disabled={isGooglePending}
                 onClick={() => {
                   void handleGoogleContinue();

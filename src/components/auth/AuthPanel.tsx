@@ -278,7 +278,7 @@ export function AuthPanel({
   return (
     <section
       className={cn(
-        "w-full rounded-[28px] border border-white/10 bg-[#0b0d10]/96 p-5 text-white shadow-[0_32px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-6",
+        "w-full rounded-surface-lg border border-white/10 bg-ws-deep/96 p-5 text-white shadow-[0_32px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-6",
         className,
       )}
     >
@@ -365,7 +365,7 @@ export function AuthPanel({
 
               <div className="relative my-5">
                 <Separator className="bg-white/10" />
-                <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#0b0d10] px-3 text-[11px] uppercase tracking-[0.24em] text-white/35">
+                <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-ws-deep px-3 text-[11px] uppercase tracking-[0.24em] text-white/35">
                   Or with email
                 </span>
               </div>

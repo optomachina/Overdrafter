@@ -56,6 +56,9 @@ export default {
           card: "var(--ws-surface-card)",
           inset: "var(--ws-surface-inset)",
           raised: "var(--ws-surface-raised)",
+          shell: "var(--ws-surface-shell)",
+          deep: "var(--ws-surface-deep)",
+          overlay: "var(--ws-surface-overlay)",
           "accent-surface": "var(--ws-accent-surface)",
         },
         "ws-border": {
@@ -82,6 +85,8 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        "surface-sm": "var(--radius-surface-sm)",
+        "surface-lg": "var(--radius-surface-lg)",
       },
       keyframes: {
         "accordion-down": {

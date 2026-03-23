@@ -222,20 +222,20 @@ const InternalHome = () => {
         ) : null}
 
         <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
-            <p className="mb-[4px] text-[11px] text-white/45">Total jobs</p>
+          <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
+            <p className="mb-1 text-[11px] text-white/45">Total jobs</p>
             <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{metrics.totalJobs}</p>
           </div>
-          <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
-            <p className="mb-[4px] text-[11px] text-white/45">In review</p>
+          <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
+            <p className="mb-1 text-[11px] text-white/45">In review</p>
             <p className="text-[24px] font-bold tracking-[-0.02em] text-amber-400">{metrics.needsReview}</p>
           </div>
-          <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
-            <p className="mb-[4px] text-[11px] text-white/45">Active quote runs</p>
+          <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
+            <p className="mb-1 text-[11px] text-white/45">Active quote runs</p>
             <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{metrics.quoted}</p>
           </div>
-          <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
-            <p className="mb-[4px] text-[11px] text-white/45">Published packages</p>
+          <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
+            <p className="mb-1 text-[11px] text-white/45">Published packages</p>
             <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{(packagesQuery.data ?? []).length}</p>
           </div>
         </section>

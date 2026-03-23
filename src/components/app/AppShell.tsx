@@ -50,7 +50,7 @@ export function AppShell({
       className={cn(
         "min-h-screen text-foreground",
         isClientChat
-          ? "bg-[#111214]"
+          ? "bg-ws-shell"
           : "bg-[radial-gradient(circle_at_top,hsl(var(--primary)/0.14),transparent_30%),linear-gradient(180deg,hsl(var(--background)),hsl(220_16%_7%))]",
       )}
     >
@@ -59,8 +59,8 @@ export function AppShell({
           className={cn(
             "sticky top-0 hidden h-screen shrink-0 border-r backdrop-blur md:flex md:flex-col",
             isClientChat
-              ? "border-white/5 bg-[#17181b]/95"
-              : "border-white/8 bg-[#0d0f12]/95",
+              ? "border-white/5 bg-ws-shell/95"
+              : "border-white/8 bg-ws-deep/95",
             collapsed ? "w-20" : "w-[19rem]",
           )}
         >
@@ -145,7 +145,7 @@ export function AppShell({
             className={cn(
               "sticky top-0 z-20 border-b backdrop-blur-xl",
               isClientChat
-                ? "border-white/5 bg-[#111214]/92"
+                ? "border-white/5 bg-ws-shell/92"
                 : "border-white/8 bg-background/80",
             )}
           >
@@ -170,7 +170,7 @@ export function AppShell({
                     </SheetTrigger>
                     <SheetContent
                       side="left"
-                      className="w-[22rem] border-r border-white/10 bg-[#0d0f12] p-0 text-white sm:max-w-[22rem]"
+                      className="w-[22rem] border-r border-white/10 bg-ws-deep p-0 text-white sm:max-w-[22rem]"
                     >
                       <SheetHeader className="border-b border-white/10 px-6 py-5">
                         <SheetTitle className="text-white">{sidebarTitle}</SheetTitle>
