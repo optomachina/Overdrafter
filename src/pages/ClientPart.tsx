@@ -14,7 +14,6 @@ import {
   PlusSquare,
   Search,
   StarOff,
-  Trash2,
   Upload,
   XCircle,
 } from "lucide-react";

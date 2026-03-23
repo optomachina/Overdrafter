@@ -893,7 +893,15 @@ describe("ClientPart", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: /set due date/i }));
     fireEvent.click(screen.getByRole("button", { name: "Tomorrow" }));
 
-    expect((screen.getByLabelText("Due date") as HTMLInputElement).value).toBe("2026-03-23");
+    const expectedTomorrow = new RealDate(fixedNow);
+    expectedTomorrow.setDate(expectedTomorrow.getDate() + 1);
+    const expectedValue = [
+      expectedTomorrow.getFullYear(),
+      String(expectedTomorrow.getMonth() + 1).padStart(2, "0"),
+      String(expectedTomorrow.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    expect((screen.getByLabelText("Due date") as HTMLInputElement).value).toBe(expectedValue);
 
     vi.unstubAllGlobals();
   });
