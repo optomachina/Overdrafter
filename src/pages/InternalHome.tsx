@@ -221,39 +221,23 @@ const InternalHome = () => {
           </section>
         ) : null}
 
-        <section className="grid gap-4 lg:grid-cols-4">
-          <Card className="border-white/10 bg-white/5">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-white/70">Total jobs</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-semibold">{metrics.totalJobs}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-white/10 bg-white/5">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-white/70">In review</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-semibold">{metrics.needsReview}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-white/10 bg-white/5">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-white/70">Active quote runs</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-semibold">{metrics.quoted}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-white/10 bg-white/5">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-white/70">Published packages</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-semibold">{(packagesQuery.data ?? []).length}</p>
-            </CardContent>
-          </Card>
+        <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
+            <p className="mb-[4px] text-[11px] text-white/45">Total jobs</p>
+            <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{metrics.totalJobs}</p>
+          </div>
+          <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
+            <p className="mb-[4px] text-[11px] text-white/45">In review</p>
+            <p className="text-[24px] font-bold tracking-[-0.02em] text-amber-400">{metrics.needsReview}</p>
+          </div>
+          <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
+            <p className="mb-[4px] text-[11px] text-white/45">Active quote runs</p>
+            <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{metrics.quoted}</p>
+          </div>
+          <div className="rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]">
+            <p className="mb-[4px] text-[11px] text-white/45">Published packages</p>
+            <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{(packagesQuery.data ?? []).length}</p>
+          </div>
         </section>
 
         {activeMembership?.role === "internal_admin" ? (

@@ -63,13 +63,15 @@ CI runs lint, typecheck, tests, build, and worker verification in parallel jobs 
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | issues_open | 5 scope proposals accepted, 3 deferred, 3 critical gaps, 9 TODOs written |
 | Codex Review | `/codex review` | Independent 2nd opinion | 2 | issues_found | Items 2/3/4 may already be shipped; failure_reason trust boundary; metrics view wrong table; Realtime overbuilt vs extending existing polling |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR | 7 issues found, 0 critical gaps |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 2 | issues_open | 9 issues found (design TODO scope), 0 critical gaps |
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
 
 **CODEX (CEO review outside voice):** 5 findings — items 2/3/4 stale (may already be implemented), Realtime overbuilt vs. extending existing polling, failure_reason trust boundary (verbatim passthrough from worker), manual-follow-up state conflation, extraction metrics view needs debug_extraction_runs not drawing_extractions.
+
+**ENG REVIEW 2 (design TODOs, 2026-03-23):** 9 issues found across DR-001/002/004/006 scope. Key decisions: DR-001 scoped to InternalHome metric card cleanup only (no StatBar extraction — grids aren't structurally unified); DR-004 requires new shell surface tokens before mapping (existing tokens don't match shell hex values); DR-006 explicit radius cutoff rule added (≤19px→rounded, ≥20px→rounded-surface-lg); DR-002 spacing-only cleanup with mandatory /design-review before merge. Outside voice (Claude subagent) caught StatBar premature abstraction and DR-004 color drift risk. DR-001b deferred TODO created for parts-list table + ClientPartReview split.
 
 **CROSS-MODEL:** CEO review accepted Realtime as new infrastructure; Codex identified existing 5s polling extension as simpler path. CEO review said failure_reason is normalized/safe; Codex confirmed it's verbatim passthrough from worker. Both tensions are substantive — audit and TODO-009 added.
 
 **UNRESOLVED:** 1 — audit required to determine which of items 2, 3, 4 are already implemented before planning implementation work.
 
-**VERDICT:** ENG CLEARED — shipping gate passed. CEO review complete with SELECTIVE EXPANSION mode. 5 scope proposals accepted. Pre-ship audit of items 2/3/4 required. TODOs 004–009 written. CEO plan at `~/.gstack/projects/optomachina-Overdrafter/ceo-plans/2026-03-23-quote-requests-extraction-reliability.md`.
+**VERDICT:** ENG CLEARED (main feature plan). Design TODO scope reviewed — DR-001/002/004/006 TODOs updated with implementation constraints. Run /ship when ready to implement DR-001 first.
