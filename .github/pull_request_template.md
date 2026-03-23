@@ -43,15 +43,25 @@ Results:
 
 Baseline failures or exceptions:
 
-## Tests run
+## Tests
 
 - What tests were added or updated?
 - If none were added, explain why.
 
-## Risks / rollback notes
+## Migration notes
+
+- [ ] No migration impact
+- [ ] Migration impact exists and is described below
+
+## Rollback / risk notes
 
 - What could go wrong?
 - How would this be rolled back if needed?
+
+## Documentation
+
+- [ ] Docs updated
+- [ ] No doc updates needed
 
 ## Screenshots or videos (if UI)
 

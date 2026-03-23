@@ -781,6 +781,7 @@ const ClientPart = () => {
                         <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
                         {quoteRequestViewModel ? (
                           <ClientQuoteRequestStatusCard
+                            status={quoteRequestViewModel.status}
                             tone={quoteRequestViewModel.tone}
                             label={quoteRequestViewModel.label}
                             detail={quoteRequestViewModel.detail}

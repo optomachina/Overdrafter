@@ -34,12 +34,22 @@ type InternalJobPartRequirementCardProps = {
 function extractionSourceLabel(selectedBy: "parser" | "model" | "review") {
   switch (selectedBy) {
     case "model":
-      return "model fallback";
+      return "AI-assisted";
     case "review":
       return "manual review";
     default:
       return "parser";
   }
+}
+
+function renderExtractionSource(selectedBy: "parser" | "model" | "review") {
+  const label = extractionSourceLabel(selectedBy);
+
+  if (selectedBy === "model") {
+    return <span aria-label="AI-assisted">{label}</span>;
+  }
+
+  return label;
 }
 
 function draftSourceLabel(source: RequirementFieldDisplaySource) {
@@ -207,7 +217,8 @@ export function InternalJobPartRequirementCard({
               {extraction.rawFields.description.reviewNeeded
                 ? ` • review needed (${Math.round(extraction.rawFields.description.confidence * 100)}%)`
                 : ""}
-              {` • source: ${extractionSourceLabel(descriptionSelectedBy)}`}
+              {" • source: "}
+              {renderExtractionSource(descriptionSelectedBy)}
             </p>
             {descriptionResolution.staleAuto && descriptionResolution.approvedValue ? (
               <p className="text-xs text-amber-300">
@@ -235,7 +246,8 @@ export function InternalJobPartRequirementCard({
               {extraction.rawFields.partNumber.reviewNeeded
                 ? ` • review needed (${Math.round(extraction.rawFields.partNumber.confidence * 100)}%)`
                 : ""}
-              {` • source: ${extractionSourceLabel(partNumberSelectedBy)}`}
+              {" • source: "}
+              {renderExtractionSource(partNumberSelectedBy)}
             </p>
             {partNumberResolution.staleAuto && partNumberResolution.approvedValue ? (
               <p className="text-xs text-amber-300">
@@ -263,7 +275,8 @@ export function InternalJobPartRequirementCard({
               {extraction.rawFields.revision.reviewNeeded
                 ? ` • review needed (${Math.round(extraction.rawFields.revision.confidence * 100)}%)`
                 : ""}
-              {` • source: ${extractionSourceLabel(revisionSelectedBy)}`}
+              {" • source: "}
+              {renderExtractionSource(revisionSelectedBy)}
             </p>
             {revisionResolution.staleAuto && revisionResolution.approvedValue ? (
               <p className="text-xs text-amber-300">
@@ -346,7 +359,8 @@ export function InternalJobPartRequirementCard({
               {extraction.material.reviewNeeded
                 ? ` • review needed (${Math.round(extraction.material.confidence * 100)}%)`
                 : ""}
-              {` • source: ${extractionSourceLabel(materialSelectedBy)}`}
+              {" • source: "}
+              {renderExtractionSource(materialSelectedBy)}
             </p>
           </div>
           <div className="space-y-2">
@@ -366,7 +380,8 @@ export function InternalJobPartRequirementCard({
             <p className="text-xs text-white/45">
               Extracted raw: {extractedFinishRaw || "Not found"}
               {finishReviewNeeded ? ` • review needed (${Math.round(finishConfidence * 100)}%)` : ""}
-              {` • source: ${extractionSourceLabel(finishSelectedBy)}`}
+              {" • source: "}
+              {renderExtractionSource(finishSelectedBy)}
             </p>
             {finishResolution.staleAuto && finishResolution.approvedValue ? (
               <p className="text-xs text-amber-300">
