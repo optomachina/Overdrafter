@@ -140,7 +140,7 @@ export function HeroPromptBox() {
 
         {/* Main prompt input */}
         <div className="relative">
-          <div className="flex items-end gap-2 p-2 bg-card border border-border rounded-full hover:border-primary/40 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all">
+          <div className="flex items-end gap-2 p-2 bg-card border border-border rounded-full hover:border-primary/40 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-[border-color,box-shadow]">
             {/* Upload button */}
             <Tooltip>
               <TooltipTrigger asChild>

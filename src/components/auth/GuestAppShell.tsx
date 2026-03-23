@@ -110,7 +110,7 @@ export function GuestAppShell({
             <button
               type="button"
               className={cn(
-                "group flex w-full items-center gap-3 rounded-[34px] border border-white/10 bg-white/[0.09] px-4 py-3 text-left shadow-[0_20px_40px_rgba(0,0,0,0.2)] transition-all hover:border-white/20 hover:bg-white/[0.12]",
+                "group flex w-full items-center gap-3 rounded-[34px] border border-white/10 bg-white/[0.09] px-4 py-3 text-left shadow-[0_20px_40px_rgba(0,0,0,0.2)] transition-[border-color,background-color] hover:border-white/20 hover:bg-white/[0.12]",
                 authOpen && "border-primary/50",
               )}
               onClick={openSignIn}

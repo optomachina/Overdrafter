@@ -121,7 +121,7 @@ All colors MUST be HSL.
 
   /* Hover lift effect */
   .hover-lift {
-    @apply transition-all duration-200 hover:translate-y-[-2px] hover:shadow-lg;
+    @apply transition-[transform,box-shadow] duration-200 hover:translate-y-[-2px] hover:shadow-lg;
   }
 
   /* Surface elevation */
