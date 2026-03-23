@@ -295,7 +295,7 @@ export function AuthPanel({
           <button
             type="button"
             className={cn(
-              "rounded-full px-3 py-2 text-sm transition-colors",
+              "rounded-full px-3 py-2.5 text-sm transition-colors min-h-[44px]",
               authMode === "sign-in"
                 ? "bg-white text-black"
                 : "text-white/60 hover:text-white",
@@ -310,7 +310,7 @@ export function AuthPanel({
           <button
             type="button"
             className={cn(
-              "rounded-full px-3 py-2 text-sm transition-colors",
+              "rounded-full px-3 py-2.5 text-sm transition-colors min-h-[44px]",
               authMode === "sign-up"
                 ? "bg-white text-black"
                 : "text-white/60 hover:text-white",
@@ -446,7 +446,7 @@ export function AuthPanel({
         <>
           <button
             type="button"
-            className="mt-5 text-sm text-white/55 transition-colors hover:text-white"
+            className="mt-5 py-2 text-sm text-white/55 transition-colors hover:text-white"
             onClick={() => {
               setAuthMode("forgot-password");
               setNotice(null);
@@ -458,7 +458,7 @@ export function AuthPanel({
             Need an account?{" "}
             <button
               type="button"
-              className="text-white transition-colors hover:text-primary"
+              className="py-1 px-0.5 text-white transition-colors hover:text-primary"
               onClick={() => {
                 setAuthMode("sign-up");
                 setNotice(null);
