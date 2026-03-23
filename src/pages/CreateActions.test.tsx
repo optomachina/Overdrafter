@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { forwardRef, type PropsWithChildren, type ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -270,6 +270,32 @@ vi.mock("@/components/chat/SearchPartsDialog", () => ({
   SearchPartsDialog: () => null,
 }));
 
+vi.mock("@/components/ui/dropdown-menu", () => ({
+  DropdownMenu: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  DropdownMenuTrigger: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  DropdownMenuContent: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  DropdownMenuItem: ({
+    children,
+    onSelect,
+    disabled,
+  }: {
+    children?: ReactNode;
+    onSelect?: (event: { preventDefault: () => void }) => void;
+    disabled?: boolean;
+  }) => (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      onClick={() => onSelect?.({ preventDefault: () => undefined })}
+    >
+      {children}
+    </button>
+  ),
+  DropdownMenuSeparator: () => <div />,
+  DropdownMenuShortcut: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+}));
+
 vi.mock("@/components/chat/ProjectMembersDialog", () => ({
   ProjectMembersDialog: () => null,
 }));
@@ -369,6 +395,7 @@ function renderWithClient(component: React.ReactNode, initialEntry = "/") {
 
 describe("top-level create actions", () => {
   beforeEach(() => {
+    const localStorageState = new Map<string, string>();
     Object.defineProperty(window, "matchMedia", {
       writable: true,
       value: vi.fn().mockImplementation(() => ({
@@ -376,6 +403,22 @@ describe("top-level create actions", () => {
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
       })),
+    });
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      writable: true,
+      value: {
+        getItem: vi.fn((key: string) => localStorageState.get(key) ?? null),
+        setItem: vi.fn((key: string, value: string) => {
+          localStorageState.set(key, value);
+        }),
+        removeItem: vi.fn((key: string) => {
+          localStorageState.delete(key);
+        }),
+        clear: vi.fn(() => {
+          localStorageState.clear();
+        }),
+      },
     });
 
     mockUseAppSession.mockReturnValue({
@@ -408,10 +451,12 @@ describe("top-level create actions", () => {
       {
         project: {
           id: "project-1",
+          organization_id: "org-1",
           name: "Project One",
           created_at: "2026-03-05T08:00:00.000Z",
           updated_at: "2026-03-05T10:00:00.000Z",
         },
+        partCount: 1,
         currentUserRole: "owner",
       },
     ]);
@@ -491,14 +536,14 @@ describe("top-level create actions", () => {
     renderWithClient(<ClientHome />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "New Project" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "New Project" })).not.toBeNull();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "New Job" }));
     fireEvent.click(screen.getByRole("button", { name: "New Project" }));
 
     expect(mockOpenFilePicker).toHaveBeenCalledTimes(2);
-    expect(screen.queryByText("Create project")).not.toBeInTheDocument();
+    expect(screen.queryByText("Create project")).toBeNull();
   });
 
   it("does not toast when the startup compatibility probe reports a legacy schema", async () => {
@@ -534,14 +579,14 @@ describe("top-level create actions", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "New Project" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "New Project" })).not.toBeNull();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "New Job" }));
     fireEvent.click(screen.getByRole("button", { name: "New Project" }));
 
     expect(mockOpenFilePicker).toHaveBeenCalledTimes(2);
-    expect(screen.queryByText("Create project")).not.toBeInTheDocument();
+    expect(screen.queryByText("Create project")).toBeNull();
   });
 
   it("uses the file picker for ClientPart new project", async () => {
@@ -567,18 +612,18 @@ describe("top-level create actions", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "New Project" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "New Project" })).not.toBeNull();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "New Job" }));
     fireEvent.click(screen.getByRole("button", { name: "New Project" }));
 
     expect(mockOpenFilePicker).toHaveBeenCalledTimes(2);
-    expect(screen.queryByText("Create project")).not.toBeInTheDocument();
+    expect(screen.queryByText("Create project")).toBeNull();
   });
 
 
-  it("shows part header options with shared actions and renames the part", async () => {
+  it("shows the current part header actions and saves a due date", async () => {
     api.updateClientPartRequest.mockResolvedValue("job-1");
 
     renderWithClient(
@@ -589,38 +634,24 @@ describe("top-level create actions", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /part options/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
     });
 
-    expect(screen.getByRole("button", { name: /part options/i })).toBeInTheDocument();
-
-    expect(await screen.findByText("Edit part")).toBeInTheDocument();
-    expect(screen.getByText("Rename part")).toBeInTheDocument();
-    expect(screen.getByText("Add to project")).toBeInTheDocument();
-    expect(screen.getByText("Remove from project")).toBeInTheDocument();
-    expect(screen.getByText("Archive part")).toBeInTheDocument();
-    expect(screen.getByText("Pin")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText("Rename part"));
-
-    const input = await screen.findByRole("textbox", { name: "Rename part" });
-    fireEvent.change(input, { target: { value: "RENAMED-123" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("button", { name: "Manage projects" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /set due date/i }));
+    fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-04-22" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save due date" }));
 
     await waitFor(() => {
       expect(api.updateClientPartRequest).toHaveBeenCalledWith(
-        expect.objectContaining({
-          jobId: "job-1",
-          partNumber: "RENAMED-123",
-        }),
+        expect.objectContaining({ jobId: "job-1", requestedByDate: "2026-04-22" }),
       );
     });
   });
 
-  it("creates a new project from the part header actions when no other project targets exist", async () => {
-    api.createProject.mockResolvedValue("project-2");
+  it("adds the part to a project from the manage projects dialog", async () => {
     api.assignJobToProject.mockResolvedValue("job-1");
-    api.fetchAccessibleProjects.mockResolvedValue([]);
     api.fetchAccessibleJobs.mockResolvedValue([makeJob({ project_id: null })]);
     api.fetchPartDetailByJobId.mockResolvedValue({
       job: makeJob({ project_id: null }),
@@ -650,19 +681,19 @@ describe("top-level create actions", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /create new project/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Manage projects" })).not.toBeNull();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /create new project/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage projects" }));
+    const dialog = await screen.findByRole("dialog", { name: /manage project membership/i });
+    fireEvent.click(within(dialog).getByRole("button", { name: /project one/i }));
 
     await waitFor(() => {
-      expect(api.createProject).toHaveBeenCalledWith({ name: "1093-00001 rev A" });
+      expect(api.assignJobToProject).toHaveBeenCalledWith({ jobId: "job-1", projectId: "project-1" });
     });
-    expect(api.assignJobToProject).toHaveBeenCalledWith({ jobId: "job-1", projectId: "project-2" });
-    expect(await screen.findByText("Project view")).toBeInTheDocument();
   });
 
-  it("archives the current part from the header options menu", async () => {
+  it("deletes the current part from the issue detail actions menu", async () => {
     api.archiveJob.mockResolvedValue("job-1");
 
     renderWithClient(
@@ -674,11 +705,11 @@ describe("top-level create actions", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /part options/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
     });
 
-    expect(screen.getByRole("button", { name: /part options/i })).toBeInTheDocument();
-    fireEvent.click(await screen.findByText("Archive part"));
+    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /archive part/i }));
 
     await waitFor(() => {
       expect(api.archiveJob).toHaveBeenCalledWith("job-1");
