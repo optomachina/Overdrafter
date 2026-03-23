@@ -460,7 +460,6 @@ export function useAppSession() {
         hasAccessToken: Boolean(accessToken),
       },
     );
-    throw error;
   };
 
   return {

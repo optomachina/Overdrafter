@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ClientPart from "./ClientPart";
 
 const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock, storedFile } = vi.hoisted(() => ({
@@ -177,6 +177,32 @@ vi.mock("@/components/chat/WorkspaceAccountMenu", () => ({
 
 vi.mock("@/components/chat/SearchPartsDialog", () => ({
   SearchPartsDialog: () => null,
+}));
+
+vi.mock("@/components/ui/dropdown-menu", () => ({
+  DropdownMenu: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  DropdownMenuTrigger: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  DropdownMenuContent: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  DropdownMenuItem: ({
+    children,
+    onSelect,
+    disabled,
+  }: {
+    children?: ReactNode;
+    onSelect?: (event: { preventDefault: () => void }) => void;
+    disabled?: boolean;
+  }) => (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      onClick={() => onSelect?.({ preventDefault: () => undefined })}
+    >
+      {children}
+    </button>
+  ),
+  DropdownMenuSeparator: () => <div />,
+  DropdownMenuShortcut: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
 }));
 
 vi.mock("@/components/chat/PartActionsMenu", () => ({
@@ -529,6 +555,10 @@ describe("ClientPart", () => {
     });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("uses revision siblings from the main part detail aggregate", async () => {
     renderWithClient("/parts/job-1");
 
@@ -755,18 +785,16 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /issue detail actions/i })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: /set due date/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /set due date/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /set due date/i }));
     fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-04-22" } });
     fireEvent.click(screen.getByRole("button", { name: "Save due date" }));
 
     await waitFor(() => {
       expect(api.updateClientPartRequest).toHaveBeenCalledWith(
-        "job-1",
-        expect.objectContaining({ requestedByDate: "2026-04-22" }),
+        expect.objectContaining({ jobId: "job-1", requestedByDate: "2026-04-22" }),
       );
     });
   });
@@ -785,9 +813,42 @@ describe("ClientPart", () => {
 
     await waitFor(() => {
       expect(window.localStorage.setItem).toHaveBeenCalledWith(
-        "client-part-comments:job-1",
+        "client-part-comments:user-1:job-1",
         expect.stringContaining("Need vendor follow-up before approving."),
       );
+    });
+  });
+
+  it("keeps browser-local comments isolated to the active user", async () => {
+    const firstRender = renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Leave a comment")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Leave a comment"), {
+      target: { value: "Private follow-up for user one." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+
+    await waitFor(() => {
+      expect(window.localStorage.setItem).toHaveBeenCalledWith(
+        "client-part-comments:user-1:job-1",
+        expect.stringContaining("Private follow-up for user one."),
+      );
+    });
+
+    mockUseAppSession.mockReturnValue({
+      user: { id: "user-2", email: "other@example.com" },
+      activeMembership: { organizationId: "org-1", role: "client" },
+      signOut: vi.fn(),
+    });
+
+    firstRender.unmount();
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem).toHaveBeenCalledWith("client-part-comments:user-2:job-1");
     });
   });
 
@@ -803,6 +864,47 @@ describe("ClientPart", () => {
     await waitFor(() => {
       expect(api.pinJob).toHaveBeenCalledWith("job-1");
     });
+  });
+
+  it("formats quick due-date presets in local calendar time", async () => {
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByRole("menuitem", { name: /set due date/i })).toBeInTheDocument();
+    });
+
+    const RealDate = Date;
+    const fixedNow = new RealDate("2026-03-22T20:00:00-07:00");
+
+    class MockDate extends RealDate {
+      constructor(value?: string | number | Date) {
+        super(value ?? fixedNow);
+      }
+
+      static now() {
+        return fixedNow.getTime();
+      }
+    }
+
+    vi.stubGlobal("Date", MockDate);
+
+    fireEvent.click(screen.getByRole("menuitem", { name: /set due date/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Tomorrow" }));
+
+    expect(screen.getByLabelText("Due date")).toHaveValue("2026-03-23");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("labels the destructive menu action as archive", async () => {
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByRole("menuitem", { name: /archive part/i })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("menuitem", { name: /archive part/i })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /^delete$/i })).not.toBeInTheDocument();
   });
 
   it("shows a processing notice while drawing extraction is still running", async () => {

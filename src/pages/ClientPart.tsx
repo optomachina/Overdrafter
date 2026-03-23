@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  Archive,
   Bell,
   CalendarClock,
   Copy,
@@ -81,7 +82,10 @@ const QUICK_DUE_DATE_PRESETS = [
 ] as const;
 
 function formatDateInputValue(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function addDays(base: Date, days: number): string {
@@ -90,13 +94,21 @@ function addDays(base: Date, days: number): string {
   return formatDateInputValue(next);
 }
 
-function readStoredComments(jobId: string): LocalComment[] {
+function getStoredCommentsKey(storageScopeKey: string, jobId: string): string {
+  return `client-part-comments:${storageScopeKey}:${jobId}`;
+}
+
+function getStoredSubscribedKey(storageScopeKey: string, jobId: string): string {
+  return `client-part-subscribed:${storageScopeKey}:${jobId}`;
+}
+
+function readStoredComments(storageScopeKey: string, jobId: string): LocalComment[] {
   if (typeof window === "undefined") {
     return [];
   }
 
   try {
-    const raw = window.localStorage.getItem(`client-part-comments:${jobId}`);
+    const raw = window.localStorage.getItem(getStoredCommentsKey(storageScopeKey, jobId));
     if (!raw) {
       return [];
     }
@@ -108,28 +120,31 @@ function readStoredComments(jobId: string): LocalComment[] {
   }
 }
 
-function writeStoredComments(jobId: string, comments: LocalComment[]) {
+function writeStoredComments(storageScopeKey: string, jobId: string, comments: LocalComment[]) {
   if (typeof window === "undefined") {
     return;
   }
 
-  window.localStorage.setItem(`client-part-comments:${jobId}`, JSON.stringify(comments));
+  window.localStorage.setItem(getStoredCommentsKey(storageScopeKey, jobId), JSON.stringify(comments));
 }
 
-function readStoredSubscribed(jobId: string): boolean {
+function readStoredSubscribed(storageScopeKey: string, jobId: string): boolean {
   if (typeof window === "undefined") {
     return true;
   }
 
-  return window.localStorage.getItem(`client-part-subscribed:${jobId}`) !== "false";
+  return window.localStorage.getItem(getStoredSubscribedKey(storageScopeKey, jobId)) !== "false";
 }
 
-function writeStoredSubscribed(jobId: string, subscribed: boolean) {
+function writeStoredSubscribed(storageScopeKey: string, jobId: string, subscribed: boolean) {
   if (typeof window === "undefined") {
     return;
   }
 
-  window.localStorage.setItem(`client-part-subscribed:${jobId}`, subscribed ? "true" : "false");
+  window.localStorage.setItem(
+    getStoredSubscribedKey(storageScopeKey, jobId),
+    subscribed ? "true" : "false",
+  );
 }
 
 const ClientPart = () => {
@@ -236,6 +251,7 @@ const ClientPart = () => {
     role: activeMembership?.role,
     userId: user?.id,
   });
+  const storageScopeKey = user?.id ?? "anonymous";
 
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(selectedQuoteOption?.offerId ?? null);
   const [comments, setComments] = useState<LocalComment[]>([]);
@@ -250,9 +266,9 @@ const ClientPart = () => {
   }, [selectedQuoteOption?.offerId]);
 
   useEffect(() => {
-    setComments(readStoredComments(jobId));
-    setIsSubscribed(readStoredSubscribed(jobId));
-  }, [jobId]);
+    setComments(readStoredComments(storageScopeKey, jobId));
+    setIsSubscribed(readStoredSubscribed(storageScopeKey, jobId));
+  }, [jobId, storageScopeKey]);
 
   useEffect(() => {
     setDueDateDraft(requestSummaryRequestedByDate ?? "");
@@ -372,7 +388,7 @@ const ClientPart = () => {
     ];
 
     setComments(nextComments);
-    writeStoredComments(jobId, nextComments);
+    writeStoredComments(storageScopeKey, jobId, nextComments);
     setCommentDraft("");
     toast.success("Comment added.");
   };
@@ -380,7 +396,7 @@ const ClientPart = () => {
   const handleToggleSubscribed = () => {
     const next = !isSubscribed;
     setIsSubscribed(next);
-    writeStoredSubscribed(jobId, next);
+    writeStoredSubscribed(storageScopeKey, jobId, next);
     toast.success(next ? "Subscribed to updates." : "Unsubscribed from updates.");
   };
 
@@ -717,8 +733,8 @@ const ClientPart = () => {
                           disabled={isPartArchiveBusy}
                           className="text-rose-200 focus:bg-rose-500/10 focus:text-rose-100"
                         >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
+                          <Archive className="mr-2 h-4 w-4" />
+                          Archive part
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>

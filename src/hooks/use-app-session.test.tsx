@@ -446,6 +446,45 @@ describe("useAppSession", () => {
     });
   });
 
+  it("keeps logout complete when the remote sign-out call fails", async () => {
+    const tokenKey = getSupabaseAuthStorageKey();
+    storageMock.setItem(tokenKey, JSON.stringify({ access_token: "token-1" }));
+    fetchAppSessionDataMock.mockResolvedValueOnce({
+      user: {
+        id: "user-1",
+        email: "client@example.com",
+      } as AppSessionData["user"],
+      memberships: [
+        {
+          id: "membership-1",
+          role: "client",
+          organizationId: "org-1",
+          organizationName: "Client Org",
+          organizationSlug: "client-org",
+        },
+      ],
+      isVerifiedAuth: true,
+      authState: "authenticated",
+    });
+    signOutMock.mockResolvedValueOnce({
+      error: new Error("network down"),
+    });
+
+    renderProbe();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
+
+    await waitFor(() => {
+      expect(signOutMock).toHaveBeenCalledWith({ scope: "global" });
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
+      expect(storageMock.getItem(tokenKey)).toBeNull();
+    });
+  });
+
   it("keeps the local session visible during startup session_error retries without restoring the gate", async () => {
     const retryDeferred = deferredPromise<AppSessionData>();
     const localSession = {
