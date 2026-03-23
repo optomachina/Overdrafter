@@ -366,8 +366,8 @@ export function ClientWorkspaceShell({
 
   return (
     <TooltipProvider delayDuration={SIDEBAR_TOOLTIP_DELAY_MS}>
-      <div className="workspace-shell min-h-screen bg-[#212121] text-white">
-        <div className="flex min-h-screen">
+      <div className="workspace-shell min-h-svh bg-[#212121] text-white">
+        <div className="flex min-h-svh">
           {showSidebar ? (
             <aside
               className={cn(
@@ -377,7 +377,7 @@ export function ClientWorkspaceShell({
                 width: desktopSidebarCollapsed ? DESKTOP_SIDEBAR_COLLAPSED_WIDTH : DESKTOP_SIDEBAR_EXPANDED_WIDTH,
               }}
             >
-              <div className="h-screen">
+              <div className="h-svh">
                 <div className={cn("h-full", desktopSidebarCollapsed && "hidden")}>
                   <SidebarScaffold
                     sidebarContent={sidebarContent}
@@ -396,7 +396,7 @@ export function ClientWorkspaceShell({
             </aside>
           ) : null}
 
-          <div className="relative flex min-h-screen flex-1 flex-col">
+          <div className="relative flex min-h-svh flex-1 flex-col">
             {showSidebar && desktopSidebarCollapsed ? (
               <button
                 type="button"
