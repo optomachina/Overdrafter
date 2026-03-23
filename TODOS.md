@@ -177,35 +177,41 @@ This could be a Supabase scheduled function, a cron job, or at minimum a documen
 
 ---
 
-## TODO-DR-001: App UI layout — replace stacked card composition with layout primitives [CODEX-001]
+## TODO-DR-001: App UI layout — replace metric Card wrappers with compact stat grid [CODEX-001]
 
-**What:** The internal dashboard, client project view, and part review flow use stacked card grids as the primary layout pattern rather than purpose-built layout systems. Identified by Codex design audit as hard rejection trigger 7 ("App UI made of stacked cards instead of layout").
+**What:** InternalHome.tsx uses shadcn `Card`/`CardHeader`/`CardContent` wrappers for its 4 metric stats (Total jobs, In review, Active quote runs, Published packages). These should be replaced with the same compact raw-div stat grid pattern already used in ClientProject.tsx (`rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]`).
 
-**Why:** Cards are appropriate when the card IS the interaction (e.g., selecting a quote). They're not appropriate as generic section wrappers. Using cards everywhere flattens visual hierarchy and makes the app look like generic SaaS. A dense table/split-pane layout with strong typography would give the internal dashboard a more purpose-built feel.
+**Scope (eng review 2026-03-23):**
+- Replace the 4 shadcn Card metric blocks in `InternalHome.tsx:222-259` with a compact raw stat grid matching ClientProject's pattern
+- No shared component extraction — QuoteStatBar (3-col, data-derived), InternalHome (4-col, scalar props), and ClientProject (4-col, raw divs) have different enough data shapes and visual scales that forced unification is a design decision, not a cleanup task
+- Parts-list table refactor and ClientPartReview 2-column split are deferred (see TODO-DR-001b below)
 
-**How to apply:** `InternalHome.tsx:224` — the metric card row should be a compact stat bar above the main table, not 4 separate cards. `ClientProject.tsx:693,755` — parts list should anchor on a table layout, not nested card panels. `ClientPartReview.tsx:151` — review panels should use a 2-column split, not stacked cards.
+**Why:** Cards as generic section wrappers flatten visual hierarchy. The compact stat grid pattern already exists in ClientProject — InternalHome should match it.
 
-**Where to start:** Start with `InternalHome.tsx` — it's the clearest case.
+**Where to start:** `src/pages/InternalHome.tsx:222` — replace the `<section className="grid gap-4 lg:grid-cols-4">` block. Remove `CardHeader`/`CardContent`/`CardTitle` from the import once the metric section no longer needs them (the Team Access section still uses `Card`/`CardContent`).
 
-**Effort:** L (human: ~2 weeks / CC: ~2 hours) | **Priority:** P2
+**Effort:** S (human: ~2 hours / CC: ~10 min) | **Priority:** P2
 
-**Source:** /design-review on main, 2026-03-23
+**Source:** /design-review on main, 2026-03-23 | Scoped by /plan-eng-review, 2026-03-23
 
 ---
 
-## TODO-DR-002: Spacing system — replace magic number one-offs with Tailwind scale [CODEX-002]
+## TODO-DR-002: Spacing system — replace magic number spacing brackets with Tailwind scale [CODEX-002]
 
-**What:** Pages like `ClientHome.tsx` and `ClientProject.tsx` use arbitrary bracket values (`mb-[22px]`, `gap-[14px]`, `p-[50px_30px]`, `w-[44%]`) throughout. These are not drawn from the 4/8px grid.
+**What:** `ClientHome.tsx` and `ClientProject.tsx` use arbitrary spacing bracket values (`mb-[22px]`, `gap-[14px]`, `p-[24px]`, etc.) not drawn from the 4/8px grid. Replace with nearest Tailwind scale steps.
 
-**Why:** Magic numbers make future spacing changes inconsistent and slow. One-off values accumulate into visual noise across the app. The color system is tokenized — spacing should be too.
+**Scope (eng review 2026-03-23):**
+- Replace **spacing brackets only**: `mb-`, `mt-`, `p-`, `px-`, `py-`, `gap-` values
+- **Leave font-size brackets alone** (`text-[12px]`, `text-[13px]`, etc.) — these are a deliberate dense data-display type scale that Tailwind's preset steps don't cover
+- ~168 bracket values across the two files; spacing-only is roughly half that count
 
-**How to apply:** Audit `ClientHome.tsx` and `ClientProject.tsx` for all `[Xpx]` bracket values. Replace with nearest Tailwind scale steps (e.g., `mb-5` instead of `mb-[22px]`). Visual difference will be negligible; consistency benefit is real.
+**Risk:** No visual regression tests exist. Individual substitutions (e.g., `mb-[22px]` → `mb-5` = 22→20px) are small; compounding effect on dense layouts is unknown. **Run `/design-review` on ClientHome and ClientProject before merging** to catch compound drift.
 
-**Where to start:** `src/pages/ClientHome.tsx:91` — start with the hero section spacing, then work down.
+**Where to start:** `src/pages/ClientHome.tsx:91` — hero section spacing first, then work down. Repeat for `ClientProject.tsx`.
 
-**Effort:** M (human: ~3 days / CC: ~30 min) | **Priority:** P3
+**Effort:** S (human: ~1 day / CC: ~15 min) | **Priority:** P3
 
-**Source:** /design-review on main, 2026-03-23
+**Source:** /design-review on main, 2026-03-23 | Scoped by /plan-eng-review, 2026-03-23
 
 ---
 
@@ -223,17 +229,32 @@ This could be a Supabase scheduled function, a cron job, or at minimum a documen
 
 ---
 
-## TODO-DR-004: Color system consistency — tokenize hardcoded values in app shells [CODEX-004]
+## TODO-DR-004: Color system consistency — tokenize hardcoded shell backgrounds [CODEX-004]
 
-**What:** Several shells and auth surfaces bypass the CSS variable token system with hardcoded hex, raw alpha percentages, and custom gradients. Key locations: `AppShell.tsx:53,62`, `GuestAppShell.tsx:56,145`, `AuthPanel.tsx:281`, `ClientWorkspaceShell.tsx:17,369`.
+**What:** App shells bypass the CSS variable token system with hardcoded hex backgrounds. Key locations: `AppShell.tsx:53,62`, `GuestAppShell.tsx:56,145`, `AuthPanel.tsx:281`, `ClientWorkspaceShell.tsx:17,369`.
 
-**Why:** Bypassing tokens makes future theme changes inconsistent and creates maintenance overhead. The token system exists — use it.
+**Critical note (eng review 2026-03-23):** The existing `ws-surface-*` tokens do NOT map to the shell hex values:
+- Shell uses `#0f0f0f` (OKLCH L≈0.035), `#171717` (L≈0.077), `#212121` (L≈0.127)
+- Nearest existing token is `ws-surface-inset` (L=0.12) — still 50% brighter than `#171717`
+- Mapping to existing tokens **will visibly change** the shell backgrounds, which are the dominant surface on every authenticated page
 
-**Where to start:** `src/components/auth/GuestAppShell.tsx` — map the hardcoded values to the nearest token, add new tokens if needed.
+**Correct approach — define new tokens first:**
+1. Add to `index.css`:
+   - `--ws-surface-shell: #171717` (main sidebar/panel backgrounds)
+   - `--ws-surface-deep: #0f0f0f` (tooltip labels, deepest insets)
+   - `--ws-surface-overlay: #212121` (mobile full-page overlay)
+2. Extend `tailwind.config.ts` with `ws-shell`, `ws-deep`, `ws-overlay` color aliases
+3. Replace hardcoded hex in the 4 shell files with the new tokens
+4. Also tokenize `#1c64f2`/`#1d5de0` (blue CTA in GuestAppShell) → `var(--primary)`
+5. **Leave Google SVG brand colors alone** (`#EA4335`, `#34A853`, `#4A90E2`, `#FBBC05` — these are fixed brand values in inline SVG paths)
 
-**Effort:** M (human: ~1 week / CC: ~30 min) | **Priority:** P3
+**Why:** Bypassing tokens makes future theme changes inconsistent. Without the right token values, "tokenizing" the shells would change their appearance — this is a prerequisite step.
 
-**Source:** /design-review on main, 2026-03-23
+**Where to start:** `src/index.css` — add the three new shell surface tokens. Then `src/tailwind.config.ts` — add ws-shell/ws-deep/ws-overlay. Then replace in the 4 files.
+
+**Effort:** M (human: ~1 day / CC: ~20 min) | **Priority:** P3
+
+**Source:** /design-review on main, 2026-03-23 | Scoped by /plan-eng-review, 2026-03-23
 
 ---
 
@@ -253,12 +274,40 @@ This could be a Supabase scheduled function, a cron job, or at minimum a documen
 
 ## TODO-DR-006: Arbitrary border-radius values — establish radius scale [subagent]
 
-**What:** Components use a wide range of custom border-radius values (`rounded-[2px]`, `rounded-[10px]`, `rounded-[14px]`, `rounded-[16px]`, `rounded-[18px]`, `rounded-[20px]`, `rounded-[22px]`, `rounded-[24px]`, `rounded-[28px]`, `rounded-[30px]`, `rounded-[34px]`) with no pattern. The design system has `--radius: 0.625rem` but it's not enforced.
+**What:** Components use a wide range of arbitrary `rounded-[Xpx]` values (22 distinct values, top usages: `rounded-[10px]`×27, `rounded-[24px]`×23, `rounded-[22px]`×20, `rounded-[16px]`×18). Consolidate to a two-token semantic scale.
 
-**Why:** Inconsistent border radii are a subtle but persistent source of visual noise. A 3-level scale (sm/md/lg) covers 90% of cases and makes the UI feel more intentional.
+**Token design (eng review 2026-03-23):**
+- **New tokens in `index.css`**: `--radius-surface-sm: 8px` (chips, badges, small controls), `--radius-surface-lg: 24px` (large panels, modals, drawers)
+- **Existing token**: `--radius: 0.625rem` (10px) covers the mid tier — do not rename or replace it
+- **Naming**: use `rounded-surface-sm` / `rounded-surface-lg` in Tailwind config to avoid colliding with shadcn's existing `rounded-sm`/`rounded-lg` (which derive from `--radius` and would break if overridden)
 
-**Where to start:** Audit `QuoteList.tsx`, `ActivityLog.tsx`, `WorkspaceAccountMenu.tsx`, `CadModelThumbnail.tsx`. Map each arbitrary value to the nearest semantic size, add `--radius-sm`/`--radius-lg` tokens to `index.css` if needed.
+**Mapping rule (explicit threshold):**
+- `≤19px` → `rounded` (uses existing `--radius` = 10px) — covers: 2px, 5px, 6px, 8px, 9px, 10px, 12px, 14px, 16px, 18px
+- `≥20px` → `rounded-surface-lg` (24px) — covers: 20px, 22px, 24px, 26px, 28px, 30px, 34px, 36px
+- `rounded-[2px]` uses (used for hairline separators/insets) — map to `rounded-surface-sm` (8px) or leave as-is if intentionally tight; judge per context
+
+**Files:** `QuoteList.tsx`, `WorkspaceAccountMenu.tsx`, `CadModelThumbnail.tsx`, and any file touched by DR-001/004 — note that DR-006 should ship **after** DR-001 and DR-004, since those PRs will introduce/modify files that also need radius cleanup.
+
+**Why:** 22 distinct radii with no semantic relationship produce visual noise. The two-token scale reduces these to three tiers (tight/card/sheet) that an implementer can apply consistently.
 
 **Effort:** M (human: ~2 days / CC: ~20 min) | **Priority:** P3
 
-**Source:** /design-review subagent on main, 2026-03-23
+**Source:** /design-review subagent on main, 2026-03-23 | Scoped by /plan-eng-review, 2026-03-23
+
+---
+
+## TODO-DR-001b: Parts list table layout + ClientPartReview 2-column split [deferred from DR-001]
+
+**What:** Two structural layout changes deferred from DR-001 scope reduction:
+1. `ClientProject.tsx` parts list: replace the card-panel row composition with a proper `<table>` or CSS grid table layout. Currently `overflow-hidden rounded-[24px] border bg-ws-card` wraps a list of job rows — these should be `<table>` markup for semantic correctness and a more data-dense appearance.
+2. `ClientPartReview.tsx:151`: the review panels use stacked cards — replace with a 2-column split layout (quote option left, pricing/metadata right).
+
+**Why:** These are structural HTML changes with real regression risk in heavily-tested files (ClientProject has 12 tests including row-rendering assertions). They warrant their own PR with dedicated visual QA, not bundling with the stat bar cleanup.
+
+**Where to start:** `ClientProject.tsx` — the parts list rendering loop starts around line 800. Determine whether `<Table>` from shadcn/ui is appropriate or a CSS grid is simpler. Run the full test suite after.
+
+**Effort:** M (human: ~1 week / CC: ~30 min) | **Priority:** P2
+
+**Depends on:** DR-001 (metric stat cards) shipped and visually verified.
+
+**Source:** Deferred from TODO-DR-001 by /plan-eng-review, 2026-03-23
