@@ -61,15 +61,15 @@ CI runs lint, typecheck, tests, build, and worker verification in parallel jobs 
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
-| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
-| Codex Review | `/codex review` | Independent 2nd opinion | 1 | issues_found | Plan staleness, domain decision gap, rate limiting gap, extraction guardrails gap |
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | issues_open | 5 scope proposals accepted, 3 deferred, 3 critical gaps, 9 TODOs written |
+| Codex Review | `/codex review` | Independent 2nd opinion | 2 | issues_found | Items 2/3/4 may already be shipped; failure_reason trust boundary; metrics view wrong table; Realtime overbuilt vs extending existing polling |
 | Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR | 7 issues found, 0 critical gaps |
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
 
-**CODEX:** 9 findings — plan staleness (Milestones 1–6 already done), scope conflation, no sequencing, domain decision on `quote_requests` permanence, fake PR enforcement, Xometry rate limiting gap, extraction operational guardrails, package rename churn, output-based success criteria.
+**CODEX (CEO review outside voice):** 5 findings — items 2/3/4 stale (may already be implemented), Realtime overbuilt vs. extending existing polling, failure_reason trust boundary (verbatim passthrough from worker), manual-follow-up state conflation, extraction metrics view needs debug_extraction_runs not drawing_extractions.
 
-**CROSS-MODEL:** Eng Review found `api_request_quote` DECLARE ordering bug and `received_at` overwrite; Codex found `quote_requests` permanence decision gap and Xometry rate limiting — complementary, no direct contradictions.
+**CROSS-MODEL:** CEO review accepted Realtime as new infrastructure; Codex identified existing 5s polling extension as simpler path. CEO review said failure_reason is normalized/safe; Codex confirmed it's verbatim passthrough from worker. Both tensions are substantive — audit and TODO-009 added.
 
-**UNRESOLVED:** 0 unresolved decisions.
+**UNRESOLVED:** 1 — audit required to determine which of items 2, 3, 4 are already implemented before planning implementation work.
 
-**VERDICT:** ENG CLEARED — all decisions resolved, 0 critical gaps. TODOS.md created with 3 deferred items. PLAN.md updated to reflect completed milestones.
+**VERDICT:** ENG CLEARED — shipping gate passed. CEO review complete with SELECTIVE EXPANSION mode. 5 scope proposals accepted. Pre-ship audit of items 2/3/4 required. TODOs 004–009 written. CEO plan at `~/.gstack/projects/optomachina-Overdrafter/ceo-plans/2026-03-23-quote-requests-extraction-reliability.md`.
