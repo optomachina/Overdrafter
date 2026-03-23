@@ -113,7 +113,7 @@ const PANEL_SHEET_CLASS =
   "workspace-shell w-[min(100vw,30rem)] border-l border-white/[0.08] bg-[#2a2a2a] p-0 text-white sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-full [&>button]:bg-white/[0.06] [&>button]:p-2 [&>button]:text-white/72 [&>button]:hover:bg-white/[0.1] [&>button]:hover:text-white";
 const PANEL_CARD_CLASS = "rounded-[22px] border border-white/[0.08] bg-black/20 p-4";
 const NOTIFICATION_BADGE_CLASS =
-  "rounded-full border border-[#10a37f]/30 bg-[#10a37f]/10 px-2.5 py-1 text-[11px] font-medium text-[#7be0c0]";
+  "rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300";
 
 type ArchiveListItem =
   | {
@@ -334,7 +334,7 @@ function getNotificationToneClasses(tone: WorkspaceNotificationItem["tone"]) {
     case "attention":
       return "border-amber-400/25 bg-amber-500/10 text-amber-100";
     case "active":
-      return "border-[#10a37f]/30 bg-[#10a37f]/12 text-[#9ef0d6]";
+      return "border-emerald-500/30 bg-emerald-500/12 text-emerald-200";
     case "default":
     default:
       return "border-white/[0.08] bg-white/[0.06] text-white/72";
@@ -622,7 +622,7 @@ export function WorkspaceAccountMenu({
                                 onCheckedChange={(checked) =>
                                   notifications.setChannelEnabled(notificationType, channel, checked)
                                 }
-                                className="data-[state=checked]:bg-[#10a37f] data-[state=unchecked]:bg-white/[0.18]"
+                                className="data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-white/[0.18]"
                               />
                             </label>
                           );
@@ -669,7 +669,7 @@ export function WorkspaceAccountMenu({
                           "rounded-[18px] border p-4",
                           item.isSeen
                             ? "border-white/[0.08] bg-white/[0.03]"
-                            : "border-[#10a37f]/28 bg-[#10a37f]/[0.08]",
+                            : "border-emerald-500/[0.28] bg-emerald-500/[0.08]",
                         )}
                       >
                         <div className="flex items-start justify-between gap-4">
@@ -708,7 +708,7 @@ export function WorkspaceAccountMenu({
               <PanelSectionTitle>Account</PanelSectionTitle>
               <div className="mt-4 flex items-center gap-4">
                 <Avatar className="h-12 w-12">
-                  <AvatarFallback className="bg-[#10a37f] text-[18px] font-medium text-white">
+                  <AvatarFallback className="bg-emerald-500 text-[18px] font-medium text-white">
                     {profile.initials}
                   </AvatarFallback>
                 </Avatar>
@@ -963,7 +963,7 @@ export function WorkspaceAccountMenu({
                     <h3 className="text-[17px] font-medium text-white">Web app</h3>
                     <p className="mt-1 text-sm text-white/58">Use the current browser workspace today.</p>
                   </div>
-                  <span className="rounded-full border border-[#10a37f]/30 bg-[#10a37f]/10 px-3 py-1 text-xs font-medium text-[#7be0c0]">
+                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
                     Available
                   </span>
                 </div>
@@ -1047,7 +1047,7 @@ export function WorkspaceAccountMenu({
             )}
           >
             <Avatar className="h-11 w-11 shrink-0">
-              <AvatarFallback className="bg-[#10a37f] text-[18px] font-medium text-white">
+              <AvatarFallback className="bg-emerald-500 text-[18px] font-medium text-white">
                 {profile.initials}
               </AvatarFallback>
             </Avatar>
