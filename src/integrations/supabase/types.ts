@@ -817,6 +817,12 @@ export type Database = {
         };
         Returns: Json;
       };
+      api_list_project_assignee_profiles: {
+        Args: {
+          p_project_id: string;
+        };
+        Returns: Json;
+      };
       api_list_client_part_metadata: {
         Args: {
           p_job_ids: string[];

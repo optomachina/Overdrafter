@@ -23,6 +23,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
     fetchArchivedProjects: vi.fn(),
     fetchClientActivityEventsByJobIds: vi.fn(),
     fetchClientQuoteWorkspaceByJobIds: vi.fn(),
+    fetchProjectAssigneeProfiles: vi.fn(),
     fetchJobPartSummariesByJobIds: vi.fn(),
     fetchJobsByProject: vi.fn(),
     fetchProject: vi.fn(),
@@ -109,6 +110,7 @@ vi.mock("@/features/quotes/api/workspace-access", () => ({
   fetchArchivedProjects: api.fetchArchivedProjects,
   fetchClientActivityEventsByJobIds: api.fetchClientActivityEventsByJobIds,
   fetchClientQuoteWorkspaceByJobIds: api.fetchClientQuoteWorkspaceByJobIds,
+  fetchProjectAssigneeProfiles: api.fetchProjectAssigneeProfiles,
   fetchJobPartSummariesByJobIds: api.fetchJobPartSummariesByJobIds,
   fetchJobsByProject: api.fetchJobsByProject,
   fetchProjectJobMembershipsByJobIds: api.fetchProjectJobMembershipsByJobIds,
@@ -294,7 +296,7 @@ describe("ClientProject", () => {
       },
     ]);
     api.fetchProjectJobMembershipsByJobIds.mockResolvedValue([
-      { project_id: "project-1", job_id: "job-1" },
+      { project_id: "project-1", job_id: "job-1", created_by: "user-1" },
     ]);
     api.fetchSidebarPins.mockResolvedValue({ projectIds: [], jobIds: [] });
     api.fetchArchivedProjects.mockResolvedValue([]);
@@ -321,6 +323,15 @@ describe("ClientProject", () => {
         created_at: "2026-03-01T00:00:00Z",
         updated_at: "2026-03-01T00:00:00Z",
         selected_vendor_quote_offer_id: null,
+      },
+    ]);
+    api.fetchProjectAssigneeProfiles.mockResolvedValue([
+      {
+        userId: "user-1",
+        email: "client@example.com",
+        givenName: "Blaine",
+        familyName: "Wilson",
+        fullName: "Blaine Wilson",
       },
     ]);
     api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([
@@ -448,6 +459,8 @@ describe("ClientProject", () => {
 
     expect(screen.getByText(/Scan and manage parts/i)).toBeInTheDocument();
     expect(screen.getByText("Project detail rail")).toBeInTheDocument();
+    expect(screen.getByText("Assignee")).toBeInTheDocument();
+    expect(screen.getByText("BW")).toBeInTheDocument();
 
     const row = screen.getByRole("button", { name: /open .* line item/i });
     fireEvent.click(row);
@@ -493,6 +506,16 @@ describe("ClientProject", () => {
 
     await waitFor(() => {
       expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
+    });
+  });
+
+  it("renders an explicit unassigned state when no assignee profile resolves for a row", async () => {
+    api.fetchProjectAssigneeProfiles.mockResolvedValue([]);
+
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("Unassigned")).toBeInTheDocument();
     });
   });
 

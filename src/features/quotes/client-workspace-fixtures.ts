@@ -7,6 +7,7 @@ import type {
   ArchivedJobSummary,
   ArchivedProjectSummary,
   ClientActivityEvent,
+  ProjectAssigneeProfile,
   ClientPartRequestUpdateInput,
   ClientQuoteWorkspaceItem,
   DrawingPreviewData,
@@ -99,6 +100,7 @@ export type ClientWorkspaceGateway = {
   unpinJob: (jobId: string) => Promise<void>;
   fetchProject: (projectId: string) => Promise<ProjectRecord>;
   fetchProjectMemberships: (projectId: string) => Promise<ProjectMembershipRecord[]>;
+  fetchProjectAssigneeProfiles: (projectId: string) => Promise<ProjectAssigneeProfile[]>;
   fetchProjectInvites: (projectId: string) => Promise<ProjectInviteSummary[]>;
   fetchJobsByProject: (projectId: string) => Promise<JobRecord[]>;
   fetchPartDetail: (jobId: string) => Promise<PartDetailAggregate>;
@@ -1440,6 +1442,37 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       ),
     fetchProjectMemberships: async (projectId) =>
       cloneValue(getState(scenarioId).projectMembershipsByProjectId[projectId] ?? []),
+    fetchProjectAssigneeProfiles: async (projectId) => {
+      const state = getState(scenarioId);
+      const assigneeUserIds = [...new Set(
+        state.projectJobMemberships
+          .filter((membership) => membership.project_id === projectId)
+          .map((membership) => membership.created_by),
+      )];
+
+      return cloneValue(
+        assigneeUserIds.flatMap((userId) => {
+          const sessionUser = state.session.user;
+
+          if (!sessionUser || sessionUser.id !== userId) {
+            return [];
+          }
+
+          return [
+            {
+              userId,
+              email: sessionUser.email ?? null,
+              givenName: null,
+              familyName: null,
+              fullName:
+                typeof sessionUser.user_metadata?.full_name === "string"
+                  ? sessionUser.user_metadata.full_name
+                  : null,
+            },
+          ];
+        }),
+      );
+    },
     fetchProjectInvites: async (projectId) =>
       cloneValue(getState(scenarioId).projectInvitesByProjectId[projectId] ?? []),
     fetchJobsByProject: async (projectId) => {
