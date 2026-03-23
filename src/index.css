@@ -85,6 +85,13 @@ All colors MUST be HSL.
     scroll-behavior: smooth;
     color-scheme: dark;
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 @layer utilities {
