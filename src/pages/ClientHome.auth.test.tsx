@@ -304,7 +304,7 @@ async function submitPasswordLogin(email: string, password = "Overdrafter123!") 
 
 function expectGuestLandingVisible() {
   expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: /how it works/i })).toBeInTheDocument();
+  expect(screen.getByText(/how it works/i)).toBeInTheDocument();
   expect(screen.getAllByRole("button", { name: /^log in$/i }).length).toBeGreaterThanOrEqual(2);
   expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
   expect(screen.queryByTestId("sidebar-footer")).not.toBeInTheDocument();

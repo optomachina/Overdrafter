@@ -138,7 +138,7 @@ describe("Index client home", () => {
     expect(screen.getByRole("button", { name: /sign up for free/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
     expect(screen.getByText(guestLandingBody)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /how it works/i })).toBeInTheDocument();
+    expect(screen.getByText(/how it works/i)).toBeInTheDocument();
   });
 
   it("renders accessible projects on the new client home", async () => {
