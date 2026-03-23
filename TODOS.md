@@ -174,3 +174,91 @@ This could be a Supabase scheduled function, a cron job, or at minimum a documen
 **Effort:** M (human: ~1 week / CC: ~30 min) | **Priority:** P2
 
 **Depends on:** Quote request feature shipped and stable in production.
+
+---
+
+## TODO-DR-001: App UI layout — replace stacked card composition with layout primitives [CODEX-001]
+
+**What:** The internal dashboard, client project view, and part review flow use stacked card grids as the primary layout pattern rather than purpose-built layout systems. Identified by Codex design audit as hard rejection trigger 7 ("App UI made of stacked cards instead of layout").
+
+**Why:** Cards are appropriate when the card IS the interaction (e.g., selecting a quote). They're not appropriate as generic section wrappers. Using cards everywhere flattens visual hierarchy and makes the app look like generic SaaS. A dense table/split-pane layout with strong typography would give the internal dashboard a more purpose-built feel.
+
+**How to apply:** `InternalHome.tsx:224` — the metric card row should be a compact stat bar above the main table, not 4 separate cards. `ClientProject.tsx:693,755` — parts list should anchor on a table layout, not nested card panels. `ClientPartReview.tsx:151` — review panels should use a 2-column split, not stacked cards.
+
+**Where to start:** Start with `InternalHome.tsx` — it's the clearest case.
+
+**Effort:** L (human: ~2 weeks / CC: ~2 hours) | **Priority:** P2
+
+**Source:** /design-review on main, 2026-03-23
+
+---
+
+## TODO-DR-002: Spacing system — replace magic number one-offs with Tailwind scale [CODEX-002]
+
+**What:** Pages like `ClientHome.tsx` and `ClientProject.tsx` use arbitrary bracket values (`mb-[22px]`, `gap-[14px]`, `p-[50px_30px]`, `w-[44%]`) throughout. These are not drawn from the 4/8px grid.
+
+**Why:** Magic numbers make future spacing changes inconsistent and slow. One-off values accumulate into visual noise across the app. The color system is tokenized — spacing should be too.
+
+**How to apply:** Audit `ClientHome.tsx` and `ClientProject.tsx` for all `[Xpx]` bracket values. Replace with nearest Tailwind scale steps (e.g., `mb-5` instead of `mb-[22px]`). Visual difference will be negligible; consistency benefit is real.
+
+**Where to start:** `src/pages/ClientHome.tsx:91` — start with the hero section spacing, then work down.
+
+**Effort:** M (human: ~3 days / CC: ~30 min) | **Priority:** P3
+
+**Source:** /design-review on main, 2026-03-23
+
+---
+
+## TODO-DR-003: App shell viewport height — replace h-screen with svh units [CODEX-005]
+
+**What:** App shells use `min-h-screen`/`h-screen` (= `100vh`) rather than `100svh` (small viewport height). On mobile browsers, `100vh` includes the browser chrome height, causing the app to be taller than the visible area.
+
+**Why:** Mobile browser address bars collapse on scroll, making the visible viewport shorter than `100vh`. `svh` (small viewport height) measures the smallest viewport (with all browser chrome visible), which is the safe value for fixed-height shell layouts.
+
+**Where to start:** `src/components/workspace/ClientWorkspaceShell.tsx:369,380` and `src/components/auth/GuestAppShell.tsx:56`.
+
+**Effort:** S (human: ~2 hours / CC: ~10 min) | **Priority:** P2
+
+**Source:** /design-review on main, 2026-03-23
+
+---
+
+## TODO-DR-004: Color system consistency — tokenize hardcoded values in app shells [CODEX-004]
+
+**What:** Several shells and auth surfaces bypass the CSS variable token system with hardcoded hex, raw alpha percentages, and custom gradients. Key locations: `AppShell.tsx:53,62`, `GuestAppShell.tsx:56,145`, `AuthPanel.tsx:281`, `ClientWorkspaceShell.tsx:17,369`.
+
+**Why:** Bypassing tokens makes future theme changes inconsistent and creates maintenance overhead. The token system exists — use it.
+
+**Where to start:** `src/components/auth/GuestAppShell.tsx` — map the hardcoded values to the nearest token, add new tokens if needed.
+
+**Effort:** M (human: ~1 week / CC: ~30 min) | **Priority:** P3
+
+**Source:** /design-review on main, 2026-03-23
+
+---
+
+## TODO-DR-005: Hardcoded OpenAI green (#10a37f) in WorkspaceAccountMenu [subagent]
+
+**What:** `WorkspaceAccountMenu.tsx` uses hardcoded `#10a37f` / `#7be0c0` / `#9ef0d6` — the OpenAI brand green — for a "powered by" badge or similar indicator. This is neither in the design token system nor a brand color for OverDrafter.
+
+**Why:** Bypasses the token system and will look inconsistent if the app's accent color ever changes. Should use a token, or be removed if it's a vestigial GPT badge.
+
+**Where to start:** `src/components/chat/WorkspaceAccountMenu.tsx:116,138,155` — identify what the color is used for, then either tokenize it or replace with the appropriate semantic token.
+
+**Effort:** S (human: ~30 min / CC: ~5 min) | **Priority:** P2
+
+**Source:** /design-review subagent on main, 2026-03-23
+
+---
+
+## TODO-DR-006: Arbitrary border-radius values — establish radius scale [subagent]
+
+**What:** Components use a wide range of custom border-radius values (`rounded-[2px]`, `rounded-[10px]`, `rounded-[14px]`, `rounded-[16px]`, `rounded-[18px]`, `rounded-[20px]`, `rounded-[22px]`, `rounded-[24px]`, `rounded-[28px]`, `rounded-[30px]`, `rounded-[34px]`) with no pattern. The design system has `--radius: 0.625rem` but it's not enforced.
+
+**Why:** Inconsistent border radii are a subtle but persistent source of visual noise. A 3-level scale (sm/md/lg) covers 90% of cases and makes the UI feel more intentional.
+
+**Where to start:** Audit `QuoteList.tsx`, `ActivityLog.tsx`, `WorkspaceAccountMenu.tsx`, `CadModelThumbnail.tsx`. Map each arbitrary value to the nearest semantic size, add `--radius-sm`/`--radius-lg` tokens to `index.css` if needed.
+
+**Effort:** M (human: ~2 days / CC: ~20 min) | **Priority:** P3
+
+**Source:** /design-review subagent on main, 2026-03-23
