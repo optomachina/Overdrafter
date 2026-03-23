@@ -114,9 +114,7 @@ const ClientHome = () => {
         {/* Section 2: How it works */}
         <section className="mt-[80px]">
           <div className="flex items-center gap-4 mb-[36px]">
-            <h2 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
-              How it works
-            </h2>
+            <p className="ws-section-label">How it works</p>
             <div className="flex-1 h-px bg-white/[0.08]" />
           </div>
 
