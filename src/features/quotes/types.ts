@@ -55,6 +55,14 @@ export type ClientActivityEvent = {
   occurredAt: string;
 };
 
+export type ProjectAssigneeProfile = {
+  userId: string;
+  email: string | null;
+  givenName: string | null;
+  familyName: string | null;
+  fullName: string | null;
+};
+
 export type EvidenceItem = {
   field: string;
   page: number;

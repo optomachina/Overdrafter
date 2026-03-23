@@ -32,6 +32,7 @@ export const workspaceQueryKeys = {
   archivedJobs: () => ["archived-jobs"] as const,
   project: (projectId: string) => ["project", projectId] as const,
   projectJobs: (projectId: string) => ["project-jobs", projectId] as const,
+  projectAssignees: (projectId: string) => ["project-assignees", projectId] as const,
   clientQuoteWorkspace: (jobIds: string[]) => ["client-quote-workspace", stableJobIds(jobIds)] as const,
   clientActivity: (jobIds: string[]) => ["client-activity", stableJobIds(jobIds)] as const,
   partDetailRoute: (routeId: string) => ["part-detail-route", routeId] as const,

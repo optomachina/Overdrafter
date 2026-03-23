@@ -245,6 +245,7 @@ export async function invalidateClientWorkspaceQueries(
       ? [
           queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.project(input.projectId) }),
           queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.projectJobs(input.projectId) }),
+          queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.projectAssignees(input.projectId) }),
           ...(input.includeProjectMemberships
             ? [queryClient.invalidateQueries({ queryKey: ["project-memberships", input.projectId] })]
             : []),

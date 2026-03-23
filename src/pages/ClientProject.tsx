@@ -48,6 +48,7 @@ import {
   useClientProjectController,
 } from "@/features/quotes/use-client-project-controller";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import { buildProjectAssigneeBadgeModel } from "@/features/quotes/project-assignee";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import { formatStatusLabel } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
@@ -142,9 +143,13 @@ const ClientProject = () => {
     prefetchProject,
     projectCollaborationUnavailable,
     projectId,
+    projectAssigneeLookupFailed,
+    projectAssigneeLookupReady,
     projectInvitesQuery,
+    projectAssigneesByUserId,
     projectJobs,
     projectJobsQuery,
+    projectJobMembershipsByCompositeKey,
     projectMembershipsQuery,
     projectName,
     projectQuery,
@@ -779,9 +784,10 @@ const ClientProject = () => {
                   <div className="px-6 py-12 text-center text-white/45">No parts match the current project filter.</div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <div className="grid min-w-[920px] grid-cols-[1.6fr_2fr_88px_88px_1fr_140px_120px] border-b border-white/[0.04] bg-white/[0.02] px-[18px] py-[10px]">
+                    <div className="grid min-w-[1040px] grid-cols-[1.4fr_1.8fr_120px_88px_88px_1fr_140px_120px] border-b border-white/[0.04] bg-white/[0.02] px-[18px] py-[10px]">
                       <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Part</div>
                       <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Description</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Assignee</div>
                       <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">CAD</div>
                       <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">DWG</div>
                       <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Quote</div>
@@ -808,12 +814,20 @@ const ClientProject = () => {
                         quoteRequestViewModel &&
                         !quoteRequestViewModel.action.disabled &&
                         (quoteRequestViewModel.action.kind === "request" || quoteRequestViewModel.action.kind === "retry");
+                      // Until a dedicated part assignee field exists, the ledger uses the
+                      // project-scoped creator on project_jobs as the narrowest ownership signal.
+                      const projectJobMembership = projectJobMembershipsByCompositeKey?.get(`${projectId}:${job.id}`) ?? null;
+                      const assigneeProfile =
+                        projectJobMembership?.created_by
+                          ? projectAssigneesByUserId?.get(projectJobMembership.created_by) ?? null
+                          : null;
+                      const assignee = buildProjectAssigneeBadgeModel(assigneeProfile);
 
                       return (
                         <div
                           key={job.id}
                           className={cn(
-                            "grid min-w-[920px] grid-cols-[1.6fr_2fr_88px_88px_1fr_140px_120px] items-center border-b border-white/[0.04] px-[18px] py-[13px] last:border-0 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 focus-visible:ring-inset",
+                            "grid min-w-[1040px] grid-cols-[1.4fr_1.8fr_120px_88px_88px_1fr_140px_120px] items-center border-b border-white/[0.04] px-[18px] py-[13px] last:border-0 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 focus-visible:ring-inset",
                             isSelected ? "bg-white/[0.06]" : "hover:bg-white/[0.02]",
                           )}
                           onClick={() => handleOpenJobDrawer(job.id)}
@@ -834,6 +848,30 @@ const ClientProject = () => {
                           </div>
                           <div className="min-w-0 pr-4">
                             <p className="truncate text-[13px] text-white/65">{presentation.description}</p>
+                          </div>
+                          <div>
+                            {!projectAssigneeLookupReady && !projectAssigneeLookupFailed ? (
+                              <span className="text-[12px] text-white/35">Loading</span>
+                            ) : projectAssigneeLookupFailed ? (
+                              <span className="text-[12px] text-white/35">Unavailable</span>
+                            ) : assignee.isUnassigned || !assignee.initials ? (
+                              <span className="text-[12px] text-white/45">Unassigned</span>
+                            ) : (
+                              <div
+                                className="flex items-center"
+                                title={assignee.displayName}
+                                aria-label={`Assignee: ${assignee.displayName}`}
+                              >
+                                <span
+                                  className={cn(
+                                    "inline-flex h-8 w-8 items-center justify-center rounded-full border text-[11px] font-semibold tracking-[0.08em]",
+                                    assignee.colorClassName,
+                                  )}
+                                >
+                                  {assignee.initials}
+                                </span>
+                              </div>
+                            )}
                           </div>
                           <div>
                             <Badge className="border border-white/10 bg-white/6 text-white/70">

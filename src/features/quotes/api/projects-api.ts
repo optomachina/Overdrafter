@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type {
   AccessibleProjectSummary,
   ArchivedProjectSummary,
+  ProjectAssigneeProfile,
   ProjectInviteRecord,
   ProjectInviteSummary,
   ProjectJobRecord,
@@ -451,6 +452,20 @@ export async function fetchProjectMemberships(projectId: string): Promise<Projec
     .order("created_at", { ascending: true });
 
   return ensureProjectCollaborationData(data, error) as ProjectMembershipRecord[];
+}
+
+export async function fetchProjectAssigneeProfiles(projectId: string): Promise<ProjectAssigneeProfile[]> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway) {
+    return fixtureGateway.fetchProjectAssigneeProfiles(projectId);
+  }
+
+  const { data, error } = await callRpc("api_list_project_assignee_profiles", {
+    p_project_id: projectId,
+  });
+
+  return ensureProjectCollaborationData(data, error) as ProjectAssigneeProfile[];
 }
 
 export async function fetchProjectInvites(projectId: string): Promise<ProjectInviteSummary[]> {

@@ -13,6 +13,7 @@ export {
 export {
   fetchAccessibleProjects,
   fetchArchivedProjects,
+  fetchProjectAssigneeProfiles,
   fetchProject,
   fetchProjectInvites,
   fetchProjectJobMembershipsByJobIds,

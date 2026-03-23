@@ -23,6 +23,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
     fetchArchivedProjects: vi.fn(),
     fetchClientActivityEventsByJobIds: vi.fn(),
     fetchClientQuoteWorkspaceByJobIds: vi.fn(),
+    fetchProjectAssigneeProfiles: vi.fn(),
     fetchJobPartSummariesByJobIds: vi.fn(),
     fetchJobsByProject: vi.fn(),
     fetchProject: vi.fn(),
@@ -109,6 +110,7 @@ vi.mock("@/features/quotes/api/workspace-access", () => ({
   fetchArchivedProjects: api.fetchArchivedProjects,
   fetchClientActivityEventsByJobIds: api.fetchClientActivityEventsByJobIds,
   fetchClientQuoteWorkspaceByJobIds: api.fetchClientQuoteWorkspaceByJobIds,
+  fetchProjectAssigneeProfiles: api.fetchProjectAssigneeProfiles,
   fetchJobPartSummariesByJobIds: api.fetchJobPartSummariesByJobIds,
   fetchJobsByProject: api.fetchJobsByProject,
   fetchProjectJobMembershipsByJobIds: api.fetchProjectJobMembershipsByJobIds,
@@ -215,6 +217,17 @@ function renderWithClient(initialEntry: string) {
   );
 }
 
+function createDeferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
+
 describe("ClientProject", () => {
   beforeEach(() => {
     lastAccountMenuProps = null;
@@ -294,7 +307,7 @@ describe("ClientProject", () => {
       },
     ]);
     api.fetchProjectJobMembershipsByJobIds.mockResolvedValue([
-      { project_id: "project-1", job_id: "job-1" },
+      { project_id: "project-1", job_id: "job-1", created_by: "user-1" },
     ]);
     api.fetchSidebarPins.mockResolvedValue({ projectIds: [], jobIds: [] });
     api.fetchArchivedProjects.mockResolvedValue([]);
@@ -321,6 +334,15 @@ describe("ClientProject", () => {
         created_at: "2026-03-01T00:00:00Z",
         updated_at: "2026-03-01T00:00:00Z",
         selected_vendor_quote_offer_id: null,
+      },
+    ]);
+    api.fetchProjectAssigneeProfiles.mockResolvedValue([
+      {
+        userId: "user-1",
+        email: "client@example.com",
+        givenName: "Blaine",
+        familyName: "Wilson",
+        fullName: "Blaine Wilson",
       },
     ]);
     api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([
@@ -448,6 +470,8 @@ describe("ClientProject", () => {
 
     expect(screen.getByText(/Scan and manage parts/i)).toBeInTheDocument();
     expect(screen.getByText("Project detail rail")).toBeInTheDocument();
+    expect(screen.getByText("Assignee")).toBeInTheDocument();
+    expect(screen.getByText("BW")).toBeInTheDocument();
 
     const row = screen.getByRole("button", { name: /open .* line item/i });
     fireEvent.click(row);
@@ -494,6 +518,63 @@ describe("ClientProject", () => {
     await waitFor(() => {
       expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
     });
+  });
+
+  it("renders an explicit unassigned state when no assignee profile resolves for a row", async () => {
+    api.fetchProjectAssigneeProfiles.mockResolvedValue([]);
+
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("Unassigned")).toBeInTheDocument();
+    });
+  });
+
+  it("does not render unassigned while assignee lookups are still pending", async () => {
+    const assigneeProfiles = createDeferredPromise<
+      Array<{
+        userId: string;
+        email: string;
+        givenName: string;
+        familyName: string;
+        fullName: string;
+      }>
+    >();
+    api.fetchProjectAssigneeProfiles.mockReturnValue(assigneeProfiles.promise);
+
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("Loading")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
+
+    assigneeProfiles.resolve([
+      {
+        userId: "user-1",
+        email: "client@example.com",
+        givenName: "Blaine",
+        familyName: "Wilson",
+        fullName: "Blaine Wilson",
+      },
+    ]);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Assignee: Blaine Wilson")).toBeInTheDocument();
+    });
+  });
+
+  it("renders assignee lookup failure without falling back to unassigned", async () => {
+    api.fetchProjectAssigneeProfiles.mockRejectedValue(new Error("lookup failed"));
+
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
   });
 
   it("logs structured archived delete failures through the account menu callback", async () => {
