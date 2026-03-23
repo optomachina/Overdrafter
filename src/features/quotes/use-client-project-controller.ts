@@ -600,8 +600,8 @@ export function useClientProjectController() {
       return;
     }
 
-    if (!focusedJobId || !filteredJobs.some((job) => job.id === focusedJobId)) {
-      setFocusedJobId(filteredJobs[0].id);
+    if (focusedJobId && !filteredJobs.some((job) => job.id === focusedJobId)) {
+      setFocusedJobId(null);
     }
   }, [filteredJobs, focusedJobId]);
 
@@ -921,6 +921,14 @@ export function useClientProjectController() {
     }
   };
 
+  const handleClearFocusedJob = () => {
+    setFocusedJobId(null);
+
+    if (isMobile) {
+      setMobileDrawerOpen(false);
+    }
+  };
+
   const handleToggleVendorExclusion = (
     jobId: string,
     vendorKey: VendorName,
@@ -1200,6 +1208,7 @@ export function useClientProjectController() {
     focusedSelectedOption,
     focusedSummary,
     focusedWorkspaceItem,
+    handleClearFocusedJob,
     handleAddPartSubmit,
     handleArchivePart,
     handleArchiveProject,
