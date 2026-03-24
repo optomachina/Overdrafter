@@ -69,26 +69,34 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 ---
 
-## TODO-006: Extraction quality alert thresholds
+## TODO-006: Extraction quality alert evaluation activation
 
-**What:** Define and implement alert thresholds for the `extraction_quality_summary` view:
-- Alert if model-fallback rate exceeds 30% of daily extractions
-- Alert if auto-approve rate drops below 70% of daily extractions
+**What:** Groundwork is shipped locally for extraction-quality thresholding:
+- `worker.extraction_completed` now carries immutable observability fields needed for calibration
+- `public.extraction_quality_summary` rolls up daily UTC metrics from append-only `audit_events`
+- architecture and test strategy docs now define the calibration boundary
 
-This could be a Supabase scheduled function, a cron job, or at minimum a documented baseline in `ARCHITECTURE.md` that operators can manually monitor.
+The remaining follow-up is to activate alert evaluation after production has at least 14 full UTC days of summary data:
+- alert if `model_fallback_rate > 0.3000`
+- alert if `auto_approve_rate < 0.7000`
 
-**Why:** Without thresholds, extraction quality degradation is invisible until a client reports a bad quote. The quality view ships in Phase 1 but alerts need real production data to calibrate baselines before threshold values are meaningful.
+**Why:** Without thresholds, extraction quality degradation is invisible until a client reports a bad quote. But hard-coding live alerts before a baseline exists would create noisy thresholds with weak operational signal.
 
-**Pros:** Turns extraction quality from reactive (incident-driven) to proactive (metric-driven).
-**Cons:** Alert thresholds require at least 2-4 weeks of production data to calibrate. Premature thresholds cause alert fatigue.
+**Next implementation slice:** Add:
+- `public.extraction_quality_alerts`
+- `public.evaluate_extraction_quality_alerts(p_day date default current_date - 1)`
+- optional scheduler after the evaluator contract is validated
 
-**Context:** Identified during CEO plan review (2026-03-23), Section 8 (Observability). The `extraction_quality_summary` view ships in Phase 1; this TODO covers the alerting layer that should follow once baselines are established.
+Recommended evaluator behavior:
+- evaluate the previous UTC day only
+- insert one row per triggered metric per org per day
+- persist alerts first; notification fan-out can follow in a separate task
 
-**Where to start:** After Phase 1 ships, run `SELECT * FROM extraction_quality_summary ORDER BY day DESC LIMIT 14;` to establish baselines. Then decide between a Supabase pg_cron job or an external cron checking the view.
+**Calibration step before activation:** Run `SELECT * FROM extraction_quality_summary ORDER BY day DESC LIMIT 14;` after 14 full UTC days of production data, then confirm or revise the `30%` / `70%` starting thresholds before implementing the evaluator.
 
 **Effort:** S (human: ~3 hours / CC: ~10 min after baselines established) | **Priority:** P2
 
-**Depends on:** `extraction_quality_summary` view in production for at least 2 weeks.
+**Depends on:** `extraction_quality_summary` view in production for at least 14 full UTC days.
 
 ---
 

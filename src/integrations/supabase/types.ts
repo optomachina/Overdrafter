@@ -809,7 +809,22 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["work_queue"]["Insert"]>;
       };
     };
-    Views: Record<string, never>;
+    Views: {
+      extraction_quality_summary: {
+        Row: {
+          organization_id: string | null;
+          day: string | null;
+          completed_extractions: number | null;
+          auto_approved_extractions: number | null;
+          needs_review_extractions: number | null;
+          partial_lifecycle_extractions: number | null;
+          warning_extractions: number | null;
+          model_fallback_extractions: number | null;
+          auto_approve_rate: number | null;
+          model_fallback_rate: number | null;
+        };
+      };
+    };
     Functions: {
       api_list_organization_memberships: {
         Args: {

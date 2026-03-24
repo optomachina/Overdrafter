@@ -111,6 +111,13 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - run tests touching the affected data flow
 - include migration notes in the PR
 
+### Extraction observability changes
+- verify worker-emitted `worker.extraction_completed` payload shape when new extraction metrics or provenance fields are added
+- verify summary or alerting SQL reads from immutable `audit_events`, not mutable `drawing_extractions`
+- add a migration-definition or snapshot-style test for new observability views or functions
+- add a seeded semantic test for per-day grouping, counter formulas, and zero-safe rate math when summary views or evaluators are introduced
+- prefer Lane B unless the change also alters broader extraction behavior, RLS, or shared RPCs
+
 ## Verification evidence
 
 Before handoff, PR creation, or a Linear workpad update, record:
