@@ -109,22 +109,13 @@ This could be a Supabase scheduled function, a cron job, or at minimum a documen
 
 ---
 
-## TODO-008: Cancellation UX for in-flight quote requests
+## ~~TODO-008: Cancellation UX for in-flight quote requests~~ ✅ DONE (local)
 
-**What:** Add a "Cancel request" action to the quote request status display when the status is `queued` or `requesting`. The lifecycle already includes a `canceled` terminal state; the UI does not yet expose the path to reach it.
+**Resolution:** Shipped via a new quote-request cancellation flow across Supabase, worker orchestration, and the client part/project status cards. Clients can now cancel `queued` and `requesting` quote requests from the status card UI with an explicit confirmation dialog. The backend adds `api_cancel_quote_request(p_request_id)`, marks the request `canceled`, cancels queued worker tasks for the linked run, and moves the quote run to the existing terminal `failed` state. The worker now treats canceled requests as terminal and skips re-promoting them after cancellation, including best-effort handling when cancellation happens mid-run.
 
-**Why:** A client who submits a quote request for the wrong part configuration, or who uploads revised files and wants to restart, currently has no self-service way to cancel. This forces an estimator to manually update the database or wait for the request to fail.
+**Shipped scope:** Status-card cancellation only; project table-row actions remain unchanged. Confirmation is required before cancellation. Client quote workspace projection now ignores runs whose linked quote request is `canceled`, so stale vendor results from a canceled request do not reappear in client UI.
 
-**Pros:** Closes the lifecycle loop for clients. Reduces estimator interruptions.
-**Cons:** Requires a new `cancel_quote_request` RPC and UI affordance. The worker may need to handle cancellation mid-run (Xometry adapter already in-flight). This is the complex part — cancellation race conditions require careful state handling.
-
-**Context:** The `canceled` state is part of the Phase 1 lifecycle model (see `ARCHITECTURE.md`). Identified during CEO plan review (2026-03-23) as a deferred item.
-
-**Where to start:** New migration `cancel_quote_request(p_request_id)` — validate caller owns the request, update status to `canceled` only if status is `queued` or `requesting`. Worker should check `canceled` before advancing to `received`. UI: add "Cancel" action in the quote request status card when status is `queued` or `requesting`.
-
-**Effort:** M (human: ~1 week / CC: ~30 min) | **Priority:** P2
-
-**Depends on:** Quote request feature shipped and stable in production.
+**Verification evidence:** `npm run typecheck` passes. `npm test -- --run src/features/quotes/quote-request.test.ts src/components/quotes/ClientWorkspacePanelContent.test.tsx src/pages/ClientPart.test.tsx src/pages/ClientProject.test.tsx worker/src/queue.test.ts worker/src/httpServer.test.ts` passes, covering the new cancel view-model behavior, client confirmation flows, and worker queue cancellation guards.
 
 ---
 

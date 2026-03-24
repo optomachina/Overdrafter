@@ -624,6 +624,17 @@ export type QuoteRequestSubmissionResult = {
   requestedVendors: VendorName[];
 };
 
+export type QuoteRequestCancellationResult = {
+  jobId: string | null;
+  accepted: boolean;
+  canceled: boolean;
+  quoteRequestId: string | null;
+  quoteRunId: string | null;
+  status: ClientQuoteRequestStatus;
+  reasonCode: string | null;
+  reason: string | null;
+};
+
 export type PartDetailAggregate = {
   job: JobRecord;
   files: JobFileRecord[];

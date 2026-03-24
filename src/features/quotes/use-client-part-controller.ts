@@ -24,7 +24,11 @@ import {
   updateProject,
 } from "@/features/quotes/api/projects-api";
 import { reconcileJobParts, requestExtraction } from "@/features/quotes/api/extraction-api";
-import { requestQuote, setJobSelectedVendorQuoteOffer } from "@/features/quotes/api/quote-requests-api";
+import {
+  cancelQuoteRequest,
+  requestQuote,
+  setJobSelectedVendorQuoteOffer,
+} from "@/features/quotes/api/quote-requests-api";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import { createJobsFromUploadFiles, uploadFilesToJob } from "@/features/quotes/api/uploads-api";
 import {
@@ -132,6 +136,7 @@ export function useClientPartController() {
   const [isPartPinBusy, setIsPartPinBusy] = useState(false);
   const [isPartArchiveBusy, setIsPartArchiveBusy] = useState(false);
   const isRequestQuoteLockedRef = useRef(false);
+  const isCancelQuoteRequestLockedRef = useRef(false);
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const {
@@ -333,6 +338,23 @@ export function useClientPartController() {
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to request a quote.");
+    },
+  });
+
+  const cancelQuoteRequestMutation = useMutation({
+    mutationFn: (requestId: string) => cancelQuoteRequest(requestId),
+    onSuccess: async (result) => {
+      await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
+
+      if (!result.accepted) {
+        toast.error(result.reason || "Quote request could not be canceled.");
+        return;
+      }
+
+      toast.success("Quote request canceled.");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to cancel quote request.");
     },
   });
 
@@ -1065,6 +1087,22 @@ export function useClientPartController() {
     }
   };
 
+  const handleCancelQuoteRequest = async (requestId: string) => {
+    if (isCancelQuoteRequestLockedRef.current || cancelQuoteRequestMutation.isPending) {
+      return;
+    }
+
+    isCancelQuoteRequestLockedRef.current = true;
+
+    try {
+      await cancelQuoteRequestMutation.mutateAsync(requestId);
+    } catch {
+      return;
+    } finally {
+      isCancelQuoteRequestLockedRef.current = false;
+    }
+  };
+
   const handleDownloadFile = async (file: {
     storage_bucket: string;
     storage_path: string;
@@ -1121,6 +1159,7 @@ export function useClientPartController() {
     extraction,
     handleArchivePart,
     handleArchiveProject,
+    handleCancelQuoteRequest,
     handleAssignPartToProject,
     handleCreateProjectFromSelection,
     handleDeleteArchivedParts,
@@ -1145,6 +1184,7 @@ export function useClientPartController() {
     isDrawingPreviewLoading,
     isPartDetailLoading,
     isPartArchiveBusy,
+    isCancelingQuoteRequest: cancelQuoteRequestMutation.isPending,
     isRequestingQuote: requestQuoteMutation.isPending,
     isPartOptionsOpen,
     isPartPinBusy,
@@ -1171,6 +1211,7 @@ export function useClientPartController() {
     removeJobMutation,
     requestQuantities,
     requestQuoteMutation,
+    cancelQuoteRequestMutation,
     requestSummaryQuantity,
     requestSummaryRequestedByDate,
     resolveSidebarProjectIdsForJob,

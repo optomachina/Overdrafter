@@ -76,4 +76,19 @@ describe("ClientQuoteRequestStatusCard", () => {
     expect(button).toBeEnabled();
     expect(button).not.toHaveAttribute("aria-disabled");
   });
+
+  it("renders cancel request actions without disabling them by default", () => {
+    render(
+      <ClientQuoteRequestStatusCard
+        status="queued"
+        tone="warning"
+        label="Queued"
+        detail="Your quote request was accepted and is queued for the worker."
+        actionLabel="Cancel request"
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Cancel request" })).toBeEnabled();
+  });
 });

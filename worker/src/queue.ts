@@ -65,7 +65,8 @@ export async function markTaskCompleted(
       locked_by: null,
       last_error: null,
     })
-    .eq("id", taskId);
+    .eq("id", taskId)
+    .neq("status", "cancelled");
 
   if (error) {
     throw error;
@@ -82,6 +83,29 @@ export async function markTaskFailed(
     .from("work_queue")
     .update({
       status: "failed",
+      payload: payloadPatch,
+      locked_at: null,
+      locked_by: null,
+      last_error: errorMessage,
+    })
+    .eq("id", taskId)
+    .neq("status", "cancelled");
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function markTaskCancelled(
+  supabase: SupabaseClient,
+  taskId: string,
+  errorMessage: string,
+  payloadPatch: Record<string, unknown> = {},
+) {
+  const { error } = await supabase
+    .from("work_queue")
+    .update({
+      status: "cancelled",
       payload: payloadPatch,
       locked_at: null,
       locked_by: null,

@@ -156,23 +156,31 @@ describe("buildQuoteRequestViewModel", () => {
   });
 
   it("surfaces queued and requesting request states directly", () => {
-    expect(
-      buildQuoteRequestViewModel({
-        job: makeJob({ status: "quoting" }),
-        part: makePart(),
-        latestQuoteRequest: makeRequest({ status: "queued" }),
-        latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "queued" }),
-      }).label,
-    ).toBe("Queued");
+    const queued = buildQuoteRequestViewModel({
+      job: makeJob({ status: "quoting" }),
+      part: makePart(),
+      latestQuoteRequest: makeRequest({ status: "queued" }),
+      latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "queued" }),
+    });
+    const requesting = buildQuoteRequestViewModel({
+      job: makeJob({ status: "quoting" }),
+      part: makePart(),
+      latestQuoteRequest: makeRequest({ status: "requesting" }),
+      latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "running" }),
+    });
 
-    expect(
-      buildQuoteRequestViewModel({
-        job: makeJob({ status: "quoting" }),
-        part: makePart(),
-        latestQuoteRequest: makeRequest({ status: "requesting" }),
-        latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "running" }),
-      }).label,
-    ).toBe("Requesting");
+    expect(queued.label).toBe("Queued");
+    expect(queued.action).toEqual({
+      kind: "cancel",
+      label: "Cancel request",
+      disabled: false,
+    });
+    expect(requesting.label).toBe("Requesting");
+    expect(requesting.action).toEqual({
+      kind: "cancel",
+      label: "Cancel request",
+      disabled: false,
+    });
   });
 
   it("enables retry when the latest request failed", () => {
