@@ -123,6 +123,7 @@ Phase 1 keeps the existing queue and worker path, but adds a separate client-saf
 - the worker claims the task, stages the files, and calls the Xometry adapter
 - vendor result transitions roll up into both request lifecycle state and existing job lifecycle state
 - client UI reads the latest quote request, with quote-run fallback for pre-existing data, to show request status
+- client-visible failed request reasons are allowlisted and sanitized; raw worker exception text stays in internal logs or internal-only records
 
 Phase 1 request lifecycle meanings:
 

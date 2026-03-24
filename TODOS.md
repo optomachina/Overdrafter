@@ -90,18 +90,20 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 ---
 
-## TODO-009: Sanitize failure_reason before client exposure
+## ~~TODO-009: Sanitize failure_reason before client exposure~~ ✅ DONE (local)
 
 **What:** Add a sanitization layer to `sync_quote_request_status_for_run` (or a client-side strip in `quote-request.ts`) ensuring that `failure_reason` only exposes allowlisted strings to the client — never raw exception messages or stack traces.
 
-**Why:** `sync_quote_request_status_for_run(uuid, text)` persists the `p_failure_reason` parameter verbatim (after empty-string check) and is granted to `authenticated`. If the worker ever passes `error.message` or a raw exception string as `p_failure_reason`, it lands on the client UI. Currently the worker only uses hardcoded strings — but this is a latent injection path for any future worker change.
+**Resolution:** Shipped via `20260323111500_sanitize_quote_request_failure_reason.sql` for runtime allowlisting, plus a forward-only backfill migration to normalize legacy `quote_requests.failure_reason` values and a client-side fallback sanitizer in `buildQuoteRequestViewModel` so unsafe strings never render even if stale data exists.
+
+**Why:** `sync_quote_request_status_for_run(uuid, text)` originally persisted the `p_failure_reason` parameter verbatim (after empty-string check) and is granted to `authenticated`. If the worker ever passed `error.message` or a raw exception string as `p_failure_reason`, it could land on the client UI.
 
 **Pros:** Eliminates a latent path from internal stack traces to client UI. Small diff — an allowlist CASE in the SQL function or a strip in the TypeScript view model.
 **Cons:** Requires defining the canonical allowlist of safe failure strings. Any new worker failure reason must be added to the allowlist explicitly.
 
 **Context:** Identified by Codex during CEO plan review (2026-03-23). Confirmed in `20260315110000_add_client_quote_requests.sql` lines 114-120 and grant at line 580.
 
-**Where to start:** Option A: add a CASE allowlist in `v_failure_reason` computation in the migration, returning a generic message for any string not in the allowlist. Option B: add a client-side strip in `quote-request.ts` `buildQuoteRequestViewModel` before exposing `failure_reason`.
+**Verification evidence:** `npx vitest run src/features/quotes/quote-request.test.ts`, `npm run lint`, and `npm run typecheck` pass on this branch. `npm run db:reset` remains the migration-path check, but requires Docker to be running locally.
 
 **Effort:** S (human: ~2 hours / CC: ~5 min) | **Priority:** P1
 
