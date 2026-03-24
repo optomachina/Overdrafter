@@ -44,6 +44,7 @@ import {
   VendorName,
   WorkerConfig,
 } from "./types.js";
+import { buildExtractionCompletionPayload } from "./extractionObservability.js";
 import {
   failureCodeForError,
   isRetryableVendorTaskError,
@@ -144,7 +145,9 @@ function logPreviewRenderWarning(task: QueueTaskRecord, stage: "all_pages" | "fi
   );
 }
 
-function summarizeExtractionOutcome(extraction: Awaited<ReturnType<typeof runHybridExtraction>>) {
+function summarizeExtractionOutcome(
+  extraction: Awaited<ReturnType<typeof runHybridExtraction>>,
+): import("./extractionObservability.js").ExtractionCompletionSummary {
   const missingFields = [
     extraction.description ? null : "description",
     extraction.partNumber ? null : "partNumber",
@@ -746,34 +749,28 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       previewAssets,
     });
     const autoApprovedPartCount = await autoApproveJobRequirements(supabase, task.job_id!);
+    const completedAt = new Date().toISOString();
+    const completionPayload = buildExtractionCompletionPayload({
+      extraction,
+      extractionOutcome,
+      extractorVersion: currentExtractorVersion(Boolean(stagedDrawingFile)),
+      workerBuildVersion: config.workerBuildVersion,
+      previewAssetCount: previewAssets.length,
+      autoApprovedPartCount,
+      completedAt,
+    });
     await logWorkerAuditEvent(supabase, {
       organizationId: context.part.organization_id,
       jobId: task.job_id!,
       eventType: "worker.extraction_completed",
       payload: {
         partId: context.part.id,
-        extractionStatus: extraction.status,
-        extractionLifecycle: extractionOutcome.lifecycle,
-        extractorVersion: currentExtractorVersion(Boolean(stagedDrawingFile)),
-        workerBuildVersion: config.workerBuildVersion,
-        warningCount: extraction.warnings.length,
-        missingFields: extractionOutcome.missingFields,
-        reviewFields: extractionOutcome.reviewFields,
-        previewAssetCount: previewAssets.length,
-        autoApprovedPartCount,
+        ...completionPayload,
       },
     });
     await markTaskCompleted(supabase, task.id, {
       ...task.payload,
-      extractionStatus: extraction.status,
-      extractionLifecycle: extractionOutcome.lifecycle,
-      extractorVersion: currentExtractorVersion(Boolean(stagedDrawingFile)),
-      workerBuildVersion: config.workerBuildVersion,
-      warningCount: extraction.warnings.length,
-      missingFields: extractionOutcome.missingFields,
-      reviewFields: extractionOutcome.reviewFields,
-      previewAssetCount: previewAssets.length,
-      autoApprovedPartCount,
+      ...completionPayload,
     });
   } catch (error) {
     if (organizationIdForError && task.job_id) {

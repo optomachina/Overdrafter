@@ -156,6 +156,8 @@ Drawing extraction is advisory evidence, not the canonical quote contract.
 - the worker should prefer deterministic label-anchored parsing first and call `gpt-5.4` fallback only when critical fields are missing, weak, or conflicting.
 - preview-only debug reruns should flow through Supabase and the worker queue using `debug_extract_part`, not direct browser-to-worker calls.
 - `debug_extraction_runs` is the internal observability record for preview-only reruns and should persist worker build, extractor version, selected model, and raw result payload.
+- extraction quality rollups should derive from immutable `audit_events` entries such as `worker.extraction_completed`, not from mutable per-part `drawing_extractions` rows that are updated in place.
+- `public.extraction_quality_summary` is the daily UTC summary surface for completed extraction-run observability and calibration; alert evaluation stays downstream from that view so thresholding can be revised without changing the worker ledger.
 - `approved_part_requirements` stores the normalized requirement record used by quoting and estimator workflows.
 - `approved_part_requirements.spec_snapshot` is the transitional home for normalized quote-facing variants such as `quoteDescription`, `quoteFinish`, and field provenance or override state.
 - Auto-approval may refresh auto-managed normalized fields from extraction output, but it must preserve reviewed user-managed values and must not silently promote low-confidence raw extraction into approved requirements.
