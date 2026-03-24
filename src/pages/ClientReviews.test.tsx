@@ -221,6 +221,9 @@ describe("client review pages", () => {
     });
 
     expect(screen.getByText("Xometry")).toBeInTheDocument();
+    expect(screen.getByText("Request context")).toBeInTheDocument();
+    expect(screen.getByText("Need this soon")).toBeInTheDocument();
+    expect(screen.getByText("$100.00")).toBeInTheDocument();
     expect(screen.getByText("Procurement handoff")).toBeInTheDocument();
     expect(screen.queryByText(/Checkout backend wiring is not available/i)).not.toBeInTheDocument();
 
