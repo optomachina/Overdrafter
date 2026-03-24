@@ -526,6 +526,7 @@ export type Database = {
           job_id: string;
           requested_by: string;
           requested_vendors: VendorName[];
+          service_request_line_item_id: string | null;
           status: QuoteRequestStatus;
           failure_reason: string | null;
           received_at: string | null;
@@ -540,6 +541,7 @@ export type Database = {
           job_id: string;
           requested_by: string;
           requested_vendors?: VendorName[];
+          service_request_line_item_id?: string | null;
           status?: QuoteRequestStatus;
           failure_reason?: string | null;
           received_at?: string | null;
@@ -549,6 +551,32 @@ export type Database = {
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["quote_requests"]["Insert"]>;
+      };
+      service_request_line_items: {
+        Row: BaseRow & {
+          organization_id: string;
+          project_id: string | null;
+          job_id: string | null;
+          service_type: string;
+          scope: string;
+          status: string;
+          service_detail: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          project_id?: string | null;
+          job_id?: string | null;
+          service_type: string;
+          scope?: string;
+          status?: string;
+          service_detail?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["service_request_line_items"]["Insert"]>;
       };
       vendor_quote_results: {
         Row: BaseRow & {

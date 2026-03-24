@@ -31,8 +31,8 @@ Operational workflow alignment:
 The architecture docs explicitly call `quote_requests` "Phase 1 scaffolding scoped to manufacturing_quote." Phase 2 introduces the service-request line-item model as the authoritative unit of work and enables multi-vendor quote collection.
 
 Phase 2 work items (order matters):
-1. Add `service_request_line_items` table migration — `id, project_id, job_id?, service_type, status, scope, service_detail (jsonb)` — see TODO-013
-2. Backfill existing jobs → implicit `manufacturing_quote` line items
+1. [x] Add `service_request_line_items` table migration — `id, project_id, job_id?, service_type, status, scope, service_detail (jsonb)` — see TODO-013
+2. [x] Backfill existing jobs → implicit `manufacturing_quote` line items
 3. Update `api_request_quote` to fan out across multiple enabled vendors per org (not just Xometry) — see TODO-014
 4. Promote vendor preferences from localStorage (`vendor-exclusions.ts`) to server-persisted per-job or per-project preferences
 5. Update client workspace UI to show multi-vendor quote comparison and vendor-level status per lane
@@ -77,4 +77,4 @@ CI runs lint, typecheck, tests, build, and worker verification in parallel jobs 
 | Eng Review | `/plan-eng-review` | Architecture & tests (required) | 3 | clean | 9 issues found. Dead-task reaper fixed. Migration timestamp fixed. Canceled state test added. |
 | Design Review | `/plan-design-review` | UI/UX gaps | 1 | clean | DR-001 through DR-006 + DR-001b all shipped. 1 minor deferred item (loading skeleton, TODO-012). |
 
-**VERDICT:** PHASE 1 COMPLETE. Phase 2 active. Next: regenerate Supabase types (TODO-010b), then begin Phase 2 implementation starting with `service_request_line_items` schema (TODO-013).
+**VERDICT:** PHASE 1 COMPLETE. Phase 2 foundation started. Next: regenerate Supabase types (TODO-010b), then begin multi-vendor fan-out on top of `service_request_line_items` (TODO-014).

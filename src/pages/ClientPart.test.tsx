@@ -563,6 +563,7 @@ describe("ClientPart", () => {
       deduplicated: false,
       quoteRequestId: "request-1",
       quoteRunId: "run-1",
+      serviceRequestLineItemId: "line-item-1",
       status: "queued",
       reasonCode: null,
       reason: null,
@@ -814,6 +815,7 @@ describe("ClientPart", () => {
       deduplicated: false,
       quoteRequestId: null,
       quoteRunId: null,
+      serviceRequestLineItemId: null,
       status: "not_requested",
       reasonCode: "rate_limited_user",
       reason: "You have reached the quote request limit for now. Try again later or contact your estimator.",
@@ -907,6 +909,7 @@ describe("ClientPart", () => {
       deduplicated: boolean;
       quoteRequestId: string | null;
       quoteRunId: string | null;
+      serviceRequestLineItemId: string | null;
       status: string;
       reasonCode: string | null;
       reason: string | null;

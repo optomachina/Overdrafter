@@ -455,6 +455,7 @@ describe("ClientProject", () => {
         deduplicated: false,
         quoteRequestId: "request-1",
         quoteRunId: "run-1",
+        serviceRequestLineItemId: "line-item-1",
         status: "queued",
         reasonCode: null,
         reason: null,
@@ -544,6 +545,7 @@ describe("ClientProject", () => {
         deduplicated: false,
         quoteRequestId: "request-1",
         quoteRunId: "run-1",
+        serviceRequestLineItemId: "line-item-1",
         status: "queued",
         reasonCode: null,
         reason: null,
@@ -556,6 +558,7 @@ describe("ClientProject", () => {
         deduplicated: false,
         quoteRequestId: null,
         quoteRunId: null,
+        serviceRequestLineItemId: null,
         status: "not_requested",
         reasonCode: "org_cost_ceiling_reached",
         reason: "Quote requests are temporarily paused for this workspace while current Xometry requests are still in flight.",
@@ -586,6 +589,7 @@ describe("ClientProject", () => {
         deduplicated: boolean;
         quoteRequestId: string | null;
         quoteRunId: string | null;
+        serviceRequestLineItemId: string | null;
         status: string;
         reasonCode: string | null;
         reason: string | null;
