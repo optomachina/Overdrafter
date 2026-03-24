@@ -84,6 +84,7 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - validate request gating and lifecycle rendering in client part and project workspace tests
 - validate RPC behavior for single-part and bulk quote requests
 - validate authorization and idempotency outcomes
+- validate per-user rate-limit blockers and org-level pending-cost ceiling blockers
 - validate worker- or queue-adjacent state transitions where the request lifecycle depends on asynchronous vendor updates
 - run `npm run verify:worker` when worker payload or queue integration changes
 

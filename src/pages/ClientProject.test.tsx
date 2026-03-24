@@ -523,6 +523,48 @@ describe("ClientProject", () => {
     });
   });
 
+  it("shows a mixed-result success toast when some project quote requests are blocked by the cost ceiling", async () => {
+    api.requestQuotes.mockResolvedValue([
+      {
+        jobId: "job-1",
+        accepted: true,
+        created: true,
+        deduplicated: false,
+        quoteRequestId: "request-1",
+        quoteRunId: "run-1",
+        status: "queued",
+        reasonCode: null,
+        reason: null,
+        requestedVendors: ["xometry"],
+      },
+      {
+        jobId: "job-2",
+        accepted: false,
+        created: false,
+        deduplicated: false,
+        quoteRequestId: null,
+        quoteRunId: null,
+        status: "not_requested",
+        reasonCode: "org_cost_ceiling_reached",
+        reason: "Quote requests are temporarily paused for this workspace while current Xometry requests are still in flight.",
+        requestedVendors: ["xometry"],
+      },
+    ]);
+
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /request 1 quote/i })).toBeEnabled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /request 1 quote/i }));
+
+    await waitFor(() => {
+      expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
+      expect(toastMock.success).toHaveBeenCalledWith("Queued 1 quote request and skipped 1 part.");
+    });
+  });
+
   it("blocks duplicate project row quote requests while the batch request is pending", async () => {
     const deferred = createDeferredPromise<
       Array<{

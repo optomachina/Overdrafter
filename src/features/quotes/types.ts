@@ -619,6 +619,8 @@ export type QuoteRequestSubmissionResult = {
   quoteRequestId: string | null;
   quoteRunId: string | null;
   status: ClientQuoteRequestStatus;
+  // The backend may return business-rule blockers such as retry gating,
+  // client request throttling, or org-level cost circuit-breaker denials.
   reasonCode: string | null;
   reason: string | null;
   requestedVendors: VendorName[];

@@ -12,20 +12,11 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 ---
 
-## TODO-002: Rate limiting and cost controls for client-triggered Xometry requests
+## ~~TODO-002: Rate limiting and cost controls for client-triggered Xometry requests~~ ✅ DONE (local)
 
-**What:** Add per-user or per-org rate limiting and a cost ceiling or circuit breaker to `api_request_quote` before expanding client-triggered Xometry access beyond internal users.
+**Resolution:** Shipped via `20260323190000_add_quote_request_guardrails.sql`, which adds a dedicated `quote_request_guardrails` table, helper functions for effective guardrails and pending estimated cost, and a forward-only `api_request_quote` replacement that enforces both per-user rolling-window throttling and an org-level pending-cost circuit breaker before new client-triggered Xometry work is queued.
 
-**Why:** Phase 1 opens Xometry quote automation to client-triggered demand for the first time. The current idempotency check (unique index on active job per status) prevents duplicate active requests per job, but does not limit total throughput, per-user burst, or total cost. In a small closed beta this is low risk. At any real customer scale, a runaway client could generate unbounded Xometry API costs.
-
-**Pros:** Prevents runaway Xometry API costs. Required before expanding beyond internal users or raising the per-user part count ceiling.
-**Cons:** Requires a new migration (request count tracking or token bucket logic in Postgres), and adds per-request overhead. Not needed for phase 1 internal-only use.
-
-**Context:** Codex flagged this independently during plan review (2026-03-23). Current `api_request_quote` migration has idempotency per job but no per-user rate limiting or per-org cost ceiling. Xometry is a browser-automation vendor — uncontrolled demand is operationally risky.
-
-**Where to start:** `supabase/migrations/` — new migration adding a per-org or per-user request count and a configurable ceiling. Enforce in `api_request_quote` before the insert path.
-
-**Depends on:** Phase 1 quote request feature shipped and in production.
+**Verification evidence:** Targeted quote-request API and page tests now cover the new blocked `reasonCode` paths (`rate_limited_user`, `org_cost_ceiling_reached`), and the architecture/test strategy docs now explicitly describe the new guardrail behavior and verification expectations.
 
 ---
 
