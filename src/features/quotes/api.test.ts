@@ -3177,6 +3177,30 @@ describe("quotes api helpers", () => {
     });
   });
 
+  it("accepts user-rate-limited quote request responses from the rpc", async () => {
+    supabaseMock.rpc.mockResolvedValue({
+      data: {
+        jobId: "job-1",
+        accepted: false,
+        created: false,
+        deduplicated: false,
+        quoteRequestId: null,
+        quoteRunId: null,
+        status: "not_requested",
+        reasonCode: "rate_limited_user",
+        reason: "You have reached the quote request limit for now. Try again later or contact your estimator.",
+        requestedVendors: ["xometry"],
+      },
+      error: null,
+    });
+
+    await expect(requestQuote("job-1")).resolves.toMatchObject({
+      jobId: "job-1",
+      accepted: false,
+      reasonCode: "rate_limited_user",
+    });
+  });
+
   it("requests quotes in bulk and normalizes the array response", async () => {
     supabaseMock.rpc.mockResolvedValue({
       data: [
@@ -3239,6 +3263,41 @@ describe("quotes api helpers", () => {
       p_job_ids: ["job-1", "job-2"],
       p_force_retry: false,
     });
+  });
+
+  it("accepts org cost ceiling blockers in bulk quote request responses", async () => {
+    supabaseMock.rpc.mockResolvedValue({
+      data: [
+        {
+          jobId: "job-1",
+          accepted: false,
+          created: false,
+          deduplicated: false,
+          quoteRequestId: null,
+          quoteRunId: null,
+          status: "not_requested",
+          reasonCode: "org_cost_ceiling_reached",
+          reason: "Quote requests are temporarily paused for this workspace while current Xometry requests are still in flight.",
+          requestedVendors: ["xometry"],
+        },
+      ],
+      error: null,
+    });
+
+    await expect(requestQuotes(["job-1"])).resolves.toEqual([
+      {
+        jobId: "job-1",
+        accepted: false,
+        created: false,
+        deduplicated: false,
+        quoteRequestId: null,
+        quoteRunId: null,
+        status: "not_requested",
+        reasonCode: "org_cost_ceiling_reached",
+        reason: "Quote requests are temporarily paused for this workspace while current Xometry requests are still in flight.",
+        requestedVendors: ["xometry"],
+      },
+    ]);
   });
 
   it("short-circuits empty bulk quote requests without calling the rpc", async () => {

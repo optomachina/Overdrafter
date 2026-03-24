@@ -119,6 +119,7 @@ Phase 1 keeps the existing queue and worker path, but adds a separate client-saf
 - the backend creates an idempotent quote request record when no active request already exists
 - the backend creates a linked quote run execution record
 - the backend seeds Xometry-only vendor lanes for that request in phase 1
+- the backend enforces per-user throttling plus an org-level pending-cost circuit breaker before new client-triggered Xometry work is enqueued
 - the backend enqueues `run_vendor_quote` work items in `work_queue`
 - the worker claims the task, stages the files, and calls the Xometry adapter
 - vendor result transitions roll up into both request lifecycle state and existing job lifecycle state
