@@ -245,6 +245,24 @@ describe("buildQuoteRequestViewModel", () => {
     expect(model.detail).toBe("Quote collection did not return a usable Xometry response.");
   });
 
+  it("surfaces the canceled state with a retry action", () => {
+    const model = buildQuoteRequestViewModel({
+      job: makeJob({ status: "ready_to_quote" }),
+      part: makePart(),
+      latestQuoteRequest: makeRequest({ status: "canceled", canceled_at: "2026-03-23T00:00:00.000Z" }),
+      latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "failed" }),
+    });
+
+    expect(model.status).toBe("canceled");
+    expect(model.label).toBe("Canceled");
+    expect(model.tone).toBe("warning");
+    expect(model.action).toEqual({
+      kind: "retry",
+      label: "Retry quote",
+      disabled: false,
+    });
+  });
+
   it("falls back to existing quote runs when the request row does not exist yet", () => {
     const model = buildQuoteRequestViewModel({
       job: makeJob({ status: "internal_review" }),

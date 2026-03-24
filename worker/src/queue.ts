@@ -141,3 +141,31 @@ export async function markTaskQueuedForRetry(
     throw error;
   }
 }
+
+// Reaps tasks that have been stuck in "running" for more than staleness_minutes.
+// This recovers from worker crashes that left tasks without a terminal write.
+// Returns the number of tasks reaped.
+export async function reapStaleTasks(
+  supabase: SupabaseClient,
+  stalenessMinutes = 10,
+): Promise<number> {
+  const cutoff = new Date(Date.now() - stalenessMinutes * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from("work_queue")
+    .update({
+      status: "failed",
+      locked_at: null,
+      locked_by: null,
+      last_error: "worker_crash_recovery",
+    })
+    .eq("status", "running")
+    .lt("locked_at", cutoff)
+    .select("id");
+
+  if (error) {
+    throw error;
+  }
+
+  return data?.length ?? 0;
+}

@@ -8,7 +8,7 @@ This document is the active execution plan for OverDrafter. It translates produc
 
 ## Planning objective
 
-The active objective is to ship client-triggered quote requests and drawing extraction reliability. Repository hardening (Milestones 1–6) is complete.
+The active objective is to harden Phase 1 (fix critical dead-task reaper gap) and begin Phase 2 (multi-vendor quote fan-out + service-request line-item model).
 
 Operational workflow alignment:
 - Linear is the planning and status source of truth.
@@ -19,25 +19,36 @@ Operational workflow alignment:
 
 ## Active work
 
-### Current feature slice — Client-triggered quote requests
-- add a client-safe quote request intent model distinct from quote run execution
-- add idempotent single-part and project-bulk quote request RPCs
-- restrict the client-triggered automation path to Xometry in phase 1
-- persist request lifecycle states: `not_requested`, `queued`, `requesting`, `received`, `failed`, `canceled`
-- expose quote request status and gating reasons in part and project client workspaces
-- evolve the client workspace UI toward an artifact-first part and project surface while keeping chat contextual rather than primary
-- keep quote publication and quote selection flows unchanged
-- document follow-up backlog for multi-vendor expansion, cancellation, richer preflight gating, and successful rerun support
+### Immediate — Phase 1 gap remediation
 
-### Current bug-hardening slice — Drawing extraction reliability
-- keep title-block extraction label-anchored rather than flat-text scanned
-- keep deterministic extraction as the first pass, with `gpt-5.4` fallback only for missing, low-confidence, or conflicting critical fields
-- preserve raw extracted drawing fields separately from normalized quote-facing fields
-- gate low-confidence extraction behind review instead of silently persisting likely-wrong metadata
-- cover known regressions with checked-in layout fixtures, including `1093-05589`
-- keep quote normalization traceable through `approved_part_requirements.spec_snapshot` provenance fields
+- [x] add dead-task reaper to worker — `reapStaleTasks()` in `worker/src/queue.ts`, called every 60s from main loop
+- [x] add `canceled` state test to `src/features/quotes/quote-request.test.ts`
+- [x] fix duplicate migration timestamps — renamed `20260323190000_add_quote_request_cancellation.sql` → `20260323190001_*`
+- [ ] regenerate Supabase types to include `api_cancel_quote_request` (requires `supabase db diff` / `supabase gen types`) — see TODO-010b
+
+### Phase 2 — Multi-vendor quote fan-out + service-request line-item model
+
+The architecture docs explicitly call `quote_requests` "Phase 1 scaffolding scoped to manufacturing_quote." Phase 2 introduces the service-request line-item model as the authoritative unit of work and enables multi-vendor quote collection.
+
+Phase 2 work items (order matters):
+1. Add `service_request_line_items` table migration — `id, project_id, job_id?, service_type, status, scope, service_detail (jsonb)` — see TODO-013
+2. Backfill existing jobs → implicit `manufacturing_quote` line items
+3. Update `api_request_quote` to fan out across multiple enabled vendors per org (not just Xometry) — see TODO-014
+4. Promote vendor preferences from localStorage (`vendor-exclusions.ts`) to server-persisted per-job or per-project preferences
+5. Update client workspace UI to show multi-vendor quote comparison and vendor-level status per lane
+6. Add worker observability — task duration and failure-rate metrics — see TODO-011
+7. Add loading skeleton to quote-request-in-flight UI states — see TODO-012
 
 ## Completed milestones
+
+### Milestone 7 — Client-triggered quote requests ✓
+Single-part and project-bulk quote request RPCs (`api_request_quote`, `api_request_quotes`). Xometry-only Phase 1. Lifecycle states: `not_requested`, `queued`, `requesting`, `received`, `failed`, `canceled`. Client cancel + retry. Rate limiting and org cost ceiling guardrails. Failure reason sanitization. Double-submit protection. Accessibility (aria-live, role=alert, aria-disabled). All TODOs 001–009 closed.
+
+### Milestone 8 — Drawing extraction reliability ✓
+Label-anchored title-block extraction as first pass, `gpt-5.4` fallback for missing/low-confidence/conflicting critical fields. Raw extracted fields preserved separately from normalized quote-facing fields. Low-confidence extraction gated behind review. `1093-05589` layout fixture + regression test (b0f4839). Quote normalization traceable through `approved_part_requirements.spec_snapshot` provenance fields.
+
+### Milestone 9 — Client workspace design polish ✓
+DR-001 through DR-006 + DR-001b all shipped: compact stat grid, tokenized spacing and shell colors, svh units, emerald token (no hardcoded OpenAI green), semantic radius scale. Two-column ClientPartReview layout. Semantic parts-list table in ClientProject.
 
 ### Milestone 1 — Canonical root documentation ✓
 `PRD.md`, `PLAN.md`, `ARCHITECTURE.md`, `TEST_STRATEGY.md`, `ACCEPTANCE_CRITERIA.md`, `README.md` repo map all exist and are current.
@@ -61,17 +72,9 @@ CI runs lint, typecheck, tests, build, and worker verification in parallel jobs 
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
-| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | issues_open | 5 scope proposals accepted, 3 deferred, 3 critical gaps, 9 TODOs written |
-| Codex Review | `/codex review` | Independent 2nd opinion | 2 | issues_found | Items 2/3/4 may already be shipped; failure_reason trust boundary; metrics view wrong table; Realtime overbuilt vs extending existing polling |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 2 | issues_open | 9 issues found (design TODO scope), 0 critical gaps |
-| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 2 | clean | Phase 1 validated complete. 1 critical gap (dead-task reaper — fixed). Phase 2 scope defined. |
+| Codex Review | `/codex review` | Independent 2nd opinion | 2 | issues_found | Prior items 2/3/4 confirmed shipped. failure_reason trust boundary fixed (TODO-009). |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 3 | clean | 9 issues found. Dead-task reaper fixed. Migration timestamp fixed. Canceled state test added. |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 | clean | DR-001 through DR-006 + DR-001b all shipped. 1 minor deferred item (loading skeleton, TODO-012). |
 
-**CODEX (CEO review outside voice):** 5 findings — items 2/3/4 stale (may already be implemented), Realtime overbuilt vs. extending existing polling, failure_reason trust boundary (verbatim passthrough from worker), manual-follow-up state conflation, extraction metrics view needs debug_extraction_runs not drawing_extractions.
-
-**ENG REVIEW 2 (design TODOs, 2026-03-23):** 9 issues found across DR-001/002/004/006 scope. Key decisions: DR-001 scoped to InternalHome metric card cleanup only (no StatBar extraction — grids aren't structurally unified); DR-004 requires new shell surface tokens before mapping (existing tokens don't match shell hex values); DR-006 explicit radius cutoff rule added (≤19px→rounded, ≥20px→rounded-surface-lg); DR-002 spacing-only cleanup with mandatory /design-review before merge. Outside voice (Claude subagent) caught StatBar premature abstraction and DR-004 color drift risk. DR-001b deferred TODO created for parts-list table + ClientPartReview split.
-
-**CROSS-MODEL:** CEO review accepted Realtime as new infrastructure; Codex identified existing 5s polling extension as simpler path. CEO review said failure_reason is normalized/safe; Codex confirmed it's verbatim passthrough from worker. Both tensions are substantive — audit and TODO-009 added.
-
-**UNRESOLVED:** 1 — audit required to determine which of items 2, 3, 4 are already implemented before planning implementation work.
-
-**VERDICT:** ENG CLEARED (main feature plan). Design TODO scope reviewed — DR-001/002/004/006 TODOs updated with implementation constraints. Run /ship when ready to implement DR-001 first.
+**VERDICT:** PHASE 1 COMPLETE. Phase 2 active. Next: regenerate Supabase types (TODO-010b), then begin Phase 2 implementation starting with `service_request_line_items` schema (TODO-013).
