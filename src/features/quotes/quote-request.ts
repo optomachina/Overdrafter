@@ -10,6 +10,16 @@ import type {
 
 export type QuoteRequestActionKind = "request" | "retry" | "none";
 
+const GENERIC_QUOTE_REQUEST_FAILURE_REASON =
+  "Quote collection did not return a usable Xometry response.";
+
+const CLIENT_SAFE_FAILURE_REASONS = new Set([
+  "Xometry could not return an automated quote and needs manual follow-up.",
+  "Xometry quote collection failed before a usable response was received.",
+  "Quote collection ended without a usable Xometry response.",
+  GENERIC_QUOTE_REQUEST_FAILURE_REASON,
+]);
+
 export type QuoteRequestViewModel = {
   status: ClientQuoteRequestStatus;
   tone: "ready" | "warning" | "blocked";
@@ -132,6 +142,18 @@ function requestStatusLabel(status: ClientQuoteRequestStatus) {
   }
 }
 
+function sanitizeClientFailureReason(failureReason: string | null | undefined) {
+  const trimmedReason = failureReason?.trim() ?? "";
+
+  if (trimmedReason.length === 0) {
+    return GENERIC_QUOTE_REQUEST_FAILURE_REASON;
+  }
+
+  return CLIENT_SAFE_FAILURE_REASONS.has(trimmedReason)
+    ? trimmedReason
+    : GENERIC_QUOTE_REQUEST_FAILURE_REASON;
+}
+
 export function buildQuoteRequestViewModel(input: {
   job: JobRecord;
   part: PartAggregate | null;
@@ -190,9 +212,7 @@ export function buildQuoteRequestViewModel(input: {
         status,
         tone: blockerReasons.length > 0 ? "blocked" : "warning",
         label: requestStatusLabel(status),
-        detail:
-          latestRequest?.failure_reason ??
-          "Quote collection did not return a usable Xometry response.",
+        detail: sanitizeClientFailureReason(latestRequest?.failure_reason),
         action: {
           kind: "retry",
           label: "Retry quote",

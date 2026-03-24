@@ -195,6 +195,48 @@ describe("buildQuoteRequestViewModel", () => {
     expect(model.detail).toContain("manual follow-up");
   });
 
+  it("preserves allowlisted failure reasons in the client view model", () => {
+    const model = buildQuoteRequestViewModel({
+      job: makeJob(),
+      part: makePart(),
+      latestQuoteRequest: makeRequest({
+        status: "failed",
+        failure_reason: "Xometry quote collection failed before a usable response was received.",
+      }),
+      latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "failed" }),
+    });
+
+    expect(model.detail).toBe("Xometry quote collection failed before a usable response was received.");
+  });
+
+  it("replaces unsafe failure reasons with the generic client-safe fallback", () => {
+    const model = buildQuoteRequestViewModel({
+      job: makeJob(),
+      part: makePart(),
+      latestQuoteRequest: makeRequest({
+        status: "failed",
+        failure_reason: "Error: vendor timeout\n    at runVendorQuote (/worker/src/index.ts:1282:17)",
+      }),
+      latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "failed" }),
+    });
+
+    expect(model.detail).toBe("Quote collection did not return a usable Xometry response.");
+  });
+
+  it("replaces blank failure reasons with the generic client-safe fallback", () => {
+    const model = buildQuoteRequestViewModel({
+      job: makeJob(),
+      part: makePart(),
+      latestQuoteRequest: makeRequest({
+        status: "failed",
+        failure_reason: "   ",
+      }),
+      latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "failed" }),
+    });
+
+    expect(model.detail).toBe("Quote collection did not return a usable Xometry response.");
+  });
+
   it("falls back to existing quote runs when the request row does not exist yet", () => {
     const model = buildQuoteRequestViewModel({
       job: makeJob({ status: "internal_review" }),
