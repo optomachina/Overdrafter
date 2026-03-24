@@ -95,6 +95,7 @@ function makeRequest(overrides: Partial<QuoteRequestRecord> = {}): QuoteRequestR
     job_id: "job-1",
     requested_by: "user-1",
     requested_vendors: ["xometry"],
+    service_request_line_item_id: null,
     status: "queued",
     failure_reason: null,
     received_at: null,

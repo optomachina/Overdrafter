@@ -36,6 +36,7 @@ export type DrawingPreviewAssetRecord = Database["public"]["Tables"]["drawing_pr
 export type DebugExtractionRunRecord = Database["public"]["Tables"]["debug_extraction_runs"]["Row"];
 export type ApprovedPartRequirementRecord = Database["public"]["Tables"]["approved_part_requirements"]["Row"];
 export type QuoteRequestRecord = Database["public"]["Tables"]["quote_requests"]["Row"];
+export type ServiceRequestLineItemRecord = Database["public"]["Tables"]["service_request_line_items"]["Row"];
 export type QuoteRunRecord = Database["public"]["Tables"]["quote_runs"]["Row"];
 export type VendorQuoteResultRecord = Database["public"]["Tables"]["vendor_quote_results"]["Row"];
 export type VendorQuoteOfferRecord = Database["public"]["Tables"]["vendor_quote_offers"]["Row"];
@@ -618,6 +619,7 @@ export type QuoteRequestSubmissionResult = {
   deduplicated: boolean;
   quoteRequestId: string | null;
   quoteRunId: string | null;
+  serviceRequestLineItemId: string | null;
   status: ClientQuoteRequestStatus;
   // The backend may return business-rule blockers such as retry gating,
   // client request throttling, or org-level cost circuit-breaker denials.

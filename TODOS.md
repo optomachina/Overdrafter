@@ -120,36 +120,13 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 ---
 
-## TODO-013: `service_request_line_items` schema + migration (Phase 2 core)
+## ~~TODO-013: `service_request_line_items` schema + migration (Phase 2 core)~~ ✅ DONE (local)
 
-**What:** Add a new `service_request_line_items` table as the authoritative unit of work per service type per part/project. Schema:
-
-```sql
-create table if not exists public.service_request_line_items (
-  id uuid primary key default gen_random_uuid(),
-  organization_id uuid not null references public.organizations(id),
-  project_id uuid references public.projects(id),
-  job_id uuid references public.jobs(id),
-  service_type text not null, -- 'manufacturing_quote' | 'cad_modeling' | 'drawing_redraft' | etc.
-  scope text not null default 'part', -- 'part' | 'assembly' | 'project'
-  status text not null default 'open',
-  service_detail jsonb not null default '{}',
-  created_at timestamptz not null default timezone('utc', now()),
-  updated_at timestamptz not null default timezone('utc', now())
-);
-```
-
-Also add a `service_request_line_item_id` FK column to `quote_requests` (nullable for backward compat).
-
-Include a backfill migration that creates implicit `manufacturing_quote` line items for all existing jobs that have `quote_requests` records.
+**Resolution:** Shipped via `20260324000000_add_service_request_line_items.sql`, which adds `public.service_request_line_items` as the authoritative service-work table, links `quote_requests` through the new nullable `service_request_line_item_id` FK, backfills one part-scoped `manufacturing_quote` line item per existing quoted job, and replaces `api_request_quote` so new client-triggered quote requests create or reuse the linked line item and return its id in the RPC payload.
 
 **Why:** ARCHITECTURE.md explicitly calls `quote_requests` "Phase 1 scaffolding scoped to manufacturing_quote." Service line items are the intended authoritative model. All Horizon 2 themes (assembly workflows, manufacturing review, fulfillment tracking) depend on this table existing.
 
-**Where to start:** New migration `20260324000000_add_service_request_line_items.sql`. Types file `src/features/quotes/types.ts` needs `ServiceRequestLineItemRecord`. RPC `api_request_quote` needs to create or link a line item.
-
-**Effort:** M (human: ~3 days / CC: ~30 min) | **Priority:** P1
-
-**Depends on:** Phase 1 shipped (done).
+**Verification evidence:** Added `src/features/quotes/service-request-line-items-migration.test.ts` to assert the new table, constraints, backfill, and RPC replacement SQL, and updated API/UI request tests to accept the new `serviceRequestLineItemId` field. Final verification should include `npm run db:reset` when local Supabase/Docker is available.
 
 ---
 
