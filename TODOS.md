@@ -177,7 +177,7 @@ This could be a Supabase scheduled function, a cron job, or at minimum a documen
 
 ---
 
-## TODO-DR-001: App UI layout — replace metric Card wrappers with compact stat grid [CODEX-001]
+## ~~TODO-DR-001: App UI layout — replace metric Card wrappers with compact stat grid [CODEX-001]~~ ✅ DONE (fd735ef, #99)
 
 **What:** InternalHome.tsx uses shadcn `Card`/`CardHeader`/`CardContent` wrappers for its 4 metric stats (Total jobs, In review, Active quote runs, Published packages). These should be replaced with the same compact raw-div stat grid pattern already used in ClientProject.tsx (`rounded-[16px] border border-ws-border-subtle bg-ws-card p-[16px]`).
 
