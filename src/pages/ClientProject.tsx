@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import {
   Dialog,
@@ -784,19 +785,37 @@ const ClientProject = () => {
                 ) : filteredJobs.length === 0 ? (
                   <div className="px-6 py-12 text-center text-white/45">No parts match the current project filter.</div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <div className="grid min-w-[1040px] grid-cols-[1.4fr_1.8fr_120px_88px_88px_1fr_140px_120px] border-b border-white/[0.04] bg-white/[0.02] px-5 py-2.5">
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Part</div>
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Description</div>
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Assignee</div>
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">CAD</div>
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">DWG</div>
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Quote</div>
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Created</div>
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Action</div>
-                    </div>
-
-                    {filteredJobs.map((job) => {
+                  <Table className="min-w-[1040px] table-fixed text-white">
+                    <TableHeader>
+                      <TableRow className="border-white/[0.04] bg-white/[0.02] hover:bg-white/[0.02]">
+                        <TableHead className="w-[19%] px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                          Part
+                        </TableHead>
+                        <TableHead className="w-[24%] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                          Description
+                        </TableHead>
+                        <TableHead className="w-[120px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                          Assignee
+                        </TableHead>
+                        <TableHead className="w-[88px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                          CAD
+                        </TableHead>
+                        <TableHead className="w-[88px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                          DWG
+                        </TableHead>
+                        <TableHead className="w-[18%] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                          Quote
+                        </TableHead>
+                        <TableHead className="w-[140px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                          Created
+                        </TableHead>
+                        <TableHead className="w-[120px] px-5 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                          Action
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredJobs.map((job) => {
                       const workspaceItem = workspaceItemsByJobId.get(job.id) ?? null;
                       const summary = workspaceItem?.summary ?? summariesByJobId.get(job.id) ?? null;
                       const presentation = getClientItemPresentation(job, summary);
@@ -825,10 +844,10 @@ const ClientProject = () => {
                       const assignee = buildProjectAssigneeBadgeModel(assigneeProfile);
 
                       return (
-                        <div
+                        <TableRow
                           key={job.id}
                           className={cn(
-                            "grid min-w-[1040px] grid-cols-[1.4fr_1.8fr_120px_88px_88px_1fr_140px_120px] items-center border-b border-white/[0.04] px-5 py-3 last:border-0 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 focus-visible:ring-inset",
+                            "cursor-pointer border-white/[0.04] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 focus-visible:ring-inset",
                             isSelected ? "bg-white/[0.06]" : "hover:bg-white/[0.02]",
                           )}
                           onClick={() => handleOpenJobDrawer(job.id)}
@@ -843,14 +862,18 @@ const ClientProject = () => {
                           tabIndex={0}
                           aria-label={`Open ${presentation.title} line item`}
                         >
-                          <div className="min-w-0">
+                          <TableCell className="px-5 py-3">
+                            <div className="min-w-0">
                             <p className="truncate text-[13px] font-medium text-white">{presentation.title}</p>
                             <p className="text-[11px] text-white/45">{summary?.revision ? `Rev ${summary.revision}` : "No revision"}</p>
-                          </div>
-                          <div className="min-w-0 pr-4">
+                            </div>
+                          </TableCell>
+                          <TableCell className="px-4 py-3">
+                            <div className="min-w-0 pr-4">
                             <p className="truncate text-[13px] text-white/65">{presentation.description}</p>
-                          </div>
-                          <div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="px-4 py-3">
                             {!projectAssigneeLookupReady && !projectAssigneeLookupFailed ? (
                               <span className="text-[12px] text-white/35">Loading</span>
                             ) : projectAssigneeLookupFailed ? (
@@ -873,22 +896,24 @@ const ClientProject = () => {
                                 </span>
                               </div>
                             )}
-                          </div>
-                          <div>
+                          </TableCell>
+                          <TableCell className="px-4 py-3">
                             <Badge className="border border-white/10 bg-white/6 text-white/70">
                               {workspaceItem?.part?.cadFile ? "Yes" : "No"}
                             </Badge>
-                          </div>
-                          <div>
+                          </TableCell>
+                          <TableCell className="px-4 py-3">
                             <Badge className="border border-white/10 bg-white/6 text-white/70">
                               {workspaceItem?.part?.drawingFile ? "Yes" : "No"}
                             </Badge>
-                          </div>
-                          <div>
+                          </TableCell>
+                          <TableCell className="px-4 py-3">
                             <Badge className={quoteStatusClassName}>{quoteStatusLabel}</Badge>
-                          </div>
-                          <div className="text-[13px] text-white/55">{formatDateLabel(job.created_at)}</div>
-                          <div className="text-right">
+                          </TableCell>
+                          <TableCell className="px-4 py-3 text-[13px] text-white/55">
+                            {formatDateLabel(job.created_at)}
+                          </TableCell>
+                          <TableCell className="px-5 py-3 text-right">
                             {canTriggerRequest ? (
                               <Button
                                 type="button"
@@ -922,11 +947,12 @@ const ClientProject = () => {
                                 <ArrowRight className="ml-1 h-3 w-3" />
                               </Button>
                             )}
-                          </div>
-                        </div>
+                          </TableCell>
+                        </TableRow>
                       );
-                    })}
-                  </div>
+                      })}
+                    </TableBody>
+                  </Table>
                 )}
               </div>
             </div>

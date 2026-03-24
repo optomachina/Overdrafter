@@ -149,46 +149,53 @@ const ClientPartReview = () => {
             </div>
 
             <section className="rounded-[26px] border border-white/8 bg-[#262626] p-6">
-              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Selected option</p>
-              {selectedOption ? (
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-4">
-                    <p className="text-sm font-semibold text-white">{selectedOption.vendorLabel}</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Badge className="border border-white/10 bg-white/6 text-white/70">
-                        Qty {selectedOption.requestedQuantity}
-                      </Badge>
-                      <Badge className="border border-white/10 bg-white/6 text-white/70">
-                        {selectedOption.domesticStatus === "domestic"
-                          ? "USA"
-                          : selectedOption.domesticStatus === "foreign"
-                            ? "Foreign"
-                            : "Unknown"}
-                      </Badge>
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-white/35">Selected option</p>
+                  {selectedOption ? (
+                    <div className="mt-4 rounded-2xl border border-white/8 bg-black/20 px-4 py-4">
+                      <p className="text-sm font-semibold text-white">{selectedOption.vendorLabel}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Badge className="border border-white/10 bg-white/6 text-white/70">
+                          Qty {selectedOption.requestedQuantity}
+                        </Badge>
+                        <Badge className="border border-white/10 bg-white/6 text-white/70">
+                          {selectedOption.domesticStatus === "domestic"
+                            ? "USA"
+                            : selectedOption.domesticStatus === "foreign"
+                              ? "Foreign"
+                              : "Unknown"}
+                        </Badge>
+                      </div>
+                      <p className="mt-4 text-sm text-white/55">
+                        {selectedOption.resolvedDeliveryDate ?? formatLeadTime(selectedOption.leadTimeBusinessDays)}
+                      </p>
                     </div>
-                  </div>
+                  ) : (
+                    <p className="mt-4 text-sm text-white/45">No quote has been selected yet for this part.</p>
+                  )}
+                </div>
+
+                <div className="space-y-4">
                   <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-4">
-                    <p className="text-sm text-white/45">Price</p>
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Price</p>
                     <p className="mt-2 text-2xl font-semibold text-white">
-                      {formatCurrency(selectedOption.totalPriceUsd)}
+                      {selectedOption ? formatCurrency(selectedOption.totalPriceUsd) : "No quote selected"}
                     </p>
                     <p className="mt-3 text-sm text-white/55">
-                      {selectedOption.resolvedDeliveryDate ?? formatLeadTime(selectedOption.leadTimeBusinessDays)}
+                      {selectedOption
+                        ? selectedOption.resolvedDeliveryDate ?? formatLeadTime(selectedOption.leadTimeBusinessDays)
+                        : "Select a quote on the part page to review pricing and delivery timing here."}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-4">
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Request context</p>
+                    <p className="mt-2 text-sm text-white/70">
+                      {workspaceQuery.data.job.description ?? "No freeform request text provided."}
                     </p>
                   </div>
                 </div>
-              ) : (
-                <p className="mt-4 text-sm text-white/45">No quote has been selected yet for this part.</p>
-              )}
-            </section>
-
-            <section className="rounded-[26px] border border-white/8 bg-[#262626] p-6">
-              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Request context</p>
-              <div className="mt-4 rounded-2xl border border-white/8 bg-black/20 px-4 py-4">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">RFQ context</p>
-                <p className="mt-2 text-sm text-white/70">
-                  {workspaceQuery.data.job.description ?? "No freeform request text provided."}
-                </p>
               </div>
             </section>
 

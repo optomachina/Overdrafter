@@ -470,6 +470,9 @@ describe("ClientProject", () => {
 
     expect(screen.getByText(/Scan and manage parts/i)).toBeInTheDocument();
     expect(screen.getByText("Project detail rail")).toBeInTheDocument();
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Part" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Action" })).toBeInTheDocument();
     expect(screen.getByText("Assignee")).toBeInTheDocument();
     expect(screen.getByText("BW")).toBeInTheDocument();
 
