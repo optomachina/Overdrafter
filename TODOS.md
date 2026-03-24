@@ -38,20 +38,13 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 ---
 
-## TODO-003: Add 1093-05589 fixture and regression test for drawing extraction
+## ~~TODO-003: Add 1093-05589 fixture and regression test for drawing extraction~~ ✅ DONE (b0f4839, #60)
 
 **What:** Check in a sanitized fixture for the `1093-05589` drawing layout (or a text extraction snapshot) and add a regression test in `worker/src/extraction/pdfDrawing.test.ts` or `hybridExtraction.test.ts` asserting correct field extraction.
 
-**Why:** The plan explicitly names `1093-05589` as a known regression. Without a fixture, the same extraction failure can silently recur with any parser change.
+**Resolution:** Already shipped in `b0f4839` via the inline text snapshot fixture `PRIMARY_REGRESSION_FIXTURE` plus regression assertions in `worker/src/extraction/pdfDrawing.test.ts`.
 
-**Pros:** Prevents regression recurrence. The plan calls it out as a required deliverable.
-**Cons:** Requires access to the original drawing or a sanitized snapshot. If the file contains sensitive customer data, it needs to be redacted or replaced with a synthetic equivalent before check-in.
-
-**Context:** `PLAN.md` drawing extraction slice calls out this layout explicitly. `TEST_STRATEGY.md` states that drawing extraction changes must "add or update regression coverage for the failing layout." No fixture currently exists.
-
-**Where to start:** `worker/src/extraction/` — add a fixtures directory with the sanitized drawing text payload. Use the `extractDrawingSmoke.ts` tool to capture the raw extraction output as the baseline.
-
-**Depends on:** Access to the original drawing or a sanitized capture of its text extraction output.
+**Verification evidence:** `npm run test -- --run worker/src/extraction/pdfDrawing.test.ts` passes on the current repo state, and the test asserts both positive extraction and rejection of known bad candidates for the `1093-05589` layout.
 
 ---
 
