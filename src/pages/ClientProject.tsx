@@ -893,6 +893,10 @@ const ClientProject = () => {
                               <Button
                                 type="button"
                                 className="h-auto rounded-surface-sm px-2 py-1 text-xs"
+                                disabled={
+                                  quoteRequestViewModel.action.disabled ||
+                                  requestProjectQuotesMutation.isPending
+                                }
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   void handleRequestProjectQuotes(

@@ -520,6 +520,54 @@ describe("ClientProject", () => {
     });
   });
 
+  it("blocks duplicate project row quote requests while the batch request is pending", async () => {
+    const deferred = createDeferredPromise<
+      Array<{
+        jobId: string;
+        accepted: boolean;
+        created: boolean;
+        deduplicated: boolean;
+        quoteRequestId: string | null;
+        quoteRunId: string | null;
+        status: string;
+        reasonCode: string | null;
+        reason: string | null;
+        requestedVendors: string[];
+      }>
+    >();
+    void deferred.promise.catch(() => undefined);
+    api.requestQuotes.mockReturnValue(deferred.promise);
+
+    renderWithClient("/projects/project-1");
+
+    const rowButton = await screen.findByRole("button", { name: "Request" });
+    const headerButton = await screen.findByRole("button", { name: /request 1 quote/i });
+
+    expect(rowButton).toBeEnabled();
+    expect(headerButton).toBeEnabled();
+
+    fireEvent.click(rowButton);
+    fireEvent.click(rowButton);
+
+    await waitFor(() => {
+      expect(api.requestQuotes).toHaveBeenCalledTimes(1);
+    });
+
+    expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
+
+    await waitFor(() => {
+      expect(rowButton).toBeDisabled();
+      expect(headerButton).toBeDisabled();
+    });
+
+    deferred.reject(new Error("Request failed"));
+
+    await waitFor(() => {
+      expect(rowButton).toBeEnabled();
+      expect(headerButton).toBeEnabled();
+    });
+  });
+
   it("renders an explicit unassigned state when no assignee profile resolves for a row", async () => {
     api.fetchProjectAssigneeProfiles.mockResolvedValue([]);
 

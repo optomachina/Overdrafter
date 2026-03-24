@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -161,6 +161,7 @@ export function useClientProjectController() {
   const [excludedVendorKeysByJobId, setExcludedVendorKeysByJobId] = useState<Record<string, VendorName[]>>({});
   const [requestDraftsByJobId, setRequestDraftsByJobId] = useState<Record<string, ClientPartRequestUpdateInput>>({});
   const [quoteQuantityInputsByJobId, setQuoteQuantityInputsByJobId] = useState<Record<string, string>>({});
+  const isRequestProjectQuotesLockedRef = useRef(false);
   const isMobile = useIsMobile();
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
@@ -1206,12 +1207,24 @@ export function useClientProjectController() {
   };
 
   const handleRequestProjectQuotes = async (jobIds: string[], forceRetry = false) => {
+    if (isRequestProjectQuotesLockedRef.current || requestProjectQuotesMutation.isPending) {
+      return;
+    }
+
     if (jobIds.length === 0) {
       toast.error("No project parts are ready to request quotes.");
       return;
     }
 
-    await requestProjectQuotesMutation.mutateAsync({ jobIds, forceRetry });
+    isRequestProjectQuotesLockedRef.current = true;
+
+    try {
+      await requestProjectQuotesMutation.mutateAsync({ jobIds, forceRetry });
+    } catch {
+      return;
+    } finally {
+      isRequestProjectQuotesLockedRef.current = false;
+    }
   };
 
   return {
