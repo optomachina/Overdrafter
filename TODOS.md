@@ -170,6 +170,25 @@ Include a backfill migration that creates implicit `manufacturing_quote` line it
 
 ---
 
+## TODO-016: Add `locked_at` index to `work_queue` for reaper query performance
+
+**What:** Add a partial index to `work_queue` supporting the reaper's access pattern:
+```sql
+create index idx_work_queue_reaper on public.work_queue(locked_at)
+  where status = 'running';
+```
+This makes the `reapStaleTasks()` query efficient even as the table grows.
+
+**Why:** `reapStaleTasks()` queries `WHERE status='running' AND locked_at < cutoff`. The current index `idx_work_queue_dispatch(status, task_type, available_at)` doesn't cover `locked_at`, forcing a sequential scan of the `running` partition. Fine now (running set is tiny), but becomes a performance issue under load.
+
+**When:** Before sustained production load or multi-worker deployment.
+
+**Where to start:** New migration adding the partial index. Running set is typically <10 rows so this is low urgency.
+
+**Effort:** XS (human: ~10 min / CC: ~2 min) | **Priority:** P3
+
+---
+
 ## TODO-015: Worker `FOR UPDATE SKIP LOCKED` task claiming
 
 **What:** Replace the current `claimNextTask` SELECT+UPDATE pattern in `worker/src/queue.ts` with a Supabase RPC that uses `SELECT ... FOR UPDATE SKIP LOCKED` for atomic, race-free task claiming.
