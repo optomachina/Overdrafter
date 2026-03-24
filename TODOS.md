@@ -4,20 +4,11 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 ---
 
-## TODO-001: Document quote_requests permanence vs service-request taxonomy relationship
+## ~~TODO-001: Document quote_requests permanence vs service-request taxonomy relationship~~ ✅ DONE (local)
 
-**What:** Add a one-paragraph architectural decision note in `ARCHITECTURE.md` clarifying whether `quote_requests` is a permanent foundational table or a transitional record that will eventually merge with the service-request line-item model.
+**Resolution:** Already documented in `ARCHITECTURE.md` under the quote orchestration layer. The architecture note explicitly defines `quote_requests` as intentional Phase 1 scaffolding rather than the permanent home for general service intent, while preserving it as a `manufacturing_quote`-scoped specialization that will coexist with the broader service-request line-item model described in `docs/service-request-taxonomy.md`.
 
-**Why:** `ARCHITECTURE.md` (line 13) states that the next-phase authoritative unit should be service request line items. The `quote_requests` table introduces a parallel intent record. Without an explicit decision, two developers could build in opposite directions — one treating `quote_requests` as permanent schema, another treating it as temporary scaffolding. This is how throwaway schema accumulates.
-
-**Pros:** Prevents architectural confusion. Aligns future work on service taxonomy against a clear stake in the ground.
-**Cons:** One paragraph. No risk.
-
-**Context:** `ARCHITECTURE.md` § "Request-model boundary" describes the intended separation between quote-request intent and quote-run execution, but does not say whether this model is the permanent solution or a stepping stone toward the service-request taxonomy described in `docs/service-request-taxonomy.md`. Codex independently flagged this as a blind spot during plan review (2026-03-23).
-
-**Where to start:** `ARCHITECTURE.md` § "Quote orchestration layer" — add a note below the phase 1 lifecycle description.
-
-**Depends on:** Nothing.
+**Verification evidence:** `ARCHITECTURE.md` now contains the architectural decision note clarifying the permanence boundary and taxonomy relationship, so `TODO-001` is resolved as doc-hygiene cleanup rather than new architecture work.
 
 ---
 
