@@ -69,6 +69,123 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 ---
 
+## TODO-010: Regenerate Supabase types to include `api_cancel_quote_request` ✳️ NEXT
+
+**What:** Run `supabase gen types typescript --project-id <id>` (or `supabase db diff` → `supabase gen types`) to regenerate `src/integrations/supabase/types.ts`. Once `api_cancel_quote_request` appears in `Database["public"]["Functions"]`, replace `callUntypedRpc` with `callRpc` in `src/features/quotes/api/quote-requests-api.ts:82`.
+
+**Why:** `cancelQuoteRequest` currently uses `callUntypedRpc`, bypassing TypeScript type checking on the RPC call parameters and return type. The function is live and working — this is a type-safety gap, not a functional bug.
+
+**Pros:** Full type safety on cancel RPC. Consistent with all other RPC calls in the file.
+**Cons:** Requires a DB connection to regenerate types (not runnable without Supabase project access).
+
+**Context:** Identified during /autoplan Phase 1 validation (2026-03-23). `api_cancel_quote_request` was added in `20260323190001_add_quote_request_cancellation.sql` but types haven't been regenerated since.
+
+**Where to start:** `src/features/quotes/api/quote-requests-api.ts:82` — change `callUntypedRpc` → `callRpc` after type regeneration.
+
+**Effort:** XS (human: ~15 min / CC: ~2 min after DB access) | **Priority:** P2
+
+---
+
+## TODO-011: Worker observability — task duration and failure-rate metrics
+
+**What:** Add structured logging for task duration (start time → end time) and failure rates. Options:
+- Add `task_duration_ms` field to worker's existing structured log events (`worker.task.complete`, `worker.task.failure`)
+- Add a running counter for failures-per-hour visible in the health server endpoint (`/health`)
+- Or instrument via a Supabase scheduled function that reads `work_queue` failure counts
+
+**Why:** Without duration/failure-rate visibility, production extraction and quote-request regressions are invisible until a client reports a problem. The dead-task reaper now logs reaped counts — extending that to task duration is the natural next step.
+
+**Pros:** Proactive detection of degraded worker performance before it impacts clients.
+**Cons:** Requires deciding between log-based vs. metric-based observability. Log-based is easier to ship.
+
+**Context:** Identified during /autoplan (2026-03-23). TODO-006 covers extraction quality alerting; this TODO covers worker task-level observability.
+
+**Where to start:** `worker/src/index.ts` — add `task_duration_ms: Date.now() - taskStartMs` to the `worker.task.complete` and `worker.task.failure` log payloads.
+
+**Effort:** S (human: ~2 hours / CC: ~5 min) | **Priority:** P2
+
+**Depends on:** Nothing.
+
+---
+
+## TODO-012: Loading skeleton for quote-request-in-flight UI state
+
+**What:** Add a skeleton/loading state to `src/components/quotes/ClientWorkspacePanelContent.tsx` during the ~2-3s RPC round-trip after the user clicks "Request quote". Currently the button disables (via `aria-disabled`) but the status card doesn't visually indicate the pending state.
+
+**Why:** Users see stale status during the RPC round-trip. A subtle skeleton or "Submitting..." indicator reduces perceived latency and confusion.
+
+**Where to start:** `src/components/quotes/ClientWorkspacePanelContent.tsx` — check the `isBusy` / `requestState.busy` prop and add a skeleton treatment when `action.kind === "request"` and the mutation is pending.
+
+**Effort:** XS (human: ~30 min / CC: ~5 min) | **Priority:** P2
+
+---
+
+## TODO-013: `service_request_line_items` schema + migration (Phase 2 core)
+
+**What:** Add a new `service_request_line_items` table as the authoritative unit of work per service type per part/project. Schema:
+
+```sql
+create table if not exists public.service_request_line_items (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id),
+  project_id uuid references public.projects(id),
+  job_id uuid references public.jobs(id),
+  service_type text not null, -- 'manufacturing_quote' | 'cad_modeling' | 'drawing_redraft' | etc.
+  scope text not null default 'part', -- 'part' | 'assembly' | 'project'
+  status text not null default 'open',
+  service_detail jsonb not null default '{}',
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+```
+
+Also add a `service_request_line_item_id` FK column to `quote_requests` (nullable for backward compat).
+
+Include a backfill migration that creates implicit `manufacturing_quote` line items for all existing jobs that have `quote_requests` records.
+
+**Why:** ARCHITECTURE.md explicitly calls `quote_requests` "Phase 1 scaffolding scoped to manufacturing_quote." Service line items are the intended authoritative model. All Horizon 2 themes (assembly workflows, manufacturing review, fulfillment tracking) depend on this table existing.
+
+**Where to start:** New migration `20260324000000_add_service_request_line_items.sql`. Types file `src/features/quotes/types.ts` needs `ServiceRequestLineItemRecord`. RPC `api_request_quote` needs to create or link a line item.
+
+**Effort:** M (human: ~3 days / CC: ~30 min) | **Priority:** P1
+
+**Depends on:** Phase 1 shipped (done).
+
+---
+
+## TODO-014: Multi-vendor fan-out in `api_request_quote` (Phase 2 core)
+
+**What:** Update `api_request_quote` to fan out across all enabled vendor adapters for the requesting organization, not just Xometry. Phase 1 hardcodes Xometry as the only vendor lane. Phase 2 should:
+- Look up the org's enabled vendors from a new `org_vendor_config` table or the existing `quote_request_guardrails` table
+- Create one `quote_runs` + `vendor_quote_results` row per enabled vendor
+- Update the worker to dispatch each vendor lane independently
+
+**Why:** Phase 1 restricted client-triggered requests to Xometry. Multi-vendor is the primary Phase 2 value: clients get competitive quotes from Fictiv, ProtoLabs, and other configured vendors without extra clicks.
+
+**Where to start:** `supabase/migrations/` — new migration to add vendor config table. `api_request_quote` RPC — replace hardcoded `['xometry']` vendor list with dynamic lookup. `worker/src/adapters/` — verify Fictiv/ProtoLabs adapters exist and are production-ready.
+
+**Effort:** L (human: ~2 weeks / CC: ~2 hours) | **Priority:** P1
+
+**Depends on:** TODO-013 (service_request_line_items schema).
+
+---
+
+## TODO-015: Worker `FOR UPDATE SKIP LOCKED` task claiming
+
+**What:** Replace the current `claimNextTask` SELECT+UPDATE pattern in `worker/src/queue.ts` with a Supabase RPC that uses `SELECT ... FOR UPDATE SKIP LOCKED` for atomic, race-free task claiming.
+
+**Why:** The current pattern does a SELECT then UPDATE with `.eq("status", "queued")` as an optimistic concurrency check. Two worker instances could both SELECT the same task simultaneously; the second UPDATE would get 0 rows and return null — silently losing the claim. This is safe for a single worker deployment but fragile for multi-worker.
+
+**When:** Before multi-worker deployment. Not needed for single-instance.
+
+**Where to start:** New `api_claim_next_task(p_worker_name text)` PL/pgSQL function using `FOR UPDATE SKIP LOCKED`. Replace `claimNextTask` call in `worker/src/index.ts`.
+
+**Effort:** S (human: ~3 hours / CC: ~10 min) | **Priority:** P2
+
+**Depends on:** Multi-worker deployment decision.
+
+---
+
 ## TODO-006: Extraction quality alert evaluation activation
 
 **What:** Groundwork is shipped locally for extraction-quality thresholding:

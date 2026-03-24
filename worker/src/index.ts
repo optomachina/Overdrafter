@@ -24,6 +24,7 @@ import {
   markTaskCompleted,
   markTaskFailed,
   markTaskQueuedForRetry,
+  reapStaleTasks,
 } from "./queue.js";
 import {
   createWorkerRuntimeState,
@@ -1388,6 +1389,10 @@ async function main() {
     await refreshRuntimeReadiness(config, runtimeState, logReadinessChange);
   }
 
+  // Reap stale tasks once at startup, then every 60 seconds.
+  let lastReapAt = 0;
+  const REAP_INTERVAL_MS = 60_000;
+
   while (!stopping) {
     runtimeState.lastLoopAt = new Date().toISOString();
     const ready = startupReadinessIssue
@@ -1397,6 +1402,29 @@ async function main() {
     if (!ready) {
       await sleep(config.pollIntervalMs);
       continue;
+    }
+
+    const now = Date.now();
+    if (now - lastReapAt >= REAP_INTERVAL_MS) {
+      lastReapAt = now;
+      try {
+        const reaped = await reapStaleTasks(supabase);
+        if (reaped > 0) {
+          logWorkerEvent(runtimeState, {
+            level: "warn",
+            source: "worker.reaper",
+            message: `Reaped ${reaped} stale task(s) stuck in running state.`,
+            context: { reaped },
+          });
+        }
+      } catch (reaperError) {
+        logWorkerEvent(runtimeState, {
+          level: "error",
+          source: "worker.reaper",
+          message: `Dead-task reaper failed: ${summarizeError(reaperError)}`,
+          error: reaperError,
+        });
+      }
     }
 
     const task = await claimNextTask(supabase, config.workerName);
