@@ -48,22 +48,13 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 ---
 
-## TODO-004: Optimistic disabled state for "Request Quote" button
+## ~~TODO-004: Optimistic disabled state for "Request Quote" button~~ ✅ DONE (dcd7f17, #104)
 
 **What:** Disable the "Request Quote" CTA immediately after first click and restore it only when the RPC resolves (success or error), preventing double-click during slow network conditions.
 
-**Why:** The DB idempotency check prevents duplicate active requests, but a second click during a slow RPC call creates a confusing UX (two in-flight requests, one ignored). The button should respond immediately to the click rather than waiting for RPC completion.
+**Resolution:** Already shipped in `dcd7f17` via controller-level duplicate-submit guards plus the existing pending-state button wiring. The part flow guards in `src/features/quotes/use-client-part-controller.ts` short-circuit repeat clicks while the mutation is pending, the project flow does the same in `src/features/quotes/use-client-project-controller.ts`, and the shared request CTA in `src/components/quotes/ClientWorkspacePanelContent.tsx` binds both `disabled` and `aria-disabled` to the busy/unavailable state.
 
-**Pros:** Prevents user confusion on slow networks. Standard pattern for async form submissions.
-**Cons:** Requires tracking in-flight state (a `useState<boolean>` or leveraging TanStack Mutation `isPending`). Zero schema changes.
-
-**Context:** Identified during CEO plan review (2026-03-23). The DB-level idempotency is correct but UX-level protection is a distinct concern. Using TanStack Mutation's `isPending` state is the idiomatic approach already in use for other actions in this codebase.
-
-**Where to start:** `ClientWorkspacePanelContent.tsx` or the quote request CTA component — bind `disabled` and `aria-disabled` to the mutation's `isPending` state.
-
-**Effort:** S (human: ~1 hour / CC: ~5 min) | **Priority:** P2
-
-**Depends on:** Quote request CTA shipped in this PR.
+**Verification evidence:** `npm test -- --run src/pages/ClientPart.test.tsx src/pages/ClientProject.test.tsx src/components/quotes/ClientWorkspacePanelContent.test.tsx` passes on the current repo state. The tests assert that the part request button blocks duplicate clicks while pending and re-enables after settlement, the project row and header request buttons disable during the same in-flight batch request, and the shared CTA exposes `aria-disabled` when unavailable.
 
 ---
 
