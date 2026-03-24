@@ -8,7 +8,7 @@ import type {
   JobRecord,
 } from "@/features/quotes/types";
 
-export type QuoteRequestActionKind = "request" | "retry" | "none";
+export type QuoteRequestActionKind = "request" | "retry" | "cancel" | "none";
 
 const GENERIC_QUOTE_REQUEST_FAILURE_REASON =
   "Quote collection did not return a usable Xometry response.";
@@ -175,9 +175,9 @@ export function buildQuoteRequestViewModel(input: {
         label: requestStatusLabel(status),
         detail: "Your quote request was accepted and is queued for the worker.",
         action: {
-          kind: "none",
-          label: "Queued",
-          disabled: true,
+          kind: "cancel",
+          label: "Cancel request",
+          disabled: false,
         },
         blockerReasons,
       };
@@ -188,9 +188,9 @@ export function buildQuoteRequestViewModel(input: {
         label: requestStatusLabel(status),
         detail: "Xometry quote collection is in progress for the current package.",
         action: {
-          kind: "none",
-          label: "Requesting",
-          disabled: true,
+          kind: "cancel",
+          label: "Cancel request",
+          disabled: false,
         },
         blockerReasons,
       };

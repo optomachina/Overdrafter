@@ -36,6 +36,16 @@ import { DrawingPreviewDialog } from "@/components/quotes/DrawingPreviewDialog";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import { ClientQuoteRequestStatusCard } from "@/components/quotes/ClientWorkspacePanelContent";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -172,6 +182,7 @@ const ClientPart = () => {
     extraction,
     handleArchivePart,
     handleArchiveProject,
+    handleCancelQuoteRequest,
     handleAssignPartToProject,
     handleCreateProjectFromSelection,
     handleDeleteArchivedParts,
@@ -196,6 +207,7 @@ const ClientPart = () => {
     isDrawingPreviewLoading,
     isPartDetailLoading,
     isPartArchiveBusy,
+    isCancelingQuoteRequest,
     isPartOptionsOpen,
     isRequestingQuote,
     isRenamingPart,
@@ -255,6 +267,7 @@ const ClientPart = () => {
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(selectedQuoteOption?.offerId ?? null);
   const [comments, setComments] = useState<LocalComment[]>([]);
   const [commentDraft, setCommentDraft] = useState("");
+  const [showCancelRequestDialog, setShowCancelRequestDialog] = useState(false);
   const [isDueDateDialogOpen, setIsDueDateDialogOpen] = useState(false);
   const [dueDateDraft, setDueDateDraft] = useState(requestSummaryRequestedByDate ?? "");
   const [isSubscribed, setIsSubscribed] = useState(true);
@@ -336,6 +349,11 @@ const ClientPart = () => {
       return;
     }
 
+    if (quoteRequestViewModel.action.kind === "cancel") {
+      setShowCancelRequestDialog(true);
+      return;
+    }
+
     void handleRequestQuote(quoteRequestViewModel.action.kind === "retry");
   };
 
@@ -407,6 +425,34 @@ const ClientPart = () => {
 
   return (
     <>
+      <AlertDialog open={showCancelRequestDialog} onOpenChange={setShowCancelRequestDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel quote request?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This stops the current Xometry request for this package. You can request a new quote again after canceling.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep request</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const requestId = partDetail?.latestQuoteRequest?.id;
+
+                if (!requestId) {
+                  return;
+                }
+
+                void handleCancelQuoteRequest(requestId);
+              }}
+              disabled={isCancelingQuoteRequest}
+            >
+              {isCancelingQuoteRequest ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Cancel request
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <ClientWorkspaceShell
         onLogoClick={() => navigate("/")}
         sidebarRailActions={[
@@ -786,9 +832,9 @@ const ClientPart = () => {
                             label={quoteRequestViewModel.label}
                             detail={quoteRequestViewModel.detail}
                             actionLabel={quoteRequestViewModel.action.label}
-                            actionDisabled={quoteRequestViewModel.action.disabled}
+                            actionDisabled={quoteRequestViewModel.action.disabled || isCancelingQuoteRequest}
                             blockerReasons={quoteRequestViewModel.blockerReasons}
-                            isBusy={isRequestingQuote}
+                            isBusy={isRequestingQuote || isCancelingQuoteRequest}
                             onAction={quoteRequestViewModel.action.kind === "none" ? null : handleQuoteRequestAction}
                           />
                         ) : null}

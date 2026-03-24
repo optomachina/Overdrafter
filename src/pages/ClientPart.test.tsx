@@ -32,6 +32,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
     pinProject: vi.fn(),
     reconcileJobParts: vi.fn(),
     removeJobFromProject: vi.fn(),
+    cancelQuoteRequest: vi.fn(),
     requestQuote: vi.fn(),
     requestExtraction: vi.fn(),
     setJobSelectedVendorQuoteOffer: vi.fn(),
@@ -88,6 +89,7 @@ vi.mock("@/features/quotes/api/projects-api", () => ({
   updateProject: api.updateProject,
 }));
 vi.mock("@/features/quotes/api/quote-requests-api", () => ({
+  cancelQuoteRequest: api.cancelQuoteRequest,
   requestQuote: api.requestQuote,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
 }));
@@ -566,6 +568,16 @@ describe("ClientPart", () => {
       reason: null,
       requestedVendors: ["xometry"],
     });
+    api.cancelQuoteRequest.mockResolvedValue({
+      jobId: "job-1",
+      accepted: true,
+      canceled: true,
+      quoteRequestId: "request-1",
+      quoteRunId: "run-1",
+      status: "canceled",
+      reasonCode: "canceled",
+      reason: "Quote request canceled.",
+    });
   });
 
   afterEach(() => {
@@ -895,6 +907,57 @@ describe("ClientPart", () => {
 
     await waitFor(() => {
       expect(button).toBeEnabled();
+    });
+  });
+
+  it("confirms and cancels an in-flight quote request from the status card", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValue(
+      createPartDetail({
+        job: {
+          ...createPartDetail().job,
+          status: "quoting",
+          requested_service_kinds: ["manufacturing_quote"],
+          primary_service_kind: "manufacturing_quote",
+          service_notes: null,
+          selected_vendor_quote_offer_id: null,
+        },
+        latestQuoteRequest: {
+          id: "request-1",
+          organization_id: "org-1",
+          job_id: "job-1",
+          requested_by: "user-1",
+          requested_vendors: ["xometry"],
+          status: "queued",
+          failure_reason: null,
+          received_at: null,
+          failed_at: null,
+          canceled_at: null,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+        },
+        latestQuoteRun: {
+          id: "run-1",
+          quote_request_id: "request-1",
+          job_id: "job-1",
+          organization_id: "org-1",
+          initiated_by: "user-1",
+          status: "running",
+          requested_auto_publish: false,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+        },
+      }),
+    );
+
+    renderWithClient("/parts/job-1");
+
+    fireEvent.click(await screen.findAllByRole("button", { name: "Cancel request" }).then((buttons) => buttons[0]!));
+    expect(await screen.findByText("Cancel quote request?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel request" })[0]!);
+
+    await waitFor(() => {
+      expect(api.cancelQuoteRequest).toHaveBeenCalledWith("request-1");
     });
   });
 

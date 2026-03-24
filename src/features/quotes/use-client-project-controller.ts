@@ -32,7 +32,11 @@ import {
   updateProject,
 } from "@/features/quotes/api/projects-api";
 import { reconcileJobParts, requestExtraction } from "@/features/quotes/api/extraction-api";
-import { requestQuotes, setJobSelectedVendorQuoteOffer } from "@/features/quotes/api/quote-requests-api";
+import {
+  cancelQuoteRequest,
+  requestQuotes,
+  setJobSelectedVendorQuoteOffer,
+} from "@/features/quotes/api/quote-requests-api";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import { createJobsFromUploadFiles, uploadFilesToJob } from "@/features/quotes/api/uploads-api";
 import {
@@ -162,6 +166,7 @@ export function useClientProjectController() {
   const [requestDraftsByJobId, setRequestDraftsByJobId] = useState<Record<string, ClientPartRequestUpdateInput>>({});
   const [quoteQuantityInputsByJobId, setQuoteQuantityInputsByJobId] = useState<Record<string, string>>({});
   const isRequestProjectQuotesLockedRef = useRef(false);
+  const isCancelQuoteRequestLockedRef = useRef(false);
   const isMobile = useIsMobile();
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
@@ -582,6 +587,26 @@ export function useClientProjectController() {
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to request project quotes.");
+    },
+  });
+
+  const cancelQuoteRequestMutation = useMutation({
+    mutationFn: (requestId: string) => cancelQuoteRequest(requestId),
+    onSuccess: async (result) => {
+      await invalidateClientWorkspaceQueries(queryClient, {
+        projectId,
+        clientQuoteWorkspaceJobIds: projectJobIds,
+      });
+
+      if (!result.accepted) {
+        toast.error(result.reason || "Quote request could not be canceled.");
+        return;
+      }
+
+      toast.success("Quote request canceled.");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to cancel quote request.");
     },
   });
 
@@ -1227,6 +1252,22 @@ export function useClientProjectController() {
     }
   };
 
+  const handleCancelQuoteRequest = async (requestId: string) => {
+    if (isCancelQuoteRequestLockedRef.current || cancelQuoteRequestMutation.isPending) {
+      return;
+    }
+
+    isCancelQuoteRequestLockedRef.current = true;
+
+    try {
+      await cancelQuoteRequestMutation.mutateAsync(requestId);
+    } catch {
+      return;
+    } finally {
+      isCancelQuoteRequestLockedRef.current = false;
+    }
+  };
+
   return {
     accessibleJobsQuery,
     activeFilter,
@@ -1256,6 +1297,7 @@ export function useClientProjectController() {
     handleArchivePart,
     handleArchiveProject,
     handleAssignPartToProject,
+    handleCancelQuoteRequest,
     handleBulkPreset,
     handleCreateProjectFromSelection,
     handleDeleteArchivedParts,
@@ -1278,6 +1320,7 @@ export function useClientProjectController() {
     handleUnpinPart,
     handleUnpinProject,
     isMobile,
+    isCancelingQuoteRequest: cancelQuoteRequestMutation.isPending,
     isSearchOpen,
     lastBulkAction,
     mobileDrawerOpen,
@@ -1306,6 +1349,7 @@ export function useClientProjectController() {
     optionsByJobId,
     selectedOptionsByJobId,
     requestProjectQuotesMutation,
+    cancelQuoteRequestMutation,
     setActiveFilter,
     setIsSearchOpen,
     setMobileDrawerOpen,

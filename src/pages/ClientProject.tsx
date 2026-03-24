@@ -23,6 +23,16 @@ import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import {
   ClientQuoteRequestStatusCard,
 } from "@/components/quotes/ClientWorkspacePanelContent";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -117,6 +127,7 @@ const ClientProject = () => {
     handleArchivePart,
     handleArchiveProject,
     handleAssignPartToProject,
+    handleCancelQuoteRequest,
     handleCreateProjectFromSelection,
     handleDeleteArchivedParts,
     handleDissolveProject,
@@ -135,6 +146,7 @@ const ClientProject = () => {
     handleUnarchivePart,
     handleUnpinPart,
     handleUnpinProject,
+    isCancelingQuoteRequest,
     isMobile,
     mobileDrawerOpen,
     navigate,
@@ -185,6 +197,7 @@ const ClientProject = () => {
     workspaceItemsByJobId,
   } = useClientProjectController();
   const [desktopInspectorOpen, setDesktopInspectorOpen] = useState(true);
+  const [showCancelRequestDialog, setShowCancelRequestDialog] = useState(false);
   const notificationCenter = useWorkspaceNotifications({
     jobIds: (accessibleJobsQuery.data ?? []).map((job) => job.id),
     role: activeMembership?.role,
@@ -420,13 +433,18 @@ const ClientProject = () => {
             label={focusedQuoteRequestViewModel.label}
             detail={focusedQuoteRequestViewModel.detail}
             actionLabel={focusedQuoteRequestViewModel.action.label}
-            actionDisabled={focusedQuoteRequestViewModel.action.disabled}
+            actionDisabled={focusedQuoteRequestViewModel.action.disabled || isCancelingQuoteRequest}
             blockerReasons={focusedQuoteRequestViewModel.blockerReasons}
-            isBusy={requestProjectQuotesMutation.isPending}
+            isBusy={requestProjectQuotesMutation.isPending || isCancelingQuoteRequest}
             onAction={
               focusedQuoteRequestViewModel.action.kind === "none"
                 ? null
                 : () => {
+                    if (focusedQuoteRequestViewModel.action.kind === "cancel") {
+                      setShowCancelRequestDialog(true);
+                      return;
+                    }
+
                     void handleRequestProjectQuotes(
                       [focusedJob.id],
                       focusedQuoteRequestViewModel.action.kind === "retry",
@@ -563,6 +581,34 @@ const ClientProject = () => {
 
   return (
     <>
+      <AlertDialog open={showCancelRequestDialog} onOpenChange={setShowCancelRequestDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel quote request?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This stops the current Xometry request for this package. You can request a new quote again after canceling.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep request</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const requestId = focusedWorkspaceItem?.latestQuoteRequest?.id;
+
+                if (!requestId) {
+                  return;
+                }
+
+                void handleCancelQuoteRequest(requestId);
+              }}
+              disabled={isCancelingQuoteRequest}
+            >
+              {isCancelingQuoteRequest ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Cancel request
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <ClientWorkspaceShell
         onLogoClick={() => navigate("/")}
         sidebarRailActions={[

@@ -20,6 +20,7 @@ import {
 import {
   claimNextTask,
   createServiceClient,
+  markTaskCancelled,
   markTaskCompleted,
   markTaskFailed,
   markTaskQueuedForRetry,
@@ -943,6 +944,16 @@ async function handleVendorQuoteTask(
     throw new Error("run_vendor_quote task is missing vendor in payload.");
   }
 
+  const requestStatusAtStart = await fetchQuoteRequestStatusForTask(supabase, task);
+
+  if (requestStatusAtStart === "canceled") {
+    await markTaskCancelled(supabase, task.id, "Canceled before vendor automation started.", {
+      ...task.payload,
+      ignoredDueToCanceledRequest: true,
+    });
+    return;
+  }
+
   const context = await fetchPartContext(supabase, task.part_id);
 
   if (!context.requirement) {
@@ -1074,6 +1085,18 @@ async function handleVendorQuoteTask(
       throw error;
     }
 
+    const requestStatusAfterResult = await fetchQuoteRequestStatusForTask(supabase, task);
+
+    if (requestStatusAfterResult === "canceled") {
+      await markTaskCancelled(supabase, task.id, "Canceled while vendor automation was in flight.", {
+        ...task.payload,
+        vendorStatus: result.status,
+        artifactCount: artifactStoragePaths.length,
+        ignoredDueToCanceledRequest: true,
+      });
+      return;
+    }
+
     await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
     await markTaskCompleted(supabase, task.id, {
       ...task.payload,
@@ -1134,6 +1157,52 @@ async function handleVendorQuoteTask(
   } finally {
     await cleanupPaths([stageDir, ...artifactDirs]);
   }
+}
+
+async function fetchQuoteRequestStatusForTask(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+): Promise<"queued" | "requesting" | "received" | "failed" | "canceled" | null> {
+  const requestId =
+    typeof task.payload.quoteRequestId === "string" ? task.payload.quoteRequestId : null;
+
+  if (requestId) {
+    const { data, error } = await supabase
+      .from("quote_requests")
+      .select("status")
+      .eq("id", requestId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return (data?.status as "queued" | "requesting" | "received" | "failed" | "canceled" | null) ?? null;
+  }
+
+  if (!task.quote_run_id) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("quote_runs")
+    .select("quote_request_id, quote_requests(status)")
+    .eq("id", task.quote_run_id)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  const quoteRequest = data && typeof data === "object" && "quote_requests" in data
+    ? (data.quote_requests as { status?: string } | { status?: string }[] | null)
+    : null;
+
+  if (!quoteRequest || Array.isArray(quoteRequest)) {
+    return null;
+  }
+
+  return (quoteRequest.status as "queued" | "requesting" | "received" | "failed" | "canceled" | null) ?? null;
 }
 
 function requestedQuantityFallback(task: QueueTaskRecord) {

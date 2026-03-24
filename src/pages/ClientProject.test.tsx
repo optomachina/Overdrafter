@@ -39,6 +39,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
     reconcileJobParts: vi.fn(),
     removeJobFromProject: vi.fn(),
     removeProjectMember: vi.fn(),
+    cancelQuoteRequest: vi.fn(),
     requestExtraction: vi.fn(),
     requestQuotes: vi.fn(),
     setJobSelectedVendorQuoteOffer: vi.fn(),
@@ -93,6 +94,7 @@ vi.mock("@/features/quotes/api/projects-api", () => ({
   updateProject: api.updateProject,
 }));
 vi.mock("@/features/quotes/api/quote-requests-api", () => ({
+  cancelQuoteRequest: api.cancelQuoteRequest,
   requestQuotes: api.requestQuotes,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
 }));
@@ -459,6 +461,16 @@ describe("ClientProject", () => {
         requestedVendors: ["xometry"],
       },
     ]);
+    api.cancelQuoteRequest.mockResolvedValue({
+      jobId: "job-1",
+      accepted: true,
+      canceled: true,
+      quoteRequestId: "request-1",
+      quoteRunId: "run-1",
+      status: "canceled",
+      reasonCode: "canceled",
+      reason: "Quote request canceled.",
+    });
   });
 
   it("renders the ledger with a default inspector and supports selection shortcuts", async () => {
@@ -568,6 +580,165 @@ describe("ClientProject", () => {
     await waitFor(() => {
       expect(rowButton).toBeEnabled();
       expect(headerButton).toBeEnabled();
+    });
+  });
+
+  it("confirms and cancels an in-flight request from the inspector status card", async () => {
+    api.fetchJobsByProject.mockResolvedValue([
+      {
+        id: "job-1",
+        organization_id: "org-1",
+        project_id: "project-1",
+        created_by: "user-1",
+        title: "Bracket",
+        description: null,
+        status: "quoting",
+        source: "client_home",
+        active_pricing_policy_id: null,
+        tags: [],
+        requested_service_kinds: ["manufacturing_quote"],
+        primary_service_kind: "manufacturing_quote",
+        service_notes: null,
+        requested_quote_quantities: [10],
+        requested_by_date: "2026-04-15",
+        archived_at: null,
+        created_at: "2026-03-01T00:00:00Z",
+        updated_at: "2026-03-01T00:00:00Z",
+        selected_vendor_quote_offer_id: null,
+      },
+    ]);
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([
+      {
+        job: {
+          id: "job-1",
+          organization_id: "org-1",
+          project_id: "project-1",
+          created_by: "user-1",
+          title: "Bracket",
+          description: null,
+          status: "quoting",
+          source: "client_home",
+          active_pricing_policy_id: null,
+          tags: [],
+          requested_service_kinds: ["manufacturing_quote"],
+          primary_service_kind: "manufacturing_quote",
+          service_notes: null,
+          requested_by_date: "2026-04-15",
+          requested_quote_quantities: [10],
+          archived_at: null,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+          selected_vendor_quote_offer_id: null,
+        },
+        part: {
+          id: "part-1",
+          job_id: "job-1",
+          organization_id: "org-1",
+          name: "Bracket",
+          normalized_key: "bracket",
+          cad_file_id: "cad-1",
+          drawing_file_id: null,
+          quantity: 10,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+          cadFile: {
+            id: "cad-1",
+            job_id: "job-1",
+            organization_id: "org-1",
+            file_kind: "cad",
+            blob_id: "blob-1",
+            storage_bucket: "job-files",
+            storage_path: "cad.step",
+            normalized_name: "cad.step",
+            original_name: "cad.step",
+            size_bytes: 123,
+            mime_type: "application/step",
+            content_sha256: "hash",
+            matched_part_key: null,
+            uploaded_by: "user-1",
+            created_at: "2026-03-01T00:00:00Z",
+          },
+          drawingFile: null,
+          extraction: null,
+          approvedRequirement: {
+            id: "requirement-1",
+            part_id: "part-1",
+            organization_id: "org-1",
+            approved_by: "user-1",
+            description: "Bracket",
+            part_number: "BRKT-001",
+            revision: "A",
+            material: "6061-T6",
+            finish: null,
+            tightest_tolerance_inch: null,
+            quantity: 10,
+            quote_quantities: [10],
+            requested_by_date: "2026-04-15",
+            applicable_vendors: ["xometry"],
+            spec_snapshot: {},
+            approved_at: "2026-03-01T00:00:00Z",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+          vendorQuotes: [],
+        },
+        summary: {
+          jobId: "job-1",
+          partNumber: "BRKT-001",
+          revision: "A",
+          description: "Bracket",
+          quantity: 10,
+          importedBatch: null,
+          requestedServiceKinds: ["manufacturing_quote"],
+          primaryServiceKind: "manufacturing_quote",
+          serviceNotes: null,
+          requestedQuoteQuantities: [10],
+          requestedByDate: "2026-04-15",
+          selectedSupplier: null,
+          selectedPriceUsd: null,
+          selectedLeadTimeBusinessDays: null,
+        },
+        files: [],
+        projectIds: ["project-1"],
+        drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+        latestQuoteRequest: {
+          id: "request-1",
+          organization_id: "org-1",
+          job_id: "job-1",
+          requested_by: "user-1",
+          requested_vendors: ["xometry"],
+          status: "queued",
+          failure_reason: null,
+          received_at: null,
+          failed_at: null,
+          canceled_at: null,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+        },
+        latestQuoteRun: {
+          id: "run-1",
+          quote_request_id: "request-1",
+          job_id: "job-1",
+          organization_id: "org-1",
+          initiated_by: "user-1",
+          status: "running",
+          requested_auto_publish: false,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+        },
+      },
+    ]);
+
+    renderWithClient("/projects/project-1");
+
+    fireEvent.click(await screen.findByRole("button", { name: /open .* line item/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel request" }));
+    expect(await screen.findByText("Cancel quote request?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel request" })[0]!);
+
+    await waitFor(() => {
+      expect(api.cancelQuoteRequest).toHaveBeenCalledWith("request-1");
     });
   });
 
