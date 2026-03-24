@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -131,6 +131,7 @@ export function useClientPartController() {
   const [isRenamingPart, setIsRenamingPart] = useState(false);
   const [isPartPinBusy, setIsPartPinBusy] = useState(false);
   const [isPartArchiveBusy, setIsPartArchiveBusy] = useState(false);
+  const isRequestQuoteLockedRef = useRef(false);
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const {
@@ -1049,7 +1050,19 @@ export function useClientPartController() {
   };
 
   const handleRequestQuote = async (forceRetry = false) => {
-    await requestQuoteMutation.mutateAsync({ forceRetry });
+    if (isRequestQuoteLockedRef.current || requestQuoteMutation.isPending) {
+      return;
+    }
+
+    isRequestQuoteLockedRef.current = true;
+
+    try {
+      await requestQuoteMutation.mutateAsync({ forceRetry });
+    } catch {
+      return;
+    } finally {
+      isRequestQuoteLockedRef.current = false;
+    }
   };
 
   const handleDownloadFile = async (file: {
