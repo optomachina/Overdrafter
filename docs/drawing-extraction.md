@@ -107,7 +107,7 @@ The same coverage should assert that:
 
 Basic usage:
 
-```
+```bash
 npm --prefix worker run extract:eval -- /path/to/drawing.pdf
 ```
 

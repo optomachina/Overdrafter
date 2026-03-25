@@ -35,5 +35,5 @@ export function estimateCost(
   const costUsd =
     (inputTokens / 1_000_000) * entry.inputPer1MTokens +
     (outputTokens / 1_000_000) * entry.outputPer1MTokens;
-  return { costUsd, isApproximate: false, notes: entry.notes };
+  return { costUsd, isApproximate: true, notes: entry.notes };
 }

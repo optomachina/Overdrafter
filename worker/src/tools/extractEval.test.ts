@@ -89,7 +89,7 @@ describe("estimateCost", () => {
     expect(result).not.toBeNull();
     // 1000/1M * 2.00 + 500/1M * 8.00 = 0.002 + 0.004 = 0.006
     expect(result!.costUsd).toBeCloseTo(0.006, 10);
-    expect(result!.isApproximate).toBe(false);
+    expect(result!.isApproximate).toBe(true); // static table is inherently approximate
   });
 
   it('calculates cost for known model "claude-sonnet-4-6"', () => {

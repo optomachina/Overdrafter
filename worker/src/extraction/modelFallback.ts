@@ -209,6 +209,13 @@ function isModelAttemptSufficient(parsed: ParsedModelResponse) {
   });
 }
 
+/**
+ * Serializes drawing signal fields and top candidates into a deterministic
+ * text block for inclusion in model prompts as deterministic parser context.
+ *
+ * @param drawingSignals - Extracted drawing signals from the PDF parser.
+ * @returns Newline-joined string summarizing selected field values and debug candidates.
+ */
 export function serializeParserContext(drawingSignals: ExtractedDrawingSignals) {
   const lines = CRITICAL_MODEL_FIELDS.map((fieldName) => {
     const selected = drawingSignals[fieldName];
@@ -228,6 +235,12 @@ export function serializeParserContext(drawingSignals: ExtractedDrawingSignals) 
   return lines.join("\n");
 }
 
+/**
+ * Reads an image file from disk and returns a base64-encoded PNG data URL.
+ *
+ * @param localPath - Absolute path to the PNG image file.
+ * @returns A data URL string of the form `data:image/png;base64,...`.
+ */
 export async function imageFileToDataUrl(localPath: string) {
   const buffer = await fs.readFile(localPath);
   return `data:image/png;base64,${buffer.toString("base64")}`;

@@ -227,8 +227,7 @@ function formatCost(output: EvalModelOutput): string {
     const est = estimateCost(output.modelName, output.inputTokens, output.outputTokens);
     if (est) {
       costUsd = est.costUsd;
-      approx = est.isApproximate || !Object.keys({}).length; // always prefix ~ from static table
-      approx = true; // static table always gets ~
+      approx = true; // static table is inherently approximate
     }
   }
 
@@ -589,7 +588,7 @@ export async function main(): Promise<void> {
     let runDir: string;
 
     try {
-      runDir = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-drawing-smoke-"));
+      runDir = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-drawing-eval-"));
     } catch (err) {
       console.error(`Error creating tmp dir: ${err instanceof Error ? err.message : String(err)}`);
       continue;

@@ -89,6 +89,18 @@ export function inferProvider(
   return "openai";
 }
 
+/** Shared JSON schema for a single extraction field (value + confidence + fieldSource + reasons). */
+const FIELD_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    value:       { type: ["string", "null"] },
+    confidence:  { type: "number" },
+    fieldSource: { type: "string", enum: ["title_block", "note", "unknown"] },
+    reasons:     { type: "array", items: { type: "string" } },
+  },
+  required: ["value", "confidence", "fieldSource", "reasons"],
+} as const;
+
 export interface EvalProvider {
   run(input: EvalModelInput, modelId: string): Promise<EvalRunOutput>;
 }
@@ -168,12 +180,12 @@ export class AnthropicEvalProvider implements EvalProvider {
             input_schema: {
               type: "object" as const,
               properties: {
-                partNumber: { type: "object", properties: { value: { type: ["string", "null"] }, confidence: { type: "number" }, fieldSource: { type: "string", enum: ["title_block", "note", "unknown"] }, reasons: { type: "array", items: { type: "string" } } }, required: ["value", "confidence", "fieldSource", "reasons"] },
-                revision:   { type: "object", properties: { value: { type: ["string", "null"] }, confidence: { type: "number" }, fieldSource: { type: "string", enum: ["title_block", "note", "unknown"] }, reasons: { type: "array", items: { type: "string" } } }, required: ["value", "confidence", "fieldSource", "reasons"] },
-                description:{ type: "object", properties: { value: { type: ["string", "null"] }, confidence: { type: "number" }, fieldSource: { type: "string", enum: ["title_block", "note", "unknown"] }, reasons: { type: "array", items: { type: "string" } } }, required: ["value", "confidence", "fieldSource", "reasons"] },
-                material:   { type: "object", properties: { value: { type: ["string", "null"] }, confidence: { type: "number" }, fieldSource: { type: "string", enum: ["title_block", "note", "unknown"] }, reasons: { type: "array", items: { type: "string" } } }, required: ["value", "confidence", "fieldSource", "reasons"] },
-                finish:     { type: "object", properties: { value: { type: ["string", "null"] }, confidence: { type: "number" }, fieldSource: { type: "string", enum: ["title_block", "note", "unknown"] }, reasons: { type: "array", items: { type: "string" } } }, required: ["value", "confidence", "fieldSource", "reasons"] },
-                process:    { type: "object", properties: { value: { type: ["string", "null"] }, confidence: { type: "number" }, fieldSource: { type: "string", enum: ["title_block", "note", "unknown"] }, reasons: { type: "array", items: { type: "string" } } }, required: ["value", "confidence", "fieldSource", "reasons"] },
+                partNumber:  FIELD_JSON_SCHEMA,
+                revision:    FIELD_JSON_SCHEMA,
+                description: FIELD_JSON_SCHEMA,
+                material:    FIELD_JSON_SCHEMA,
+                finish:      FIELD_JSON_SCHEMA,
+                process:     FIELD_JSON_SCHEMA,
                 titleBlockSufficient: { type: "boolean" },
               },
               required: ["partNumber", "revision", "description", "material", "finish", "process", "titleBlockSufficient"],
@@ -239,12 +251,12 @@ export class OpenRouterEvalProvider implements EvalProvider {
             schema: {
               type: "object",
               properties: {
-                partNumber: { type: "object", properties: { value: { type: ["string", "null"] }, confidence: { type: "number" }, fieldSource: { type: "string" }, reasons: { type: "array", items: { type: "string" } } }, required: ["value", "confidence", "fieldSource", "reasons"] },
-                revision:   { type: "object", properties: { value: { type: ["string", "null"] }, confidence: { type: "number" }, fieldSource: { type: "string" }, reasons: { type: "array", items: { type: "string" } } }, required: ["value", "confidence", "fieldSource", "reasons"] },
-                description:{ type: "object", properties: { value: { type: ["string", "null"] }, confidence: { type: "number" }, fieldSource: { type: "string" }, reasons: { type: "array", items: { type: "string" } } }, required: ["value", "confidence", "fieldSource", "reasons"] },
-                material:   { type: "object", properties: { value: { type: ["string", "null"] }, confidence: { type: "number" }, fieldSource: { type: "string" }, reasons: { type: "array", items: { type: "string" } } }, required: ["value", "confidence", "fieldSource", "reasons"] },
-                finish:     { type: "object", properties: { value: { type: ["string", "null"] }, confidence: { type: "number" }, fieldSource: { type: "string" }, reasons: { type: "array", items: { type: "string" } } }, required: ["value", "confidence", "fieldSource", "reasons"] },
-                process:    { type: "object", properties: { value: { type: ["string", "null"] }, confidence: { type: "number" }, fieldSource: { type: "string" }, reasons: { type: "array", items: { type: "string" } } }, required: ["value", "confidence", "fieldSource", "reasons"] },
+                partNumber:  FIELD_JSON_SCHEMA,
+                revision:    FIELD_JSON_SCHEMA,
+                description: FIELD_JSON_SCHEMA,
+                material:    FIELD_JSON_SCHEMA,
+                finish:      FIELD_JSON_SCHEMA,
+                process:     FIELD_JSON_SCHEMA,
                 titleBlockSufficient: { type: "boolean" },
               },
               required: ["partNumber", "revision", "description", "material", "finish", "process", "titleBlockSufficient"],
