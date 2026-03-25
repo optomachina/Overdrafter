@@ -304,7 +304,7 @@ vi.mock("@/components/workspace/QuoteChart", () => ({
 
 vi.mock("@/components/workspace/QuoteList", () => ({
   QuoteList: ({ quotes }: { quotes?: Array<{ vendorLabel?: string; tier?: string | null }> }) => (
-    <div>
+    <div data-testid="quote-list">
       Quote list
       {quotes?.map((quote) => (
         <div key={`${quote.vendorLabel}-${quote.tier}`}>{[quote.vendorLabel, quote.tier].filter(Boolean).join(" · ")}</div>
@@ -321,7 +321,7 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
     statusContent?: ReactNode;
     onSave?: () => void;
   }) => (
-    <div>
+    <div data-testid="part-info-panel">
       <div>Part information</div>
       {statusContent}
       <button type="button" onClick={() => onSave?.()}>
@@ -332,7 +332,7 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
 }));
 
 vi.mock("@/components/workspace/CadPanel", () => ({
-  CadPanel: () => <div>CAD panel</div>,
+  CadPanel: () => <div data-testid="cad-panel">CAD panel</div>,
 }));
 
 vi.mock("@/components/workspace/PdfPanel", () => ({
@@ -598,6 +598,17 @@ describe("ClientPart", () => {
     expect(screen.getByRole("button", { name: /prev rev/i })).toBeInTheDocument();
     expect(screen.queryByText("This part could not be loaded.")).not.toBeInTheDocument();
     expect(api.fetchPartDetailByJobId).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders part information inline after the quote section", async () => {
+    renderWithClient("/parts/job-1");
+
+    const quoteList = await screen.findByTestId("quote-list");
+    const partInfoPanel = await screen.findByTestId("part-info-panel");
+    const cadPanel = await screen.findByTestId("cad-panel");
+
+    expect(quoteList.compareDocumentPosition(partInfoPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(partInfoPanel.compareDocumentPosition(cadPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("renders real vendor quote options instead of the empty comparison state", async () => {

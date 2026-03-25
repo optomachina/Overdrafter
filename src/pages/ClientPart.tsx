@@ -787,73 +787,68 @@ const ClientPart = () => {
 
               {workspaceState ? <ClientWorkspaceStateSummary state={workspaceState} /> : null}
 
-              <div className="grid items-start gap-4 xl:grid-cols-[2fr_1fr]">
-                <div className="flex flex-col gap-4">
-                  <QuoteStatBar quotes={rankedQuoteOptions} />
-                  <QuoteChart
-                    quotes={rankedQuoteOptions}
-                    selectedOfferId={selectedOfferId}
-                    onSelect={handleWorkspaceOfferSelect}
-                  />
-                  <QuoteList
-                    quotes={rankedQuoteOptions}
-                    selectedOfferId={selectedOfferId}
-                    onSelect={handleWorkspaceOfferSelect}
-                    requestedByDate={requestSummaryRequestedByDate}
-                    quoteDataStatus={quoteDataStatus}
-                    quoteDataMessage={quoteDataMessage}
-                    quoteDiagnostics={quoteDiagnostics}
-                    activePreset={activePreset}
-                    onPresetSelect={handlePresetSelection}
-                    onToggleVendorExclusion={handleToggleVendorExclusion}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-6">
-                  <PartInfoPanel
-                    part={partDetail.part}
-                    summary={summary}
-                    extraction={extraction}
-                    effectiveRequestDraft={effectiveRequestDraft}
-                    quoteQuantityInput={quoteQuantityInput}
-                    onQuoteQuantityInputChange={setQuoteQuantityInput}
-                    onDraftChange={handleDraftChange}
-                    onSave={handleSaveRequest}
-                    onUploadRevision={attachFilesPicker.openFilePicker}
-                    isSaving={saveRequestMutation.isPending}
-                    drawingFileName={drawingFile?.original_name ?? null}
-                    statusContent={
-                      <>
-                        <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
-                        {quoteRequestViewModel ? (
-                          <ClientQuoteRequestStatusCard
-                            status={quoteRequestViewModel.status}
-                            tone={quoteRequestViewModel.tone}
-                            label={quoteRequestViewModel.label}
-                            detail={quoteRequestViewModel.detail}
-                            actionLabel={quoteRequestViewModel.action.label}
-                            actionDisabled={quoteRequestViewModel.action.disabled || isCancelingQuoteRequest}
-                            blockerReasons={quoteRequestViewModel.blockerReasons}
-                            isBusy={isRequestingQuote || isCancelingQuoteRequest}
-                            onAction={quoteRequestViewModel.action.kind === "none" ? null : handleQuoteRequestAction}
-                          />
-                        ) : null}
-                      </>
-                    }
-                  />
-                  <CadPanel cadFile={cadFile} />
-                  <PdfPanel
-                    drawingFile={drawingFile}
-                    drawingPreview={drawingPreview}
-                    drawingPdfUrl={drawingPdfUrl}
-                    drawingPreviewPageUrls={drawingPreviewPageUrls}
-                    drawingViewerMode={drawingViewerMode}
-                    drawingPreviewState={drawingPreviewState}
-                    drawingPreviewStatusMessage={drawingPreviewStatusMessage}
-                    isLoading={isDrawingPreviewLoading}
-                    onOpenDialog={drawingFile ? () => setShowDrawingPreview(true) : undefined}
-                  />
-                </div>
+              <div className="flex flex-col gap-4">
+                <QuoteStatBar quotes={rankedQuoteOptions} />
+                <QuoteChart
+                  quotes={rankedQuoteOptions}
+                  selectedOfferId={selectedOfferId}
+                  onSelect={handleWorkspaceOfferSelect}
+                />
+                <QuoteList
+                  quotes={rankedQuoteOptions}
+                  selectedOfferId={selectedOfferId}
+                  onSelect={handleWorkspaceOfferSelect}
+                  requestedByDate={requestSummaryRequestedByDate}
+                  quoteDataStatus={quoteDataStatus}
+                  quoteDataMessage={quoteDataMessage}
+                  quoteDiagnostics={quoteDiagnostics}
+                  activePreset={activePreset}
+                  onPresetSelect={handlePresetSelection}
+                  onToggleVendorExclusion={handleToggleVendorExclusion}
+                />
+                <PartInfoPanel
+                  part={partDetail.part}
+                  summary={summary}
+                  extraction={extraction}
+                  effectiveRequestDraft={effectiveRequestDraft}
+                  quoteQuantityInput={quoteQuantityInput}
+                  onQuoteQuantityInputChange={setQuoteQuantityInput}
+                  onDraftChange={handleDraftChange}
+                  onSave={handleSaveRequest}
+                  onUploadRevision={attachFilesPicker.openFilePicker}
+                  isSaving={saveRequestMutation.isPending}
+                  drawingFileName={drawingFile?.original_name ?? null}
+                  statusContent={
+                    <>
+                      <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
+                      {quoteRequestViewModel ? (
+                        <ClientQuoteRequestStatusCard
+                          status={quoteRequestViewModel.status}
+                          tone={quoteRequestViewModel.tone}
+                          label={quoteRequestViewModel.label}
+                          detail={quoteRequestViewModel.detail}
+                          actionLabel={quoteRequestViewModel.action.label}
+                          actionDisabled={quoteRequestViewModel.action.disabled || isCancelingQuoteRequest}
+                          blockerReasons={quoteRequestViewModel.blockerReasons}
+                          isBusy={isRequestingQuote || isCancelingQuoteRequest}
+                          onAction={quoteRequestViewModel.action.kind === "none" ? null : handleQuoteRequestAction}
+                        />
+                      ) : null}
+                    </>
+                  }
+                />
+                <CadPanel cadFile={cadFile} />
+                <PdfPanel
+                  drawingFile={drawingFile}
+                  drawingPreview={drawingPreview}
+                  drawingPdfUrl={drawingPdfUrl}
+                  drawingPreviewPageUrls={drawingPreviewPageUrls}
+                  drawingViewerMode={drawingViewerMode}
+                  drawingPreviewState={drawingPreviewState}
+                  drawingPreviewStatusMessage={drawingPreviewStatusMessage}
+                  isLoading={isDrawingPreviewLoading}
+                  onOpenDialog={drawingFile ? () => setShowDrawingPreview(true) : undefined}
+                />
               </div>
 
               <section className="rounded-[30px] border border-white/8 bg-[#262626] p-5 md:p-6">
