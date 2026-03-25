@@ -1,7 +1,65 @@
 // @vitest-environment node
 
 import { describe, expect, it, vi } from "vitest";
-import { markTaskCancelled, markTaskCompleted, markTaskFailed, reapStaleTasks } from "./queue";
+import {
+  claimNextTask,
+  markTaskCancelled,
+  markTaskCompleted,
+  markTaskFailed,
+  reapStaleTasks,
+} from "./queue";
+
+describe("claimNextTask", () => {
+  function makeTask() {
+    return {
+      id: "task-abc",
+      organization_id: "org-1",
+      job_id: "job-1",
+      part_id: "part-1",
+      quote_run_id: null,
+      package_id: null,
+      task_type: "extract_part",
+      status: "running",
+      payload: {},
+      attempts: 1,
+      available_at: new Date().toISOString(),
+      locked_at: new Date().toISOString(),
+      locked_by: "worker-1",
+      last_error: null,
+    };
+  }
+
+  it("calls rpc with the correct arguments and returns the claimed task", async () => {
+    const task = makeTask();
+    const maybeSingle = vi.fn().mockResolvedValue({ data: task, error: null });
+    const rpc = vi.fn(() => ({ maybeSingle }));
+    const client = { rpc } as never;
+
+    const result = await claimNextTask(client, "worker-1");
+
+    expect(rpc).toHaveBeenCalledWith("api_claim_next_task", { p_worker_name: "worker-1" });
+    expect(maybeSingle).toHaveBeenCalled();
+    expect(result).toEqual(task);
+  });
+
+  it("returns null when no task is available", async () => {
+    const maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+    const rpc = vi.fn(() => ({ maybeSingle }));
+    const client = { rpc } as never;
+
+    const result = await claimNextTask(client, "worker-1");
+
+    expect(result).toBeNull();
+  });
+
+  it("throws when the rpc returns an error", async () => {
+    const maybeSingle = vi.fn().mockResolvedValue({ data: null, error: new Error("db error") });
+    const rpc = vi.fn(() => ({ maybeSingle }));
+    const client = { rpc } as never;
+
+    await expect(claimNextTask(client, "worker-1")).rejects.toThrow("db error");
+  });
+});
 
 function createSupabaseUpdateStub() {
   const neq = vi.fn().mockResolvedValue({ error: null });
