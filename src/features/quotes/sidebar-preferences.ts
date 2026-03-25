@@ -23,7 +23,15 @@ function readStringArray(raw: string | null): string[] {
 }
 
 function writeStringArray(key: string, values: string[]) {
-  window.localStorage.setItem(key, JSON.stringify(values));
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(key, JSON.stringify(values));
+  } catch {
+    // Ignore storage failures; callers should degrade gracefully.
+  }
 }
 
 export function readLocalPinnedProjectIds(userId: string): string[] {
@@ -31,7 +39,11 @@ export function readLocalPinnedProjectIds(userId: string): string[] {
     return [];
   }
 
-  return readStringArray(window.localStorage.getItem(getProjectPinFallbackKey(userId)));
+  try {
+    return readStringArray(window.localStorage.getItem(getProjectPinFallbackKey(userId)));
+  } catch {
+    return [];
+  }
 }
 
 export function pinProjectLocally(userId: string, projectId: string): string[] {

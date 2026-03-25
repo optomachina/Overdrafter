@@ -469,7 +469,7 @@ describe("ClientPart", () => {
     const localStorageState = new Map<string, string>();
     lastAccountMenuProps = null;
     lastDrawingPreviewDialogProps = null;
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
       writable: true,
