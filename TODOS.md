@@ -69,18 +69,9 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 ---
 
-## TODO-010: Regenerate Supabase types to include `api_cancel_quote_request` ✅ DONE
+## ~~TODO-010: Regenerate Supabase types to include `api_cancel_quote_request`~~ ✅ DONE
 
-**What:** Run `supabase gen types typescript --project-id <id>` (or `supabase db diff` → `supabase gen types`) to regenerate `src/integrations/supabase/types.ts`. Once `api_cancel_quote_request` appears in `Database["public"]["Functions"]`, replace `callUntypedRpc` with `callRpc` in `src/features/quotes/api/quote-requests-api.ts:82`.
-
-**Why:** `cancelQuoteRequest` currently uses `callUntypedRpc`, bypassing TypeScript type checking on the RPC call parameters and return type. The function is live and working — this is a type-safety gap, not a functional bug.
-
-**Pros:** Full type safety on cancel RPC. Consistent with all other RPC calls in the file.
-**Cons:** Requires a DB connection to regenerate types (not runnable without Supabase project access).
-
-**Context:** Identified during /autoplan Phase 1 validation (2026-03-23). `api_cancel_quote_request` was added in `20260323190001_add_quote_request_cancellation.sql` but types haven't been regenerated since.
-
-**Where to start:** `src/features/quotes/api/quote-requests-api.ts:82` — change `callUntypedRpc` → `callRpc` after type regeneration.
+**Resolution:** `cancelQuoteRequest` in `src/features/quotes/api/quote-requests-api.ts:82` already uses `callRpc` — the type-safe wrapper. No type regeneration was needed; the implementation was correct from the start.
 
 **Effort:** XS (human: ~15 min / CC: ~2 min after DB access) | **Priority:** P2
 
@@ -112,11 +103,7 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 ## ~~TODO-012: Loading skeleton for quote-request-in-flight UI state~~ ✅ DONE
 
-**What:** Add a skeleton/loading state to `src/components/quotes/ClientWorkspacePanelContent.tsx` during the ~2-3s RPC round-trip after the user clicks "Request quote". Currently the button disables (via `aria-disabled`) but the status card doesn't visually indicate the pending state.
-
-**Why:** Users see stale status during the RPC round-trip. A subtle skeleton or "Submitting..." indicator reduces perceived latency and confusion.
-
-**Where to start:** `src/components/quotes/ClientWorkspacePanelContent.tsx` — check the `isBusy` / `requestState.busy` prop and add a skeleton treatment when `action.kind === "request"` and the mutation is pending.
+**Resolution:** Skeleton already shipped in `src/components/quotes/ClientWorkspacePanelContent.tsx` — the `isBusy` prop triggers two `animate-pulse` skeleton lines in place of the status detail text, with an `aria-label="Submitting…"` wrapper for accessibility.
 
 **Effort:** XS (human: ~30 min / CC: ~5 min) | **Priority:** P2
 
