@@ -249,4 +249,20 @@ describe("InternalAdmin", () => {
     expect(await screen.findByText("Not authorized")).toBeInTheDocument();
     expect(screen.queryByText("Organizations")).not.toBeInTheDocument();
   });
+
+  it("renders platform admin oversight without an active membership", async () => {
+    useAppSessionMock.mockReturnValue({
+      user: makeUser(),
+      activeMembership: null,
+      isPlatformAdmin: true,
+      isAuthInitializing: false,
+      signOut: signOutMock,
+    });
+
+    renderInternalAdmin();
+
+    expect(await screen.findByText("Platform Admin God Mode")).toBeInTheDocument();
+    expect(screen.getByText("Organizations")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "God Mode" }).length).toBeGreaterThan(0);
+  });
 });

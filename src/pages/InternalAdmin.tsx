@@ -107,8 +107,19 @@ const InternalAdmin = () => {
     return <Navigate to="/?auth=signin" replace />;
   }
 
-  if (!activeMembership) {
+  if (!activeMembership && !isPlatformAdmin) {
     return <Navigate to="/" replace />;
+  }
+
+  if (!activeMembership && isPlatformAdmin) {
+    recordWorkspaceSessionDiagnostic(
+      "info",
+      "internal-admin.missing-membership",
+      "Continuing into platform admin oversight without an active organization membership.",
+      {
+        userId: user.id,
+      },
+    );
   }
 
   return (
@@ -129,7 +140,7 @@ const InternalAdmin = () => {
       sidebarContent={
         <InternalDashboardSidebar
           activeItem="admin"
-          role={activeMembership.role}
+          role={activeMembership?.role}
           isPlatformAdmin={isPlatformAdmin}
           onNavigateDashboard={() => navigate("/")}
           onNavigateNewJob={() => navigate("/jobs/new")}

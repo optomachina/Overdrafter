@@ -116,17 +116,30 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
   ]);
   const { data, error } = membershipResult;
   const isPlatformAdmin = platformAdminResult.data === true;
+  const platformAdminErrorMessage =
+    platformAdminResult.error?.message ??
+    (typeof platformAdminResult.data === "boolean" ? null : "Failed to load platform admin status.");
 
-  if (error) {
+  if (error || platformAdminErrorMessage) {
+    const memberships: AppMembership[] = (data ?? []).map((row) => ({
+      id: row.id,
+      role: row.role,
+      organizationId: row.organization_id,
+      organizationName: row.organizations?.name ?? "Unassigned organization",
+      organizationSlug: row.organizations?.slug ?? "unassigned",
+    }));
     const session: AppSessionData = {
       user,
-      memberships: [],
+      memberships: error ? [] : memberships,
       isVerifiedAuth: hasVerifiedAuth(user),
       isPlatformAdmin,
       authState: "authenticated",
-      membershipError: error.message,
+      membershipError: error?.message ?? platformAdminErrorMessage ?? undefined,
     };
-    emitSessionPayloadDiagnostic(session, "session-api.fetch.membership-error");
+    emitSessionPayloadDiagnostic(
+      session,
+      error ? "session-api.fetch.membership-error" : "session-api.fetch.platform-admin-error",
+    );
     return session;
   }
 
