@@ -1,17 +1,18 @@
 -- Atomic task claiming for multi-worker deployments.
 -- Uses SELECT ... FOR UPDATE SKIP LOCKED to prevent race conditions where two
 -- workers claim the same task simultaneously.
-CREATE OR REPLACE FUNCTION api_claim_next_task(p_worker_name text)
-RETURNS SETOF work_queue
+CREATE OR REPLACE FUNCTION public.api_claim_next_task(p_worker_name text)
+RETURNS SETOF public.work_queue
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
-  v_task work_queue;
+  v_task public.work_queue;
 BEGIN
   SELECT *
     INTO v_task
-    FROM work_queue
+    FROM public.work_queue
    WHERE status = 'queued'
      AND available_at <= now()
    ORDER BY created_at ASC
@@ -22,7 +23,7 @@ BEGIN
     RETURN;
   END IF;
 
-  UPDATE work_queue
+  UPDATE public.work_queue
      SET status     = 'running',
          locked_at  = now(),
          locked_by  = p_worker_name,
@@ -34,4 +35,5 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION api_claim_next_task(text) TO service_role;
+REVOKE ALL ON FUNCTION public.api_claim_next_task(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.api_claim_next_task(text) TO service_role;

@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { QueueTaskRecord, WorkerConfig } from "./types.js";
 
+/** Creates a non-persistent service-role Supabase client for worker operations. */
 export function createServiceClient(config: WorkerConfig) {
   return createClient(config.supabaseUrl, config.supabaseServiceRoleKey, {
     auth: {
@@ -10,6 +11,7 @@ export function createServiceClient(config: WorkerConfig) {
   });
 }
 
+/** Atomically claims the next available queued task for a worker, if one exists. */
 export async function claimNextTask(
   supabase: SupabaseClient,
   workerName: string,
@@ -25,6 +27,7 @@ export async function claimNextTask(
   return (data as QueueTaskRecord | null) ?? null;
 }
 
+/** Marks a task as completed unless it has already been cancelled. */
 export async function markTaskCompleted(
   supabase: SupabaseClient,
   taskId: string,
@@ -47,6 +50,7 @@ export async function markTaskCompleted(
   }
 }
 
+/** Marks a task as failed unless it has already been cancelled. */
 export async function markTaskFailed(
   supabase: SupabaseClient,
   taskId: string,
@@ -70,6 +74,7 @@ export async function markTaskFailed(
   }
 }
 
+/** Explicitly marks a task as cancelled and records the cancellation reason. */
 export async function markTaskCancelled(
   supabase: SupabaseClient,
   taskId: string,
@@ -92,6 +97,7 @@ export async function markTaskCancelled(
   }
 }
 
+/** Requeues a task for a later retry and clears the current worker lock. */
 export async function markTaskQueuedForRetry(
   supabase: SupabaseClient,
   taskId: string,
