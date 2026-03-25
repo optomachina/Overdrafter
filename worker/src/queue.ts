@@ -15,40 +15,14 @@ export async function claimNextTask(
   workerName: string,
 ): Promise<QueueTaskRecord | null> {
   const { data, error } = await supabase
-    .from("work_queue")
-    .select("*")
-    .eq("status", "queued")
-    .lte("available_at", new Date().toISOString())
-    .order("created_at", { ascending: true })
-    .limit(1)
+    .rpc("api_claim_next_task", { p_worker_name: workerName })
     .maybeSingle();
 
   if (error) {
     throw error;
   }
 
-  if (!data) {
-    return null;
-  }
-
-  const { data: updatedTask, error: updateError } = await supabase
-    .from("work_queue")
-    .update({
-      status: "running",
-      locked_at: new Date().toISOString(),
-      locked_by: workerName,
-      attempts: (data.attempts ?? 0) + 1,
-    })
-    .eq("id", data.id)
-    .eq("status", "queued")
-    .select("*")
-    .maybeSingle();
-
-  if (updateError) {
-    throw updateError;
-  }
-
-  return (updatedTask as QueueTaskRecord | null) ?? null;
+  return (data as QueueTaskRecord | null) ?? null;
 }
 
 export async function markTaskCompleted(
