@@ -100,3 +100,15 @@ The same coverage should assert that:
 - approval metadata does not win as finish
 - numeric-only stray text does not beat a labeled description
 - quote normalization remains separate from raw extraction
+
+## extract:eval CLI tool
+
+`extract:eval` is a command-line evaluation harness for benchmarking and comparing drawing-extraction accuracy across multiple AI models and providers (OpenAI, Anthropic, and OpenRouter).
+
+Basic usage:
+
+```
+npm --prefix worker run extract:eval -- /path/to/drawing.pdf
+```
+
+The tool runs the extraction prompt against the configured model(s), prints a structured comparison of field values, confidence scores, token usage, and estimated cost per model, and exits without writing to the database. It is intended for offline accuracy measurement against known-good drawings rather than live job processing.

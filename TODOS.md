@@ -153,7 +153,7 @@ This makes the `reapStaleTasks()` query efficient even as the table grows.
 
 ---
 
-## TODO-015: Worker `FOR UPDATE SKIP LOCKED` task claiming
+## ~~TODO-015: Worker `FOR UPDATE SKIP LOCKED` task claiming~~ ✅ DONE
 
 **What:** Replace the current `claimNextTask` SELECT+UPDATE pattern in `worker/src/queue.ts` with a Supabase RPC that uses `SELECT ... FOR UPDATE SKIP LOCKED` for atomic, race-free task claiming.
 

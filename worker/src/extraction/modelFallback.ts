@@ -31,6 +31,15 @@ const MODEL_ACCEPT_CONFIDENCE = 0.8;
 const PARSER_STRONG_CONFIDENCE = 0.9;
 const COMPETING_CANDIDATE_DELTA = 0.24;
 export const MODEL_FALLBACK_PROMPT_VERSION = "2026-03-16.v1";
+export const EXTRACTION_SYSTEM_INSTRUCTION =
+  "You extract structured title-block fields from engineering drawings. Return JSON only that matches the schema exactly.";
+export const EXTRACTION_USER_INSTRUCTIONS = [
+  "Extract raw manufacturing metadata from this engineering drawing.",
+  "Return raw drawing truth only. Do not normalize or shorten text for quoting.",
+  "Prefer explicit titled blocks such as DWG. NO., PART NUMBER, REV, TITLE, DESCRIPTION, MATERIAL, FINISH, and PROCESS.",
+  "Reject approval names, dates, signoff blocks, standards/specs as part number, and stray isolated letters for revision.",
+  "If a field is not visible, return null with low confidence.",
+] as const;
 
 type ModelFieldName = (typeof MODEL_FIELD_NAMES)[number];
 type CriticalModelFieldName = (typeof CRITICAL_MODEL_FIELDS)[number];
@@ -44,7 +53,7 @@ const modelFieldSchema = z.object({
   reasons: z.array(z.string()).max(8).default([]),
 });
 
-const modelResponseSchema = z.object({
+export const modelResponseSchema = z.object({
   partNumber: modelFieldSchema,
   revision: modelFieldSchema,
   description: modelFieldSchema,
@@ -60,7 +69,7 @@ const DATE_PATTERN = /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b(?:JAN|FEB|MAR|APR|MAY
 const SIGNATURE_PATTERN = /\b(?:engineer|checker|checked|approvals|approved|date|ec\/date|ecn|tim)\b/i;
 
 type ModelFieldResponse = z.infer<typeof modelFieldSchema>;
-type ParsedModelResponse = z.infer<typeof modelResponseSchema>;
+export type ParsedModelResponse = z.infer<typeof modelResponseSchema>;
 
 export type DrawingModelExtractionResult = {
   fields: Record<ModelFieldName, ModelFieldResponse>;
@@ -200,7 +209,7 @@ function isModelAttemptSufficient(parsed: ParsedModelResponse) {
   });
 }
 
-function serializeParserContext(drawingSignals: ExtractedDrawingSignals) {
+export function serializeParserContext(drawingSignals: ExtractedDrawingSignals) {
   const lines = CRITICAL_MODEL_FIELDS.map((fieldName) => {
     const selected = drawingSignals[fieldName];
     const candidates = (drawingSignals.debugCandidates[fieldName] ?? [])
@@ -219,7 +228,7 @@ function serializeParserContext(drawingSignals: ExtractedDrawingSignals) {
   return lines.join("\n");
 }
 
-async function imageFileToDataUrl(localPath: string) {
+export async function imageFileToDataUrl(localPath: string) {
   const buffer = await fs.readFile(localPath);
   return `data:image/png;base64,${buffer.toString("base64")}`;
 }
@@ -240,11 +249,7 @@ async function runModelAttempt(input: {
     {
       type: "input_text",
       text: [
-        "Extract raw manufacturing metadata from this engineering drawing.",
-        "Return raw drawing truth only. Do not normalize or shorten text for quoting.",
-        "Prefer explicit titled blocks such as DWG. NO., PART NUMBER, REV, TITLE, DESCRIPTION, MATERIAL, FINISH, and PROCESS.",
-        "Reject approval names, dates, signoff blocks, standards/specs as part number, and stray isolated letters for revision.",
-        "If a field is not visible, return null with low confidence.",
+        ...EXTRACTION_USER_INSTRUCTIONS,
         `Filename stem: ${input.baseName}`,
         `Deterministic parser context:\n${serializeParserContext(input.drawingSignals)}`,
       ].join("\n"),
@@ -272,8 +277,7 @@ async function runModelAttempt(input: {
     input: [
       {
         role: "developer",
-        content:
-          "You extract structured title-block fields from engineering drawings. Return JSON only that matches the schema exactly.",
+        content: EXTRACTION_SYSTEM_INSTRUCTION,
       },
       {
         role: "user",
