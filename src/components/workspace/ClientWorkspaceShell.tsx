@@ -372,6 +372,7 @@ export function ClientWorkspaceShell({
   const [sidebarWidth, setSidebarWidth] = useState(() => readDesktopSidebarWidth());
   const [isResizing, setIsResizing] = useState(false);
   const resizingRef = useRef(false);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
   const BrandLabelTag = onLogoClick ? "button" : "div";
 
   useEffect(() => {
@@ -393,6 +394,12 @@ export function ClientWorkspaceShell({
     }
   }, [sidebarWidth]);
 
+  useEffect(() => {
+    return () => {
+      resizeCleanupRef.current?.();
+    };
+  }, []);
+
   const handleResizePointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
     resizingRef.current = true;
@@ -413,10 +420,12 @@ export function ClientWorkspaceShell({
       setIsResizing(false);
       document.removeEventListener("pointermove", onPointerMove);
       document.removeEventListener("pointerup", onPointerUp);
+      resizeCleanupRef.current = null;
     };
 
     document.addEventListener("pointermove", onPointerMove);
     document.addEventListener("pointerup", onPointerUp);
+    resizeCleanupRef.current = onPointerUp;
   }, [sidebarWidth]);
 
   return (
