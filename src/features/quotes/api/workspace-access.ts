@@ -31,5 +31,12 @@ export {
 } from "./workspace-api";
 
 export {
+  fetchAdminAllJobs,
+  fetchAdminAllProjects,
+  fetchAdminAllUsers,
+  fetchAdminOrganizations,
+} from "./platform-admin-api";
+
+export {
   isProjectNotFoundError,
 } from "./projects-api";

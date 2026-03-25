@@ -474,6 +474,10 @@ describe("quotes api helpers", () => {
       },
       error: null,
     });
+    supabaseMock.rpc.mockResolvedValue({
+      data: false,
+      error: null,
+    });
     vi.stubGlobal("crypto", {
       randomUUID: vi.fn(() => "uuid-default"),
       subtle: {
@@ -2314,7 +2318,7 @@ describe("quotes api helpers", () => {
       p_project_id: null,
       p_tags: [],
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(4, "api_create_job", {
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_create_job", {
       p_organization_id: "org-123",
       p_title: "Bracket",
       p_description: "Upload test",
@@ -2930,6 +2934,7 @@ describe("quotes api helpers", () => {
         },
       ],
       isVerifiedAuth: false,
+      isPlatformAdmin: false,
       authState: "authenticated",
     });
   });
@@ -3004,6 +3009,7 @@ describe("quotes api helpers", () => {
         },
       ],
       isVerifiedAuth: false,
+      isPlatformAdmin: false,
       authState: "authenticated",
     });
   });
@@ -3043,6 +3049,7 @@ describe("quotes api helpers", () => {
         },
       ],
       isVerifiedAuth: false,
+      isPlatformAdmin: false,
       authState: "authenticated",
     });
   });
@@ -3078,8 +3085,94 @@ describe("quotes api helpers", () => {
       },
       memberships: [],
       isVerifiedAuth: false,
+      isPlatformAdmin: false,
       authState: "authenticated",
       membershipError: "temporary membership lookup failure",
+    });
+  });
+
+  it("surfaces platform admin status in the authenticated app session", async () => {
+    supabaseMock.membershipsOrder.mockResolvedValueOnce({
+      data: [
+        {
+          id: "membership-1",
+          organization_id: "org-123",
+          role: "internal_admin",
+          organizations: {
+            id: "org-123",
+            name: "Acme",
+            slug: "acme",
+          },
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: true,
+      error: null,
+    });
+
+    await expect(fetchAppSessionData()).resolves.toEqual({
+      user: {
+        id: "user-1",
+      },
+      memberships: [
+        {
+          id: "membership-1",
+          role: "internal_admin",
+          organizationId: "org-123",
+          organizationName: "Acme",
+          organizationSlug: "acme",
+        },
+      ],
+      isVerifiedAuth: false,
+      isPlatformAdmin: true,
+      authState: "authenticated",
+    });
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_get_is_platform_admin", {});
+  });
+
+  it("persists platform admin lookup failures instead of silently coercing them to false", async () => {
+    supabaseMock.membershipsOrder.mockResolvedValueOnce({
+      data: [
+        {
+          id: "membership-1",
+          organization_id: "org-123",
+          role: "internal_admin",
+          organizations: {
+            id: "org-123",
+            name: "Acme",
+            slug: "acme",
+          },
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        message: "Could not find the function public.api_get_is_platform_admin() in the schema cache",
+      },
+    });
+
+    await expect(fetchAppSessionData()).resolves.toEqual({
+      user: {
+        id: "user-1",
+      },
+      memberships: [
+        {
+          id: "membership-1",
+          role: "internal_admin",
+          organizationId: "org-123",
+          organizationName: "Acme",
+          organizationSlug: "acme",
+        },
+      ],
+      isVerifiedAuth: false,
+      isPlatformAdmin: false,
+      authState: "authenticated",
+      membershipError: "Could not find the function public.api_get_is_platform_admin() in the schema cache",
     });
   });
 

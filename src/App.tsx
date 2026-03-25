@@ -18,6 +18,7 @@ import Index from "./pages/Index";
 import SignIn from "./pages/SignIn";
 import NotFound from "./pages/NotFound";
 import JobCreate from "./pages/JobCreate";
+import InternalAdmin from "./pages/InternalAdmin";
 import InternalJobDetail from "./pages/InternalJobDetail";
 import ClientPackage from "./pages/ClientPackage";
 import AuthCallback from "./pages/AuthCallback";
@@ -104,6 +105,7 @@ const App = () => (
             <Route path="/parts/:jobId/review" element={<ClientPartReview />} />
             <Route path="/shared/:inviteToken" element={<SharedInvite />} />
             <Route path="/jobs/new" element={<JobCreate />} />
+            <Route path="/internal/admin" element={<InternalAdmin />} />
             <Route path="/internal/jobs/:jobId" element={<InternalJobDetail />} />
             <Route path="/client/packages/:packageId" element={<ClientPackage />} />
             <Route path="/signin" element={<SignIn />} />

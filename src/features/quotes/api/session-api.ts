@@ -5,6 +5,7 @@ import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagno
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import type { PostgrestResponse } from "@supabase/supabase-js";
+import { callRpc } from "./shared/rpc";
 import { readLiveSupabaseBootstrap } from "./shared/startup-auth";
 
 type MembershipJoinRow = {
@@ -22,6 +23,7 @@ function emitSessionPayloadDiagnostic(session: AppSessionData, source: string): 
   recordWorkspaceSessionDiagnostic("info", source, "Fetched app-session payload.", {
     authState: session.authState ?? "anonymous",
     isVerifiedAuth: session.isVerifiedAuth,
+    isPlatformAdmin: session.isPlatformAdmin ?? false,
     userId: session.user?.id ?? null,
     membershipCount: session.memberships.length,
     memberships: session.memberships.map((membership) => ({
@@ -108,17 +110,36 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
     .eq("user_id", user.id)
     .order("created_at", { ascending: true });
 
-  const { data, error } = (await membershipQuery) as PostgrestResponse<MembershipJoinRow>;
+  const [membershipResult, platformAdminResult] = await Promise.all([
+    membershipQuery as unknown as Promise<PostgrestResponse<MembershipJoinRow>>,
+    callRpc("api_get_is_platform_admin", {}),
+  ]);
+  const { data, error } = membershipResult;
+  const isPlatformAdmin = platformAdminResult.data === true;
+  const platformAdminErrorMessage =
+    platformAdminResult.error?.message ??
+    (typeof platformAdminResult.data === "boolean" ? null : "Failed to load platform admin status.");
 
-  if (error) {
+  if (error || platformAdminErrorMessage) {
+    const memberships: AppMembership[] = (data ?? []).map((row) => ({
+      id: row.id,
+      role: row.role,
+      organizationId: row.organization_id,
+      organizationName: row.organizations?.name ?? "Unassigned organization",
+      organizationSlug: row.organizations?.slug ?? "unassigned",
+    }));
     const session: AppSessionData = {
       user,
-      memberships: [],
+      memberships: error ? [] : memberships,
       isVerifiedAuth: hasVerifiedAuth(user),
+      isPlatformAdmin,
       authState: "authenticated",
-      membershipError: error.message,
+      membershipError: error?.message ?? platformAdminErrorMessage ?? undefined,
     };
-    emitSessionPayloadDiagnostic(session, "session-api.fetch.membership-error");
+    emitSessionPayloadDiagnostic(
+      session,
+      error ? "session-api.fetch.membership-error" : "session-api.fetch.platform-admin-error",
+    );
     return session;
   }
 
@@ -134,6 +155,7 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
     user,
     memberships,
     isVerifiedAuth: hasVerifiedAuth(user),
+    isPlatformAdmin,
     authState: "authenticated",
   };
   emitSessionPayloadDiagnostic(session, "session-api.fetch.authenticated");

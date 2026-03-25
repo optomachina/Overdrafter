@@ -3,7 +3,7 @@ import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "@/components/app/AppShell";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAppSession } from "@/hooks/use-app-session";
 import { InternalJobDebugSection } from "./internal-job-detail/InternalJobDebugSection";
 import { InternalJobHeaderActions } from "./internal-job-detail/InternalJobHeaderActions";
@@ -19,10 +19,12 @@ import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagno
 const InternalJobDetail = () => {
   const navigate = useNavigate();
   const { jobId = "" } = useParams();
-  const { user, activeMembership, isVerifiedAuth, signOut, isAuthInitializing } = useAppSession();
+  const { user, activeMembership, isPlatformAdmin, isVerifiedAuth, signOut, isAuthInitializing } =
+    useAppSession();
   const queryState = useInternalJobDetailQuery({
     activeMembership,
     hasUser: Boolean(user),
+    isPlatformAdmin,
     jobId,
   });
   const viewModel = useInternalJobDetailViewModel({
@@ -44,7 +46,13 @@ const InternalJobDetail = () => {
     mutations.saveRequirementsMutation.isPending ||
     mutations.startQuoteRunMutation.isPending ||
     mutations.publishMutation.isPending;
-  const writeActionsDisabled = !isVerifiedAuth || anyWritePending;
+  const isCrossOrgReadOnlyView = Boolean(
+    isPlatformAdmin &&
+      activeMembership?.organizationId &&
+      queryState.job?.job.organization_id &&
+      activeMembership.organizationId !== queryState.job.job.organization_id,
+  );
+  const writeActionsDisabled = !isVerifiedAuth || anyWritePending || isCrossOrgReadOnlyView;
 
   if (isAuthInitializing) {
     return <AuthBootstrapScreen message="Restoring your internal review session." />;
@@ -125,6 +133,20 @@ const InternalJobDetail = () => {
               void mutations.handleChangeEmail();
             }}
           />
+        </section>
+      ) : null}
+
+      {isCrossOrgReadOnlyView ? (
+        <section className="mb-8">
+          <Card className="border-white/10 bg-black/20">
+            <CardHeader>
+              <CardTitle>Read-only God Mode</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0 text-sm text-white/60">
+              Cross-organization job detail is available for inspection, but editing and publish
+              actions stay disabled outside your home organization.
+            </CardContent>
+          </Card>
         </section>
       ) : null}
 

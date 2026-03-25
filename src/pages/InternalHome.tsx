@@ -49,7 +49,7 @@ const InternalHome = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const { user, activeMembership, isVerifiedAuth, signOut } = useAppSession();
+  const { user, activeMembership, isPlatformAdmin, isVerifiedAuth, signOut } = useAppSession();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const { accessibleJobsQuery, archivedProjectsQuery, archivedJobsQuery } = useClientWorkspaceData({
     enabled: Boolean(user),
@@ -95,7 +95,13 @@ const InternalHome = () => {
   const [isResendingVerification, setIsResendingVerification] = useState(false);
   const metrics = getJobSummaryMetrics(jobsQuery.data ?? []);
   const sidebarActiveItem =
-    location.pathname === "/jobs/new" ? "new-job" : location.pathname === "/" ? "dashboard" : null;
+    location.pathname === "/internal/admin"
+      ? "admin"
+      : location.pathname === "/jobs/new"
+        ? "new-job"
+        : location.pathname === "/"
+          ? "dashboard"
+          : null;
 
   const handleRefreshVerification = async () => {
     setIsRefreshingVerification(true);
@@ -163,8 +169,10 @@ const InternalHome = () => {
         <InternalDashboardSidebar
           activeItem={sidebarActiveItem}
           role={activeMembership?.role}
+          isPlatformAdmin={isPlatformAdmin}
           onNavigateDashboard={() => navigate("/")}
           onNavigateNewJob={() => navigate("/jobs/new")}
+          onNavigateAdmin={() => navigate("/internal/admin")}
         />
       }
       sidebarFooter={

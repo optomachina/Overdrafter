@@ -1,14 +1,16 @@
-import { LayoutDashboard, PlusSquare, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, PlusSquare, ShieldAlert, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatStatusLabel } from "@/features/quotes/utils";
 import type { AppRole } from "@/integrations/supabase/types";
 import { cn } from "@/lib/utils";
 
 type InternalDashboardSidebarProps = {
-  activeItem: "dashboard" | "new-job" | null;
+  activeItem: "dashboard" | "new-job" | "admin" | null;
   role?: AppRole | null;
+  isPlatformAdmin?: boolean;
   onNavigateDashboard: () => void;
   onNavigateNewJob: () => void;
+  onNavigateAdmin?: () => void;
 };
 
 type SidebarActionButtonProps = {
@@ -45,8 +47,10 @@ function SidebarActionButton({
 export function InternalDashboardSidebar({
   activeItem,
   role,
+  isPlatformAdmin = false,
   onNavigateDashboard,
   onNavigateNewJob,
+  onNavigateAdmin,
 }: InternalDashboardSidebarProps) {
   return (
     <div className="space-y-5">
@@ -79,6 +83,14 @@ export function InternalDashboardSidebar({
           label="New Job"
           onClick={onNavigateNewJob}
         />
+        {isPlatformAdmin && onNavigateAdmin ? (
+          <SidebarActionButton
+            active={activeItem === "admin"}
+            icon={ShieldAlert}
+            label="God Mode"
+            onClick={onNavigateAdmin}
+          />
+        ) : null}
       </div>
     </div>
   );

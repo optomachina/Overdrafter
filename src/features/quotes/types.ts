@@ -505,6 +505,7 @@ export type AppSessionData = {
   user: User | null;
   memberships: AppMembership[];
   isVerifiedAuth: boolean;
+  isPlatformAdmin?: boolean;
   authState?: AppSessionAuthState;
   membershipError?: string;
 };
