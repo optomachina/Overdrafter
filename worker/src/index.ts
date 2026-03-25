@@ -1440,6 +1440,7 @@ async function main() {
     };
     runtimeState.currentTask = taskSummary;
     runtimeState.lastTaskStartedAt = new Date().toISOString();
+    const taskStartMs = Date.now();
     logWorkerEvent(runtimeState, {
       level: "info",
       source: "worker.task.start",
@@ -1456,7 +1457,10 @@ async function main() {
         level: "info",
         source: "worker.task.complete",
         message: `Completed ${task.task_type} ${task.id}.`,
-        context: buildTaskContext(task),
+        context: {
+          ...buildTaskContext(task),
+          task_duration_ms: Date.now() - taskStartMs,
+        },
       });
     } catch (error) {
       const message = summarizeError(error);
@@ -1494,6 +1498,7 @@ async function main() {
           : `Failed ${task.task_type} ${task.id}: ${message}`,
         context: {
           ...buildTaskContext(task),
+          task_duration_ms: Date.now() - taskStartMs,
           retryCount,
           nextRetryAt: retryAt,
         },
