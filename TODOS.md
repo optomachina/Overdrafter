@@ -151,12 +151,12 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 **What:** Add a partial index to `work_queue` supporting the reaper's access pattern:
 ```sql
-create index idx_work_queue_reaper on public.work_queue(locked_at)
+create index concurrently idx_work_queue_reaper on public.work_queue(locked_at)
   where status = 'running';
 ```
 This makes the `reapStaleTasks()` query efficient even as the table grows.
 
-**Resolution:** Shipped via `20260324010000_add_work_queue_reaper_index.sql`, which adds the partial index covering `(locked_at)` WHERE `status='running'`. This eliminates the sequential scan of the running partition when `reapStaleTasks()` queries for stale locked tasks.
+**Resolution:** Shipped via `20260324010000_add_work_queue_reaper_index.sql`, which adds the partial index covering `(locked_at)` WHERE `status='running'` using `CREATE INDEX CONCURRENTLY` so queue writes are not blocked while the index is built. This eliminates the sequential scan of the running partition when `reapStaleTasks()` queries for stale locked tasks.
 
 **Why:** `reapStaleTasks()` queries `WHERE status='running' AND locked_at < cutoff`. The current index `idx_work_queue_dispatch(status, task_type, available_at)` doesn't cover `locked_at`, forcing a sequential scan of the `running` partition. Fine now (running set is tiny), but becomes a performance issue under load.
 
