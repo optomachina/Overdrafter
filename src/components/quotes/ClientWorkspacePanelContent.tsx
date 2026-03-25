@@ -101,7 +101,12 @@ export function ClientQuoteRequestStatusCard({
             />
             <p className="text-sm font-medium text-white">Xometry request status</p>
           </div>
-          {status === "failed" ? (
+          {isBusy ? (
+            <div aria-label="Submitting…" className="flex flex-col gap-2">
+              <div className="h-3 w-3/4 animate-pulse rounded-full bg-white/15" />
+              <div className="h-3 w-1/2 animate-pulse rounded-full bg-white/10" />
+            </div>
+          ) : status === "failed" ? (
             <p role="alert" className="text-sm text-white/75">{detail}</p>
           ) : (
             <p className="text-sm text-white/75">{detail}</p>

@@ -108,7 +108,7 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 ---
 
-## TODO-012: Loading skeleton for quote-request-in-flight UI state
+## ~~TODO-012: Loading skeleton for quote-request-in-flight UI state~~ ✅ DONE
 
 **What:** Add a skeleton/loading state to `src/components/quotes/ClientWorkspacePanelContent.tsx` during the ~2-3s RPC round-trip after the user clicks "Request quote". Currently the button disables (via `aria-disabled`) but the status card doesn't visually indicate the pending state.
 

@@ -77,6 +77,24 @@ describe("ClientQuoteRequestStatusCard", () => {
     expect(button).not.toHaveAttribute("aria-disabled");
   });
 
+  it("shows a loading skeleton and disables the action button when isBusy is true", () => {
+    render(
+      <ClientQuoteRequestStatusCard
+        status="not_requested"
+        tone="ready"
+        label="Not requested"
+        detail="Request a quote to send this part to Xometry."
+        actionLabel="Request quote"
+        isBusy
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(screen.getByLabelText("Submitting…")).toBeInTheDocument();
+    expect(screen.queryByText("Request a quote to send this part to Xometry.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /request quote/i })).toBeDisabled();
+  });
+
   it("renders cancel request actions without disabling them by default", () => {
     render(
       <ClientQuoteRequestStatusCard
