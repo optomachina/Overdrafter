@@ -465,6 +465,11 @@ export async function fetchProjectAssigneeProfiles(projectId: string): Promise<P
     p_project_id: projectId,
   });
 
+  if (isMissingProjectCollaborationSchemaError(error)) {
+    markProjectCollaborationSchemaAvailability("unavailable");
+    return [];
+  }
+
   return ensureProjectCollaborationData(data, error) as ProjectAssigneeProfile[];
 }
 

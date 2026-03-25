@@ -377,6 +377,7 @@ import {
   uploadFilesToJob,
   uploadManualQuoteEvidence,
 } from "./api";
+import { fetchProjectAssigneeProfiles } from "./api/projects-api";
 
 function listSourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -2719,6 +2720,21 @@ describe("quotes api helpers", () => {
     await expect(createProject({ name: "Fixture project" })).rejects.toThrow(
       "Projects are unavailable in this environment until the shared workspace schema is applied.",
     );
+  });
+
+  it("returns an empty assignee list when project collaboration schema is unavailable", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: "PGRST202",
+        message:
+          "Could not find the function public.api_list_project_assignee_profiles(p_project_id) in the schema cache",
+        details: null,
+        hint: null,
+      },
+    });
+
+    await expect(fetchProjectAssigneeProfiles("project-123")).resolves.toEqual([]);
   });
 
   it("surfaces edge function error bodies during project creation fallback", async () => {

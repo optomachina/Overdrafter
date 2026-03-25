@@ -59,6 +59,7 @@ export const PROJECT_COLLABORATION_IDENTIFIERS = [
   "api_remove_project_member",
   "api_assign_job_to_project",
   "api_remove_job_from_project",
+  "api_list_project_assignee_profiles",
   "projects.archived_at",
   "project_row.archived_at",
 ] as const;
