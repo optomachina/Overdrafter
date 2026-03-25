@@ -200,6 +200,62 @@ describe("WorkspaceSidebar", () => {
     expect(sharedCreateHandler).toHaveBeenCalledTimes(2);
   });
 
+  it("supports dragging projects above or below one another and persists the new order", () => {
+    renderSidebar({
+      storageScopeKey: "sidebar-drag-order",
+    });
+
+    const projectOne = screen.getAllByRole("button", { name: /project one/i })[0]!;
+    const projectTwo = screen.getAllByRole("button", { name: /project two/i })[0]!;
+    const dataTransfer = {
+      effectAllowed: "",
+      setData: vi.fn(),
+    };
+
+    vi.spyOn(projectTwo, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 40,
+      width: 240,
+      height: 40,
+      top: 40,
+      right: 240,
+      bottom: 80,
+      left: 0,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.dragStart(projectOne, { dataTransfer });
+    fireEvent.dragOver(projectTwo, { clientY: 79 });
+    fireEvent.drop(projectTwo, { clientY: 79 });
+    fireEvent.dragEnd(projectOne);
+
+    const orderedProjectButtons = screen.getAllByRole("button", {
+      name: /project (one|two)/i,
+    });
+
+    expect(orderedProjectButtons[0]).toHaveTextContent("Project Two");
+    expect(orderedProjectButtons[1]).toHaveTextContent("Project One");
+    expect(JSON.parse(localStorage.getItem("workspace-sidebar-project-order-v1:sidebar-drag-order") ?? "[]")).toEqual([
+      "project-2",
+      "project-1",
+    ]);
+  });
+
+  it("restores the stored manual project order before applying fallback sorting", () => {
+    localStorage.setItem("workspace-sidebar-project-order-v1:sidebar-manual-order", JSON.stringify(["project-2"]));
+
+    renderSidebar({
+      storageScopeKey: "sidebar-manual-order",
+    });
+
+    const orderedProjectButtons = screen.getAllByRole("button", {
+      name: /project (one|two)/i,
+    });
+
+    expect(orderedProjectButtons[0]).toHaveTextContent("Project Two");
+    expect(orderedProjectButtons[1]).toHaveTextContent("Project One");
+  });
+
   it("uses the brighter row icon treatment for project and part entries", () => {
     const { container } = renderSidebar();
     const folderIcon = container.querySelector(".lucide-folder");

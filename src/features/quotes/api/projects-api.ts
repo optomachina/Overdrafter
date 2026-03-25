@@ -15,6 +15,11 @@ import type {
 } from "@/features/quotes/types";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
+import {
+  pinProjectLocally,
+  readLocalPinnedProjectIds,
+  unpinProjectLocally,
+} from "@/features/quotes/sidebar-preferences";
 import { requireCurrentUser } from "./shared/auth";
 import { callRpc, upsertUntyped } from "./shared/rpc";
 import { ensureData } from "./shared/response";
@@ -273,7 +278,7 @@ export async function fetchSidebarPins(): Promise<SidebarPins> {
     const pinnedJobs = ensureData(pinnedJobsResult.data, pinnedJobsResult.error) as UserPinnedJobRecord[];
 
     return {
-      projectIds: [],
+      projectIds: readLocalPinnedProjectIds(currentUser.id),
       jobIds: [...new Set(pinnedJobs.map((record) => record.job_id))],
     };
   }
@@ -292,7 +297,7 @@ export async function fetchSidebarPins(): Promise<SidebarPins> {
     const pinnedJobs = ensureData(pinnedJobsResult.data, pinnedJobsResult.error) as UserPinnedJobRecord[];
 
     return {
-      projectIds: [],
+      projectIds: readLocalPinnedProjectIds(currentUser.id),
       jobIds: [...new Set(pinnedJobs.map((record) => record.job_id))],
     };
   }
@@ -318,11 +323,13 @@ export async function pinProject(projectId: string): Promise<void> {
     return fixtureGateway.pinProject(projectId);
   }
 
+  const currentUser = await requireCurrentUser();
+
   if (isProjectCollaborationSchemaUnavailable()) {
-    throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
+    pinProjectLocally(currentUser.id, projectId);
+    return;
   }
 
-  const currentUser = await requireCurrentUser();
   const { error } = await upsertUntyped(
     "user_pinned_projects",
     {
@@ -338,7 +345,8 @@ export async function pinProject(projectId: string): Promise<void> {
   if (error) {
     if (isMissingProjectCollaborationSchemaError(error)) {
       markProjectCollaborationSchemaAvailability("unavailable");
-      throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
+      pinProjectLocally(currentUser.id, projectId);
+      return;
     }
 
     throw error;
@@ -352,11 +360,13 @@ export async function unpinProject(projectId: string): Promise<void> {
     return fixtureGateway.unpinProject(projectId);
   }
 
+  const currentUser = await requireCurrentUser();
+
   if (isProjectCollaborationSchemaUnavailable()) {
-    throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
+    unpinProjectLocally(currentUser.id, projectId);
+    return;
   }
 
-  const currentUser = await requireCurrentUser();
   const { error } = await supabase
     .from("user_pinned_projects")
     .delete()
@@ -366,7 +376,8 @@ export async function unpinProject(projectId: string): Promise<void> {
   if (error) {
     if (isMissingProjectCollaborationSchemaError(error)) {
       markProjectCollaborationSchemaAvailability("unavailable");
-      throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
+      unpinProjectLocally(currentUser.id, projectId);
+      return;
     }
 
     throw error;

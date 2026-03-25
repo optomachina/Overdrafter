@@ -3206,9 +3206,10 @@ describe("quotes api helpers", () => {
       ],
       error: null,
     });
+    storageMock.setItem("workspace-sidebar-project-pins-v1:user-1", JSON.stringify(["project-local"]));
 
     await expect(fetchSidebarPins()).resolves.toEqual({
-      projectIds: [],
+      projectIds: ["project-local"],
       jobIds: ["job-1"],
     });
   });
@@ -3234,6 +3235,32 @@ describe("quotes api helpers", () => {
     expect(supabaseMock.pinnedProjectsDelete).toHaveBeenCalled();
     expect(supabaseMock.pinnedProjectsDeleteEqFirst).toHaveBeenCalledWith("user_id", "user-1");
     expect(supabaseMock.pinnedProjectsDeleteEqSecond).toHaveBeenCalledWith("project_id", "project-123");
+  });
+
+  it("falls back to local project pins when the shared project pin table is unavailable", async () => {
+    supabaseMock.pinnedProjectsUpsert.mockResolvedValue({
+      error: {
+        code: "PGRST205",
+        message: "Could not find the table 'public.user_pinned_projects' in the schema cache",
+        details: null,
+        hint: null,
+      },
+    });
+    supabaseMock.pinnedProjectsDeleteEqSecond.mockResolvedValue({
+      error: {
+        code: "PGRST205",
+        message: "Could not find the table 'public.user_pinned_projects' in the schema cache",
+        details: null,
+        hint: null,
+      },
+    });
+
+    await expect(pinProject("project-fallback")).resolves.toBeUndefined();
+    expect(storageMock.getItem("workspace-sidebar-project-pins-v1:user-1")).toBe(JSON.stringify(["project-fallback"]));
+
+    await expect(unpinProject("project-fallback")).resolves.toBeUndefined();
+    expect(storageMock.getItem("workspace-sidebar-project-pins-v1:user-1")).toBe(JSON.stringify([]));
+    expect(isProjectCollaborationSchemaUnavailable()).toBe(true);
   });
 
   it("pins and unpins jobs for the current user", async () => {

@@ -62,6 +62,7 @@ type SidebarFilters = {
 };
 
 type SidebarSections = Record<SidebarSectionKey, boolean>;
+type ProjectDropPosition = "before" | "after";
 
 type WorkspaceSidebarProps = {
   projects: WorkspaceSidebarProject[];
@@ -195,6 +196,26 @@ function readExpandedSections(storageKey: string): SidebarSections {
   }
 }
 
+function readProjectOrder(storageKey: string): string[] {
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw) as unknown;
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter((value): value is string => typeof value === "string");
+  } catch {
+    return [];
+  }
+}
+
 function parseTimestamp(value: string | null | undefined): number {
   if (!value) {
     return 0;
@@ -304,6 +325,7 @@ export function WorkspaceSidebar({
   const filtersStorageKey = `workspace-sidebar-filters-v1:${storageScopeKey ?? "default"}`;
   const expandedStorageKey = `workspace-sidebar-expanded-v1:${storageScopeKey ?? "default"}`;
   const sectionsStorageKey = `workspace-sidebar-sections-v1:${storageScopeKey ?? "default"}`;
+  const projectOrderStorageKey = `workspace-sidebar-project-order-v1:${storageScopeKey ?? "default"}`;
 
   const [filters, setFilters] = useState<SidebarFilters>(() =>
     typeof window === "undefined" ? DEFAULT_FILTERS : readFilters(filtersStorageKey),
@@ -313,6 +335,9 @@ export function WorkspaceSidebar({
   );
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>(() =>
     typeof window === "undefined" ? {} : readExpandedProjects(expandedStorageKey),
+  );
+  const [manualProjectOrder, setManualProjectOrder] = useState<string[]>(() =>
+    typeof window === "undefined" ? [] : readProjectOrder(projectOrderStorageKey),
   );
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const [selectionAnchorJobId, setSelectionAnchorJobId] = useState<string | null>(null);
@@ -332,6 +357,11 @@ export function WorkspaceSidebar({
   const [isDissolvingProject, setIsDissolvingProject] = useState(false);
   const [isCreatingProjectFromSelection, setIsCreatingProjectFromSelection] = useState(false);
   const [openContextTarget, setOpenContextTarget] = useState<string | null>(null);
+  const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
+  const [projectDropTarget, setProjectDropTarget] = useState<{
+    projectId: string;
+    position: ProjectDropPosition;
+  } | null>(null);
   const prefetchTimeoutsRef = useRef<Map<string, number>>(new Map());
   const projectsHeadingRef = useRef<HTMLDivElement | null>(null);
   const [projectsHeadingHeight, setProjectsHeadingHeight] = useState(0);
@@ -354,6 +384,15 @@ export function WorkspaceSidebar({
   const selectedJobIdSet = useMemo(() => new Set(selectedJobIds), [selectedJobIds]);
   const projectsById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const assignableProjects = useMemo(() => projects.filter((project) => !project.isReadOnly), [projects]);
+  const projectOrderRank = useMemo(() => {
+    const rank = new Map<string, number>();
+
+    manualProjectOrder.forEach((projectId, index) => {
+      rank.set(projectId, index);
+    });
+
+    return rank;
+  }, [manualProjectOrder]);
 
   const getProjectIdsForJob = useCallback(
     (job: JobRecord) => {
@@ -458,6 +497,23 @@ export function WorkspaceSidebar({
     };
 
     return [...projects].sort((left, right) => {
+      const leftRank = projectOrderRank.get(left.id);
+      const rightRank = projectOrderRank.get(right.id);
+
+      if (typeof leftRank === "number" || typeof rightRank === "number") {
+        if (typeof leftRank === "number" && typeof rightRank === "number" && leftRank !== rightRank) {
+          return leftRank - rightRank;
+        }
+
+        if (typeof leftRank === "number") {
+          return -1;
+        }
+
+        if (typeof rightRank === "number") {
+          return 1;
+        }
+      }
+
       const pinOrder = Number(pinnedProjectSet.has(right.id)) - Number(pinnedProjectSet.has(left.id));
       if (pinOrder !== 0) {
         return pinOrder;
@@ -470,7 +526,7 @@ export function WorkspaceSidebar({
 
       return left.name.localeCompare(right.name);
     });
-  }, [filters.sortBy, getJobSortTimestamp, jobsByProjectId, pinnedProjectSet, projects]);
+  }, [filters.sortBy, getJobSortTimestamp, jobsByProjectId, pinnedProjectSet, projectOrderRank, projects]);
 
   const visibleProjects = useMemo(
     () =>
@@ -524,6 +580,37 @@ export function WorkspaceSidebar({
       // Ignore storage failures.
     }
   };
+
+  const persistProjectOrder = useCallback(
+    (next: string[]) => {
+      setManualProjectOrder(next);
+
+      try {
+        window.localStorage.setItem(projectOrderStorageKey, JSON.stringify(next));
+      } catch {
+        // Ignore storage failures.
+      }
+    },
+    [projectOrderStorageKey],
+  );
+
+  useEffect(() => {
+    const availableProjectIds = new Set(projects.map((project) => project.id));
+
+    setManualProjectOrder((current) => {
+      const filtered = current.filter((projectId) => availableProjectIds.has(projectId));
+
+      if (filtered.length !== current.length) {
+        try {
+          window.localStorage.setItem(projectOrderStorageKey, JSON.stringify(filtered));
+        } catch {
+          // Ignore storage failures.
+        }
+      }
+
+      return filtered.length === current.length ? current : filtered;
+    });
+  }, [projectOrderStorageKey, projects]);
 
   const isProjectExpanded = (projectId: string) => expandedProjects[projectId] ?? false;
 
@@ -630,6 +717,28 @@ export function WorkspaceSidebar({
       await onPinPart(jobId);
     });
   };
+
+  const reorderProjectIds = useCallback(
+    (draggedProjectId: string, targetProjectId: string, position: ProjectDropPosition) => {
+      const orderedProjectIds = sortedProjects.map((project) => project.id);
+      const draggedIndex = orderedProjectIds.indexOf(draggedProjectId);
+      const targetIndex = orderedProjectIds.indexOf(targetProjectId);
+
+      if (draggedIndex === -1 || targetIndex === -1 || draggedProjectId === targetProjectId) {
+        return;
+      }
+
+      const next = [...orderedProjectIds];
+      next.splice(draggedIndex, 1);
+
+      const adjustedTargetIndex = next.indexOf(targetProjectId);
+      const insertIndex = position === "before" ? adjustedTargetIndex : adjustedTargetIndex + 1;
+
+      next.splice(insertIndex, 0, draggedProjectId);
+      persistProjectOrder(next);
+    },
+    [persistProjectOrder, sortedProjects],
+  );
 
   const selectSingleJob = useCallback((jobId: string) => {
     setSelectedJobIds([jobId]);
@@ -896,6 +1005,8 @@ export function WorkspaceSidebar({
     const isPinned = pinnedProjectSet.has(project.id);
     const isPinBusy = pendingProjectPinIds.includes(project.id);
     const expanded = isProjectExpanded(project.id);
+    const isDragging = draggingProjectId === project.id;
+    const dropPosition = projectDropTarget?.projectId === project.id ? projectDropTarget.position : null;
 
     return (
       <div key={project.id} className="space-y-1">
@@ -914,6 +1025,7 @@ export function WorkspaceSidebar({
             <div
               role="button"
               tabIndex={0}
+              draggable
               onClick={() => {
                 if (openContextTarget === `project:${project.id}`) {
                   setOpenContextTarget(null);
@@ -937,9 +1049,48 @@ export function WorkspaceSidebar({
               onPointerDown={() => {
                 onPrefetchProject?.(project.id);
               }}
+              onDragStart={(event) => {
+                setDraggingProjectId(project.id);
+                setProjectDropTarget(null);
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", project.id);
+              }}
+              onDragOver={(event) => {
+                if (!draggingProjectId || draggingProjectId === project.id) {
+                  return;
+                }
+
+                event.preventDefault();
+                const bounds = event.currentTarget.getBoundingClientRect();
+                const midpoint = bounds.top + bounds.height / 2;
+                setProjectDropTarget({
+                  projectId: project.id,
+                  position: event.clientY < midpoint ? "before" : "after",
+                });
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+
+                if (!draggingProjectId || !projectDropTarget || projectDropTarget.projectId !== project.id) {
+                  setDraggingProjectId(null);
+                  setProjectDropTarget(null);
+                  return;
+                }
+
+                reorderProjectIds(draggingProjectId, project.id, projectDropTarget.position);
+                setDraggingProjectId(null);
+                setProjectDropTarget(null);
+              }}
+              onDragEnd={() => {
+                setDraggingProjectId(null);
+                setProjectDropTarget(null);
+              }}
               className={cn(
                 "group flex w-full items-center gap-2.5 rounded-[10px] text-left transition-colors",
                 SIDEBAR_ROW_PADDING_CLASS,
+                isDragging ? "opacity-55" : "",
+                dropPosition === "before" ? "border-t border-white/70" : "",
+                dropPosition === "after" ? "border-b border-white/70" : "",
                 activeProjectId === project.id
                   ? "bg-white/[0.08] text-white"
                   : "text-white/[0.8] hover:bg-white/[0.06] hover:text-white",
