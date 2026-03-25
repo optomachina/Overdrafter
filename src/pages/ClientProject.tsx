@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
-  ChevronDown,
-  ChevronRight,
   Loader2,
   PlusSquare,
   Search as SearchIcon,
@@ -17,6 +15,10 @@ import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import {
+  ClientCadPreviewPanel,
+  ClientDrawingPreviewPanel,
+} from "@/components/quotes/ClientQuoteAssetPanels";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -28,9 +30,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { QuoteChart } from "@/components/workspace/QuoteChart";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import {
   Dialog,
@@ -107,6 +109,7 @@ const ClientProject = () => {
     focusedDraft,
     focusedJob,
     focusedJobId,
+    focusedQuoteOptions,
     focusedSelectedOption,
     focusedSummary,
     focusedWorkspaceItem,
@@ -128,6 +131,7 @@ const ClientProject = () => {
     handleRemoveProjectMember,
     handleRenameProject,
     handleRequestProjectQuotes,
+    handleSelectQuoteOption,
     handleUnarchivePart,
     handleUnpinPart,
     handleUnpinProject,
@@ -270,61 +274,32 @@ const ClientProject = () => {
   const focusedSelectedPrice = focusedSelectedOption?.totalPriceUsd ?? focusedSummary?.selectedPriceUsd ?? null;
   const focusedSelectedLeadTime =
     focusedSelectedOption?.leadTimeBusinessDays ?? focusedSummary?.selectedLeadTimeBusinessDays ?? null;
+  const focusedSelectedOfferId = focusedSelectedOption?.offerId ?? null;
+
+  const handleInspectorQuoteSelect = (offerId: string | null) => {
+    if (!focusedJob || offerId === null) {
+      return;
+    }
+
+    const nextOption = focusedQuoteOptions.find((option) => option.offerId === offerId) ?? null;
+
+    if (!nextOption) {
+      return;
+    }
+
+    void handleSelectQuoteOption(focusedJob.id, nextOption);
+  };
 
   const renderInspectorContent = () => {
     if (!focusedJob || !focusedWorkspaceItem || !focusedPresentation) {
       return (
         <div className="space-y-4">
           <div className="rounded-lg border border-white/10 bg-black/20 p-5">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Inspector</p>
-            <h2 className="mt-3 text-lg font-semibold text-white">Project detail rail</h2>
+            <h2 className="text-lg font-semibold text-white">Project inspector</h2>
             <p className="mt-2 text-sm text-white/55">
               Single-click a part row to inspect it here. Double-click opens the full part workspace, and `Escape` clears the selection.
             </p>
           </div>
-
-          <Collapsible defaultOpen>
-            <div className="rounded-lg border border-white/10 bg-black/20">
-              <CollapsibleTrigger className="flex w-full items-center justify-between px-5 py-4 text-left">
-                <div>
-                  <p className="text-sm font-medium text-white">Properties</p>
-                  <p className="mt-1 text-xs text-white/45">Selection-sensitive part details.</p>
-                </div>
-                <ChevronDown className="h-4 w-4 text-white/45" />
-              </CollapsibleTrigger>
-              <CollapsibleContent className="border-t border-white/10 px-5 py-4">
-                <p className="text-sm text-white/45">No part selected.</p>
-              </CollapsibleContent>
-            </div>
-          </Collapsible>
-
-          <Collapsible defaultOpen>
-            <div className="rounded-lg border border-white/10 bg-black/20">
-              <CollapsibleTrigger className="flex w-full items-center justify-between px-5 py-4 text-left">
-                <div>
-                  <p className="text-sm font-medium text-white">Project</p>
-                  <p className="mt-1 text-xs text-white/45">Shared project-level status and actions.</p>
-                </div>
-                <ChevronDown className="h-4 w-4 text-white/45" />
-              </CollapsibleTrigger>
-              <CollapsibleContent className="space-y-4 border-t border-white/10 px-5 py-4">
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Parts</p>
-                    <p className="mt-2 text-lg font-semibold text-white">{projectJobs.length}</p>
-                  </div>
-                  <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Quoted</p>
-                    <p className="mt-2 text-lg font-semibold text-white">{projectQuoteRequestSummary.received}</p>
-                  </div>
-                </div>
-                <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3 text-sm text-white/65">
-                  <p className="font-medium text-white">{projectQuery.data?.name ?? "Project"}</p>
-                  <p className="mt-2">Use the ledger for fast scanning and keep the deeper artifact workspace on the part route.</p>
-                </div>
-              </CollapsibleContent>
-            </div>
-          </Collapsible>
         </div>
       );
     }
@@ -377,6 +352,14 @@ const ClientProject = () => {
               <p className="mt-1 text-sm font-medium text-white">{formatStatusLabel(focusedJob.status)}</p>
             </div>
             <div className="bg-black/40 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Created</p>
+              <p className="mt-1 text-sm font-medium text-white">{formatDateLabel(focusedJob.created_at)}</p>
+            </div>
+            <div className="bg-black/40 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Project</p>
+              <p className="mt-1 text-sm font-medium text-white">{projectQuery.data?.name ?? "Project"}</p>
+            </div>
+            <div className="bg-black/40 px-3 py-2.5">
               <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Selected quote</p>
               <p className="mt-1 text-sm font-semibold text-white">{focusedSelectedPrice != null ? formatCurrency(focusedSelectedPrice) : "—"}</p>
             </div>
@@ -389,37 +372,38 @@ const ClientProject = () => {
           </div>
         </div>
 
-        <Collapsible defaultOpen>
-          <div className="rounded-lg border border-white/10 bg-black/20">
-            <CollapsibleTrigger className="flex w-full items-center justify-between px-5 py-4 text-left">
-              <div>
-                <p className="text-sm font-medium text-white">Project</p>
-                <p className="mt-1 text-xs text-white/45">Context for the current project and ledger selection.</p>
-              </div>
-              <ChevronRight className="h-4 w-4 text-white/45" />
-            </CollapsibleTrigger>
-            <CollapsibleContent className="space-y-4 border-t border-white/10 px-5 py-4">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Project</p>
-                  <p className="mt-2 text-white">{projectQuery.data?.name ?? "Project"}</p>
-                </div>
-                <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Created</p>
-                  <p className="mt-2 text-white">{formatDateLabel(focusedJob.created_at)}</p>
-                </div>
-                <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">CAD</p>
-                  <p className="mt-2 text-white">{focusedWorkspaceItem.part?.cadFile ? "Attached" : "Missing"}</p>
-                </div>
-                <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">DWG</p>
-                  <p className="mt-2 text-white">{focusedWorkspaceItem.part?.drawingFile ? "Attached" : "Missing"}</p>
-                </div>
-              </div>
-            </CollapsibleContent>
+        <ClientDrawingPreviewPanel
+          drawingFile={focusedWorkspaceItem.part?.drawingFile ?? null}
+          drawingPreview={focusedWorkspaceItem.drawingPreview}
+          className="rounded-lg"
+        />
+
+        <ClientCadPreviewPanel
+          cadFile={focusedWorkspaceItem.part?.cadFile ?? null}
+          className="rounded-lg"
+        />
+
+        <section className="rounded-lg border border-white/10 bg-black/20 p-5">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-white/35">Quotes</p>
+            <p className="mt-2 text-sm text-white/55">
+              Compare vendor offers here and select the quote to keep without leaving the project ledger.
+            </p>
           </div>
-        </Collapsible>
+          <div className="mt-4">
+            {focusedQuoteOptions.length > 0 ? (
+              <QuoteChart
+                quotes={focusedQuoteOptions}
+                selectedOfferId={focusedSelectedOfferId}
+                onSelect={handleInspectorQuoteSelect}
+              />
+            ) : (
+              <div className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-5 text-sm text-white/45">
+                No plottable quote offers are available for this part yet.
+              </div>
+            )}
+          </div>
+        </section>
       </div>
     );
   };
