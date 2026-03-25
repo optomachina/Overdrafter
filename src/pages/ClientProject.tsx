@@ -59,7 +59,6 @@ import {
   useClientProjectController,
 } from "@/features/quotes/use-client-project-controller";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
-import { buildProjectAssigneeBadgeModel } from "@/features/quotes/project-assignee";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import { formatStatusLabel } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
@@ -90,7 +89,6 @@ function formatDateLabel(value: string | null | undefined) {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
-    year: "numeric",
   }).format(new Date(parsed));
 }
 
@@ -156,13 +154,9 @@ const ClientProject = () => {
     prefetchProject,
     projectCollaborationUnavailable,
     projectId,
-    projectAssigneeLookupFailed,
-    projectAssigneeLookupReady,
     projectInvitesQuery,
-    projectAssigneesByUserId,
     projectJobs,
     projectJobsQuery,
-    projectJobMembershipsByCompositeKey,
     projectMembershipsQuery,
     projectName,
     projectQuery,
@@ -757,7 +751,7 @@ const ClientProject = () => {
             </div>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="flex flex-col gap-6">
             <div className="space-y-4">
               <div className="rounded-surface-lg border border-ws-border-subtle bg-ws-card p-4">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -831,28 +825,25 @@ const ClientProject = () => {
                 ) : filteredJobs.length === 0 ? (
                   <div className="px-6 py-12 text-center text-white/45">No parts match the current project filter.</div>
                 ) : (
-                  <Table className="min-w-[1040px] table-fixed text-white">
+                  <Table className="w-full table-fixed text-white">
                     <TableHeader>
                       <TableRow className="border-white/[0.04] bg-white/[0.02] hover:bg-white/[0.02]">
-                        <TableHead className="w-[19%] px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                        <TableHead className="w-[180px] px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
                           Part
                         </TableHead>
-                        <TableHead className="w-[24%] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                        <TableHead className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
                           Description
                         </TableHead>
-                        <TableHead className="w-[120px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
-                          Assignee
-                        </TableHead>
-                        <TableHead className="w-[88px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                        <TableHead className="w-[64px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
                           CAD
                         </TableHead>
-                        <TableHead className="w-[88px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                        <TableHead className="w-[64px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
                           DWG
                         </TableHead>
-                        <TableHead className="w-[18%] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                        <TableHead className="w-[160px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
                           Quote
                         </TableHead>
-                        <TableHead className="w-[140px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
+                        <TableHead className="w-[90px] px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
                           Created
                         </TableHead>
                         <TableHead className="w-[120px] px-5 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
@@ -880,15 +871,6 @@ const ClientProject = () => {
                         quoteRequestViewModel &&
                         !quoteRequestViewModel.action.disabled &&
                         (quoteRequestViewModel.action.kind === "request" || quoteRequestViewModel.action.kind === "retry");
-                      // Until a dedicated part assignee field exists, the ledger uses the
-                      // project-scoped creator on project_jobs as the narrowest ownership signal.
-                      const projectJobMembership = projectJobMembershipsByCompositeKey?.get(`${projectId}:${job.id}`) ?? null;
-                      const assigneeProfile =
-                        projectJobMembership?.created_by
-                          ? projectAssigneesByUserId?.get(projectJobMembership.created_by) ?? null
-                          : null;
-                      const assignee = buildProjectAssigneeBadgeModel(assigneeProfile);
-
                       return (
                         <TableRow
                           key={job.id}
@@ -910,48 +892,26 @@ const ClientProject = () => {
                         >
                           <TableCell className="px-5 py-3">
                             <div className="min-w-0">
-                            <p className="truncate text-[13px] font-medium text-white">{presentation.title}</p>
-                            <p className="text-[11px] text-white/45">{summary?.revision ? `Rev ${summary.revision}` : "No revision"}</p>
+                              <p className="truncate text-[13px] font-medium text-white">{presentation.title}</p>
+                              <p className="text-[11px] text-white/45">{summary?.revision ? `Rev ${summary.revision}` : "No revision"}</p>
                             </div>
                           </TableCell>
-                          <TableCell className="px-4 py-3">
-                            <div className="min-w-0 pr-4">
+                          <TableCell className="min-w-0 px-4 py-3">
                             <p className="truncate text-[13px] text-white/65">{presentation.description}</p>
-                            </div>
                           </TableCell>
                           <TableCell className="px-4 py-3">
-                            {!projectAssigneeLookupReady && !projectAssigneeLookupFailed ? (
-                              <span className="text-[12px] text-white/35">Loading</span>
-                            ) : projectAssigneeLookupFailed ? (
-                              <span className="text-[12px] text-white/35">Unavailable</span>
-                            ) : assignee.isUnassigned || !assignee.initials ? (
-                              <span className="text-[12px] text-white/45">Unassigned</span>
+                            {workspaceItem?.part?.cadFile ? (
+                              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" aria-label="CAD file present" />
                             ) : (
-                              <div
-                                className="flex items-center"
-                                title={assignee.displayName}
-                                aria-label={`Assignee: ${assignee.displayName}`}
-                              >
-                                <span
-                                  className={cn(
-                                    "inline-flex h-8 w-8 items-center justify-center rounded-full border text-[11px] font-semibold tracking-[0.08em]",
-                                    assignee.colorClassName,
-                                  )}
-                                >
-                                  {assignee.initials}
-                                </span>
-                              </div>
+                              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-white/15" aria-label="No CAD file" />
                             )}
                           </TableCell>
                           <TableCell className="px-4 py-3">
-                            <Badge className="border border-white/10 bg-white/6 text-white/70">
-                              {workspaceItem?.part?.cadFile ? "Yes" : "No"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="px-4 py-3">
-                            <Badge className="border border-white/10 bg-white/6 text-white/70">
-                              {workspaceItem?.part?.drawingFile ? "Yes" : "No"}
-                            </Badge>
+                            {workspaceItem?.part?.drawingFile ? (
+                              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" aria-label="Drawing file present" />
+                            ) : (
+                              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-white/15" aria-label="No drawing file" />
+                            )}
                           </TableCell>
                           <TableCell className="px-4 py-3">
                             <Badge className={quoteStatusClassName}>{quoteStatusLabel}</Badge>
@@ -1003,12 +963,13 @@ const ClientProject = () => {
               </div>
             </div>
 
-            {!isMobile && desktopInspectorOpen ? (
-              <aside className="xl:sticky xl:top-4 xl:self-start">
-                {renderInspectorContent()}
-              </aside>
-            ) : null}
           </div>
+
+          {!isMobile && desktopInspectorOpen ? (
+            <aside>
+              {renderInspectorContent()}
+            </aside>
+          ) : null}
         </div>
       </ClientWorkspaceShell>
 

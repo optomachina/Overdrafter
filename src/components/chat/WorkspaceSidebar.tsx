@@ -476,9 +476,9 @@ export function WorkspaceSidebar({
   const visibleParts = useMemo(
     () =>
       filters.show === "relevant"
-        ? sortedJobs(ungroupedJobs.filter((job) => pinnedPartSet.has(job.id)))
-        : sortedJobs(ungroupedJobs),
-    [filters.show, pinnedPartSet, sortedJobs, ungroupedJobs],
+        ? sortedJobs(jobs.filter((job) => pinnedPartSet.has(job.id)))
+        : sortedJobs(jobs),
+    [filters.show, jobs, pinnedPartSet, sortedJobs],
   );
 
   const selectionOrderJobIds = useMemo(() => visibleParts.map((job) => job.id), [visibleParts]);
