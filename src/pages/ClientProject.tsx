@@ -4,7 +4,6 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
-  MoveRight,
   PlusSquare,
   Search as SearchIcon,
   X,
@@ -17,12 +16,6 @@ import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
-import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtractionStatusNotice";
-import { ClientPartRequestEditor } from "@/components/quotes/ClientPartRequestEditor";
-import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
-import {
-  ClientQuoteRequestStatusCard,
-} from "@/components/quotes/ClientWorkspacePanelContent";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,7 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import {
   Dialog,
@@ -114,8 +107,6 @@ const ClientProject = () => {
     focusedDraft,
     focusedJob,
     focusedJobId,
-    focusedQuoteOptions,
-    focusedQuoteQuantityInput,
     focusedSelectedOption,
     focusedSummary,
     focusedWorkspaceItem,
@@ -133,14 +124,10 @@ const ClientProject = () => {
     handleOpenJobDrawer,
     handlePinPart,
     handlePinProject,
-    handleQuoteQuantityInputChange,
     handleRemovePartFromProject,
     handleRemoveProjectMember,
     handleRenameProject,
     handleRequestProjectQuotes,
-    handleRequestDraftChange,
-    handleSaveRequest,
-    handleToggleVendorExclusion,
     handleUnarchivePart,
     handleUnpinPart,
     handleUnpinProject,
@@ -154,20 +141,15 @@ const ClientProject = () => {
     prefetchProject,
     projectCollaborationUnavailable,
     projectId,
-    projectAssigneeLookupFailed,
-    projectAssigneeLookupReady,
     projectInvitesQuery,
-    projectAssigneesByUserId,
     projectJobs,
     projectJobsQuery,
-    projectJobMembershipsByCompositeKey,
     projectMembershipsQuery,
     projectName,
     projectQuery,
     projectWorkspaceItemsQuery,
     resolveSidebarProjectIdsForJob,
     search,
-    saveRequestMutation,
     requestProjectQuotesMutation,
     setActiveFilter,
     isSearchOpen,
@@ -233,9 +215,6 @@ const ClientProject = () => {
       ),
     [projectJobs, workspaceItemsByJobId],
   );
-  const focusedQuoteRequestViewModel = focusedJob
-    ? quoteRequestViewModelsByJobId.get(focusedJob.id) ?? null
-    : null;
   const projectRequestableJobIds = useMemo(
     () =>
       projectJobs
@@ -286,11 +265,7 @@ const ClientProject = () => {
     focusedJob && focusedSummary ? getClientItemPresentation(focusedJob, focusedSummary) : focusedJob
       ? getClientItemPresentation(focusedJob, null)
       : null;
-  const focusedRequestedByDate =
-    focusedDraft?.requestedByDate ?? focusedSummary?.requestedByDate ?? focusedWorkspaceItem?.job.requested_by_date ?? null;
   const focusedQuantity = focusedDraft?.quantity ?? focusedSummary?.quantity ?? null;
-  const focusedRequestedQuoteQuantities =
-    focusedDraft?.requestedQuoteQuantities ?? focusedSummary?.requestedQuoteQuantities ?? [];
   const focusedProperties = focusedWorkspaceItem?.part?.approvedRequirement ?? null;
   const focusedSelectedPrice = focusedSelectedOption?.totalPriceUsd ?? focusedSummary?.selectedPriceUsd ?? null;
   const focusedSelectedLeadTime =
@@ -354,185 +329,65 @@ const ClientProject = () => {
       );
     }
 
-    const visibleOptions = focusedQuoteOptions.slice(0, 4);
-
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-white/10 bg-black/20 p-5">
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Selected part</p>
-              <h2 className="mt-2 text-lg font-semibold text-white">{focusedPresentation.title}</h2>
-              <p className="mt-2 text-sm text-white/55">{focusedPresentation.description}</p>
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-base font-semibold text-white">{focusedPresentation.title}</h2>
+              {focusedPresentation.description ? (
+                <p className="mt-1 line-clamp-2 text-xs text-white/45">{focusedPresentation.description}</p>
+              ) : null}
             </div>
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="h-8 w-8 rounded-full text-white/60 hover:bg-white/8 hover:text-white"
+              className="h-7 w-7 shrink-0 rounded-full text-white/40 hover:bg-white/8 hover:text-white"
               onClick={handleClearFocusedJob}
               aria-label="Clear selected part"
             >
-              <X className="h-4 w-4" />
+              <X className="h-3.5 w-3.5" />
             </Button>
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Badge className="border border-white/10 bg-white/6 text-white/70">
-              {formatStatusLabel(focusedJob.status)}
-            </Badge>
-            {focusedSelectedOption ? (
-              <Badge className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">
-                {focusedSelectedOption.vendorLabel}
-              </Badge>
-            ) : null}
-            <Badge className="border border-white/10 bg-white/6 text-white/70">
-              Created {formatDateLabel(focusedJob.created_at)}
-            </Badge>
-          </div>
-
-          <RequestSummaryBadges
-            requestedServiceKinds={focusedDraft?.requestedServiceKinds ?? focusedSummary?.requestedServiceKinds ?? []}
-            quantity={focusedQuantity}
-            requestedQuoteQuantities={focusedRequestedQuoteQuantities}
-            requestedByDate={focusedRequestedByDate}
-            className="mt-4"
-          />
-
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Selected quote</p>
-              <p className="mt-2 text-lg font-semibold text-white">{formatCurrency(focusedSelectedPrice)}</p>
+          <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-white/8 bg-white/8">
+            <div className="bg-black/40 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Part no.</p>
+              <p className="mt-1 text-sm font-medium text-white">{propertyValue(focusedProperties?.part_number ?? focusedSummary?.partNumber)}</p>
             </div>
-            <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Lead time</p>
-              <p className="mt-2 text-lg font-semibold text-white">
-                {typeof focusedSelectedLeadTime === "number" ? `${focusedSelectedLeadTime} days` : "Unknown"}
+            <div className="bg-black/40 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Rev</p>
+              <p className="mt-1 text-sm font-medium text-white">{propertyValue(focusedProperties?.revision ?? focusedSummary?.revision)}</p>
+            </div>
+            <div className="bg-black/40 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Material</p>
+              <p className="mt-1 text-sm font-medium text-white">{propertyValue(focusedProperties?.material)}</p>
+            </div>
+            <div className="bg-black/40 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Finish</p>
+              <p className="mt-1 text-sm font-medium text-white">{propertyValue(focusedProperties?.finish)}</p>
+            </div>
+            <div className="bg-black/40 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Qty</p>
+              <p className="mt-1 text-sm font-medium text-white">{propertyValue(focusedQuantity)}</p>
+            </div>
+            <div className="bg-black/40 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Status</p>
+              <p className="mt-1 text-sm font-medium text-white">{formatStatusLabel(focusedJob.status)}</p>
+            </div>
+            <div className="bg-black/40 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Selected quote</p>
+              <p className="mt-1 text-sm font-semibold text-white">{focusedSelectedPrice != null ? formatCurrency(focusedSelectedPrice) : "—"}</p>
+            </div>
+            <div className="bg-black/40 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Lead time</p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {typeof focusedSelectedLeadTime === "number" ? `${focusedSelectedLeadTime}d` : "—"}
               </p>
             </div>
           </div>
-
-          <Button
-            type="button"
-            className="mt-4 w-full rounded-full"
-            onClick={() => navigate(`/parts/${focusedJob.id}`)}
-          >
-            Open full part workspace
-            <MoveRight className="ml-2 h-4 w-4" />
-          </Button>
         </div>
-
-        <ClientExtractionStatusNotice diagnostics={focusedWorkspaceItem.part?.clientExtraction ?? null} />
-
-        {focusedQuoteRequestViewModel ? (
-          <ClientQuoteRequestStatusCard
-            status={focusedQuoteRequestViewModel.status}
-            tone={focusedQuoteRequestViewModel.tone}
-            label={focusedQuoteRequestViewModel.label}
-            detail={focusedQuoteRequestViewModel.detail}
-            actionLabel={focusedQuoteRequestViewModel.action.label}
-            actionDisabled={focusedQuoteRequestViewModel.action.disabled || isCancelingQuoteRequest}
-            blockerReasons={focusedQuoteRequestViewModel.blockerReasons}
-            isBusy={requestProjectQuotesMutation.isPending || isCancelingQuoteRequest}
-            onAction={
-              focusedQuoteRequestViewModel.action.kind === "none"
-                ? null
-                : () => {
-                    if (focusedQuoteRequestViewModel.action.kind === "cancel") {
-                      setShowCancelRequestDialog(true);
-                      return;
-                    }
-
-                    void handleRequestProjectQuotes(
-                      [focusedJob.id],
-                      focusedQuoteRequestViewModel.action.kind === "retry",
-                    );
-                  }
-            }
-          />
-        ) : null}
-
-        {visibleOptions.length > 0 ? (
-          <div className="rounded-lg border border-white/10 bg-black/20 p-5">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Vendor visibility</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {visibleOptions.map((option) => (
-                <Button
-                  key={`${focusedJob.id}:${option.key}`}
-                  type="button"
-                  variant="outline"
-                  className={cn(
-                    "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
-                    option.excluded && "border-amber-400/20 bg-amber-500/10 text-amber-100 hover:bg-amber-500/15",
-                  )}
-                  onClick={() => handleToggleVendorExclusion(focusedJob.id, option.vendorKey, !option.excluded)}
-                >
-                  {option.excluded ? `Include ${option.vendorLabel}` : `Exclude ${option.vendorLabel}`}
-                </Button>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        <Collapsible defaultOpen>
-          <div className="rounded-lg border border-white/10 bg-black/20">
-            <CollapsibleTrigger className="flex w-full items-center justify-between px-5 py-4 text-left">
-              <div>
-                <p className="text-sm font-medium text-white">Properties</p>
-                <p className="mt-1 text-xs text-white/45">Selected-part metadata and request details.</p>
-              </div>
-              <ChevronRight className="h-4 w-4 text-white/45" />
-            </CollapsibleTrigger>
-            <CollapsibleContent className="space-y-4 border-t border-white/10 px-5 py-4">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Part number</p>
-                  <p className="mt-2 text-white">{propertyValue(focusedProperties?.part_number ?? focusedSummary?.partNumber)}</p>
-                </div>
-                <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Revision</p>
-                  <p className="mt-2 text-white">{propertyValue(focusedProperties?.revision ?? focusedSummary?.revision)}</p>
-                </div>
-                <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Material</p>
-                  <p className="mt-2 text-white">{propertyValue(focusedProperties?.material)}</p>
-                </div>
-                <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Finish</p>
-                  <p className="mt-2 text-white">{propertyValue(focusedProperties?.finish)}</p>
-                </div>
-                <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Qty</p>
-                  <p className="mt-2 text-white">{propertyValue(focusedQuantity)}</p>
-                </div>
-                <div className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Updated</p>
-                  <p className="mt-2 text-white">{formatDateLabel(focusedWorkspaceItem.part?.updated_at ?? focusedJob.updated_at)}</p>
-                </div>
-              </div>
-
-              {focusedDraft ? (
-                <div className="rounded-lg border border-white/8 bg-white/[0.03] p-4">
-                  <p className="text-sm font-medium text-white">Request details</p>
-                  <p className="mt-1 text-xs text-white/45">
-                    Quote-safe request editing stays available in the inspector while the deep artifact workspace remains on the part route.
-                  </p>
-                  <div className="mt-4">
-                    <ClientPartRequestEditor
-                      draft={focusedDraft}
-                      quoteQuantityInput={focusedQuoteQuantityInput}
-                      onQuoteQuantityInputChange={(value) => handleQuoteQuantityInputChange(focusedJob.id, value)}
-                      onChange={(next) => handleRequestDraftChange(focusedJob.id, next)}
-                      onSave={() => handleSaveRequest(focusedJob.id)}
-                      onUploadRevision={attachFilesPicker.openFilePicker}
-                      isSaving={saveRequestMutation.isPending}
-                    />
-                  </div>
-                </div>
-              ) : null}
-            </CollapsibleContent>
-          </div>
-        </Collapsible>
 
         <Collapsible defaultOpen>
           <div className="rounded-lg border border-white/10 bg-black/20">
@@ -829,7 +684,7 @@ const ClientProject = () => {
                 ) : filteredJobs.length === 0 ? (
                   <div className="px-6 py-12 text-center text-white/45">No parts match the current project filter.</div>
                 ) : (
-                  <Table className="w-full table-fixed text-white">
+                  <Table className="w-full text-white">
                     <TableBody>
                       {filteredJobs.map((job) => {
                       const workspaceItem = workspaceItemsByJobId.get(job.id) ?? null;
@@ -869,36 +724,32 @@ const ClientProject = () => {
                           tabIndex={0}
                           aria-label={`Open ${presentation.title} line item`}
                         >
-                          <TableCell className="w-[20%] px-5 py-3">
-                            <div className="min-w-0">
+                          <TableCell className="w-[1%] max-w-[200px] px-5 py-2.5">
                             <p className="truncate text-[13px] font-medium text-white">{presentation.title}</p>
-                            </div>
                           </TableCell>
-                          <TableCell className="w-[30%] px-4 py-3">
-                            <div className="min-w-0 pr-4">
+                          <TableCell className="px-4 py-2.5">
                             <p className="truncate text-[13px] text-white/65">{presentation.description}</p>
-                            </div>
                           </TableCell>
-                          <TableCell className="w-[80px] px-4 py-3 text-[13px] text-white/45">
+                          <TableCell className="w-px whitespace-nowrap pl-8 pr-2 py-2.5 text-[13px] text-white/45">
                             {summary?.revision ? `Rev ${summary.revision}` : null}
                           </TableCell>
-                          <TableCell className="w-[72px] px-4 py-3">
+                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
                             <Badge className={workspaceItem?.part?.cadFile ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300" : "border border-white/10 bg-white/6 text-white/30"}>
                               CAD
                             </Badge>
                           </TableCell>
-                          <TableCell className="w-[72px] px-4 py-3">
+                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
                             <Badge className={workspaceItem?.part?.drawingFile ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300" : "border border-white/10 bg-white/6 text-white/30"}>
                               DWG
                             </Badge>
                           </TableCell>
-                          <TableCell className="w-[15%] px-4 py-3">
+                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
                             <Badge className={quoteStatusClassName}>{quoteStatusLabel}</Badge>
                           </TableCell>
-                          <TableCell className="w-[72px] whitespace-nowrap px-4 py-3 text-[13px] text-white/55">
+                          <TableCell className={cn("w-px whitespace-nowrap py-2.5 text-[13px] text-white/55", canTriggerRequest ? "px-2" : "pl-2 pr-5")}>
                             {formatDateLabel(job.created_at)}
                           </TableCell>
-                          <TableCell className="w-[100px] px-5 py-3 text-right">
+                          <TableCell className="w-px whitespace-nowrap pl-2 pr-5 py-2.5 text-right">
                             {canTriggerRequest ? (
                               <Button
                                 type="button"
