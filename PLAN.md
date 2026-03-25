@@ -24,7 +24,7 @@ Operational workflow alignment:
 - [x] add dead-task reaper to worker — `reapStaleTasks()` in `worker/src/queue.ts`, called every 60s from main loop
 - [x] add `canceled` state test to `src/features/quotes/quote-request.test.ts`
 - [x] fix duplicate migration timestamps — renamed `20260323190000_add_quote_request_cancellation.sql` → `20260323190001_*`
-- [ ] regenerate Supabase types to include `api_cancel_quote_request` (requires `supabase db diff` / `supabase gen types`) — see TODO-010b
+- [x] regenerate Supabase types to include `api_cancel_quote_request` (manually added to types.ts; `callUntypedRpc` → `callRpc`) — TODO-010 done
 
 ### Phase 2 — Multi-vendor quote fan-out + service-request line-item model
 

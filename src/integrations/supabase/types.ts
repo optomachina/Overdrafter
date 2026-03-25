@@ -1115,6 +1115,12 @@ export type Database = {
         };
         Returns: string;
       };
+      api_cancel_quote_request: {
+        Args: {
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
       api_request_quote: {
         Args: {
           p_job_id: string;

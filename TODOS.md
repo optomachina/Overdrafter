@@ -69,7 +69,7 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 ---
 
-## TODO-010: Regenerate Supabase types to include `api_cancel_quote_request` ✳️ NEXT
+## TODO-010: Regenerate Supabase types to include `api_cancel_quote_request` ✅ DONE
 
 **What:** Run `supabase gen types typescript --project-id <id>` (or `supabase db diff` → `supabase gen types`) to regenerate `src/integrations/supabase/types.ts`. Once `api_cancel_quote_request` appears in `Database["public"]["Functions"]`, replace `callUntypedRpc` with `callRpc` in `src/features/quotes/api/quote-requests-api.ts:82`.
 
