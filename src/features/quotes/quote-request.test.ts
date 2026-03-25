@@ -190,7 +190,7 @@ describe("buildQuoteRequestViewModel", () => {
       part: makePart(),
       latestQuoteRequest: makeRequest({
         status: "failed",
-        failure_reason: "Xometry could not return an automated quote and needs manual follow-up.",
+        failure_reason: "Configured vendors could not return an automated quote and need manual follow-up.",
       }),
       latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "completed" }),
     });
@@ -210,12 +210,26 @@ describe("buildQuoteRequestViewModel", () => {
       part: makePart(),
       latestQuoteRequest: makeRequest({
         status: "failed",
+        failure_reason: "Quote collection failed before a usable vendor response was received.",
+      }),
+      latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "failed" }),
+    });
+
+    expect(model.detail).toBe("Quote collection failed before a usable vendor response was received.");
+  });
+
+  it("normalizes legacy xometry-safe failure reasons into vendor-neutral copy", () => {
+    const model = buildQuoteRequestViewModel({
+      job: makeJob(),
+      part: makePart(),
+      latestQuoteRequest: makeRequest({
+        status: "failed",
         failure_reason: "Xometry quote collection failed before a usable response was received.",
       }),
       latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "failed" }),
     });
 
-    expect(model.detail).toBe("Xometry quote collection failed before a usable response was received.");
+    expect(model.detail).toBe("Quote collection failed before a usable vendor response was received.");
   });
 
   it("replaces unsafe failure reasons with the generic client-safe fallback", () => {
@@ -229,7 +243,7 @@ describe("buildQuoteRequestViewModel", () => {
       latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "failed" }),
     });
 
-    expect(model.detail).toBe("Quote collection did not return a usable Xometry response.");
+    expect(model.detail).toBe("Quote collection did not return a usable vendor response.");
   });
 
   it("replaces blank failure reasons with the generic client-safe fallback", () => {
@@ -243,7 +257,28 @@ describe("buildQuoteRequestViewModel", () => {
       latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "failed" }),
     });
 
-    expect(model.detail).toBe("Quote collection did not return a usable Xometry response.");
+    expect(model.detail).toBe("Quote collection did not return a usable vendor response.");
+  });
+
+  it("blocks requests when no applicable vendors remain on the approved requirement", () => {
+    const defaultPart = makePart();
+    const model = buildQuoteRequestViewModel({
+      job: makeJob(),
+      part: makePart({
+        approvedRequirement: {
+          ...defaultPart.approvedRequirement,
+          applicable_vendors: [],
+        },
+      }),
+      latestQuoteRequest: null,
+      latestQuoteRun: null,
+    });
+
+    expect(model.tone).toBe("blocked");
+    expect(model.blockerReasons).toContain(
+      "No enabled vendors are available for this part in its current package state.",
+    );
+    expect(model.action.disabled).toBe(true);
   });
 
   it("surfaces the canceled state with a retry action", () => {

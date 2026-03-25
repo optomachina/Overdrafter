@@ -117,6 +117,6 @@ describe("activity log mapping", () => {
       label: "Quote request accepted",
       tone: "active",
     });
-    expect(entries[0]?.detail).toContain("queued for Xometry");
+    expect(entries[0]?.detail).toContain("queued for vendor quote collection");
   });
 });

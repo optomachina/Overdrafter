@@ -83,6 +83,7 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 ### Client-triggered quote request changes
 - validate request gating and lifecycle rendering in client part and project workspace tests
 - validate RPC behavior for single-part and bulk quote requests
+- validate `requestedVendors` semantics for multi-vendor fan-out and `no_enabled_vendors` blockers
 - validate authorization and idempotency outcomes
 - validate per-user rate-limit blockers and org-level pending-cost ceiling blockers
 - validate worker- or queue-adjacent state transitions where the request lifecycle depends on asynchronous vendor updates

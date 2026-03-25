@@ -3161,7 +3161,7 @@ describe("quotes api helpers", () => {
         status: "queued",
         reasonCode: null,
         reason: null,
-        requestedVendors: ["xometry"],
+        requestedVendors: ["xometry", "fictiv", "protolabs"],
       },
       error: null,
     });
@@ -3192,7 +3192,7 @@ describe("quotes api helpers", () => {
         status: "not_requested",
         reasonCode: "rate_limited_user",
         reason: "You have reached the quote request limit for now. Try again later or contact your estimator.",
-        requestedVendors: ["xometry"],
+        requestedVendors: ["xometry", "fictiv", "protolabs"],
       },
       error: null,
     });
@@ -3201,6 +3201,32 @@ describe("quotes api helpers", () => {
       jobId: "job-1",
       accepted: false,
       reasonCode: "rate_limited_user",
+    });
+  });
+
+  it("accepts no-enabled-vendors blockers from the rpc", async () => {
+    supabaseMock.rpc.mockResolvedValue({
+      data: {
+        jobId: "job-1",
+        accepted: false,
+        created: false,
+        deduplicated: false,
+        quoteRequestId: null,
+        quoteRunId: null,
+        serviceRequestLineItemId: null,
+        status: "not_requested",
+        reasonCode: "no_enabled_vendors",
+        reason: "No enabled vendors are available for this part in its current package state.",
+        requestedVendors: [],
+      },
+      error: null,
+    });
+
+    await expect(requestQuote("job-1")).resolves.toMatchObject({
+      jobId: "job-1",
+      accepted: false,
+      reasonCode: "no_enabled_vendors",
+      requestedVendors: [],
     });
   });
 
@@ -3218,7 +3244,7 @@ describe("quotes api helpers", () => {
           status: "queued",
           reasonCode: null,
           reason: null,
-          requestedVendors: ["xometry"],
+          requestedVendors: ["xometry", "fictiv", "protolabs"],
         },
         {
           jobId: "job-2",
@@ -3230,8 +3256,8 @@ describe("quotes api helpers", () => {
           serviceRequestLineItemId: null,
           status: "not_requested",
           reasonCode: "missing_cad",
-          reason: "Upload a CAD model before requesting a quote from Xometry.",
-          requestedVendors: ["xometry"],
+          reason: "Upload a CAD model before requesting a quote.",
+          requestedVendors: ["xometry", "fictiv", "protolabs"],
         },
       ],
       error: null,
@@ -3249,7 +3275,7 @@ describe("quotes api helpers", () => {
         status: "queued",
         reasonCode: null,
         reason: null,
-        requestedVendors: ["xometry"],
+        requestedVendors: ["xometry", "fictiv", "protolabs"],
       },
       {
         jobId: "job-2",
@@ -3261,8 +3287,8 @@ describe("quotes api helpers", () => {
         serviceRequestLineItemId: null,
         status: "not_requested",
         reasonCode: "missing_cad",
-        reason: "Upload a CAD model before requesting a quote from Xometry.",
-        requestedVendors: ["xometry"],
+        reason: "Upload a CAD model before requesting a quote.",
+        requestedVendors: ["xometry", "fictiv", "protolabs"],
       },
     ]);
 
@@ -3285,8 +3311,8 @@ describe("quotes api helpers", () => {
           serviceRequestLineItemId: null,
           status: "not_requested",
           reasonCode: "org_cost_ceiling_reached",
-          reason: "Quote requests are temporarily paused for this workspace while current Xometry requests are still in flight.",
-          requestedVendors: ["xometry"],
+          reason: "Quote requests are temporarily paused for this workspace while current vendor quote requests are still in flight.",
+          requestedVendors: ["xometry", "fictiv", "protolabs"],
         },
       ],
       error: null,
@@ -3303,8 +3329,8 @@ describe("quotes api helpers", () => {
         serviceRequestLineItemId: null,
         status: "not_requested",
         reasonCode: "org_cost_ceiling_reached",
-        reason: "Quote requests are temporarily paused for this workspace while current Xometry requests are still in flight.",
-        requestedVendors: ["xometry"],
+        reason: "Quote requests are temporarily paused for this workspace while current vendor quote requests are still in flight.",
+        requestedVendors: ["xometry", "fictiv", "protolabs"],
       },
     ]);
   });

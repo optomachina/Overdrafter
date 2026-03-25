@@ -96,6 +96,23 @@ export type Database = {
         };
         Update: Partial<Database["public"]["Tables"]["organization_memberships"]["Insert"]>;
       };
+      org_vendor_configs: {
+        Row: {
+          organization_id: string;
+          vendor: VendorName;
+          enabled_for_client_quote_requests: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          organization_id: string;
+          vendor: VendorName;
+          enabled_for_client_quote_requests?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["org_vendor_configs"]["Insert"]>;
+      };
       projects: {
         Row: BaseRow & {
           organization_id: string;
@@ -1128,6 +1145,12 @@ export type Database = {
           p_force_retry?: boolean;
         };
         Returns: Json;
+      };
+      get_enabled_client_quote_vendors: {
+        Args: {
+          p_organization_id: string;
+        };
+        Returns: VendorName[];
       };
       api_get_quote_run_readiness: {
         Args: {

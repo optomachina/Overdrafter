@@ -4,19 +4,36 @@ import type {
   QuoteRequestRecord,
   QuoteRunRecord,
 } from "@/features/quotes/types";
-import type {
-  JobRecord,
-} from "@/features/quotes/types";
+import type { JobRecord } from "@/features/quotes/types";
 
 export type QuoteRequestActionKind = "request" | "retry" | "cancel" | "none";
 
 const GENERIC_QUOTE_REQUEST_FAILURE_REASON =
-  "Quote collection did not return a usable Xometry response.";
+  "Quote collection did not return a usable vendor response.";
+
+const LEGACY_CLIENT_SAFE_FAILURE_REASONS = new Map([
+  [
+    "Xometry could not return an automated quote and needs manual follow-up.",
+    "Configured vendors could not return an automated quote and need manual follow-up.",
+  ],
+  [
+    "Xometry quote collection failed before a usable response was received.",
+    "Quote collection failed before a usable vendor response was received.",
+  ],
+  [
+    "Quote collection ended without a usable Xometry response.",
+    "Quote collection ended without a usable vendor response.",
+  ],
+  [
+    "Quote collection did not return a usable Xometry response.",
+    GENERIC_QUOTE_REQUEST_FAILURE_REASON,
+  ],
+]);
 
 const CLIENT_SAFE_FAILURE_REASONS = new Set([
-  "Xometry could not return an automated quote and needs manual follow-up.",
-  "Xometry quote collection failed before a usable response was received.",
-  "Quote collection ended without a usable Xometry response.",
+  "Configured vendors could not return an automated quote and need manual follow-up.",
+  "Quote collection failed before a usable vendor response was received.",
+  "Quote collection ended without a usable vendor response.",
   GENERIC_QUOTE_REQUEST_FAILURE_REASON,
 ]);
 
@@ -73,8 +90,8 @@ function buildBlockerReasons(input: {
     return reasons;
   }
 
-  if (!requirement.applicable_vendors.includes("xometry")) {
-    reasons.push("Xometry is not available for this part in its current package state.");
+  if (requirement.applicable_vendors.length === 0) {
+    reasons.push("No enabled vendors are available for this part in its current package state.");
   }
 
   if (
@@ -149,8 +166,10 @@ function sanitizeClientFailureReason(failureReason: string | null | undefined) {
     return GENERIC_QUOTE_REQUEST_FAILURE_REASON;
   }
 
-  return CLIENT_SAFE_FAILURE_REASONS.has(trimmedReason)
-    ? trimmedReason
+  const normalizedReason = LEGACY_CLIENT_SAFE_FAILURE_REASONS.get(trimmedReason) ?? trimmedReason;
+
+  return CLIENT_SAFE_FAILURE_REASONS.has(normalizedReason)
+    ? normalizedReason
     : GENERIC_QUOTE_REQUEST_FAILURE_REASON;
 }
 
@@ -173,7 +192,7 @@ export function buildQuoteRequestViewModel(input: {
         status,
         tone: "warning",
         label: requestStatusLabel(status),
-        detail: "Your quote request was accepted and is queued for the worker.",
+        detail: "Your quote request was accepted and is queued for vendor quote collection.",
         action: {
           kind: "cancel",
           label: "Cancel request",
@@ -186,7 +205,7 @@ export function buildQuoteRequestViewModel(input: {
         status,
         tone: "warning",
         label: requestStatusLabel(status),
-        detail: "Xometry quote collection is in progress for the current package.",
+        detail: "Vendor quote collection is in progress for the current package.",
         action: {
           kind: "cancel",
           label: "Cancel request",
@@ -242,7 +261,7 @@ export function buildQuoteRequestViewModel(input: {
         detail:
           blockerReasons.length > 0
             ? blockerReasons[0]!
-            : "Request a quote to send this part to Xometry.",
+            : "Request a quote to start vendor quote collection for this part.",
         action: {
           kind: "request",
           label: "Request quote",

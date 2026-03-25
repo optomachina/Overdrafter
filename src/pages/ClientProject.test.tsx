@@ -459,7 +459,7 @@ describe("ClientProject", () => {
         status: "queued",
         reasonCode: null,
         reason: null,
-        requestedVendors: ["xometry"],
+        requestedVendors: ["xometry", "fictiv", "protolabs"],
       },
     ]);
     api.cancelQuoteRequest.mockResolvedValue({
@@ -549,7 +549,7 @@ describe("ClientProject", () => {
         status: "queued",
         reasonCode: null,
         reason: null,
-        requestedVendors: ["xometry"],
+        requestedVendors: ["xometry", "fictiv", "protolabs"],
       },
       {
         jobId: "job-2",
@@ -561,8 +561,8 @@ describe("ClientProject", () => {
         serviceRequestLineItemId: null,
         status: "not_requested",
         reasonCode: "org_cost_ceiling_reached",
-        reason: "Quote requests are temporarily paused for this workspace while current Xometry requests are still in flight.",
-        requestedVendors: ["xometry"],
+        reason: "Quote requests are temporarily paused for this workspace while current vendor quote requests are still in flight.",
+        requestedVendors: ["xometry", "fictiv", "protolabs"],
       },
     ]);
 
@@ -780,6 +780,11 @@ describe("ClientProject", () => {
     fireEvent.click(await screen.findByRole("button", { name: /open .* line item/i }));
     fireEvent.click(await screen.findByRole("button", { name: "Cancel request" }));
     expect(await screen.findByText("Cancel quote request?")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "This stops the current vendor quote request for this package. You can request a new quote again after canceling.",
+      ),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Cancel request" })[0]!);
 

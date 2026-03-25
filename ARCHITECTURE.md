@@ -113,20 +113,20 @@ See `docs/service-request-taxonomy.md` for the canonical service types and mixed
 
 ## Client-triggered quote request lifecycle
 
-Phase 1 keeps the existing queue and worker path, but adds a separate client-safe request-intent record:
+The current client-triggered request flow keeps the existing queue and worker path, but adds a separate client-safe request-intent record:
 
 - client part or project workspace validates the package and calls a quote request RPC
 - the backend creates an idempotent quote request record when no active request already exists
 - the backend creates a linked quote run execution record
-- the backend seeds Xometry-only vendor lanes for that request in phase 1
-- the backend enforces per-user throttling plus an org-level pending-cost circuit breaker before new client-triggered Xometry work is enqueued
+- the backend resolves org-enabled client-request vendors, intersects them with part-level applicable vendors, and seeds one vendor lane per part, quantity, and enabled vendor
+- the backend enforces per-user throttling plus an org-level pending-cost circuit breaker before new client-triggered vendor work is enqueued
 - the backend enqueues `run_vendor_quote` work items in `work_queue`
-- the worker claims the task, stages the files, and calls the Xometry adapter
+- the worker claims the task, stages the files, and calls the adapter named in the queue payload vendor lane
 - vendor result transitions roll up into both request lifecycle state and existing job lifecycle state
 - client UI reads the latest quote request, with quote-run fallback for pre-existing data, to show request status
 - client-visible failed request reasons are allowlisted and sanitized; raw worker exception text stays in internal logs or internal-only records
 
-Phase 1 request lifecycle meanings:
+Request lifecycle meanings:
 
 - `not_requested`
 - `queued`
@@ -137,9 +137,10 @@ Phase 1 request lifecycle meanings:
 
 Phase 1 vendor boundary:
 
-- client-triggered requests dispatch only to `xometry`
+- client-triggered requests dispatch across the requestable enabled vendor set for the organization
+- orgs with no explicit vendor config fall back to `xometry`, `fictiv`, and `protolabs`
 - existing internal and manual quote ingestion paths remain intact
-- future multi-vendor expansion should add more requested vendors to the request record without collapsing intent and execution into one table
+- request intent remains on `quote_requests`; execution remains on `quote_runs` and `vendor_quote_results`
 
 ## Key cross-cutting concerns
 - authorization

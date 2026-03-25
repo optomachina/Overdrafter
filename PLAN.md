@@ -1,6 +1,6 @@
 # OverDrafter Execution Plan
 
-Last updated: March 23, 2026
+Last updated: March 24, 2026
 
 ## Purpose
 
@@ -8,7 +8,7 @@ This document is the active execution plan for OverDrafter. It translates produc
 
 ## Planning objective
 
-The active objective is to harden Phase 1 (fix critical dead-task reaper gap) and begin Phase 2 (multi-vendor quote fan-out + service-request line-item model).
+The active objective is to harden Phase 1 gaps and continue Phase 2 (multi-vendor quote fan-out + service-request line-item model).
 
 Operational workflow alignment:
 - Linear is the planning and status source of truth.
@@ -33,7 +33,7 @@ The architecture docs explicitly call `quote_requests` "Phase 1 scaffolding scop
 Phase 2 work items (order matters):
 1. [x] Add `service_request_line_items` table migration — `id, project_id, job_id?, service_type, status, scope, service_detail (jsonb)` — see TODO-013
 2. [x] Backfill existing jobs → implicit `manufacturing_quote` line items
-3. Update `api_request_quote` to fan out across multiple enabled vendors per org (not just Xometry) — see TODO-014
+3. [x] Update `api_request_quote` to fan out across multiple enabled vendors per org (not just Xometry) — see TODO-014
 4. Promote vendor preferences from localStorage (`vendor-exclusions.ts`) to server-persisted per-job or per-project preferences
 5. Update client workspace UI to show multi-vendor quote comparison and vendor-level status per lane
 6. Add worker observability — task duration and failure-rate metrics — see TODO-011
@@ -42,7 +42,7 @@ Phase 2 work items (order matters):
 ## Completed milestones
 
 ### Milestone 7 — Client-triggered quote requests ✓
-Single-part and project-bulk quote request RPCs (`api_request_quote`, `api_request_quotes`). Xometry-only Phase 1. Lifecycle states: `not_requested`, `queued`, `requesting`, `received`, `failed`, `canceled`. Client cancel + retry. Rate limiting and org cost ceiling guardrails. Failure reason sanitization. Double-submit protection. Accessibility (aria-live, role=alert, aria-disabled). All TODOs 001–009 closed.
+Single-part and project-bulk quote request RPCs (`api_request_quote`, `api_request_quotes`). Phase 1 shipped the request lifecycle scaffolding, and Phase 2 now expands request fan-out across org-enabled applicable vendors while preserving one request and one run per client action. Lifecycle states: `not_requested`, `queued`, `requesting`, `received`, `failed`, `canceled`. Client cancel + retry. Rate limiting and org cost ceiling guardrails. Failure reason sanitization. Double-submit protection. Accessibility (aria-live, role=alert, aria-disabled). TODO-014 shipped; remaining Phase 2 work is comparison UI and per-job vendor preferences.
 
 ### Milestone 8 — Drawing extraction reliability ✓
 Label-anchored title-block extraction as first pass, `gpt-5.4` fallback for missing/low-confidence/conflicting critical fields. Raw extracted fields preserved separately from normalized quote-facing fields. Low-confidence extraction gated behind review. `1093-05589` layout fixture + regression test (b0f4839). Quote normalization traceable through `approved_part_requirements.spec_snapshot` provenance fields.
