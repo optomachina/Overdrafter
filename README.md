@@ -250,6 +250,64 @@ Optional worker environment variables:
 - `WORKER_NAME=quote-worker-1`
 - `WORKER_POLL_INTERVAL_MS=5000`
 
+### Extraction eval harness
+
+`extract:eval` is a dev-only CLI for benchmarking drawing-extraction accuracy across multiple AI models side-by-side. It runs the same extraction prompt as production and prints a comparison table of field values, confidence scores, token counts, and estimated cost per model — without touching the database.
+
+**Prerequisites:** set the relevant API keys in `worker/.env` (any subset works; providers with no key are skipped):
+
+```
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+OPENROUTER_API_KEY=sk-or-...
+```
+
+**Basic run** (default models: `gpt-5.4`, `claude-sonnet-4-6`, `openai/gpt-4.1-mini`):
+
+```bash
+npm --prefix worker run extract:eval -- /path/to/drawing.pdf
+```
+
+**Specific models:**
+
+```bash
+# Single Anthropic model
+npm --prefix worker run extract:eval -- --models claude-sonnet-4-6 drawing.pdf
+
+# OpenRouter model
+npm --prefix worker run extract:eval -- --models openai/gpt-4.1-mini drawing.pdf
+
+# Multiple models comma-separated
+npm --prefix worker run extract:eval -- --models gpt-5.4,claude-sonnet-4-6 drawing.pdf
+```
+
+**Parser only** (no API calls — shows what the deterministic parser extracted):
+
+```bash
+npm --prefix worker run extract:eval -- --parser-only drawing.pdf
+```
+
+**Ground truth workflow** (establish a baseline, then score future runs):
+
+```bash
+# Save current run as ground truth
+npm --prefix worker run extract:eval -- --save-ground-truth drawing.pdf
+
+# Score a later run against it
+npm --prefix worker run extract:eval -- --ground-truth drawing.pdf.ground-truth.json drawing.pdf
+```
+
+**Other flags:**
+
+| Flag | Description |
+|---|---|
+| `--no-parser` | Omit deterministic parser context from the model prompt |
+| `--json` | Output structured JSON instead of ASCII table |
+| `--timeout <ms>` | Per-model timeout (default: 30000) |
+| `--provider <name>` | Override provider for all models: `openai\|anthropic\|openrouter` |
+
+Multiple PDFs can be passed and are processed sequentially. See `docs/drawing-extraction.md` for more detail.
+
 ## Local Verification
 
 Install dependencies in both packages before using the repo-wide verification gate:
