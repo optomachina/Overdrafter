@@ -871,6 +871,22 @@ export type Database = {
       };
     };
     Functions: {
+      api_admin_list_all_jobs: {
+        Args: Record<string, never>;
+        Returns: Json;
+      };
+      api_admin_list_all_projects: {
+        Args: Record<string, never>;
+        Returns: Json;
+      };
+      api_admin_list_all_users: {
+        Args: Record<string, never>;
+        Returns: Json;
+      };
+      api_admin_list_organizations: {
+        Args: Record<string, never>;
+        Returns: Json;
+      };
       api_list_organization_memberships: {
         Args: {
           p_organization_id: string;
@@ -960,6 +976,10 @@ export type Database = {
           p_organization_name: string;
         };
         Returns: string;
+      };
+      api_get_is_platform_admin: {
+        Args: Record<string, never>;
+        Returns: boolean;
       };
       api_get_client_intake_compatibility: {
         Args: Record<string, never>;

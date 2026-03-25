@@ -139,6 +139,7 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 - Perform all estimator actions.
 - Manage workspace access and role assignments.
 - Maintain the integrity of internal operational workflows.
+- Allowlisted platform admins can inspect organizations, memberships, jobs, and projects across the full platform in a read-only oversight mode.
 
 ### For project collaborators
 - Access only the projects they are invited to.

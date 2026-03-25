@@ -59,7 +59,8 @@ const JobCreate = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { user, activeMembership, isVerifiedAuth, signOut, isAuthInitializing } = useAppSession();
+  const { user, activeMembership, isPlatformAdmin, isVerifiedAuth, signOut, isAuthInitializing } =
+    useAppSession();
   const useInternalShell = activeMembership?.role !== "client";
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const { accessibleJobsQuery, archivedProjectsQuery, archivedJobsQuery } = useClientWorkspaceData({
@@ -474,8 +475,10 @@ const JobCreate = () => {
         <InternalDashboardSidebar
           activeItem="new-job"
           role={activeMembership.role}
+          isPlatformAdmin={isPlatformAdmin}
           onNavigateDashboard={() => navigate("/")}
           onNavigateNewJob={() => navigate("/jobs/new")}
+          onNavigateAdmin={() => navigate("/internal/admin")}
         />
       }
       sidebarFooter={

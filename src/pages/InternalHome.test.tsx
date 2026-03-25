@@ -291,4 +291,19 @@ describe("InternalHome", () => {
     expect(screen.getByRole("button", { name: /open account menu/i })).toBeInTheDocument();
     expect(screen.queryByText("Team Access")).not.toBeInTheDocument();
   });
+
+  it("shows the God Mode nav button for platform admins", async () => {
+    useAppSessionMock.mockReturnValue({
+      user: makeUser(),
+      activeMembership: makeMembership("internal_admin"),
+      isPlatformAdmin: true,
+      isVerifiedAuth: true,
+      signOut: signOutMock,
+    });
+
+    renderInternalHome();
+
+    expect(await screen.findByText("Operations Dashboard")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "God Mode" }).length).toBeGreaterThan(0);
+  });
 });

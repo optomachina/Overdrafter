@@ -9,12 +9,14 @@ import { useDiagnosticsSnapshot } from "@/lib/diagnostics";
 type UseInternalJobDetailQueryOptions = {
   activeMembership: AppMembership | null;
   hasUser: boolean;
+  isPlatformAdmin: boolean;
   jobId: string;
 };
 
 export function useInternalJobDetailQuery({
   activeMembership,
   hasUser,
+  isPlatformAdmin,
   jobId,
 }: UseInternalJobDetailQueryOptions) {
   const diagnostics = useDiagnosticsSnapshot();
@@ -46,11 +48,17 @@ export function useInternalJobDetailQuery({
 
   const job = jobQuery.data ?? null;
   const latestQuoteRun = useMemo(() => (job ? getLatestQuoteRun(job) : null), [job]);
+  const isCrossOrgReadOnlyView = Boolean(
+    isPlatformAdmin &&
+      activeMembership?.organizationId &&
+      job?.job.organization_id &&
+      activeMembership.organizationId !== job.job.organization_id,
+  );
 
   const readinessQuery = useQuery({
     queryKey: ["quote-readiness", latestQuoteRun?.id],
     queryFn: () => getQuoteRunReadiness(latestQuoteRun!.id),
-    enabled: Boolean(latestQuoteRun?.id),
+    enabled: Boolean(latestQuoteRun?.id) && !isCrossOrgReadOnlyView,
   });
 
   return {

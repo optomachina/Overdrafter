@@ -21,6 +21,7 @@ const EMPTY_APP_SESSION: AppSessionData = {
   user: null,
   memberships: [],
   isVerifiedAuth: false,
+  isPlatformAdmin: false,
   authState: "anonymous",
 };
 
@@ -103,6 +104,7 @@ export function useAppSession() {
         user: session.user,
         memberships: current?.user?.id === session.user.id ? current.memberships : EMPTY_MEMBERSHIPS,
         isVerifiedAuth: hasVerifiedAuth(session.user),
+        isPlatformAdmin: current?.user?.id === session.user.id ? current.isPlatformAdmin ?? false : false,
         authState: "authenticated",
         membershipError: current?.user?.id === session.user.id ? current.membershipError : undefined,
       }));
@@ -288,6 +290,7 @@ export function useAppSession() {
           userId: result.user?.id ?? null,
           membershipCount: result.memberships.length,
           membershipError: result.membershipError ?? null,
+          isPlatformAdmin: result.isPlatformAdmin ?? false,
           initialAuthCheck: initialAuthCheckRef.current,
         },
       );
@@ -376,6 +379,7 @@ export function useAppSession() {
       hasActiveMembership: Boolean(activeMembership),
       isAuthInitializing,
       membershipError: sessionQuery.data?.membershipError ?? null,
+      isPlatformAdmin: sessionQuery.data?.isPlatformAdmin ?? false,
     });
   }, [
     activeMembership,
@@ -384,6 +388,7 @@ export function useAppSession() {
     sessionQuery.data?.authState,
     sessionQuery.data?.isVerifiedAuth,
     sessionQuery.data?.membershipError,
+    sessionQuery.data?.isPlatformAdmin,
     sessionQuery.data?.user?.id,
     sessionQuery.isLoading,
   ]);
@@ -467,6 +472,7 @@ export function useAppSession() {
     user: sessionQuery.data?.user ?? null,
     memberships,
     isVerifiedAuth: sessionQuery.data?.isVerifiedAuth ?? false,
+    isPlatformAdmin: sessionQuery.data?.isPlatformAdmin ?? false,
     authState: sessionQuery.data?.authState ?? "anonymous",
     membershipError: sessionQuery.data?.membershipError ?? null,
     isAuthInitializing,
