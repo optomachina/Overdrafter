@@ -137,7 +137,7 @@ export function buildActivityLogEntries(events: ClientActivityEvent[]): Activity
             return {
               id: event.id,
               label: "Quote request accepted",
-              detail: "Your quote request was accepted and queued for Xometry.",
+              detail: "Your quote request was accepted and queued for vendor quote collection.",
               occurredAt: event.occurredAt,
               tone: "active",
             };

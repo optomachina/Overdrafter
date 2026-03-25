@@ -586,7 +586,7 @@ const ClientProject = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Cancel quote request?</AlertDialogTitle>
             <AlertDialogDescription>
-              This stops the current Xometry request for this package. You can request a new quote again after canceling.
+              This stops the current vendor quote request for this package. You can request a new quote again after canceling.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

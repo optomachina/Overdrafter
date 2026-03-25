@@ -132,20 +132,20 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 ---
 
-## TODO-014: Multi-vendor fan-out in `api_request_quote` (Phase 2 core)
+## TODO-014: Multi-vendor fan-out in `api_request_quote` (Phase 2 core) ✓
 
-**What:** Update `api_request_quote` to fan out across all enabled vendor adapters for the requesting organization, not just Xometry. Phase 1 hardcodes Xometry as the only vendor lane. Phase 2 should:
-- Look up the org's enabled vendors from a new `org_vendor_config` table or the existing `quote_request_guardrails` table
-- Create one `quote_runs` + `vendor_quote_results` row per enabled vendor
-- Update the worker to dispatch each vendor lane independently
+Completed on March 24, 2026.
 
-**Why:** Phase 1 restricted client-triggered requests to Xometry. Multi-vendor is the primary Phase 2 value: clients get competitive quotes from Fictiv, ProtoLabs, and other configured vendors without extra clicks.
+Shipped scope:
+- added `org_vendor_configs` plus `get_enabled_client_quote_vendors(...)`
+- expanded `api_request_quote` to seed one request, one run, and many vendor lanes/tasks across enabled applicable vendors
+- made pending-cost guardrails lane-based across all vendors
+- generalized request lifecycle copy away from Xometry-only wording
 
-**Where to start:** `supabase/migrations/` — new migration to add vendor config table. `api_request_quote` RPC — replace hardcoded `['xometry']` vendor list with dynamic lookup. `worker/src/adapters/` — verify Fictiv/ProtoLabs adapters exist and are production-ready.
-
-**Effort:** L (human: ~2 weeks / CC: ~2 hours) | **Priority:** P1
-
-**Depends on:** TODO-013 (service_request_line_items schema).
+Remaining adjacent work:
+- per-job or per-project persisted vendor preferences
+- client comparison UI that surfaces vendor-level in-flight state and results
+- richer internal tooling for editing org vendor config
 
 ---
 

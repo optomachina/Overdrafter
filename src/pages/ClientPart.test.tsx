@@ -567,7 +567,7 @@ describe("ClientPart", () => {
       status: "queued",
       reasonCode: null,
       reason: null,
-      requestedVendors: ["xometry"],
+      requestedVendors: ["xometry", "fictiv", "protolabs"],
     });
     api.cancelQuoteRequest.mockResolvedValue({
       jobId: "job-1",
@@ -819,7 +819,7 @@ describe("ClientPart", () => {
       status: "not_requested",
       reasonCode: "rate_limited_user",
       reason: "You have reached the quote request limit for now. Try again later or contact your estimator.",
-      requestedVendors: ["xometry"],
+      requestedVendors: ["xometry", "fictiv", "protolabs"],
     });
 
     api.fetchPartDetailByJobId.mockResolvedValue(
@@ -1049,6 +1049,11 @@ describe("ClientPart", () => {
 
     fireEvent.click(await screen.findAllByRole("button", { name: "Cancel request" }).then((buttons) => buttons[0]!));
     expect(await screen.findByText("Cancel quote request?")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "This stops the current vendor quote request for this package. You can request a new quote again after canceling.",
+      ),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Cancel request" })[0]!);
 

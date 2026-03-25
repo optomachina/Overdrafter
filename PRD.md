@@ -37,19 +37,19 @@ Customer-facing creation and navigation language should therefore use project-or
 
 ## Client-triggered quote request capability
 
-Phase 1 adds an explicit customer-facing `Request Quote` action for uploaded parts. Client users can request a quote for an individual part from the part workspace, or request quotes for the ready parts in a project from the project workspace.
+OverDrafter includes an explicit customer-facing `Request Quote` action for uploaded parts. Client users can request a quote for an individual part from the part workspace, or request quotes for the ready parts in a project from the project workspace.
 
 Canonical feature statement:
 
-`Client users can explicitly request quotes for uploaded parts, causing OverDrafter to validate the package, create an idempotent quote request, enqueue work, and dispatch vendor quote generation through the worker pipeline, starting with Xometry as the only enabled vendor in phase 1.`
+`Client users can explicitly request quotes for uploaded parts, causing OverDrafter to validate the package, create an idempotent quote request, enqueue work, and dispatch vendor quote generation through the worker pipeline across the organization's enabled vendors that are applicable to the current package.`
 
-Phase 1 scope:
+Current scope:
 - client-triggered quote requests for a single part
 - project-scoped bulk request for ready parts
-- Xometry as the only automated vendor target for client-triggered requests
+- multi-vendor dispatch across org-enabled, part-applicable vendor lanes
 - durable quote request lifecycle visibility in the client UI
 
-Phase 1 non-goals:
+Current non-goals:
 - client-side vendor choice or multi-vendor comparison at request time
 - cancellation UI
 - automatic reruns after a successful request

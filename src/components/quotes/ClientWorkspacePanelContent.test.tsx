@@ -14,7 +14,7 @@ describe("ClientQuoteRequestStatusCard", () => {
         status="queued"
         tone="warning"
         label="Queued"
-        detail="Your quote request was accepted and is queued for the worker."
+        detail="Your quote request was accepted and is queued for vendor quote collection."
       />,
     );
 
@@ -31,11 +31,11 @@ describe("ClientQuoteRequestStatusCard", () => {
         status="failed"
         tone="warning"
         label="Failed"
-        detail="Quote collection did not return a usable Xometry response."
+        detail="Quote collection did not return a usable vendor response."
       />,
     );
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Quote collection did not return a usable Xometry response.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Quote collection did not return a usable vendor response.");
   });
 
   it("marks disabled action buttons with aria-disabled", () => {
@@ -65,7 +65,7 @@ describe("ClientQuoteRequestStatusCard", () => {
         status="not_requested"
         tone="ready"
         label="Not requested"
-        detail="Request a quote to send this part to Xometry."
+        detail="Request a quote to start vendor quote collection for this part."
         actionLabel="Request quote"
         onAction={() => undefined}
       />,
@@ -101,7 +101,7 @@ describe("ClientQuoteRequestStatusCard", () => {
         status="queued"
         tone="warning"
         label="Queued"
-        detail="Your quote request was accepted and is queued for the worker."
+        detail="Your quote request was accepted and is queued for vendor quote collection."
         actionLabel="Cancel request"
         onAction={() => undefined}
       />,
