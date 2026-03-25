@@ -16,7 +16,6 @@ import {
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import { buildClientWorkspaceState } from "@/features/quotes/client-workspace-state";
-import { ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { PartContextMenuActions } from "@/components/chat/PartActionsMenu";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { Button } from "@/components/ui/button";
@@ -128,9 +127,7 @@ function formatSelectedQuote(summary: JobPartSummary | undefined) {
     maximumFractionDigits: 2,
   }).format(summary.selectedPriceUsd);
 
-  return `${summary.selectedSupplier} · ${price}${
-    summary.selectedLeadTimeBusinessDays ? ` · ${summary.selectedLeadTimeBusinessDays}d` : ""
-  }`;
+  return `${price}${summary.selectedLeadTimeBusinessDays ? ` · ${summary.selectedLeadTimeBusinessDays}d` : ""}`;
 }
 
 function readFilters(storageKey: string): SidebarFilters {
@@ -336,6 +333,21 @@ export function WorkspaceSidebar({
   const [isCreatingProjectFromSelection, setIsCreatingProjectFromSelection] = useState(false);
   const [openContextTarget, setOpenContextTarget] = useState<string | null>(null);
   const prefetchTimeoutsRef = useRef<Map<string, number>>(new Map());
+  const projectsHeadingRef = useRef<HTMLDivElement | null>(null);
+  const [projectsHeadingHeight, setProjectsHeadingHeight] = useState(0);
+
+  useEffect(() => {
+    const el = projectsHeadingRef.current;
+    if (!el) return;
+    if (typeof ResizeObserver === "undefined") {
+      setProjectsHeadingHeight(el.offsetHeight);
+      return;
+    }
+    const observer = new ResizeObserver(() => setProjectsHeadingHeight(el.offsetHeight));
+    observer.observe(el);
+    setProjectsHeadingHeight(el.offsetHeight);
+    return () => observer.disconnect();
+  }, []);
 
   const pinnedProjectSet = useMemo(() => new Set(pinnedProjectIds), [pinnedProjectIds]);
   const pinnedPartSet = useMemo(() => new Set(pinnedJobIds), [pinnedJobIds]);
@@ -793,20 +805,16 @@ export function WorkspaceSidebar({
             >
             <Shapes className="h-4 w-4 shrink-0 text-white/[0.9]" />
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="truncate text-sm leading-5">{presentation.title}</p>
-                <ClientWorkspaceToneBadge
-                  tone={workspaceState.tone}
-                  className="tracking-normal normal-case"
-                />
+              <div className="flex items-center gap-2">
+                <p className="min-w-0 truncate text-sm leading-5">{presentation.title}</p>
+                {selectedQuote ? (
+                  <p className="ml-auto shrink-0 text-[11px] leading-5 text-emerald-300/90">{selectedQuote}</p>
+                ) : (
+                  <p className="ml-auto shrink-0 text-[11px] leading-5 text-white/[0.52]">
+                    {workspaceState.selection.label}
+                  </p>
+                )}
               </div>
-              {selectedQuote ? (
-                <p className="truncate text-[11px] leading-4 text-emerald-300/90">{selectedQuote}</p>
-              ) : (
-                <p className="truncate text-[11px] leading-4 text-white/[0.52]">
-                  {workspaceState.selection.label}
-                </p>
-              )}
               {!nestedInProject && parentProjectNames.length > 0 ? (
                 <p className="truncate text-[12px] leading-4 text-white/[0.38]">{parentProjectNames.join(" · ")}</p>
               ) : null}
@@ -1086,9 +1094,9 @@ export function WorkspaceSidebar({
 
   return (
     <>
-      <div className="space-y-5">
+      <div className="flex h-full flex-col px-2.5">
         {onCreateJob || onSearch ? (
-          <div className={cn("space-y-2", SIDEBAR_COLUMN_INSET_CLASS)}>
+          <div className={cn("shrink-0 space-y-2 pb-3 pt-0", SIDEBAR_COLUMN_INSET_CLASS)}>
             {onCreateJob ? (
               <Button
                 type="button"
@@ -1125,28 +1133,32 @@ export function WorkspaceSidebar({
           </div>
         ) : null}
 
-        <div className="space-y-2">
-          <SidebarSectionHeading
-            label="Projects"
-            expanded={expandedSections.projects}
-            onToggle={() => toggleSectionExpanded("projects")}
-            action={projectSectionAction}
-          />
+        <div className="sidebar-scroll min-h-0 flex-1 overflow-y-auto pb-3">
+          <div ref={projectsHeadingRef} className="sticky top-0 z-10 -mx-2.5 bg-ws-shell px-2.5 py-0.5">
+            <SidebarSectionHeading
+              label="Projects"
+              expanded={expandedSections.projects}
+              onToggle={() => toggleSectionExpanded("projects")}
+              action={projectSectionAction}
+            />
+          </div>
           {expandedSections.projects ? (
-            <div className="space-y-1">
+            <div className="mb-5 mt-2 space-y-1">
               {visibleProjects.length > 0 ? (
                 visibleProjects.map((project) => renderProjectRow(project, jobsByProjectId.get(project.id) ?? []))
               ) : (
                 <div className="px-2 py-2 text-sm text-white/[0.42]">{noProjectsMessage}</div>
               )}
             </div>
-          ) : null}
-        </div>
+          ) : (
+            <div className="mb-5" />
+          )}
 
-        <div className="space-y-2">
-          <SidebarSectionHeading label="Parts" expanded={expandedSections.parts} onToggle={() => toggleSectionExpanded("parts")} />
+          <div className="-mx-2.5 sticky z-10 bg-ws-shell px-2.5 py-0.5" style={{ top: projectsHeadingHeight }}>
+            <SidebarSectionHeading label="Parts" expanded={expandedSections.parts} onToggle={() => toggleSectionExpanded("parts")} />
+          </div>
           {expandedSections.parts ? (
-            <div className="space-y-1">
+            <div className="mt-2 space-y-1">
               {visibleParts.length > 0 ? (
                 visibleParts.map((job) => renderPartRow(job))
               ) : (

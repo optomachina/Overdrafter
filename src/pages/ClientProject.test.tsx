@@ -196,8 +196,8 @@ vi.mock("@/components/quotes/ClientQuoteAssetPanels", () => ({
   ClientDrawingPreviewPanel: () => <div>Drawing</div>,
 }));
 
-vi.mock("@/components/quotes/ClientPartRequestEditor", () => ({
-  ClientPartRequestEditor: () => <div>Request Editor</div>,
+vi.mock("@/components/workspace/QuoteChart", () => ({
+  QuoteChart: () => <div>Quote Chart</div>,
 }));
 
 function renderWithClient(initialEntry: string) {
@@ -482,28 +482,105 @@ describe("ClientProject", () => {
     });
 
     expect(screen.getByText(/Scan and manage parts/i)).toBeInTheDocument();
-    expect(screen.getByText("Project detail rail")).toBeInTheDocument();
+    expect(screen.getByText("Project inspector")).toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Part" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Action" })).toBeInTheDocument();
-    expect(screen.getByText("Assignee")).toBeInTheDocument();
-    expect(screen.getByText("BW")).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader")).not.toBeInTheDocument();
 
     const row = screen.getByRole("button", { name: /open .* line item/i });
     fireEvent.click(row);
 
     expect(screen.getByRole("button", { name: "Clear selected part" })).toBeInTheDocument();
-    expect(screen.getByText("Selected part")).toBeInTheDocument();
+    expect(screen.getByText("Quotes")).toBeInTheDocument();
+    expect(screen.getByText("No plottable quote offers are available for this part yet.")).toBeInTheDocument();
+    expect(screen.getAllByText("CAD").length).toBeGreaterThan(0);
+    expect(screen.getByText("Drawing")).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "Escape" });
 
-    expect(screen.getByText("Project detail rail")).toBeInTheDocument();
+    expect(screen.getByText("Project inspector")).toBeInTheDocument();
 
     fireEvent.doubleClick(row);
 
     await waitFor(() => {
       expect(screen.getByText("Part Route")).toBeInTheDocument();
     });
+  });
+
+  it("surfaces quote data errors instead of the generic empty chart state", async () => {
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([
+      {
+        job: {
+          id: "job-1",
+          organization_id: "org-1",
+          project_id: "project-1",
+          created_by: "user-1",
+          title: "Bracket",
+          description: null,
+          status: "ready_to_quote",
+          source: "client_home",
+          active_pricing_policy_id: null,
+          tags: [],
+          requested_service_kinds: ["manufacturing_quote"],
+          primary_service_kind: "manufacturing_quote",
+          service_notes: null,
+          requested_by_date: "2026-04-15",
+          requested_quote_quantities: [10],
+          archived_at: null,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+          selected_vendor_quote_offer_id: null,
+        },
+        part: {
+          id: "part-1",
+          job_id: "job-1",
+          organization_id: "org-1",
+          name: "Bracket",
+          normalized_key: "bracket",
+          cad_file_id: "cad-1",
+          drawing_file_id: null,
+          quantity: 10,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+          cadFile: null,
+          drawingFile: null,
+          extraction: null,
+          approvedRequirement: null,
+          vendorQuotes: [],
+        },
+        summary: {
+          jobId: "job-1",
+          partNumber: "BRKT-001",
+          revision: "A",
+          description: "Bracket",
+          quantity: 10,
+          importedBatch: null,
+          requestedServiceKinds: ["manufacturing_quote"],
+          primaryServiceKind: "manufacturing_quote",
+          serviceNotes: null,
+          requestedQuoteQuantities: [10],
+          requestedByDate: "2026-04-15",
+          selectedSupplier: null,
+          selectedPriceUsd: null,
+          selectedLeadTimeBusinessDays: null,
+        },
+        files: [],
+        projectIds: ["project-1"],
+        drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+        latestQuoteRequest: null,
+        latestQuoteRun: null,
+        quoteDataStatus: "schema_unavailable",
+        quoteDataMessage: "Apply the latest Supabase migrations.",
+      },
+    ]);
+
+    renderWithClient("/projects/project-1");
+
+    const row = await screen.findByRole("button", { name: /open .* line item/i });
+    fireEvent.click(row);
+
+    expect(await screen.findByText("Quote comparison is unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Apply the latest Supabase migrations.")).toBeInTheDocument();
+    expect(screen.queryByText("No plottable quote offers are available for this part yet.")).not.toBeInTheDocument();
   });
 
   it("passes collaboration-disabled project prefetch through to the sidebar callback", async () => {
@@ -629,7 +706,7 @@ describe("ClientProject", () => {
     });
   });
 
-  it("confirms and cancels an in-flight request from the inspector status card", async () => {
+  it("does not render the removed inspector cancel action for in-flight requests", async () => {
     api.fetchJobsByProject.mockResolvedValue([
       {
         id: "job-1",
@@ -778,32 +855,23 @@ describe("ClientProject", () => {
     renderWithClient("/projects/project-1");
 
     fireEvent.click(await screen.findByRole("button", { name: /open .* line item/i }));
-    fireEvent.click(await screen.findByRole("button", { name: "Cancel request" }));
-    expect(await screen.findByText("Cancel quote request?")).toBeInTheDocument();
-    expect(
-      await screen.findByText(
-        "This stops the current vendor quote request for this package. You can request a new quote again after canceling.",
-      ),
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getAllByRole("button", { name: "Cancel request" })[0]!);
-
-    await waitFor(() => {
-      expect(api.cancelQuoteRequest).toHaveBeenCalledWith("request-1");
-    });
+    expect(screen.queryByRole("button", { name: "Cancel request" })).not.toBeInTheDocument();
+    expect(api.cancelQuoteRequest).not.toHaveBeenCalled();
   });
 
-  it("renders an explicit unassigned state when no assignee profile resolves for a row", async () => {
+  it("does not render the removed assignee column when no assignee profile resolves for a row", async () => {
     api.fetchProjectAssigneeProfiles.mockResolvedValue([]);
 
     renderWithClient("/projects/project-1");
 
     await waitFor(() => {
-      expect(screen.getByText("Unassigned")).toBeInTheDocument();
+      expect(screen.getByRole("table")).toBeInTheDocument();
     });
+
+    expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
   });
 
-  it("does not render unassigned while assignee lookups are still pending", async () => {
+  it("does not render assignee loading UI while assignee lookups are pending", async () => {
     const assigneeProfiles = createDeferredPromise<
       Array<{
         userId: string;
@@ -818,9 +886,10 @@ describe("ClientProject", () => {
     renderWithClient("/projects/project-1");
 
     await waitFor(() => {
-      expect(screen.getByText("Loading")).toBeInTheDocument();
+      expect(screen.getByRole("table")).toBeInTheDocument();
     });
 
+    expect(screen.queryByText("Loading")).not.toBeInTheDocument();
     expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
 
     assigneeProfiles.resolve([
@@ -834,19 +903,20 @@ describe("ClientProject", () => {
     ]);
 
     await waitFor(() => {
-      expect(screen.getByLabelText("Assignee: Blaine Wilson")).toBeInTheDocument();
+      expect(screen.getByRole("table")).toBeInTheDocument();
     });
   });
 
-  it("renders assignee lookup failure without falling back to unassigned", async () => {
+  it("does not render assignee failure UI when the assignee column is removed", async () => {
     api.fetchProjectAssigneeProfiles.mockRejectedValue(new Error("lookup failed"));
 
     renderWithClient("/projects/project-1");
 
     await waitFor(() => {
-      expect(screen.getByText("Unavailable")).toBeInTheDocument();
+      expect(screen.getByRole("table")).toBeInTheDocument();
     });
 
+    expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
     expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
   });
 

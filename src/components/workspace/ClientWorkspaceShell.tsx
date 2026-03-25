@@ -9,7 +9,10 @@ import { cn } from "@/lib/utils";
 
 const DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY = "workspace-shell.desktop-collapsed-v1";
 const LEGACY_DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY = "chat-workspace-layout.desktop-collapsed-v1";
-const DESKTOP_SIDEBAR_EXPANDED_WIDTH = "260px";
+const DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY = "workspace-shell.desktop-width-v1";
+const DESKTOP_SIDEBAR_DEFAULT_WIDTH = 260;
+const DESKTOP_SIDEBAR_MIN_WIDTH = 180;
+const DESKTOP_SIDEBAR_MAX_WIDTH = 480;
 const DESKTOP_SIDEBAR_COLLAPSED_WIDTH = "52px";
 const SIDEBAR_TOOLTIP_DELAY_MS = 120;
 const CURSOR_TOOLTIP_OFFSET = 14;
@@ -35,6 +38,21 @@ function readDesktopSidebarCollapsed() {
     return value === "1";
   } catch {
     return false;
+  }
+}
+
+function readDesktopSidebarWidth() {
+  try {
+    if (typeof window === "undefined") {
+      return DESKTOP_SIDEBAR_DEFAULT_WIDTH;
+    }
+    const value = window.localStorage.getItem(DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY);
+    if (value === null) return DESKTOP_SIDEBAR_DEFAULT_WIDTH;
+    const parsed = parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return DESKTOP_SIDEBAR_DEFAULT_WIDTH;
+    return Math.min(DESKTOP_SIDEBAR_MAX_WIDTH, Math.max(DESKTOP_SIDEBAR_MIN_WIDTH, parsed));
+  } catch {
+    return DESKTOP_SIDEBAR_DEFAULT_WIDTH;
   }
 }
 
@@ -286,7 +304,7 @@ function SidebarScaffold({
         />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3">{sidebarContent}</div>
+      <div className="min-h-0 flex-1 overflow-hidden">{sidebarContent}</div>
 
       {sidebarFooter ? <div className="px-3 pb-3 pt-2">{sidebarFooter}</div> : null}
     </div>
@@ -351,6 +369,10 @@ export function ClientWorkspaceShell({
 }: ClientWorkspaceShellProps) {
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(() => readDesktopSidebarCollapsed());
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => readDesktopSidebarWidth());
+  const [isResizing, setIsResizing] = useState(false);
+  const resizingRef = useRef(false);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
   const BrandLabelTag = onLogoClick ? "button" : "div";
 
   useEffect(() => {
@@ -364,17 +386,60 @@ export function ClientWorkspaceShell({
     }
   }, [desktopSidebarCollapsed]);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    return () => {
+      resizeCleanupRef.current?.();
+    };
+  }, []);
+
+  const handleResizePointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    resizingRef.current = true;
+    setIsResizing(true);
+
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      if (!resizingRef.current) return;
+      const delta = moveEvent.clientX - startX;
+      const newWidth = Math.min(DESKTOP_SIDEBAR_MAX_WIDTH, Math.max(DESKTOP_SIDEBAR_MIN_WIDTH, startWidth + delta));
+      setSidebarWidth(newWidth);
+    };
+
+    const onPointerUp = () => {
+      resizingRef.current = false;
+      setIsResizing(false);
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", onPointerUp);
+      resizeCleanupRef.current = null;
+    };
+
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
+    resizeCleanupRef.current = onPointerUp;
+  }, [sidebarWidth]);
+
   return (
     <TooltipProvider delayDuration={SIDEBAR_TOOLTIP_DELAY_MS}>
-      <div className="workspace-shell min-h-svh bg-ws-overlay text-white">
+      <div className={cn("workspace-shell min-h-svh bg-ws-overlay text-white", isResizing && "select-none")}>
         <div className="flex min-h-svh">
           {showSidebar ? (
             <aside
               className={cn(
-                "sticky top-0 hidden shrink-0 self-start overflow-visible border-r border-white/[0.08] shadow-[1px_0_0_0_rgba(255,255,255,0.02)] transition-[width] duration-200 ease-out md:block",
+                "sidebar-host relative sticky top-0 hidden shrink-0 self-start overflow-visible border-r border-white/[0.08] shadow-[1px_0_0_0_rgba(255,255,255,0.02)] md:block",
+                !isResizing && "transition-[width] duration-200 ease-out",
               )}
               style={{
-                width: desktopSidebarCollapsed ? DESKTOP_SIDEBAR_COLLAPSED_WIDTH : DESKTOP_SIDEBAR_EXPANDED_WIDTH,
+                width: desktopSidebarCollapsed ? DESKTOP_SIDEBAR_COLLAPSED_WIDTH : `${sidebarWidth}px`,
               }}
             >
               <div className="h-svh">
@@ -384,6 +449,11 @@ export function ClientWorkspaceShell({
                     sidebarFooter={sidebarFooter}
                     onCollapse={() => setDesktopSidebarCollapsed(true)}
                     onLogoClick={onLogoClick}
+                  />
+                  {/* Resize handle */}
+                  <div
+                    className="absolute inset-y-0 right-0 z-20 hidden w-1 cursor-col-resize md:block"
+                    onPointerDown={handleResizePointerDown}
                   />
                 </div>
                 <div className={cn("h-full", desktopSidebarCollapsed ? "block" : "hidden")}>
