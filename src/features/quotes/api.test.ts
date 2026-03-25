@@ -370,6 +370,7 @@ import {
   requestQuotes,
   resetClientIntakeSchemaAvailabilityForTests,
   resetJobArchivingSchemaAvailabilityForTests,
+  isProjectCollaborationSchemaUnavailable,
   resetProjectCollaborationSchemaAvailabilityForTests,
   unarchiveJob,
   unpinJob,
@@ -2735,6 +2736,7 @@ describe("quotes api helpers", () => {
     });
 
     await expect(fetchProjectAssigneeProfiles("project-123")).resolves.toEqual([]);
+    expect(isProjectCollaborationSchemaUnavailable()).toBe(true);
   });
 
   it("surfaces edge function error bodies during project creation fallback", async () => {
