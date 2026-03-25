@@ -506,6 +506,83 @@ describe("ClientProject", () => {
     });
   });
 
+  it("surfaces quote data errors instead of the generic empty chart state", async () => {
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([
+      {
+        job: {
+          id: "job-1",
+          organization_id: "org-1",
+          project_id: "project-1",
+          created_by: "user-1",
+          title: "Bracket",
+          description: null,
+          status: "ready_to_quote",
+          source: "client_home",
+          active_pricing_policy_id: null,
+          tags: [],
+          requested_service_kinds: ["manufacturing_quote"],
+          primary_service_kind: "manufacturing_quote",
+          service_notes: null,
+          requested_by_date: "2026-04-15",
+          requested_quote_quantities: [10],
+          archived_at: null,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+          selected_vendor_quote_offer_id: null,
+        },
+        part: {
+          id: "part-1",
+          job_id: "job-1",
+          organization_id: "org-1",
+          name: "Bracket",
+          normalized_key: "bracket",
+          cad_file_id: "cad-1",
+          drawing_file_id: null,
+          quantity: 10,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+          cadFile: null,
+          drawingFile: null,
+          extraction: null,
+          approvedRequirement: null,
+          vendorQuotes: [],
+        },
+        summary: {
+          jobId: "job-1",
+          partNumber: "BRKT-001",
+          revision: "A",
+          description: "Bracket",
+          quantity: 10,
+          importedBatch: null,
+          requestedServiceKinds: ["manufacturing_quote"],
+          primaryServiceKind: "manufacturing_quote",
+          serviceNotes: null,
+          requestedQuoteQuantities: [10],
+          requestedByDate: "2026-04-15",
+          selectedSupplier: null,
+          selectedPriceUsd: null,
+          selectedLeadTimeBusinessDays: null,
+        },
+        files: [],
+        projectIds: ["project-1"],
+        drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+        latestQuoteRequest: null,
+        latestQuoteRun: null,
+        quoteDataStatus: "schema_unavailable",
+        quoteDataMessage: "Apply the latest Supabase migrations.",
+      },
+    ]);
+
+    renderWithClient("/projects/project-1");
+
+    const row = await screen.findByRole("button", { name: /open .* line item/i });
+    fireEvent.click(row);
+
+    expect(await screen.findByText("Quote comparison is unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Apply the latest Supabase migrations.")).toBeInTheDocument();
+    expect(screen.queryByText("No plottable quote offers are available for this part yet.")).not.toBeInTheDocument();
+  });
+
   it("passes collaboration-disabled project prefetch through to the sidebar callback", async () => {
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(true);
 

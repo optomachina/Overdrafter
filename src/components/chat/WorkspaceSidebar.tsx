@@ -339,6 +339,10 @@ export function WorkspaceSidebar({
   useEffect(() => {
     const el = projectsHeadingRef.current;
     if (!el) return;
+    if (typeof ResizeObserver === "undefined") {
+      setProjectsHeadingHeight(el.offsetHeight);
+      return;
+    }
     const observer = new ResizeObserver(() => setProjectsHeadingHeight(el.offsetHeight));
     observer.observe(el);
     setProjectsHeadingHeight(el.offsetHeight);
@@ -484,9 +488,9 @@ export function WorkspaceSidebar({
   const visibleParts = useMemo(
     () =>
       filters.show === "relevant"
-        ? sortedJobs(jobs.filter((job) => pinnedPartSet.has(job.id)))
-        : sortedJobs(jobs),
-    [filters.show, jobs, pinnedPartSet, sortedJobs],
+        ? sortedJobs(ungroupedJobs.filter((job) => pinnedPartSet.has(job.id)))
+        : sortedJobs(ungroupedJobs),
+    [filters.show, pinnedPartSet, sortedJobs, ungroupedJobs],
   );
 
   const selectionOrderJobIds = useMemo(() => visibleParts.map((job) => job.id), [visibleParts]);

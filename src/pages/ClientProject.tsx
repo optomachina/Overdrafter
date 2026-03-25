@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
+  CircleOff,
   Loader2,
   PlusSquare,
   Search as SearchIcon,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
@@ -95,6 +97,26 @@ function propertyValue(value: string | number | null | undefined) {
   return String(value);
 }
 
+function QuoteStatusCard({
+  title,
+  body,
+  tone = "neutral",
+}: {
+  title: string;
+  body: string;
+  tone?: "neutral" | "warning";
+}) {
+  const Icon = tone === "warning" ? TriangleAlert : CircleOff;
+
+  return (
+    <div className="rounded-lg border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-white/55">
+      <Icon className="h-4 w-4 text-white/35" />
+      <p className="mt-3 font-medium text-white/80">{title}</p>
+      <p className="mt-2">{body}</p>
+    </div>
+  );
+}
+
 const ClientProject = () => {
   const {
     activeFilter,
@@ -109,6 +131,8 @@ const ClientProject = () => {
     focusedDraft,
     focusedJob,
     focusedJobId,
+    focusedQuoteDataMessage,
+    focusedQuoteDataStatus,
     focusedQuoteOptions,
     focusedSelectedOption,
     focusedSummary,
@@ -391,7 +415,19 @@ const ClientProject = () => {
             </p>
           </div>
           <div className="mt-4">
-            {focusedQuoteOptions.length > 0 ? (
+            {focusedQuoteDataStatus === "schema_unavailable" ? (
+              <QuoteStatusCard
+                title="Quote comparison is unavailable"
+                body={focusedQuoteDataMessage ?? "The quote workspace projection is unavailable in this environment."}
+                tone="warning"
+              />
+            ) : focusedQuoteDataStatus === "invalid_for_plotting" ? (
+              <QuoteStatusCard
+                title="Quote rows were loaded but need review"
+                body={focusedQuoteDataMessage ?? "Quote rows were loaded but could not be plotted."}
+                tone="warning"
+              />
+            ) : focusedQuoteOptions.length > 0 ? (
               <QuoteChart
                 quotes={focusedQuoteOptions}
                 selectedOfferId={focusedSelectedOfferId}
