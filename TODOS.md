@@ -86,7 +86,7 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 ---
 
-## TODO-011: Worker observability — task duration and failure-rate metrics
+## ~~TODO-011: Worker observability — task duration and failure-rate metrics~~ ✅ DONE
 
 **What:** Add structured logging for task duration (start time → end time) and failure rates. Options:
 - Add `task_duration_ms` field to worker's existing structured log events (`worker.task.complete`, `worker.task.failure`)
@@ -105,6 +105,8 @@ Deferred work with context. Each item captures what, why, and where to start so 
 **Effort:** S (human: ~2 hours / CC: ~5 min) | **Priority:** P2
 
 **Depends on:** Nothing.
+
+**Resolution:** Added `task_duration_ms: Date.now() - taskStartMs` to the `worker.task.complete`, `worker.task.failure`, and `worker.task.retry` log event contexts in `worker/src/index.ts`. The start timestamp is captured immediately before `processTask` is called and spread into each exit-path log payload.
 
 ---
 
