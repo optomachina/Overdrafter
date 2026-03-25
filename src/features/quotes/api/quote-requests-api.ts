@@ -10,7 +10,7 @@ import type {
 import type { VendorQuoteResultRecord } from "@/features/quotes/types";
 import type { PostgrestSingleResponse } from "@supabase/supabase-js";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
-import { callRpc, callUntypedRpc, insertUntyped, untypedSupabase } from "./shared/rpc";
+import { callRpc, insertUntyped, untypedSupabase } from "./shared/rpc";
 import { ensureData } from "./shared/response";
 
 export async function setJobSelectedVendorQuoteOffer(jobId: string, offerId: string | null): Promise<string> {
@@ -79,7 +79,7 @@ export async function requestQuotes(
 export async function cancelQuoteRequest(
   requestId: string,
 ): Promise<QuoteRequestCancellationResult> {
-  const { data, error } = await callUntypedRpc("api_cancel_quote_request", {
+  const { data, error } = await callRpc("api_cancel_quote_request", {
     p_request_id: requestId,
   });
 
