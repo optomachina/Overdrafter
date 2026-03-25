@@ -16,11 +16,12 @@
     "extract:smoke": "tsx src/tools/extractDrawingSmoke.ts",
     "import:dmrifles-quotes": "tsx src/tools/importDmriflesQuotes.ts",
     "import:quotes": "tsx src/tools/importSpreadsheetQuotes.ts",
-    "install:browsers": "playwright install chromium"
+    "install:browsers": "playwright install chromium",
+    "extract:eval": "tsx src/tools/extractEval.ts"
   },
   "dependencies": {
-    "dotenv": "^16.6.1",
     "@supabase/supabase-js": "^2.77.0",
+    "dotenv": "^16.6.1",
     "fast-xml-parser": "^5.2.5",
     "node-stream-zip": "^1.15.0",
     "openai": "^4.104.0",
@@ -28,6 +29,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
     "@types/node": "^22.16.5",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"

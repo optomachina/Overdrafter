@@ -153,19 +153,16 @@ This makes the `reapStaleTasks()` query efficient even as the table grows.
 
 ---
 
-## TODO-015: Worker `FOR UPDATE SKIP LOCKED` task claiming
+## ~~TODO-015: Worker `FOR UPDATE SKIP LOCKED` task claiming~~ ✅ DONE
 
-**What:** Replace the current `claimNextTask` SELECT+UPDATE pattern in `worker/src/queue.ts` with a Supabase RPC that uses `SELECT ... FOR UPDATE SKIP LOCKED` for atomic, race-free task claiming.
+**Resolution:** Shipped as PR #117. New `api_claim_next_task(p_worker_name text)` PL/pgSQL function using `FOR UPDATE SKIP LOCKED` now performs atomic, race-free task claiming in a single round-trip. `claimNextTask` in `worker/src/queue.ts` was updated to call `supabase.rpc("api_claim_next_task", { p_worker_name: workerName }).maybeSingle()`, replacing the prior SELECT+UPDATE two-step. The calling site in `worker/src/index.ts` is unchanged at the call level.
 
-**Why:** The current pattern does a SELECT then UPDATE with `.eq("status", "queued")` as an optimistic concurrency check. Two worker instances could both SELECT the same task simultaneously; the second UPDATE would get 0 rows and return null — silently losing the claim. This is safe for a single worker deployment but fragile for multi-worker.
+**Artifacts shipped:**
+- Migration: `supabase/migrations/20260324120000_add_api_claim_next_task.sql`
+- Updated: `worker/src/queue.ts` → `claimNextTask` now delegates to `api_claim_next_task` RPC
+- Tests: `worker/src/queue.test.ts` — 3 `claimNextTask` tests verify RPC call shape, null return, and error propagation
 
-**When:** Before multi-worker deployment. Not needed for single-instance.
-
-**Where to start:** New `api_claim_next_task(p_worker_name text)` PL/pgSQL function using `FOR UPDATE SKIP LOCKED`. Replace `claimNextTask` call in `worker/src/index.ts`.
-
-**Effort:** S (human: ~3 hours / CC: ~10 min) | **Priority:** P2
-
-**Depends on:** Multi-worker deployment decision.
+**Verification:** `npm test -- --run worker/src/queue.test.ts` — 3/3 passing.
 
 ---
 
