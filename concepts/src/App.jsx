@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route } from 'react-router-dom';
 import HomeA from './pages/HomeA.jsx';
 import HomeB from './pages/HomeB.jsx';
 import HomeC from './pages/HomeC.jsx';
@@ -97,7 +97,7 @@ function Landing() {
           <div style={{ width: 180, borderRight: '1px solid rgba(255,255,255,0.07)', padding: '20px 16px', flexShrink: 0 }}>
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 12 }}>Pages</p>
             {selectedConcept.pages.map((page, i) => {
-              const basePath = `/${page.toLowerCase()}-${selectedConcept.id}`;
+              const basePath = `#/${page.toLowerCase()}-${selectedConcept.id}`;
               return (
                 <div key={page} style={{ marginBottom: 4 }}>
                   <a href={basePath} style={{ textDecoration: 'none' }}>
@@ -128,7 +128,7 @@ function Landing() {
           </div>
           {/* Preview */}
           <iframe
-            src={`/${selectedConcept.pages[0].toLowerCase()}-${selectedConcept.id}`}
+            src={`#/${selectedConcept.pages[0].toLowerCase()}-${selectedConcept.id}`}
             style={{ flex: 1, border: 'none', background: '#0a0a0a' }}
             title="Preview"
           />
@@ -157,7 +157,7 @@ function Landing() {
         </p>
         <div className="pill-nav" style={{ justifyContent: 'center', marginTop: 8 }}>
           {CONCEPTS.map(c => (
-            <a key={c.id} href={`/${c.pages[0].toLowerCase()}-${c.id}`} style={{ textDecoration: 'none' }}>
+            <a key={c.id} href={`#/${c.pages[0].toLowerCase()}-${c.id}`} style={{ textDecoration: 'none' }}>
               <button className="pill">
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: c.accent }}>{c.letter}</span>
                 <span>{c.name}</span>
@@ -169,7 +169,7 @@ function Landing() {
 
       <div className="landing-grid">
         {CONCEPTS.map(c => (
-          <a key={c.id} href={`/${c.pages[0].toLowerCase()}-${c.id}`} style={{ textDecoration: 'none' }}>
+          <a key={c.id} href={`#/${c.pages[0].toLowerCase()}-${c.id}`} style={{ textDecoration: 'none' }}>
             <div
               className="concept-card"
               style={{ '--accent': c.accent, '--accent-dim': c.accentDim, '--accent-border': c.accentBorder }}
@@ -233,7 +233,7 @@ function Landing() {
 
 export default function App() {
   return (
-    <BrowserRouter basename={import.meta.env.BASE_URL || '/'}>
+    <HashRouter>
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/home-a" element={<HomeA />} />
@@ -252,6 +252,6 @@ export default function App() {
         <Route path="/part-d" element={<PartD />} />
         <Route path="/part-e" element={<PartE />} />
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
