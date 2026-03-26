@@ -183,6 +183,7 @@ const ClientProject = () => {
     focusedQuoteOptions,
     focusedSelectedOption,
     focusedSummary,
+    focusedRequestedByDate,
     focusedWorkspaceItem,
     handleClearFocusedJob,
     dissolveProjectMutation,
@@ -216,6 +217,7 @@ const ClientProject = () => {
     prefetchPart,
     prefetchProject,
     projectCollaborationUnavailable,
+    projectDueByDate,
     projectId,
     projectInvitesQuery,
     projectJobs,
@@ -232,6 +234,7 @@ const ClientProject = () => {
     setIsSearchOpen,
     setMobileDrawerOpen,
     setProjectName,
+    setProjectDueByDate,
     setSearch,
     setShowAddPart,
     setShowArchive,
@@ -626,7 +629,7 @@ const ClientProject = () => {
               </div>
 
               <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-3">
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-3">
                   <TooltipProvider delayDuration={150}>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -692,6 +695,36 @@ const ClientProject = () => {
                     >
                       Cheap
                     </Button>
+                  </div>
+
+                  <div className="ml-auto flex flex-col gap-1 sm:items-end">
+                    <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-white/45" htmlFor="project-due-by">
+                      Due by
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="project-due-by"
+                        type="date"
+                        value={projectDueByDate ?? ""}
+                        onChange={(event) => setProjectDueByDate(event.target.value || null)}
+                        className="h-8 w-[152px] border-white/10 bg-white/[0.03] px-2.5 text-sm text-white focus-visible:ring-white/20"
+                        aria-describedby="project-due-by-help"
+                      />
+                      {projectDueByDate ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 rounded-full px-3 text-xs text-white/70 hover:bg-white/6 hover:text-white"
+                          onClick={() => setProjectDueByDate(null)}
+                        >
+                          Clear
+                        </Button>
+                      ) : null}
+                    </div>
+                    <p id="project-due-by-help" className="text-[11px] text-white/40">
+                      Applies to this project unless a part has its own requested-by date.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -837,6 +870,7 @@ const ClientProject = () => {
                     quoteDataStatus={focusedQuoteDataStatus}
                     quoteDataMessage={focusedQuoteDataMessage}
                     quoteOptions={focusedQuoteOptions}
+                    requestedByDate={focusedRequestedByDate}
                     selectedOfferId={focusedSelectedOfferId}
                     onSelectQuote={handleInspectorQuoteSelect}
                     onClear={handleClearFocusedJob}
@@ -895,6 +929,7 @@ const ClientProject = () => {
                   quoteDataStatus={focusedQuoteDataStatus}
                   quoteDataMessage={focusedQuoteDataMessage}
                   quoteOptions={focusedQuoteOptions}
+                  requestedByDate={focusedRequestedByDate}
                   selectedOfferId={focusedSelectedOfferId}
                   onSelectQuote={handleInspectorQuoteSelect}
                   onClear={handleClearFocusedJob}

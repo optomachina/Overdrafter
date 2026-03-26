@@ -5,6 +5,7 @@ import {
   buildClientQuoteSelectionOptions,
   buildClientQuoteSelectionResult,
   buildVendorLabelMap,
+  filterVisibleQuoteOptions,
   pickPresetOption,
   revertBulkPresetSelection,
   summarizeSelectedQuoteOptions,
@@ -140,6 +141,83 @@ describe("selection helpers", () => {
 
     expect(pickPresetOption(options, "cheapest")?.persistedOfferId).toBe("offer-on-time");
     expect(options.find((option) => option.persistedOfferId === "offer-late")?.dueDateEligible).toBe(false);
+  });
+
+  it("returns only due-date-eligible options for project visibility", () => {
+    const options = buildClientQuoteSelectionOptions({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          id: "quote-late",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-late",
+              vendor_quote_result_id: "quote-late",
+              total_price_usd: 80,
+              unit_price_usd: 8,
+              ship_receive_by: "2026-03-20",
+            },
+          ],
+        }),
+        makeQuoteAggregate({
+          id: "quote-ok",
+          vendor: "fictiv",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-ok",
+              vendor_quote_result_id: "quote-ok",
+              total_price_usd: 95,
+              unit_price_usd: 9.5,
+              ship_receive_by: "2026-03-08",
+            },
+          ],
+        }),
+      ],
+      requestedByDate: "2026-03-12",
+    });
+
+    expect(filterVisibleQuoteOptions(options, "2026-03-12").map((option) => option.persistedOfferId)).toEqual([
+      "offer-ok",
+    ]);
+  });
+
+  it("returns no preset candidate when every quote is late", () => {
+    const options = buildClientQuoteSelectionOptions({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          id: "quote-late-1",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-late-1",
+              vendor_quote_result_id: "quote-late-1",
+              total_price_usd: 80,
+              unit_price_usd: 8,
+              ship_receive_by: "2026-03-20",
+            },
+          ],
+        }),
+        makeQuoteAggregate({
+          id: "quote-late-2",
+          vendor: "fictiv",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-late-2",
+              vendor_quote_result_id: "quote-late-2",
+              total_price_usd: 95,
+              unit_price_usd: 9.5,
+              ship_receive_by: "2026-03-18",
+            },
+          ],
+        }),
+      ],
+      requestedByDate: "2026-03-12",
+    });
+
+    expect(pickPresetOption(options, "cheapest")).toBeNull();
+    expect(pickPresetOption(options, "fastest")).toBeNull();
   });
 
   it("prefers domestic options for the domestic preset and preserves unknown when signals are missing", () => {
