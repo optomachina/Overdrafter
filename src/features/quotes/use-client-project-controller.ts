@@ -196,7 +196,7 @@ export function useClientProjectController() {
     [accessibleProjectsQuery.data],
   );
   const canLoadRemoteProjectData =
-    Boolean(user) && !accessibleProjectsQuery.isLoading && !projectCollaborationUnavailable;
+    Boolean(user) && !projectCollaborationUnavailable;
   const projectQuery = useQuery({
     queryKey: workspaceQueryKeys.project(projectId),
     queryFn: () => fetchProject(projectId),

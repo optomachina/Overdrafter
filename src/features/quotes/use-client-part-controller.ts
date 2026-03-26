@@ -194,6 +194,7 @@ export function useClientPartController() {
     queryKey: workspaceQueryKeys.partDetail(resolvedJobId ?? ""),
     queryFn: () => fetchPartDetailByJobId(resolvedJobId ?? ""),
     enabled: Boolean(user) && Boolean(resolvedJobId),
+    retry: false,
     refetchInterval: (query) => {
       const data = query.state.data;
       const lifecycle = data?.part?.clientExtraction?.lifecycle ?? null;
@@ -214,7 +215,7 @@ export function useClientPartController() {
   const partDetail = partDetailQuery.data;
   const canonicalJobId = resolvedJobId ?? partDetail?.job?.id ?? routeJobId;
   const isPartDetailLoading =
-    partRouteQuery.isLoading || partRouteQuery.isFetching || partDetailQuery.isLoading;
+    partRouteQuery.isLoading || partDetailQuery.isLoading;
 
   const attachFilesPicker = useClientJobFilePicker({
     isSignedIn: Boolean(user),

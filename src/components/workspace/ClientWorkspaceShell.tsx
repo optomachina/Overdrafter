@@ -66,6 +66,7 @@ export type SidebarRailAction = {
 
 type ClientWorkspaceShellProps = {
   topRightContent?: ReactNode;
+  headerContent?: ReactNode;
   sidebarContent: ReactNode;
   sidebarFooter?: ReactNode;
   sidebarRailActions?: SidebarRailAction[];
@@ -279,7 +280,7 @@ function SidebarScaffold({
 }) {
   return (
     <div className="workspace-shell flex h-full flex-col bg-ws-shell text-white">
-      <div className="flex items-center justify-between gap-3 pb-3 pl-2 pr-2 pt-3">
+      <div className="flex items-center justify-between gap-3 pb-3 pl-2.5 pr-2 pt-3">
         {onLogoClick ? (
           <button
             type="button"
@@ -360,6 +361,7 @@ function CollapsedSidebarRail({
 
 export function ClientWorkspaceShell({
   topRightContent,
+  headerContent,
   sidebarContent,
   sidebarFooter,
   sidebarRailActions,
@@ -520,6 +522,12 @@ export function ClientWorkspaceShell({
                     {BRAND_NAME}
                   </span>
                 </BrandLabelTag>
+                {headerContent ? (
+                  <>
+                    <span className="text-white/30">/</span>
+                    <div className="min-w-0 flex-1">{headerContent}</div>
+                  </>
+                ) : null}
               </div>
 
               <div className="ml-auto flex items-center gap-2">{topRightContent}</div>

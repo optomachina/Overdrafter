@@ -2887,15 +2887,19 @@ describe("quotes api helpers", () => {
         },
         error: null,
       });
-    supabaseMock.authGetUser.mockResolvedValueOnce({
-      data: {
-        user: {
-          id: "user-2",
-          email: "client@example.com",
+    supabaseMock.authGetUser
+      // First call (parallel with no-session getSession) returns null — no session yet.
+      .mockResolvedValueOnce({ data: { user: null }, error: null })
+      // Second call returns the authenticated user.
+      .mockResolvedValueOnce({
+        data: {
+          user: {
+            id: "user-2",
+            email: "client@example.com",
+          },
         },
-      },
-      error: null,
-    });
+        error: null,
+      });
     supabaseMock.membershipsOrder.mockResolvedValueOnce({
       data: [
         {

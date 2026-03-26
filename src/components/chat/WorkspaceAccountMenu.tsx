@@ -13,9 +13,11 @@ import {
   Download,
   FilePenLine,
   FileText,
+  FlaskConical,
   Folder,
   LogOut,
   Loader2,
+  ScanSearch,
   Settings,
   Trash2,
   Undo2,
@@ -58,7 +60,11 @@ import type {
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary } from "@/features/quotes/types";
 import { getAccountDisplayProfile } from "@/lib/account-profile";
-import { setDiagnosticsEnabled, setDiagnosticsPanelOpen } from "@/lib/diagnostics";
+import { setDiagnosticsEnabled, setDiagnosticsPanelOpen, useDiagnosticsSnapshot } from "@/lib/diagnostics";
+import { shouldShowExtractionLauncher } from "@/components/debug/extraction-launcher-visibility";
+import { openExtractionLauncher } from "@/components/debug/ExtractionLauncher";
+import { openFixturePanel } from "@/components/debug/FixturePanel";
+import { isFixtureModeAvailable } from "@/features/quotes/client-workspace-fixtures";
 import { cn } from "@/lib/utils";
 
 type WorkspaceAccountMenuProps = {
@@ -391,6 +397,13 @@ export function WorkspaceAccountMenu({
   const [pendingDeleteJobIds, setPendingDeleteJobIds] = useState<string[]>([]);
   const [deleteConfirmation, setDeleteConfirmation] = useState<ArchiveDeleteConfirmationState | null>(null);
   const roleLabel = getRoleLabel(activeMembership?.role);
+  const diagnosticsSnapshot = useDiagnosticsSnapshot();
+  const showExtractionLauncher = shouldShowExtractionLauncher({
+    membershipRole: activeMembership?.role ?? null,
+    diagnosticsEnabled: diagnosticsSnapshot.enabled,
+    isDev: import.meta.env.DEV,
+  });
+  const showFixtures = isFixtureModeAvailable();
   const notifications = notificationCenter ?? {
     allItems: [],
     browserPermission: "unsupported" as const,
@@ -560,7 +573,15 @@ export function WorkspaceAccountMenu({
                   type="button"
                   className="mt-4 rounded-full bg-white text-black hover:bg-white/90"
                   disabled={notifications.isRequestingPermission}
-                  onClick={() => void notifications.requestBrowserPermission()}
+                  onClick={() => {
+                    void notifications.requestBrowserPermission().then(() => {
+                      if (window.Notification?.permission === "granted") {
+                        notifications.supportedTypes.forEach((type) => {
+                          notifications.setChannelEnabled(type, "browser", true);
+                        });
+                      }
+                    });
+                  }}
                 >
                   {notifications.isRequestingPermission ? (
                     <>
@@ -592,7 +613,7 @@ export function WorkspaceAccountMenu({
                           <p className="mt-1 text-sm leading-6 text-white/52">{definition.description}</p>
                         </div>
                       </div>
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div className="mt-4 flex flex-col gap-2">
                         {(["inApp", "browser"] as WorkspaceNotificationChannel[]).map((channel) => {
                           const channelLabel = channel === "inApp" ? "In-app center" : "Browser alerts";
                           const channelDescription =
@@ -1057,12 +1078,10 @@ export function WorkspaceAccountMenu({
               </p>
               <p className="truncate text-[13px] leading-5 text-white/48">
                 {roleLabel}
-                {"\u00A0\u00A0"}
-                v{__APP_VERSION__}
               </p>
             </div>
             {notifications.unseenCount > 0 ? (
-              <span className={cn(NOTIFICATION_BADGE_CLASS, "hidden shrink-0 md:inline-flex")} aria-label={`${notifications.unseenCount} unseen notifications`}>
+              <span className="hidden shrink-0 h-5 w-5 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/10 text-[11px] font-medium text-emerald-300 md:inline-flex" aria-label={`${notifications.unseenCount} unseen notifications`}>
                 {notifications.unseenCount}
               </span>
             ) : null}
@@ -1088,7 +1107,7 @@ export function WorkspaceAccountMenu({
             <Bell className={MENU_ICON_CLASS} strokeWidth={1.85} />
             <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
               <span>Notifications</span>
-              {notifications.unseenCount > 0 ? <span className={NOTIFICATION_BADGE_CLASS}>{notifications.unseenCount} new</span> : null}
+              {notifications.unseenCount > 0 ? <span className={NOTIFICATION_BADGE_CLASS}>{notifications.unseenCount}</span> : null}
             </span>
           </DropdownMenuItem>
 
@@ -1124,6 +1143,27 @@ export function WorkspaceAccountMenu({
               ))}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
+
+          {showExtractionLauncher ? (
+            <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={openExtractionLauncher}>
+              <ScanSearch className={MENU_ICON_CLASS} strokeWidth={1.85} />
+              <span>Extraction</span>
+            </DropdownMenuItem>
+          ) : null}
+
+          {showFixtures ? (
+            <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={openFixturePanel}>
+              <FlaskConical className={MENU_ICON_CLASS} strokeWidth={1.85} />
+              <span>Fixtures</span>
+            </DropdownMenuItem>
+          ) : null}
+
+          {showExtractionLauncher || diagnosticsSnapshot.enabled || import.meta.env.DEV ? (
+            <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={openDiagnosticsPanel}>
+              <Bug className={MENU_ICON_CLASS} strokeWidth={1.85} />
+              <span>Diagnostics</span>
+            </DropdownMenuItem>
+          ) : null}
 
           <DropdownMenuItem
             className={MENU_ITEM_CLASS}

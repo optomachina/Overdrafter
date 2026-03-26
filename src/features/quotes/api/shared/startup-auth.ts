@@ -112,6 +112,7 @@ type StartupAuthBootstrapResult =
 let startupSessionReadPromise: Promise<StartupSessionReadResult> | null = null;
 let startupUserReadPromise: Promise<StartupUserReadResult> | null = null;
 let startupAuthBootstrapPromise: Promise<StartupAuthBootstrapResult> | null = null;
+let startupAuthBootstrapResolvedAt: number | null = null;
 
 /**
  * Returns the localStorage key used by the Supabase browser client to persist
@@ -329,7 +330,13 @@ async function readSupabaseBootstrap(options: {
   }
 
   const bootstrapPromise: Promise<StartupAuthBootstrapResult> = (async (): Promise<StartupAuthBootstrapResult> => {
-    const sessionRead = await readSupabaseSessionSnapshot({ memoize: options.memoize });
+    // Start both reads in parallel — getUser result is only consumed if session exists,
+    // but launching it early saves the sequential latency when both are needed.
+    const hadStoredAccessToken = Boolean(getStoredSupabaseAccessToken());
+    const sessionReadPromise = readSupabaseSessionSnapshot({ memoize: options.memoize });
+    const userReadPromise = readSupabaseUserSnapshot(hadStoredAccessToken, { memoize: options.memoize });
+
+    const sessionRead = await sessionReadPromise;
 
     if (sessionRead.status === "timed_out") {
       return {
@@ -370,9 +377,7 @@ async function readSupabaseBootstrap(options: {
       };
     }
 
-    const userRead = await readSupabaseUserSnapshot(sessionRead.hadStoredAccessToken, {
-      memoize: options.memoize,
-    });
+    const userRead = await userReadPromise;
 
     if (userRead.status === "timed_out") {
       return {
@@ -442,10 +447,21 @@ async function readSupabaseBootstrap(options: {
   })();
 
   if (options.memoize) {
-    startupAuthBootstrapPromise = bootstrapPromise;
+    startupAuthBootstrapPromise = bootstrapPromise.then((result) => {
+      startupAuthBootstrapResolvedAt = Date.now();
+      return result;
+    });
   }
 
   return bootstrapPromise;
+}
+
+/**
+ * Returns the age in milliseconds of the memoized startup auth bootstrap result,
+ * or `null` if it has not yet resolved.
+ */
+export function getStartupBootstrapAgeMs(): number | null {
+  return startupAuthBootstrapResolvedAt !== null ? Date.now() - startupAuthBootstrapResolvedAt : null;
 }
 
 /**
@@ -480,4 +496,5 @@ export function resetStartupAuthBootstrapForTests() {
   startupSessionReadPromise = null;
   startupUserReadPromise = null;
   startupAuthBootstrapPromise = null;
+  startupAuthBootstrapResolvedAt = null;
 }

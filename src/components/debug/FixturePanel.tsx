@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FlaskConical } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -21,11 +21,24 @@ function appendDebugQuery(target: string, currentSearch: string): string {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
-export function FixturePanel() {
+let _openFixturePanel: (() => void) | null = null;
+
+export function openFixturePanel() {
+  _openFixturePanel?.();
+}
+
+export function FixturePanel({ hideFloatingButton = false }: { hideFloatingButton?: boolean }) {
   const location = useLocation();
   const navigate = useNavigate();
   const activeScenario = getActiveFixtureScenario();
   const [open, setOpen] = useState(Boolean(activeScenario));
+
+  useEffect(() => {
+    _openFixturePanel = () => setOpen(true);
+    return () => {
+      _openFixturePanel = null;
+    };
+  }, []);
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
 
   const visible = isFixtureModeAvailable() && params.get("embed") !== "1";
@@ -99,15 +112,17 @@ export function FixturePanel() {
         </div>
       ) : null}
 
-      <Button
-        type="button"
-        size="sm"
-        className="w-fit gap-2 rounded-full border border-white/12 bg-[#111827]/92 text-white shadow-2xl hover:bg-[#1f2937]"
-        onClick={() => setOpen((current) => !current)}
-      >
-        <FlaskConical className="h-4 w-4" />
-        Fixtures
-      </Button>
+      {!hideFloatingButton ? (
+        <Button
+          type="button"
+          size="sm"
+          className="w-fit gap-2 rounded-full border border-white/12 bg-[#111827]/92 text-white shadow-2xl hover:bg-[#1f2937]"
+          onClick={() => setOpen((current) => !current)}
+        >
+          <FlaskConical className="h-4 w-4" />
+          Fixtures
+        </Button>
+      ) : null}
     </div>
   );
 }

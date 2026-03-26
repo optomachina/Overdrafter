@@ -484,6 +484,11 @@ const ClientProject = () => {
       </AlertDialog>
       <ClientWorkspaceShell
         onLogoClick={() => navigate("/")}
+        headerContent={
+          <span className="truncate text-[15px] font-medium tracking-[-0.01em] text-white/[0.94]">
+            {projectQuery.data?.name ?? "Project"}
+          </span>
+        }
         sidebarRailActions={[
           { label: "New Job", icon: PlusSquare, onClick: newJobFilePicker.openFilePicker },
           { label: "Search", icon: SearchIcon, onClick: () => setIsSearchOpen(true) },
@@ -538,13 +543,6 @@ const ClientProject = () => {
         }
       >
         <div className="mx-auto flex w-full max-w-[1380px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
-          {/* Breadcrumb */}
-          <div className="flex items-center gap-2 text-sm text-white/55">
-            <span>Projects</span>
-            <span>/</span>
-            <span>{projectQuery.data?.name ?? "Project"}</span>
-          </div>
-
           {/* Project header */}
           <div>
             <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-white">
@@ -633,43 +631,40 @@ const ClientProject = () => {
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
             <div className="space-y-4">
               <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-4">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
-                    <Input
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      placeholder="Search project parts"
-                      className="border-white/10 bg-white/[0.03] text-white placeholder:text-white/35 focus-visible:ring-white/20"
-                      aria-label="Search project parts"
-                    />
-                    <div className="flex flex-wrap gap-2">
-                      {clientFilterOptions.map((filter) => (
-                        <Button
-                          key={filter.id}
-                          type="button"
-                          variant="outline"
-                          className={cn(
-                            "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
-                            activeFilter === filter.id && "border-white/20 bg-white/10",
-                          )}
-                          onClick={() => setActiveFilter(filter.id)}
-                        >
-                          {filter.label}
-                        </Button>
-                      ))}
-                    </div>
+                <div className="flex flex-col gap-3">
+                  <Input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search project parts"
+                    className="border-white/10 bg-white/[0.03] text-white placeholder:text-white/35 focus-visible:ring-white/20"
+                    aria-label="Search project parts"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    {clientFilterOptions.map((filter) => (
+                      <Button
+                        key={filter.id}
+                        type="button"
+                        variant="outline"
+                        className={cn(
+                          "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
+                          activeFilter === filter.id && "border-white/20 bg-white/10",
+                        )}
+                        onClick={() => setActiveFilter(filter.id)}
+                      >
+                        {filter.label}
+                      </Button>
+                    ))}
+                    {!isMobile ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="ml-auto rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                        onClick={() => setDesktopInspectorOpen((current) => !current)}
+                      >
+                        {desktopInspectorOpen ? "Hide inspector" : "Show inspector"}
+                      </Button>
+                    ) : null}
                   </div>
-
-                  {!isMobile ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
-                      onClick={() => setDesktopInspectorOpen((current) => !current)}
-                    >
-                      {desktopInspectorOpen ? "Hide inspector" : "Show inspector"}
-                    </Button>
-                  ) : null}
                 </div>
               </div>
 

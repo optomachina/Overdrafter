@@ -6,7 +6,11 @@ import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import type { PostgrestResponse } from "@supabase/supabase-js";
 import { callRpc } from "./shared/rpc";
-import { readLiveSupabaseBootstrap } from "./shared/startup-auth";
+import {
+  getStartupBootstrapAgeMs,
+  readLiveSupabaseBootstrap,
+  readStartupSupabaseBootstrap,
+} from "./shared/startup-auth";
 
 type MembershipJoinRow = {
   id: string;
@@ -43,7 +47,15 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
     return session;
   }
 
-  const bootstrap = await readLiveSupabaseBootstrap();
+  // Reuse the memoized startup result if it resolved recently — avoids a duplicate
+  // getSession + getUser round-trip on the initial page load fetch.
+  const STARTUP_REUSE_WINDOW_MS = 2_000;
+  const startupAge = getStartupBootstrapAgeMs();
+  const bootstrap = await (
+    startupAge !== null && startupAge < STARTUP_REUSE_WINDOW_MS
+      ? readStartupSupabaseBootstrap()
+      : readLiveSupabaseBootstrap()
+  );
   const hasLocalSession = bootstrap.session !== null;
   recordWorkspaceSessionDiagnostic(
     "info",

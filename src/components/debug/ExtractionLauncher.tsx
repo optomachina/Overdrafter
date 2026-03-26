@@ -53,13 +53,26 @@ function contextLabel(context: ExtractionRouteContext) {
   }
 }
 
-export function ExtractionLauncher() {
+let _openExtractionLauncher: (() => void) | null = null;
+
+export function openExtractionLauncher() {
+  _openExtractionLauncher?.();
+}
+
+export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatingButton?: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
   const diagnostics = useDiagnosticsSnapshot();
   const { activeMembership } = useAppSession();
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    _openExtractionLauncher = () => setOpen(true);
+    return () => {
+      _openExtractionLauncher = null;
+    };
+  }, []);
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState("gpt-5.4");
   const [userSelectedModel, setUserSelectedModel] = useState(false);
@@ -233,15 +246,17 @@ export function ExtractionLauncher() {
 
   return (
     <>
-      <Button
-        type="button"
-        size="sm"
-        className={`fixed right-4 z-40 w-fit gap-2 rounded-full border border-white/12 bg-[#111827]/92 text-white shadow-2xl hover:bg-[#1f2937] ${fixtureLauncherVisible ? "bottom-36" : "bottom-20"}`}
-        onClick={() => setOpen(true)}
-      >
-        <ScanSearch className="h-4 w-4" />
-        Extraction
-      </Button>
+      {!hideFloatingButton ? (
+        <Button
+          type="button"
+          size="sm"
+          className={`fixed right-4 z-40 w-fit gap-2 rounded-full border border-white/12 bg-[#111827]/92 text-white shadow-2xl hover:bg-[#1f2937] ${fixtureLauncherVisible ? "bottom-36" : "bottom-20"}`}
+          onClick={() => setOpen(true)}
+        >
+          <ScanSearch className="h-4 w-4" />
+          Extraction
+        </Button>
+      ) : null}
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent

@@ -918,11 +918,7 @@ export function WorkspaceSidebar({
                 <p className="min-w-0 truncate text-sm leading-5">{presentation.title}</p>
                 {selectedQuote ? (
                   <p className="ml-auto shrink-0 text-[11px] leading-5 text-emerald-300/90">{selectedQuote}</p>
-                ) : (
-                  <p className="ml-auto shrink-0 text-[11px] leading-5 text-white/[0.52]">
-                    {workspaceState.selection.label}
-                  </p>
-                )}
+                ) : null}
               </div>
               {!nestedInProject && parentProjectNames.length > 0 ? (
                 <p className="truncate text-[12px] leading-4 text-white/[0.38]">{parentProjectNames.join(" · ")}</p>

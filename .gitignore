@@ -37,3 +37,7 @@ playwright-report/
 test-results/
 .gstack/
 .claude/worktrees/
+.claude/skills/
+.agents/
+skills/
+skills-lock.json

@@ -51,6 +51,8 @@ describe("startup auth helpers", () => {
     resetStartupAuthBootstrapForTests();
     authGetSessionMock.mockReset();
     authGetUserMock.mockReset();
+    // Default: getUser returns no user (tests that need a user will override this).
+    authGetUserMock.mockResolvedValue({ data: { user: null }, error: null });
   });
 
   afterEach(() => {

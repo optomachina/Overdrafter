@@ -1,3 +1,4 @@
+import { Agentation } from "agentation";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -94,8 +95,9 @@ const App = () => (
       <Sonner />
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <DiagnosticsBootstrap />
-        <ExtractionLauncher />
-        <FixturePanel />
+        <ExtractionLauncher hideFloatingButton />
+        <FixturePanel hideFloatingButton />
+        {import.meta.env.DEV && <Agentation />}
         <AppErrorBoundary>
           <Routes>
             <Route path="/" element={<Index />} />

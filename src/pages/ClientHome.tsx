@@ -14,7 +14,7 @@ import { buildClientWorkspaceState } from "@/features/quotes/client-workspace-st
 import { useClientHomeController } from "@/features/quotes/use-client-home-controller";
 
 const quickStartItems = [
-  { label: "Upload a STEP file and drawing for quoting", action: "upload" as const },
+  { label: "Upload CAD file & Drawing for quoting", action: "upload" as const },
   { label: "Compare price and lead time options", action: "search" as const },
   { label: "Group related parts into a project", action: "upload" as const },
   { label: "Share a project with a teammate", action: "search" as const },
@@ -354,48 +354,51 @@ const ClientHome = () => {
       <div className="mx-auto flex w-full max-w-[1380px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
         {/* Workspace header */}
         <section className="rounded-surface-lg border border-ws-border-subtle bg-gradient-to-br from-ws-card to-ws-card/80 p-6">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <p className="ws-section-label">Workspace</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
-                Start with a part package or open an existing project.
-              </h1>
-              <p className="mt-2 text-sm text-white/55">
-                Upload files to begin intake. Projects group related parts and stay at the top of the information hierarchy.
-              </p>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <p className="ws-section-label">Workspace</p>
+                <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
+                  Start with a part package or open an existing project.
+                </h1>
+                <p className="mt-2 text-sm text-white/55">
+                  Upload files to begin intake. Projects group related parts and stay at the top of the information hierarchy.
+                </p>
+              </div>
+
+              <div className="flex shrink-0 flex-col gap-2 lg:w-[260px]">
+                <Button
+                  type="button"
+                  className="w-full justify-start rounded"
+                  onClick={newJobFilePicker.openFilePicker}
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  Upload parts and drawings
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-start rounded border-white/10 bg-transparent text-white hover:bg-white/6"
+                  onClick={() => setIsSearchOpen(true)}
+                >
+                  <Search className="mr-2 h-4 w-4" />
+                  Search projects and parts
+                </Button>
+              </div>
             </div>
 
-            <div className="flex shrink-0 flex-col gap-2 lg:w-[260px]">
-              <Button
-                type="button"
-                className="w-full justify-start rounded"
-                onClick={newJobFilePicker.openFilePicker}
-              >
-                <Upload className="mr-2 h-4 w-4" />
-                Upload parts and drawings
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full justify-start rounded border-white/10 bg-transparent text-white hover:bg-white/6"
-                onClick={() => setIsSearchOpen(true)}
-              >
-                <Search className="mr-2 h-4 w-4" />
-                Search projects and parts
-              </Button>
-              <div className="mt-1 divide-y divide-white/6 rounded border border-white/8 bg-black/20">
-                {quickStartItems.map((item) => (
-                  <button
-                    key={item.label}
-                    type="button"
-                    onClick={item.action === "upload" ? newJobFilePicker.openFilePicker : () => setIsSearchOpen(true)}
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left text-xs text-white/55 transition hover:bg-white/4 hover:text-white/80 first:rounded-t-[14px] last:rounded-b-[14px]"
-                  >
-                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${item.action === "upload" ? "bg-emerald-400/40" : "bg-blue-400/40"}`} />
-                    <span>{item.label}</span>
-                  </button>
-                ))}
-              </div>
+            <div className="flex gap-2">
+              {quickStartItems.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={item.action === "upload" ? newJobFilePicker.openFilePicker : () => setIsSearchOpen(true)}
+                  className="flex flex-1 items-center gap-2.5 rounded-full border border-white/8 bg-black/20 px-4 py-2 text-left text-xs text-white/55 transition hover:border-white/15 hover:bg-white/6 hover:text-white/80"
+                >
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${item.action === "upload" ? "bg-emerald-400/40" : "bg-blue-400/40"}`} />
+                  <span>{item.label}</span>
+                </button>
+              ))}
             </div>
           </div>
         </section>

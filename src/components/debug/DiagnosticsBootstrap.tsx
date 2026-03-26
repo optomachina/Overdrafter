@@ -28,7 +28,7 @@ export function DiagnosticsBootstrap() {
       href: typeof window !== "undefined" ? window.location.href : route,
     });
 
-    setDiagnosticsUiSuppressed(embedded);
+    setDiagnosticsUiSuppressed(true);
 
     if (embedded) {
       setDiagnosticsPanelOpen(false);
