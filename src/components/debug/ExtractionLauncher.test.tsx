@@ -291,4 +291,20 @@ describe("ExtractionLauncher", () => {
       expect(screen.getByTestId("location-path")).toHaveTextContent("/internal/jobs/job-9");
     });
   });
+
+  it("keeps the internal job CTA available for client diagnostics mode", async () => {
+    appSessionMock.useAppSession.mockReturnValue({
+      activeMembership: { organizationId: "org-1", role: "client" },
+    });
+    diagnosticsMock.useDiagnosticsSnapshot.mockReturnValue({
+      enabled: true,
+    });
+
+    renderLauncher("/projects/project-1");
+
+    fireEvent.click(screen.getByRole("button", { name: /extraction/i }));
+
+    expect(screen.getByRole("button", { name: /open internal job/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/job or part id/i)).toBeInTheDocument();
+  });
 });

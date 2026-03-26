@@ -609,6 +609,64 @@ export type WorkerReadinessSnapshot = {
   url: string | null;
 };
 
+export type ExtractionModelProvider = "openai" | "anthropic" | "openrouter";
+
+export type DiscoveredExtractionModel = {
+  provider: ExtractionModelProvider;
+  modelId: string;
+  displayLabel: string;
+  sourceFreshness: "refreshed" | "fallback";
+  previewRunnable: boolean;
+  debugRunnable: boolean;
+  defaultHint: boolean;
+  stale: boolean;
+};
+
+export type DiscoveredModelCatalog = {
+  models: DiscoveredExtractionModel[];
+  updatedAt: string | null;
+  catalogFreshness: "cached" | "refreshed";
+  refreshing: boolean;
+  stale: boolean;
+  error: string | null;
+};
+
+export type PreviewExtractionResult = {
+  partId: string;
+  jobId: string;
+  provider: ExtractionModelProvider;
+  requestedModel: string;
+  effectiveModel: string;
+  workerBuildVersion: string;
+  extractorVersion: string;
+  modelFallbackUsed: boolean;
+  modelPromptVersion: string | null;
+  parserContext: string;
+  durationMs: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  estimatedCostUsd: number | null;
+  extraction: Record<string, unknown>;
+  status: "approved" | "needs_review";
+  warnings: string[];
+  evidence: Array<Record<string, unknown>>;
+  summary: {
+    missingFields: string[];
+    reviewFields: string[];
+    lifecycle: "partial" | "succeeded";
+  };
+  preview: {
+    pageCount: number;
+    previewAssetCount: number;
+    hasPreviewImage: boolean;
+  };
+  modelAttempts: Array<{
+    attempt: "title_block_crop" | "full_page";
+    titleBlockSufficient: boolean;
+    rawResponse: unknown;
+  }>;
+};
+
 export type ClientQuoteRequestStatus =
   | "not_requested"
   | QuoteRequestStatus;

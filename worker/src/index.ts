@@ -7,6 +7,15 @@ import { XOMETRY_AUTOMATION_VERSION } from "./adapters/xometry.js";
 import { loadConfig } from "./config.js";
 import { runHybridExtraction } from "./extraction/hybridExtraction.js";
 import {
+  buildStoredExtractionPayload,
+  currentExtractorVersion,
+  summarizeExtractionOutcome,
+} from "./extraction/sharedResult.js";
+import {
+  ExtractionModelCatalogManager,
+  previewStoredPartExtraction,
+} from "./extraction/debugLab.js";
+import {
   extractPdfText,
   renderPdfFirstPagePreview,
   renderPdfPreviewAssets,
@@ -34,6 +43,7 @@ import {
 } from "./httpServer.js";
 import { suggestLocatorUpdate } from "./repair/suggestLocatorUpdate.js";
 import { prepareRuntimeSecrets, validateWorkerReadiness } from "./runtimeSecrets.js";
+import { fetchPartContext } from "./partContext.js";
 import {
   ApprovedRequirementRecord,
   DrawingExtractionPayload,
@@ -52,9 +62,6 @@ import {
   nextRetryAt,
   retryCountForAttempts,
 } from "./vendorTaskRetry.js";
-
-const PDF_EXTRACTOR_VERSION = "worker-pdf-v3";
-const SIM_EXTRACTOR_VERSION = "worker-sim-v1";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -146,70 +153,6 @@ function logPreviewRenderWarning(task: QueueTaskRecord, stage: "all_pages" | "fi
   );
 }
 
-function summarizeExtractionOutcome(
-  extraction: Awaited<ReturnType<typeof runHybridExtraction>>,
-): import("./extractionObservability.js").ExtractionCompletionSummary {
-  const missingFields = [
-    extraction.description ? null : "description",
-    extraction.partNumber ? null : "partNumber",
-    extraction.revision ? null : "revision",
-    extraction.material.normalized || extraction.material.raw ? null : "material",
-    extraction.finish.normalized || extraction.finish.raw ? null : "finish",
-    extraction.tightestTolerance.valueInch ?? extraction.tightestTolerance.raw ? null : "tightestToleranceInch",
-  ].filter((value): value is string => Boolean(value));
-  const reviewFields = extraction.reviewFields.filter((field) => !missingFields.includes(field));
-
-  return {
-    missingFields,
-    reviewFields,
-    lifecycle:
-      missingFields.length > 0 || reviewFields.length > 0 || extraction.warnings.length > 0
-        ? "partial"
-        : "succeeded",
-  };
-}
-
-function currentExtractorVersion(hasDrawingFile: boolean) {
-  return hasDrawingFile ? PDF_EXTRACTOR_VERSION : SIM_EXTRACTOR_VERSION;
-}
-
-function buildStoredExtractionPayload(
-  extraction: DrawingExtractionPayload,
-  pageCount: number,
-  workerBuildVersion: string,
-) {
-  return {
-    pageCount,
-    workerBuildVersion,
-    description: extraction.description,
-    partNumber: extraction.partNumber,
-    revision: extraction.revision,
-    extractedDescriptionRaw: extraction.extractedDescriptionRaw,
-    extractedPartNumberRaw: extraction.extractedPartNumberRaw,
-    extractedRevisionRaw: extraction.extractedRevisionRaw,
-    extractedFinishRaw: extraction.extractedFinishRaw,
-    quoteDescription: extraction.quoteDescription,
-    quoteFinish: extraction.quoteFinish,
-    reviewFields: extraction.reviewFields,
-    debugCandidates: extraction.debugCandidates,
-    modelFallbackUsed: extraction.modelFallbackUsed,
-    modelName: extraction.modelName,
-    modelPromptVersion: extraction.modelPromptVersion,
-    fieldSelections: extraction.fieldSelections,
-    modelCandidates: extraction.modelCandidates,
-    material: extraction.material,
-    finish: extraction.finish,
-    generalTolerance: extraction.generalTolerance,
-    tolerances: {
-      general: extraction.generalTolerance.raw,
-      tightest: extraction.tightestTolerance.raw,
-      valueInch: extraction.tightestTolerance.valueInch,
-      confidence: extraction.tightestTolerance.confidence,
-    },
-    notes: extraction.notes,
-    threads: extraction.threads,
-  };
-}
 
 async function logWorkerAuditEvent(
   supabase: SupabaseClient,
@@ -304,56 +247,6 @@ async function refreshRuntimeReadiness(
   return issues.length === 0;
 }
 
-function emptyResponse<T>(): Promise<PostgrestResponse<T>> {
-  return Promise.resolve({
-    data: [],
-    error: null,
-    count: null,
-    status: 200,
-    statusText: "OK",
-  });
-}
-
-async function fetchPartContext(supabase: SupabaseClient, partId: string) {
-  const { data: part, error: partError } = await supabase
-    .from("parts")
-    .select("*")
-    .eq("id", partId)
-    .single();
-
-  if (partError || !part) {
-    throw partError ?? new Error(`Part ${partId} not found.`);
-  }
-
-  const fileIds = [part.cad_file_id, part.drawing_file_id].filter(Boolean) as string[];
-  const [{ data: files, error: fileError }, { data: requirement, error: requirementError }] =
-    await Promise.all([
-      fileIds.length
-        ? supabase.from("job_files").select("*").in("id", fileIds)
-        : emptyResponse<JobFileRecord>(),
-      supabase.from("approved_part_requirements").select("*").eq("part_id", partId).maybeSingle(),
-    ]);
-
-  if (fileError) {
-    throw fileError;
-  }
-
-  if (requirementError && requirementError.code !== "PGRST116") {
-    throw requirementError;
-  }
-
-  const cadFile =
-    (files as JobFileRecord[]).find((file) => file.id === part.cad_file_id) ?? null;
-  const drawingFile =
-    (files as JobFileRecord[]).find((file) => file.id === part.drawing_file_id) ?? null;
-
-  return {
-    part: part as PartRecord,
-    cadFile,
-    drawingFile,
-    requirement: (requirement as ApprovedRequirementRecord | null) ?? null,
-  };
-}
 
 async function enqueueRepairCandidate(
   supabase: SupabaseClient,
@@ -1303,7 +1196,16 @@ async function main() {
   }
 
   const supabase = createServiceClient(config);
-  const healthServer = await startHealthServer(config, runtimeState);
+  const modelCatalogManager = new ExtractionModelCatalogManager(config);
+  const healthServer = await startHealthServer(config, runtimeState, {
+    getExtractionModels: async () => modelCatalogManager.getCatalog(),
+    refreshExtractionModels: async () => ({
+      accepted: true,
+      catalog: await modelCatalogManager.refreshNow(),
+    }),
+    previewExtraction: async ({ partId, modelId }) =>
+      previewStoredPartExtraction(config, { partId, modelId }),
+  });
   let stopping = false;
 
   const logReadinessChange = (issues: string[]) => {

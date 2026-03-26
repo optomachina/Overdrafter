@@ -175,6 +175,9 @@ export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatin
   const selectedPart = parts.find((part) => part.id === selectedPartId) ?? null;
   const actionJobId = resolvedContext.jobId;
   const openJobHref = actionJobId ? `/internal/jobs/${actionJobId}` : null;
+  const canOpenInternalJob = Boolean(
+    activeMembership && (activeMembership.role !== "client" || diagnostics.enabled || import.meta.env.DEV),
+  );
   const queueExtractionMutation = useMutation({
     mutationFn: () => requestExtraction(actionJobId ?? ""),
     onSuccess: async () => {
@@ -211,6 +214,11 @@ export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatin
   }
 
   const handleOpenInternalJob = async () => {
+    if (!canOpenInternalJob) {
+      toast.error("The full internal job page is only available to internal users.");
+      return;
+    }
+
     if (openJobHref) {
       navigate(openJobHref);
       setOpen(false);
@@ -412,7 +420,7 @@ export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatin
                     Open internal job
                   </Button>
                 </div>
-                {!actionJobId ? (
+                {canOpenInternalJob && !actionJobId ? (
                   <div className="space-y-2">
                     <Label htmlFor="extraction-launcher-job-input" className="text-white">
                       Job or part ID

@@ -44,6 +44,8 @@ const schema = z.object({
   XOMETRY_STORAGE_STATE_PATH: z.string().optional(),
   XOMETRY_STORAGE_STATE_JSON: z.string().optional(),
   OPENAI_API_KEY: z.string().min(1).optional(),
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  OPENROUTER_API_KEY: z.string().min(1).optional(),
   WORKER_BUILD_VERSION: z.string().default("dev-local"),
   DRAWING_EXTRACTION_MODEL: z.string().default("gpt-5.4"),
   DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS: z.string().optional(),
@@ -78,6 +80,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       : null,
     xometryStorageStateJson: parsed.XOMETRY_STORAGE_STATE_JSON ?? null,
     openAiApiKey: parsed.OPENAI_API_KEY ?? null,
+    anthropicApiKey: parsed.ANTHROPIC_API_KEY ?? null,
+    openRouterApiKey: parsed.OPENROUTER_API_KEY ?? null,
     workerBuildVersion: parsed.WORKER_BUILD_VERSION,
     drawingExtractionModel: parsed.DRAWING_EXTRACTION_MODEL,
     drawingExtractionEnableModelFallback: parseEnvBooleanLike(

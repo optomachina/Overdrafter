@@ -22,6 +22,8 @@ const workerConfig: WorkerConfig = {
   xometryStorageStatePath: null,
   xometryStorageStateJson: null,
   openAiApiKey: null,
+  anthropicApiKey: null,
+  openRouterApiKey: null,
   workerBuildVersion: "build-test",
   drawingExtractionModel: "gpt-5.4",
   drawingExtractionEnableModelFallback: false,

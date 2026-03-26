@@ -29,5 +29,8 @@ export {
 } from "./workspace-api";
 
 export {
+  fetchExtractionModelCatalog,
+  previewStoredPartExtraction,
+  requestExtractionModelCatalogRefresh,
   fetchWorkerReadiness,
 } from "./worker-api";
