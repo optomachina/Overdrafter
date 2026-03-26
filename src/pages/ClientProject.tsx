@@ -8,6 +8,7 @@ import {
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { ProjectInspectorPanel } from "@/components/workspace/ProjectInspectorPanel";
+import { WorkspaceInlineSearch } from "@/components/workspace/WorkspaceInlineSearch";
 import { ProjectMembersDialog } from "@/components/chat/ProjectMembersDialog";
 import { PromptComposer } from "@/components/chat/PromptComposer";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
@@ -227,7 +228,6 @@ const ClientProject = () => {
     projectQuery,
     projectWorkspaceItemsQuery,
     resolveSidebarProjectIdsForJob,
-    search,
     requestProjectQuotesMutation,
     setActiveFilter,
     isSearchOpen,
@@ -235,7 +235,6 @@ const ClientProject = () => {
     setMobileDrawerOpen,
     setProjectName,
     setProjectDueByDate,
-    setSearch,
     setShowAddPart,
     setShowArchive,
     setShowDissolve,
@@ -253,6 +252,7 @@ const ClientProject = () => {
     updateProjectMutation,
     user,
     accessibleJobs,
+    accessibleProjects,
     isAuthInitializing,
     workspaceItemsByJobId,
   } = useClientProjectController();
@@ -346,6 +346,29 @@ const ClientProject = () => {
       : null;
   const focusedQuantity = focusedDraft?.quantity ?? focusedSummary?.quantity ?? null;
   const focusedProperties = focusedWorkspaceItem?.part?.approvedRequirement ?? null;
+  const jobSearchTextById = useMemo(
+    () =>
+      new Map(
+        Array.from(workspaceItemsByJobId.entries()).map(([jobId, item]) => {
+          const requirement = item.part?.clientRequirement;
+          const approvedRequirement = item.part?.approvedRequirement;
+
+          return [
+            jobId,
+            [
+              requirement?.material ?? approvedRequirement?.material ?? "",
+              requirement?.finish ?? approvedRequirement?.finish ?? "",
+              requirement?.process ?? "",
+              requirement?.notes ?? "",
+              item.summary?.serviceNotes ?? "",
+            ]
+              .join(" ")
+              .trim(),
+          ];
+        }),
+      ),
+    [workspaceItemsByJobId],
+  );
   const focusedSelectedPrice = focusedSelectedOption?.totalPriceUsd ?? focusedSummary?.selectedPriceUsd ?? null;
   const focusedSelectedLeadTime =
     focusedSelectedOption?.leadTimeBusinessDays ?? focusedSummary?.selectedLeadTimeBusinessDays ?? null;
@@ -435,6 +458,31 @@ const ClientProject = () => {
           <span className="truncate text-[15px] font-medium tracking-[-0.01em] text-white/[0.94]">
             {projectLabel}
           </span>
+        }
+        topRightContent={
+          <WorkspaceInlineSearch
+            className="w-full md:w-[360px] md:max-w-[42vw]"
+            projects={accessibleProjects.map((project) => ({
+              id: project.project.id,
+              name: project.project.name,
+              partCount: project.partCount,
+            }))}
+            jobs={accessibleJobs}
+            summariesByJobId={summariesByJobId}
+            jobSearchTextById={jobSearchTextById}
+            scopedProject={
+              projectQuery.data
+                ? {
+                    id: projectId,
+                    name: projectQuery.data.name,
+                    partCount: projectJobs.length,
+                  }
+                : null
+            }
+            resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
+            onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
+            onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+          />
         }
         sidebarRailActions={[
           { label: "New Job", icon: PlusSquare, onClick: newJobFilePicker.openFilePicker },
@@ -578,30 +626,21 @@ const ClientProject = () => {
           <div className={cn("flex min-w-0 flex-col gap-4", !isMobile && focusedJobId && "xl:flex-row xl:items-start xl:gap-6")}>
             <div className="min-w-0 flex-1 space-y-4">
               <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-4">
-                <div className="flex flex-col gap-3">
-                  <Input
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search project parts"
-                    className="border-white/10 bg-white/[0.03] text-white placeholder:text-white/35 focus-visible:ring-white/20"
-                    aria-label="Search project parts"
-                  />
-                  <div className="flex flex-wrap items-center gap-2">
-                    {clientFilterOptions.map((filter) => (
-                      <Button
-                        key={filter.id}
-                        type="button"
-                        variant="outline"
-                        className={cn(
-                          "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
-                          activeFilter === filter.id && "border-white/20 bg-white/10",
-                        )}
-                        onClick={() => setActiveFilter(filter.id)}
-                      >
-                        {filter.label}
-                      </Button>
-                    ))}
-                  </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {clientFilterOptions.map((filter) => (
+                    <Button
+                      key={filter.id}
+                      type="button"
+                      variant="outline"
+                      className={cn(
+                        "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
+                        activeFilter === filter.id && "border-white/20 bg-white/10",
+                      )}
+                      onClick={() => setActiveFilter(filter.id)}
+                    >
+                      {filter.label}
+                    </Button>
+                  ))}
                 </div>
               </div>
 

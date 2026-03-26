@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientQuoteWorkspaceItem } from "@/features/quotes/types";
 import ClientProject from "./ClientProject";
@@ -152,12 +152,18 @@ vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
     children,
     sidebarContent,
     sidebarFooter,
+    headerContent,
+    topRightContent,
   }: {
     children?: ReactNode;
     sidebarContent?: ReactNode;
     sidebarFooter?: ReactNode;
+    headerContent?: ReactNode;
+    topRightContent?: ReactNode;
   }) => (
     <div>
+      <div data-testid="shell-header">{headerContent}</div>
+      <div data-testid="shell-top-right">{topRightContent}</div>
       <div>{sidebarContent}</div>
       <div>{children}</div>
       <div>{sidebarFooter}</div>
@@ -207,9 +213,15 @@ vi.mock("@/components/workspace/QuoteChart", () => ({
 }));
 
 function buildProjectTree(initialEntry: string, queryClient: QueryClient) {
+  function LocationProbe() {
+    const location = useLocation();
+    return <div data-testid="location-path">{location.pathname}</div>;
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
+        <LocationProbe />
         <Routes>
           <Route path="/projects/:projectId" element={<ClientProject />} />
           <Route path="/parts/:jobId" element={<div>Part Route</div>} />
@@ -459,6 +471,12 @@ describe("ClientProject", () => {
   beforeEach(() => {
     lastAccountMenuProps = null;
     vi.clearAllMocks();
+    class ResizeObserverMock {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
     Object.defineProperty(window, "matchMedia", {
       writable: true,
       value: vi.fn().mockImplementation(() => ({
@@ -1332,6 +1350,145 @@ describe("ClientProject", () => {
 
     await waitFor(() => {
       expect(screen.queryByText("No quotes meet the due date")).not.toBeInTheDocument();
+    });
+  });
+
+  it("renders the inline search in the shell header and removes the old body search", async () => {
+    renderWithClient("/projects/project-1");
+
+    expect(await screen.findByTestId("shell-top-right")).toBeInTheDocument();
+    expect(screen.getByLabelText("Search")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Search project parts" })).not.toBeInTheDocument();
+  });
+
+  it("filters autosuggest results across projects and parts and navigates on selection", async () => {
+    api.fetchAccessibleProjects.mockResolvedValue([
+      {
+        project: {
+          id: "project-1",
+          name: "Bracket Project",
+          organization_id: "org-1",
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-02T00:00:00Z",
+        },
+        partCount: 1,
+        inviteCount: 0,
+        currentUserRole: "owner",
+      },
+      {
+        project: {
+          id: "project-2",
+          name: "Valve Project",
+          organization_id: "org-1",
+          created_at: "2026-03-03T00:00:00Z",
+          updated_at: "2026-03-04T00:00:00Z",
+        },
+        partCount: 1,
+        inviteCount: 0,
+        currentUserRole: "owner",
+      },
+    ]);
+    api.fetchAccessibleJobs.mockResolvedValue([
+      {
+        id: "job-1",
+        organization_id: "org-1",
+        project_id: "project-1",
+        created_by: "user-1",
+        title: "Bracket",
+        description: null,
+        status: "ready_to_quote",
+        source: "client_home",
+        active_pricing_policy_id: null,
+        tags: [],
+        requested_service_kinds: ["manufacturing_quote"],
+        primary_service_kind: "manufacturing_quote",
+        service_notes: null,
+        requested_quote_quantities: [10],
+        requested_by_date: "2026-04-15",
+        archived_at: null,
+        created_at: "2026-03-01T00:00:00Z",
+        updated_at: "2026-03-01T00:00:00Z",
+        selected_vendor_quote_offer_id: null,
+      },
+      {
+        id: "job-2",
+        organization_id: "org-1",
+        project_id: "project-2",
+        created_by: "user-1",
+        title: "Valve Housing",
+        description: "Machined housing",
+        status: "ready_to_quote",
+        source: "client_home",
+        active_pricing_policy_id: null,
+        tags: ["housing"],
+        requested_service_kinds: ["manufacturing_quote"],
+        primary_service_kind: "manufacturing_quote",
+        service_notes: null,
+        requested_quote_quantities: [5],
+        requested_by_date: "2026-04-15",
+        archived_at: null,
+        created_at: "2026-03-02T00:00:00Z",
+        updated_at: "2026-03-02T00:00:00Z",
+        selected_vendor_quote_offer_id: null,
+      },
+    ]);
+    api.fetchJobPartSummariesByJobIds.mockResolvedValue([
+      {
+        jobId: "job-1",
+        partNumber: "BRKT-001",
+        revision: "A",
+        description: "Bracket",
+        quantity: 10,
+        importedBatch: null,
+        requestedServiceKinds: ["manufacturing_quote"],
+        primaryServiceKind: "manufacturing_quote",
+        serviceNotes: null,
+        requestedQuoteQuantities: [10],
+        requestedByDate: "2026-04-15",
+        selectedSupplier: null,
+        selectedPriceUsd: null,
+        selectedLeadTimeBusinessDays: null,
+      },
+      {
+        jobId: "job-2",
+        partNumber: "VALV-001",
+        revision: "B",
+        description: "Valve Housing",
+        quantity: 5,
+        importedBatch: null,
+        requestedServiceKinds: ["manufacturing_quote"],
+        primaryServiceKind: "manufacturing_quote",
+        serviceNotes: null,
+        requestedQuoteQuantities: [5],
+        requestedByDate: "2026-04-15",
+        selectedSupplier: null,
+        selectedPriceUsd: null,
+        selectedLeadTimeBusinessDays: null,
+      },
+    ]);
+
+    renderWithClient("/projects/project-1");
+
+    const searchInput = (await screen.findByLabelText("Search")) as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: "valve" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear Bracket Project search scope" }));
+
+    expect(await screen.findByText("Valve Project")).toBeInTheDocument();
+    expect(screen.getByText("VALV-001 rev B")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Valve Project"));
+    await waitFor(() => {
+      expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-2");
+    });
+
+    fireEvent.change(screen.getByLabelText("Search"), {
+      target: { value: "housing" },
+    });
+    fireEvent.click(screen.getByText("VALV-001 rev B"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location-path")).toHaveTextContent("/parts/job-2");
     });
   });
 

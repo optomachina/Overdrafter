@@ -46,7 +46,7 @@ import {
   fetchProjectAssigneeProfiles,
 } from "@/features/quotes/api/workspace-access";
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
-import { getClientItemPresentation, matchesClientJobSearch } from "@/features/quotes/client-presentation";
+import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {
   logArchivedDeleteFailure,
   toArchivedDeleteError,
@@ -148,7 +148,6 @@ export function useClientProjectController() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user, activeMembership, signOut, isAuthInitializing } = useAppSession();
-  const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<JobFilter>("all");
   const [focusedJobId, setFocusedJobId] = useState<string | null>(null);
   const [showAddPart, setShowAddPart] = useState(false);
@@ -386,11 +385,8 @@ export function useClientProjectController() {
     [projectJobIds, selectedOptionsByJobId],
   );
   const filteredJobs = useMemo(
-    () =>
-      projectJobs.filter(
-        (job) => matchesJobFilter(job.status, activeFilter) && matchesClientJobSearch(job, search),
-      ),
-    [activeFilter, projectJobs, search],
+    () => projectJobs.filter((job) => matchesJobFilter(job.status, activeFilter)),
+    [activeFilter, projectJobs],
   );
   const focusedJob = useMemo(
     () => filteredJobs.find((job) => job.id === focusedJobId) ?? null,
@@ -1401,7 +1397,6 @@ export function useClientProjectController() {
     requestDraftsByJobId,
     resolveSidebarProjectIdsForJob,
     navigationModel,
-    search,
     saveRequestMutation,
     optionsByJobId,
     selectedOptionsByJobId,
@@ -1412,7 +1407,6 @@ export function useClientProjectController() {
     setMobileDrawerOpen,
     setProjectName,
     setProjectDueByDate,
-    setSearch,
     setShowAddPart,
     setShowArchive,
     setShowDissolve,
@@ -1433,5 +1427,6 @@ export function useClientProjectController() {
     user,
     isAuthInitializing,
     workspaceItemsByJobId,
+    accessibleProjects,
   };
 }
