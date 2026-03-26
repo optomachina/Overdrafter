@@ -6,6 +6,36 @@ Last updated: March 20, 2026
 
 This file is the operating manual for contributors and coding agents working in the OverDrafter repository. It defines how work should be executed, verified, and documented. Durable instructions belong here instead of being re-explained in prompts.
 
+## Global Codex project guidance (mirrored)
+
+Use the `linear-issue-creator` skill whenever the task involves any of the following:
+
+- creating Linear issues
+- decomposing product discussions into backlog items
+- turning roadmap / PRD / architecture docs into implementation cards
+- generating epics, features, or child issues for Symphony / OverDrafter
+- updating backlog planning artifacts to match new issue decomposition
+
+Default behavior:
+
+- Treat the repository as the source of truth first.
+- Read relevant planning docs before drafting issues:
+  - README.md
+  - PRD.md
+  - PLAN.md
+  - ARCHITECTURE.md
+  - ACCEPTANCE_CRITERIA.md
+  - TEST_STRATEGY.md
+  - roadmap.md
+  - horizon1-6.md
+  - capabilitymap.md
+
+- Preserve product intent from repo docs and conversation context.
+- Prefer a small number of high-signal issues instead of vague tickets.
+- Every issue must contain implementation-ready acceptance criteria.
+- If Linear CLI or tooling exists locally, use it.
+- Otherwise emit markdown drafts that can be pasted into Linear.
+
 ## Review guidelines
 
 - Flag P0/P1 security, auth, data loss, and privacy regressions first.
@@ -217,6 +247,19 @@ Stop and surface the issue instead of improvising when:
 6. update docs if needed
 7. publish the branch, ensure the PR exists, and keep the PR description concrete; use the rendered PR-body helpers when they add value
 8. summarize what changed and what was verified
+
+## Universal execution efficiency (all projects)
+
+Use these rules in every repo to preserve context window and reduce unnecessary tool churn without lowering quality:
+
+- Run one primary analysis pass. Do not duplicate the same mapping locally and in subagents unless there is a clear unresolved ambiguity.
+- Delegate only bounded tasks. Require compact, structured subagent outputs (for example: unique commits, shared commits, overlap files, classification, action).
+- Default to low-volume git inspection first (`--name-only`, `--oneline`, `--stat`, JSON summaries). Pull full patch/log output only after a concrete failing target is identified.
+- Keep command output scoped to the decision at hand. Avoid broad, repeated dumps of the same history, diff, or CI logs.
+- Prefer targeted verification for repair work (changed files, affected tests, required checks) before running full-repo verification.
+- Use one watcher for CI/check status instead of repeated polling calls. Escalate to detailed logs only for failing or stuck jobs.
+- Set an explicit work budget before large operations (analysis, implementation, verification) and compress reporting once the budget threshold is reached.
+- Avoid redundant integration layers. If the main agent is integrating and executing, do not add a second integration pass unless ownership boundaries require it.
 
 ## Directory-local overrides
 
