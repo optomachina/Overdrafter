@@ -17,7 +17,18 @@ import { ManualQuoteIntakeCard } from "@/components/quotes/ManualQuoteIntakeCard
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ClientExtractionDiagnostics, DrawingPreviewData, PartAggregate } from "@/features/quotes/types";
-import { isFixtureModeAvailable } from "@/features/quotes/client-workspace-fixtures";
+import {
+  CLIENT_WORKSPACE_FIXTURE_SCENARIOS,
+  isFixtureModeAvailable,
+  type FixtureScenarioId,
+} from "@/features/quotes/client-workspace-fixtures";
+import {
+  QUOTED_SAMPLE_LANE_COUNT,
+  QUOTED_SAMPLE_PART,
+  QUOTED_SAMPLE_RFQ,
+  QUOTED_SAMPLE_SUPPLIER_COUNT,
+  getQuotedSampleSelectedLane,
+} from "@/features/quotes/demo/quoted-sample";
 import NotFound from "@/pages/NotFound";
 import { buildEmbeddedPreviewHref } from "@/pages/state-gallery-preview";
 
@@ -34,43 +45,75 @@ type GallerySectionLink = {
   description: string;
 };
 
+const fixtureScenarioById = new Map(
+  CLIENT_WORKSPACE_FIXTURE_SCENARIOS.map((scenario) => [scenario.id, scenario]),
+);
+
+function formatDisplayDate(isoDate: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(`${isoDate}T00:00:00Z`));
+}
+
+function buildFixturePreviewHref(scenarioId: FixtureScenarioId): string {
+  const scenario = fixtureScenarioById.get(scenarioId);
+
+  if (!scenario) {
+    throw new Error(`Unknown fixture scenario: ${scenarioId}`);
+  }
+
+  const url = new URL(scenario.canonicalPath, "http://localhost");
+  url.searchParams.set("debug", "1");
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function createPreviewCard(
+  scenarioId: FixtureScenarioId,
+  card: Omit<PreviewCard, "href">,
+): PreviewCard {
+  return {
+    ...card,
+    href: buildFixturePreviewHref(scenarioId),
+  };
+}
+
+const quotedSampleSelectedLane = getQuotedSampleSelectedLane();
+const quotedSampleAssetLabel = `${QUOTED_SAMPLE_PART.partNumber}-${QUOTED_SAMPLE_PART.revision}.pdf`;
+
 const workspaceCards: PreviewCard[] = [
-  {
+  createPreviewCard("landing-anonymous", {
     title: "Guest landing",
     description: "Anonymous client landing state with intake CTA and auth entry points.",
-    href: "/?fixture=landing-anonymous&debug=1",
     label: "Workspace",
-  },
-  {
+  }),
+  createPreviewCard("client-empty", {
     title: "Client empty workspace",
     description: "Signed-in client with no parts or projects yet.",
-    href: "/?fixture=client-empty&debug=1",
     label: "Workspace",
-  },
+  }),
 ];
 
 const partDetailCards: PreviewCard[] = [
-  {
+  createPreviewCard("client-needs-attention", {
     title: "Needs attention part",
     description: "Part detail state with extraction or request cleanup still needed before quoting can proceed.",
-    href: "/parts/fx-job-needs-attention?fixture=client-needs-attention&debug=1",
     label: "Part detail",
-  },
+  }),
 ];
 
 const projectCards: PreviewCard[] = [
-  {
+  createPreviewCard("client-quoted", {
     title: "Quoted project",
-    description: "Project workspace with comparable vendor offers and a client-visible quote state.",
-    href: "/projects/fx-project-quoted?fixture=client-quoted&debug=1",
+    description: `${QUOTED_SAMPLE_PART.partNumber} rev ${QUOTED_SAMPLE_PART.revision} with ${QUOTED_SAMPLE_LANE_COUNT} workbook-backed quote lanes across ${QUOTED_SAMPLE_SUPPLIER_COUNT} suppliers.`,
     label: "Project",
-  },
-  {
+  }),
+  createPreviewCard("client-published", {
     title: "Published review",
     description: "Review-ready project state after publication for downstream client signoff.",
-    href: "/projects/fx-project-published/review?fixture=client-published&debug=1",
     label: "Project review",
-  },
+  }),
 ];
 
 const EMPTY_DRAWING_PREVIEW: DrawingPreviewData = {
@@ -126,51 +169,39 @@ const EXTRACTION_FAILED: ClientExtractionDiagnostics = {
 
 const MANUAL_QUOTE_PARTS: PartAggregate[] = [
   {
-    id: "gallery-part-1",
-    job_id: "gallery-job-1",
+    id: "gallery-part-quoted-sample",
+    job_id: "gallery-job-quoted-sample",
     organization_id: "gallery-org-1",
-    name: "Manifold body",
-    normalized_key: "manifold-body",
+    name: QUOTED_SAMPLE_PART.partNumber,
+    normalized_key: "1093-05589-02",
     cad_file_id: null,
     drawing_file_id: null,
-    quantity: 12,
+    quantity: QUOTED_SAMPLE_PART.quantity,
     created_at: "2026-03-16T09:00:00.000Z",
     updated_at: "2026-03-16T09:00:00.000Z",
     approvedRequirement: {
-      id: "gallery-approved-1",
-      job_id: "gallery-job-1",
-      part_id: "gallery-part-1",
-      description: "5-axis aluminum manifold body",
-      part_number: "MF-2048",
-      revision: "B",
-      material: "6061-T6 Aluminum",
-      finish: "As machined",
-      tightest_tolerance_inch: 0.002,
-      process: "CNC milling",
-      notes: null,
-      quantity: 12,
-      requested_quote_quantities: [12, 24],
-      requested_by_date: "2026-03-28",
-      created_at: "2026-03-16T09:00:00.000Z",
-      updated_at: "2026-03-16T09:00:00.000Z",
-      requested_service_kinds: ["manufacturing_quote"],
-      primary_service_kind: "manufacturing_quote",
-      service_notes: null,
-      shipping_priority: null,
-      ship_to_region: null,
-      shipping_constraints_notes: null,
-      required_certifications: [],
-      traceability_required: null,
-      inspection_level: null,
-      certification_notes: null,
-      region_preference: null,
-      supplier_selection_mode: null,
-      allow_split_award: null,
-      sourcing_notes: null,
-      release_status: null,
-      review_disposition: null,
-      review_owner: null,
-      release_notes: null,
+      id: "gallery-approved-quoted-sample",
+      part_id: "gallery-part-quoted-sample",
+      organization_id: "gallery-org-1",
+      approved_by: "gallery-estimator-1",
+      description: QUOTED_SAMPLE_PART.description,
+      part_number: QUOTED_SAMPLE_PART.partNumber,
+      revision: QUOTED_SAMPLE_PART.revision,
+      material: QUOTED_SAMPLE_PART.material,
+      finish: QUOTED_SAMPLE_PART.finish,
+      tightest_tolerance_inch: QUOTED_SAMPLE_PART.tightestToleranceInch,
+      quantity: QUOTED_SAMPLE_PART.quantity,
+      quote_quantities: [...QUOTED_SAMPLE_PART.requestedQuoteQuantities],
+      requested_by_date: QUOTED_SAMPLE_PART.requestedByDate,
+      applicable_vendors: ["xometry", "protolabs", "sendcutsend", "partsbadger", "fictiv"],
+      spec_snapshot: {
+        sourceBatch: QUOTED_SAMPLE_RFQ.projectSystem,
+        threadCallouts: QUOTED_SAMPLE_PART.threadCallouts,
+        threadMatchNotes: QUOTED_SAMPLE_PART.threadMatchNotes,
+      },
+      approved_at: "2026-03-03T00:00:00.000Z",
+      created_at: "2026-03-03T00:00:00.000Z",
+      updated_at: "2026-03-03T00:00:00.000Z",
     },
     cadFile: null,
     drawingFile: null,
@@ -178,7 +209,7 @@ const MANUAL_QUOTE_PARTS: PartAggregate[] = [
     clientRequirement: null,
     clientExtraction: null,
     vendorQuotes: [],
-  } as unknown as PartAggregate,
+  } as PartAggregate,
 ];
 
 const gallerySections: GallerySectionLink[] = [
@@ -541,7 +572,7 @@ const StateGallery = () => {
 
             <GalleryPanelCard
               title="Drawing preview failures"
-              description="Missing, failed, and unavailable drawing preview states for artifact review."
+              description={`Missing, failed, and unavailable drawing preview states for artifact review around ${quotedSampleAssetLabel}.`}
             >
               <div className="space-y-5">
                 <ClientDrawingPreviewPanel
@@ -575,34 +606,36 @@ const StateGallery = () => {
           <div className="grid gap-6 xl:grid-cols-2">
             <GalleryPanelCard
               title="Operations dashboard"
-              description="High-level internal summary state for triage and publish readiness."
+              description={`High-level sample metrics for ${QUOTED_SAMPLE_RFQ.client}'s ${QUOTED_SAMPLE_RFQ.projectSystem} compare set.`}
             >
               <div className="grid gap-4 md:grid-cols-3">
                 <Card className="border-white/10 bg-white/5">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-medium text-white/70">In review</CardTitle>
+                    <CardTitle className="text-sm font-medium text-white/70">Suppliers</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-3xl font-semibold text-white">6</p>
-                    <p className="mt-2 text-sm text-white/55">Parts blocked on extraction or metadata cleanup.</p>
+                    <p className="text-3xl font-semibold text-white">{QUOTED_SAMPLE_SUPPLIER_COUNT}</p>
+                    <p className="mt-2 text-sm text-white/55">Distinct suppliers represented in the shared quoted sample.</p>
                   </CardContent>
                 </Card>
                 <Card className="border-white/10 bg-white/5">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-medium text-white/70">Quote runs active</CardTitle>
+                    <CardTitle className="text-sm font-medium text-white/70">Quote lanes</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-3xl font-semibold text-white">4</p>
-                    <p className="mt-2 text-sm text-white/55">Awaiting vendor responses or follow-up.</p>
+                    <p className="text-3xl font-semibold text-white">{QUOTED_SAMPLE_LANE_COUNT}</p>
+                    <p className="mt-2 text-sm text-white/55">Workbook-backed options available in the compare view.</p>
                   </CardContent>
                 </Card>
                 <Card className="border-white/10 bg-white/5">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-medium text-white/70">Ready to publish</CardTitle>
+                    <CardTitle className="text-sm font-medium text-white/70">Selected lane</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-3xl font-semibold text-white">2</p>
-                    <p className="mt-2 text-sm text-white/55">Packages with curated offers ready for client release.</p>
+                    <p className="text-xl font-semibold text-white">{quotedSampleSelectedLane.supplier}</p>
+                    <p className="mt-2 text-sm text-white/55">
+                      {quotedSampleSelectedLane.sourcing ?? "Unspecified"} {quotedSampleSelectedLane.tier?.toLowerCase()} at ${quotedSampleSelectedLane.totalPriceUsd.toFixed(2)} due {formatDisplayDate(QUOTED_SAMPLE_PART.requestedByDate)}.
+                    </p>
                   </CardContent>
                 </Card>
               </div>
@@ -610,9 +643,9 @@ const StateGallery = () => {
 
             <GalleryPanelCard
               title="Manual quote intake"
-              description="Estimator-side fallback when vendor automation is not the right path."
+              description={`Estimator-side fallback preloaded with ${QUOTED_SAMPLE_PART.partNumber} rev ${QUOTED_SAMPLE_PART.revision} requirement data.`}
             >
-              <ManualQuoteIntakeCard jobId="gallery-job-1" parts={MANUAL_QUOTE_PARTS} disabled />
+              <ManualQuoteIntakeCard jobId="gallery-job-quoted-sample" parts={MANUAL_QUOTE_PARTS} disabled />
             </GalleryPanelCard>
 
             <GalleryPanelCard

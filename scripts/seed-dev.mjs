@@ -4,6 +4,11 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
+import {
+  QUOTED_SAMPLE_ASSETS,
+  QUOTED_SAMPLE_LANES,
+  QUOTED_SAMPLE_PART,
+} from "../src/features/quotes/demo/quoted-sample.js";
 
 const PASSWORD = "Overdrafter123!";
 const FIXTURE_TIMESTAMP = "2026-03-10T17:00:00.000Z";
@@ -119,6 +124,16 @@ const assetSpecs = [
     fileName: "demo-bracket-page-2.svg",
     storagePath: "fixtures/demo-bracket-page-2.svg",
     contentType: "image/svg+xml",
+  },
+  {
+    fileName: QUOTED_SAMPLE_ASSETS.cad.fileName,
+    storagePath: QUOTED_SAMPLE_ASSETS.cad.storagePath,
+    contentType: "model/step",
+  },
+  {
+    fileName: QUOTED_SAMPLE_ASSETS.drawing.fileName,
+    storagePath: QUOTED_SAMPLE_ASSETS.drawing.storagePath,
+    contentType: "application/pdf",
   },
 ];
 
@@ -390,8 +405,8 @@ async function insertSeedData(admin, users, assetFiles) {
       id: ids.quotedProject,
       organization_id: ids.organization,
       owner_user_id: users.client.id,
-      name: "Q1 Brackets",
-      description: "Quoted parts with multiple lane options.",
+      name: QUOTED_SAMPLE_PART.projectName,
+      description: QUOTED_SAMPLE_PART.projectDescription,
       archived_at: null,
       created_at: FIXTURE_TIMESTAMP,
       updated_at: FIXTURE_TIMESTAMP,
@@ -520,32 +535,14 @@ async function insertSeedData(admin, users, assetFiles) {
       project_id: ids.quotedProject,
       selected_vendor_quote_offer_id: null,
       created_by: users.client.id,
-      title: "FX-101 Mounting Bracket",
-      description: "Bracket with slotted mounting face.",
+      title: QUOTED_SAMPLE_PART.jobTitle,
+      description: QUOTED_SAMPLE_PART.jobDescription,
       status: "quoting",
       source: "seed_dev",
       active_pricing_policy_id: ids.pricingPolicy,
       tags: ["fixture", "quoted"],
-      requested_quote_quantities: [10, 20, 50],
-      requested_by_date: "2026-03-28",
-      archived_at: null,
-      created_at: FIXTURE_TIMESTAMP,
-      updated_at: FIXTURE_TIMESTAMP,
-    },
-    {
-      id: ids.quotedJobB,
-      organization_id: ids.organization,
-      project_id: ids.quotedProject,
-      selected_vendor_quote_offer_id: null,
-      created_by: users.client.id,
-      title: "FX-102 Cover Plate",
-      description: "Flat plate with countersinks.",
-      status: "quoting",
-      source: "seed_dev",
-      active_pricing_policy_id: ids.pricingPolicy,
-      tags: ["fixture", "quoted"],
-      requested_quote_quantities: [6, 12],
-      requested_by_date: "2026-03-30",
+      requested_quote_quantities: [...QUOTED_SAMPLE_PART.requestedQuoteQuantities],
+      requested_by_date: QUOTED_SAMPLE_PART.requestedByDate,
       archived_at: null,
       created_at: FIXTURE_TIMESTAMP,
       updated_at: FIXTURE_TIMESTAMP,
@@ -586,13 +583,6 @@ async function insertSeedData(admin, users, assetFiles) {
       created_at: FIXTURE_TIMESTAMP,
     },
     {
-      id: ids.projectJobQuotedB,
-      project_id: ids.quotedProject,
-      job_id: ids.quotedJobB,
-      created_by: users.client.id,
-      created_at: FIXTURE_TIMESTAMP,
-    },
-    {
       id: ids.projectJobPublished,
       project_id: ids.publishedProject,
       job_id: ids.publishedJob,
@@ -603,6 +593,27 @@ async function insertSeedData(admin, users, assetFiles) {
 
   const stepAsset = assetFiles["demo-bracket.step"];
   const pdfAsset = assetFiles["demo-bracket-drawing.pdf"];
+  const quotedCadAsset = assetFiles[QUOTED_SAMPLE_ASSETS.cad.fileName];
+  const quotedDrawingAsset = assetFiles[QUOTED_SAMPLE_ASSETS.drawing.fileName];
+  const quotedVendorQuoteResultRows = QUOTED_SAMPLE_LANES.map((lane, index) =>
+    createQuotedSampleQuoteResultRow({
+      id: uuid(720 + index),
+      quoteRunId: ids.quotedRunA,
+      partId: ids.quotedPartA,
+      lane,
+    }),
+  );
+  const quotedVendorQuoteOfferRows = QUOTED_SAMPLE_LANES.map((lane, index) =>
+    createQuotedSampleOfferRow({
+      id: uuid(820 + index),
+      quoteResultId: quotedVendorQuoteResultRows[index].id,
+      lane,
+      sortRank: index,
+    }),
+  );
+  const selectedQuotedOfferRow =
+    quotedVendorQuoteOfferRows.find((offer) => offer.offer_key.endsWith(QUOTED_SAMPLE_PART.selectedLaneId)) ??
+    quotedVendorQuoteOfferRows[0];
 
   await upsertRows(admin, "job_files", [
     createJobFileRow({
@@ -630,46 +641,24 @@ async function insertSeedData(admin, users, assetFiles) {
     createJobFileRow({
       id: ids.quotedCadFileA,
       jobId: ids.quotedJobA,
-      originalName: "fx-101-mounting-bracket.step",
-      normalizedName: "fx-101-mounting-bracket.step",
+      originalName: QUOTED_SAMPLE_ASSETS.cad.fileName,
+      normalizedName: QUOTED_SAMPLE_ASSETS.cad.normalizedName,
       fileKind: "cad",
       uploadedBy: users.client.id,
-      storagePath: stepAsset.storagePath,
-      matchedPartKey: "fx-101-mounting-bracket",
-      asset: stepAsset,
+      storagePath: quotedCadAsset.storagePath,
+      matchedPartKey: "1093-05589-02",
+      asset: quotedCadAsset,
     }),
     createJobFileRow({
       id: ids.quotedDrawingFileA,
       jobId: ids.quotedJobA,
-      originalName: "fx-101-mounting-bracket-drawing.pdf",
-      normalizedName: "fx-101-mounting-bracket-drawing.pdf",
+      originalName: QUOTED_SAMPLE_ASSETS.drawing.fileName,
+      normalizedName: QUOTED_SAMPLE_ASSETS.drawing.normalizedName,
       fileKind: "drawing",
       uploadedBy: users.client.id,
-      storagePath: pdfAsset.storagePath,
-      matchedPartKey: "fx-101-mounting-bracket",
-      asset: pdfAsset,
-    }),
-    createJobFileRow({
-      id: ids.quotedCadFileB,
-      jobId: ids.quotedJobB,
-      originalName: "fx-102-cover-plate.step",
-      normalizedName: "fx-102-cover-plate.step",
-      fileKind: "cad",
-      uploadedBy: users.client.id,
-      storagePath: stepAsset.storagePath,
-      matchedPartKey: "fx-102-cover-plate",
-      asset: stepAsset,
-    }),
-    createJobFileRow({
-      id: ids.quotedDrawingFileB,
-      jobId: ids.quotedJobB,
-      originalName: "fx-102-cover-plate-drawing.pdf",
-      normalizedName: "fx-102-cover-plate-drawing.pdf",
-      fileKind: "drawing",
-      uploadedBy: users.client.id,
-      storagePath: pdfAsset.storagePath,
-      matchedPartKey: "fx-102-cover-plate",
-      asset: pdfAsset,
+      storagePath: quotedDrawingAsset.storagePath,
+      matchedPartKey: "1093-05589-02",
+      asset: quotedDrawingAsset,
     }),
     createJobFileRow({
       id: ids.publishedCadFile,
@@ -708,20 +697,11 @@ async function insertSeedData(admin, users, assetFiles) {
     createPartRow({
       id: ids.quotedPartA,
       jobId: ids.quotedJobA,
-      name: "FX-101",
-      normalizedKey: "fx-101-mounting-bracket",
+      name: QUOTED_SAMPLE_PART.partNumber,
+      normalizedKey: "1093-05589-02",
       cadFileId: ids.quotedCadFileA,
       drawingFileId: ids.quotedDrawingFileA,
-      quantity: 10,
-    }),
-    createPartRow({
-      id: ids.quotedPartB,
-      jobId: ids.quotedJobB,
-      name: "FX-102",
-      normalizedKey: "fx-102-cover-plate",
-      cadFileId: ids.quotedCadFileB,
-      drawingFileId: ids.quotedDrawingFileB,
-      quantity: 6,
+      quantity: QUOTED_SAMPLE_PART.quantity,
     }),
     createPartRow({
       id: ids.publishedPart,
@@ -736,49 +716,66 @@ async function insertSeedData(admin, users, assetFiles) {
 
   await upsertRows(admin, "drawing_extractions", [
     createExtractionRow(ids.cleanupExtraction, ids.cleanupPart, "FX-100", "A", "L-bracket with tapped holes"),
-    createExtractionRow(ids.quotedExtractionA, ids.quotedPartA, "FX-101", "A", "Bracket with slotted mounting face"),
-    createExtractionRow(ids.quotedExtractionB, ids.quotedPartB, "FX-102", "A", "Flat plate with countersinks"),
+    createExtractionRow(
+      ids.quotedExtractionA,
+      ids.quotedPartA,
+      QUOTED_SAMPLE_PART.partNumber,
+      QUOTED_SAMPLE_PART.revision,
+      QUOTED_SAMPLE_PART.description,
+      QUOTED_SAMPLE_PART.material,
+      QUOTED_SAMPLE_PART.finish,
+    ),
     createExtractionRow(ids.publishedExtraction, ids.publishedPart, "FX-200", "B", "Production plate with finish callout"),
   ]);
 
   await upsertRows(admin, "drawing_preview_assets", [
     createPreviewAssetRow(ids.cleanupPreview1, ids.cleanupPart, 1, "fixtures/demo-bracket-page-1.svg"),
     createPreviewAssetRow(ids.cleanupPreview2, ids.cleanupPart, 2, "fixtures/demo-bracket-page-2.svg"),
-    createPreviewAssetRow(ids.quotedPreviewA1, ids.quotedPartA, 1, "fixtures/demo-bracket-page-1.svg"),
-    createPreviewAssetRow(ids.quotedPreviewA2, ids.quotedPartA, 2, "fixtures/demo-bracket-page-2.svg"),
-    createPreviewAssetRow(ids.quotedPreviewB1, ids.quotedPartB, 1, "fixtures/demo-bracket-page-1.svg"),
-    createPreviewAssetRow(ids.quotedPreviewB2, ids.quotedPartB, 2, "fixtures/demo-bracket-page-2.svg"),
     createPreviewAssetRow(ids.publishedPreview1, ids.publishedPart, 1, "fixtures/demo-bracket-page-1.svg"),
     createPreviewAssetRow(ids.publishedPreview2, ids.publishedPart, 2, "fixtures/demo-bracket-page-2.svg"),
   ]);
 
   await upsertRows(admin, "approved_part_requirements", [
     createRequirementRow(ids.cleanupRequirement, ids.cleanupPart, users.client.id, "FX-100", "A", "L-bracket with tapped holes", "6061-T6 aluminum", "As machined", 12, [12, 24], "2026-03-24"),
-    createRequirementRow(ids.quotedRequirementA, ids.quotedPartA, users.client.id, "FX-101", "A", "Bracket with slotted mounting face", "6061-T6 aluminum", "As machined", 10, [10, 20, 50], "2026-03-28"),
-    createRequirementRow(ids.quotedRequirementB, ids.quotedPartB, users.client.id, "FX-102", "A", "Flat plate with countersinks", "6061-T6 aluminum", "As machined", 6, [6, 12], "2026-03-30"),
+    createRequirementRow(
+      ids.quotedRequirementA,
+      ids.quotedPartA,
+      users.client.id,
+      QUOTED_SAMPLE_PART.partNumber,
+      QUOTED_SAMPLE_PART.revision,
+      QUOTED_SAMPLE_PART.description,
+      QUOTED_SAMPLE_PART.material,
+      QUOTED_SAMPLE_PART.finish,
+      QUOTED_SAMPLE_PART.quantity,
+      [...QUOTED_SAMPLE_PART.requestedQuoteQuantities],
+      QUOTED_SAMPLE_PART.requestedByDate,
+      ["xometry", "protolabs", "sendcutsend", "partsbadger", "fictiv"],
+      {
+        partNumber: QUOTED_SAMPLE_PART.partNumber,
+        revision: QUOTED_SAMPLE_PART.revision,
+        description: QUOTED_SAMPLE_PART.description,
+        material: QUOTED_SAMPLE_PART.material,
+        finish: QUOTED_SAMPLE_PART.finish,
+        threadCallouts: QUOTED_SAMPLE_PART.threadCallouts,
+        threadMatchNotes: QUOTED_SAMPLE_PART.threadMatchNotes,
+      },
+    ),
     createRequirementRow(ids.publishedRequirement, ids.publishedPart, users.client.id, "FX-200", "B", "Production plate with finish callout", "7075 aluminum", "Black anodize", 25, [25, 50], "2026-04-02"),
   ]);
 
   await upsertRows(admin, "quote_runs", [
     createQuoteRunRow(ids.quotedRunA, ids.quotedJobA, users.internal_estimator.id, "completed", false),
-    createQuoteRunRow(ids.quotedRunB, ids.quotedJobB, users.internal_estimator.id, "completed", false),
     createQuoteRunRow(ids.publishedRun, ids.publishedJob, users.internal_estimator.id, "published", true),
   ]);
 
   await upsertRows(admin, "vendor_quote_results", [
-    createQuoteResultRow(ids.quoteResultQuotedAXometry, ids.quotedRunA, ids.quotedPartA, "xometry", 10, 18.4, 184, 8, true),
-    createQuoteResultRow(ids.quoteResultQuotedAProto, ids.quotedRunA, ids.quotedPartA, "protolabs", 10, 24.1, 241, 5, true),
-    createQuoteResultRow(ids.quoteResultQuotedBFictiv, ids.quotedRunB, ids.quotedPartB, "fictiv", 6, 31, 186, 7, false),
-    createQuoteResultRow(ids.quoteResultQuotedBSendCut, ids.quotedRunB, ids.quotedPartB, "sendcutsend", 6, 27.5, 165, 6, true),
+    ...quotedVendorQuoteResultRows,
     createQuoteResultRow(ids.quoteResultPublishedXometry, ids.publishedRun, ids.publishedPart, "xometry", 25, 14.4, 360, 9, true),
     createQuoteResultRow(ids.quoteResultPublishedProto, ids.publishedRun, ids.publishedPart, "protolabs", 25, 16.1, 402.5, 6, true),
   ]);
 
   await upsertRows(admin, "vendor_quote_offers", [
-    createOfferRow(ids.offerQuotedAXometry, ids.quoteResultQuotedAXometry, "Xometry USA", "Economy", "Domestic", 18.4, 184, 8),
-    createOfferRow(ids.offerQuotedAProto, ids.quoteResultQuotedAProto, "Proto Labs", "Rush", "Domestic", 24.1, 241, 5),
-    createOfferRow(ids.offerQuotedBFictiv, ids.quoteResultQuotedBFictiv, "Fictiv Global", "Standard", "International", 31, 186, 7),
-    createOfferRow(ids.offerQuotedBSendCut, ids.quoteResultQuotedBSendCut, "SendCutSend", "Standard", "Domestic", 27.5, 165, 6),
+    ...quotedVendorQuoteOfferRows,
     createOfferRow(ids.offerPublishedXometry, ids.quoteResultPublishedXometry, "Xometry USA", "Balanced", "Domestic", 14.4, 360, 9),
     createOfferRow(ids.offerPublishedProto, ids.quoteResultPublishedProto, "Proto Labs", "Fastest", "Domestic", 16.1, 402.5, 6),
   ]);
@@ -786,11 +783,7 @@ async function insertSeedData(admin, users, assetFiles) {
   await upsertRows(admin, "jobs", [
     {
       id: ids.quotedJobA,
-      selected_vendor_quote_offer_id: ids.offerQuotedAXometry,
-    },
-    {
-      id: ids.quotedJobB,
-      selected_vendor_quote_offer_id: ids.offerQuotedBSendCut,
+      selected_vendor_quote_offer_id: selectedQuotedOfferRow.id,
     },
     {
       id: ids.publishedJob,
@@ -897,7 +890,7 @@ function createPartRow(input) {
   };
 }
 
-function createExtractionRow(id, partId, partNumber, revision, description) {
+function createExtractionRow(id, partId, partNumber, revision, description, material = "6061-T6 aluminum", finish = null) {
   return {
     id,
     part_id: partId,
@@ -908,9 +901,14 @@ function createExtractionRow(id, partId, partNumber, revision, description) {
       revision,
       description,
       material: {
-        raw: "6061-T6 aluminum",
-        normalized: "6061-T6 aluminum",
+        raw: material,
+        normalized: material,
         confidence: 0.98,
+      },
+      finish: {
+        raw: finish,
+        normalized: finish,
+        confidence: finish ? 0.98 : 0.25,
       },
     },
     confidence: 0.98,
@@ -937,7 +935,21 @@ function createPreviewAssetRow(id, partId, pageNumber, storagePath) {
   };
 }
 
-function createRequirementRow(id, partId, approvedBy, partNumber, revision, description, material, finish, quantity, quoteQuantities, requestedByDate) {
+function createRequirementRow(
+  id,
+  partId,
+  approvedBy,
+  partNumber,
+  revision,
+  description,
+  material,
+  finish,
+  quantity,
+  quoteQuantities,
+  requestedByDate,
+  applicableVendors = ["xometry", "protolabs", "fictiv"],
+  specSnapshot = null,
+) {
   return {
     id,
     part_id: partId,
@@ -952,8 +964,8 @@ function createRequirementRow(id, partId, approvedBy, partNumber, revision, desc
     quantity,
     quote_quantities: quoteQuantities,
     requested_by_date: requestedByDate,
-    applicable_vendors: ["xometry", "protolabs", "fictiv"],
-    spec_snapshot: {
+    applicable_vendors: applicableVendors,
+    spec_snapshot: specSnapshot ?? {
       partNumber,
       revision,
       description,
@@ -1030,6 +1042,65 @@ function createOfferRow(id, quoteResultId, supplier, laneLabel, sourcing, unitPr
     sort_rank: 0,
     raw_payload: {
       sourcing,
+    },
+    created_at: FIXTURE_TIMESTAMP,
+    updated_at: FIXTURE_TIMESTAMP,
+  };
+}
+
+function createQuotedSampleQuoteResultRow({ id, quoteRunId, partId, lane }) {
+  return {
+    id,
+    quote_run_id: quoteRunId,
+    part_id: partId,
+    organization_id: ids.organization,
+    vendor: lane.vendor,
+    requested_quantity: lane.requestedQuantity,
+    status: "instant_quote_received",
+    unit_price_usd: lane.unitPriceUsd,
+    total_price_usd: lane.totalPriceUsd,
+    lead_time_business_days: lane.leadTimeBusinessDays,
+    quote_url: `https://example.test/${lane.vendor}/${lane.id}`,
+    dfm_issues: [],
+    notes: lane.notes ? [lane.notes] : [],
+    raw_payload: {
+      sourcing: lane.sourcing,
+      laneId: lane.id,
+    },
+    created_at: FIXTURE_TIMESTAMP,
+    updated_at: FIXTURE_TIMESTAMP,
+  };
+}
+
+function createQuotedSampleOfferRow({ id, quoteResultId, lane, sortRank }) {
+  return {
+    id,
+    vendor_quote_result_id: quoteResultId,
+    organization_id: ids.organization,
+    offer_key: `quoted-sample-${lane.id}`,
+    supplier: lane.supplier,
+    lane_label: lane.laneLabel,
+    sourcing: lane.sourcing,
+    tier: lane.tier,
+    quote_ref: lane.quoteRef,
+    quote_date: lane.quoteDate,
+    unit_price_usd: lane.unitPriceUsd,
+    total_price_usd: lane.totalPriceUsd,
+    lead_time_business_days: lane.leadTimeBusinessDays,
+    ship_receive_by: lane.shipReceiveBy,
+    due_date: lane.dueDate,
+    process: lane.process,
+    material: lane.material,
+    finish: lane.finish,
+    tightest_tolerance: lane.tightestTolerance,
+    tolerance_source: lane.toleranceSource,
+    thread_callouts: lane.threadCallouts,
+    thread_match_notes: lane.threadMatchNotes,
+    notes: lane.notes,
+    sort_rank: sortRank,
+    raw_payload: {
+      sourcing: lane.sourcing,
+      laneId: lane.id,
     },
     created_at: FIXTURE_TIMESTAMP,
     updated_at: FIXTURE_TIMESTAMP,

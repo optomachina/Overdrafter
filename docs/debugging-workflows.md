@@ -107,6 +107,10 @@ Supported v1 scenarios:
 - `client-quoted`
 - `client-published`
 
+The `client-quoted` scenario and `/debug/state-gallery` share the same checked-in `1093-05589-02`
+demo source. That sample uses the real local STEP/PDF files and workbook-backed quote lanes from
+batch `QB00002`, so the compare view and gallery stay aligned.
+
 Example URLs:
 
 - `http://127.0.0.1:5173/?fixture=landing-anonymous&debug=1`
@@ -155,15 +159,19 @@ Playwright uses the same diagnostics surface and stores the snapshot as a test a
 Internal users, and local debug/dev sessions, now get a bottom-right `Extraction` launcher above the
 `Fixtures` and `Diagnostics` buttons.
 
-- It opens a lightweight global extraction sheet from any route.
-- On `/internal/jobs/:jobId`, it prefills the current job and exposes quick `Queue extraction` and
-  `Run debug extraction` actions.
+- It opens a lightweight route-aware entry sheet from any route.
+- The launcher is now an entry point, not the main control surface.
 - On client part routes, it resolves the current `/parts/:id` route to the canonical job before
-  enabling extraction actions.
-- On routes without extraction context, it stays available but requires a pasted job or part ID to
-  jump into the full internal `Extraction Lab`.
+  offering a jump into the full lab.
+- On routes without extraction context, it requires a pasted job or part ID to open the full lab.
 
-The full side-by-side extraction inspection surface still lives on the internal job detail page.
+The full `Extraction Lab` on the internal job detail page is now preview-first:
+
+- `Preview` is read-only and must not write any extraction tables or queue rows.
+- `Save debug run` is the explicit persisted debug action.
+- `Queue canonical` is the explicit canonical write action.
+- Provider/model discovery uses a cached catalog and refreshes in the background instead of polling
+  upstream providers on every open.
 
 ### Archived Delete Edge Fallback
 
