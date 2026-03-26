@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { FlaskConical, Loader2, ScanSearch } from "lucide-react";
 import { useLocation, useMatch, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -7,13 +7,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -25,12 +18,9 @@ import {
   fetchJobAggregate,
   fetchPartDetailByJobId,
   fetchWorkerReadiness,
-  requestDebugExtraction,
-  requestExtraction,
   resolveClientPartDetailRoute,
 } from "@/features/quotes/api/internal-review";
 import { isFixtureModeAvailable } from "@/features/quotes/client-workspace-fixtures";
-import type { PartAggregate } from "@/features/quotes/types";
 import { useAppSession } from "@/hooks/use-app-session";
 import { useDiagnosticsSnapshot } from "@/lib/diagnostics";
 import { shouldShowExtractionLauncher } from "@/components/debug/extraction-launcher-visibility";
@@ -62,7 +52,6 @@ export function openExtractionLauncher() {
 export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatingButton?: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const queryClient = useQueryClient();
   const diagnostics = useDiagnosticsSnapshot();
   const { activeMembership } = useAppSession();
   const [open, setOpen] = useState(false);
@@ -73,9 +62,6 @@ export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatin
       _openExtractionLauncher = null;
     };
   }, []);
-  const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState("gpt-5.4");
-  const [userSelectedModel, setUserSelectedModel] = useState(false);
   const [manualRouteId, setManualRouteId] = useState("");
   const internalJobMatch = useMatch("/internal/jobs/:jobId");
   const clientPartReviewMatch = useMatch("/parts/:jobId/review");
@@ -135,79 +121,11 @@ export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatin
     enabled: open,
   });
 
-  const parts = useMemo<PartAggregate[]>(() => {
-    if (resolvedContext.kind === "internal") {
-      return internalJobQuery.data?.parts ?? [];
-    }
-
-    return clientPartQuery.data?.part ? [clientPartQuery.data.part] : [];
-  }, [clientPartQuery.data?.part, internalJobQuery.data?.parts, resolvedContext.kind]);
-
-  const modelOptions = useMemo(() => {
-    const options = workerReadinessQuery.data?.drawingExtractionDebugAllowedModels ?? [];
-    return options.length > 0 ? options : [workerReadinessQuery.data?.drawingExtractionModel ?? "gpt-5.4"];
-  }, [
-    workerReadinessQuery.data?.drawingExtractionDebugAllowedModels,
-    workerReadinessQuery.data?.drawingExtractionModel,
-  ]);
-
-  useEffect(() => {
-    if (modelOptions.length === 0) {
-      return;
-    }
-
-    if (!userSelectedModel || !modelOptions.includes(selectedModel)) {
-      setSelectedModel(modelOptions[0] ?? "gpt-5.4");
-    }
-  }, [modelOptions, selectedModel, userSelectedModel]);
-
-  useEffect(() => {
-    if (parts.length === 0) {
-      setSelectedPartId(null);
-      return;
-    }
-
-    if (!selectedPartId || !parts.some((part) => part.id === selectedPartId)) {
-      setSelectedPartId(parts[0]?.id ?? null);
-    }
-  }, [parts, selectedPartId]);
-
-  const selectedPart = parts.find((part) => part.id === selectedPartId) ?? null;
   const actionJobId = resolvedContext.jobId;
   const openJobHref = actionJobId ? `/internal/jobs/${actionJobId}` : null;
   const canOpenInternalJob = Boolean(
     activeMembership && (activeMembership.role !== "client" || diagnostics.enabled || import.meta.env.DEV),
   );
-  const queueExtractionMutation = useMutation({
-    mutationFn: () => requestExtraction(actionJobId ?? ""),
-    onSuccess: async () => {
-      toast.success("Extraction queued.");
-      if (actionJobId) {
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["job", actionJobId] }),
-          queryClient.invalidateQueries({ queryKey: ["part-detail", actionJobId] }),
-        ]);
-      }
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to queue extraction.");
-    },
-  });
-  const debugExtractionMutation = useMutation({
-    mutationFn: () => requestDebugExtraction(selectedPartId ?? "", selectedModel),
-    onSuccess: async () => {
-      toast.success("Preview-only debug extraction queued.");
-      if (actionJobId) {
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["job", actionJobId] }),
-          queryClient.invalidateQueries({ queryKey: ["part-detail", actionJobId] }),
-        ]);
-      }
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to queue debug extraction.");
-    },
-  });
 
   if (!showLauncher) {
     return null;
@@ -278,7 +196,7 @@ export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatin
                 Extraction
               </SheetTitle>
               <SheetDescription className="text-white/60">
-                Quick access to canonical extraction and preview-only debug reruns without leaving the current page.
+                Route-aware entry point into the Extraction Lab.
               </SheetDescription>
             </SheetHeader>
 
@@ -334,81 +252,8 @@ export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatin
                 ) : null}
               </div>
 
-              <div className="space-y-4 rounded-2xl border border-white/10 bg-black/20 p-4">
-                <div className="space-y-2">
-                  <Label className="text-white">Part for debug extraction</Label>
-                  <Select
-                    value={selectedPartId ?? ""}
-                    onValueChange={(value) => setSelectedPartId(value)}
-                    disabled={parts.length === 0}
-                  >
-                    <SelectTrigger className="border-white/10 bg-white/5 text-white">
-                      <SelectValue placeholder={parts.length === 0 ? "No part in current context" : "Select part"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {parts.map((part) => (
-                        <SelectItem key={part.id} value={part.id}>
-                          {part.name || part.id}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {selectedPart ? (
-                    <p className="text-xs text-white/55">
-                      Selected part ID: <span className="font-mono">{selectedPart.id}</span>
-                    </p>
-                  ) : null}
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-white">Debug model</Label>
-                  <Select
-                    value={selectedModel}
-                    onValueChange={(value) => {
-                      setUserSelectedModel(true);
-                      setSelectedModel(value);
-                    }}
-                  >
-                    <SelectTrigger className="border-white/10 bg-white/5 text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {modelOptions.map((model) => (
-                        <SelectItem key={model} value={model}>
-                          {model}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex flex-wrap gap-3">
-                  <Button
-                    type="button"
-                    onClick={() => queueExtractionMutation.mutate()}
-                    disabled={!actionJobId || queueExtractionMutation.isPending}
-                  >
-                    {queueExtractionMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    Queue extraction
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-white/10 bg-transparent text-white hover:bg-white/6"
-                    onClick={() => debugExtractionMutation.mutate()}
-                    disabled={!selectedPartId || debugExtractionMutation.isPending}
-                  >
-                    {debugExtractionMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    Run debug extraction
-                  </Button>
-                </div>
-              </div>
-
               <div className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-sm font-medium text-white">Open full Extraction Lab</p>
-                <p className="text-sm text-white/60">
-                  Use the full internal job page for side-by-side canonical vs preview-only results and detailed extraction evidence.
-                </p>
+                <p className="text-sm font-medium text-white">Open Extraction Lab</p>
                 <div className="flex gap-3">
                   <Button
                     type="button"
@@ -417,7 +262,7 @@ export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatin
                     onClick={handleOpenInternalJob}
                   >
                     <FlaskConical className="mr-2 h-4 w-4" />
-                    Open internal job
+                    Open lab
                   </Button>
                 </div>
                 {canOpenInternalJob && !actionJobId ? (
