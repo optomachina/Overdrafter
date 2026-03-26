@@ -300,6 +300,12 @@ export function useAppSession() {
           if (!membershipErrorRetriedRef.current) {
             membershipErrorRetriedRef.current = true;
             scheduleSessionRefresh();
+          } else {
+            // Retry also returned membershipError — unblock the UI rather than hanging forever.
+            markInitialRestoreResolved("use-app-session.query.membership-error-exhausted", {
+              userId: result.user?.id ?? null,
+              membershipError: result.membershipError,
+            });
           }
           return result;
         }
@@ -329,6 +335,9 @@ export function useAppSession() {
         if (!sessionErrorRetriedRef.current) {
           sessionErrorRetriedRef.current = true;
           scheduleSessionRefresh();
+        } else {
+          // Retry also returned session_error — unblock the UI rather than hanging forever.
+          markInitialRestoreResolved("use-app-session.query.session-error-exhausted");
         }
         return currentSession ?? result;
       }

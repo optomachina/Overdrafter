@@ -444,7 +444,7 @@ const ClientProject = () => {
     );
   };
 
-  if (isAuthInitializing) {
+  if (isAuthInitializing && !user) {
     return <AuthBootstrapScreen message="Restoring your project workspace." />;
   }
 

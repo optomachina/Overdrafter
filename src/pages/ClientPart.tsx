@@ -315,7 +315,7 @@ const ClientPart = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleToggleCurrentPartPin, jobId]);
 
-  if (isAuthInitializing) {
+  if (isAuthInitializing && !user) {
     return <AuthBootstrapScreen message="Restoring your part workspace." />;
   }
 
