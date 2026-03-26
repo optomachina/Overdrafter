@@ -170,6 +170,16 @@ export function useClientProjectController() {
   const isMobile = useIsMobile();
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+
+  useEffect(() => {
+    if (!focusedJobId) {
+      setMobileDrawerOpen(false);
+      return;
+    }
+
+    setMobileDrawerOpen(isMobile);
+  }, [focusedJobId, isMobile]);
+
   const {
     accessibleProjects,
     accessibleProjectsQuery,
@@ -972,19 +982,18 @@ export function useClientProjectController() {
   };
 
   const handleOpenJobDrawer = (jobId: string) => {
-    setFocusedJobId(jobId);
-
-    if (isMobile) {
-      setMobileDrawerOpen(true);
+    if (focusedJobId === jobId) {
+      setFocusedJobId(null);
+      setMobileDrawerOpen(false);
+    } else {
+      setFocusedJobId(jobId);
+      setMobileDrawerOpen(isMobile);
     }
   };
 
   const handleClearFocusedJob = () => {
     setFocusedJobId(null);
-
-    if (isMobile) {
-      setMobileDrawerOpen(false);
-    }
+    setMobileDrawerOpen(false);
   };
 
   const handleToggleVendorExclusion = (
