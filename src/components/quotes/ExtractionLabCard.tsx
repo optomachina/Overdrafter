@@ -340,6 +340,7 @@ export function ExtractionLabCard({
   useEffect(() => {
     setSelectedModelsByPart((current) => {
       const next = { ...current };
+      let didChange = false;
 
       parts.forEach((part) => {
         const existing = next[part.id];
@@ -347,11 +348,14 @@ export function ExtractionLabCard({
         const recommended = modelOptions.find((model) => model.defaultHint)?.modelId ?? modelOptions[0]?.modelId ?? "gpt-5.4";
 
         if (!existing || !modelOptions.some((model) => model.modelId === existing) || (!hasUserSelection && existing !== recommended)) {
-          next[part.id] = recommended;
+          if (next[part.id] !== recommended) {
+            next[part.id] = recommended;
+            didChange = true;
+          }
         }
       });
 
-      return next;
+      return didChange ? next : current;
     });
   }, [modelOptions, parts, userSelectedModelsByPart]);
 

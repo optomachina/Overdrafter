@@ -299,6 +299,9 @@ describe("ExtractionLabCard", () => {
     renderCard({ drawingPreviewAssets: [makePreviewAsset()] });
 
     await screen.findByText("Extraction Lab");
+    await waitFor(() => {
+      expect(screen.getByRole("combobox")).toHaveTextContent("Claude Sonnet 4.6");
+    });
     fireEvent.click(screen.getByRole("button", { name: /^preview$/i }));
 
     await waitFor(() => {
@@ -313,6 +316,9 @@ describe("ExtractionLabCard", () => {
     renderCard();
 
     await screen.findByText("Extraction Lab");
+    await waitFor(() => {
+      expect(screen.getByRole("combobox")).toHaveTextContent("Claude Sonnet 4.6");
+    });
     expect(screen.getByRole("button", { name: /save debug run/i })).toBeDisabled();
     expect(screen.getByText("Preview-only")).toBeInTheDocument();
   });
@@ -341,6 +347,9 @@ describe("ExtractionLabCard", () => {
     renderCard({ debugExtractionRuns: [makeDebugRun()] });
 
     await screen.findByText("Extraction Lab");
+    await waitFor(() => {
+      expect(screen.getByRole("combobox")).toHaveTextContent("GPT-5.4 Mini");
+    });
     fireEvent.click(screen.getByRole("button", { name: /save debug run/i }));
 
     expect(await screen.findByText("Save debug run?")).toBeInTheDocument();
