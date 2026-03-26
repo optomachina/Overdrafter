@@ -84,7 +84,7 @@ describe("WorkspaceInlineSearch", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Search projects and parts"), {
+    fireEvent.change(screen.getByLabelText("Search"), {
       target: { value: "aluminum" },
     });
 
@@ -120,7 +120,7 @@ describe("WorkspaceInlineSearch", () => {
 
     expect(screen.getByText("QB00001")).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("Search projects and parts"), {
+    fireEvent.change(screen.getByLabelText("Search"), {
       target: { value: "valve" },
     });
 

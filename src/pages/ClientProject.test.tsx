@@ -1237,7 +1237,7 @@ describe("ClientProject", () => {
     renderWithClient("/projects/project-1");
 
     expect(await screen.findByTestId("shell-top-right")).toBeInTheDocument();
-    expect(screen.getByLabelText("Search projects and parts")).toBeInTheDocument();
+    expect(screen.getByLabelText("Search")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Search project parts" })).not.toBeInTheDocument();
   });
 
@@ -1349,7 +1349,7 @@ describe("ClientProject", () => {
 
     renderWithClient("/projects/project-1");
 
-    const searchInput = (await screen.findByLabelText("Search projects and parts")) as HTMLInputElement;
+    const searchInput = (await screen.findByLabelText("Search")) as HTMLInputElement;
     fireEvent.change(searchInput, { target: { value: "valve" } });
 
     fireEvent.click(screen.getByRole("button", { name: "Clear Bracket Project search scope" }));
@@ -1362,7 +1362,7 @@ describe("ClientProject", () => {
       expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-2");
     });
 
-    fireEvent.change(screen.getByLabelText("Search projects and parts"), {
+    fireEvent.change(screen.getByLabelText("Search"), {
       target: { value: "housing" },
     });
     fireEvent.click(screen.getByText("VALV-001 rev B"));

@@ -35,7 +35,7 @@ export function WorkspaceInlineSearch({
   resolveProjectIdsForJob,
   onSelectProject,
   onSelectPart,
-  placeholder = "Search projects and parts",
+  placeholder = "Search",
   className,
 }: WorkspaceInlineSearchProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -136,12 +136,12 @@ export function WorkspaceInlineSearch({
           placeholder={placeholder}
           aria-label={placeholder}
           className={cn(
-            "h-10 rounded-lg border border-white/10 bg-white/[0.04] pr-3 text-sm text-white placeholder:text-white/35 focus-visible:ring-0",
-            hasScopeChip ? "pl-[8.65rem]" : "pl-1",
+            "h-10 rounded-full border border-white/10 bg-white/[0.04] pr-3 text-sm text-white placeholder:text-white/35 focus-visible:ring-0",
+            hasScopeChip ? "pl-[9.35rem]" : "pl-1",
           )}
         />
         {hasScopeChip ? (
-          <div className="pointer-events-none absolute inset-y-0 left-9 z-10 flex items-center">
+          <div className="pointer-events-none absolute inset-y-0 left-3 z-10 flex items-center">
             <span className="pointer-events-auto inline-flex max-w-[8rem] items-center gap-1 rounded-full border border-white/12 bg-white/10 px-2 py-1 text-xs font-medium text-white/88">
               <span className="truncate">{activeScopedProject.name}</span>
               <button
