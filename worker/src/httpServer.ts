@@ -47,6 +47,12 @@ export type WorkerRuntimeState = {
   eventCounts: Record<RuntimeEventLevel, number>;
 };
 
+type WorkerDebugHandlers = {
+  getExtractionModels?: () => Promise<Record<string, unknown>>;
+  refreshExtractionModels?: () => Promise<Record<string, unknown>>;
+  previewExtraction?: (input: { partId: string; modelId: string }) => Promise<Record<string, unknown>>;
+};
+
 const EVENT_LIMIT = 50;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -220,6 +226,20 @@ function writeJson(
   response.end(JSON.stringify(payload));
 }
 
+async function readJsonBody(request: http.IncomingMessage) {
+  const chunks: Buffer[] = [];
+
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+
+  if (chunks.length === 0) {
+    return {};
+  }
+
+  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+}
+
 function getSnapshot(config: WorkerConfig, state: WorkerRuntimeState) {
   const ready = state.status === "running" && state.readinessIssues.length === 0;
 
@@ -252,8 +272,9 @@ function getSnapshot(config: WorkerConfig, state: WorkerRuntimeState) {
 export async function startHealthServer(
   config: WorkerConfig,
   state: WorkerRuntimeState,
+  handlers: WorkerDebugHandlers = {},
 ) {
-  const server = http.createServer((request, response) => {
+  const server = http.createServer(async (request, response) => {
     const url = request.url ?? "/";
 
     if (url === "/" || url === "/healthz") {
@@ -275,6 +296,69 @@ export async function startHealthServer(
         eventCounts: state.eventCounts,
         events: state.recentEvents,
       });
+      return;
+    }
+
+    if (url === "/debug/extraction/models" && request.method === "GET") {
+      if (!handlers.getExtractionModels) {
+        writeJson(response, 404, { error: "not_found", path: url });
+        return;
+      }
+
+      try {
+        writeJson(response, 200, await handlers.getExtractionModels());
+      } catch (error) {
+        writeJson(response, 500, {
+          error: "debug_models_failed",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return;
+    }
+
+    if (url === "/debug/extraction/models/refresh" && request.method === "POST") {
+      if (!handlers.refreshExtractionModels) {
+        writeJson(response, 404, { error: "not_found", path: url });
+        return;
+      }
+
+      try {
+        writeJson(response, 202, await handlers.refreshExtractionModels());
+      } catch (error) {
+        writeJson(response, 500, {
+          error: "debug_models_refresh_failed",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return;
+    }
+
+    if (url === "/debug/extraction/preview" && request.method === "POST") {
+      if (!handlers.previewExtraction) {
+        writeJson(response, 404, { error: "not_found", path: url });
+        return;
+      }
+
+      try {
+        const body = await readJsonBody(request);
+        const partId = typeof body.partId === "string" ? body.partId.trim() : "";
+        const modelId = typeof body.modelId === "string" ? body.modelId.trim() : "";
+
+        if (!partId || !modelId) {
+          writeJson(response, 400, {
+            error: "invalid_preview_request",
+            message: "partId and modelId are required.",
+          });
+          return;
+        }
+
+        writeJson(response, 200, await handlers.previewExtraction({ partId, modelId }));
+      } catch (error) {
+        writeJson(response, 500, {
+          error: "debug_preview_failed",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
       return;
     }
 
