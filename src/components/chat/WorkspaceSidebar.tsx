@@ -131,7 +131,7 @@ function formatSelectedQuote(summary: JobPartSummary | undefined) {
 
   const price = formatSidebarPrice(summary.selectedPriceUsd);
 
-  return `${price}${summary.selectedLeadTimeBusinessDays ? ` · ${summary.selectedLeadTimeBusinessDays}d` : ""}`;
+  return `${price}${summary.selectedLeadTimeBusinessDays !== null ? ` · ${summary.selectedLeadTimeBusinessDays}d` : ""}`;
 }
 
 function formatProjectSelectedQuote(projectJobs: JobRecord[], summariesByJobId: Map<string, JobPartSummary>) {
