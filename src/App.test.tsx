@@ -90,11 +90,33 @@ import { shouldCaptureMutationDiagnostic } from "@/lib/react-query-diagnostics";
 
 describe("App routes", () => {
   beforeEach(() => {
+    const storage = new Map<string, string>();
+    const localStorageMock = {
+      getItem: vi.fn((key: string) => storage.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => {
+        storage.set(key, value);
+      }),
+      removeItem: vi.fn((key: string) => {
+        storage.delete(key);
+      }),
+      clear: vi.fn(() => {
+        storage.clear();
+      }),
+    };
+
     vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("localStorage", localStorageMock);
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      writable: true,
+      value: localStorageMock,
+    });
   });
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     window.history.replaceState({}, "", "/");
   });
 

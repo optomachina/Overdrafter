@@ -31,7 +31,6 @@ import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtractionStatusNotice";
 import { ClientPartHeader } from "@/components/quotes/ClientPartHeader";
-import { ClientWorkspaceStateSummary, ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { DrawingPreviewDialog } from "@/components/quotes/DrawingPreviewDialog";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import { ClientQuoteRequestStatusCard } from "@/components/quotes/ClientWorkspacePanelContent";
@@ -46,7 +45,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -70,9 +68,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import { useClientPartController } from "@/features/quotes/use-client-part-controller";
-import { buildClientWorkspaceState } from "@/features/quotes/client-workspace-state";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
-import { formatStatusLabel } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -82,6 +78,20 @@ type LocalComment = {
   authorLabel: string;
   createdAt: string;
 };
+
+function CommentCard({ comment }: { comment: LocalComment }) {
+  return (
+    <article className="rounded-lg border border-white/10 bg-black/20 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-medium text-white">{comment.authorLabel}</p>
+        <p className="text-xs uppercase tracking-[0.16em] text-white/35">
+          {new Date(comment.createdAt).toLocaleString()}
+        </p>
+      </div>
+      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-white/65">{comment.body}</p>
+    </article>
+  );
+}
 
 const QUICK_DUE_DATE_PRESETS = [
   { label: "Tomorrow", days: 1 },
@@ -323,17 +333,6 @@ const ClientPart = () => {
     return null;
   }
 
-  const workspaceState =
-    partDetail?.job && partDetail.part
-      ? buildClientWorkspaceState({
-          job: partDetail.job,
-          summary,
-          part: partDetail.part,
-          options: rankedQuoteOptions,
-          selectedOption: selectedQuoteOption,
-          requestedByDate: requestSummaryRequestedByDate,
-        })
-      : null;
   const quoteRequestViewModel =
     partDetail?.job
       ? buildQuoteRequestViewModel({
@@ -518,39 +517,6 @@ const ClientPart = () => {
                 eyebrow="Issue detail"
                 title={displayPartTitle}
                 description={presentation.description}
-                badges={
-                  <>
-                    <Badge className="border border-white/10 bg-white/6 text-white/75">
-                      {formatStatusLabel(partDetail.job.status)}
-                    </Badge>
-                    {quoteRequestViewModel ? (
-                      <ClientWorkspaceToneBadge
-                        tone={quoteRequestViewModel.tone}
-                        label={`Quote ${quoteRequestViewModel.label}`}
-                        className="tracking-normal normal-case"
-                      />
-                    ) : null}
-                    {projectMemberships.length > 0 ? (
-                      projectMemberships.map((project) => (
-                        <Badge key={project.project.id} className="border border-white/10 bg-white/6 text-white/75">
-                          {project.project.name}
-                        </Badge>
-                      ))
-                    ) : (
-                      <Badge className="border border-white/10 bg-white/6 text-white/75">Standalone part</Badge>
-                    )}
-                    {!cadFile ? (
-                      <Badge className="border border-amber-400/25 bg-amber-500/10 text-amber-200">
-                        CAD missing
-                      </Badge>
-                    ) : null}
-                    {!drawingFile ? (
-                      <Badge className="border border-sky-400/25 bg-sky-500/10 text-sky-200">
-                        Drawing missing
-                      </Badge>
-                    ) : null}
-                  </>
-                }
                 details={
                   <div className="space-y-4">
                     <div className="flex flex-wrap items-center gap-2 text-sm text-white/55">
@@ -785,8 +751,6 @@ const ClientPart = () => {
                 }
               />
 
-              {workspaceState ? <ClientWorkspaceStateSummary state={workspaceState} /> : null}
-
               <div className="flex flex-col gap-4">
                 <QuoteStatBar quotes={rankedQuoteOptions} />
                 <QuoteChart
@@ -818,6 +782,8 @@ const ClientPart = () => {
                   onUploadRevision={attachFilesPicker.openFilePicker}
                   isSaving={saveRequestMutation.isPending}
                   drawingFileName={drawingFile?.original_name ?? null}
+                  partNumber={presentation.partNumber}
+                  description={presentation.description}
                   statusContent={
                     <>
                       <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
@@ -898,17 +864,7 @@ const ClientPart = () => {
                       ) : (
                         <div className="space-y-3">
                           {comments.map((comment) => (
-                            <article key={comment.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                              <div className="flex items-center justify-between gap-3">
-                                <p className="text-sm font-medium text-white">{comment.authorLabel}</p>
-                                <p className="text-xs uppercase tracking-[0.16em] text-white/35">
-                                  {new Date(comment.createdAt).toLocaleString()}
-                                </p>
-                              </div>
-                              <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-white/65">
-                                {comment.body}
-                              </p>
-                            </article>
+                            <CommentCard key={comment.id} comment={comment} />
                           ))}
                         </div>
                       )}
@@ -1013,7 +969,7 @@ const ClientPart = () => {
                   key={project.project.id}
                   type="button"
                   className={cn(
-                    "flex w-full items-center justify-between rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-left transition hover:bg-white/4",
+                    "flex w-full items-center justify-between rounded-lg border border-white/8 bg-black/20 px-4 py-3 text-left transition hover:bg-white/4",
                     partDetail?.projectIds.includes(project.project.id) && "border-white/20",
                   )}
                   disabled={assignJobMutation.isPending || removeJobMutation.isPending}
@@ -1124,13 +1080,7 @@ const ClientPart = () => {
               ) : (
                 <div className="mt-4 space-y-3">
                   {comments.map((comment) => (
-                    <article key={comment.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                      <p className="text-sm font-medium text-white">{comment.authorLabel}</p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.16em] text-white/35">
-                        {new Date(comment.createdAt).toLocaleString()}
-                      </p>
-                      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-white/65">{comment.body}</p>
-                    </article>
+                    <CommentCard key={comment.id} comment={comment} />
                   ))}
                 </div>
               )}
