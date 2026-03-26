@@ -220,4 +220,42 @@ describe("InternalJobDetail", () => {
     expect(screen.getByTestId("requirements-section")).toHaveAttribute("data-disabled", "false");
     expect(screen.getByTestId("debug-section")).toHaveAttribute("data-disabled", "false");
   });
+
+  it("allows client diagnostics access in read-only mode", () => {
+    useAppSessionMock.mockReturnValue({
+      user: { id: "user-1", email: "blaine@example.com" },
+      activeMembership: makeMembership("client"),
+      isPlatformAdmin: false,
+      isVerifiedAuth: true,
+      isAuthInitializing: false,
+      signOut: vi.fn(),
+    });
+    useInternalJobDetailQueryMock.mockReturnValue({
+      jobQuery: { isLoading: false, error: null },
+      job: {
+        job: {
+          id: "job-1",
+          title: "Widget Block",
+          description: null,
+          organization_id: "org-1",
+        },
+        parts: [],
+        workQueue: [],
+      },
+      latestQuoteRun: { id: "quote-run-1" },
+      readinessQuery: { data: undefined },
+      showDebugTools: true,
+      allowDiagnosticReadOnly: true,
+    });
+
+    renderInternalJobDetail();
+
+    expect(screen.getByText("Diagnostic Read-Only View")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Queue extraction" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save approved requirements" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start quote run" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Publish client package" })).toBeDisabled();
+    expect(screen.getByTestId("requirements-section")).toHaveAttribute("data-disabled", "true");
+    expect(screen.getByTestId("debug-section")).toHaveAttribute("data-disabled", "true");
+  });
 });

@@ -27,6 +27,7 @@ const InternalJobDetail = () => {
     isPlatformAdmin,
     jobId,
   });
+  const isDiagnosticReadOnlyView = Boolean(activeMembership?.role === "client" && queryState.allowDiagnosticReadOnly);
   const viewModel = useInternalJobDetailViewModel({
     job: queryState.job,
     latestQuoteRun: queryState.latestQuoteRun,
@@ -53,6 +54,7 @@ const InternalJobDetail = () => {
       activeMembership.organizationId !== queryState.job.job.organization_id,
   );
   const writeActionsDisabled = !isVerifiedAuth || anyWritePending || isCrossOrgReadOnlyView;
+  const fullyWriteActionsDisabled = writeActionsDisabled || isDiagnosticReadOnlyView;
 
   if (isAuthInitializing) {
     return <AuthBootstrapScreen message="Restoring your internal review session." />;
@@ -70,7 +72,7 @@ const InternalJobDetail = () => {
     return <Navigate to="/?auth=signin" replace />;
   }
 
-  if (!activeMembership || activeMembership.role === "client") {
+  if (!activeMembership || (activeMembership.role === "client" && !isDiagnosticReadOnlyView)) {
     return <Navigate to="/" replace />;
   }
 
@@ -113,7 +115,7 @@ const InternalJobDetail = () => {
           requestExtractionPending={mutations.requestExtractionMutation.isPending}
           saveRequirementsPending={mutations.saveRequirementsMutation.isPending}
           startQuoteRunPending={mutations.startQuoteRunMutation.isPending}
-          writeActionsDisabled={writeActionsDisabled}
+          writeActionsDisabled={fullyWriteActionsDisabled}
         />
       }
     >
@@ -150,6 +152,19 @@ const InternalJobDetail = () => {
         </section>
       ) : null}
 
+      {isDiagnosticReadOnlyView ? (
+        <section className="mb-8">
+          <Card className="border-white/10 bg-black/20">
+            <CardHeader>
+              <CardTitle>Diagnostic Read-Only View</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0 text-sm text-white/60">
+              This internal job page is open for diagnostics from your client session. Editing, queueing, and publish actions stay disabled.
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
+
       <InternalJobOverviewSection job={queryState.job} />
 
       <section className="mt-8 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
@@ -167,12 +182,12 @@ const InternalJobDetail = () => {
           }
           onQuoteQuantityInputCommit={viewModel.commitQuoteQuantityInput}
           updateDraft={viewModel.updateDraft}
-          writeActionsDisabled={writeActionsDisabled}
+          writeActionsDisabled={fullyWriteActionsDisabled}
         />
 
         <div className="space-y-6">
           <InternalJobDebugSection
-            disabled={writeActionsDisabled}
+            disabled={fullyWriteActionsDisabled}
             job={queryState.job}
             jobId={jobId}
             latestQuoteRun={queryState.latestQuoteRun}
@@ -186,7 +201,7 @@ const InternalJobDetail = () => {
             onPublish={() => mutations.publishMutation.mutate()}
             publishPending={mutations.publishMutation.isPending}
             readiness={queryState.readinessQuery.data}
-            writeActionsDisabled={writeActionsDisabled}
+            writeActionsDisabled={fullyWriteActionsDisabled}
           />
           <InternalJobWorkerQueueCard tasks={queryState.job.workQueue} />
         </div>

@@ -1,7 +1,52 @@
-import type { WorkerReadinessSnapshot } from "@/features/quotes/types";
+import type {
+  DiscoveredModelCatalog,
+  PreviewExtractionResult,
+  WorkerReadinessSnapshot,
+} from "@/features/quotes/types";
+
+function getWorkerBaseUrl() {
+  return import.meta.env.VITE_WORKER_BASE_URL?.trim() ?? "";
+}
+
+async function fetchWorkerJson<T>(pathname: string, init?: RequestInit): Promise<T> {
+  const baseUrl = getWorkerBaseUrl();
+
+  if (!baseUrl) {
+    throw new Error("Set VITE_WORKER_BASE_URL to enable worker debug tooling.");
+  }
+
+  const targetUrl = new URL(pathname, baseUrl).toString();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(targetUrl, {
+      ...init,
+      headers: {
+        "content-type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+      signal: controller.signal,
+    });
+
+    const payload = (await response.json()) as T & { message?: string };
+
+    if (!response.ok) {
+      throw new Error(
+        typeof payload.message === "string"
+          ? payload.message
+          : `Worker request failed with HTTP ${response.status}.`,
+      );
+    }
+
+    return payload;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
 
 export async function fetchWorkerReadiness(): Promise<WorkerReadinessSnapshot> {
-  const baseUrl = import.meta.env.VITE_WORKER_BASE_URL?.trim();
+  const baseUrl = getWorkerBaseUrl();
 
   if (!baseUrl) {
     return {
@@ -68,4 +113,33 @@ export async function fetchWorkerReadiness(): Promise<WorkerReadinessSnapshot> {
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+export async function fetchExtractionModelCatalog(): Promise<DiscoveredModelCatalog> {
+  return fetchWorkerJson<DiscoveredModelCatalog>("/debug/extraction/models", {
+    method: "GET",
+  });
+}
+
+export async function requestExtractionModelCatalogRefresh(): Promise<{
+  accepted: boolean;
+  catalog: DiscoveredModelCatalog;
+}> {
+  return fetchWorkerJson<{ accepted: boolean; catalog: DiscoveredModelCatalog }>(
+    "/debug/extraction/models/refresh",
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    },
+  );
+}
+
+export async function previewStoredPartExtraction(
+  partId: string,
+  modelId: string,
+): Promise<PreviewExtractionResult> {
+  return fetchWorkerJson<PreviewExtractionResult>("/debug/extraction/preview", {
+    method: "POST",
+    body: JSON.stringify({ partId, modelId }),
+  });
 }

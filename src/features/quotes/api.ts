@@ -17,6 +17,9 @@ export {
 } from "./api/archive-api";
 
 export {
+  fetchExtractionModelCatalog,
+  previewStoredPartExtraction,
+  requestExtractionModelCatalogRefresh,
   fetchWorkerReadiness,
 } from "./api/worker-api";
 

@@ -294,6 +294,8 @@ export type WorkerConfig = {
   xometryStorageStatePath: string | null;
   xometryStorageStateJson: string | null;
   openAiApiKey: string | null;
+  anthropicApiKey: string | null;
+  openRouterApiKey: string | null;
   workerBuildVersion: string;
   drawingExtractionModel: string;
   drawingExtractionEnableModelFallback: boolean;

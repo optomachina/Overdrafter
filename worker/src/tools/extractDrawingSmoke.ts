@@ -25,6 +25,8 @@ function parseArgs() {
 
 function buildSmokeConfig(): WorkerConfig {
   const openAiApiKey = process.env.OPENAI_API_KEY ?? null;
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY ?? null;
+  const openRouterApiKey = process.env.OPENROUTER_API_KEY ?? null;
 
   return {
     supabaseUrl: "https://example.supabase.co",
@@ -44,6 +46,8 @@ function buildSmokeConfig(): WorkerConfig {
     xometryStorageStatePath: null,
     xometryStorageStateJson: null,
     openAiApiKey,
+    anthropicApiKey,
+    openRouterApiKey,
     workerBuildVersion: process.env.WORKER_BUILD_VERSION ?? "smoke-local",
     drawingExtractionModel: process.env.DRAWING_EXTRACTION_MODEL ?? "gpt-5.4",
     drawingExtractionEnableModelFallback: parseEnvBooleanLike(
