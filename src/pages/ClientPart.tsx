@@ -168,7 +168,6 @@ function writeStoredSubscribed(storageScopeKey: string, jobId: string, subscribe
 
 const ClientPart = () => {
   const {
-    accessibleJobsQuery,
     activeMembership,
     activityEntries,
     activePreset,
@@ -264,11 +263,12 @@ const ClientPart = () => {
     summariesByJobId,
     summary,
     user,
+    accessibleJobs,
     isAuthInitializing,
   } = useClientPartController();
 
   const notificationCenter = useWorkspaceNotifications({
-    jobIds: (accessibleJobsQuery.data ?? []).map((job) => job.id),
+    jobIds: accessibleJobs.map((job) => job.id),
     role: activeMembership?.role,
     userId: user?.id,
   });
@@ -461,7 +461,7 @@ const ClientPart = () => {
         sidebarContent={
           <WorkspaceSidebar
             projects={sidebarProjects}
-            jobs={accessibleJobsQuery.data ?? []}
+            jobs={accessibleJobs}
             summariesByJobId={summariesByJobId}
             activeJobId={jobId}
             onCreateJob={newJobFilePicker.openFilePicker}
@@ -885,7 +885,7 @@ const ClientPart = () => {
         open={isSearchOpen}
         onOpenChange={setIsSearchOpen}
         projects={sidebarProjects}
-        jobs={accessibleJobsQuery.data ?? []}
+        jobs={accessibleJobs}
         summariesByJobId={summariesByJobId}
         onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
         onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}

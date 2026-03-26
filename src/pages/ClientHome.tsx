@@ -56,10 +56,11 @@ const ClientHome = () => {
     signOut,
     summariesByJobId,
     user,
+    accessibleJobs,
     accessibleJobsQuery,
   } = useClientHomeController();
   const notificationCenter = useWorkspaceNotifications({
-    jobIds: (accessibleJobsQuery.data ?? []).map((job) => job.id),
+    jobIds: accessibleJobs.map((job) => job.id),
     role: activeMembership?.role,
     userId: user?.id,
   });
@@ -346,7 +347,7 @@ const ClientHome = () => {
 
   const renderSignedInContent = () => {
     const recentProjects = sidebarProjects.slice(0, 4);
-    const recentJobs = [...(accessibleJobsQuery.data ?? [])]
+    const recentJobs = [...accessibleJobs]
       .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at))
       .slice(0, 6);
 
@@ -533,7 +534,7 @@ const ClientHome = () => {
           user ? (
             <WorkspaceSidebar
               projects={sidebarProjects}
-              jobs={accessibleJobsQuery.data ?? []}
+              jobs={accessibleJobs}
               summariesByJobId={summariesByJobId}
               onCreateJob={newJobFilePicker.openFilePicker}
               onCreateProject={projectCollaborationUnavailable ? undefined : newJobFilePicker.openFilePicker}
@@ -602,7 +603,7 @@ const ClientHome = () => {
           ) : null
         }
       >
-        {user && activeMembership && accessibleJobsQuery.isLoading === false && (accessibleJobsQuery.data ?? []).length === 0
+        {user && activeMembership && accessibleJobsQuery.isLoading === false && accessibleJobs.length === 0
           ? renderOnboardContent()
           : user
             ? renderSignedInContent()
@@ -625,7 +626,7 @@ const ClientHome = () => {
         open={isSearchOpen}
         onOpenChange={setIsSearchOpen}
         projects={sidebarProjects}
-        jobs={accessibleJobsQuery.data ?? []}
+        jobs={accessibleJobs}
         summariesByJobId={summariesByJobId}
         onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
         onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}

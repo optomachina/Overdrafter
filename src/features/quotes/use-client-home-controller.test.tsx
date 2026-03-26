@@ -106,6 +106,7 @@ vi.mock("@/features/quotes/use-client-workspace-data", () => ({
 
 function createWorkspaceDataResult() {
   return {
+    accessibleJobs: [],
     accessibleProjectsQuery: { data: [], isLoading: false },
     accessibleJobsQuery: { data: [], isLoading: false },
     accessibleJobIds: [],

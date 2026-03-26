@@ -142,7 +142,7 @@ describe("useClientWorkspaceData", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps prior project memberships available while the membership query refetches for a new job set", async () => {
+  it("refreshes jobs and membership query keys when client jobs are invalidated", async () => {
     const queryClient = createQueryClient();
     let jobsResponse = [
       {
@@ -203,6 +203,7 @@ describe("useClientWorkspaceData", () => {
     });
 
     await waitFor(() => {
+      expect(result.current.accessibleJobs.map((job) => job.id)).toEqual(["job-1"]);
       expect(result.current.projectJobMemberships).toEqual([{ job_id: "job-1", project_id: "project-1" }]);
     });
 
@@ -222,8 +223,20 @@ describe("useClientWorkspaceData", () => {
     await waitFor(() => {
       expect(fetchProjectJobMembershipsByJobIds).toHaveBeenCalledWith(["job-1", "job-2"]);
     });
+    await act(async () => {
+      resolveMemberships?.([
+        { job_id: "job-1", project_id: "project-1" },
+        { job_id: "job-2", project_id: "project-1" },
+      ]);
+    });
 
-    expect(result.current.projectJobMemberships).toEqual([{ job_id: "job-1", project_id: "project-1" }]);
+    await waitFor(() => {
+      expect(result.current.accessibleJobs.map((job) => job.id)).toEqual(["job-1", "job-2"]);
+      expect(result.current.projectJobMemberships).toEqual([
+        { job_id: "job-1", project_id: "project-1" },
+        { job_id: "job-2", project_id: "project-1" },
+      ]);
+    });
   });
 });
 

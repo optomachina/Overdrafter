@@ -53,8 +53,6 @@ import {
   withArchivedDeleteReporting,
 } from "@/features/quotes/archive-delete-errors";
 import {
-  buildSidebarProjectIdsByJobId,
-  buildSidebarProjects,
   resolveWorkspaceProjectIdsForJob,
 } from "@/features/quotes/client-workspace";
 import {
@@ -93,6 +91,7 @@ import type {
 import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
+import { useWorkspaceNavigationModel } from "@/features/quotes/use-workspace-navigation-model";
 import {
   prefetchPartPage,
   prefetchProjectPage,
@@ -183,11 +182,12 @@ export function useClientProjectController() {
 
   const {
     accessibleProjects,
+    accessibleJobs,
     accessibleProjectsQuery,
     accessibleJobsQuery,
     accessibleJobsById,
     projectJobMemberships,
-    projectJobMembershipsQuery: sidebarProjectJobMembershipsQuery,
+    projectJobMembershipsQuery,
     sidebarPinsQuery,
     archivedProjectsQuery,
     archivedJobsQuery,
@@ -197,17 +197,22 @@ export function useClientProjectController() {
     userId: user?.id,
     projectCollaborationUnavailable,
   });
-  const sidebarProjectIdsByJobId = useMemo(
-    () => buildSidebarProjectIdsByJobId(projectJobMemberships),
-    [projectJobMemberships],
-  );
-  const { sidebarProjects } = useMemo(
-    () =>
-      buildSidebarProjects({
-        accessibleProjects,
-      }),
-    [accessibleProjects],
-  );
+  const safeProjectJobMembershipsQuery = projectJobMembershipsQuery ?? {
+    isFetching: false,
+    isSuccess: projectCollaborationUnavailable || projectJobMemberships.length > 0 || accessibleJobs.length === 0,
+  };
+  const navigationModel = useWorkspaceNavigationModel({
+    accessibleJobs,
+    accessibleProjects,
+    projectJobMemberships,
+    summariesByJobId,
+    accessibleJobsQuery,
+    accessibleProjectsQuery,
+    projectJobMembershipsQuery: safeProjectJobMembershipsQuery,
+    projectCollaborationUnavailable,
+  });
+  const sidebarProjects = navigationModel.sidebarProjects;
+  const sidebarProjectIdsByJobId = navigationModel.partToProjectIds;
   const canLoadRemoteProjectData =
     Boolean(user) && !projectCollaborationUnavailable;
   const projectQuery = useQuery({
@@ -248,20 +253,20 @@ export function useClientProjectController() {
   );
   const projectJobMembershipsByCompositeKey = useMemo(
     () =>
-      sidebarProjectJobMembershipsQuery.isSuccess
+      projectJobMembershipsQuery.isSuccess
         ? new Map(
-            sidebarProjectJobMembershipsQuery.data.map((membership) => [
+            projectJobMembershipsQuery.data.map((membership) => [
               `${membership.project_id}:${membership.job_id}`,
               membership,
             ]),
           )
         : null,
-    [sidebarProjectJobMembershipsQuery.data, sidebarProjectJobMembershipsQuery.isSuccess],
+    [projectJobMembershipsQuery.data, projectJobMembershipsQuery.isSuccess],
   );
   const projectAssigneeLookupReady =
-    projectAssigneesQuery.isSuccess && sidebarProjectJobMembershipsQuery.isSuccess;
+    projectAssigneesQuery.isSuccess && projectJobMembershipsQuery.isSuccess;
   const projectAssigneeLookupFailed =
-    projectAssigneesQuery.isError || sidebarProjectJobMembershipsQuery.isError;
+    projectAssigneesQuery.isError || projectJobMembershipsQuery.isError;
   const projectJobIds = useMemo(() => stableJobIds(projectJobs.map((job) => job.id)), [projectJobs]);
   const projectWorkspaceItemsQuery = useQuery({
     queryKey: workspaceQueryKeys.clientQuoteWorkspace(projectJobIds),
@@ -638,7 +643,7 @@ export function useClientProjectController() {
     enabled: Boolean(user),
     canPrefetchProjects: !projectCollaborationUnavailable,
     projects: sidebarProjects,
-    jobs: accessibleJobsQuery.data ?? [],
+    jobs: navigationModel.parts,
     pinnedProjectIds: sidebarPinsQuery.data?.projectIds ?? [],
     pinnedJobIds: sidebarPinsQuery.data?.jobIds ?? [],
     resolveProjectIdsForJob: (job) => resolveSidebarProjectIdsForJob(job),
@@ -1297,8 +1302,10 @@ export function useClientProjectController() {
       isCancelQuoteRequestLockedRef.current = false;
     }
   };
+  const sidebarJobs = navigationModel.parts;
 
   return {
+    accessibleJobs: sidebarJobs,
     accessibleJobsQuery,
     activeFilter,
     activePreset,
@@ -1375,6 +1382,7 @@ export function useClientProjectController() {
     projectWorkspaceItemsQuery,
     requestDraftsByJobId,
     resolveSidebarProjectIdsForJob,
+    navigationModel,
     search,
     saveRequestMutation,
     optionsByJobId,
