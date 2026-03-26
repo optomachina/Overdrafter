@@ -16,8 +16,6 @@ const apiMock = vi.hoisted(() => ({
   fetchJobAggregate: vi.fn<() => Promise<JobAggregate>>(),
   fetchPartDetailByJobId: vi.fn<() => Promise<PartDetailAggregate>>(),
   fetchWorkerReadiness: vi.fn<() => Promise<WorkerReadinessSnapshot>>(),
-  requestDebugExtraction: vi.fn<() => Promise<string>>(),
-  requestExtraction: vi.fn<() => Promise<number>>(),
   resolveClientPartDetailRoute: vi.fn(),
 }));
 
@@ -38,16 +36,12 @@ vi.mock("@/features/quotes/api", () => ({
   fetchJobAggregate: apiMock.fetchJobAggregate,
   fetchPartDetailByJobId: apiMock.fetchPartDetailByJobId,
   fetchWorkerReadiness: apiMock.fetchWorkerReadiness,
-  requestDebugExtraction: apiMock.requestDebugExtraction,
-  requestExtraction: apiMock.requestExtraction,
   resolveClientPartDetailRoute: apiMock.resolveClientPartDetailRoute,
 }));
 vi.mock("@/features/quotes/api/internal-review", () => ({
   fetchJobAggregate: apiMock.fetchJobAggregate,
   fetchPartDetailByJobId: apiMock.fetchPartDetailByJobId,
   fetchWorkerReadiness: apiMock.fetchWorkerReadiness,
-  requestDebugExtraction: apiMock.requestDebugExtraction,
-  requestExtraction: apiMock.requestExtraction,
   resolveClientPartDetailRoute: apiMock.resolveClientPartDetailRoute,
 }));
 
@@ -200,8 +194,6 @@ describe("ExtractionLauncher", () => {
       jobId: "job-1",
       source: "part",
     });
-    apiMock.requestExtraction.mockResolvedValue(1);
-    apiMock.requestDebugExtraction.mockResolvedValue("debug-run-1");
   });
 
   it("evaluates launcher visibility rules", () => {
@@ -235,35 +227,26 @@ describe("ExtractionLauncher", () => {
     ).toBe(true);
   });
 
-  it("queues canonical extraction from an internal job route", async () => {
+  it("opens as an entry point on an internal job route", async () => {
     renderLauncher("/internal/jobs/job-1");
 
     fireEvent.click(screen.getByRole("button", { name: /extraction/i }));
 
     await screen.findByText(/internal job job-1/i);
-    fireEvent.click(screen.getByRole("button", { name: /queue extraction/i }));
-
-    await waitFor(() => {
-      expect(apiMock.requestExtraction).toHaveBeenCalledWith("job-1");
-    });
+    expect(screen.getByRole("button", { name: /open lab/i })).toBeInTheDocument();
   });
 
-  it("runs preview-only debug extraction from a client part route using the resolved job context", async () => {
+  it("resolves a client part route to the underlying job context", async () => {
     renderLauncher("/parts/part-1");
 
     fireEvent.click(screen.getByRole("button", { name: /extraction/i }));
 
     await screen.findByText(/resolved to job job-1/i);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /run debug extraction/i })).toBeEnabled();
-    });
-    fireEvent.click(screen.getByRole("button", { name: /run debug extraction/i }));
-
-    await waitFor(() => {
       expect(apiMock.resolveClientPartDetailRoute).toHaveBeenCalledWith("part-1");
       expect(apiMock.fetchPartDetailByJobId).toHaveBeenCalledWith("job-1");
-      expect(apiMock.requestDebugExtraction).toHaveBeenCalledWith("part-1", "gpt-5.4-mini");
     });
+    expect(screen.getByRole("button", { name: /open lab/i })).toBeInTheDocument();
   });
 
   it("shows a disabled no-context state and can navigate to an internal job from manual input", async () => {
@@ -280,12 +263,11 @@ describe("ExtractionLauncher", () => {
     expect(
       screen.getByText(/this route does not map to an extractable job automatically/i),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /queue extraction/i })).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText(/job or part id/i), {
       target: { value: "manual-part" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /open internal job/i }));
+    fireEvent.click(screen.getByRole("button", { name: /open lab/i }));
 
     await waitFor(() => {
       expect(screen.getByTestId("location-path")).toHaveTextContent("/internal/jobs/job-9");
@@ -304,7 +286,7 @@ describe("ExtractionLauncher", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /extraction/i }));
 
-    expect(screen.getByRole("button", { name: /open internal job/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open lab/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/job or part id/i)).toBeInTheDocument();
   });
 });
