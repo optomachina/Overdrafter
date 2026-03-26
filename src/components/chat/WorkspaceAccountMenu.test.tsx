@@ -481,10 +481,10 @@ describe("WorkspaceAccountMenu", () => {
     await openMainMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
 
-    expect(await screen.findByText("Sign-in method")).toBeInTheDocument();
+    expect(await screen.findByText("Organization")).toBeInTheDocument();
     expect(screen.getByText("Wilson Works")).toBeInTheDocument();
-    expect(screen.getByText("Role")).toBeInTheDocument();
-    expect(screen.getAllByText("Client").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Sign-in method")).not.toBeInTheDocument();
+    expect(screen.queryByText("Role")).not.toBeInTheDocument();
   });
 
   it("opens the notifications panel and marks current items seen", async () => {

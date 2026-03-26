@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -58,7 +58,9 @@ import type {
   WorkspaceNotificationType,
 } from "@/features/notifications/use-workspace-notifications";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
-import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary } from "@/features/quotes/types";
+import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary, OrganizationDetails } from "@/features/quotes/types";
+import { fetchOrganizationDetails, updateOrganizationDetails } from "@/features/quotes/api/organizations-api";
+import { Input } from "@/components/ui/input";
 import { getAccountDisplayProfile } from "@/lib/account-profile";
 import { setDiagnosticsEnabled, setDiagnosticsPanelOpen, useDiagnosticsSnapshot } from "@/lib/diagnostics";
 import { shouldShowExtractionLauncher } from "@/components/debug/extraction-launcher-visibility";
@@ -224,17 +226,6 @@ const RELEASE_NOTES: ReleaseNote[] = [
   },
 ];
 
-function formatProviderLabel(user: User): string {
-  const provider =
-    typeof user.app_metadata?.provider === "string"
-      ? user.app_metadata.provider
-      : typeof user.identities?.[0]?.provider === "string"
-        ? user.identities[0].provider
-        : "email";
-
-  return provider.charAt(0).toUpperCase() + provider.slice(1);
-}
-
 function openDiagnosticsPanel() {
   setDiagnosticsEnabled(true);
   setDiagnosticsPanelOpen(true);
@@ -396,6 +387,159 @@ export function WorkspaceAccountMenu({
   const [pendingUnarchiveJobIds, setPendingUnarchiveJobIds] = useState<string[]>([]);
   const [pendingDeleteJobIds, setPendingDeleteJobIds] = useState<string[]>([]);
   const [deleteConfirmation, setDeleteConfirmation] = useState<ArchiveDeleteConfirmationState | null>(null);
+
+  // --- Organization details (company/billing/shipping) ---
+  const emptyOrgDetails = useCallback(
+    (): OrganizationDetails => ({
+      id: activeMembership?.organizationId ?? "",
+      name: activeMembership?.organizationName ?? "",
+      companyName: null,
+      logoUrl: null,
+      phone: null,
+      billingStreet: null,
+      billingCity: null,
+      billingState: null,
+      billingZip: null,
+      billingCountry: "US",
+      shippingSameAsBilling: true,
+      shippingStreet: null,
+      shippingCity: null,
+      shippingState: null,
+      shippingZip: null,
+      shippingCountry: "US",
+    }),
+    [activeMembership?.organizationId, activeMembership?.organizationName],
+  );
+  const [orgDetails, setOrgDetails] = useState<OrganizationDetails>(emptyOrgDetails);
+  const [orgDetailsLoaded, setOrgDetailsLoaded] = useState(false);
+  const [orgDetailsDraft, setOrgDetailsDraft] = useState<OrganizationDetails>(emptyOrgDetails);
+  const [editingSection, setEditingSection] = useState<"company" | "billing" | "shipping" | null>(null);
+  const [isSavingOrg, setIsSavingOrg] = useState(false);
+  const [orgSaveError, setOrgSaveError] = useState<string | null>(null);
+  const companyNameInputRef = useRef<HTMLInputElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const placesAutocompleteRef = useRef<any>(null);
+  const isAdmin = activeMembership?.role === "internal_admin";
+
+  // Fetch org details when settings panel opens
+  useEffect(() => {
+    if (activePanel !== "settings" || !activeMembership?.organizationId) return;
+    let cancelled = false;
+    setOrgDetailsLoaded(false);
+    setEditingSection(null);
+    setOrgSaveError(null);
+    fetchOrganizationDetails(activeMembership.organizationId)
+      .then((details) => {
+        if (!cancelled) {
+          setOrgDetails(details);
+          setOrgDetailsDraft(details);
+          setOrgDetailsLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          const empty = emptyOrgDetails();
+          setOrgDetails(empty);
+          setOrgDetailsDraft(empty);
+          setOrgDetailsLoaded(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activePanel, activeMembership?.organizationId, emptyOrgDetails]);
+
+  // Initialize Google Places Autocomplete on company name input when panel is open
+  useEffect(() => {
+    if (activePanel !== "settings" || !isAdmin) return;
+    if (!companyNameInputRef.current) return;
+
+    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
+    if (!apiKey) return;
+
+    // Avoid re-initializing
+    if (placesAutocompleteRef.current) return;
+
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+    script.async = true;
+    script.onload = () => {
+      if (!companyNameInputRef.current) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const g = (window as any).google;
+      const autocomplete = new g.maps.places.Autocomplete(companyNameInputRef.current, {
+        types: ["establishment"],
+        fields: ["name", "formatted_phone_number", "address_components", "photos"],
+      });
+      autocomplete.addListener("place_changed", () => {
+        const place = autocomplete.getPlace();
+        if (!place) return;
+        const getComponent = (type: string) =>
+          place.address_components?.find((c) => c.types.includes(type))?.long_name ?? null;
+        const getShortComponent = (type: string) =>
+          place.address_components?.find((c) => c.types.includes(type))?.short_name ?? null;
+        const streetNumber = getComponent("street_number") ?? "";
+        const route = getComponent("route") ?? "";
+        const street = [streetNumber, route].filter(Boolean).join(" ") || null;
+        const logoUrl = place.photos?.[0]?.getUrl({ maxWidth: 128, maxHeight: 128 }) ?? null;
+        setOrgDetailsDraft((prev) => ({
+          ...prev,
+          companyName: place.name ?? prev.companyName,
+          phone: place.formatted_phone_number ?? prev.phone,
+          logoUrl: logoUrl ?? prev.logoUrl,
+          billingStreet: street,
+          billingCity: getComponent("locality"),
+          billingState: getShortComponent("administrative_area_level_1"),
+          billingZip: getComponent("postal_code"),
+          billingCountry: getShortComponent("country") ?? "US",
+        }));
+      });
+      placesAutocompleteRef.current = autocomplete;
+    };
+    // Only append if not already on the page
+    if (!document.querySelector(`script[src*="maps.googleapis.com"]`)) {
+      document.head.appendChild(script);
+    } else if (typeof (window as unknown as Record<string, unknown>)["google"] !== "undefined") {
+      // Already loaded
+      script.onload(new Event("load"));
+    }
+    return () => {
+      placesAutocompleteRef.current = null;
+    };
+  }, [activePanel, isAdmin]);
+
+  function patchDraft(patch: Partial<OrganizationDetails>) {
+    setOrgDetailsDraft((prev) => ({ ...prev, ...patch }));
+  }
+
+  function openEdit(section: "company" | "billing" | "shipping") {
+    setOrgDetailsDraft({ ...orgDetails });
+    setOrgSaveError(null);
+    setEditingSection(section);
+  }
+
+  function cancelEdit() {
+    setOrgDetailsDraft({ ...orgDetails });
+    setOrgSaveError(null);
+    setEditingSection(null);
+  }
+
+  async function handleSaveOrgDetails() {
+    if (!activeMembership?.organizationId) return;
+    setIsSavingOrg(true);
+    setOrgSaveError(null);
+    try {
+      const { id: _id, name: _name, ...patch } = orgDetailsDraft;
+      await updateOrganizationDetails(activeMembership.organizationId, patch);
+      setOrgDetails(orgDetailsDraft);
+      setEditingSection(null);
+    } catch {
+      setOrgSaveError("Failed to save. Please try again.");
+    } finally {
+      setIsSavingOrg(false);
+    }
+  }
+
   const roleLabel = getRoleLabel(activeMembership?.role);
   const diagnosticsSnapshot = useDiagnosticsSnapshot();
   const showExtractionLauncher = shouldShowExtractionLauncher({
@@ -744,14 +888,104 @@ export function WorkspaceAccountMenu({
               <PanelSectionTitle>Details</PanelSectionTitle>
               <dl className="mt-3 divide-y divide-white/[0.08]">
                 <DetailRow label="Email" value={user.email ?? "Unavailable"} />
-                <DetailRow label="Sign-in method" value={formatProviderLabel(user)} />
                 <DetailRow
                   label="Organization"
                   value={activeMembership?.organizationName ?? "Personal workspace"}
                 />
-                <DetailRow label="Role" value={roleLabel} />
               </dl>
             </div>
+
+            {activeMembership?.organizationId && orgDetailsLoaded && (
+              <>
+                {/* Company — read-only display */}
+                <div className={PANEL_CARD_CLASS}>
+                  <div className="flex items-center justify-between">
+                    <PanelSectionTitle>Company</PanelSectionTitle>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => openEdit("company")}
+                        className="text-xs text-white/52 hover:text-white/80 transition-colors"
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                  <dl className="mt-3 divide-y divide-white/[0.08]">
+                    {orgDetails.logoUrl && (
+                      <div className="py-3">
+                        <img src={orgDetails.logoUrl} alt="Company logo" className="h-8 w-8 rounded object-contain" />
+                      </div>
+                    )}
+                    <DetailRow label="Company name" value={orgDetails.companyName ?? "—"} />
+                    <DetailRow label="Phone" value={orgDetails.phone ?? "—"} />
+                  </dl>
+                </div>
+
+                {/* Billing Address — read-only display */}
+                <div className={PANEL_CARD_CLASS}>
+                  <div className="flex items-center justify-between">
+                    <PanelSectionTitle>Billing Address</PanelSectionTitle>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => openEdit("billing")}
+                        className="text-xs text-white/52 hover:text-white/80 transition-colors"
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                  <dl className="mt-3 divide-y divide-white/[0.08]">
+                    <DetailRow label="Street" value={orgDetails.billingStreet ?? "—"} />
+                    <DetailRow
+                      label="City / State / ZIP"
+                      value={
+                        [orgDetails.billingCity, orgDetails.billingState, orgDetails.billingZip]
+                          .filter(Boolean)
+                          .join(", ") || "—"
+                      }
+                    />
+                    <DetailRow label="Country" value={orgDetails.billingCountry || "—"} />
+                  </dl>
+                </div>
+
+                {/* Shipping Address — read-only display */}
+                <div className={PANEL_CARD_CLASS}>
+                  <div className="flex items-center justify-between">
+                    <PanelSectionTitle>Shipping Address</PanelSectionTitle>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => openEdit("shipping")}
+                        className="text-xs text-white/52 hover:text-white/80 transition-colors"
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                  <dl className="mt-3 divide-y divide-white/[0.08]">
+                    {orgDetails.shippingSameAsBilling ? (
+                      <DetailRow label="Same as billing" value="" />
+                    ) : (
+                      <>
+                        <DetailRow label="Street" value={orgDetails.shippingStreet ?? "—"} />
+                        <DetailRow
+                          label="City / State / ZIP"
+                          value={
+                            [orgDetails.shippingCity, orgDetails.shippingState, orgDetails.shippingZip]
+                              .filter(Boolean)
+                              .join(", ") || "—"
+                          }
+                        />
+                        <DetailRow label="Country" value={orgDetails.shippingCountry || "—"} />
+                      </>
+                    )}
+                  </dl>
+                </div>
+
+              </>
+            )}
 
             <div className={PANEL_CARD_CLASS}>
               <PanelSectionTitle>Support</PanelSectionTitle>
@@ -1214,6 +1448,214 @@ export function WorkspaceAccountMenu({
             <ScrollArea className="flex-1">
               <div className="space-y-4 px-6 py-6">{renderPanelBody()}</div>
             </ScrollArea>
+
+            {activePanel === "settings" && editingSection !== null && (
+              <div className="border-t border-white/[0.08] bg-[#2a2a2a] px-6 pb-6 pt-5 shadow-[0_-8px_24px_rgba(0,0,0,0.4)]">
+                <p className="mb-4 text-[15px] font-medium text-white">
+                  {editingSection === "company" && "Edit Company"}
+                  {editingSection === "billing" && "Edit Billing Address"}
+                  {editingSection === "shipping" && "Edit Shipping Address"}
+                </p>
+
+                {editingSection === "company" && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="mb-1.5 block text-xs text-white/55">Company name</label>
+                      <Input
+                        ref={companyNameInputRef}
+                        value={orgDetailsDraft.companyName ?? ""}
+                        onChange={(e) => patchDraft({ companyName: e.target.value })}
+                        placeholder="4D Technology"
+                        className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs text-white/55">Phone</label>
+                      <Input
+                        value={orgDetailsDraft.phone ?? ""}
+                        onChange={(e) => patchDraft({ phone: e.target.value })}
+                        placeholder="+1 (520) 555-0100"
+                        className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {editingSection === "billing" && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="mb-1.5 block text-xs text-white/55">Street</label>
+                      <Input
+                        value={orgDetailsDraft.billingStreet ?? ""}
+                        onChange={(e) => patchDraft({ billingStreet: e.target.value })}
+                        placeholder="2348 E. Broadway Blvd"
+                        className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                      />
+                    </div>
+                    <div className="grid grid-cols-5 gap-2">
+                      <div className="col-span-2">
+                        <label className="mb-1.5 block text-xs text-white/55">City</label>
+                        <Input
+                          value={orgDetailsDraft.billingCity ?? ""}
+                          onChange={(e) => patchDraft({ billingCity: e.target.value })}
+                          placeholder="Tucson"
+                          className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                        />
+                      </div>
+                      <div className="col-span-1">
+                        <label className="mb-1.5 block text-xs text-white/55">State</label>
+                        <Input
+                          value={orgDetailsDraft.billingState ?? ""}
+                          onChange={(e) => patchDraft({ billingState: e.target.value })}
+                          placeholder="AZ"
+                          className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="mb-1.5 block text-xs text-white/55">ZIP</label>
+                        <Input
+                          value={orgDetailsDraft.billingZip ?? ""}
+                          onChange={(e) => patchDraft({ billingZip: e.target.value })}
+                          placeholder="85716"
+                          className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs text-white/55">Country</label>
+                      <Input
+                        value={orgDetailsDraft.billingCountry}
+                        onChange={(e) => patchDraft({ billingCountry: e.target.value })}
+                        placeholder="US"
+                        className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {editingSection === "shipping" && (
+                  <div className="space-y-3">
+                    {/* Styled button toggle — avoids native radio focus-trap issues inside Radix DismissableLayer */}
+                    <div className="flex overflow-hidden rounded-lg border border-white/[0.1]">
+                      <button
+                        type="button"
+                        onClick={() => patchDraft({ shippingSameAsBilling: true })}
+                        className={cn(
+                          "flex-1 px-3 py-2 text-sm transition-colors",
+                          orgDetailsDraft.shippingSameAsBilling
+                            ? "bg-white/[0.12] font-medium text-white"
+                            : "text-white/52 hover:bg-white/[0.04] hover:text-white/80",
+                        )}
+                      >
+                        Same as billing
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          patchDraft({
+                            shippingSameAsBilling: false,
+                            shippingStreet: orgDetailsDraft.shippingStreet ?? orgDetailsDraft.billingStreet,
+                            shippingCity: orgDetailsDraft.shippingCity ?? orgDetailsDraft.billingCity,
+                            shippingState: orgDetailsDraft.shippingState ?? orgDetailsDraft.billingState,
+                            shippingZip: orgDetailsDraft.shippingZip ?? orgDetailsDraft.billingZip,
+                            shippingCountry: orgDetailsDraft.shippingCountry || orgDetailsDraft.billingCountry,
+                          })
+                        }
+                        className={cn(
+                          "flex-1 border-l border-white/[0.1] px-3 py-2 text-sm transition-colors",
+                          !orgDetailsDraft.shippingSameAsBilling
+                            ? "bg-white/[0.12] font-medium text-white"
+                            : "text-white/52 hover:bg-white/[0.04] hover:text-white/80",
+                        )}
+                      >
+                        Different address
+                      </button>
+                    </div>
+
+                    {!orgDetailsDraft.shippingSameAsBilling && (
+                      <>
+                        <div>
+                          <label className="mb-1.5 block text-xs text-white/55">Street</label>
+                          <Input
+                            value={orgDetailsDraft.shippingStreet ?? ""}
+                            onChange={(e) => patchDraft({ shippingStreet: e.target.value })}
+                            placeholder="2348 E. Broadway Blvd"
+                            className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                          />
+                        </div>
+                        <div className="grid grid-cols-5 gap-2">
+                          <div className="col-span-2">
+                            <label className="mb-1.5 block text-xs text-white/55">City</label>
+                            <Input
+                              value={orgDetailsDraft.shippingCity ?? ""}
+                              onChange={(e) => patchDraft({ shippingCity: e.target.value })}
+                              placeholder="Tucson"
+                              className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                            />
+                          </div>
+                          <div className="col-span-1">
+                            <label className="mb-1.5 block text-xs text-white/55">State</label>
+                            <Input
+                              value={orgDetailsDraft.shippingState ?? ""}
+                              onChange={(e) => patchDraft({ shippingState: e.target.value })}
+                              placeholder="AZ"
+                              className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                            />
+                          </div>
+                          <div className="col-span-2">
+                            <label className="mb-1.5 block text-xs text-white/55">ZIP</label>
+                            <Input
+                              value={orgDetailsDraft.shippingZip ?? ""}
+                              onChange={(e) => patchDraft({ shippingZip: e.target.value })}
+                              placeholder="85716"
+                              className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="mb-1.5 block text-xs text-white/55">Country</label>
+                          <Input
+                            value={orgDetailsDraft.shippingCountry}
+                            onChange={(e) => patchDraft({ shippingCountry: e.target.value })}
+                            placeholder="US"
+                            className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {orgSaveError && <p className="mt-3 text-xs text-red-400">{orgSaveError}</p>}
+
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={cancelEdit}
+                    disabled={isSavingOrg}
+                    className="flex-1 border border-white/[0.1] text-white/72 hover:bg-white/[0.06] hover:text-white"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleSaveOrgDetails}
+                    disabled={isSavingOrg}
+                    className="flex-1"
+                  >
+                    {isSavingOrg ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Saving…
+                      </>
+                    ) : (
+                      "Save"
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {activePanel && activePanel !== "settings" && activePanel !== "notifications" ? (
               <div
