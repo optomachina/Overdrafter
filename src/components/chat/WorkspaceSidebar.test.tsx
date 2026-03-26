@@ -269,6 +269,42 @@ describe("WorkspaceSidebar", () => {
     expect(partRow).toHaveClass("px-2", "py-2");
   });
 
+  it("shows rounded selected quote summaries for parts and fully quoted projects", () => {
+    renderSidebar({
+      summariesByJobId: new Map<string, JobPartSummary>([
+        [
+          "job-1",
+          makeSummary({
+            jobId: "job-1",
+            selectedSupplier: "Xometry USA",
+            selectedPriceUsd: 123.6,
+            selectedLeadTimeBusinessDays: 7,
+          }),
+        ],
+        [
+          "job-2",
+          makeSummary({
+            jobId: "job-2",
+            partNumber: "1093-00002",
+            selectedSupplier: "Fictiv USA",
+            selectedPriceUsd: 245.2,
+            selectedLeadTimeBusinessDays: 11,
+          }),
+        ],
+        [
+          "job-3",
+          makeSummary({
+            jobId: "job-3",
+            partNumber: "1093-00003",
+          }),
+        ],
+      ]),
+    });
+
+    expect(screen.getAllByText("$124 · 7d").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("$369 · 11d")).toBeInTheDocument();
+  });
+
   it("prefetches a project on hover and focus", async () => {
     vi.useFakeTimers();
     const onPrefetchProject = vi.fn();

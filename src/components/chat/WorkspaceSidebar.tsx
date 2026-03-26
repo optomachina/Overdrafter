@@ -116,18 +116,47 @@ const SIDEBAR_ACTION_BUTTON_PADDING_CLASS = "pl-1 pr-3";
 const SIDEBAR_ROW_PADDING_CLASS = "px-2 py-2";
 const SIDEBAR_PREFETCH_DELAY_MS = 75;
 
+function formatSidebarPrice(priceUsd: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(priceUsd);
+}
+
 function formatSelectedQuote(summary: JobPartSummary | undefined) {
   if (!summary?.selectedSupplier || summary.selectedPriceUsd === null) {
     return null;
   }
 
-  const price = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(summary.selectedPriceUsd);
+  const price = formatSidebarPrice(summary.selectedPriceUsd);
 
   return `${price}${summary.selectedLeadTimeBusinessDays ? ` · ${summary.selectedLeadTimeBusinessDays}d` : ""}`;
+}
+
+function formatProjectSelectedQuote(projectJobs: JobRecord[], summariesByJobId: Map<string, JobPartSummary>) {
+  if (projectJobs.length === 0) {
+    return null;
+  }
+
+  let totalPriceUsd = 0;
+  let maxLeadTimeBusinessDays: number | null = null;
+
+  for (const job of projectJobs) {
+    const summary = summariesByJobId.get(job.id);
+
+    if (!summary?.selectedSupplier || summary.selectedPriceUsd === null) {
+      return null;
+    }
+
+    totalPriceUsd += summary.selectedPriceUsd;
+
+    if (typeof summary.selectedLeadTimeBusinessDays === "number") {
+      maxLeadTimeBusinessDays = Math.max(maxLeadTimeBusinessDays ?? 0, summary.selectedLeadTimeBusinessDays);
+    }
+  }
+
+  return `${formatSidebarPrice(totalPriceUsd)}${maxLeadTimeBusinessDays ? ` · ${maxLeadTimeBusinessDays}d` : ""}`;
 }
 
 function readFilters(storageKey: string): SidebarFilters {
@@ -993,6 +1022,7 @@ export function WorkspaceSidebar({
     const expanded = isProjectExpanded(project.id);
     const isDragging = draggingProjectId === project.id;
     const dropPosition = projectDropTarget?.projectId === project.id ? projectDropTarget.position : null;
+    const selectedQuote = formatProjectSelectedQuote(projectJobs, summariesByJobId);
 
     return (
       <div key={project.id} className="space-y-1">
@@ -1099,7 +1129,12 @@ export function WorkspaceSidebar({
               )}
               <Folder className="h-4 w-4 shrink-0 text-white/[0.9]" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm leading-5">{project.name}</p>
+                <div className="flex items-center gap-2">
+                  <p className="min-w-0 truncate text-sm leading-5">{project.name}</p>
+                  {selectedQuote ? (
+                    <p className="ml-auto shrink-0 text-[11px] leading-5 text-emerald-300/90">{selectedQuote}</p>
+                  ) : null}
+                </div>
               </div>
               {isPinned ? (
                 <div className="flex items-center gap-2">
