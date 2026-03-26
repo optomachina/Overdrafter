@@ -865,7 +865,7 @@ const ClientPart = () => {
                       ) : (
                         <div className="space-y-3">
                           {comments.map((comment) => (
-                            <article key={comment.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                            <article key={comment.id} className="rounded-lg border border-white/10 bg-black/20 p-4">
                               <div className="flex items-center justify-between gap-3">
                                 <p className="text-sm font-medium text-white">{comment.authorLabel}</p>
                                 <p className="text-xs uppercase tracking-[0.16em] text-white/35">
@@ -980,7 +980,7 @@ const ClientPart = () => {
                   key={project.project.id}
                   type="button"
                   className={cn(
-                    "flex w-full items-center justify-between rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-left transition hover:bg-white/4",
+                    "flex w-full items-center justify-between rounded-lg border border-white/8 bg-black/20 px-4 py-3 text-left transition hover:bg-white/4",
                     partDetail?.projectIds.includes(project.project.id) && "border-white/20",
                   )}
                   disabled={assignJobMutation.isPending || removeJobMutation.isPending}
@@ -1091,7 +1091,7 @@ const ClientPart = () => {
               ) : (
                 <div className="mt-4 space-y-3">
                   {comments.map((comment) => (
-                    <article key={comment.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <article key={comment.id} className="rounded-lg border border-white/10 bg-black/20 p-4">
                       <p className="text-sm font-medium text-white">{comment.authorLabel}</p>
                       <p className="mt-1 text-xs uppercase tracking-[0.16em] text-white/35">
                         {new Date(comment.createdAt).toLocaleString()}
