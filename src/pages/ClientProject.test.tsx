@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClientQuoteWorkspaceItem } from "@/features/quotes/types";
 import ClientProject from "./ClientProject";
 
-const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock } = vi.hoisted(() => ({
+const { api, mockUseAppSession, mockUseIsMobile, prefetchProjectPage, prefetchPartPage, toastMock } = vi.hoisted(() => ({
   api: {
     archiveJob: vi.fn(),
     archiveProject: vi.fn(),
@@ -53,6 +53,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
     uploadFilesToJob: vi.fn(),
   },
   mockUseAppSession: vi.fn(),
+  mockUseIsMobile: vi.fn(),
   prefetchProjectPage: vi.fn(),
   prefetchPartPage: vi.fn(),
   toastMock: {
@@ -136,6 +137,10 @@ vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
 }));
 
+vi.mock("@/hooks/use-mobile", () => ({
+  useIsMobile: () => mockUseIsMobile(),
+}));
+
 vi.mock("sonner", () => ({
   toast: toastMock,
 }));
@@ -201,14 +206,8 @@ vi.mock("@/components/workspace/QuoteChart", () => ({
   QuoteChart: () => <div>Quote Chart</div>,
 }));
 
-function renderWithClient(initialEntry: string) {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-    },
-  });
-
-  return render(
+function buildProjectTree(initialEntry: string, queryClient: QueryClient) {
+  return (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
@@ -216,8 +215,23 @@ function renderWithClient(initialEntry: string) {
           <Route path="/parts/:jobId" element={<div>Part Route</div>} />
         </Routes>
       </MemoryRouter>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+}
+
+function renderWithClient(initialEntry: string) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+
+  const view = render(buildProjectTree(initialEntry, queryClient));
+
+  return {
+    ...view,
+    rerenderProject: () => view.rerender(buildProjectTree(initialEntry, queryClient)),
+  };
 }
 
 function createDeferredPromise<T>() {
@@ -464,6 +478,7 @@ describe("ClientProject", () => {
       activeMembership: { organizationId: "org-1", role: "client" },
       signOut: vi.fn(),
     });
+    mockUseIsMobile.mockReturnValue(false);
 
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
     api.fetchClientActivityEventsByJobIds.mockResolvedValue([]);
@@ -685,7 +700,7 @@ describe("ClientProject", () => {
     });
   });
 
-  it("renders the ledger with a default inspector and supports selection shortcuts", async () => {
+  it("renders the ledger without a desktop sheet and supports selection shortcuts", async () => {
     renderWithClient("/projects/project-1");
 
     await waitFor(() => {
@@ -693,7 +708,8 @@ describe("ClientProject", () => {
     });
 
     expect(screen.getByText(/Scan and manage parts/i)).toBeInTheDocument();
-    expect(screen.getByText("Project inspector")).toBeInTheDocument();
+    expect(screen.queryByText("Project inspector")).not.toBeInTheDocument();
+    expect(screen.queryByText("Line item detail")).not.toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
     expect(screen.queryByRole("columnheader")).not.toBeInTheDocument();
 
@@ -705,10 +721,12 @@ describe("ClientProject", () => {
     expect(screen.getByText("No plottable quote offers are available for this part yet.")).toBeInTheDocument();
     expect(screen.getAllByText("CAD").length).toBeGreaterThan(0);
     expect(screen.getByText("Drawing")).toBeInTheDocument();
+    expect(screen.queryByText("Line item detail")).not.toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "Escape" });
 
-    expect(screen.getByText("Project inspector")).toBeInTheDocument();
+    expect(screen.queryByText("Quotes")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear selected part" })).not.toBeInTheDocument();
 
     fireEvent.doubleClick(row);
 
@@ -792,6 +810,50 @@ describe("ClientProject", () => {
     expect(await screen.findByText("Quote comparison is unavailable")).toBeInTheDocument();
     expect(screen.getByText("Apply the latest Supabase migrations.")).toBeInTheDocument();
     expect(screen.queryByText("No plottable quote offers are available for this part yet.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Line item detail")).not.toBeInTheDocument();
+  });
+
+  it("opens the selected line item in a sheet on mobile and clears selection on close", async () => {
+    mockUseIsMobile.mockReturnValue(true);
+
+    renderWithClient("/projects/project-1");
+
+    const row = await screen.findByRole("button", { name: /open .* line item/i });
+    fireEvent.click(row);
+
+    expect(await screen.findByText("Line item detail")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Clear selected part" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Line item detail")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Clear selected part" })).not.toBeInTheDocument();
+  });
+
+  it("moves the inspector between inline desktop and mobile sheet when the viewport mode changes", async () => {
+    mockUseIsMobile.mockReturnValue(false);
+    const view = renderWithClient("/projects/project-1");
+
+    const row = await screen.findByRole("button", { name: /open .* line item/i });
+    fireEvent.click(row);
+
+    expect(screen.getByRole("button", { name: "Clear selected part" })).toBeInTheDocument();
+    expect(screen.queryByText("Line item detail")).not.toBeInTheDocument();
+
+    mockUseIsMobile.mockReturnValue(true);
+    view.rerenderProject();
+
+    expect(await screen.findByText("Line item detail")).toBeInTheDocument();
+
+    mockUseIsMobile.mockReturnValue(false);
+    view.rerenderProject();
+
+    await waitFor(() => {
+      expect(screen.queryByText("Line item detail")).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Clear selected part" })).toBeInTheDocument();
   });
 
   it("passes collaboration-disabled project prefetch through to the sidebar callback", async () => {
