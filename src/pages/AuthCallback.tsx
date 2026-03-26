@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2 } from "lucide-react";
+import { DEFAULT_AUTHENTICATED_REDIRECT, sanitizeInternalRedirect } from "@/lib/internal-redirect";
 
 /**
  * Landing page for the OAuth PKCE callback.
@@ -14,6 +15,10 @@ import { Loader2 } from "lucide-react";
 export default function AuthCallback() {
   const navigate = useNavigate();
   const hasRedirected = useRef(false);
+  const redirectPath = sanitizeInternalRedirect(
+    typeof window === "undefined" ? null : new URL(window.location.href).searchParams.get("redirect"),
+    DEFAULT_AUTHENTICATED_REDIRECT,
+  );
 
   useEffect(() => {
     // Check whether we already have an active session (e.g. the exchange
@@ -21,7 +26,7 @@ export default function AuthCallback() {
     void supabase.auth.getSession().then(({ data: { session } }) => {
       if (session && !hasRedirected.current) {
         hasRedirected.current = true;
-        navigate("/", { replace: true });
+        navigate(redirectPath, { replace: true });
         return;
       }
 
@@ -41,7 +46,7 @@ export default function AuthCallback() {
 
       if (event === "SIGNED_IN" && session) {
         hasRedirected.current = true;
-        navigate("/", { replace: true });
+        navigate(redirectPath, { replace: true });
       } else if (event === "SIGNED_OUT") {
         hasRedirected.current = true;
         navigate("/signin", { replace: true });
@@ -51,7 +56,7 @@ export default function AuthCallback() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [navigate]);
+  }, [navigate, redirectPath]);
 
   return (
     <div className="flex min-h-screen items-center justify-center">
