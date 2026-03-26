@@ -481,7 +481,7 @@ export function ClientWorkspaceShell({
                 onClick={() => setDesktopSidebarCollapsed(false)}
               />
             ) : null}
-            <header className="flex items-center justify-between gap-3 px-4 py-3 md:px-6">
+            <header className="flex flex-wrap items-center gap-3 px-4 py-3 md:flex-nowrap md:justify-between md:px-6">
               {showSidebar ? (
                 <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
                   <SheetTrigger asChild>
@@ -534,7 +534,7 @@ export function ClientWorkspaceShell({
                 ) : null}
               </div>
 
-              <div className="ml-auto flex items-center gap-2">{topRightContent}</div>
+              <div className="flex w-full items-center justify-end gap-2 md:ml-auto md:w-auto">{topRightContent}</div>
             </header>
 
             <main className="flex min-w-0 flex-1 flex-col">{children}</main>
