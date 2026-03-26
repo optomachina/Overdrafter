@@ -160,12 +160,23 @@ vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
 
 vi.mock("@/components/chat/WorkspaceSidebar", () => ({
   WorkspaceSidebar: (props: Record<string, unknown>) => {
+    const jobs = Array.isArray(props.jobs)
+      ? (props.jobs as Array<{ id: string; title: string }>)
+      : [];
+    const resolveProjectIdsForJob =
+      (props.resolveProjectIdsForJob as ((job: { id: string; title: string }) => string[]) | undefined) ?? null;
+
     return (
       <div>
         <button type="button" onClick={() => void (props.onPrefetchProject as ((id: string) => void) | undefined)?.("project-2")}>
           Prefetch project
         </button>
         Sidebar
+        {jobs.map((job) => (
+          <div key={job.id} data-testid={`sidebar-job-${job.id}`}>
+            {job.title}:{(resolveProjectIdsForJob?.(job) ?? []).join(",") || "ungrouped"}
+          </div>
+        ))}
       </div>
     );
   },
@@ -767,6 +778,138 @@ describe("ClientPart", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["client-part-summaries"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["part-detail"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["part-detail", "job-1"] });
+  });
+
+  it("keeps the prior sidebar jobs grouped while the membership refetch is unresolved", async () => {
+    const deferredMemberships = createDeferredPromise<Array<{ job_id: string; project_id: string }>>();
+    let accessibleJobsFetchCount = 0;
+    let projectMembershipFetchCount = 0;
+
+    api.fetchAccessibleProjects.mockResolvedValue([
+      {
+        project: {
+          id: "project-1",
+          organization_id: "org-1",
+          name: "Bracket Project",
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-05T00:00:00Z",
+        },
+        partCount: 1,
+        inviteCount: 0,
+        currentUserRole: "owner",
+      },
+    ]);
+    api.fetchAccessibleJobs.mockImplementation(async () => {
+      accessibleJobsFetchCount += 1;
+
+      if (accessibleJobsFetchCount === 1) {
+        return [
+          {
+            id: "job-1",
+            organization_id: "org-1",
+            project_id: null,
+            created_by: "user-1",
+            title: "Bracket",
+            description: null,
+            status: "ready_to_quote",
+            source: "client_home",
+            active_pricing_policy_id: null,
+            selected_vendor_quote_offer_id: null,
+            tags: [],
+            requested_service_kinds: ["manufacturing_quote"],
+            primary_service_kind: "manufacturing_quote",
+            service_notes: null,
+            requested_quote_quantities: [10],
+            requested_by_date: "2026-04-15",
+            archived_at: null,
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        ];
+      }
+
+      return [
+        {
+          id: "job-1",
+          organization_id: "org-1",
+          project_id: null,
+          created_by: "user-1",
+          title: "Bracket",
+          description: null,
+          status: "ready_to_quote",
+          source: "client_home",
+          active_pricing_policy_id: null,
+          selected_vendor_quote_offer_id: null,
+          tags: [],
+          requested_service_kinds: ["manufacturing_quote"],
+          primary_service_kind: "manufacturing_quote",
+          service_notes: null,
+          requested_quote_quantities: [10],
+          requested_by_date: "2026-04-15",
+          archived_at: null,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+        },
+        {
+          id: "job-2",
+          organization_id: "org-1",
+          project_id: null,
+          created_by: "user-1",
+          title: "Plate",
+          description: null,
+          status: "ready_to_quote",
+          source: "client_home",
+          active_pricing_policy_id: null,
+          selected_vendor_quote_offer_id: null,
+          tags: [],
+          requested_service_kinds: ["manufacturing_quote"],
+          primary_service_kind: "manufacturing_quote",
+          service_notes: null,
+          requested_quote_quantities: [5],
+          requested_by_date: "2026-04-15",
+          archived_at: null,
+          created_at: "2026-03-02T00:00:00Z",
+          updated_at: "2026-03-02T00:00:00Z",
+        },
+      ];
+    });
+    api.fetchProjectJobMembershipsByJobIds.mockImplementation(async (jobIds: string[]) => {
+      projectMembershipFetchCount += 1;
+
+      if (projectMembershipFetchCount === 1) {
+        return [{ job_id: "job-1", project_id: "project-1" }];
+      }
+
+      expect(jobIds).toEqual(["job-1", "job-2"]);
+      return deferredMemberships.promise;
+    });
+
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-job-job-1")).toHaveTextContent("Bracket:project-1");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
+
+    await waitFor(() => {
+      expect(api.updateClientPartRequest).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(api.fetchProjectJobMembershipsByJobIds).toHaveBeenCalledWith(["job-1", "job-2"]);
+    });
+
+    expect(screen.getByTestId("sidebar-job-job-1")).toHaveTextContent("Bracket:project-1");
+    expect(screen.queryByTestId("sidebar-job-job-2")).not.toBeInTheDocument();
+
+    deferredMemberships.resolve([
+      { job_id: "job-1", project_id: "project-1" },
+      { job_id: "job-2", project_id: "project-1" },
+    ]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-job-job-2")).toHaveTextContent("Plate:project-1");
+    });
   });
 
   it("submits a client quote request when the part is ready", async () => {

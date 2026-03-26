@@ -478,11 +478,6 @@ export function WorkspaceSidebar({
     return grouped;
   }, [getProjectIdsForJob, jobs, projectsById]);
 
-  const ungroupedJobs = useMemo(
-    () => jobs.filter((job) => getProjectIdsForJob(job).filter((projectId) => projectsById.has(projectId)).length === 0),
-    [getProjectIdsForJob, jobs, projectsById],
-  );
-
   const sortedProjects = useMemo(() => {
     const getProjectSortTimestamp = (project: WorkspaceSidebarProject) => {
       const projectJobs = jobsByProjectId.get(project.id) ?? [];
@@ -543,9 +538,9 @@ export function WorkspaceSidebar({
   const visibleParts = useMemo(
     () =>
       filters.show === "relevant"
-        ? sortedJobs(ungroupedJobs.filter((job) => pinnedPartSet.has(job.id)))
-        : sortedJobs(ungroupedJobs),
-    [filters.show, pinnedPartSet, sortedJobs, ungroupedJobs],
+        ? sortedJobs(jobs.filter((job) => pinnedPartSet.has(job.id)))
+        : sortedJobs(jobs),
+    [filters.show, jobs, pinnedPartSet, sortedJobs],
   );
 
   const selectionOrderJobIds = useMemo(() => visibleParts.map((job) => job.id), [visibleParts]);

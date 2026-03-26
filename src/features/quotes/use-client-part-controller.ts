@@ -47,8 +47,6 @@ import {
   withArchivedDeleteReporting,
 } from "@/features/quotes/archive-delete-errors";
 import {
-  buildSidebarProjectIdsByJobId,
-  buildSidebarProjects,
   resolveWorkspaceProjectIdsForJob,
 } from "@/features/quotes/client-workspace";
 import {
@@ -81,6 +79,7 @@ import type {
 import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
+import { useWorkspaceNavigationModel } from "@/features/quotes/use-workspace-navigation-model";
 import { prefetchPartPage, prefetchProjectPage, workspaceQueryKeys } from "@/features/quotes/workspace-navigation";
 import { resolveStoredFileViewerMode } from "@/lib/file-viewer";
 import {
@@ -141,10 +140,12 @@ export function useClientPartController() {
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const {
     accessibleProjects,
+    accessibleJobs,
     accessibleProjectsQuery,
     accessibleJobsQuery,
     accessibleJobsById,
     projectJobMemberships,
+    projectJobMembershipsQuery,
     sidebarPinsQuery,
     archivedProjectsQuery,
     archivedJobsQuery,
@@ -154,17 +155,22 @@ export function useClientPartController() {
     userId: user?.id,
     projectCollaborationUnavailable,
   });
-  const sidebarProjectIdsByJobId = useMemo(
-    () => buildSidebarProjectIdsByJobId(projectJobMemberships),
-    [projectJobMemberships],
-  );
-  const { sidebarProjects } = useMemo(
-    () =>
-      buildSidebarProjects({
-        accessibleProjects,
-      }),
-    [accessibleProjects],
-  );
+  const safeProjectJobMembershipsQuery = projectJobMembershipsQuery ?? {
+    isFetching: false,
+    isSuccess: projectCollaborationUnavailable || projectJobMemberships.length > 0 || accessibleJobs.length === 0,
+  };
+  const navigationModel = useWorkspaceNavigationModel({
+    accessibleJobs,
+    accessibleProjects,
+    projectJobMemberships,
+    summariesByJobId,
+    accessibleJobsQuery,
+    accessibleProjectsQuery,
+    projectJobMembershipsQuery: safeProjectJobMembershipsQuery,
+    projectCollaborationUnavailable,
+  });
+  const sidebarProjects = navigationModel.sidebarProjects;
+  const sidebarProjectIdsByJobId = navigationModel.partToProjectIds;
 
   const newJobFilePicker = useClientJobFilePicker({
     isSignedIn: Boolean(user),
@@ -374,7 +380,7 @@ export function useClientPartController() {
     enabled: Boolean(user),
     canPrefetchProjects: !projectCollaborationUnavailable,
     projects: sidebarProjects,
-    jobs: accessibleJobsQuery.data ?? [],
+    jobs: navigationModel.parts,
     pinnedProjectIds: sidebarPinsQuery.data?.projectIds ?? [],
     pinnedJobIds: sidebarPinsQuery.data?.jobIds ?? [],
     resolveProjectIdsForJob: resolveSidebarProjectIdsForJob,
@@ -1134,8 +1140,10 @@ export function useClientPartController() {
   const prefetchPart = (jobId: string) => {
     void prefetchPartPage(queryClient, jobId);
   };
+  const sidebarJobs = navigationModel.parts;
 
   return {
+    accessibleJobs: sidebarJobs,
     accessibleJobsQuery,
     activeMembership,
     activePreset,
@@ -1217,6 +1225,7 @@ export function useClientPartController() {
     requestSummaryQuantity,
     requestSummaryRequestedByDate,
     resolveSidebarProjectIdsForJob,
+    navigationModel,
     revisionOptions,
     saveRequestMutation,
     selectedQuoteOption,

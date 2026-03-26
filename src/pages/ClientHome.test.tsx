@@ -114,6 +114,29 @@ vi.mock("@/features/quotes/use-client-home-controller", () => ({
       ],
     ]),
     user: { id: "user-1", email: "client@example.com" },
+    accessibleJobs: [
+      {
+        id: "job-1",
+        organization_id: "org-1",
+        project_id: "project-1",
+        created_by: "user-1",
+        title: "Q1 Bracket",
+        description: "Primary bracket",
+        status: "ready_to_quote",
+        source: "client_home",
+        active_pricing_policy_id: null,
+        selected_vendor_quote_offer_id: null,
+        tags: [],
+        requested_service_kinds: ["manufacturing_quote"],
+        primary_service_kind: "manufacturing_quote",
+        service_notes: null,
+        requested_quote_quantities: [10],
+        requested_by_date: "2026-04-15",
+        archived_at: null,
+        created_at: "2026-03-01T00:00:00Z",
+        updated_at: "2026-03-02T00:00:00Z",
+      },
+    ],
     accessibleJobsQuery: {
       data: [
         {

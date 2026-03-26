@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { JobRecord } from "@/features/quotes/types";
 import {
@@ -69,9 +69,10 @@ export function useClientWorkspaceData({
     staleTime: WORKSPACE_SHARED_STALE_TIME_MS,
     gcTime: WORKSPACE_GC_TIME_MS,
   });
+  const rawAccessibleJobs = useMemo(() => accessibleJobsQuery.data ?? [], [accessibleJobsQuery.data]);
   const accessibleJobIds = useMemo(
-    () => stableJobIds((accessibleJobsQuery.data ?? []).map((job) => job.id)),
-    [accessibleJobsQuery.data],
+    () => stableJobIds(rawAccessibleJobs.map((job) => job.id)),
+    [rawAccessibleJobs],
   );
   const partSummariesQuery = useQuery({
     queryKey: workspaceQueryKeys.clientPartSummaries(accessibleJobIds),
@@ -109,43 +110,24 @@ export function useClientWorkspaceData({
     gcTime: WORKSPACE_GC_TIME_MS,
   });
 
+  const accessibleProjects = useMemo(() => accessibleProjectsQuery.data ?? [], [accessibleProjectsQuery.data]);
+  const projectJobMemberships = useMemo(
+    () => projectJobMembershipsQuery.data ?? [],
+    [projectJobMembershipsQuery.data],
+  );
+  const accessibleJobs = rawAccessibleJobs;
   const summariesByJobId = useMemo(
     () => new Map((partSummariesQuery.data ?? []).map((summary) => [summary.jobId, summary])),
     [partSummariesQuery.data],
   );
   const accessibleJobsById = useMemo(
-    () => new Map((accessibleJobsQuery.data ?? []).map((job) => [job.id, job])),
-    [accessibleJobsQuery.data],
+    () => new Map(accessibleJobs.map((job) => [job.id, job])),
+    [accessibleJobs],
   );
-  const stableAccessibleProjectsRef = useRef(accessibleProjectsQuery.data ?? []);
-  const stableProjectJobMembershipsRef = useRef(projectJobMembershipsQuery.data ?? []);
-
-  useEffect(() => {
-    const nextProjects = accessibleProjectsQuery.data ?? [];
-
-    if (nextProjects.length > 0 || !accessibleProjectsQuery.isFetching) {
-      stableAccessibleProjectsRef.current = nextProjects;
-    }
-  }, [accessibleProjectsQuery.data, accessibleProjectsQuery.isFetching]);
-
-  useEffect(() => {
-    const nextMemberships = projectJobMembershipsQuery.data ?? [];
-
-    if (nextMemberships.length > 0 || !projectJobMembershipsQuery.isFetching) {
-      stableProjectJobMembershipsRef.current = nextMemberships;
-    }
-  }, [projectJobMembershipsQuery.data, projectJobMembershipsQuery.isFetching]);
-
-  const accessibleProjects = accessibleProjectsQuery.isFetching && (accessibleProjectsQuery.data?.length ?? 0) === 0
-    ? stableAccessibleProjectsRef.current
-    : (accessibleProjectsQuery.data ?? []);
-  const projectJobMemberships =
-    projectJobMembershipsQuery.isFetching && (projectJobMembershipsQuery.data?.length ?? 0) === 0
-      ? stableProjectJobMembershipsRef.current
-      : (projectJobMembershipsQuery.data ?? []);
 
   return {
     accessibleProjects,
+    accessibleJobs,
     accessibleProjectsQuery,
     projectJobMemberships,
     accessibleJobsQuery,

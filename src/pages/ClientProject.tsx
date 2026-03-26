@@ -120,7 +120,6 @@ function QuoteStatusCard({
 const ClientProject = () => {
   const {
     activeFilter,
-    accessibleJobsQuery,
     activeMembership,
     archivedJobsQuery,
     archivedProjectsQuery,
@@ -201,13 +200,14 @@ const ClientProject = () => {
     summariesByJobId,
     updateProjectMutation,
     user,
+    accessibleJobs,
     isAuthInitializing,
     workspaceItemsByJobId,
   } = useClientProjectController();
   const [desktopInspectorOpen, setDesktopInspectorOpen] = useState(true);
   const [showCancelRequestDialog, setShowCancelRequestDialog] = useState(false);
   const notificationCenter = useWorkspaceNotifications({
-    jobIds: (accessibleJobsQuery.data ?? []).map((job) => job.id),
+    jobIds: accessibleJobs.map((job) => job.id),
     role: activeMembership?.role,
     userId: user?.id,
   });
@@ -496,7 +496,7 @@ const ClientProject = () => {
         sidebarContent={
           <WorkspaceSidebar
             projects={sidebarProjects}
-            jobs={accessibleJobsQuery.data ?? []}
+            jobs={accessibleJobs}
             summariesByJobId={summariesByJobId}
             activeProjectId={projectId}
             onCreateJob={newJobFilePicker.openFilePicker}
@@ -820,7 +820,7 @@ const ClientProject = () => {
         open={isSearchOpen}
         onOpenChange={setIsSearchOpen}
         projects={sidebarProjects}
-        jobs={accessibleJobsQuery.data ?? []}
+        jobs={accessibleJobs}
         summariesByJobId={summariesByJobId}
         onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
         onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
