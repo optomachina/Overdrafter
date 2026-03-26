@@ -426,6 +426,16 @@ function buildWorkspaceItemWithQuotes(): ClientQuoteWorkspaceItem {
     files: [],
     projectIds: ["project-1"],
     drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+    quoteDataStatus: "available",
+    quoteDataMessage: null,
+    quoteDiagnostics: {
+      rawQuoteRowCount: 2,
+      rawOfferCount: 2,
+      plottableOfferCount: 2,
+      excludedOfferCount: 0,
+      excludedOffers: [],
+      excludedReasonCounts: [],
+    },
     latestQuoteRequest: null,
     latestQuoteRun: null,
   };
