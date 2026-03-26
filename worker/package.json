@@ -20,6 +20,7 @@
     "extract:eval": "tsx src/tools/extractEval.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
     "@supabase/supabase-js": "^2.77.0",
     "dotenv": "^16.6.1",
     "fast-xml-parser": "^5.2.5",
@@ -29,7 +30,6 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.80.0",
     "@types/node": "^22.16.5",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"

@@ -436,11 +436,26 @@ export function ExtractionLabCard({
     ? normalizeDebugExtractionRun(activeDebugRun, activePart.id)
     : { summary: null, extraction: null };
   const previewExtraction = activePreviewRun && activePart
-    ? normalizeDrawingExtraction(activePreviewRun.result.extraction, activePart.id)
+    ? normalizeDrawingExtraction(
+        {
+          id: `preview-${activePreviewRun.id}`,
+          part_id: activePreviewRun.result.partId,
+          organization_id: activePart.organization_id,
+          extractor_version: activePreviewRun.result.extractorVersion,
+          extraction: activePreviewRun.result.extraction as never,
+          confidence: 1,
+          warnings: activePreviewRun.result.warnings as never,
+          evidence: activePreviewRun.result.evidence as never,
+          status: activePreviewRun.result.status,
+          created_at: activePreviewRun.createdAt,
+          updated_at: activePreviewRun.createdAt,
+        },
+        activePart.id,
+      )
     : null;
   const debugResultObject = normalizedDebugRun.summary ? asObject(normalizedDebugRun.summary.result) : {};
   const debugWarnings = asStringArray(debugResultObject.warnings);
-  const debugReviewFields = asStringArray(asObject(asObject(debugResultObject.extraction).reviewFields));
+  const debugReviewFields = asStringArray(asObject(debugResultObject.extraction).reviewFields);
 
   useEffect(() => {
     if (!activePartPreviewAsset) {
