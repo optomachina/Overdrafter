@@ -91,6 +91,7 @@ type StoredCatalogState = {
 };
 
 const MODEL_CATALOG_TTL_MS = 1000 * 60 * 60 * 6;
+const SUFFICIENT_FIELDS = ["partNumber", "revision", "description", "material", "finish"] as const;
 
 const OPENAI_FALLBACK_MODELS = ["gpt-5.4", "gpt-5.4-mini", "gpt-4.1-mini"];
 const ANTHROPIC_FALLBACK_MODELS = ["claude-sonnet-4-6", "claude-3-7-sonnet-latest"];
@@ -360,9 +361,9 @@ export class ExtractionModelCatalogManager {
 }
 
 function isAttemptSufficient(parsed: ParsedModelResponse) {
-  return ["partNumber", "revision", "description", "material", "finish"].every((fieldName) => {
-    const field = parsed[fieldName as keyof ParsedModelResponse];
-    return Boolean(field?.value) && field.confidence >= 0.8 && field.fieldSource !== "unknown";
+  return SUFFICIENT_FIELDS.every((fieldName) => {
+    const field = parsed[fieldName];
+    return Boolean(field.value) && field.confidence >= 0.8 && field.fieldSource !== "unknown";
   });
 }
 
@@ -501,6 +502,9 @@ export async function previewStoredPartExtraction(
 
   const runDir = await createRunDir(config, ["debug-preview", context.part.job_id, context.part.id]);
   const stagedDrawingFile = await stageStorageObject(supabase, context.drawingFile, runDir);
+  if (!stagedDrawingFile) {
+    throw new Error(`Part ${input.partId} drawing could not be staged.`);
+  }
 
   try {
     const pdfText = stagedDrawingFile ? await extractPdfText(stagedDrawingFile.localPath) : null;
