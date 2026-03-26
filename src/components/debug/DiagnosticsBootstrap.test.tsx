@@ -36,9 +36,8 @@ describe("DiagnosticsBootstrap", () => {
         uiSuppressed: true,
       });
     });
-
-    expect(screen.getByText("Troubleshooting console")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Hide launcher" })).toBeInTheDocument();
+    expect(screen.queryByText("Troubleshooting console")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hide launcher" })).not.toBeInTheDocument();
   });
 
   it("suppresses diagnostics UI for embedded previews even when debug mode is requested", async () => {
