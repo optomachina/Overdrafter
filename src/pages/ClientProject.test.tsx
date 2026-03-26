@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ClientQuoteWorkspaceItem } from "@/features/quotes/types";
 import ClientProject from "./ClientProject";
 
 const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock } = vi.hoisted(() => ({
@@ -228,6 +229,206 @@ function createDeferredPromise<T>() {
   });
 
   return { promise, resolve, reject };
+}
+
+function buildWorkspaceItemWithQuotes(): ClientQuoteWorkspaceItem {
+  return {
+    job: {
+      id: "job-1",
+      organization_id: "org-1",
+      project_id: "project-1",
+      created_by: "user-1",
+      title: "Bracket",
+      description: null,
+      status: "ready_to_quote",
+      source: "client_home",
+      active_pricing_policy_id: null,
+      tags: [],
+      requested_service_kinds: ["manufacturing_quote"],
+      primary_service_kind: "manufacturing_quote",
+      service_notes: null,
+      requested_by_date: "2026-04-15",
+      requested_quote_quantities: [10],
+      archived_at: null,
+      created_at: "2026-03-01T00:00:00Z",
+      updated_at: "2026-03-01T00:00:00Z",
+      selected_vendor_quote_offer_id: null,
+    },
+    part: {
+      id: "part-1",
+      job_id: "job-1",
+      organization_id: "org-1",
+      name: "Bracket",
+      normalized_key: "bracket",
+      cad_file_id: "cad-1",
+      drawing_file_id: null,
+      quantity: 10,
+      created_at: "2026-03-01T00:00:00Z",
+      updated_at: "2026-03-01T00:00:00Z",
+      cadFile: {
+        id: "cad-1",
+        job_id: "job-1",
+        organization_id: "org-1",
+        file_kind: "cad",
+        blob_id: "blob-1",
+        storage_bucket: "job-files",
+        storage_path: "cad.step",
+        normalized_name: "cad.step",
+        original_name: "cad.step",
+        size_bytes: 123,
+        mime_type: "application/step",
+        content_sha256: "hash",
+        matched_part_key: null,
+        uploaded_by: "user-1",
+        created_at: "2026-03-01T00:00:00Z",
+      },
+      drawingFile: null,
+      extraction: null,
+      approvedRequirement: {
+        id: "requirement-1",
+        part_id: "part-1",
+        organization_id: "org-1",
+        approved_by: "user-1",
+        description: "Bracket",
+        part_number: "BRKT-001",
+        revision: "A",
+        material: "6061-T6",
+        finish: null,
+        tightest_tolerance_inch: null,
+        quantity: 10,
+        quote_quantities: [10],
+        requested_by_date: "2026-04-15",
+        applicable_vendors: ["xometry", "fictiv"],
+        spec_snapshot: {},
+        approved_at: "2026-03-01T00:00:00Z",
+        created_at: "2026-03-01T00:00:00Z",
+        updated_at: "2026-03-01T00:00:00Z",
+      },
+      vendorQuotes: [
+        {
+          id: "quote-domestic",
+          quote_run_id: "run-1",
+          part_id: "part-1",
+          organization_id: "org-1",
+          vendor: "xometry",
+          requested_quantity: 10,
+          status: "official_quote_received",
+          unit_price_usd: 12,
+          total_price_usd: 120,
+          lead_time_business_days: 7,
+          quote_url: null,
+          dfm_issues: [],
+          notes: [],
+          raw_payload: { domestic: true },
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+          offers: [
+            {
+              id: "offer-domestic",
+              vendor_quote_result_id: "quote-domestic",
+              organization_id: "org-1",
+              offer_key: "offer-domestic",
+              supplier: "Xometry USA",
+              lane_label: "Standard",
+              sourcing: "Domestic",
+              tier: null,
+              quote_ref: null,
+              quote_date: "2026-03-01",
+              unit_price_usd: 12,
+              total_price_usd: 120,
+              lead_time_business_days: 7,
+              ship_receive_by: "2026-04-10",
+              due_date: null,
+              process: null,
+              material: null,
+              finish: null,
+              tightest_tolerance: null,
+              tolerance_source: null,
+              thread_callouts: null,
+              thread_match_notes: null,
+              notes: null,
+              sort_rank: 1,
+              raw_payload: { domestic: true },
+              created_at: "2026-03-01T00:00:00Z",
+              updated_at: "2026-03-01T00:00:00Z",
+            },
+          ],
+          artifacts: [],
+        },
+        {
+          id: "quote-global",
+          quote_run_id: "run-1",
+          part_id: "part-1",
+          organization_id: "org-1",
+          vendor: "fictiv",
+          requested_quantity: 10,
+          status: "official_quote_received",
+          unit_price_usd: 9,
+          total_price_usd: 90,
+          lead_time_business_days: 10,
+          quote_url: null,
+          dfm_issues: [],
+          notes: [],
+          raw_payload: { domestic: false },
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+          offers: [
+            {
+              id: "offer-global",
+              vendor_quote_result_id: "quote-global",
+              organization_id: "org-1",
+              offer_key: "offer-global",
+              supplier: "Fictiv Global",
+              lane_label: "Economy",
+              sourcing: "Overseas",
+              tier: null,
+              quote_ref: null,
+              quote_date: "2026-03-01",
+              unit_price_usd: 9,
+              total_price_usd: 90,
+              lead_time_business_days: 10,
+              ship_receive_by: "2026-04-15",
+              due_date: null,
+              process: null,
+              material: null,
+              finish: null,
+              tightest_tolerance: null,
+              tolerance_source: null,
+              thread_callouts: null,
+              thread_match_notes: null,
+              notes: null,
+              sort_rank: 2,
+              raw_payload: { domestic: false },
+              created_at: "2026-03-01T00:00:00Z",
+              updated_at: "2026-03-01T00:00:00Z",
+            },
+          ],
+          artifacts: [],
+        },
+      ],
+    },
+    summary: {
+      jobId: "job-1",
+      partNumber: "BRKT-001",
+      revision: "A",
+      description: "Bracket",
+      quantity: 10,
+      importedBatch: null,
+      requestedServiceKinds: ["manufacturing_quote"],
+      primaryServiceKind: "manufacturing_quote",
+      serviceNotes: null,
+      requestedQuoteQuantities: [10],
+      requestedByDate: "2026-04-15",
+      selectedSupplier: null,
+      selectedPriceUsd: null,
+      selectedLeadTimeBusinessDays: null,
+    },
+    files: [],
+    projectIds: ["project-1"],
+    drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+    latestQuoteRequest: null,
+    latestQuoteRun: null,
+  };
 }
 
 describe("ClientProject", () => {
@@ -918,6 +1119,28 @@ describe("ClientProject", () => {
 
     expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
     expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
+  });
+
+  it("renders a single sourcing toggle with fast and cheap project presets", async () => {
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([buildWorkspaceItemWithQuotes()]);
+
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Using domestic quotes for all parts" })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: "Cheap" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Fast" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Using global quotes for all parts" })).not.toBeInTheDocument();
+  });
+
+  it("defaults the sourcing toggle to domestic", async () => {
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([buildWorkspaceItemWithQuotes()]);
+
+    renderWithClient("/projects/project-1");
+
+    expect(await screen.findByRole("button", { name: "Using domestic quotes for all parts" })).toBeInTheDocument();
   });
 
   it("logs structured archived delete failures through the account menu callback", async () => {
