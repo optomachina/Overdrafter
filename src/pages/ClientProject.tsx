@@ -44,6 +44,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   clientFilterOptions,
   useClientProjectController,
@@ -81,10 +82,92 @@ function formatDateLabel(value: string | null | undefined) {
     day: "numeric",
   }).format(new Date(parsed));
 }
+function RoundUsaFlagIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 32 32" className={className} aria-hidden>
+      <defs>
+        <clipPath id="usa-flag-circle">
+          <circle cx="16" cy="16" r="16" />
+        </clipPath>
+      </defs>
+      <g clipPath="url(#usa-flag-circle)">
+        <rect width="32" height="32" fill="#fff" />
+        <rect y="0" width="32" height="2.46" fill="#b22234" />
+        <rect y="4.92" width="32" height="2.46" fill="#b22234" />
+        <rect y="9.84" width="32" height="2.46" fill="#b22234" />
+        <rect y="14.76" width="32" height="2.46" fill="#b22234" />
+        <rect y="19.68" width="32" height="2.46" fill="#b22234" />
+        <rect y="24.6" width="32" height="2.46" fill="#b22234" />
+        <rect y="29.52" width="32" height="2.48" fill="#b22234" />
+        <rect width="17.1" height="17.22" fill="#3c3b6e" />
+        <g fill="#fff">
+          <circle cx="2.2" cy="2.2" r="0.8" />
+          <circle cx="5.2" cy="2.2" r="0.8" />
+          <circle cx="8.2" cy="2.2" r="0.8" />
+          <circle cx="11.2" cy="2.2" r="0.8" />
+          <circle cx="14.2" cy="2.2" r="0.8" />
+          <circle cx="3.7" cy="4.5" r="0.8" />
+          <circle cx="6.7" cy="4.5" r="0.8" />
+          <circle cx="9.7" cy="4.5" r="0.8" />
+          <circle cx="12.7" cy="4.5" r="0.8" />
+          <circle cx="2.2" cy="6.8" r="0.8" />
+          <circle cx="5.2" cy="6.8" r="0.8" />
+          <circle cx="8.2" cy="6.8" r="0.8" />
+          <circle cx="11.2" cy="6.8" r="0.8" />
+          <circle cx="14.2" cy="6.8" r="0.8" />
+          <circle cx="3.7" cy="9.1" r="0.8" />
+          <circle cx="6.7" cy="9.1" r="0.8" />
+          <circle cx="9.7" cy="9.1" r="0.8" />
+          <circle cx="12.7" cy="9.1" r="0.8" />
+          <circle cx="2.2" cy="11.4" r="0.8" />
+          <circle cx="5.2" cy="11.4" r="0.8" />
+          <circle cx="8.2" cy="11.4" r="0.8" />
+          <circle cx="11.2" cy="11.4" r="0.8" />
+          <circle cx="14.2" cy="11.4" r="0.8" />
+          <circle cx="3.7" cy="13.7" r="0.8" />
+          <circle cx="6.7" cy="13.7" r="0.8" />
+          <circle cx="9.7" cy="13.7" r="0.8" />
+          <circle cx="12.7" cy="13.7" r="0.8" />
+        </g>
+      </g>
+    </svg>
+  );
+}
 
+function RoundGlobeIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 32 32" className={className} aria-hidden>
+      <defs>
+        <clipPath id="earth-circle">
+          <circle cx="16" cy="16" r="16" />
+        </clipPath>
+      </defs>
+      <g clipPath="url(#earth-circle)">
+        <rect width="32" height="32" fill="#2f80ed" />
+        <path
+          d="M7.9 11.2c1.7-2.7 4.9-4.5 8.1-4.5 1.2 0 2.3.3 3.2.8 1.1.7 1.7 1.8 1.7 2.8 0 1.3-.8 2.1-1.8 2.6-.8.6-1.8.9-2.7 1.3-.9.5-1.7 1.2-1.8 2.6-.1 1.1.4 2.2.1 3.1-.4 1.2-1.7 2-3.1 2-3.3 0-5.4-2.4-5.4-5.5 0-1.8.6-3.6 1.7-5.2Z"
+          fill="#34c759"
+        />
+        <path
+          d="M18.6 8.7c1.1-.3 2.5-.1 3.7.7 2.8 1.7 4.5 4.6 4.5 7.6 0 3.3-2 6.3-5.1 8-.6.3-1.1.5-1.7.6-.8.2-1.7.1-2.2-.4-.6-.7-.4-1.7-.1-2.5.3-.8.8-1.7.7-2.6-.1-1-.7-1.8-1-2.8-.4-1.1-.2-2.2.5-3 .7-.8 1.8-1.1 2.9-1.3.9-.2 1.8-.3 2.4-.9.6-.6.6-1.7.1-2.7-.7-1.1-1.7-1.9-2.8-2.3Z"
+          fill="#28a745"
+        />
+        <path
+          d="M23.1 21.5c.7.3 1.3.7 1.8 1.3.4.5.7 1.1.7 1.8 0 .5-.1.9-.3 1.4-.8.5-1.5.8-2.4 1.1-.5-.1-.8-.4-1-.8-.4-.7-.1-1.6.2-2.2.2-.6.5-1 .9-1.5Z"
+          fill="#3ddc84"
+        />
+        <path
+          d="M13.2 23.3c.9.1 1.7.6 2.2 1.2.4.6.6 1.4.5 2.1-.1.4-.2.7-.4 1-.8-.1-1.7-.3-2.5-.7-.5-.6-.7-1.4-.6-2 .1-.7.3-1.2.8-1.6Z"
+          fill="#3ddc84"
+        />
+      </g>
+    </svg>
+  );
+}
 const ClientProject = () => {
   const {
     activeFilter,
+    activePreset,
     accessibleJobsQuery,
     activeMembership,
     archivedJobsQuery,
@@ -119,6 +202,7 @@ const ClientProject = () => {
     handleRemovePartFromProject,
     handleRemoveProjectMember,
     handleRenameProject,
+    handleBulkPreset,
     handleRequestProjectQuotes,
     handleSelectQuoteOption,
     handleUnarchivePart,
@@ -264,6 +348,31 @@ const ClientProject = () => {
     focusedSelectedOption?.leadTimeBusinessDays ?? focusedSummary?.selectedLeadTimeBusinessDays ?? null;
   const focusedSelectedOfferId = focusedSelectedOption?.offerId ?? null;
   const projectLabel = projectQuery.data?.name ?? "Project";
+  const bulkPresetScope =
+    activePreset === "cheapest_domestic" || activePreset === "fastest_domestic"
+      ? "domestic"
+      : activePreset === "cheapest_global" || activePreset === "fastest_global"
+        ? "global"
+        : "domestic";
+  const bulkPresetMode =
+    activePreset === "fastest_domestic" || activePreset === "fastest_global"
+      ? "fastest"
+      : activePreset === "cheapest_domestic" || activePreset === "cheapest_global"
+        ? "cheapest"
+        : "cheapest";
+
+  const applyProjectPreset = (mode: "cheapest" | "fastest", scope: "domestic" | "global") => {
+    const nextPreset =
+      mode === "fastest"
+        ? scope === "domestic"
+          ? "fastest_domestic"
+          : "fastest_global"
+        : scope === "domestic"
+          ? "cheapest_domestic"
+          : "cheapest_global";
+
+    handleBulkPreset(nextPreset);
+  };
 
   const handleInspectorQuoteSelect = (offerId: string | null) => {
     if (!focusedJob || offerId === null) {
@@ -516,6 +625,77 @@ const ClientProject = () => {
                 </div>
               </div>
 
+              <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <TooltipProvider delayDuration={150}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className={cn(
+                            "h-8 w-8 overflow-hidden rounded-full border border-white/10 p-0 [&_svg]:h-full [&_svg]:w-full",
+                            bulkPresetScope === "domestic"
+                              ? "border-white/20 bg-white text-black hover:bg-white/90"
+                              : "bg-transparent text-white hover:bg-white/6",
+                          )}
+                          aria-label={bulkPresetScope === "domestic" ? "Using domestic quotes for all parts" : "Using global quotes for all parts"}
+                          aria-pressed={bulkPresetScope === "domestic"}
+                          onClick={() => applyProjectPreset(bulkPresetMode, bulkPresetScope === "domestic" ? "global" : "domestic")}
+                        >
+                          {bulkPresetScope === "domestic" ? (
+                            <RoundUsaFlagIcon className="h-full w-full" />
+                          ) : (
+                            <RoundGlobeIcon className="h-full w-full" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {bulkPresetScope === "domestic" ? "Made in the USA" : "Sourced internationally"}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+
+                  <div
+                    className="inline-flex items-center overflow-hidden rounded-full border border-white/10 bg-black/20 p-0.5"
+                    role="group"
+                    aria-label="Project quote preset"
+                  >
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        "h-7 rounded-full px-3 text-xs",
+                        bulkPresetMode === "fastest"
+                          ? "bg-white text-black hover:bg-white/90"
+                          : "text-white hover:bg-white/6",
+                      )}
+                      aria-pressed={bulkPresetMode === "fastest"}
+                      onClick={() => applyProjectPreset("fastest", bulkPresetScope)}
+                    >
+                      Fast
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        "h-7 rounded-full px-3 text-xs",
+                        bulkPresetMode === "cheapest"
+                          ? "bg-white text-black hover:bg-white/90"
+                          : "text-white hover:bg-white/6",
+                      )}
+                      aria-pressed={bulkPresetMode === "cheapest"}
+                      onClick={() => applyProjectPreset("cheapest", bulkPresetScope)}
+                    >
+                      Cheap
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
               <div className="overflow-hidden rounded-lg border border-ws-border-subtle bg-ws-card">
                 {projectJobsQuery.isLoading || projectWorkspaceItemsQuery.isLoading ? (
                   <div className="flex min-h-[240px] items-center justify-center">
@@ -545,6 +725,9 @@ const ClientProject = () => {
                         quoteRequestViewModel &&
                         !quoteRequestViewModel.action.disabled &&
                         (quoteRequestViewModel.action.kind === "request" || quoteRequestViewModel.action.kind === "retry");
+                      const rowSelectedPrice = summary?.selectedPriceUsd ?? null;
+                      const rowSelectedLeadTime = summary?.selectedLeadTimeBusinessDays ?? null;
+                      const hasQuote = rowSelectedPrice != null || rowSelectedLeadTime != null;
                       return (
                         <TableRow
                           key={job.id}
@@ -586,9 +769,20 @@ const ClientProject = () => {
                           <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
                             <Badge className={quoteStatusClassName}>{quoteStatusLabel}</Badge>
                           </TableCell>
-                          <TableCell className={cn("w-px whitespace-nowrap py-2.5 text-[13px] text-white/55", canTriggerRequest ? "px-2" : "pl-2 pr-5")}>
-                            {formatDateLabel(job.created_at)}
-                          </TableCell>
+                          {hasQuote ? (
+                            <>
+                              <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-right text-[13px] text-white">
+                                {rowSelectedPrice != null ? formatCurrency(rowSelectedPrice) : "—"}
+                              </TableCell>
+                              <TableCell className={cn("w-px whitespace-nowrap py-2.5 text-[13px] text-white/55", canTriggerRequest ? "px-2" : "pl-2 pr-5")}>
+                                {typeof rowSelectedLeadTime === "number" ? `${rowSelectedLeadTime}d` : "—"}
+                              </TableCell>
+                            </>
+                          ) : (
+                            <TableCell className={cn("w-px whitespace-nowrap py-2.5 text-[13px] text-white/30", canTriggerRequest ? "px-2" : "pl-2 pr-5")} colSpan={2}>
+                              —
+                            </TableCell>
+                          )}
                           <TableCell className="w-px whitespace-nowrap pl-2 pr-5 py-2.5 text-right">
                             {canTriggerRequest ? (
                               <Button

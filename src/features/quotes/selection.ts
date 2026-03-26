@@ -7,7 +7,7 @@ import type {
 } from "@/features/quotes/types";
 import { formatVendorName, getImportedVendorOffers } from "@/features/quotes/utils";
 
-export type QuotePreset = "cheapest" | "fastest" | "domestic";
+export type QuotePreset = "cheapest" | "fastest" | "domestic" | "cheapest_domestic" | "fastest_domestic" | "cheapest_global" | "fastest_global";
 
 export type DomesticStatus = "domestic" | "foreign" | "unknown";
 
@@ -500,7 +500,7 @@ function isPresetCandidate(option: ClientQuoteSelectionOption, preset: QuotePres
     return false;
   }
 
-  if (preset === "domestic") {
+  if (preset === "domestic" || preset === "cheapest_domestic" || preset === "fastest_domestic") {
     return option.domesticStatus === "domestic";
   }
 
@@ -709,7 +709,7 @@ export function sortQuoteOptionsForPreset(
   preset: QuotePreset,
 ): ClientQuoteSelectionOption[] {
   const comparator =
-    preset === "fastest"
+    preset === "fastest" || preset === "fastest_domestic" || preset === "fastest_global"
       ? fastestComparator
       : preset === "domestic"
         ? domesticComparator
