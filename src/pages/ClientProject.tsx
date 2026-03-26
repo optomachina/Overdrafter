@@ -205,7 +205,6 @@ const ClientProject = () => {
   const {
     activeFilter,
     activePreset,
-    accessibleJobsQuery,
     activeMembership,
     archivedJobsQuery,
     archivedProjectsQuery,
