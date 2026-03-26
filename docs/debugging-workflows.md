@@ -107,6 +107,10 @@ Supported v1 scenarios:
 - `client-quoted`
 - `client-published`
 
+The `client-quoted` scenario and `/debug/state-gallery` share the same checked-in `1093-05589-02`
+demo source. That sample uses the real local STEP/PDF files and workbook-backed quote lanes from
+batch `QB00002`, so the compare view and gallery stay aligned.
+
 Example URLs:
 
 - `http://127.0.0.1:5173/?fixture=landing-anonymous&debug=1`

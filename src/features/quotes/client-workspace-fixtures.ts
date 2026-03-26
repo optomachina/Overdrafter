@@ -35,6 +35,13 @@ import {
   sanitizeClientVisibleRfqLineItemExtendedMetadata,
 } from "@/features/quotes/rfq-metadata";
 import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
+import {
+  QUOTED_SAMPLE_ASSETS,
+  QUOTED_SAMPLE_LANES,
+  QUOTED_SAMPLE_PART,
+  QUOTED_SAMPLE_RFQ,
+  getQuotedSampleSelectedLane,
+} from "@/features/quotes/demo/quoted-sample";
 import { FIXTURE_STORAGE_BUCKET } from "@/lib/stored-file";
 
 function buildFixtureQuoteDiagnostics(vendorQuotes: VendorQuoteAggregate[]): QuoteDiagnostics {
@@ -379,30 +386,51 @@ function createPartAggregate(input: {
   requestedQuoteQuantities: number[];
   requestedByDate: string | null;
   vendorQuotes?: VendorQuoteAggregate[];
+  cadAsset?: {
+    fileName: string;
+    normalizedName: string;
+    storagePath: string;
+  };
+  drawingAsset?: {
+    fileName: string;
+    normalizedName: string;
+    storagePath: string;
+  };
+  drawingPreview?: DrawingPreviewData;
 }): {
   part: PartAggregate;
   summary: JobPartSummary;
   drawingPreview: DrawingPreviewData;
 } {
+  const cadAsset = input.cadAsset ?? {
+    fileName: `${input.stem}.step`,
+    normalizedName: `${input.stem}.step`,
+    storagePath: "fixtures/demo-bracket.step",
+  };
+  const drawingAsset = input.drawingAsset ?? {
+    fileName: `${input.stem}-drawing.pdf`,
+    normalizedName: `${input.stem}-drawing.pdf`,
+    storagePath: "fixtures/demo-bracket-drawing.pdf",
+  };
   const cadFile = createJobFileRecord({
     id: `${input.id}-cad`,
     jobId: input.jobId,
-    originalName: `${input.stem}.step`,
-    normalizedName: `${input.stem}.step`,
+    originalName: cadAsset.fileName,
+    normalizedName: cadAsset.normalizedName,
     fileKind: "cad",
-    storagePath: "fixtures/demo-bracket.step",
+    storagePath: cadAsset.storagePath,
     matchedPartKey: input.stem,
   });
   const drawingFile = createJobFileRecord({
     id: `${input.id}-drawing`,
     jobId: input.jobId,
-    originalName: `${input.stem}-drawing.pdf`,
-    normalizedName: `${input.stem}-drawing.pdf`,
+    originalName: drawingAsset.fileName,
+    normalizedName: drawingAsset.normalizedName,
     fileKind: "drawing",
-    storagePath: "fixtures/demo-bracket-drawing.pdf",
+    storagePath: drawingAsset.storagePath,
     matchedPartKey: input.stem,
   });
-  const drawingPreview = createDrawingPreview("demo-bracket");
+  const drawingPreview = input.drawingPreview ?? createDrawingPreview("demo-bracket");
   const selectedOffer = findOfferById(
     input.vendorQuotes ?? [],
     input.vendorQuotes?.flatMap((quote) => quote.offers)[0]?.id ?? null,
@@ -575,6 +603,74 @@ function createVendorQuoteAggregate(input: {
     ],
     artifacts: [],
   };
+}
+
+function buildQuoteResultUrl(vendor: VendorName, laneId: string): string {
+  return `https://example.test/${vendor}/${laneId}`;
+}
+
+function buildQuotedSampleVendorQuotes(partId: string, quoteRunId: string): VendorQuoteAggregate[] {
+  return QUOTED_SAMPLE_LANES.map((lane, index) => {
+    const resultId = `fx-quote-${lane.id}`;
+    const offerId = `fx-offer-${lane.id}`;
+
+    return {
+      id: resultId,
+      quote_run_id: quoteRunId,
+      part_id: partId,
+      organization_id: FIXTURE_ORGANIZATION_ID,
+      vendor: lane.vendor,
+      requested_quantity: lane.requestedQuantity,
+      status: "instant_quote_received",
+      unit_price_usd: lane.unitPriceUsd,
+      total_price_usd: lane.totalPriceUsd,
+      lead_time_business_days: lane.leadTimeBusinessDays,
+      quote_url: buildQuoteResultUrl(lane.vendor, lane.id),
+      dfm_issues: [],
+      notes: lane.notes ? [lane.notes] : [],
+      raw_payload: {
+        source: QUOTED_SAMPLE_RFQ.projectSystem,
+        sourcing: lane.sourcing,
+      },
+      created_at: FIXTURE_TIMESTAMP,
+      updated_at: FIXTURE_TIMESTAMP,
+      offers: [
+        {
+          id: offerId,
+          vendor_quote_result_id: resultId,
+          organization_id: FIXTURE_ORGANIZATION_ID,
+          offer_key: offerId,
+          supplier: lane.supplier,
+          lane_label: lane.laneLabel,
+          sourcing: lane.sourcing,
+          tier: lane.tier,
+          quote_ref: lane.quoteRef,
+          quote_date: lane.quoteDate,
+          unit_price_usd: lane.unitPriceUsd,
+          total_price_usd: lane.totalPriceUsd,
+          lead_time_business_days: lane.leadTimeBusinessDays,
+          ship_receive_by: lane.shipReceiveBy,
+          due_date: lane.dueDate,
+          process: lane.process,
+          material: lane.material,
+          finish: lane.finish,
+          tightest_tolerance: lane.tightestTolerance,
+          tolerance_source: lane.toleranceSource,
+          thread_callouts: lane.threadCallouts,
+          thread_match_notes: lane.threadMatchNotes,
+          notes: lane.notes,
+          sort_rank: index,
+          raw_payload: {
+            source: QUOTED_SAMPLE_RFQ.projectSystem,
+            laneId: lane.id,
+          },
+          created_at: FIXTURE_TIMESTAMP,
+          updated_at: FIXTURE_TIMESTAMP,
+        },
+      ],
+      artifacts: [],
+    };
+  });
 }
 
 function findOfferById(vendorQuotes: VendorQuoteAggregate[], offerId: string | null) {
@@ -755,8 +851,8 @@ function buildQuotedScenario(): FixtureState {
   const project = createProjectRecord({
     id: "fx-project-quoted",
     ownerUserId: user.id,
-    name: "Q1 Brackets",
-    description: "Quoted parts with multiple lane options.",
+    name: QUOTED_SAMPLE_PART.projectName,
+    description: QUOTED_SAMPLE_PART.projectDescription,
   });
 
   const jobs: JobRecord[] = [];
@@ -765,220 +861,137 @@ function buildQuotedScenario(): FixtureState {
   const workspaceByJobId: Record<string, ClientQuoteWorkspaceItem> = {};
   const clientActivityByJobId: Record<string, ClientActivityEvent[]> = {};
   const projectJobMemberships: ProjectJobRecord[] = [];
-
-  const lineItems: Array<{
-    jobId: string;
-    partId: string;
-    title: string;
-    partNumber: string;
-    description: string;
-    requestedByDate: string;
-    requestedQuoteQuantities: number[];
-    quantity: number;
-    offers: VendorQuoteAggregate[];
-    selectedOfferId: string;
-  }> = [
-    {
-      jobId: "fx-job-quoted-a",
-      partId: "fx-part-quoted-a",
-      title: "FX-101 Mounting Bracket",
-      partNumber: "FX-101",
-      description: "Bracket with slotted mounting face",
-      requestedByDate: "2026-03-28",
-      requestedQuoteQuantities: [10, 20, 50],
-      quantity: 10,
-      offers: [
-        createVendorQuoteAggregate({
-          id: "fx-quote-quoted-a-xometry",
-          partId: "fx-part-quoted-a",
-          vendor: "xometry",
-          supplier: "Xometry USA",
-          requestedQuantity: 10,
-          unitPriceUsd: 18.4,
-          totalPriceUsd: 184,
-          leadTimeBusinessDays: 8,
-          domestic: true,
-          offerId: "fx-offer-quoted-a-xometry",
-          laneLabel: "Economy",
-        }),
-        createVendorQuoteAggregate({
-          id: "fx-quote-quoted-a-protolabs",
-          partId: "fx-part-quoted-a",
-          vendor: "protolabs",
-          supplier: "Proto Labs",
-          requestedQuantity: 10,
-          unitPriceUsd: 24.1,
-          totalPriceUsd: 241,
-          leadTimeBusinessDays: 5,
-          domestic: true,
-          offerId: "fx-offer-quoted-a-protolabs",
-          laneLabel: "Rush",
-        }),
-      ],
-      selectedOfferId: "fx-offer-quoted-a-xometry",
-    },
-    {
-      jobId: "fx-job-quoted-b",
-      partId: "fx-part-quoted-b",
-      title: "FX-102 Cover Plate",
-      partNumber: "FX-102",
-      description: "Flat plate with countersinks",
-      requestedByDate: "2026-03-30",
-      requestedQuoteQuantities: [6, 12],
-      quantity: 6,
-      offers: [
-        createVendorQuoteAggregate({
-          id: "fx-quote-quoted-b-fictiv",
-          partId: "fx-part-quoted-b",
-          vendor: "fictiv",
-          supplier: "Fictiv Global",
-          requestedQuantity: 6,
-          unitPriceUsd: 31,
-          totalPriceUsd: 186,
-          leadTimeBusinessDays: 7,
-          domestic: false,
-          offerId: "fx-offer-quoted-b-fictiv",
-          laneLabel: "Standard",
-        }),
-        createVendorQuoteAggregate({
-          id: "fx-quote-quoted-b-sendcutsend",
-          partId: "fx-part-quoted-b",
-          vendor: "sendcutsend",
-          supplier: "SendCutSend",
-          requestedQuantity: 6,
-          unitPriceUsd: 27.5,
-          totalPriceUsd: 165,
-          leadTimeBusinessDays: 6,
-          domestic: true,
-          offerId: "fx-offer-quoted-b-sendcutsend",
-          laneLabel: "Standard",
-        }),
-      ],
-      selectedOfferId: "fx-offer-quoted-b-sendcutsend",
-    },
-  ];
-
-  lineItems.forEach((lineItem) => {
-    const selectedOffer = findOfferById(lineItem.offers, lineItem.selectedOfferId);
-    const job = createJobRecord({
-      id: lineItem.jobId,
-      createdBy: user.id,
-      title: lineItem.title,
-      description: lineItem.description,
-      status: "quoting",
-      requestedQuoteQuantities: [...lineItem.requestedQuoteQuantities],
-      requestedByDate: lineItem.requestedByDate,
-      projectId: project.id,
-      selectedVendorQuoteOfferId: lineItem.selectedOfferId,
-    });
-    const { part, summary, drawingPreview } = createPartAggregate({
-      id: lineItem.partId,
-      jobId: lineItem.jobId,
-      stem: lineItem.partNumber.toLowerCase(),
-      quantity: lineItem.quantity,
-      partNumber: lineItem.partNumber,
-      revision: "A",
-      description: lineItem.description,
-      material: "6061-T6 aluminum",
-      finish: "As machined",
-      requestedQuoteQuantities: [...lineItem.requestedQuoteQuantities],
-      requestedByDate: lineItem.requestedByDate,
-      vendorQuotes: lineItem.offers,
-    });
-
-    summary.selectedSupplier = selectedOffer?.supplier ?? null;
-    summary.selectedPriceUsd = selectedOffer?.total_price_usd ?? null;
-    summary.selectedLeadTimeBusinessDays = selectedOffer?.lead_time_business_days ?? null;
-
-    const latestQuoteRun: QuoteRunRecord = {
-      id: `${lineItem.partId}-quote-run`,
-      quote_request_id: null,
-      job_id: lineItem.jobId,
-      organization_id: FIXTURE_ORGANIZATION_ID,
-      initiated_by: user.id,
-      status: "completed",
-      requested_auto_publish: false,
-      created_at: FIXTURE_TIMESTAMP,
-      updated_at: FIXTURE_TIMESTAMP,
-    };
-
-    jobs.push(job);
-    projectJobMemberships.push({
-      id: `${lineItem.jobId}-project-link`,
-      project_id: project.id,
-      job_id: lineItem.jobId,
-      created_by: user.id,
-      created_at: FIXTURE_TIMESTAMP,
-    });
-    partSummariesByJobId[job.id] = summary;
-    partDetailsByJobId[job.id] = {
-      job,
-      files: [part.cadFile!, part.drawingFile!],
-      summary,
-      packages: [],
-      part,
-      quoteDataStatus: "available",
-      quoteDataMessage: null,
-      quoteDiagnostics: buildFixtureQuoteDiagnostics(part.vendorQuotes),
-      projectIds: [project.id],
-      drawingPreview,
-      latestQuoteRequest: null,
-      latestQuoteRun,
-      revisionSiblings: [],
-    };
-    workspaceByJobId[job.id] = {
-      job,
-      files: [part.cadFile!, part.drawingFile!],
-      summary,
-      part,
-      quoteDataStatus: "available",
-      quoteDataMessage: null,
-      quoteDiagnostics: buildFixtureQuoteDiagnostics(part.vendorQuotes),
-      projectIds: [project.id],
-      drawingPreview,
-      latestQuoteRequest: null,
-      latestQuoteRun,
-    };
-    clientActivityByJobId[job.id] = [
-      createClientActivityEvent({
-        id: `${job.id}-created`,
-        jobId: job.id,
-        eventType: "job.created",
-        minutesAfterStart: 0,
-      }),
-      createClientActivityEvent({
-        id: `${job.id}-extract-requested`,
-        jobId: job.id,
-        eventType: "job.extraction_requested",
-        minutesAfterStart: 3,
-      }),
-      createClientActivityEvent({
-        id: `${job.id}-extract-complete`,
-        jobId: job.id,
-        eventType: "worker.extraction_completed",
-        minutesAfterStart: 7,
-        payload: {
-          warningCount: 0,
-        },
-      }),
-      createClientActivityEvent({
-        id: `${job.id}-quote-started`,
-        jobId: job.id,
-        eventType: "job.quote_run_started",
-        minutesAfterStart: 18,
-      }),
-      createClientActivityEvent({
-        id: `${job.id}-quote-complete`,
-        jobId: job.id,
-        eventType: "worker.quote_run_completed",
-        minutesAfterStart: 31,
-        payload: {
-          successfulVendorQuotes: lineItem.offers.length,
-          failedVendorQuotes: 0,
-        },
-      }),
-    ];
+  const jobId = "fx-job-quoted-a";
+  const partId = "fx-part-quoted-a";
+  const quoteRunId = `${partId}-quote-run`;
+  const vendorQuotes = buildQuotedSampleVendorQuotes(partId, quoteRunId);
+  const selectedOffer = getQuotedSampleSelectedLane();
+  const selectedOfferId = `fx-offer-${selectedOffer.id}`;
+  const job = createJobRecord({
+    id: jobId,
+    createdBy: user.id,
+    title: QUOTED_SAMPLE_PART.jobTitle,
+    description: QUOTED_SAMPLE_PART.jobDescription,
+    status: "quoting",
+    requestedQuoteQuantities: [...QUOTED_SAMPLE_PART.requestedQuoteQuantities],
+    requestedByDate: QUOTED_SAMPLE_PART.requestedByDate,
+    projectId: project.id,
+    selectedVendorQuoteOfferId: selectedOfferId,
   });
+  const { part, summary, drawingPreview } = createPartAggregate({
+    id: partId,
+    jobId,
+    stem: "1093-05589-02",
+    quantity: QUOTED_SAMPLE_PART.quantity,
+    partNumber: QUOTED_SAMPLE_PART.partNumber,
+    revision: QUOTED_SAMPLE_PART.revision,
+    description: QUOTED_SAMPLE_PART.description,
+    material: QUOTED_SAMPLE_PART.material,
+    finish: QUOTED_SAMPLE_PART.finish,
+    requestedQuoteQuantities: [...QUOTED_SAMPLE_PART.requestedQuoteQuantities],
+    requestedByDate: QUOTED_SAMPLE_PART.requestedByDate,
+    vendorQuotes,
+    cadAsset: QUOTED_SAMPLE_ASSETS.cad,
+    drawingAsset: QUOTED_SAMPLE_ASSETS.drawing,
+    drawingPreview: {
+      pageCount: 0,
+      thumbnail: null,
+      pages: [],
+    },
+  });
+
+  summary.selectedSupplier = selectedOffer.supplier;
+  summary.selectedPriceUsd = selectedOffer.totalPriceUsd;
+  summary.selectedLeadTimeBusinessDays = selectedOffer.leadTimeBusinessDays;
+
+  const latestQuoteRun: QuoteRunRecord = {
+    id: quoteRunId,
+    quote_request_id: null,
+    job_id: jobId,
+    organization_id: FIXTURE_ORGANIZATION_ID,
+    initiated_by: user.id,
+    status: "completed",
+    requested_auto_publish: false,
+    created_at: FIXTURE_TIMESTAMP,
+    updated_at: FIXTURE_TIMESTAMP,
+  };
+
+  jobs.push(job);
+  projectJobMemberships.push({
+    id: `${jobId}-project-link`,
+    project_id: project.id,
+    job_id: jobId,
+    created_by: user.id,
+    created_at: FIXTURE_TIMESTAMP,
+  });
+  partSummariesByJobId[job.id] = summary;
+  partDetailsByJobId[job.id] = {
+    job,
+    files: [part.cadFile!, part.drawingFile!],
+    summary,
+    packages: [],
+    part,
+    quoteDataStatus: "available",
+    quoteDataMessage: null,
+    quoteDiagnostics: buildFixtureQuoteDiagnostics(part.vendorQuotes),
+    projectIds: [project.id],
+    drawingPreview,
+    latestQuoteRequest: null,
+    latestQuoteRun,
+    revisionSiblings: [],
+  };
+  workspaceByJobId[job.id] = {
+    job,
+    files: [part.cadFile!, part.drawingFile!],
+    summary,
+    part,
+    quoteDataStatus: "available",
+    quoteDataMessage: null,
+    quoteDiagnostics: buildFixtureQuoteDiagnostics(part.vendorQuotes),
+    projectIds: [project.id],
+    drawingPreview,
+    latestQuoteRequest: null,
+    latestQuoteRun,
+  };
+  clientActivityByJobId[job.id] = [
+    createClientActivityEvent({
+      id: `${job.id}-created`,
+      jobId: job.id,
+      eventType: "job.created",
+      minutesAfterStart: 0,
+    }),
+    createClientActivityEvent({
+      id: `${job.id}-extract-requested`,
+      jobId: job.id,
+      eventType: "job.extraction_requested",
+      minutesAfterStart: 3,
+    }),
+    createClientActivityEvent({
+      id: `${job.id}-extract-complete`,
+      jobId: job.id,
+      eventType: "worker.extraction_completed",
+      minutesAfterStart: 7,
+      payload: {
+        warningCount: 0,
+      },
+    }),
+    createClientActivityEvent({
+      id: `${job.id}-quote-started`,
+      jobId: job.id,
+      eventType: "job.quote_run_started",
+      minutesAfterStart: 18,
+    }),
+    createClientActivityEvent({
+      id: `${job.id}-quote-complete`,
+      jobId: job.id,
+      eventType: "worker.quote_run_completed",
+      minutesAfterStart: 31,
+      payload: {
+        successfulVendorQuotes: vendorQuotes.length,
+        failedVendorQuotes: 0,
+      },
+    }),
+  ];
 
   return {
     session,
@@ -993,7 +1006,7 @@ function buildQuotedScenario(): FixtureState {
     clientActivityByJobId,
     sidebarPins: {
       projectIds: [project.id],
-      jobIds: ["fx-job-quoted-a"],
+      jobIds: [jobId],
     },
     projectMembershipsByProjectId: {
       [project.id]: [

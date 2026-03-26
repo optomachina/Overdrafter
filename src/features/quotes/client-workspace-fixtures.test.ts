@@ -39,9 +39,14 @@ describe("client workspace fixtures", () => {
     const jobs = await gateway!.fetchAccessibleJobs();
     const workspace = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
 
-    expect(jobs).toHaveLength(2);
-    expect(workspace[0]?.job.title).toContain("FX-101");
-    expect(workspace[0]?.job.selected_vendor_quote_offer_id).toBe("fx-offer-quoted-a-xometry");
+    expect(jobs).toHaveLength(1);
+    expect(workspace[0]?.job.title).toBe("1093-05589 rev 2");
+    expect(workspace[0]?.job.selected_vendor_quote_offer_id).toBe("fx-offer-xometry-international-economy");
+    expect(workspace[0]?.part?.approvedRequirement?.part_number).toBe("1093-05589");
+    expect(workspace[0]?.part?.approvedRequirement?.revision).toBe("2");
+    expect(workspace[0]?.part?.vendorQuotes).toHaveLength(16);
+    expect(workspace[0]?.part?.drawingFile?.original_name).toBe("1093-05589-02.pdf");
+    expect(workspace[0]?.part?.cadFile?.original_name).toBe("1093-05589-02.STEP");
   });
 
   it("updates the selected offer and archive state inside the fixture store", async () => {
@@ -50,16 +55,16 @@ describe("client workspace fixtures", () => {
     const gateway = getActiveClientWorkspaceGateway();
     expect(gateway).not.toBeNull();
 
-    await gateway!.setJobSelectedVendorQuoteOffer("fx-job-quoted-a", "fx-offer-quoted-a-protolabs");
+    await gateway!.setJobSelectedVendorQuoteOffer("fx-job-quoted-a", "fx-offer-fictiv-overseas-cost-effective");
     const summaries = await gateway!.fetchJobPartSummariesByJobIds(["fx-job-quoted-a"]);
-    expect(summaries[0]?.selectedSupplier).toBe("Proto Labs");
+    expect(summaries[0]?.selectedSupplier).toBe("Fictiv");
 
     await gateway!.archiveJob("fx-job-quoted-a");
 
     const jobs = await gateway!.fetchAccessibleJobs();
     const archivedJobs = await gateway!.fetchArchivedJobs();
 
-    expect(jobs).toHaveLength(1);
+    expect(jobs).toHaveLength(0);
     expect(archivedJobs[0]?.job.id).toBe("fx-job-quoted-a");
   });
 

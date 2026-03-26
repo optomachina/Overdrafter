@@ -353,6 +353,7 @@ Then open one of these URLs:
 
 The floating `Fixtures` launcher is available in local dev and test builds. It appears in the bottom-right corner, above the `Diagnostics` button.
 Use `/debug/state-gallery` when you want the auth states and the existing fixture-backed workspace states in one review surface.
+The quoted fixture and gallery sample now use the real `1093-05589-02` STEP/PDF pair plus workbook-backed quote lanes from batch `QB00002`.
 
 For a longer walkthrough, see `docs/debugging-workflows.md`.
 

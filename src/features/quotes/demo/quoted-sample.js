@@ -201,7 +201,7 @@ export const QUOTED_SAMPLE_LANES = Object.freeze([
     process: "CNC Machining",
     material: "Aluminum 6061-T651/T6",
     finish: "Anodize Type II, Black (MIL-A-8625F)",
-    tightestTolerance: '±.005"',
+    tightestTolerance: '+/-.005"',
     toleranceSource: "Title block (3-place decimal)",
     threadCallouts: ".317 THRU ALL (clearance hole, unthreaded)",
     threadMatchNotes:
