@@ -118,10 +118,11 @@ export function useClientHomeController() {
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const {
+    accessibleProjects,
     accessibleProjectsQuery,
     accessibleJobsQuery,
     accessibleJobsById,
-    projectJobMembershipsQuery,
+    projectJobMemberships,
     sidebarPinsQuery,
     archivedProjectsQuery,
     archivedJobsQuery,
@@ -140,15 +141,15 @@ export function useClientHomeController() {
   };
 
   const sidebarProjectIdsByJobId = useMemo(
-    () => buildSidebarProjectIdsByJobId(projectJobMembershipsQuery.data ?? []),
-    [projectJobMembershipsQuery.data],
+    () => buildSidebarProjectIdsByJobId(projectJobMemberships),
+    [projectJobMemberships],
   );
   const { sidebarProjects } = useMemo(
     () =>
       buildSidebarProjects({
-        accessibleProjects: accessibleProjectsQuery.data ?? [],
+        accessibleProjects,
       }),
-    [accessibleProjectsQuery.data],
+    [accessibleProjects],
   );
 
   const bootstrapAccountMutation = useMutation({

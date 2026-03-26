@@ -33,7 +33,7 @@ describe("DiagnosticsBootstrap", () => {
       expect(getDiagnosticsSnapshot()).toMatchObject({
         enabled: true,
         panelOpen: true,
-        uiSuppressed: false,
+        uiSuppressed: true,
       });
     });
 

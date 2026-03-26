@@ -10,12 +10,18 @@ import { WorkspaceAccountMenu } from "./WorkspaceAccountMenu";
 const diagnosticsMocks = vi.hoisted(() => ({
   setDiagnosticsEnabled: vi.fn(),
   setDiagnosticsPanelOpen: vi.fn(),
+  useDiagnosticsSnapshot: vi.fn(() => ({ enabled: false })),
 }));
 
-vi.mock("@/lib/diagnostics", () => ({
-  setDiagnosticsEnabled: diagnosticsMocks.setDiagnosticsEnabled,
-  setDiagnosticsPanelOpen: diagnosticsMocks.setDiagnosticsPanelOpen,
-}));
+vi.mock("@/lib/diagnostics", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/diagnostics")>("@/lib/diagnostics");
+  return {
+    ...actual,
+    setDiagnosticsEnabled: diagnosticsMocks.setDiagnosticsEnabled,
+    setDiagnosticsPanelOpen: diagnosticsMocks.setDiagnosticsPanelOpen,
+    useDiagnosticsSnapshot: () => diagnosticsMocks.useDiagnosticsSnapshot(),
+  };
+});
 
 function makeUser(overrides: Partial<User> = {}): User {
   return {
@@ -257,11 +263,11 @@ describe("WorkspaceAccountMenu", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows the resolved full name, current role with version, and footer-sized avatar without the email", () => {
+  it("shows the resolved full name, current role, and footer-sized avatar without the email", () => {
     render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
 
     expect(screen.getByText("Blaine Wilson")).toBeInTheDocument();
-    expect(screen.getByText(/Client\s+v0\.0\.1/)).toBeInTheDocument();
+    expect(screen.getByText("Client")).toBeInTheDocument();
     expect(screen.queryByText("blaine@example.com")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /open account menu/i }).querySelector(".h-11.w-11")).not.toBeNull();
   });

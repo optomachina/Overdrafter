@@ -140,10 +140,11 @@ export function useClientPartController() {
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const {
+    accessibleProjects,
     accessibleProjectsQuery,
     accessibleJobsQuery,
     accessibleJobsById,
-    projectJobMembershipsQuery,
+    projectJobMemberships,
     sidebarPinsQuery,
     archivedProjectsQuery,
     archivedJobsQuery,
@@ -154,15 +155,15 @@ export function useClientPartController() {
     projectCollaborationUnavailable,
   });
   const sidebarProjectIdsByJobId = useMemo(
-    () => buildSidebarProjectIdsByJobId(projectJobMembershipsQuery.data ?? []),
-    [projectJobMembershipsQuery.data],
+    () => buildSidebarProjectIdsByJobId(projectJobMemberships),
+    [projectJobMemberships],
   );
   const { sidebarProjects } = useMemo(
     () =>
       buildSidebarProjects({
-        accessibleProjects: accessibleProjectsQuery.data ?? [],
+        accessibleProjects,
       }),
-    [accessibleProjectsQuery.data],
+    [accessibleProjects],
   );
 
   const newJobFilePicker = useClientJobFilePicker({
@@ -256,7 +257,7 @@ export function useClientPartController() {
     return (accessibleProjectsQuery.data ?? []).filter(
       (project) => project.project.organization_id === partDetail.job.organization_id,
     );
-  }, [accessibleProjectsQuery.data, partDetail?.job]);
+  }, [accessibleProjects, partDetail?.job]);
 
   const assignJobMutation = useMutation({
     mutationFn: (projectId: string) => assignJobToProject({ jobId: canonicalJobId, projectId }),
@@ -421,10 +422,10 @@ export function useClientPartController() {
   const presentation = partDetail?.job ? getClientItemPresentation(partDetail.job, summary) : null;
   const projectMemberships = useMemo(
     () =>
-      (accessibleProjectsQuery.data ?? []).filter((project) =>
+      accessibleProjects.filter((project) =>
         partDetail?.projectIds.includes(project.project.id),
       ),
-    [accessibleProjectsQuery.data, partDetail?.projectIds],
+    [accessibleProjects, partDetail?.projectIds],
   );
   const extraction = partDetail?.part
     ? normalizeDrawingExtraction(partDetail.part.extraction, partDetail.part.id)

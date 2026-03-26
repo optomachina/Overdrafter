@@ -334,7 +334,6 @@ describe("WorkspaceSidebar", () => {
     fireEvent.click(partRow);
 
     expect(onSelectPart).toHaveBeenCalledWith("job-uploaded");
-    expect(screen.getByText("Upload received")).toBeInTheDocument();
     expect(screen.queryByText("Blocked")).not.toBeInTheDocument();
   });
 

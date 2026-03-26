@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { JobRecord } from "@/features/quotes/types";
 import {
@@ -117,9 +117,37 @@ export function useClientWorkspaceData({
     () => new Map((accessibleJobsQuery.data ?? []).map((job) => [job.id, job])),
     [accessibleJobsQuery.data],
   );
+  const stableAccessibleProjectsRef = useRef(accessibleProjectsQuery.data ?? []);
+  const stableProjectJobMembershipsRef = useRef(projectJobMembershipsQuery.data ?? []);
+
+  useEffect(() => {
+    const nextProjects = accessibleProjectsQuery.data ?? [];
+
+    if (nextProjects.length > 0 || !accessibleProjectsQuery.isFetching) {
+      stableAccessibleProjectsRef.current = nextProjects;
+    }
+  }, [accessibleProjectsQuery.data, accessibleProjectsQuery.isFetching]);
+
+  useEffect(() => {
+    const nextMemberships = projectJobMembershipsQuery.data ?? [];
+
+    if (nextMemberships.length > 0 || !projectJobMembershipsQuery.isFetching) {
+      stableProjectJobMembershipsRef.current = nextMemberships;
+    }
+  }, [projectJobMembershipsQuery.data, projectJobMembershipsQuery.isFetching]);
+
+  const accessibleProjects = accessibleProjectsQuery.isFetching && (accessibleProjectsQuery.data?.length ?? 0) === 0
+    ? stableAccessibleProjectsRef.current
+    : (accessibleProjectsQuery.data ?? []);
+  const projectJobMemberships =
+    projectJobMembershipsQuery.isFetching && (projectJobMembershipsQuery.data?.length ?? 0) === 0
+      ? stableProjectJobMembershipsRef.current
+      : (projectJobMembershipsQuery.data ?? []);
 
   return {
+    accessibleProjects,
     accessibleProjectsQuery,
+    projectJobMemberships,
     accessibleJobsQuery,
     accessibleJobIds,
     accessibleJobsById,

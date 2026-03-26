@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
-import { buildClientWorkspaceState } from "@/features/quotes/client-workspace-state";
 import { PartContextMenuActions } from "@/components/chat/PartActionsMenu";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { Button } from "@/components/ui/button";
@@ -813,10 +812,6 @@ export function WorkspaceSidebar({
     const summary = summariesByJobId.get(job.id);
     const presentation = getClientItemPresentation(job, summary);
     const selectedQuote = formatSelectedQuote(summary);
-    const workspaceState = buildClientWorkspaceState({
-      job,
-      summary,
-    });
     const currentProjectIds = getProjectIdsForJob(job).filter((projectId) => projectsById.has(projectId));
     const currentProjectIdSet = new Set(currentProjectIds);
     const isPinned = pinnedPartSet.has(job.id);

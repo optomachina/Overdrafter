@@ -171,9 +171,11 @@ export function useClientProjectController() {
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const {
+    accessibleProjects,
     accessibleProjectsQuery,
     accessibleJobsQuery,
     accessibleJobsById,
+    projectJobMemberships,
     projectJobMembershipsQuery: sidebarProjectJobMembershipsQuery,
     sidebarPinsQuery,
     archivedProjectsQuery,
@@ -185,15 +187,15 @@ export function useClientProjectController() {
     projectCollaborationUnavailable,
   });
   const sidebarProjectIdsByJobId = useMemo(
-    () => buildSidebarProjectIdsByJobId(sidebarProjectJobMembershipsQuery.data ?? []),
-    [sidebarProjectJobMembershipsQuery.data],
+    () => buildSidebarProjectIdsByJobId(projectJobMemberships),
+    [projectJobMemberships],
   );
   const { sidebarProjects } = useMemo(
     () =>
       buildSidebarProjects({
-        accessibleProjects: accessibleProjectsQuery.data ?? [],
+        accessibleProjects,
       }),
-    [accessibleProjectsQuery.data],
+    [accessibleProjects],
   );
   const canLoadRemoteProjectData =
     Boolean(user) && !projectCollaborationUnavailable;
