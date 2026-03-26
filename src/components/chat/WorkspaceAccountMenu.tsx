@@ -226,17 +226,6 @@ const RELEASE_NOTES: ReleaseNote[] = [
   },
 ];
 
-function formatProviderLabel(user: User): string {
-  const provider =
-    typeof user.app_metadata?.provider === "string"
-      ? user.app_metadata.provider
-      : typeof user.identities?.[0]?.provider === "string"
-        ? user.identities[0].provider
-        : "email";
-
-  return provider.charAt(0).toUpperCase() + provider.slice(1);
-}
-
 function openDiagnosticsPanel() {
   setDiagnosticsEnabled(true);
   setDiagnosticsPanelOpen(true);
@@ -428,7 +417,8 @@ export function WorkspaceAccountMenu({
   const [isSavingOrg, setIsSavingOrg] = useState(false);
   const [orgSaveError, setOrgSaveError] = useState<string | null>(null);
   const companyNameInputRef = useRef<HTMLInputElement>(null);
-  const placesAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const placesAutocompleteRef = useRef<any>(null);
   const isAdmin = activeMembership?.role === "internal_admin";
 
   // Fetch org details when settings panel opens
@@ -475,7 +465,9 @@ export function WorkspaceAccountMenu({
     script.async = true;
     script.onload = () => {
       if (!companyNameInputRef.current) return;
-      const autocomplete = new google.maps.places.Autocomplete(companyNameInputRef.current, {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const g = (window as any).google;
+      const autocomplete = new g.maps.places.Autocomplete(companyNameInputRef.current, {
         types: ["establishment"],
         fields: ["name", "formatted_phone_number", "address_components", "photos"],
       });
@@ -507,7 +499,7 @@ export function WorkspaceAccountMenu({
     // Only append if not already on the page
     if (!document.querySelector(`script[src*="maps.googleapis.com"]`)) {
       document.head.appendChild(script);
-    } else if (typeof google !== "undefined") {
+    } else if (typeof (window as unknown as Record<string, unknown>)["google"] !== "undefined") {
       // Already loaded
       script.onload(new Event("load"));
     }

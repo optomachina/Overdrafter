@@ -214,7 +214,7 @@ function makePreviewAsset(overrides: Partial<DrawingPreviewAssetRecord> = {}): D
 function renderCard(overrides: Partial<ComponentProps<typeof ExtractionLabCard>> = {}) {
   const queryClient = new QueryClient({
     defaultOptions: {
-      queries: { retry: false },
+      queries: { retry: false, gcTime: Infinity },
       mutations: { retry: false },
     },
   });

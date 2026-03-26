@@ -21,6 +21,7 @@ import {
 } from "@/features/quotes/api/internal-review";
 import type {
   DebugExtractionRunRecord,
+  DrawingExtractionRecord,
   DrawingPreviewAssetRecord,
   PartAggregate,
   PreviewExtractionResult,
@@ -449,7 +450,7 @@ export function ExtractionLabCard({
           status: activePreviewRun.result.status,
           created_at: activePreviewRun.createdAt,
           updated_at: activePreviewRun.createdAt,
-        },
+        } as DrawingExtractionRecord,
         activePart.id,
       )
     : null;

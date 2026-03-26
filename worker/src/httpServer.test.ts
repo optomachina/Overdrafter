@@ -140,4 +140,58 @@ describe("startHealthServer", () => {
       status: "running",
     });
   });
+
+  it("serves debug extraction catalog and preview endpoints when handlers are provided", async () => {
+    const runtimeState = createWorkerRuntimeState();
+    runtimeState.status = "running";
+
+    const server = await startHealthServer(workerConfig, runtimeState, {
+      getExtractionModels: async () => ({
+        models: [
+          {
+            provider: "openai",
+            modelId: "gpt-5.4",
+          },
+        ],
+        refreshing: false,
+      }),
+      refreshExtractionModels: async () => ({
+        accepted: true,
+      }),
+      previewExtraction: async ({ partId, modelId }) => ({
+        partId,
+        effectiveModel: modelId,
+      }),
+    });
+    servers.push(server);
+
+    const modelsResponse = await fetch(`${server.url}/debug/extraction/models`);
+    expect(modelsResponse.status).toBe(200);
+    expect(await modelsResponse.json()).toMatchObject({
+      models: [{ provider: "openai", modelId: "gpt-5.4" }],
+      refreshing: false,
+    });
+
+    const refreshResponse = await fetch(`${server.url}/debug/extraction/models/refresh`, {
+      method: "POST",
+    });
+    expect(refreshResponse.status).toBe(202);
+    expect(await refreshResponse.json()).toMatchObject({ accepted: true });
+
+    const previewResponse = await fetch(`${server.url}/debug/extraction/preview`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        partId: "part-1",
+        modelId: "gpt-5.4",
+      }),
+    });
+    expect(previewResponse.status).toBe(200);
+    expect(await previewResponse.json()).toMatchObject({
+      partId: "part-1",
+      effectiveModel: "gpt-5.4",
+    });
+  });
 });

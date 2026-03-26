@@ -58,7 +58,12 @@ Priority order per field:
 ## Extraction Lab
 
 - Internal debugging now supports preview-only reruns through the `Extraction Lab` on the internal job detail page.
+- The lab is now preview-first: opening the tool and running `Preview` must not write to `debug_extraction_runs`, `work_queue`, `drawing_extractions`, or `approved_part_requirements`.
 - Debug reruns enqueue `debug_extract_part` tasks and persist their result in `debug_extraction_runs`.
+- Persisted actions remain explicit:
+  - `Preview` is read-only
+  - `Save debug run` writes a `debug_extraction_runs` row
+  - `Queue canonical` writes to the canonical extraction queue
 - Preview-only runs must not overwrite canonical `drawing_extractions` rows or `approved_part_requirements`.
 - The lab should show canonical extraction and the latest preview-only debug run side by side, including:
   - worker build version
@@ -67,10 +72,11 @@ Priority order per field:
   - raw extracted fields
   - normalized quote-facing fields
   - review fields, warnings, and candidate/debug metadata
-- The browser must request preview runs through Supabase RPC rather than calling the worker directly.
+- Read-only previews now go straight to worker debug endpoints; persisted debug runs still go through Supabase RPC and the worker queue.
 - `OPENAI_API_KEY` belongs only in the worker environment or secret manager.
 - `DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS` defines the allowlisted per-run model selector shown in the lab.
 - `WORKER_BUILD_VERSION` should be injected from deploy metadata or git SHA so preview runs and canonical rows reveal the exact worker build that produced them.
+- The model picker may show a broader preview catalog than the persisted debug-run allowlist. Preview-only comparisons can use discovered OpenAI, Anthropic, and OpenRouter models, while persisted debug runs remain limited to the worker-owned allowlist unless expanded intentionally.
 
 ## Internal review precedence
 
