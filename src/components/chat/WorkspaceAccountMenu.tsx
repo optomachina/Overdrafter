@@ -110,6 +110,39 @@ type ReleaseNote = {
   bullets: string[];
 };
 
+type GooglePlacePhoto = {
+  getUrl: (options: { maxWidth?: number; maxHeight?: number }) => string;
+};
+
+type GooglePlaceAddressComponent = {
+  long_name: string;
+  short_name: string;
+  types: string[];
+};
+
+type GooglePlaceResult = {
+  name?: string;
+  formatted_phone_number?: string;
+  address_components?: GooglePlaceAddressComponent[];
+  photos?: GooglePlacePhoto[];
+};
+
+type GooglePlacesAutocomplete = {
+  addListener: (eventName: "place_changed", handler: () => void) => void;
+  getPlace: () => GooglePlaceResult;
+};
+
+type GooglePlacesNamespace = {
+  maps?: {
+    places?: {
+      Autocomplete?: new (
+        input: HTMLInputElement,
+        options: { types?: string[]; fields?: string[] },
+      ) => GooglePlacesAutocomplete;
+    };
+  };
+};
+
 const MENU_CONTENT_CLASS =
   "workspace-shell z-[70] w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 box-border rounded-surface-lg border border-white/[0.08] bg-[#2a2a2a] p-2.5 text-white shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
 const SUBMENU_CONTENT_CLASS =
@@ -225,17 +258,6 @@ const RELEASE_NOTES: ReleaseNote[] = [
     ],
   },
 ];
-
-function formatProviderLabel(user: User): string {
-  const provider =
-    typeof user.app_metadata?.provider === "string"
-      ? user.app_metadata.provider
-      : typeof user.identities?.[0]?.provider === "string"
-        ? user.identities[0].provider
-        : "email";
-
-  return provider.charAt(0).toUpperCase() + provider.slice(1);
-}
 
 function openDiagnosticsPanel() {
   setDiagnosticsEnabled(true);
@@ -428,7 +450,7 @@ export function WorkspaceAccountMenu({
   const [isSavingOrg, setIsSavingOrg] = useState(false);
   const [orgSaveError, setOrgSaveError] = useState<string | null>(null);
   const companyNameInputRef = useRef<HTMLInputElement>(null);
-  const placesAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const placesAutocompleteRef = useRef<GooglePlacesAutocomplete | null>(null);
   const isAdmin = activeMembership?.role === "internal_admin";
 
   // Fetch org details when settings panel opens
@@ -475,7 +497,11 @@ export function WorkspaceAccountMenu({
     script.async = true;
     script.onload = () => {
       if (!companyNameInputRef.current) return;
-      const autocomplete = new google.maps.places.Autocomplete(companyNameInputRef.current, {
+      const googleMaps = (window as Window & { google?: GooglePlacesNamespace }).google;
+      const AutocompleteCtor = googleMaps?.maps?.places?.Autocomplete;
+      if (!AutocompleteCtor) return;
+
+      const autocomplete = new AutocompleteCtor(companyNameInputRef.current, {
         types: ["establishment"],
         fields: ["name", "formatted_phone_number", "address_components", "photos"],
       });
@@ -507,9 +533,9 @@ export function WorkspaceAccountMenu({
     // Only append if not already on the page
     if (!document.querySelector(`script[src*="maps.googleapis.com"]`)) {
       document.head.appendChild(script);
-    } else if (typeof google !== "undefined") {
+    } else if ((window as Window & { google?: GooglePlacesNamespace }).google) {
       // Already loaded
-      script.onload(new Event("load"));
+      script.onload?.(new Event("load"));
     }
     return () => {
       placesAutocompleteRef.current = null;
