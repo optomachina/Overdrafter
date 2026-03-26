@@ -31,7 +31,6 @@ import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtractionStatusNotice";
 import { ClientPartHeader } from "@/components/quotes/ClientPartHeader";
-import { ClientWorkspaceStateSummary, ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { DrawingPreviewDialog } from "@/components/quotes/DrawingPreviewDialog";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import { ClientQuoteRequestStatusCard } from "@/components/quotes/ClientWorkspacePanelContent";
@@ -46,7 +45,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -70,9 +68,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import { useClientPartController } from "@/features/quotes/use-client-part-controller";
-import { buildClientWorkspaceState } from "@/features/quotes/client-workspace-state";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
-import { formatStatusLabel } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -323,17 +319,6 @@ const ClientPart = () => {
     return null;
   }
 
-  const workspaceState =
-    partDetail?.job && partDetail.part
-      ? buildClientWorkspaceState({
-          job: partDetail.job,
-          summary,
-          part: partDetail.part,
-          options: rankedQuoteOptions,
-          selectedOption: selectedQuoteOption,
-          requestedByDate: requestSummaryRequestedByDate,
-        })
-      : null;
   const quoteRequestViewModel =
     partDetail?.job
       ? buildQuoteRequestViewModel({
