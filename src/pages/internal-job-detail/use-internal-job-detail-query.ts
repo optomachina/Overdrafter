@@ -20,7 +20,12 @@ export function useInternalJobDetailQuery({
   jobId,
 }: UseInternalJobDetailQueryOptions) {
   const diagnostics = useDiagnosticsSnapshot();
-  const enabled = Boolean(jobId && hasUser && activeMembership && activeMembership.role !== "client");
+  const allowDiagnosticReadOnly = Boolean(
+    activeMembership?.role === "client" && (diagnostics.enabled || import.meta.env.DEV),
+  );
+  const enabled = Boolean(
+    jobId && hasUser && activeMembership && (activeMembership.role !== "client" || allowDiagnosticReadOnly),
+  );
 
   const jobQuery = useQuery({
     queryKey: ["job", jobId],
@@ -58,10 +63,11 @@ export function useInternalJobDetailQuery({
   const readinessQuery = useQuery({
     queryKey: ["quote-readiness", latestQuoteRun?.id],
     queryFn: () => getQuoteRunReadiness(latestQuoteRun!.id),
-    enabled: Boolean(latestQuoteRun?.id) && !isCrossOrgReadOnlyView,
+    enabled: Boolean(latestQuoteRun?.id) && !isCrossOrgReadOnlyView && !allowDiagnosticReadOnly,
   });
 
   return {
+    allowDiagnosticReadOnly,
     enabled,
     job,
     jobQuery,

@@ -195,6 +195,7 @@ export async function runHybridExtraction(
     previewPagePath?: string | null;
     runDir?: string | null;
     config?: WorkerConfig;
+    forceModelFallback?: boolean;
   },
   dependencies: {
     extractWithModel?: typeof extractDrawingFieldsWithModel;
@@ -214,12 +215,16 @@ export async function runHybridExtraction(
     input.config &&
     input.drawingPath &&
     input.runDir &&
-    shouldTriggerDrawingModelFallback({
-      drawingSignals,
-      hasDrawingFile: Boolean(input.drawingFile),
-      modelEnabled:
-        input.config.drawingExtractionEnableModelFallback && Boolean(input.config.openAiApiKey),
-    })
+    (input.forceModelFallback ||
+      shouldTriggerDrawingModelFallback({
+        drawingSignals,
+        hasDrawingFile: Boolean(input.drawingFile),
+        modelEnabled:
+          input.config.drawingExtractionEnableModelFallback &&
+          Boolean(
+            input.config.openAiApiKey || input.config.anthropicApiKey || input.config.openRouterApiKey,
+          ),
+      }))
   ) {
     try {
       modelResult = await (dependencies.extractWithModel ?? extractDrawingFieldsWithModel)({
