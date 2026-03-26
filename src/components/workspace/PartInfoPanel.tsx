@@ -16,6 +16,8 @@ type PartInfoPanelProps = {
   isSaving?: boolean;
   drawingFileName?: string | null;
   statusContent?: ReactNode;
+  partNumber?: string | null;
+  description?: string | null;
 };
 
 type InfoRow = {
@@ -36,10 +38,20 @@ function buildInfoRows(input: {
   summary: JobPartSummary | null | undefined;
   extraction: DrawingExtractionData | null | undefined;
   draft: ClientPartRequestUpdateInput | null;
+  partNumber?: string | null;
+  description?: string | null;
 }): InfoRow[] {
-  const { part, summary, extraction, draft } = input;
+  const { part, summary, extraction, draft, partNumber, description } = input;
 
   return [
+    {
+      label: "Part Number",
+      value: draft?.partNumber?.trim() || partNumber || "—",
+    },
+    {
+      label: "Description",
+      value: description?.trim() || "—",
+    },
     {
       label: "Material",
       value: draft?.material?.trim() || part?.clientRequirement?.material || part?.approvedRequirement?.material || extraction?.material.normalized || extraction?.material.raw || "—",
@@ -95,12 +107,16 @@ export function PartInfoPanel({
   isSaving = false,
   drawingFileName = null,
   statusContent = null,
+  partNumber = null,
+  description = null,
 }: PartInfoPanelProps) {
   const rows = buildInfoRows({
     part,
     summary,
     extraction,
     draft: effectiveRequestDraft,
+    partNumber,
+    description,
   });
 
   return (

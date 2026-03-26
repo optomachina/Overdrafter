@@ -518,39 +518,6 @@ const ClientPart = () => {
                 eyebrow="Issue detail"
                 title={displayPartTitle}
                 description={presentation.description}
-                badges={
-                  <>
-                    <Badge className="border border-white/10 bg-white/6 text-white/75">
-                      {formatStatusLabel(partDetail.job.status)}
-                    </Badge>
-                    {quoteRequestViewModel ? (
-                      <ClientWorkspaceToneBadge
-                        tone={quoteRequestViewModel.tone}
-                        label={`Quote ${quoteRequestViewModel.label}`}
-                        className="tracking-normal normal-case"
-                      />
-                    ) : null}
-                    {projectMemberships.length > 0 ? (
-                      projectMemberships.map((project) => (
-                        <Badge key={project.project.id} className="border border-white/10 bg-white/6 text-white/75">
-                          {project.project.name}
-                        </Badge>
-                      ))
-                    ) : (
-                      <Badge className="border border-white/10 bg-white/6 text-white/75">Standalone part</Badge>
-                    )}
-                    {!cadFile ? (
-                      <Badge className="border border-amber-400/25 bg-amber-500/10 text-amber-200">
-                        CAD missing
-                      </Badge>
-                    ) : null}
-                    {!drawingFile ? (
-                      <Badge className="border border-sky-400/25 bg-sky-500/10 text-sky-200">
-                        Drawing missing
-                      </Badge>
-                    ) : null}
-                  </>
-                }
                 details={
                   <div className="space-y-4">
                     <div className="flex flex-wrap items-center gap-2 text-sm text-white/55">
@@ -785,8 +752,6 @@ const ClientPart = () => {
                 }
               />
 
-              {workspaceState ? <ClientWorkspaceStateSummary state={workspaceState} /> : null}
-
               <div className="flex flex-col gap-4">
                 <QuoteStatBar quotes={rankedQuoteOptions} />
                 <QuoteChart
@@ -818,6 +783,8 @@ const ClientPart = () => {
                   onUploadRevision={attachFilesPicker.openFilePicker}
                   isSaving={saveRequestMutation.isPending}
                   drawingFileName={drawingFile?.original_name ?? null}
+                  partNumber={presentation.partNumber}
+                  description={presentation.description}
                   statusContent={
                     <>
                       <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
