@@ -16,6 +16,8 @@ type PartInfoPanelProps = {
   isSaving?: boolean;
   drawingFileName?: string | null;
   statusContent?: ReactNode;
+  partNumber?: string | null;
+  description?: string | null;
 };
 
 type InfoRow = {
@@ -31,15 +33,34 @@ function formatTolerance(value: number | null | undefined): string {
   return `±${value.toFixed(4)} in`;
 }
 
+function formatTextValue(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function buildInfoRows(input: {
   part: PartAggregate | null | undefined;
   summary: JobPartSummary | null | undefined;
   extraction: DrawingExtractionData | null | undefined;
   draft: ClientPartRequestUpdateInput | null;
+  partNumber?: string | null;
+  description?: string | null;
 }): InfoRow[] {
-  const { part, summary, extraction, draft } = input;
+  const { part, summary, extraction, draft, partNumber, description } = input;
 
   return [
+    {
+      label: "Part Number",
+      value: formatTextValue(draft?.partNumber) || formatTextValue(partNumber) || "—",
+    },
+    {
+      label: "Description",
+      value: formatTextValue(description) || "—",
+    },
     {
       label: "Material",
       value: draft?.material?.trim() || part?.clientRequirement?.material || part?.approvedRequirement?.material || extraction?.material.normalized || extraction?.material.raw || "—",
@@ -95,12 +116,16 @@ export function PartInfoPanel({
   isSaving = false,
   drawingFileName = null,
   statusContent = null,
+  partNumber = null,
+  description = null,
 }: PartInfoPanelProps) {
   const rows = buildInfoRows({
     part,
     summary,
     extraction,
     draft: effectiveRequestDraft,
+    partNumber,
+    description,
   });
 
   return (

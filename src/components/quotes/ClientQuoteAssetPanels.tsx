@@ -174,23 +174,25 @@ export function ClientDrawingPreviewPanel({
       </div>
 
       <div className="mt-4 overflow-hidden rounded-[22px] border border-white/8 bg-black/20">
-        <div className="flex min-h-[320px] items-center justify-center bg-white">
+        <div className="bg-white">
           {resolvedLoading ? (
-            <Loader2 className="h-6 w-6 animate-spin text-zinc-500" />
+            <div className="flex min-h-[320px] items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-zinc-500" />
+            </div>
           ) : hasPdfPreview && resolvedViewerMode === "pdf" ? (
             <iframe
               src={pdfUrl}
               title={`${drawingFile?.original_name ?? "Drawing"} PDF preview`}
-              className="min-h-[520px] w-full border-0 bg-white"
+              className="h-[85vh] w-full border-0 bg-white"
             />
           ) : activePage ? (
             <img
               src={activePage.url}
               alt={`${drawingFile.original_name} page ${activePage.pageNumber}`}
-              className="max-h-[520px] w-full object-contain"
+              className="w-full object-contain"
             />
           ) : (
-            <div className="flex max-w-md flex-col items-center gap-3 px-6 text-center text-sm text-zinc-500">
+            <div className="mx-auto flex min-h-[320px] max-w-md flex-col items-center justify-center gap-3 px-6 text-center text-sm text-zinc-500">
               {resolvedState === "failed" || resolvedState === "unavailable" ? (
                 <AlertCircle className="h-6 w-6 text-zinc-400" />
               ) : null}

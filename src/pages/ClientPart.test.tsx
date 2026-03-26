@@ -60,6 +60,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
 
 let lastAccountMenuProps: Record<string, unknown> | null = null;
 let lastDrawingPreviewDialogProps: Record<string, unknown> | null = null;
+let lastPartInfoPanelProps: Record<string, unknown> | null = null;
 
 vi.mock("@/features/quotes/api", () => api);
 vi.mock("@/features/quotes/api/archive-api", () => ({
@@ -315,20 +316,31 @@ vi.mock("@/components/workspace/QuoteList", () => ({
 
 vi.mock("@/components/workspace/PartInfoPanel", () => ({
   PartInfoPanel: ({
+    partNumber,
+    description,
     statusContent,
     onSave,
   }: {
+    partNumber?: string | null;
+    description?: string | null;
     statusContent?: ReactNode;
     onSave?: () => void;
-  }) => (
-    <div data-testid="part-info-panel">
-      <div>Part information</div>
-      {statusContent}
-      <button type="button" onClick={() => onSave?.()}>
-        Save Request
-      </button>
-    </div>
-  ),
+  }) => {
+    lastPartInfoPanelProps = {
+      partNumber,
+      description,
+    };
+
+    return (
+      <div data-testid="part-info-panel">
+        <div>Part information</div>
+        {statusContent}
+        <button type="button" onClick={() => onSave?.()}>
+          Save Request
+        </button>
+      </div>
+    );
+  },
 }));
 
 vi.mock("@/components/workspace/CadPanel", () => ({
@@ -469,6 +481,7 @@ describe("ClientPart", () => {
     const localStorageState = new Map<string, string>();
     lastAccountMenuProps = null;
     lastDrawingPreviewDialogProps = null;
+    lastPartInfoPanelProps = null;
     vi.resetAllMocks();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -609,6 +622,22 @@ describe("ClientPart", () => {
 
     expect(quoteList.compareDocumentPosition(partInfoPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(partInfoPanel.compareDocumentPosition(cadPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("passes part metadata into PartInfoPanel and omits the old workspace badge cluster", async () => {
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
+    });
+
+    expect(lastPartInfoPanelProps).toMatchObject({
+      partNumber: "BRKT-001",
+      description: "Bracket",
+    });
+    expect(screen.queryByText("Standalone part")).not.toBeInTheDocument();
+    expect(screen.queryByText("CAD missing")).not.toBeInTheDocument();
+    expect(screen.queryByText("Drawing missing")).not.toBeInTheDocument();
   });
 
   it("renders real vendor quote options instead of the empty comparison state", async () => {
