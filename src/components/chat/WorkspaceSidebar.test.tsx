@@ -305,6 +305,69 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByText("$369 · 11d")).toBeInTheDocument();
   });
 
+  it("hides a project summary badge when any project member lacks a selected quote", () => {
+    renderSidebar({
+      summariesByJobId: new Map<string, JobPartSummary>([
+        [
+          "job-1",
+          makeSummary({
+            jobId: "job-1",
+            selectedSupplier: "Xometry USA",
+            selectedPriceUsd: 123.6,
+            selectedLeadTimeBusinessDays: 7,
+          }),
+        ],
+        [
+          "job-2",
+          makeSummary({
+            jobId: "job-2",
+            partNumber: "1093-00002",
+            selectedSupplier: "Fictiv USA",
+            selectedPriceUsd: 245.2,
+          }),
+        ],
+        [
+          "job-3",
+          makeSummary({
+            jobId: "job-3",
+            partNumber: "1093-00003",
+          }),
+        ],
+      ]),
+    });
+
+    expect(screen.queryByText("$369 · 11d")).not.toBeInTheDocument();
+  });
+
+  it("shows zero-day lead times in part and project summaries", () => {
+    renderSidebar({
+      summariesByJobId: new Map<string, JobPartSummary>([
+        [
+          "job-1",
+          makeSummary({
+            jobId: "job-1",
+            selectedSupplier: "Xometry USA",
+            selectedPriceUsd: 123.6,
+            selectedLeadTimeBusinessDays: 0,
+          }),
+        ],
+        [
+          "job-2",
+          makeSummary({
+            jobId: "job-2",
+            partNumber: "1093-00002",
+            selectedSupplier: "Fictiv USA",
+            selectedPriceUsd: 245.2,
+            selectedLeadTimeBusinessDays: 0,
+          }),
+        ],
+      ]),
+    });
+
+    expect(screen.getAllByText("$124 · 0d").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("$369 · 0d")).toBeInTheDocument();
+  });
+
   it("prefetches a project on hover and focus", async () => {
     vi.useFakeTimers();
     const onPrefetchProject = vi.fn();

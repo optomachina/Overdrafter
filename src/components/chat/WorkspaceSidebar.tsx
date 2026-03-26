@@ -145,18 +145,21 @@ function formatProjectSelectedQuote(projectJobs: JobRecord[], summariesByJobId: 
   for (const job of projectJobs) {
     const summary = summariesByJobId.get(job.id);
 
-    if (!summary?.selectedSupplier || summary.selectedPriceUsd === null) {
+    if (
+      !summary?.selectedSupplier ||
+      summary.selectedPriceUsd === null ||
+      summary.selectedPriceUsd === undefined ||
+      typeof summary.selectedLeadTimeBusinessDays !== "number"
+    ) {
       return null;
     }
 
     totalPriceUsd += summary.selectedPriceUsd;
 
-    if (typeof summary.selectedLeadTimeBusinessDays === "number") {
-      maxLeadTimeBusinessDays = Math.max(maxLeadTimeBusinessDays ?? 0, summary.selectedLeadTimeBusinessDays);
-    }
+    maxLeadTimeBusinessDays = Math.max(maxLeadTimeBusinessDays ?? 0, summary.selectedLeadTimeBusinessDays);
   }
 
-  return `${formatSidebarPrice(totalPriceUsd)}${maxLeadTimeBusinessDays ? ` · ${maxLeadTimeBusinessDays}d` : ""}`;
+  return `${formatSidebarPrice(totalPriceUsd)}${maxLeadTimeBusinessDays !== null && maxLeadTimeBusinessDays !== undefined ? ` · ${maxLeadTimeBusinessDays}d` : ""}`;
 }
 
 function readFilters(storageKey: string): SidebarFilters {
