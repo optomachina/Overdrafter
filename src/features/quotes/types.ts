@@ -431,6 +431,25 @@ export type AppMembership = {
   organizationSlug: string;
 };
 
+export type OrganizationDetails = {
+  id: string;
+  name: string;
+  companyName: string | null;
+  logoUrl: string | null;
+  phone: string | null;
+  billingStreet: string | null;
+  billingCity: string | null;
+  billingState: string | null;
+  billingZip: string | null;
+  billingCountry: string;
+  shippingSameAsBilling: boolean;
+  shippingStreet: string | null;
+  shippingCity: string | null;
+  shippingState: string | null;
+  shippingZip: string | null;
+  shippingCountry: string;
+};
+
 export type AppSessionAuthState = "authenticated" | "anonymous" | "invalid_session" | "session_error";
 
 export type ProjectAccessRole = ProjectRole;
