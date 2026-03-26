@@ -161,6 +161,7 @@ export function useClientProjectController() {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [selectedOfferOverrides, setSelectedOfferOverrides] = useState<Record<string, string | null>>({});
   const [lastBulkAction, setLastBulkAction] = useState<BulkSelectionChange[]>([]);
+  const [activePreset, setActivePreset] = useState<QuotePreset | null>(null);
   const [excludedVendorKeysByJobId, setExcludedVendorKeysByJobId] = useState<Record<string, VendorName[]>>({});
   const [requestDraftsByJobId, setRequestDraftsByJobId] = useState<Record<string, ClientPartRequestUpdateInput>>({});
   const [quoteQuantityInputsByJobId, setQuoteQuantityInputsByJobId] = useState<Record<string, string>>({});
@@ -1031,50 +1032,6 @@ export function useClientProjectController() {
     }
   };
 
-  const handleBulkPreset = async (preset: QuotePreset) => {
-    const result = applyBulkPresetSelection({
-      optionsByJobId,
-      currentSelectedOfferIdsByJobId,
-      preset,
-    });
-
-    if (result.changes.length === 0) {
-      toast.error(
-        result.unavailableJobIds.length > 0
-          ? "No eligible project quotes were available for that preset."
-          : "Selections already match this preset.",
-      );
-      return;
-    }
-
-    setSelectedOfferOverrides((current) => ({
-      ...current,
-      ...Object.fromEntries(result.changes.map((change) => [change.jobId, change.appliedOfferId])),
-    }));
-    setLastBulkAction(result.changes);
-
-    try {
-      await Promise.all(
-        result.changes.map((change) =>
-          setJobSelectedVendorQuoteOffer(change.jobId, change.appliedOfferId),
-        ),
-      );
-      await invalidateClientWorkspaceQueries(queryClient, {
-        projectId,
-        clientQuoteWorkspaceJobIds: projectJobIds,
-      });
-      toast.success(
-        `${preset === "cheapest" ? "Cheapest" : preset === "fastest" ? "Fastest" : "Domestic"} preset applied to ${result.changes.length} part${result.changes.length === 1 ? "" : "s"}.`,
-      );
-    } catch (error) {
-      setSelectedOfferOverrides((current) => ({
-        ...current,
-        ...Object.fromEntries(result.changes.map((change) => [change.jobId, change.previousOfferId])),
-      }));
-      toast.error(error instanceof Error ? error.message : "Bulk preset failed.");
-    }
-  };
-
   const handleRevertBulk = async () => {
     if (lastBulkAction.length === 0) {
       return;
@@ -1111,9 +1068,71 @@ export function useClientProjectController() {
         clientQuoteWorkspaceJobIds: projectJobIds,
       });
       setLastBulkAction([]);
+      setActivePreset(null);
       toast.success("Bulk selection reverted.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to revert bulk selection.");
+    }
+  };
+
+  const handleBulkPreset = async (preset: QuotePreset) => {
+    if (activePreset === preset && lastBulkAction.length > 0) {
+      await handleRevertBulk();
+      return;
+    }
+
+    const result = applyBulkPresetSelection({
+      optionsByJobId,
+      currentSelectedOfferIdsByJobId,
+      preset,
+    });
+
+    if (result.changes.length === 0) {
+      toast.error(
+        result.unavailableJobIds.length > 0
+          ? "No eligible project quotes were available for that preset."
+          : "Selections already match this preset.",
+      );
+      return;
+    }
+
+    setSelectedOfferOverrides((current) => ({
+      ...current,
+      ...Object.fromEntries(result.changes.map((change) => [change.jobId, change.appliedOfferId])),
+    }));
+    setLastBulkAction(result.changes);
+    setActivePreset(preset);
+
+    const presetLabel =
+      preset === "cheapest" ? "Cheapest"
+      : preset === "fastest" ? "Fastest"
+      : preset === "domestic" ? "Domestic"
+      : preset === "cheapest_domestic" ? "Cheapest domestic"
+      : preset === "fastest_domestic" ? "Fastest domestic"
+      : preset === "cheapest_global" ? "Cheapest global"
+      : preset === "fastest_global" ? "Fastest global"
+      : preset;
+
+    try {
+      await Promise.all(
+        result.changes.map((change) =>
+          setJobSelectedVendorQuoteOffer(change.jobId, change.appliedOfferId),
+        ),
+      );
+      await invalidateClientWorkspaceQueries(queryClient, {
+        projectId,
+        clientQuoteWorkspaceJobIds: projectJobIds,
+      });
+      toast.success(
+        `${presetLabel} preset applied to ${result.changes.length} part${result.changes.length === 1 ? "" : "s"}.`,
+      );
+    } catch (error) {
+      setSelectedOfferOverrides((current) => ({
+        ...current,
+        ...Object.fromEntries(result.changes.map((change) => [change.jobId, change.previousOfferId])),
+      }));
+      setActivePreset(null);
+      toast.error(error instanceof Error ? error.message : "Bulk preset failed.");
     }
   };
 
@@ -1280,6 +1299,7 @@ export function useClientProjectController() {
     accessibleJobs: sidebarJobs,
     accessibleJobsQuery,
     activeFilter,
+    activePreset,
     activeMembership,
     archivedJobsQuery,
     archivedProjectsQuery,
