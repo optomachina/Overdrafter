@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FolderKanban, Shapes, X } from "lucide-react";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,20 @@ type WorkspaceInlineSearchProps = {
 
 const RESULT_LIMIT = 6;
 
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tagName = target.tagName;
+  return (
+    target.isContentEditable ||
+    tagName === "INPUT" ||
+    tagName === "TEXTAREA" ||
+    tagName === "SELECT"
+  );
+}
+
 export function WorkspaceInlineSearch({
   projects,
   jobs,
@@ -35,7 +50,7 @@ export function WorkspaceInlineSearch({
   resolveProjectIdsForJob,
   onSelectProject,
   onSelectPart,
-  placeholder = "Search",
+  placeholder = "/ Search",
   className,
 }: WorkspaceInlineSearchProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -107,42 +122,77 @@ export function WorkspaceInlineSearch({
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [isOpen]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key !== "/" ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        isEditableTarget(event.target)
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      inputRef.current?.focus();
+
+      if (query.trim()) {
+        setIsOpen(true);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [query]);
+
   const close = () => setIsOpen(false);
 
   return (
     <div ref={rootRef} className={cn("relative w-full min-w-0", className)}>
       <Command
         shouldFilter={false}
-        className="overflow-visible bg-transparent text-white"
+        className="overflow-visible bg-transparent text-white [&_[cmdk-input-wrapper]_svg]:hidden"
         onKeyDown={(event) => {
           if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
             close();
             inputRef.current?.blur();
           }
         }}
       >
-        <CommandInput
-          ref={inputRef}
-          value={query}
-          onValueChange={(value) => {
-            setQuery(value);
-            setIsOpen(value.trim().length > 0);
-          }}
-          onFocus={() => {
-            if (query.trim()) {
-              setIsOpen(true);
-            }
-          }}
-          placeholder={placeholder}
-          aria-label={placeholder}
-          className={cn(
-            "h-10 rounded-full border border-white/10 bg-white/[0.04] pr-3 text-sm text-white placeholder:text-white/35 focus-visible:ring-0",
-            hasScopeChip ? "pl-[9.35rem]" : "pl-1",
-          )}
-        />
+        <TooltipProvider delayDuration={150}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <CommandInput
+                  ref={inputRef}
+                  value={query}
+                  onValueChange={(value) => {
+                    setQuery(value);
+                    setIsOpen(value.trim().length > 0);
+                  }}
+                  onFocus={() => {
+                    if (query.trim()) {
+                      setIsOpen(true);
+                    }
+                  }}
+                  placeholder={placeholder}
+                  aria-label={placeholder}
+                  className={cn(
+                    "h-10 rounded-full border border-white/10 bg-white/[0.04] pr-4 text-sm text-white placeholder:text-white/35 focus-visible:ring-0",
+                    hasScopeChip ? "pl-[8.85rem]" : "pl-4",
+                  )}
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="top">Press / to search</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         {hasScopeChip ? (
-          <div className="pointer-events-none absolute inset-y-0 left-3 z-10 flex items-center">
-            <span className="pointer-events-auto inline-flex max-w-[8rem] items-center gap-1 rounded-full border border-white/12 bg-white/10 px-2 py-1 text-xs font-medium text-white/88">
+          <div className="pointer-events-none absolute inset-y-0 left-[1.22rem] z-10 flex items-center">
+            <span className="pointer-events-auto relative -top-px inline-flex max-w-[8rem] items-center gap-1 rounded-full border border-white/12 bg-white/10 px-2 py-1 text-xs font-medium text-white/88">
               <span className="truncate">{activeScopedProject.name}</span>
               <button
                 type="button"

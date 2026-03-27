@@ -84,7 +84,7 @@ describe("WorkspaceInlineSearch", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Search"), {
+    fireEvent.change(screen.getByLabelText("/ Search"), {
       target: { value: "aluminum" },
     });
 
@@ -120,7 +120,7 @@ describe("WorkspaceInlineSearch", () => {
 
     expect(screen.getByText("QB00001")).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("Search"), {
+    fireEvent.change(screen.getByLabelText("/ Search"), {
       target: { value: "valve" },
     });
 
@@ -129,5 +129,24 @@ describe("WorkspaceInlineSearch", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear QB00001 search scope" }));
 
     expect(await screen.findByText("VALV-001 rev B")).toBeTruthy();
+  });
+
+  it("focuses the input when pressing slash outside editable fields", () => {
+    render(
+      <WorkspaceInlineSearch
+        projects={[{ id: "project-1", name: "QB00001", partCount: 1 }]}
+        jobs={[makeJob()]}
+        summariesByJobId={new Map<string, JobPartSummary>([["job-1", makeSummary()]])}
+        onSelectProject={vi.fn()}
+        onSelectPart={vi.fn()}
+      />,
+    );
+
+    const searchInput = screen.getByLabelText("/ Search");
+    expect(document.activeElement).not.toBe(searchInput);
+
+    fireEvent.keyDown(document.body, { key: "/" });
+
+    expect(document.activeElement).toBe(searchInput);
   });
 });

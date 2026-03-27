@@ -741,6 +741,15 @@ describe("ClientProject", () => {
     expect(screen.getByText("Drawing")).toBeInTheDocument();
     expect(screen.queryByText("Line item detail")).not.toBeInTheDocument();
 
+    const searchInput = screen.getByLabelText("/ Search");
+    searchInput.focus();
+    expect(document.activeElement).toBe(searchInput);
+
+    fireEvent.keyDown(searchInput, { key: "Escape" });
+
+    expect(document.activeElement).not.toBe(searchInput);
+    expect(screen.getByRole("button", { name: "Clear selected part" })).toBeInTheDocument();
+
     fireEvent.keyDown(window, { key: "Escape" });
 
     expect(screen.queryByText("Quotes")).not.toBeInTheDocument();
@@ -1237,7 +1246,7 @@ describe("ClientProject", () => {
     renderWithClient("/projects/project-1");
 
     expect(await screen.findByTestId("shell-top-right")).toBeInTheDocument();
-    expect(screen.getByLabelText("Search")).toBeInTheDocument();
+    expect(screen.getByLabelText("/ Search")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Search project parts" })).not.toBeInTheDocument();
   });
 
@@ -1349,7 +1358,7 @@ describe("ClientProject", () => {
 
     renderWithClient("/projects/project-1");
 
-    const searchInput = (await screen.findByLabelText("Search")) as HTMLInputElement;
+    const searchInput = (await screen.findByLabelText("/ Search")) as HTMLInputElement;
     fireEvent.change(searchInput, { target: { value: "valve" } });
 
     fireEvent.click(screen.getByRole("button", { name: "Clear Bracket Project search scope" }));
@@ -1362,7 +1371,7 @@ describe("ClientProject", () => {
       expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-2");
     });
 
-    fireEvent.change(screen.getByLabelText("Search"), {
+    fireEvent.change(screen.getByLabelText("/ Search"), {
       target: { value: "housing" },
     });
     fireEvent.click(screen.getByText("VALV-001 rev B"));
