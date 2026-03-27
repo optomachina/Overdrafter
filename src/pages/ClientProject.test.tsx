@@ -1233,15 +1233,13 @@ describe("ClientProject", () => {
     expect(await screen.findByRole("button", { name: "Using domestic quotes for all parts" })).toBeInTheDocument();
   });
 
-  it("renders a project-level due by control with override helper text", async () => {
+  it("renders a project-level due by control with the inline due-by label", async () => {
     api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([buildWorkspaceItemWithQuotes()]);
 
     renderWithClient("/projects/project-1");
 
     expect(await screen.findByLabelText("Due by")).toBeInTheDocument();
-    expect(
-      screen.getByText("Applies to this project unless a part has its own requested-by date."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("DUE BY:")).toBeInTheDocument();
   });
 
   it("hides late project quotes in the inspector when the project due date is tightened", async () => {

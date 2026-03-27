@@ -139,29 +139,23 @@ function RoundGlobeIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 32 32" className={className} aria-hidden>
       <defs>
-        <clipPath id="earth-circle">
-          <circle cx="16" cy="16" r="16" />
-        </clipPath>
+        <radialGradient id="project-globe-ocean" cx="34%" cy="29%" r="72%">
+          <stop offset="0%" stopColor="#92d5ff" />
+          <stop offset="50%" stopColor="#3b82f6" />
+          <stop offset="100%" stopColor="#1d4ed8" />
+        </radialGradient>
       </defs>
-      <g clipPath="url(#earth-circle)">
-        <rect width="32" height="32" fill="#2f80ed" />
-        <path
-          d="M7.9 11.2c1.7-2.7 4.9-4.5 8.1-4.5 1.2 0 2.3.3 3.2.8 1.1.7 1.7 1.8 1.7 2.8 0 1.3-.8 2.1-1.8 2.6-.8.6-1.8.9-2.7 1.3-.9.5-1.7 1.2-1.8 2.6-.1 1.1.4 2.2.1 3.1-.4 1.2-1.7 2-3.1 2-3.3 0-5.4-2.4-5.4-5.5 0-1.8.6-3.6 1.7-5.2Z"
-          fill="#34c759"
-        />
-        <path
-          d="M18.6 8.7c1.1-.3 2.5-.1 3.7.7 2.8 1.7 4.5 4.6 4.5 7.6 0 3.3-2 6.3-5.1 8-.6.3-1.1.5-1.7.6-.8.2-1.7.1-2.2-.4-.6-.7-.4-1.7-.1-2.5.3-.8.8-1.7.7-2.6-.1-1-.7-1.8-1-2.8-.4-1.1-.2-2.2.5-3 .7-.8 1.8-1.1 2.9-1.3.9-.2 1.8-.3 2.4-.9.6-.6.6-1.7.1-2.7-.7-1.1-1.7-1.9-2.8-2.3Z"
-          fill="#28a745"
-        />
-        <path
-          d="M23.1 21.5c.7.3 1.3.7 1.8 1.3.4.5.7 1.1.7 1.8 0 .5-.1.9-.3 1.4-.8.5-1.5.8-2.4 1.1-.5-.1-.8-.4-1-.8-.4-.7-.1-1.6.2-2.2.2-.6.5-1 .9-1.5Z"
-          fill="#3ddc84"
-        />
-        <path
-          d="M13.2 23.3c.9.1 1.7.6 2.2 1.2.4.6.6 1.4.5 2.1-.1.4-.2.7-.4 1-.8-.1-1.7-.3-2.5-.7-.5-.6-.7-1.4-.6-2 .1-.7.3-1.2.8-1.6Z"
-          fill="#3ddc84"
-        />
-      </g>
+      <circle cx="16" cy="16" r="16" fill="#0b1224" />
+      <circle cx="16" cy="16" r="12" fill="url(#project-globe-ocean)" />
+      <path
+        d="M9.8 10.8c1.5-1.5 3.6-2.3 5.8-2.3 1.5 0 2.9.4 4 .9 1 .5 1.4 1.7 1.1 2.7l-.3 1c-.2.7 0 1.5.6 2l1.1 1c.6.5 1.4.8 2.2.7l.7-.1c0 1.2-.2 2.3-.7 3.4l-1.3.4c-.8.3-1.4.8-1.8 1.6l-.6 1.2c-.4.8-1.3 1.3-2.2 1.3h-1.2c-.8 0-1.6-.4-2.1-1l-1.1-1.4c-.5-.7-.8-1.6-.7-2.5l.2-1.2c.1-.8-.3-1.6-1-2l-1.8-1.1c-.8-.5-1.2-1.3-1.2-2.3 0-1.3.4-2.5 1.1-3.6Z"
+        fill="#34d399"
+      />
+      <path
+        d="M21.6 18.7c1.2.2 2.4.8 3.3 1.7-.6 1.2-1.5 2.3-2.7 3l-1.4.1c-.8 0-1.5-.4-1.9-1.1l-.5-1c-.4-.9 0-1.9.9-2.3l1-.3c.4-.2.8-.2 1.3-.1Z"
+        fill="#16a34a"
+      />
+      <circle cx="16" cy="16" r="11.85" fill="none" stroke="#e0f2fe" strokeWidth="1.1" opacity="0.9" />
     </svg>
   );
 }
@@ -736,18 +730,30 @@ const ClientProject = () => {
                     </Button>
                   </div>
 
-                  <div className="ml-auto flex flex-col gap-1 sm:items-end">
-                    <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-white/45" htmlFor="project-due-by">
-                      Due by
-                    </label>
+                  <div className="ml-auto flex items-center gap-2">
+                    <TooltipProvider delayDuration={150}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <label
+                            className="cursor-help text-[11px] font-medium uppercase tracking-[0.14em] text-white/45"
+                            htmlFor="project-due-by"
+                          >
+                            DUE BY:
+                          </label>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          Applies to this project unless a part has its own requested-by date.
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                     <div className="flex items-center gap-2">
                       <Input
                         id="project-due-by"
                         type="date"
                         value={projectDueByDate ?? ""}
                         onChange={(event) => setProjectDueByDate(event.target.value || null)}
-                        className="h-8 w-[152px] border-white/10 bg-white/[0.03] px-2.5 text-sm text-white focus-visible:ring-white/20"
-                        aria-describedby="project-due-by-help"
+                        aria-label="Due by"
+                        className="h-8 w-[7.6rem] appearance-none rounded-full border-white/10 bg-white/[0.03] px-2 text-center text-sm text-white focus-visible:ring-white/20 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-70 [&::-webkit-date-and-time-value]:text-center [&::-webkit-datetime-edit]:flex [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:items-center [&::-webkit-datetime-edit]:justify-center [&::-webkit-datetime-edit]:text-center [&::-webkit-datetime-edit-fields-wrapper]:flex [&::-webkit-datetime-edit-fields-wrapper]:w-full [&::-webkit-datetime-edit-fields-wrapper]:justify-center"
                       />
                       {projectDueByDate ? (
                         <Button
@@ -761,9 +767,6 @@ const ClientProject = () => {
                         </Button>
                       ) : null}
                     </div>
-                    <p id="project-due-by-help" className="text-[11px] text-white/40">
-                      Applies to this project unless a part has its own requested-by date.
-                    </p>
                   </div>
                 </div>
               </div>

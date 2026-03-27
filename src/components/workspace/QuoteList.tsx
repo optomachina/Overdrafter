@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { CircleOff, SlidersHorizontal, TriangleAlert } from "lucide-react";
+import { CircleOff, Pencil, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { QuotePreset, ClientQuoteSelectionOption } from "@/features/quotes/selection";
 import type { QuoteDataStatus, QuoteDiagnostics } from "@/features/quotes/types";
@@ -13,6 +13,7 @@ type QuoteListProps = {
   selectedOfferId: string | null;
   onSelect: (offerId: string | null) => void;
   requestedByDate?: string | null;
+  onEditRequestedByDate?: () => void;
   quoteDataStatus: QuoteDataStatus;
   quoteDataMessage?: string | null;
   quoteDiagnostics: QuoteDiagnostics;
@@ -73,6 +74,7 @@ export function QuoteList({
   selectedOfferId,
   onSelect,
   requestedByDate = null,
+  onEditRequestedByDate,
   quoteDataStatus,
   quoteDataMessage = null,
   quoteDiagnostics,
@@ -247,8 +249,26 @@ export function QuoteList({
             {preset.label}
           </Button>
         ))}
-        {requestedByDate ? (
-          <span className="ml-auto text-[11px] text-white/40">Need-by {requestedByDate}</span>
+        {requestedByDate || onEditRequestedByDate ? (
+          <div className="ml-auto flex items-center gap-2">
+            {requestedByDate ? (
+              <span className="text-[11px] text-white/40">Need-by {requestedByDate}</span>
+            ) : (
+              <span className="text-[11px] text-white/30">No need-by date</span>
+            )}
+            {onEditRequestedByDate ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 rounded-full border border-white/10 px-2.5 text-[11px] text-white/60 hover:bg-white/6 hover:text-white"
+                onClick={onEditRequestedByDate}
+              >
+                <Pencil className="mr-1.5 h-3 w-3" />
+                Edit
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </div>
 

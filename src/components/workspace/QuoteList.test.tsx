@@ -105,6 +105,7 @@ describe("QuoteList", () => {
         selectedOfferId={null}
         onSelect={vi.fn()}
         requestedByDate="2026-04-15"
+        onEditRequestedByDate={vi.fn()}
         quoteDataStatus="available"
         quoteDataMessage={null}
         quoteDiagnostics={makeDiagnostics()}
@@ -119,6 +120,30 @@ describe("QuoteList", () => {
     expect(screen.getByText("Best $55.00")).toBeInTheDocument();
     expect(screen.getByText("Fastest 3 bd")).toBeInTheDocument();
     expect(screen.getByText("Need-by 2026-04-15")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /edit/i })).toBeInTheDocument();
+  });
+
+  it("exposes a need-by edit action when provided", () => {
+    const onEditRequestedByDate = vi.fn();
+
+    render(
+      <QuoteList
+        quotes={[makeQuote()]}
+        selectedOfferId={null}
+        onSelect={vi.fn()}
+        requestedByDate="2026-04-15"
+        onEditRequestedByDate={onEditRequestedByDate}
+        quoteDataStatus="available"
+        quoteDataMessage={null}
+        quoteDiagnostics={makeDiagnostics()}
+        activePreset={null}
+        onPresetSelect={vi.fn()}
+        onToggleVendorExclusion={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /edit/i }));
+    expect(onEditRequestedByDate).toHaveBeenCalledTimes(1);
   });
 
   it("toggles selected rows and select buttons through the shared onSelect contract", () => {
