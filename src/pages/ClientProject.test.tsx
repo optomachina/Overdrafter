@@ -208,8 +208,52 @@ vi.mock("@/components/quotes/ClientQuoteAssetPanels", () => ({
   ClientDrawingPreviewPanel: () => <div>Drawing</div>,
 }));
 
-vi.mock("@/components/workspace/QuoteChart", () => ({
-  QuoteChart: () => <div>Quote Chart</div>,
+vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
+  ClientQuoteDecisionPanel: ({
+    title,
+    quoteDataStatus,
+    quoteDataMessage,
+    emptyState,
+    options,
+  }: {
+    title?: string;
+    quoteDataStatus?: string;
+    quoteDataMessage?: string | null;
+    emptyState?: string;
+    options?: Array<{ vendorLabel?: string }>;
+  }) => {
+    const deadlinePrefix = "No quotes meet the due date.";
+    const deadlineDetail =
+      emptyState && emptyState.startsWith(deadlinePrefix)
+        ? emptyState.slice(deadlinePrefix.length).trim()
+        : null;
+
+    return (
+      <div data-testid="quote-decision-panel">
+        {title ? <div>{title}</div> : null}
+        {quoteDataStatus === "schema_unavailable" ? (
+          <>
+            <div>Quote comparison is unavailable</div>
+            {quoteDataMessage ? <div>{quoteDataMessage}</div> : null}
+          </>
+        ) : quoteDataStatus === "invalid_for_plotting" ? (
+          <>
+            <div>Quote rows were loaded but could not be plotted</div>
+            {quoteDataMessage ? <div>{quoteDataMessage}</div> : null}
+          </>
+        ) : options && options.length > 0 ? (
+          options.map((option, index) => <div key={`${option.vendorLabel}-${index}`}>{option.vendorLabel}</div>)
+        ) : deadlineDetail ? (
+          <>
+            <div>No quotes meet the due date</div>
+            <div>{deadlineDetail}</div>
+          </>
+        ) : emptyState ? (
+          <div>{emptyState}</div>
+        ) : null}
+      </div>
+    );
+  },
 }));
 
 function buildProjectTree(initialEntry: string, queryClient: QueryClient) {

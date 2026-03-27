@@ -8,6 +8,8 @@ import type {
 import { formatVendorName, getImportedVendorOffers } from "@/features/quotes/utils";
 
 export type QuotePreset = "cheapest" | "fastest" | "domestic" | "cheapest_domestic" | "fastest_domestic" | "cheapest_global" | "fastest_global";
+export type QuotePresetScope = "domestic" | "global";
+export type QuotePresetMode = "cheapest" | "fastest";
 
 export type DomesticStatus = "domestic" | "foreign" | "unknown";
 
@@ -719,6 +721,37 @@ export function sortQuoteOptionsForPreset(
   const fallbacks = options.filter((option) => !isPresetCandidate(option, preset)).sort(defaultDisplayComparator);
 
   return [...candidates, ...fallbacks];
+}
+
+export function getPresetScope(preset: QuotePreset | null): QuotePresetScope {
+  if (
+    preset === null ||
+    preset === "cheapest" ||
+    preset === "fastest" ||
+    preset === "domestic" ||
+    preset === "cheapest_domestic" ||
+    preset === "fastest_domestic"
+  ) {
+    return "domestic";
+  }
+
+  return "global";
+}
+
+export function getPresetMode(preset: QuotePreset | null): QuotePresetMode {
+  if (preset === "fastest" || preset === "fastest_domestic" || preset === "fastest_global") {
+    return "fastest";
+  }
+
+  return "cheapest";
+}
+
+export function buildScopedPreset(mode: QuotePresetMode, scope: QuotePresetScope): QuotePreset {
+  if (mode === "fastest") {
+    return scope === "domestic" ? "fastest_domestic" : "fastest_global";
+  }
+
+  return scope === "domestic" ? "cheapest_domestic" : "cheapest_global";
 }
 
 export function filterVisibleQuoteOptions(

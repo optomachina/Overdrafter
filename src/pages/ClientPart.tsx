@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   Archive,
   Bell,
-  CalendarClock,
   Copy,
   FolderInput,
   History,
@@ -19,13 +18,12 @@ import {
 } from "lucide-react";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
+import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { CadPanel } from "@/components/workspace/CadPanel";
+import { QuoteSelectionFunctionBar } from "@/components/quotes/QuoteSelectionFunctionBar";
 import { PartInfoPanel } from "@/components/workspace/PartInfoPanel";
 import { PdfPanel } from "@/components/workspace/PdfPanel";
-import { QuoteChart } from "@/components/workspace/QuoteChart";
-import { QuoteList } from "@/components/workspace/QuoteList";
-import { QuoteStatBar } from "@/components/workspace/QuoteStatBar";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
@@ -62,13 +60,13 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import { useClientPartController } from "@/features/quotes/use-client-part-controller";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
+import { buildScopedPreset, getPresetMode, getPresetScope } from "@/features/quotes/selection";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -91,26 +89,6 @@ function CommentCard({ comment }: { comment: LocalComment }) {
       <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-white/65">{comment.body}</p>
     </article>
   );
-}
-
-const QUICK_DUE_DATE_PRESETS = [
-  { label: "Tomorrow", days: 1 },
-  { label: "In 3 days", days: 3 },
-  { label: "Next week", days: 7 },
-  { label: "In 2 weeks", days: 14 },
-] as const;
-
-function formatDateInputValue(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function addDays(base: Date, days: number): string {
-  const next = new Date(base);
-  next.setDate(next.getDate() + days);
-  return formatDateInputValue(next);
 }
 
 function getStoredCommentsKey(storageScopeKey: string, jobId: string): string {
@@ -278,8 +256,6 @@ const ClientPart = () => {
   const [comments, setComments] = useState<LocalComment[]>([]);
   const [commentDraft, setCommentDraft] = useState("");
   const [showCancelRequestDialog, setShowCancelRequestDialog] = useState(false);
-  const [isDueDateDialogOpen, setIsDueDateDialogOpen] = useState(false);
-  const [dueDateDraft, setDueDateDraft] = useState(requestSummaryRequestedByDate ?? "");
   const [isSubscribed, setIsSubscribed] = useState(true);
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
 
@@ -291,10 +267,6 @@ const ClientPart = () => {
     setComments(readStoredComments(storageScopeKey, jobId));
     setIsSubscribed(readStoredSubscribed(storageScopeKey, jobId));
   }, [jobId, storageScopeKey]);
-
-  useEffect(() => {
-    setDueDateDraft(requestSummaryRequestedByDate ?? "");
-  }, [requestSummaryRequestedByDate]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -372,6 +344,12 @@ const ClientPart = () => {
     setSelectedOfferId(offerId);
     handleSelectQuoteOption(nextOption);
   };
+  const partPresetScope = getPresetScope(activePreset);
+  const partPresetMode = getPresetMode(activePreset);
+
+  const applyPartPreset = (mode: "cheapest" | "fastest", scope: "domestic" | "global") => {
+    handlePresetSelection(buildScopedPreset(mode, scope));
+  };
 
   const breadcrumbProject = projectMemberships[0]?.project ?? null;
   const isFavorite = pinnedJobIds.includes(jobId);
@@ -414,12 +392,6 @@ const ClientPart = () => {
     setIsSubscribed(next);
     writeStoredSubscribed(storageScopeKey, jobId, next);
     toast.success(next ? "Subscribed to updates." : "Unsubscribed from updates.");
-  };
-  const handleSaveDueDate = () => {
-    handleSaveRequestPatch({
-      requestedByDate: dueDateDraft.trim().length > 0 ? dueDateDraft : null,
-    });
-    setIsDueDateDialogOpen(false);
   };
 
   return (
@@ -664,16 +636,6 @@ const ClientPart = () => {
                           onSelect={(event) => {
                             event.preventDefault();
                             setIsPartOptionsOpen(false);
-                            setIsDueDateDialogOpen(true);
-                          }}
-                        >
-                          <CalendarClock className="mr-2 h-4 w-4" />
-                          Set due date
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={(event) => {
-                            event.preventDefault();
-                            setIsPartOptionsOpen(false);
                             toast.message("Make a copy is not wired for part workspaces yet.");
                           }}
                         >
@@ -752,24 +714,30 @@ const ClientPart = () => {
               />
 
               <div className="flex flex-col gap-4">
-                <QuoteStatBar quotes={rankedQuoteOptions} />
-                <QuoteChart
-                  quotes={rankedQuoteOptions}
-                  selectedOfferId={selectedOfferId}
-                  onSelect={handleWorkspaceOfferSelect}
-                />
-                <QuoteList
-                  quotes={rankedQuoteOptions}
-                  selectedOfferId={selectedOfferId}
-                  onSelect={handleWorkspaceOfferSelect}
+                <ClientQuoteDecisionPanel
+                  options={rankedQuoteOptions}
+                  selectedOption={
+                    rankedQuoteOptions.find((option) => option.offerId === selectedOfferId) ?? selectedQuoteOption
+                  }
+                  onSelect={(option) => handleWorkspaceOfferSelect(option.offerId)}
                   requestedByDate={requestSummaryRequestedByDate}
-                  onEditRequestedByDate={() => setIsDueDateDialogOpen(true)}
                   quoteDataStatus={quoteDataStatus}
                   quoteDataMessage={quoteDataMessage}
                   quoteDiagnostics={quoteDiagnostics}
                   activePreset={activePreset}
-                  onPresetSelect={handlePresetSelection}
                   onToggleVendorExclusion={handleToggleVendorExclusion}
+                  controls={
+                    <QuoteSelectionFunctionBar
+                      scope={partPresetScope}
+                      mode={partPresetMode}
+                      requestedByDate={requestSummaryRequestedByDate}
+                      onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
+                      onModeChange={(nextMode) => applyPartPreset(nextMode, partPresetScope)}
+                      onRequestedByDateChange={(nextDate) => handleSaveRequestPatch({ requestedByDate: nextDate })}
+                      disabled={saveRequestMutation.isPending}
+                      dueDateHelpText="Applies to this part request and updates quote eligibility immediately."
+                    />
+                  }
                 />
                 <PartInfoPanel
                   part={partDetail.part}
@@ -1004,60 +972,6 @@ const ClientPart = () => {
               onClick={() => setShowMoveDialog(false)}
             >
               Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isDueDateDialogOpen} onOpenChange={setIsDueDateDialogOpen}>
-        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
-          <DialogHeader>
-            <DialogTitle>Set due date</DialogTitle>
-            <DialogDescription className="text-white/55">
-              Match the Linear issue action with quick-select dates or a typed date.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-2">
-              {QUICK_DUE_DATE_PRESETS.map((preset) => (
-                <Button
-                  key={preset.label}
-                  type="button"
-                  variant="outline"
-                  className="justify-start border-white/10 bg-transparent text-white hover:bg-white/6"
-                  onClick={() => setDueDateDraft(addDays(new Date(), preset.days))}
-                >
-                  {preset.label}
-                </Button>
-              ))}
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="part-due-date" className="text-sm font-medium text-white/78">
-                Due date
-              </label>
-              <Input
-                id="part-due-date"
-                type="date"
-                value={dueDateDraft}
-                onChange={(event) => setDueDateDraft(event.target.value)}
-                className="border-white/10 bg-[#171717] text-white"
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              className="border-white/10 bg-transparent text-white hover:bg-white/6"
-              onClick={() => setDueDateDraft("")}
-            >
-              Clear
-            </Button>
-            <Button type="button" onClick={handleSaveDueDate}>
-              Save due date
             </Button>
           </DialogFooter>
         </DialogContent>

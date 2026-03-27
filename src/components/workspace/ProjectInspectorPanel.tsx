@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { CircleOff, TriangleAlert, X } from "lucide-react";
+import { X } from "lucide-react";
 import {
   ClientCadPreviewPanel,
   ClientDrawingPreviewPanel,
 } from "@/components/quotes/ClientQuoteAssetPanels";
+import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
 import { Button } from "@/components/ui/button";
-import { QuoteChart } from "@/components/workspace/QuoteChart";
 import { filterVisibleQuoteOptions } from "@/features/quotes/selection";
 import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
 import type {
@@ -22,26 +22,6 @@ function propertyValue(value: string | number | null | undefined) {
   }
 
   return String(value);
-}
-
-function QuoteStatusCard({
-  title,
-  body,
-  tone = "neutral",
-}: {
-  title: string;
-  body: string;
-  tone?: "neutral" | "warning";
-}) {
-  const Icon = tone === "warning" ? TriangleAlert : CircleOff;
-
-  return (
-    <div className="rounded-lg border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-white/55">
-      <Icon className="h-4 w-4 text-white/35" />
-      <p className="mt-3 font-medium text-white/80">{title}</p>
-      <p className="mt-2">{body}</p>
-    </div>
-  );
 }
 
 type ProjectInspectorPanelProps = {
@@ -111,6 +91,10 @@ export function ProjectInspectorPanel({
   const [highlightedFeatureIds, setHighlightedFeatureIds] = useState<string[]>([]);
   const visibleQuoteOptions = filterVisibleQuoteOptions(quoteOptions, requestedByDate);
   const deadlineFiltered = Boolean(requestedByDate) && quoteOptions.length > 0 && visibleQuoteOptions.length === 0;
+  const selectedOption =
+    visibleQuoteOptions.find((option) => option.offerId === selectedOfferId) ??
+    visibleQuoteOptions.find((option) => option.persistedOfferId === selectedOfferId) ??
+    null;
 
   if (mode === "empty") {
     return (
@@ -224,56 +208,24 @@ export function ProjectInspectorPanel({
       </section>
 
       <section className="rounded-lg border border-white/10 bg-black/20 p-5">
-        <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Quotes</p>
-          <p className="mt-2 text-sm text-white/55">
-            Compare vendor offers here and select the quote to keep without leaving the project ledger.
-          </p>
-        </div>
-        <div className="mt-4">
-          {quoteDataStatus === "schema_unavailable" ? (
-            <QuoteStatusCard
-              title="Quote comparison is unavailable"
-              body={quoteDataMessage ?? "The quote workspace projection is unavailable in this environment."}
-              tone="warning"
-            />
-          ) : quoteDataStatus === "invalid_for_plotting" ? (
-            <QuoteStatusCard
-              title="Quote rows were loaded but need review"
-              body={quoteDataMessage ?? "Quote rows were loaded but could not be plotted."}
-              tone="warning"
-            />
-          ) : visibleQuoteOptions.length > 0 ? (
-            <QuoteChart
-              quotes={visibleQuoteOptions}
-              selectedOfferId={selectedOfferId}
-              onSelect={onSelectQuote ?? (() => {})}
-              onHoverOffer={(offerId) => {
-                if (!offerId || !geometryProjection?.scene.primitives.length) {
-                  setHighlightedFeatureIds([]);
-                  return;
-                }
-
-                const hash = [...offerId].reduce((total, char) => total + char.charCodeAt(0), 0);
-                const primitive = geometryProjection.scene.primitives[hash % geometryProjection.scene.primitives.length];
-                setHighlightedFeatureIds(primitive ? [primitive.id] : []);
-              }}
-            />
-          ) : deadlineFiltered ? (
-            <div className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-5 text-sm text-white/45">
-              <p className="font-medium text-white/80">No quotes meet the due date</p>
-              <p className="mt-2">
-                All current quote options arrive after {requestedByDate}. Adjust the project Due by date or use a
-                part-level override if this line item can ship later.
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-5 text-sm text-white/45">
-              {quoteEmptyStateTitle}
-              {quoteEmptyStateBody ? <p className="mt-2">{quoteEmptyStateBody}</p> : null}
-            </div>
-          )}
-        </div>
+        <ClientQuoteDecisionPanel
+          title="Quotes"
+          description="Compare vendor offers here and select the quote to keep without leaving the project ledger."
+          options={visibleQuoteOptions}
+          selectedOption={selectedOption}
+          onSelect={onSelectQuote ? (option) => onSelectQuote(option.offerId) : () => {}}
+          requestedByDate={requestedByDate}
+          quoteDataStatus={quoteDataStatus}
+          quoteDataMessage={quoteDataMessage}
+          layout="compact"
+          emptyState={
+            deadlineFiltered
+              ? `No quotes meet the due date. All current quote options arrive after ${requestedByDate}. Adjust the project Due by date or use a part-level override if this line item can ship later.`
+              : quoteEmptyStateBody
+                ? `${quoteEmptyStateTitle} ${quoteEmptyStateBody}`
+                : quoteEmptyStateTitle
+          }
+        />
       </section>
     </div>
   );
