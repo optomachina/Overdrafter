@@ -65,6 +65,56 @@ function QueryProvider({ children, queryClient = createQueryClient() }: PropsWit
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }
 
+function deferredPromise<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
+
+function makeJob(id: string, title: string) {
+  return {
+    id,
+    organization_id: "org-1",
+    project_id: null,
+    selected_vendor_quote_offer_id: null,
+    created_by: "user-1",
+    title,
+    description: null,
+    status: "uploaded",
+    source: "client",
+    active_pricing_policy_id: null,
+    tags: [],
+    requested_service_kinds: ["manufacturing_quote"],
+    primary_service_kind: "manufacturing_quote",
+    service_notes: null,
+    requested_quote_quantities: [1],
+    requested_by_date: null,
+    archived_at: null,
+    created_at: "2026-03-05T12:00:00.000Z",
+    updated_at: "2026-03-05T12:30:00.000Z",
+  } satisfies Parameters<typeof useWarmClientWorkspaceNavigation>[0]["jobs"][number];
+}
+
+function makeAccessibleProject(id: string, name: string) {
+  return {
+    project: {
+      id,
+      organization_id: "org-1",
+      name,
+      created_at: "2026-03-01T00:00:00.000Z",
+      updated_at: "2026-03-05T00:00:00.000Z",
+    },
+    partCount: 1,
+    inviteCount: 0,
+    currentUserRole: "owner",
+  };
+}
+
 function WarmNavigationProbe() {
   useWarmClientWorkspaceNavigation({
     enabled: true,
@@ -225,6 +275,87 @@ describe("useClientWorkspaceData", () => {
     });
     await act(async () => {
       resolveMemberships?.([
+        { job_id: "job-1", project_id: "project-1" },
+        { job_id: "job-2", project_id: "project-1" },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(result.current.accessibleJobs.map((job) => job.id)).toEqual(["job-1", "job-2"]);
+      expect(result.current.projectJobMemberships).toEqual([
+        { job_id: "job-1", project_id: "project-1" },
+        { job_id: "job-2", project_id: "project-1" },
+      ]);
+    });
+  });
+
+  it("preserves the last renderable workspace lists while refetch churn is unresolved", async () => {
+    const queryClient = createQueryClient();
+    const initialJobs = [makeJob("job-1", "Bracket")];
+    const initialProjects = [makeAccessibleProject("project-1", "Project One")];
+    const nextJobs = deferredPromise<typeof initialJobs>();
+    const nextProjects = deferredPromise<typeof initialProjects>();
+    const nextMemberships = deferredPromise<Array<{ job_id: string; project_id: string }>>();
+    let jobsCallCount = 0;
+    let projectsCallCount = 0;
+    let membershipsCallCount = 0;
+
+    fetchArchivedJobs.mockResolvedValue([]);
+    fetchArchivedProjects.mockResolvedValue([]);
+    fetchJobPartSummariesByJobIds.mockResolvedValue([]);
+    fetchSidebarPins.mockResolvedValue({ projectIds: [], jobIds: [] });
+    fetchAccessibleJobs.mockImplementation(() => {
+      jobsCallCount += 1;
+      return jobsCallCount === 1 ? Promise.resolve(initialJobs) : nextJobs.promise;
+    });
+    fetchAccessibleProjects.mockImplementation(() => {
+      projectsCallCount += 1;
+      return projectsCallCount === 1 ? Promise.resolve(initialProjects) : nextProjects.promise;
+    });
+    fetchProjectJobMembershipsByJobIds.mockImplementation(() => {
+      membershipsCallCount += 1;
+      return membershipsCallCount === 1
+        ? Promise.resolve([{ job_id: "job-1", project_id: "project-1" }])
+        : nextMemberships.promise;
+    });
+
+    const { result } = renderHook(
+      () =>
+        useClientWorkspaceData({
+          enabled: true,
+          userId: "user-1",
+          projectCollaborationUnavailable: false,
+        }),
+      {
+        wrapper: ({ children }) => <QueryProvider queryClient={queryClient}>{children}</QueryProvider>,
+      },
+    );
+
+    await waitFor(() => {
+      expect(result.current.accessibleJobs.map((job) => job.id)).toEqual(["job-1"]);
+      expect(result.current.accessibleProjects.map((project) => project.project.id)).toEqual(["project-1"]);
+      expect(result.current.projectJobMemberships).toEqual([{ job_id: "job-1", project_id: "project-1" }]);
+    });
+
+    await act(async () => {
+      void queryClient.refetchQueries({ queryKey: ["client-jobs"] });
+      void queryClient.refetchQueries({ queryKey: ["client-projects"] });
+      void queryClient.refetchQueries({ queryKey: ["client-project-job-memberships"] });
+    });
+
+    await waitFor(() => {
+      expect(fetchAccessibleJobs).toHaveBeenCalledTimes(2);
+      expect(fetchAccessibleProjects).toHaveBeenCalledTimes(2);
+      expect(fetchProjectJobMembershipsByJobIds).toHaveBeenCalledTimes(2);
+      expect(result.current.accessibleJobs.map((job) => job.id)).toEqual(["job-1"]);
+      expect(result.current.accessibleProjects.map((project) => project.project.id)).toEqual(["project-1"]);
+      expect(result.current.projectJobMemberships).toEqual([{ job_id: "job-1", project_id: "project-1" }]);
+    });
+
+    await act(async () => {
+      nextJobs.resolve([makeJob("job-1", "Bracket"), makeJob("job-2", "Plate")]);
+      nextProjects.resolve(initialProjects);
+      nextMemberships.resolve([
         { job_id: "job-1", project_id: "project-1" },
         { job_id: "job-2", project_id: "project-1" },
       ]);
