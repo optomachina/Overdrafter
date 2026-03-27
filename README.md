@@ -323,6 +323,12 @@ Seeded local users:
 - `admin.demo@overdrafter.local`
 - password: `Overdrafter123!`
 
+Dev-only instant login shortcut:
+
+- visit `http://localhost:8080/dev-login?redirect=/`
+- or run `npm run dev:login`
+- this only works in local development and signs in as the existing `dmrifles@gmail.com` auth user when that user exists in the connected database
+
 Fast E2E setup:
 
 ```bash
