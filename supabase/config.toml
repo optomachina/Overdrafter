@@ -4,6 +4,8 @@ project_id = "ozuatdcakezjtevztjlr"
 enabled = true
 site_url = "http://localhost:3000"
 additional_redirect_urls = [
+  "http://localhost:8080/**",
+  "http://127.0.0.1:8080/**",
   "https://4df4bbcc-252d-4ed5-879c-06ba36a68902.lovableproject.com/**",
   "https://id-preview--4df4bbcc-252d-4ed5-879c-06ba36a68902.lovable.app/**",
   "https://overdraft-drafting-site.lovable.app/**",
