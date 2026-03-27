@@ -161,6 +161,7 @@ export function useClientProjectController() {
   const [selectedOfferOverrides, setSelectedOfferOverrides] = useState<Record<string, string | null>>({});
   const [lastBulkAction, setLastBulkAction] = useState<BulkSelectionChange[]>([]);
   const [activePreset, setActivePreset] = useState<QuotePreset | null>(null);
+  const [projectDueByDate, setProjectDueByDate] = useState<string | null>(null);
   const [excludedVendorKeysByJobId, setExcludedVendorKeysByJobId] = useState<Record<string, VendorName[]>>({});
   const [requestDraftsByJobId, setRequestDraftsByJobId] = useState<Record<string, ClientPartRequestUpdateInput>>({});
   const [quoteQuantityInputsByJobId, setQuoteQuantityInputsByJobId] = useState<Record<string, string>>({});
@@ -323,6 +324,7 @@ export function useClientProjectController() {
             requestDraftsByJobId[jobId]?.requestedByDate ??
             workspaceItem.summary?.requestedByDate ??
             workspaceItem.job.requested_by_date ??
+            projectDueByDate ??
             null;
           const vendorLabels = buildVendorLabelMap(
             workspaceItem.part.vendorQuotes.map((quote) => quote.vendor),
@@ -352,7 +354,7 @@ export function useClientProjectController() {
           diagnostics: QuoteDiagnostics;
         }
       >,
-    [excludedVendorKeysByJobId, projectJobIds, requestDraftsByJobId, workspaceItemsByJobId],
+    [excludedVendorKeysByJobId, projectDueByDate, projectJobIds, requestDraftsByJobId, workspaceItemsByJobId],
   );
   const optionsByJobId = useMemo(
     () =>
@@ -423,6 +425,20 @@ export function useClientProjectController() {
   const canManageMembers = (projectSummary?.currentUserRole ?? "editor") === "owner";
   const canDissolveProject = canManageMembers;
   const focusedDraft = focusedJob ? requestDraftsByJobId[focusedJob.id] ?? null : null;
+  const focusedRequestedByDate =
+    focusedJob && focusedWorkspaceItem
+      ? requestDraftsByJobId[focusedJob.id]?.requestedByDate ??
+        focusedWorkspaceItem.summary?.requestedByDate ??
+        focusedWorkspaceItem.job.requested_by_date ??
+        projectDueByDate ??
+        null
+      : focusedJob
+        ? requestDraftsByJobId[focusedJob.id]?.requestedByDate ??
+          focusedSummary?.requestedByDate ??
+          focusedJob.requested_by_date ??
+          projectDueByDate ??
+          null
+        : null;
   const focusedQuoteQuantityInput = focusedJob ? quoteQuantityInputsByJobId[focusedJob.id] ?? "" : "";
   const focusedActivityEntries = useMemo<ActivityLogEntry[]>(() => {
     if (!focusedJob) {
@@ -1323,6 +1339,7 @@ export function useClientProjectController() {
     focusedQuoteDiagnostics,
     focusedQuoteOptions,
     focusedQuoteQuantityInput,
+    focusedRequestedByDate,
     focusedSelectedOption,
     focusedSummary,
     focusedWorkspaceItem,
@@ -1363,6 +1380,7 @@ export function useClientProjectController() {
     prefetchPart,
     prefetchProject,
     projectCollaborationUnavailable,
+    projectDueByDate,
     projectId,
     projectAssigneeLookupFailed,
     projectAssigneeLookupReady,
@@ -1388,6 +1406,7 @@ export function useClientProjectController() {
     setIsSearchOpen,
     setMobileDrawerOpen,
     setProjectName,
+    setProjectDueByDate,
     setShowAddPart,
     setShowArchive,
     setShowDissolve,

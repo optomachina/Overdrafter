@@ -5,6 +5,7 @@ import {
 } from "@/components/quotes/ClientQuoteAssetPanels";
 import { Button } from "@/components/ui/button";
 import { QuoteChart } from "@/components/workspace/QuoteChart";
+import { filterVisibleQuoteOptions } from "@/features/quotes/selection";
 import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
 import type { DrawingPreviewData, JobFileRecord, QuoteDataStatus } from "@/features/quotes/types";
 import { cn } from "@/lib/utils";
@@ -60,7 +61,10 @@ type ProjectInspectorPanelProps = {
   quoteDataStatus?: QuoteDataStatus;
   quoteDataMessage?: string | null;
   quoteOptions?: ClientQuoteSelectionOption[];
+  requestedByDate?: string | null;
   selectedOfferId?: string | null;
+  quoteEmptyStateTitle?: string;
+  quoteEmptyStateBody?: string;
   onSelectQuote?: (offerId: string | null) => void;
   onClear?: () => void;
 };
@@ -88,10 +92,16 @@ export function ProjectInspectorPanel({
   quoteDataStatus = "available",
   quoteDataMessage = null,
   quoteOptions = [],
+  requestedByDate = null,
   selectedOfferId = null,
+  quoteEmptyStateTitle = "No plottable quote offers are available for this part yet.",
+  quoteEmptyStateBody = "",
   onSelectQuote,
   onClear,
 }: ProjectInspectorPanelProps) {
+  const visibleQuoteOptions = filterVisibleQuoteOptions(quoteOptions, requestedByDate);
+  const deadlineFiltered = Boolean(requestedByDate) && quoteOptions.length > 0 && visibleQuoteOptions.length === 0;
+
   if (mode === "empty") {
     return (
       <div className={cn("space-y-4", className)}>
@@ -168,6 +178,10 @@ export function ProjectInspectorPanel({
             <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Lead time</p>
             <p className="mt-1 text-sm font-semibold text-white">{leadTimeLabel}</p>
           </div>
+          <div className="col-span-2 bg-black/40 px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Due by</p>
+            <p className="mt-1 text-sm font-medium text-white">{propertyValue(requestedByDate)}</p>
+          </div>
         </div>
       </div>
 
@@ -199,11 +213,24 @@ export function ProjectInspectorPanel({
               body={quoteDataMessage ?? "Quote rows were loaded but could not be plotted."}
               tone="warning"
             />
-          ) : quoteOptions.length > 0 ? (
-            <QuoteChart quotes={quoteOptions} selectedOfferId={selectedOfferId} onSelect={onSelectQuote ?? (() => {})} />
+          ) : visibleQuoteOptions.length > 0 ? (
+            <QuoteChart
+              quotes={visibleQuoteOptions}
+              selectedOfferId={selectedOfferId}
+              onSelect={onSelectQuote ?? (() => {})}
+            />
+          ) : deadlineFiltered ? (
+            <div className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-5 text-sm text-white/45">
+              <p className="font-medium text-white/80">No quotes meet the due date</p>
+              <p className="mt-2">
+                All current quote options arrive after {requestedByDate}. Adjust the project Due by date or use a
+                part-level override if this line item can ship later.
+              </p>
+            </div>
           ) : (
             <div className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-5 text-sm text-white/45">
-              No plottable quote offers are available for this part yet.
+              {quoteEmptyStateTitle}
+              {quoteEmptyStateBody ? <p className="mt-2">{quoteEmptyStateBody}</p> : null}
             </div>
           )}
         </div>

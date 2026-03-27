@@ -721,6 +721,17 @@ export function sortQuoteOptionsForPreset(
   return [...candidates, ...fallbacks];
 }
 
+export function filterVisibleQuoteOptions(
+  options: readonly ClientQuoteSelectionOption[],
+  requestedByDate?: string | null,
+): ClientQuoteSelectionOption[] {
+  if (!requestedByDate) {
+    return [...options];
+  }
+
+  return options.filter((option) => option.dueDateEligible);
+}
+
 export function pickPresetOption(
   options: readonly ClientQuoteSelectionOption[],
   preset: QuotePreset,

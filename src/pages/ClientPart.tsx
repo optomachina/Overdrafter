@@ -763,6 +763,7 @@ const ClientPart = () => {
                   selectedOfferId={selectedOfferId}
                   onSelect={handleWorkspaceOfferSelect}
                   requestedByDate={requestSummaryRequestedByDate}
+                  onEditRequestedByDate={() => setIsDueDateDialogOpen(true)}
                   quoteDataStatus={quoteDataStatus}
                   quoteDataMessage={quoteDataMessage}
                   quoteDiagnostics={quoteDiagnostics}

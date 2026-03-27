@@ -1242,6 +1242,124 @@ describe("ClientProject", () => {
     expect(await screen.findByRole("button", { name: "Using domestic quotes for all parts" })).toBeInTheDocument();
   });
 
+  it("renders a project-level due by control with the inline due-by label", async () => {
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([buildWorkspaceItemWithQuotes()]);
+
+    renderWithClient("/projects/project-1");
+
+    expect(await screen.findByLabelText("Due by")).toBeInTheDocument();
+    expect(screen.getByText("DUE BY:")).toBeInTheDocument();
+  });
+
+  it("hides late project quotes in the inspector when the project due date is tightened", async () => {
+    const workspaceItem = buildWorkspaceItemWithQuotes();
+    workspaceItem.job.requested_by_date = null;
+    workspaceItem.summary.requestedByDate = null;
+    workspaceItem.part.approvedRequirement!.requested_by_date = null;
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([workspaceItem]);
+
+    renderWithClient("/projects/project-1");
+
+    fireEvent.click(await screen.findByRole("button", { name: /open .* line item/i }));
+    expect(screen.getByText("Quotes")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Due by"), { target: { value: "2026-04-12" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("2026-04-12")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("No quotes meet the due date")).not.toBeInTheDocument();
+  });
+
+  it("shows a deadline-aware empty state when all project quotes miss the due date", async () => {
+    const workspaceItem = buildWorkspaceItemWithQuotes();
+    workspaceItem.job.requested_by_date = null;
+    workspaceItem.summary.requestedByDate = null;
+    workspaceItem.part.approvedRequirement!.requested_by_date = null;
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([workspaceItem]);
+
+    renderWithClient("/projects/project-1");
+
+    fireEvent.click(await screen.findByRole("button", { name: /open .* line item/i }));
+    fireEvent.change(screen.getByLabelText("Due by"), { target: { value: "2026-04-09" } });
+
+    expect(await screen.findByText("No quotes meet the due date")).toBeInTheDocument();
+    expect(
+      screen.getByText(/All current quote options arrive after 2026-04-09/i),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps part-level requested dates as overrides over the project due date", async () => {
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([buildWorkspaceItemWithQuotes()]);
+
+    renderWithClient("/projects/project-1");
+
+    fireEvent.click(await screen.findByRole("button", { name: /open .* line item/i }));
+    fireEvent.change(screen.getByLabelText("Due by"), { target: { value: "2026-04-09" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("2026-04-15")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("No quotes meet the due date")).not.toBeInTheDocument();
+  });
+
+  it("applies the cheap bulk preset using the cheapest in-time quote", async () => {
+    const workspaceItem = buildWorkspaceItemWithQuotes();
+    workspaceItem.job.requested_by_date = null;
+    workspaceItem.summary.requestedByDate = null;
+    workspaceItem.part.approvedRequirement!.requested_by_date = null;
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([workspaceItem]);
+
+    renderWithClient("/projects/project-1");
+
+    fireEvent.change(await screen.findByLabelText("Due by"), { target: { value: "2026-04-12" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cheap" }));
+
+    await waitFor(() => {
+      expect(api.setJobSelectedVendorQuoteOffer).toHaveBeenCalledWith("job-1", "offer-domestic");
+    });
+  });
+
+  it("applies the fast bulk preset using the fastest in-time quote", async () => {
+    const workspaceItem = buildWorkspaceItemWithQuotes();
+    workspaceItem.job.requested_by_date = null;
+    workspaceItem.summary.requestedByDate = null;
+    workspaceItem.part.approvedRequirement!.requested_by_date = null;
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([workspaceItem]);
+
+    renderWithClient("/projects/project-1");
+
+    fireEvent.change(await screen.findByLabelText("Due by"), { target: { value: "2026-04-15" } });
+    fireEvent.click(screen.getByRole("button", { name: "Fast" }));
+
+    await waitFor(() => {
+      expect(api.setJobSelectedVendorQuoteOffer).toHaveBeenCalledWith("job-1", "offer-domestic");
+    });
+  });
+
+  it("restores the full quote list when the project due date is cleared", async () => {
+    const workspaceItem = buildWorkspaceItemWithQuotes();
+    workspaceItem.job.requested_by_date = null;
+    workspaceItem.summary.requestedByDate = null;
+    workspaceItem.part.approvedRequirement!.requested_by_date = null;
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([workspaceItem]);
+
+    renderWithClient("/projects/project-1");
+
+    fireEvent.click(await screen.findByRole("button", { name: /open .* line item/i }));
+    fireEvent.change(screen.getByLabelText("Due by"), { target: { value: "2026-04-09" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("No quotes meet the due date")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("No quotes meet the due date")).not.toBeInTheDocument();
+    });
+  });
+
   it("renders the inline search in the shell header and removes the old body search", async () => {
     renderWithClient("/projects/project-1");
 
