@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { JobRecord } from "@/features/quotes/types";
 import {
@@ -50,6 +50,30 @@ function pushUnique(target: string[], value: string | null | undefined, limit: n
   target.push(value);
 }
 
+function useStableWorkspaceList<T>({
+  data,
+  isFetching,
+}: {
+  data: T[] | undefined;
+  isFetching: boolean;
+}): T[] {
+  const stableRef = useRef<T[]>(data ?? []);
+
+  useEffect(() => {
+    const nextItems = data ?? [];
+
+    if (nextItems.length > 0 || !isFetching) {
+      stableRef.current = nextItems;
+    }
+  }, [data, isFetching]);
+
+  if (isFetching && (data?.length ?? 0) === 0) {
+    return stableRef.current;
+  }
+
+  return data ?? [];
+}
+
 export function useClientWorkspaceData({
   enabled,
   userId,
@@ -69,7 +93,10 @@ export function useClientWorkspaceData({
     staleTime: WORKSPACE_SHARED_STALE_TIME_MS,
     gcTime: WORKSPACE_GC_TIME_MS,
   });
-  const rawAccessibleJobs = useMemo(() => accessibleJobsQuery.data ?? [], [accessibleJobsQuery.data]);
+  const rawAccessibleJobs = useStableWorkspaceList({
+    data: accessibleJobsQuery.data,
+    isFetching: accessibleJobsQuery.isFetching,
+  });
   const accessibleJobIds = useMemo(
     () => stableJobIds(rawAccessibleJobs.map((job) => job.id)),
     [rawAccessibleJobs],
@@ -110,11 +137,14 @@ export function useClientWorkspaceData({
     gcTime: WORKSPACE_GC_TIME_MS,
   });
 
-  const accessibleProjects = useMemo(() => accessibleProjectsQuery.data ?? [], [accessibleProjectsQuery.data]);
-  const projectJobMemberships = useMemo(
-    () => projectJobMembershipsQuery.data ?? [],
-    [projectJobMembershipsQuery.data],
-  );
+  const accessibleProjects = useStableWorkspaceList({
+    data: accessibleProjectsQuery.data,
+    isFetching: accessibleProjectsQuery.isFetching,
+  });
+  const projectJobMemberships = useStableWorkspaceList({
+    data: projectJobMembershipsQuery.data,
+    isFetching: projectJobMembershipsQuery.isFetching,
+  });
   const accessibleJobs = rawAccessibleJobs;
   const summariesByJobId = useMemo(
     () => new Map((partSummariesQuery.data ?? []).map((summary) => [summary.jobId, summary])),
