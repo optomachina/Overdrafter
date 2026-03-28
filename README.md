@@ -171,6 +171,10 @@ Required frontend environment variables:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 
+Optional frontend environment variables:
+
+- `VITE_ENABLE_NORTH_STAR_UI` (`1`/`true`/`yes`): enables the preview toggle for the North Star workspace experience when `?ui=northstar` is present in the URL.
+
 If you replace `src/assets/logo.png`, regenerate the favicon assets before committing:
 
 ```bash
