@@ -26,6 +26,7 @@ The next-phase domain model should expand that quote-centric shape into an expli
 - internal estimator interfaces
 - quote comparison and package publication surfaces
 - route-local page composition for complex screens, with reusable quote-domain logic staying in `src/features/quotes/`
+- North Star workspace preview must stay behind a dual gate (`VITE_ENABLE_NORTH_STAR_UI` plus `north_star_ui=1` URL param), with classic workspace as the default fallback until explicit rollout approval
 
 ### 2. Backend data and domain layer
 - persistence of workspaces, projects, parts, jobs, files, quotes, packages, and service request records
@@ -162,3 +163,13 @@ Drawing extraction is advisory evidence, not the canonical quote contract.
 - `approved_part_requirements` stores the normalized requirement record used by quoting and estimator workflows.
 - `approved_part_requirements.spec_snapshot` is the transitional home for normalized quote-facing variants such as `quoteDescription`, `quoteFinish`, and field provenance or override state.
 - Auto-approval may refresh auto-managed normalized fields from extraction output, but it must preserve reviewed user-managed values and must not silently promote low-confidence raw extraction into approved requirements.
+
+
+## North Star sequencing slices
+
+The current North Star execution track includes these baseline slices for deterministic-first delivery:
+
+- OVD-104 baseline: establish canonical workspace/artifact/review/override primitives before downstream orchestration or UX wiring.
+- OVD-105 baseline: deterministic upload ingestion pairing should first normalize STEP/PDF candidates by stable stem matching and explicit unmatched-upload tracking before broader folder/zip expansion and inference stages.
+
+These slices are intentionally minimal so later OVD-106+ work can compose over stable contracts instead of ad hoc conditional behavior.
