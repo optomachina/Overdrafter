@@ -99,6 +99,18 @@ A project is the commercial and workflow scope for mixed manufacturing requests.
 
 An assembly remains a technical structure nested inside a project. It should model engineering hierarchy such as subassemblies and parts, but it must not define the top-level information architecture for intake, navigation, or collaboration.
 
+
+## North Star canonical workspace/artifact primitives
+
+To unblock sequenced North Star issues (OVD-104 onward), the canonical first-slice domain contract is:
+
+- `workspace` as the tenancy and collaboration boundary
+- `artifact` as deterministic file identity (`sha256`, filename, source path, media metadata)
+- `review` as explicit approval/rejection state linked to an artifact
+- `override` as immutable, provenance-tagged human/system adjustments keyed to an artifact field
+
+Implementation reference: `src/lib/north-star-domain.ts`. This module is intentionally schema-adjacent and pure so backend, worker, and UI layers can converge on the same baseline contract before pipeline and reveal-state work is layered on top.
+
 ## Request-model boundary
 
 - projects are the grouping and collaboration boundary, not the only place where service intent lives
