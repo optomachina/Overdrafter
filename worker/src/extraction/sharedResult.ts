@@ -1,4 +1,5 @@
 import type { DrawingExtractionPayload } from "../types.js";
+import type { GeometryProjectionArtifact } from "./geometryProjection.js";
 
 export const PDF_EXTRACTOR_VERSION = "worker-pdf-v3";
 export const SIM_EXTRACTOR_VERSION = "worker-sim-v1";
@@ -40,6 +41,7 @@ export function buildStoredExtractionPayload(
   extraction: DrawingExtractionPayload,
   pageCount: number,
   workerBuildVersion: string,
+  geometryProjection: GeometryProjectionArtifact | null = null,
 ) {
   return {
     pageCount,
@@ -71,5 +73,6 @@ export function buildStoredExtractionPayload(
     },
     notes: extraction.notes,
     threads: extraction.threads,
+    geometryProjection,
   };
 }
