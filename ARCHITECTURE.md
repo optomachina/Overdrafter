@@ -142,6 +142,15 @@ Phase 1 vendor boundary:
 - existing internal and manual quote ingestion paths remain intact
 - request intent remains on `quote_requests`; execution remains on `quote_runs` and `vendor_quote_results`
 
+## North Star rollout guardrail
+
+North Star preview work must preserve a production-safe fallback while the sequenced OVD implementation lands.
+
+- classic workspace remains default behavior for client users
+- North Star preview is enabled only when both gates are true: `VITE_ENABLE_NORTH_STAR_UI=1` and URL query `north_star_ui=1`
+- internal roles (`internal_admin`, `internal_estimator`) always resolve to classic UI regardless of gate state
+- canonical North Star backend slices start with deterministic workspace/artifact domain primitives (OVD-104) and mixed-upload pairing baseline (OVD-105) before orchestration and reveal UX work
+
 ## Key cross-cutting concerns
 - authorization
 - provenance
