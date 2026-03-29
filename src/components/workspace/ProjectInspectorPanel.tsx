@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { CircleOff, TriangleAlert, X } from "lucide-react";
 import {
   ClientCadPreviewPanel,
@@ -5,6 +6,7 @@ import {
 } from "@/components/quotes/ClientQuoteAssetPanels";
 import { Button } from "@/components/ui/button";
 import { QuoteChart } from "@/components/workspace/QuoteChart";
+import type { GeometryProjection } from "@/features/quotes/geometry-projection";
 import { filterVisibleQuoteOptions } from "@/features/quotes/selection";
 import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
 import type { DrawingPreviewData, JobFileRecord, QuoteDataStatus } from "@/features/quotes/types";
@@ -67,6 +69,7 @@ type ProjectInspectorPanelProps = {
   quoteEmptyStateBody?: string;
   onSelectQuote?: (offerId: string | null) => void;
   onClear?: () => void;
+  geometryProjection?: GeometryProjection | null;
 };
 
 export function ProjectInspectorPanel({
@@ -98,9 +101,16 @@ export function ProjectInspectorPanel({
   quoteEmptyStateBody = "",
   onSelectQuote,
   onClear,
+  geometryProjection = null,
 }: ProjectInspectorPanelProps) {
+  const [overlayEnabled, setOverlayEnabled] = useState(false);
+  const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
+  const [hoveredOfferId, setHoveredOfferId] = useState<string | null>(null);
   const visibleQuoteOptions = filterVisibleQuoteOptions(quoteOptions, requestedByDate);
   const deadlineFiltered = Boolean(requestedByDate) && quoteOptions.length > 0 && visibleQuoteOptions.length === 0;
+  const highlightedFeatureIds = overlayEnabled
+    ? deriveHighlightedFeatures({ projection: geometryProjection, hoveredOfferId, selectedOfferId })
+    : [];
 
   if (mode === "empty") {
     return (
@@ -191,7 +201,29 @@ export function ProjectInspectorPanel({
         className="rounded-lg"
       />
 
-      <ClientCadPreviewPanel cadFile={cadFile} className="rounded-lg" />
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Geometry overlay</p>
+          <button
+            type="button"
+            onClick={() => setOverlayEnabled((previous) => !previous)}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs",
+              overlayEnabled ? "border-white/30 bg-white text-black" : "border-white/10 text-white/60",
+            )}
+          >
+            {overlayEnabled ? "On" : "Off"}
+          </button>
+        </div>
+        <ClientCadPreviewPanel
+          cadFile={cadFile}
+          className="rounded-lg"
+          geometryProjection={geometryProjection}
+          selectedFeatureId={selectedFeatureId}
+          highlightedFeatureIds={highlightedFeatureIds}
+          onFeatureSelect={setSelectedFeatureId}
+        />
+      </section>
 
       <section className="rounded-lg border border-white/10 bg-black/20 p-5">
         <div>
@@ -218,6 +250,7 @@ export function ProjectInspectorPanel({
               quotes={visibleQuoteOptions}
               selectedOfferId={selectedOfferId}
               onSelect={onSelectQuote ?? (() => {})}
+              onHoverOffer={setHoveredOfferId}
             />
           ) : deadlineFiltered ? (
             <div className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-5 text-sm text-white/45">
@@ -237,4 +270,25 @@ export function ProjectInspectorPanel({
       </section>
     </div>
   );
+}
+
+function deriveHighlightedFeatures(input: {
+  projection: GeometryProjection | null;
+  hoveredOfferId: string | null;
+  selectedOfferId: string | null;
+}) {
+  if (!input.projection) {
+    return [];
+  }
+
+  const pivot = input.hoveredOfferId ?? input.selectedOfferId;
+  if (!pivot) {
+    return [];
+  }
+
+  const score = pivot.split("").reduce((total, char) => total + char.charCodeAt(0), 0);
+  const offset = score % input.projection.features.length;
+  const chosen = input.projection.features.slice(offset, offset + 2);
+
+  return chosen.map((feature) => feature.id);
 }

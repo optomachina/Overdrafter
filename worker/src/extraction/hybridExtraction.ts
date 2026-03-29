@@ -17,6 +17,9 @@ import {
   type DrawingModelExtractionResult,
 } from "./modelFallback.js";
 import {
+  buildGeometryProjection,
+} from "./geometryProjection.js";
+import {
   inferDrawingSignalsFromPdf,
   normalizeQuoteDescription,
   normalizeQuoteFinish,
@@ -320,6 +323,22 @@ export async function runHybridExtraction(
       }),
     ].filter((item, index, items) => items.findIndex((candidate) => candidate.field === item.field) === index) ??
     [];
+  const geometryProjection = buildGeometryProjection({
+    extraction: {
+      partNumber,
+      description,
+      threads: drawingSignals.threads,
+      notes: drawingSignals.notes,
+      tightestTolerance: {
+        raw: drawingSignals.tightestTolerance,
+        valueInch: drawingSignals.tightestTolerance
+          ? Number.parseFloat(drawingSignals.tightestTolerance.replace(/[^0-9.]/g, "")) || null
+          : null,
+        confidence: drawingSignals.tightestTolerance ? 0.68 : input.drawingFile ? 0.25 : 0.1,
+      },
+    },
+    extractorVersion: "worker-geometry-projection-v1",
+  });
 
   return {
     partId: input.part.id,
@@ -411,6 +430,7 @@ export async function runHybridExtraction(
     warnings: rebuiltWarnings,
     debugCandidates: drawingSignals.debugCandidates,
     modelCandidates,
+    geometryProjection,
     status: reviewFields.length > 0 || blockingWarningCount > 0 ? "needs_review" : "approved",
   };
 }

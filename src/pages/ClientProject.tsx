@@ -51,6 +51,7 @@ import {
   useClientProjectController,
 } from "@/features/quotes/use-client-project-controller";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import { parseGeometryProjection } from "@/features/quotes/geometry-projection";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import { formatStatusLabel } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
@@ -339,6 +340,10 @@ const ClientProject = () => {
       : null;
   const focusedQuantity = focusedDraft?.quantity ?? focusedSummary?.quantity ?? null;
   const focusedProperties = focusedWorkspaceItem?.part?.approvedRequirement ?? null;
+  const focusedGeometryProjection = useMemo(
+    () => parseGeometryProjection(focusedWorkspaceItem?.part?.extraction?.extraction),
+    [focusedWorkspaceItem?.part?.extraction?.extraction],
+  );
   const jobSearchTextById = useMemo(
     () =>
       new Map(
@@ -913,6 +918,7 @@ const ClientProject = () => {
                     quoteOptions={focusedQuoteOptions}
                     requestedByDate={focusedRequestedByDate}
                     selectedOfferId={focusedSelectedOfferId}
+                    geometryProjection={focusedGeometryProjection}
                     onSelectQuote={handleInspectorQuoteSelect}
                     onClear={handleClearFocusedJob}
                   />
@@ -972,6 +978,7 @@ const ClientProject = () => {
                   quoteOptions={focusedQuoteOptions}
                   requestedByDate={focusedRequestedByDate}
                   selectedOfferId={focusedSelectedOfferId}
+                  geometryProjection={focusedGeometryProjection}
                   onSelectQuote={handleInspectorQuoteSelect}
                   onClear={handleClearFocusedJob}
                 />

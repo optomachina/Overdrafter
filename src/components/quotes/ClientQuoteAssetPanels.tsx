@@ -8,6 +8,8 @@ import type { StoredFileViewerMode } from "@/lib/file-viewer";
 import { resolveStoredFileViewerMode } from "@/lib/file-viewer";
 import { downloadStoredFileBlob, loadStoredDrawingPreviewPages } from "@/lib/stored-file";
 import { cn } from "@/lib/utils";
+import { GeometryProjectionView } from "@/components/workspace/GeometryProjectionView";
+import type { GeometryProjection } from "@/features/quotes/geometry-projection";
 
 type DownloadableFile = Pick<JobFileRecord, "storage_bucket" | "storage_path" | "original_name">;
 export type DrawingPreviewPage = {
@@ -233,15 +235,24 @@ export function ClientDrawingPreviewPanel({
 export function ClientCadPreviewPanel({
   cadFile,
   className,
+  geometryProjection = null,
+  selectedFeatureId = null,
+  highlightedFeatureIds = [],
+  onFeatureSelect,
 }: {
   cadFile: JobFileRecord | null;
   className?: string;
+  geometryProjection?: GeometryProjection | null;
+  selectedFeatureId?: string | null;
+  highlightedFeatureIds?: string[];
+  onFeatureSelect?: (featureId: string) => void;
 }) {
   const previewSource = useMemo(
     () => (cadFile ? createCadPreviewSourceFromJobFile(cadFile) : null),
     [cadFile],
   );
   const previewable = cadFile ? isStepPreviewableFile(cadFile.original_name) : false;
+  const [activeTab, setActiveTab] = useState<"cad" | "manufacturing">("cad");
 
   return (
     <section className={cn("rounded-[26px] border border-white/8 bg-[#262626] p-5", className)}>
@@ -268,7 +279,45 @@ export function ClientCadPreviewPanel({
       </div>
 
       <div className="mt-4 overflow-hidden rounded-[22px] border border-white/8 bg-black/20">
-        {!cadFile ? (
+        <div className="flex items-center gap-2 border-b border-white/8 px-3 py-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab("cad")}
+            className={cn(
+              "rounded-full px-3 py-1 text-xs",
+              activeTab === "cad" ? "bg-white text-black" : "bg-white/5 text-white/65",
+            )}
+          >
+            CAD preview
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("manufacturing")}
+            className={cn(
+              "rounded-full px-3 py-1 text-xs",
+              activeTab === "manufacturing" ? "bg-white text-black" : "bg-white/5 text-white/65",
+            )}
+          >
+            Manufacturing view
+          </button>
+        </div>
+        {activeTab === "manufacturing" ? (
+          geometryProjection ? (
+            <GeometryProjectionView
+              projection={geometryProjection}
+              selectedFeatureId={selectedFeatureId}
+              highlightedFeatureIds={highlightedFeatureIds}
+              onFeatureSelect={onFeatureSelect}
+            />
+          ) : (
+            <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
+              <p className="text-sm font-medium text-white">Manufacturing view unavailable</p>
+              <p className="mt-2 max-w-[18rem] text-sm text-white/45">
+                Geometry projection is not available yet for this part.
+              </p>
+            </div>
+          )
+        ) : !cadFile ? (
           <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
             <div className="rounded-full border border-white/10 bg-white/6 p-3 text-white/70">
               <Box className="h-6 w-6" />

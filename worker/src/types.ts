@@ -180,6 +180,26 @@ export type DrawingExtractionPayload = {
     >
   >;
   status: "needs_review" | "approved";
+  geometryProjection?: {
+    schemaVersion: "v1";
+    extractorVersion: string;
+    features: Array<{
+      id: string;
+      label: string;
+      featureClass: "box" | "cylinder" | "hole" | "cutout";
+      confidence: number;
+      riskFlags: string[];
+    }>;
+    primitives: Array<{
+      id: string;
+      type: "box" | "cylinder" | "hole" | "cutout";
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      featureId: string;
+    }>;
+  };
 };
 
 export type VendorQuoteAdapterInput = {
