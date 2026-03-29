@@ -71,7 +71,7 @@ describe("runHybridExtraction", () => {
       drawingFile: null,
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       partId: "part-1",
       description: "Optic Bracket Lower",
       partNumber: "OPTIC-BRACKET_LOWER",
@@ -164,8 +164,12 @@ describe("runHybridExtraction", () => {
       ],
       debugCandidates: {},
       modelCandidates: {},
+      geometryProjection: {
+        schemaVersion: "geometry_projection.v1",
+      },
       status: "needs_review",
     });
+    expect(result.geometryProjection?.scene.primitives.length).toBeGreaterThan(0);
   });
 
   it("prefers the drawing filename when present and raises confidence scores", async () => {

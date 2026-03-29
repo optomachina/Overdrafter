@@ -52,7 +52,7 @@ import {
 } from "@/features/quotes/use-client-project-controller";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
-import { formatStatusLabel } from "@/features/quotes/utils";
+import { formatStatusLabel, normalizeDrawingExtraction } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
 
 function formatCurrency(value: number | null) {
@@ -339,6 +339,10 @@ const ClientProject = () => {
       : null;
   const focusedQuantity = focusedDraft?.quantity ?? focusedSummary?.quantity ?? null;
   const focusedProperties = focusedWorkspaceItem?.part?.approvedRequirement ?? null;
+  const focusedGeometryProjection =
+    focusedWorkspaceItem?.part?.extraction && focusedWorkspaceItem.part
+      ? normalizeDrawingExtraction(focusedWorkspaceItem.part.extraction, focusedWorkspaceItem.part.id).geometryProjection
+      : null;
   const jobSearchTextById = useMemo(
     () =>
       new Map(
@@ -908,6 +912,7 @@ const ClientProject = () => {
                     drawingFile={focusedWorkspaceItem.part?.drawingFile ?? null}
                     drawingPreview={focusedWorkspaceItem.drawingPreview}
                     cadFile={focusedWorkspaceItem.part?.cadFile ?? null}
+                    geometryProjection={focusedGeometryProjection}
                     quoteDataStatus={focusedQuoteDataStatus}
                     quoteDataMessage={focusedQuoteDataMessage}
                     quoteOptions={focusedQuoteOptions}
@@ -967,6 +972,7 @@ const ClientProject = () => {
                   drawingFile={focusedWorkspaceItem.part?.drawingFile ?? null}
                   drawingPreview={focusedWorkspaceItem.drawingPreview}
                   cadFile={focusedWorkspaceItem.part?.cadFile ?? null}
+                  geometryProjection={focusedGeometryProjection}
                   quoteDataStatus={focusedQuoteDataStatus}
                   quoteDataMessage={focusedQuoteDataMessage}
                   quoteOptions={focusedQuoteOptions}

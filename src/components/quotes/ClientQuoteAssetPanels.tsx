@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Box, Download, Expand, FileText, Loader2 } from "lucide-react";
 import { CadModelThumbnail } from "@/components/CadModelThumbnail";
+import { GeometryProjectionView } from "@/components/workspace/GeometryProjectionView";
 import { Button } from "@/components/ui/button";
-import type { DrawingPreviewData, JobFileRecord } from "@/features/quotes/types";
+import type { DrawingExtractionData, DrawingPreviewData, JobFileRecord } from "@/features/quotes/types";
 import { createCadPreviewSourceFromJobFile, isStepPreviewableFile } from "@/lib/cad-preview";
 import type { StoredFileViewerMode } from "@/lib/file-viewer";
 import { resolveStoredFileViewerMode } from "@/lib/file-viewer";
@@ -232,11 +233,20 @@ export function ClientDrawingPreviewPanel({
 
 export function ClientCadPreviewPanel({
   cadFile,
+  geometryProjection = null,
+  selectedFeatureIds = [],
+  onSelectFeature,
+  overlayEnabled = false,
   className,
 }: {
   cadFile: JobFileRecord | null;
+  geometryProjection?: DrawingExtractionData["geometryProjection"];
+  selectedFeatureIds?: string[];
+  onSelectFeature?: (featureId: string) => void;
+  overlayEnabled?: boolean;
   className?: string;
 }) {
+  const [tab, setTab] = useState<"cad" | "manufacturing">("cad");
   const previewSource = useMemo(
     () => (cadFile ? createCadPreviewSourceFromJobFile(cadFile) : null),
     [cadFile],
@@ -266,9 +276,50 @@ export function ClientCadPreviewPanel({
           </Button>
         ) : null}
       </div>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setTab("cad")}
+          className={cn(
+            "rounded-full border px-3 py-1 text-xs transition",
+            tab === "cad" ? "border-white/20 bg-white/10 text-white" : "border-white/10 text-white/60",
+          )}
+        >
+          CAD preview
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("manufacturing")}
+          className={cn(
+            "rounded-full border px-3 py-1 text-xs transition",
+            tab === "manufacturing" ? "border-white/20 bg-white/10 text-white" : "border-white/10 text-white/60",
+          )}
+        >
+          Manufacturing view
+        </button>
+      </div>
 
       <div className="mt-4 overflow-hidden rounded-[22px] border border-white/8 bg-black/20">
-        {!cadFile ? (
+        {tab === "manufacturing" ? (
+          geometryProjection ? (
+            <GeometryProjectionView
+              projection={geometryProjection}
+              highlightedFeatureIds={selectedFeatureIds}
+              onSelectFeature={onSelectFeature}
+              overlayEnabled={overlayEnabled}
+            />
+          ) : (
+            <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
+              <div className="rounded-full border border-white/10 bg-white/6 p-3 text-white/70">
+                <FileText className="h-6 w-6" />
+              </div>
+              <p className="mt-4 text-sm font-medium text-white">Manufacturing view unavailable</p>
+              <p className="mt-2 max-w-[22rem] text-sm text-white/45">
+                Geometry projection data has not been generated for this part yet.
+              </p>
+            </div>
+          )
+        ) : !cadFile ? (
           <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
             <div className="rounded-full border border-white/10 bg-white/6 p-3 text-white/70">
               <Box className="h-6 w-6" />

@@ -1,6 +1,8 @@
+import { useMemo, useState } from "react";
 import { FileText, FolderOpen, CheckCircle2 } from "lucide-react";
 import { ConceptShell } from "@/concepts/ConceptShell";
 import { MOCK_PROJECTS, MOCK_PARTS, MOCK_VENDOR_QUOTES } from "@/concepts/mock-data";
+import { GeometryProjectionView } from "@/components/workspace/GeometryProjectionView";
 
 function Sidebar() {
   return (
@@ -62,7 +64,13 @@ function SpecCard() {
   );
 }
 
-function VendorCards() {
+function VendorCards({
+  selectedCostDriver,
+  onHoverCostDriver,
+}: {
+  selectedCostDriver: string | null;
+  onHoverCostDriver: (featureId: string | null) => void;
+}) {
   return (
     <div className="rounded-2xl border border-white/[0.08] bg-ws-card p-4">
       <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">Quotes — {MOCK_VENDOR_QUOTES.length} received</p>
@@ -80,6 +88,14 @@ function VendorCards() {
               <p className="font-mono text-lg font-semibold text-white">${q.price}</p>
               {q.cert && <span className="text-[10px] text-sky-400/70">{q.cert}</span>}
             </div>
+            <button
+              type="button"
+              className="ml-3 rounded-md border border-white/10 px-2 py-1 text-[10px] text-white/60 hover:bg-white/[0.06]"
+              onMouseEnter={() => onHoverCostDriver(i % 2 === 0 ? "pocket-1" : "hole-1")}
+              onMouseLeave={() => onHoverCostDriver(null)}
+            >
+              {selectedCostDriver ? "Driver linked" : "Show driver"}
+            </button>
           </div>
         ))}
       </div>
@@ -88,6 +104,45 @@ function VendorCards() {
 }
 
 export function Set3PartPage() {
+  const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
+  const [overlayEnabled, setOverlayEnabled] = useState(true);
+  const conceptProjection = useMemo(
+    () => ({
+      schemaVersion: "geometry_projection.v1",
+      extractorVersion: "concept-mock",
+      generatedFrom: { drawingExtraction: true, approvedRequirement: false },
+      scene: {
+        width: 92,
+        height: 28,
+        depth: 64,
+        primitives: [
+          {
+            id: "body-main",
+            kind: "box" as const,
+            position: { x: 0, y: 0, z: 0 },
+            size: { x: 92, y: 28, z: 64 },
+            metadata: { featureClass: "body" as const, confidence: 0.83 },
+          },
+          {
+            id: "hole-1",
+            kind: "hole" as const,
+            position: { x: -14, y: 0, z: -10 },
+            size: { x: 8, y: 28, z: 8 },
+            metadata: { featureClass: "hole" as const, confidence: 0.66 },
+          },
+          {
+            id: "pocket-1",
+            kind: "cutout" as const,
+            position: { x: 15, y: 5, z: 10 },
+            size: { x: 26, y: 14, z: 14 },
+            metadata: { featureClass: "pocket" as const, confidence: 0.61 },
+          },
+        ],
+      },
+    }),
+    [],
+  );
+
   return (
     <ConceptShell sidebarContent={<Sidebar />} headerTitle={part.name} headerBreadcrumb="Actuator Housing Assembly">
       <div className="flex h-full flex-col">
@@ -97,7 +152,31 @@ export function Set3PartPage() {
         <div className="flex-1 overflow-auto">
           <div className="grid grid-cols-2 gap-4 p-4">
             <SpecCard />
-            <VendorCards />
+            <div className="space-y-2 rounded-2xl border border-white/[0.08] bg-ws-card p-3">
+              <div className="flex items-center justify-between px-1 pt-1">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">
+                  Geometry-first manufacturing view
+                </p>
+                <button
+                  type="button"
+                  className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/65"
+                  onClick={() => setOverlayEnabled((current) => !current)}
+                >
+                  Overlay {overlayEnabled ? "on" : "off"}
+                </button>
+              </div>
+              <GeometryProjectionView
+                projection={conceptProjection}
+                overlayEnabled={overlayEnabled}
+                highlightedFeatureIds={selectedFeatureId ? [selectedFeatureId] : []}
+                onSelectFeature={setSelectedFeatureId}
+                className="rounded-lg"
+              />
+            </div>
+            <VendorCards
+              selectedCostDriver={selectedFeatureId}
+              onHoverCostDriver={setSelectedFeatureId}
+            />
           </div>
         </div>
       </div>

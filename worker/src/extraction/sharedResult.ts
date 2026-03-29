@@ -60,6 +60,7 @@ export function buildStoredExtractionPayload(
     modelPromptVersion: extraction.modelPromptVersion,
     fieldSelections: extraction.fieldSelections,
     modelCandidates: extraction.modelCandidates,
+    geometryProjection: extraction.geometryProjection,
     material: extraction.material,
     finish: extraction.finish,
     generalTolerance: extraction.generalTolerance,

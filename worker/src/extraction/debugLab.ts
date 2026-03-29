@@ -565,6 +565,7 @@ export async function previewStoredPartExtraction(
         part: context.part,
         cadFile: context.cadFile,
         drawingFile: context.drawingFile,
+        requirement: context.requirement,
         pdfText,
         drawingPath: stagedDrawingFile.localPath,
         previewPagePath: firstPagePreviewPath,

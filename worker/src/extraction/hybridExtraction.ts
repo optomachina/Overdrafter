@@ -1,12 +1,14 @@
 import path from "node:path";
 import { DRAWING_FIELD_NAMES, SUPPORTED_REVIEW_FIELDS } from "../types.js";
 import type {
+  ApprovedRequirementRecord,
   DrawingExtractionPayload,
   JobFileRecord,
   PartRecord,
   SupportedReviewField,
   WorkerConfig,
 } from "../types.js";
+import { buildGeometryProjection } from "./geometryProjection.js";
 import {
   extractDrawingFieldsWithModel,
   isParserSignalStrong,
@@ -195,6 +197,7 @@ export async function runHybridExtraction(
     previewPagePath?: string | null;
     runDir?: string | null;
     config?: WorkerConfig;
+    requirement?: ApprovedRequirementRecord | null;
     forceModelFallback?: boolean;
   },
   dependencies: {
@@ -295,6 +298,17 @@ export async function runHybridExtraction(
   }
 
   const rebuiltWarnings = rebuildWarnings(mergedFields, warnings);
+  const geometryProjection = buildGeometryProjection({
+    extraction: {
+      partId: input.part.id,
+      partNumber,
+      description,
+      notes: drawingSignals.notes,
+      threads: drawingSignals.threads,
+      warnings: rebuiltWarnings,
+    },
+    requirement: input.requirement ?? null,
+  });
   const blockingWarningCount = rebuiltWarnings.filter(
     (warning) => !/^Process extraction needs review\.$/i.test(warning),
   ).length;
@@ -411,6 +425,7 @@ export async function runHybridExtraction(
     warnings: rebuiltWarnings,
     debugCandidates: drawingSignals.debugCandidates,
     modelCandidates,
+    geometryProjection,
     status: reviewFields.length > 0 || blockingWarningCount > 0 ? "needs_review" : "approved",
   };
 }

@@ -392,6 +392,7 @@ export function normalizeDrawingExtraction(
   const warnings = asArray<string>(extraction?.warnings).map(String);
   const storedReviewFields = asStringArray(payload.reviewFields);
   const fieldSelections = asObject(payload.fieldSelections);
+  const geometryProjectionPayload = asObject(payload.geometryProjection);
   const isLegacyNeedsReviewRecord =
     extraction?.status === "needs_review" &&
     storedReviewFields.length === 0 &&
@@ -436,6 +437,55 @@ export function normalizeDrawingExtraction(
       name: typeof payload.modelName === "string" ? payload.modelName : null,
       promptVersion: typeof payload.modelPromptVersion === "string" ? payload.modelPromptVersion : null,
     },
+    geometryProjection:
+      typeof geometryProjectionPayload.schemaVersion === "string" &&
+      typeof geometryProjectionPayload.extractorVersion === "string"
+        ? {
+            schemaVersion: geometryProjectionPayload.schemaVersion,
+            extractorVersion: geometryProjectionPayload.extractorVersion,
+            generatedFrom: {
+              drawingExtraction: Boolean(asObject(geometryProjectionPayload.generatedFrom).drawingExtraction),
+              approvedRequirement: Boolean(asObject(geometryProjectionPayload.generatedFrom).approvedRequirement),
+            },
+            scene: {
+              width: Number(asObject(geometryProjectionPayload.scene).width ?? 0),
+              height: Number(asObject(geometryProjectionPayload.scene).height ?? 0),
+              depth: Number(asObject(geometryProjectionPayload.scene).depth ?? 0),
+              primitives: asArray<Record<string, unknown>>(asObject(geometryProjectionPayload.scene).primitives).map(
+                (primitive, index) => ({
+                  id: typeof primitive.id === "string" ? primitive.id : `primitive-${index + 1}`,
+                  kind:
+                    primitive.kind === "cylinder" ||
+                    primitive.kind === "hole" ||
+                    primitive.kind === "cutout" ||
+                    primitive.kind === "box"
+                      ? primitive.kind
+                      : "box",
+                  position: {
+                    x: Number(asObject(primitive.position).x ?? 0),
+                    y: Number(asObject(primitive.position).y ?? 0),
+                    z: Number(asObject(primitive.position).z ?? 0),
+                  },
+                  size: {
+                    x: Number(asObject(primitive.size).x ?? 0),
+                    y: Number(asObject(primitive.size).y ?? 0),
+                    z: Number(asObject(primitive.size).z ?? 0),
+                  },
+                  metadata: {
+                    featureClass:
+                      asObject(primitive.metadata).featureClass === "hole" ||
+                      asObject(primitive.metadata).featureClass === "pocket" ||
+                      asObject(primitive.metadata).featureClass === "wall" ||
+                      asObject(primitive.metadata).featureClass === "body"
+                        ? (asObject(primitive.metadata).featureClass as "body" | "hole" | "pocket" | "wall")
+                        : "body",
+                    confidence: Number(asObject(primitive.metadata).confidence ?? 0),
+                  },
+                }),
+              ),
+            },
+          }
+        : null,
     fieldSelections: {
       description:
         typeof fieldSelections.description === "string" ? (fieldSelections.description as "parser" | "model" | "review") : undefined,

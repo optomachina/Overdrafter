@@ -33,5 +33,11 @@
     "@types/node": "^22.16.5",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"
+  },
+  "overdrafterAttribution": {
+    "heerich": {
+      "package": "heerich",
+      "usage": "geometry_projection extraction artifact generation"
+    }
   }
 }

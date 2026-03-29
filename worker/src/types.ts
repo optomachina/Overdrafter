@@ -179,6 +179,29 @@ export type DrawingExtractionPayload = {
     }
     >
   >;
+  geometryProjection?: {
+    schemaVersion: "geometry_projection.v1";
+    extractorVersion: string;
+    generatedFrom: {
+      drawingExtraction: boolean;
+      approvedRequirement: boolean;
+    };
+    scene: {
+      width: number;
+      height: number;
+      depth: number;
+      primitives: Array<{
+        id: string;
+        kind: "box" | "cylinder" | "hole" | "cutout";
+        position: { x: number; y: number; z: number };
+        size: { x: number; y: number; z: number };
+        metadata: {
+          featureClass: "body" | "hole" | "pocket" | "wall";
+          confidence: number;
+        };
+      }>;
+    };
+  };
   status: "needs_review" | "approved";
 };
 

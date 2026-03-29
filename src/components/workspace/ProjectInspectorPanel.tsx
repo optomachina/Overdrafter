@@ -1,4 +1,5 @@
 import { CircleOff, TriangleAlert, X } from "lucide-react";
+import { useState } from "react";
 import {
   ClientCadPreviewPanel,
   ClientDrawingPreviewPanel,
@@ -8,6 +9,7 @@ import { QuoteChart } from "@/components/workspace/QuoteChart";
 import { filterVisibleQuoteOptions } from "@/features/quotes/selection";
 import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
 import type { DrawingPreviewData, JobFileRecord, QuoteDataStatus } from "@/features/quotes/types";
+import type { DrawingExtractionData } from "@/features/quotes/types";
 import { cn } from "@/lib/utils";
 
 function propertyValue(value: string | number | null | undefined) {
@@ -58,6 +60,7 @@ type ProjectInspectorPanelProps = {
   drawingFile?: JobFileRecord | null;
   drawingPreview?: DrawingPreviewData | null;
   cadFile?: JobFileRecord | null;
+  geometryProjection?: DrawingExtractionData["geometryProjection"];
   quoteDataStatus?: QuoteDataStatus;
   quoteDataMessage?: string | null;
   quoteOptions?: ClientQuoteSelectionOption[];
@@ -89,6 +92,7 @@ export function ProjectInspectorPanel({
   drawingFile = null,
   drawingPreview = null,
   cadFile = null,
+  geometryProjection = null,
   quoteDataStatus = "available",
   quoteDataMessage = null,
   quoteOptions = [],
@@ -99,6 +103,8 @@ export function ProjectInspectorPanel({
   onSelectQuote,
   onClear,
 }: ProjectInspectorPanelProps) {
+  const [geometryOverlayEnabled, setGeometryOverlayEnabled] = useState(false);
+  const [highlightedFeatureIds, setHighlightedFeatureIds] = useState<string[]>([]);
   const visibleQuoteOptions = filterVisibleQuoteOptions(quoteOptions, requestedByDate);
   const deadlineFiltered = Boolean(requestedByDate) && quoteOptions.length > 0 && visibleQuoteOptions.length === 0;
 
@@ -191,7 +197,27 @@ export function ProjectInspectorPanel({
         className="rounded-lg"
       />
 
-      <ClientCadPreviewPanel cadFile={cadFile} className="rounded-lg" />
+      <section className="space-y-2">
+        <div className="flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+          <span className="text-xs uppercase tracking-[0.18em] text-white/45">Geometry overlay</span>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-7 rounded-full border border-white/10 px-3 text-xs text-white/70 hover:bg-white/8"
+            onClick={() => setGeometryOverlayEnabled((current) => !current)}
+          >
+            {geometryOverlayEnabled ? "On" : "Off"}
+          </Button>
+        </div>
+        <ClientCadPreviewPanel
+          cadFile={cadFile}
+          geometryProjection={geometryProjection}
+          overlayEnabled={geometryOverlayEnabled}
+          selectedFeatureIds={highlightedFeatureIds}
+          onSelectFeature={(featureId) => setHighlightedFeatureIds([featureId])}
+          className="rounded-lg"
+        />
+      </section>
 
       <section className="rounded-lg border border-white/10 bg-black/20 p-5">
         <div>
@@ -218,6 +244,16 @@ export function ProjectInspectorPanel({
               quotes={visibleQuoteOptions}
               selectedOfferId={selectedOfferId}
               onSelect={onSelectQuote ?? (() => {})}
+              onHoverOffer={(offerId) => {
+                if (!offerId || !geometryProjection?.scene.primitives.length) {
+                  setHighlightedFeatureIds([]);
+                  return;
+                }
+
+                const hash = [...offerId].reduce((total, char) => total + char.charCodeAt(0), 0);
+                const primitive = geometryProjection.scene.primitives[hash % geometryProjection.scene.primitives.length];
+                setHighlightedFeatureIds(primitive ? [primitive.id] : []);
+              }}
             />
           ) : deadlineFiltered ? (
             <div className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-5 text-sm text-white/45">

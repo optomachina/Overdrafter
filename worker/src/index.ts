@@ -562,6 +562,7 @@ async function runDrawingExtractionForTask(
       part: context.part,
       cadFile: context.cadFile,
       drawingFile: context.drawingFile,
+      requirement: context.requirement,
       pdfText,
       drawingPath: stagedDrawingFile?.localPath ?? null,
       previewPagePath: firstPagePreviewPath,
