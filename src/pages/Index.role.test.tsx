@@ -18,6 +18,10 @@ vi.mock("@/pages/InternalHome", () => ({
   default: () => <div>Internal Home</div>,
 }));
 
+vi.mock("@/pages/NorthStarPreviewHome", () => ({
+  default: () => <div>North Star Preview</div>,
+}));
+
 describe("Index role resolution", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -55,5 +59,24 @@ describe("Index role resolution", () => {
 
     expect(screen.getByText("Internal Home")).toBeInTheDocument();
     expect(screen.queryByText("Client Home")).not.toBeInTheDocument();
+  });
+
+  it("renders North Star preview only when both gates are enabled", () => {
+    vi.stubEnv("VITE_ENABLE_NORTH_STAR_UI", "1");
+
+    mockUseAppSession.mockReturnValue({
+      activeMembership: {
+        role: "client",
+      },
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/?north_star_ui=1"]}>
+        <Index />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("North Star Preview")).toBeInTheDocument();
+    vi.unstubAllEnvs();
   });
 });
