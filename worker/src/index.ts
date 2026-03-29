@@ -6,6 +6,7 @@ import { autoApproveJobRequirements } from "./autoApprove.js";
 import { XOMETRY_AUTOMATION_VERSION } from "./adapters/xometry.js";
 import { loadConfig } from "./config.js";
 import { runHybridExtraction } from "./extraction/hybridExtraction.js";
+import { buildGeometryProjectionArtifact } from "./extraction/geometryProjection.js";
 import {
   buildStoredExtractionPayload,
   currentExtractorVersion,
@@ -569,6 +570,12 @@ async function runDrawingExtractionForTask(
       config: extractionConfig,
     });
     const extractionOutcome = summarizeExtractionOutcome(extraction);
+    const extractorVersion = currentExtractorVersion(Boolean(stagedDrawingFile));
+    const geometryProjection = buildGeometryProjectionArtifact({
+      extraction,
+      requirement: context.requirement,
+      extractorVersion,
+    });
 
     if (process.env.EXTRACTION_DEBUG === "true" && extraction.debugCandidates) {
       console.log(
@@ -592,6 +599,8 @@ async function runDrawingExtractionForTask(
       firstPagePreviewPath,
       extraction,
       extractionOutcome,
+      extractorVersion,
+      geometryProjection,
       effectiveModel,
     };
   } catch (error) {
@@ -607,7 +616,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
   try {
     const extractionRun = await runDrawingExtractionForTask(supabase, task, config);
     runDir = extractionRun.runDir;
-    const { context, extraction, extractionOutcome, pdfText, previewAssets, stagedDrawingFile } =
+    const { context, extraction, extractionOutcome, pdfText, previewAssets, extractorVersion, geometryProjection } =
       extractionRun;
     organizationIdForError = context.part.organization_id;
     partIdForError = context.part.id;
@@ -616,11 +625,12 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       {
         part_id: context.part.id,
         organization_id: context.part.organization_id,
-        extractor_version: currentExtractorVersion(Boolean(stagedDrawingFile)),
+        extractor_version: extractorVersion,
         extraction: buildStoredExtractionPayload(
           extraction,
           pdfText?.pageCount ?? 0,
           config.workerBuildVersion,
+          geometryProjection,
         ),
         confidence: extraction.material.confidence,
         warnings: extraction.warnings,
@@ -647,7 +657,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
     const completionPayload = buildExtractionCompletionPayload({
       extraction,
       extractionOutcome,
-      extractorVersion: currentExtractorVersion(Boolean(stagedDrawingFile)),
+      extractorVersion,
       workerBuildVersion: config.workerBuildVersion,
       previewAssetCount: previewAssets.length,
       autoApprovedPartCount,
@@ -723,14 +733,23 @@ async function handleDebugExtractTask(
       requestedModel,
     );
     runDir = extractionRun.runDir;
-    const { context, extraction, extractionOutcome, pdfText, previewAssets, effectiveModel, stagedDrawingFile } =
+    const {
+      context,
+      extraction,
+      extractionOutcome,
+      pdfText,
+      previewAssets,
+      effectiveModel,
+      extractorVersion,
+      geometryProjection,
+    } =
       extractionRun;
-    const extractorVersion = currentExtractorVersion(Boolean(stagedDrawingFile));
     const result = {
       extraction: buildStoredExtractionPayload(
         extraction,
         pdfText?.pageCount ?? 0,
         config.workerBuildVersion,
+        geometryProjection,
       ),
       status: extraction.status,
       warnings: extraction.warnings,

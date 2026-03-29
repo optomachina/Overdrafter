@@ -3,6 +3,12 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "x-third-party-attribution": {
+    "heerich": {
+      "license": "MIT",
+      "usageScope": "geometry_projection artifact schema and compatible scene rendering pipeline"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts",
