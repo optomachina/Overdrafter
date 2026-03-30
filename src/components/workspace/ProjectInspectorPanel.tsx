@@ -7,7 +7,12 @@ import { Button } from "@/components/ui/button";
 import { QuoteChart } from "@/components/workspace/QuoteChart";
 import { filterVisibleQuoteOptions } from "@/features/quotes/selection";
 import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
-import type { DrawingPreviewData, JobFileRecord, QuoteDataStatus } from "@/features/quotes/types";
+import type {
+  DrawingExtractionData,
+  DrawingPreviewData,
+  JobFileRecord,
+  QuoteDataStatus,
+} from "@/features/quotes/types";
 import { cn } from "@/lib/utils";
 
 function propertyValue(value: string | number | null | undefined) {
@@ -58,6 +63,7 @@ type ProjectInspectorPanelProps = {
   drawingFile?: JobFileRecord | null;
   drawingPreview?: DrawingPreviewData | null;
   cadFile?: JobFileRecord | null;
+  geometryProjection?: DrawingExtractionData["geometryProjection"];
   quoteDataStatus?: QuoteDataStatus;
   quoteDataMessage?: string | null;
   quoteOptions?: ClientQuoteSelectionOption[];
@@ -89,6 +95,7 @@ export function ProjectInspectorPanel({
   drawingFile = null,
   drawingPreview = null,
   cadFile = null,
+  geometryProjection = null,
   quoteDataStatus = "available",
   quoteDataMessage = null,
   quoteOptions = [],
@@ -191,7 +198,11 @@ export function ProjectInspectorPanel({
         className="rounded-lg"
       />
 
-      <ClientCadPreviewPanel cadFile={cadFile} className="rounded-lg" />
+      <ClientCadPreviewPanel
+        cadFile={cadFile}
+        geometryProjection={geometryProjection}
+        className="rounded-lg"
+      />
 
       <section className="rounded-lg border border-white/10 bg-black/20 p-5">
         <div>
