@@ -1203,7 +1203,14 @@ describe("ClientProject", () => {
     expect(api.cancelQuoteRequest).not.toHaveBeenCalled();
   });
 
-  it("does not render the removed assignee column when no assignee profile resolves for a row", async () => {
+  it("renders real assignee initials for project rows", async () => {
+    renderWithClient("/projects/project-1");
+
+    expect(await screen.findByLabelText("Blaine Wilson assignee")).toBeInTheDocument();
+    expect(screen.getByText("BW")).toBeInTheDocument();
+  });
+
+  it("renders an explicit unassigned state when no assignee profile resolves for a row", async () => {
     api.fetchProjectAssigneeProfiles.mockResolvedValue([]);
 
     renderWithClient("/projects/project-1");
@@ -1212,7 +1219,7 @@ describe("ClientProject", () => {
       expect(screen.getByRole("table")).toBeInTheDocument();
     });
 
-    expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
+    expect(screen.getByText("Unassigned")).toBeInTheDocument();
   });
 
   it("does not render assignee loading UI while assignee lookups are pending", async () => {
@@ -1247,7 +1254,7 @@ describe("ClientProject", () => {
     ]);
 
     await waitFor(() => {
-      expect(screen.getByRole("table")).toBeInTheDocument();
+      expect(screen.getByLabelText("Blaine Wilson assignee")).toBeInTheDocument();
     });
   });
 

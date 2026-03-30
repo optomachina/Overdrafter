@@ -50,6 +50,7 @@ import {
   useClientProjectController,
 } from "@/features/quotes/use-client-project-controller";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import { buildProjectAssigneeBadgeModel } from "@/features/quotes/project-assignee";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import { buildScopedPreset, getPresetMode, getPresetScope } from "@/features/quotes/selection";
 import { formatStatusLabel, normalizeDrawingExtraction } from "@/features/quotes/utils";
@@ -138,7 +139,10 @@ const ClientProject = () => {
     projectCollaborationUnavailable,
     projectDueByDate,
     projectId,
+    projectAssigneeLookupReady,
+    projectAssigneesByUserId,
     projectInvitesQuery,
+    projectJobMembershipsByCompositeKey,
     projectJobs,
     projectJobsQuery,
     projectMembershipsQuery,
@@ -225,6 +229,32 @@ const ClientProject = () => {
         .map(([jobId]) => jobId),
     [projectJobs, quoteRequestViewModelsByJobId],
   );
+  const projectAssigneeBadgesByJobId = useMemo(() => {
+    if (!projectAssigneeLookupReady) {
+      return new Map<string, ReturnType<typeof buildProjectAssigneeBadgeModel>>();
+    }
+
+    // Until a dedicated part-assignee relation exists, the ledger uses
+    // project_jobs.created_by as the minimum safe per-row assignee source.
+    return new Map(
+      projectJobs.map((job) => {
+        const projectJobMembership =
+          projectJobMembershipsByCompositeKey?.get(`${projectId}:${job.id}`) ?? null;
+        const assigneeProfile =
+          projectJobMembership && projectAssigneesByUserId
+            ? projectAssigneesByUserId.get(projectJobMembership.created_by) ?? null
+            : null;
+
+        return [job.id, buildProjectAssigneeBadgeModel(assigneeProfile)] as const;
+      }),
+    );
+  }, [
+    projectAssigneeLookupReady,
+    projectAssigneesByUserId,
+    projectId,
+    projectJobMembershipsByCompositeKey,
+    projectJobs,
+  ]);
   const projectQuoteRequestSummary = useMemo(
     () =>
       Array.from(quoteRequestViewModelsByJobId.values()).reduce(
@@ -614,6 +644,7 @@ const ClientProject = () => {
                       const rowSelectedPrice = summary?.selectedPriceUsd ?? null;
                       const rowSelectedLeadTime = summary?.selectedLeadTimeBusinessDays ?? null;
                       const hasQuote = rowSelectedPrice != null || rowSelectedLeadTime != null;
+                      const assigneeBadge = projectAssigneeBadgesByJobId.get(job.id) ?? null;
                       return (
                         <TableRow
                           key={job.id}
@@ -654,6 +685,41 @@ const ClientProject = () => {
                           </TableCell>
                           <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
                             <Badge className={quoteStatusClassName}>{quoteStatusLabel}</Badge>
+                          </TableCell>
+                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
+                            {assigneeBadge ? (
+                              assigneeBadge.isUnassigned ? (
+                                <div className="flex items-center gap-2 text-[13px] text-white/45">
+                                  <span
+                                    aria-hidden="true"
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-white/10 bg-white/[0.03] text-[11px] font-semibold text-white/35"
+                                  >
+                                    —
+                                  </span>
+                                  <span>Unassigned</span>
+                                </div>
+                              ) : (
+                                <div className="flex justify-center">
+                                  <span
+                                    className={cn(
+                                      "inline-flex h-7 w-7 items-center justify-center rounded-full border text-[11px] font-semibold uppercase tracking-[0.08em] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
+                                      assigneeBadge.colorClassName,
+                                    )}
+                                    title={assigneeBadge.displayName}
+                                    aria-label={`${assigneeBadge.displayName} assignee`}
+                                  >
+                                    {assigneeBadge.initials ?? "?"}
+                                  </span>
+                                </div>
+                              )
+                            ) : (
+                              <span
+                                aria-hidden="true"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-[11px] font-semibold text-white/20"
+                              >
+                                —
+                              </span>
+                            )}
                           </TableCell>
                           {hasQuote ? (
                             <>
