@@ -139,6 +139,11 @@ function asStringArray(value: unknown): string[] {
     .filter((item) => item.length > 0);
 }
 
+function asFiniteNumber(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function normalizeEvidence(extraction: DrawingExtractionRecord | null): DrawingExtractionData["evidence"] {
   return asArray<Record<string, unknown>>(extraction?.evidence).map((item) => ({
     field: String(item.field ?? "unknown"),
@@ -448,9 +453,9 @@ export function normalizeDrawingExtraction(
               approvedRequirement: Boolean(asObject(geometryProjectionPayload.generatedFrom).approvedRequirement),
             },
             scene: {
-              width: Number(asObject(geometryProjectionPayload.scene).width ?? 0),
-              height: Number(asObject(geometryProjectionPayload.scene).height ?? 0),
-              depth: Number(asObject(geometryProjectionPayload.scene).depth ?? 0),
+              width: asFiniteNumber(asObject(geometryProjectionPayload.scene).width),
+              height: asFiniteNumber(asObject(geometryProjectionPayload.scene).height),
+              depth: asFiniteNumber(asObject(geometryProjectionPayload.scene).depth),
               primitives: asArray<Record<string, unknown>>(asObject(geometryProjectionPayload.scene).primitives).map(
                 (primitive, index) => ({
                   id: typeof primitive.id === "string" ? primitive.id : `primitive-${index + 1}`,
@@ -462,14 +467,14 @@ export function normalizeDrawingExtraction(
                       ? primitive.kind
                       : "box",
                   position: {
-                    x: Number(asObject(primitive.position).x ?? 0),
-                    y: Number(asObject(primitive.position).y ?? 0),
-                    z: Number(asObject(primitive.position).z ?? 0),
+                    x: asFiniteNumber(asObject(primitive.position).x),
+                    y: asFiniteNumber(asObject(primitive.position).y),
+                    z: asFiniteNumber(asObject(primitive.position).z),
                   },
                   size: {
-                    x: Number(asObject(primitive.size).x ?? 0),
-                    y: Number(asObject(primitive.size).y ?? 0),
-                    z: Number(asObject(primitive.size).z ?? 0),
+                    x: asFiniteNumber(asObject(primitive.size).x),
+                    y: asFiniteNumber(asObject(primitive.size).y),
+                    z: asFiniteNumber(asObject(primitive.size).z),
                   },
                   metadata: {
                     featureClass:
@@ -479,7 +484,7 @@ export function normalizeDrawingExtraction(
                       asObject(primitive.metadata).featureClass === "body"
                         ? (asObject(primitive.metadata).featureClass as "body" | "hole" | "pocket" | "wall")
                         : "body",
-                    confidence: Number(asObject(primitive.metadata).confidence ?? 0),
+                    confidence: asFiniteNumber(asObject(primitive.metadata).confidence),
                   },
                 }),
               ),
