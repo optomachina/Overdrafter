@@ -2,12 +2,29 @@ import { FileText, CheckCircle2, FolderOpen } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ConceptShell } from "@/concepts/ConceptShell";
 import { MOCK_PROJECTS, MOCK_PARTS, MOCK_VENDOR_QUOTES, MOCK_ACTIVITY, formatRelativeTime } from "@/concepts/mock-data";
+import {
+  ResponsiveContainer,
+  ScatterChart,
+  Scatter,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+} from "recharts";
 
 const ACTIVITY_ICONS: Record<string, string> = {
   quote_received: "💰",
   spec_updated: "✏️",
   file_uploaded: "📄",
   selection_made: "✅",
+};
+
+const VENDOR_COLORS: Record<string, string> = {
+  Xometry: "#34d399",
+  Protolabs: "#60a5fa",
+  eMachineShop: "#a78bfa",
+  Fictiv: "#fb923c",
 };
 
 function Sidebar() {
@@ -25,16 +42,97 @@ function Sidebar() {
 }
 
 const part = MOCK_PARTS[0];
+const chartData = MOCK_VENDOR_QUOTES.map((q) => ({
+  x: q.leadTimeDays,
+  y: q.price,
+  vendor: q.vendor,
+  tier: q.tier,
+  selected: q.selected,
+  fill: q.selected ? "#34d399" : (VENDOR_COLORS[q.vendor] ?? "#94a3b8"),
+}));
+const avgPrice = Math.round(MOCK_VENDOR_QUOTES.reduce((s, q) => s + q.price, 0) / MOCK_VENDOR_QUOTES.length);
+
+type TooltipPayload = { payload?: { vendor: string; y: number; x: number; tier: string } };
+
+function QuoteTooltip({ active, payload }: { active?: boolean; payload?: TooltipPayload[] }) {
+  if (!active || !payload?.[0]?.payload) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="rounded-lg border border-white/[0.12] bg-[#0d1117] px-3 py-2 text-xs shadow-xl">
+      <p className="font-semibold text-white">{d.vendor}</p>
+      <p className="text-white/50">{d.tier}</p>
+      <p className="mt-1 font-mono text-emerald-400">${d.y} · {d.x}d</p>
+    </div>
+  );
+}
+
+function QuoteScatterChart() {
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-ws-card p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/40">Price vs Lead Time</p>
+        <div className="flex gap-3">
+          {Object.entries(VENDOR_COLORS).map(([v, c]) => (
+            <span key={v} className="flex items-center gap-1 text-[10px] text-white/50">
+              <span className="h-2 w-2 rounded-full" style={{ background: c }} />
+              {v}
+            </span>
+          ))}
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={180}>
+        <ScatterChart margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+          <XAxis
+            dataKey="x"
+            type="number"
+            name="Lead Time"
+            unit="d"
+            tick={{ fill: "rgba(255,255,255,0.35)", fontSize: 10 }}
+            tickLine={false}
+            axisLine={false}
+            domain={[4, 20]}
+            label={{ value: "Lead time (days)", position: "insideBottom", offset: -4, fill: "rgba(255,255,255,0.25)", fontSize: 10 }}
+          />
+          <YAxis
+            dataKey="y"
+            type="number"
+            name="Price"
+            unit="$"
+            tick={{ fill: "rgba(255,255,255,0.35)", fontSize: 10 }}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={(v: number) => `$${v}`}
+            width={40}
+          />
+          <ReferenceLine y={avgPrice} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 4"
+            label={{ value: `avg $${avgPrice}`, position: "right", fill: "rgba(255,255,255,0.3)", fontSize: 9 }} />
+          <Tooltip content={<QuoteTooltip />} />
+          <Scatter data={chartData} shape={(props: { cx?: number; cy?: number; payload?: typeof chartData[0] }) => {
+            const { cx = 0, cy = 0, payload } = props;
+            const isSelected = payload?.selected;
+            return (
+              <g>
+                {isSelected && <circle cx={cx} cy={cy} r={10} fill="rgba(52,211,153,0.15)" stroke="rgba(52,211,153,0.4)" strokeWidth={1} />}
+                <circle cx={cx} cy={cy} r={isSelected ? 6 : 5} fill={payload?.fill ?? "#94a3b8"} opacity={0.9} />
+              </g>
+            );
+          }} />
+        </ScatterChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
 
 function SpecGrid() {
-  const fields = [
+  const fields: Array<[string, string, boolean]> = [
     ["Part Number", part.partNumber, true],
     ["Revision", part.revision, false],
     ["Material", part.material, false],
     ["Finish", part.finish, false],
     ["Tolerance", part.tolerance, true],
     ["Quantity", String(part.quantity), false],
-  ] as const;
+  ];
 
   return (
     <div className="rounded-xl border border-white/[0.08] bg-ws-card p-4">
@@ -77,6 +175,7 @@ function QuoteTable() {
               <td className="px-3 py-2.5 font-medium text-white/90">
                 <div className="flex items-center gap-1.5">
                   {q.selected && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
+                  <span className="h-2 w-2 rounded-full" style={{ background: VENDOR_COLORS[q.vendor] ?? "#94a3b8" }} />
                   {q.vendor}
                 </div>
               </td>
@@ -124,6 +223,7 @@ export function Set1PartPage() {
         <div className="grid grid-cols-3 gap-4">
           <SpecGrid />
           <div className="col-span-2 space-y-3">
+            <QuoteScatterChart />
             <QuoteTable />
           </div>
         </div>

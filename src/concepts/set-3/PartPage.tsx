@@ -2,6 +2,16 @@ import { useMemo, useState } from "react";
 import { FileText, FolderOpen, CheckCircle2, SquareStack, AlertTriangle } from "lucide-react";
 import { ConceptShell } from "@/concepts/ConceptShell";
 import { MOCK_PROJECTS, MOCK_PARTS, MOCK_VENDOR_QUOTES } from "@/concepts/mock-data";
+import {
+  ResponsiveContainer,
+  ScatterChart,
+  Scatter,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+} from "recharts";
 
 function Sidebar() {
   return (
@@ -133,6 +143,60 @@ function SpecCard() {
   );
 }
 
+const chartData = MOCK_VENDOR_QUOTES.map((q) => ({
+  x: q.leadTimeDays,
+  y: q.price,
+  vendor: q.vendor,
+  tier: q.tier,
+  selected: q.selected,
+}));
+const avgPrice = Math.round(MOCK_VENDOR_QUOTES.reduce((s, q) => s + q.price, 0) / MOCK_VENDOR_QUOTES.length);
+
+type AtlasTooltipPayload = { payload?: { vendor: string; y: number; x: number; tier: string } };
+
+function AtlasTooltip({ active, payload }: { active?: boolean; payload?: AtlasTooltipPayload[] }) {
+  if (!active || !payload?.[0]?.payload) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="rounded-xl border border-sky-400/20 bg-[#060c1a] px-3 py-2 text-xs shadow-xl">
+      <p className="font-semibold text-sky-300">{d.vendor}</p>
+      <p className="text-white/40">{d.tier}</p>
+      <p className="mt-1 font-mono text-white/70">${d.y} · {d.x}d lead</p>
+    </div>
+  );
+}
+
+function QuoteScatterChart() {
+  return (
+    <div className="rounded-2xl border border-sky-400/15 bg-[#060c1a] p-4">
+      <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-400/60">Price vs Lead Time</p>
+      <ResponsiveContainer width="100%" height={160}>
+        <ScatterChart margin={{ top: 8, right: 20, bottom: 12, left: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(56,189,248,0.07)" />
+          <XAxis dataKey="x" type="number" name="lead" unit="d"
+            tick={{ fill: "rgba(56,189,248,0.4)", fontSize: 10 }} tickLine={false} axisLine={false} domain={[4, 20]} />
+          <YAxis dataKey="y" type="number" name="price"
+            tick={{ fill: "rgba(56,189,248,0.4)", fontSize: 10 }} tickLine={false} axisLine={false}
+            tickFormatter={(v: number) => `$${v}`} width={42} />
+          <ReferenceLine y={avgPrice} stroke="rgba(56,189,248,0.2)" strokeDasharray="4 4"
+            label={{ value: `avg $${avgPrice}`, position: "right", fill: "rgba(56,189,248,0.35)", fontSize: 9 }} />
+          <Tooltip content={<AtlasTooltip />} />
+          <Scatter data={chartData} shape={(props: { cx?: number; cy?: number; payload?: typeof chartData[0] }) => {
+            const { cx = 0, cy = 0, payload } = props;
+            const isSelected = payload?.selected;
+            return (
+              <g>
+                {isSelected && <circle cx={cx} cy={cy} r={10} fill="rgba(56,189,248,0.12)" stroke="rgba(56,189,248,0.5)" strokeWidth={1} />}
+                <circle cx={cx} cy={cy} r={isSelected ? 6 : 4.5} fill={isSelected ? "#38bdf8" : "rgba(56,189,248,0.45)"} />
+              </g>
+            );
+          }} />
+        </ScatterChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function VendorCards({
   selectedVendor,
   hoveredVendor,
@@ -239,7 +303,8 @@ export function Set3PartPage() {
                 </div>
               </div>
             </div>
-            <div className="col-span-2">
+            <div className="col-span-2 space-y-4">
+              <QuoteScatterChart />
               <VendorCards selectedVendor={selectedVendor} hoveredVendor={hoveredVendor} onSelectVendor={setSelectedVendor} onHoverVendor={setHoveredVendor} />
             </div>
           </div>

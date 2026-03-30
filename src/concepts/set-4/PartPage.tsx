@@ -2,6 +2,16 @@ import { Upload, FileText, DollarSign, CheckCircle2, FolderOpen, GitBranch } fro
 import { Badge } from "@/components/ui/badge";
 import { ConceptShell } from "@/concepts/ConceptShell";
 import { MOCK_PROJECTS, MOCK_PARTS, MOCK_VENDOR_QUOTES, MOCK_ACTIVITY, formatRelativeTime } from "@/concepts/mock-data";
+import {
+  ResponsiveContainer,
+  ScatterChart,
+  Scatter,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+} from "recharts";
 
 function Sidebar() {
   return (
@@ -28,6 +38,61 @@ const LIFECYCLE: LifecycleNode[] = [
   { icon: DollarSign, label: "Quotes received", sub: `${MOCK_VENDOR_QUOTES.length} responses`, color: "text-orange-400 bg-orange-400/10 border-orange-400/20", done: true },
   { icon: CheckCircle2, label: "Vendor selected", sub: "eMachineShop — $431 Economy", color: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20", done: true },
 ];
+
+const chartData = MOCK_VENDOR_QUOTES.map((q) => ({
+  x: q.leadTimeDays,
+  y: q.price,
+  vendor: q.vendor,
+  tier: q.tier,
+  selected: q.selected,
+}));
+const avgPrice = Math.round(MOCK_VENDOR_QUOTES.reduce((s, q) => s + q.price, 0) / MOCK_VENDOR_QUOTES.length);
+
+type ChronicleTooltipPayload = { payload?: { vendor: string; y: number; x: number } };
+function ChronicleTooltip({ active, payload }: { active?: boolean; payload?: ChronicleTooltipPayload[] }) {
+  if (!active || !payload?.[0]?.payload) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="rounded-xl border border-orange-400/20 bg-[#0c0a07] px-3 py-2 text-xs shadow-xl">
+      <p className="font-semibold text-orange-300">{d.vendor}</p>
+      <p className="mt-1 font-mono text-white/60">${d.y} · {d.x}d</p>
+    </div>
+  );
+}
+
+function QuoteScatterChart() {
+  return (
+    <div className="relative rounded-xl border border-orange-400/15 bg-orange-400/[0.03] p-4">
+      <div className="absolute left-3.5 top-0 bottom-0 w-0.5 bg-gradient-to-b from-orange-400/20 to-transparent" />
+      <div className="pl-6">
+        <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-orange-400/60">Quote Map — Price vs Lead Time</p>
+        <ResponsiveContainer width="100%" height={150}>
+          <ScatterChart margin={{ top: 8, right: 20, bottom: 12, left: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(251,146,60,0.07)" />
+            <XAxis dataKey="x" type="number" name="lead" unit="d"
+              tick={{ fill: "rgba(251,146,60,0.4)", fontSize: 10 }} tickLine={false} axisLine={false} domain={[4, 20]} />
+            <YAxis dataKey="y" type="number" name="price"
+              tick={{ fill: "rgba(251,146,60,0.4)", fontSize: 10 }} tickLine={false} axisLine={false}
+              tickFormatter={(v: number) => `$${v}`} width={42} />
+            <ReferenceLine y={avgPrice} stroke="rgba(251,146,60,0.2)" strokeDasharray="4 4"
+              label={{ value: `avg $${avgPrice}`, position: "right", fill: "rgba(251,146,60,0.4)", fontSize: 9 }} />
+            <Tooltip content={<ChronicleTooltip />} />
+            <Scatter data={chartData} shape={(props: { cx?: number; cy?: number; payload?: typeof chartData[0] }) => {
+              const { cx = 0, cy = 0, payload } = props;
+              const isSelected = payload?.selected;
+              return (
+                <g>
+                  {isSelected && <circle cx={cx} cy={cy} r={9} fill="rgba(251,146,60,0.15)" stroke="rgba(251,146,60,0.5)" strokeWidth={1} />}
+                  <circle cx={cx} cy={cy} r={isSelected ? 5.5 : 4} fill={isSelected ? "#fb923c" : "rgba(251,146,60,0.4)"} />
+                </g>
+              );
+            }} />
+          </ScatterChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
 
 function LifecyclePipeline() {
   return (
@@ -89,6 +154,8 @@ export function Set4PartPage() {
             <span className="text-white/50">Qty {part.quantity}</span>
           </div>
         </div>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40">Quote Map</p>
+        <QuoteScatterChart />
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40">Lifecycle</p>
         <LifecyclePipeline />
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40">Activity Log</p>

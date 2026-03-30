@@ -1,6 +1,16 @@
 import { Hash, Folder, Package, Clock } from "lucide-react";
 import { ConceptShell } from "@/concepts/ConceptShell";
 import { MOCK_PARTS, MOCK_VENDOR_QUOTES } from "@/concepts/mock-data";
+import {
+  ResponsiveContainer,
+  ScatterChart,
+  Scatter,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+} from "recharts";
 
 function IconRail() {
   const icons = [
@@ -28,6 +38,78 @@ function ShortcutHint({ keys }: { keys: string }) {
 }
 
 const part = MOCK_PARTS[0];
+const chartData = MOCK_VENDOR_QUOTES.map((q) => ({
+  x: q.leadTimeDays,
+  y: q.price,
+  vendor: q.vendor,
+  tier: q.tier,
+  selected: q.selected,
+}));
+const avgPrice = Math.round(MOCK_VENDOR_QUOTES.reduce((s, q) => s + q.price, 0) / MOCK_VENDOR_QUOTES.length);
+
+type TooltipPayload = { payload?: { vendor: string; y: number; x: number; tier: string } };
+
+function CommandTooltip({ active, payload }: { active?: boolean; payload?: TooltipPayload[] }) {
+  if (!active || !payload?.[0]?.payload) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="rounded border border-violet-400/20 bg-[#0a0b0f] px-3 py-2 font-mono text-xs shadow-xl">
+      <p className="text-violet-300">{d.vendor}</p>
+      <p className="text-white/40">{d.tier}</p>
+      <p className="mt-1 text-white/70">${d.y} · {d.x}d lead</p>
+    </div>
+  );
+}
+
+function QuoteScatterChart() {
+  return (
+    <div className="rounded-xl border border-violet-400/15 bg-[#070a0f] p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-violet-400/60">price_vs_lead_time</p>
+        <ShortcutHint keys="⌘G" />
+      </div>
+      <ResponsiveContainer width="100%" height={160}>
+        <ScatterChart margin={{ top: 8, right: 20, bottom: 12, left: 8 }}>
+          <CartesianGrid strokeDasharray="2 4" stroke="rgba(167,139,250,0.07)" />
+          <XAxis
+            dataKey="x"
+            type="number"
+            name="lead"
+            unit="d"
+            tick={{ fill: "rgba(167,139,250,0.4)", fontSize: 10, fontFamily: "monospace" }}
+            tickLine={false}
+            axisLine={false}
+            domain={[4, 20]}
+          />
+          <YAxis
+            dataKey="y"
+            type="number"
+            name="price"
+            tick={{ fill: "rgba(167,139,250,0.4)", fontSize: 10, fontFamily: "monospace" }}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={(v: number) => `$${v}`}
+            width={42}
+          />
+          <ReferenceLine y={avgPrice} stroke="rgba(167,139,250,0.2)" strokeDasharray="3 3"
+            label={{ value: `avg`, position: "insideTopRight", fill: "rgba(167,139,250,0.35)", fontSize: 9, fontFamily: "monospace" }} />
+          <Tooltip content={<CommandTooltip />} />
+          <Scatter data={chartData} shape={(props: { cx?: number; cy?: number; payload?: typeof chartData[0] }) => {
+            const { cx = 0, cy = 0, payload } = props;
+            const isSelected = payload?.selected;
+            const color = isSelected ? "#a78bfa" : "rgba(167,139,250,0.45)";
+            return (
+              <g>
+                {isSelected && <circle cx={cx} cy={cy} r={9} fill="rgba(167,139,250,0.12)" stroke="rgba(167,139,250,0.5)" strokeWidth={1} />}
+                <rect x={cx - 3} y={cy - 3} width={6} height={6} fill={color} transform={`rotate(45, ${cx}, ${cy})`} />
+              </g>
+            );
+          }} />
+        </ScatterChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
 
 function SpecPane() {
   const fields = [
@@ -69,6 +151,9 @@ function QuoteGrid() {
       <div className="mb-4 flex items-center justify-between">
         <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-violet-400/60">Quotes — {MOCK_VENDOR_QUOTES.length} received</p>
         <ShortcutHint keys="⌘R" />
+      </div>
+      <div className="mb-4">
+        <QuoteScatterChart />
       </div>
       <div className="space-y-2">
         {MOCK_VENDOR_QUOTES.map((q, i) => (

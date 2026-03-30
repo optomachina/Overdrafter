@@ -3,6 +3,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConceptShell } from "@/concepts/ConceptShell";
 import { MOCK_PARTS, MOCK_VENDOR_QUOTES, MOCK_ACTIVITY, formatRelativeTime, type PartStatus } from "@/concepts/mock-data";
+import {
+  ResponsiveContainer,
+  ScatterChart,
+  Scatter,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+} from "recharts";
 
 const STATUS_BAR: Record<PartStatus, string> = {
   quoted: "bg-emerald-500",
@@ -109,6 +119,70 @@ function QuoteHealthRow({ quote, index }: { quote: typeof MOCK_VENDOR_QUOTES[0];
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+const chartData = MOCK_VENDOR_QUOTES.map((q) => ({
+  x: q.leadTimeDays,
+  y: q.price,
+  vendor: q.vendor,
+  selected: q.selected,
+  priceDot: getPriceDot(q.price),
+}));
+
+type SignalTooltipPayload = { payload?: { vendor: string; y: number; x: number } };
+function SignalTooltip({ active, payload }: { active?: boolean; payload?: SignalTooltipPayload[] }) {
+  if (!active || !payload?.[0]?.payload) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="rounded-xl border border-pink-400/20 bg-[#0c080f] px-3 py-2 text-xs shadow-xl">
+      <p className="font-semibold text-pink-300">{d.vendor}</p>
+      <p className="mt-1 font-mono text-white/60">${d.y} · {d.x}d</p>
+    </div>
+  );
+}
+
+function QuoteScatterChart() {
+  const DOT_FILL: Record<HealthDot, string> = {
+    good: "#34d399",
+    warn: "#fbbf24",
+    bad: "#f87171",
+  };
+  return (
+    <div className="rounded-2xl border border-white/[0.08] bg-ws-card p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40">Quote Health Map</p>
+        <div className="flex gap-3 text-[10px] text-white/35">
+          <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />below median</span>
+          <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber-400" />near median</span>
+          <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-rose-400" />above median</span>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={150}>
+        <ScatterChart margin={{ top: 8, right: 20, bottom: 12, left: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+          <XAxis dataKey="x" type="number" name="lead" unit="d"
+            tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} tickLine={false} axisLine={false} domain={[4, 20]} />
+          <YAxis dataKey="y" type="number" name="price"
+            tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} tickLine={false} axisLine={false}
+            tickFormatter={(v: number) => `$${v}`} width={42} />
+          <ReferenceLine y={medianPrice} stroke="rgba(255,255,255,0.12)" strokeDasharray="4 4"
+            label={{ value: `median $${medianPrice}`, position: "right", fill: "rgba(255,255,255,0.25)", fontSize: 9 }} />
+          <Tooltip content={<SignalTooltip />} />
+          <Scatter data={chartData} shape={(props: { cx?: number; cy?: number; payload?: typeof chartData[0] }) => {
+            const { cx = 0, cy = 0, payload } = props;
+            const isSelected = payload?.selected;
+            const color = DOT_FILL[payload?.priceDot ?? "warn"];
+            return (
+              <g>
+                {isSelected && <circle cx={cx} cy={cy} r={9} fill={`${color}22`} stroke={`${color}80`} strokeWidth={1} />}
+                <circle cx={cx} cy={cy} r={isSelected ? 6 : 5} fill={color} opacity={0.85} />
+              </g>
+            );
+          }} />
+        </ScatterChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -223,6 +297,7 @@ export function Set5PartPage() {
               <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40">
                 Quote Options — {MOCK_VENDOR_QUOTES.length} received
               </p>
+              <QuoteScatterChart />
               <div className="mb-2 flex items-center gap-4 text-[11px] text-white/35">
                 <div className="flex items-center gap-1.5"><div className="h-2 w-2 rounded-full bg-emerald-400" /> below median</div>
                 <div className="flex items-center gap-1.5"><div className="h-2 w-2 rounded-full bg-amber-400" /> near median</div>
