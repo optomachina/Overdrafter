@@ -367,7 +367,6 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getAllByText("$124 · 0d").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("$369 · 0d")).toBeInTheDocument();
   });
-
   it("prefetches a project on hover and focus", async () => {
     vi.useFakeTimers();
     const onPrefetchProject = vi.fn();
