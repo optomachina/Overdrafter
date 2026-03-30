@@ -248,6 +248,16 @@ export function ProjectInspectorPanel({
               quotes={visibleQuoteOptions}
               selectedOfferId={selectedOfferId}
               onSelect={onSelectQuote ?? (() => {})}
+              onHoverOffer={(offerId) => {
+                if (!offerId || !geometryProjection?.scene.primitives.length) {
+                  setHighlightedFeatureIds([]);
+                  return;
+                }
+
+                const hash = [...offerId].reduce((total, char) => total + char.charCodeAt(0), 0);
+                const primitive = geometryProjection.scene.primitives[hash % geometryProjection.scene.primitives.length];
+                setHighlightedFeatureIds(primitive ? [primitive.id] : []);
+              }}
             />
           ) : deadlineFiltered ? (
             <div className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-5 text-sm text-white/45">

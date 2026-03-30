@@ -18,6 +18,7 @@ type QuoteChartProps = {
   quotes: ClientQuoteSelectionOption[];
   selectedOfferId: string | null;
   onSelect: (offerId: string | null) => void;
+  onHoverOffer?: (offerId: string | null) => void;
 };
 
 type ChartPoint = {
@@ -107,7 +108,7 @@ function QuoteChartTooltip({
   );
 }
 
-export function QuoteChart({ quotes, selectedOfferId, onSelect }: QuoteChartProps) {
+export function QuoteChart({ quotes, selectedOfferId, onSelect, onHoverOffer }: QuoteChartProps) {
   const [hoveredOfferId, setHoveredOfferId] = useState<string | null>(null);
   const series = useMemo(() => buildSeries(quotes), [quotes]);
   const hasSelected = selectedOfferId !== null;
@@ -158,10 +159,22 @@ export function QuoteChart({ quotes, selectedOfferId, onSelect }: QuoteChartProp
             onSelect(isSelected ? null : point.offerId);
           }
         }}
-        onFocus={() => setHoveredOfferId(point.offerId)}
-        onBlur={() => setHoveredOfferId((current) => (current === point.offerId ? null : current))}
-        onMouseEnter={() => setHoveredOfferId(point.offerId)}
-        onMouseLeave={() => setHoveredOfferId((current) => (current === point.offerId ? null : current))}
+        onFocus={() => {
+          setHoveredOfferId(point.offerId);
+          onHoverOffer?.(point.offerId);
+        }}
+        onBlur={() => {
+          setHoveredOfferId((current) => (current === point.offerId ? null : current));
+          onHoverOffer?.(null);
+        }}
+        onMouseEnter={() => {
+          setHoveredOfferId(point.offerId);
+          onHoverOffer?.(point.offerId);
+        }}
+        onMouseLeave={() => {
+          setHoveredOfferId((current) => (current === point.offerId ? null : current));
+          onHoverOffer?.(null);
+        }}
       />
     );
   };
