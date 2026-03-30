@@ -1,10 +1,22 @@
 # OverDrafter Execution Plan
 
-Last updated: March 24, 2026
+Last updated: March 27, 2026
 
 ## Purpose
 
 This document is the active execution plan for OverDrafter. It translates product and workflow intent into a sequence of concrete changes. It is not the same as the PRD. The PRD defines product intent. This plan defines what should be executed next and in what order.
+
+## North Star – Ideal Multi-Agent UX for OverDrafter
+
+The active north star is the multi-agent manufacturing co-pilot described in PRD.md.
+All future work must align to:
+- Hide every piece of complexity (jobs, queues, extraction steps, vendor tabs, cards) until the exact moment it adds value.
+- Make the primary canvas the user’s CAD tool (plugins) or a live 3D viewer.
+- Use natural language as the only control surface.
+- Keep OpenClaw browser automation 100 % invisible.
+- Deliver DFM, quoting, modeling updates, drafting, assembly, fulfillment, and PDM as parallel invisible agents.
+
+This replaces the previous quote-centric scaffolding as the guiding objective.
 
 ## Planning objective
 
@@ -17,27 +29,27 @@ Operational workflow alignment:
 - Codex GitHub review is the PR review layer.
 - CI is the repeatable automation layer for verification.
 
-## Active work
+## Active objective
 
-### Immediate — Phase 1 gap remediation
+Implement the ideal multi-agent UX (see PRD.md North Star).
 
-- [x] add dead-task reaper to worker — `reapStaleTasks()` in `worker/src/queue.ts`, called every 60s from main loop
-- [x] add `canceled` state test to `src/features/quotes/quote-request.test.ts`
-- [x] fix duplicate migration timestamps — renamed `20260323190000_add_quote_request_cancellation.sql` → `20260323190001_*`
-- [x] regenerate Supabase types to include `api_cancel_quote_request` (manually added to types.ts; `callUntypedRpc` → `callRpc`) — TODO-010 done
+### Immediate next steps (next 2–4 weeks)
 
-### Phase 2 — Multi-vendor quote fan-out + service-request line-item model
+1. Wrap existing worker vendor adapters in full live OpenClaw harness (remove simulation mode).
+2. Build thin CAD plugins (SolidWorks, Fusion, Onshape first) that talk to existing RPCs and open the live 3D workspace.
+3. Replace current job-intake/review UI with natural-language overlay + 3D-first viewer (hide extraction queue, status cards, etc.).
+4. Add internal blackboard + agent orchestration layer on top of the existing worker queue.
+5. Ship on-demand visualizations (DFM heatmap, quote scatter, revision diff) as pull-out tools only.
+6. Update Supabase schema/RPCs to support service-request line items as the new authoritative unit (manufacturing_quote becomes one specialized type).
 
-The architecture docs explicitly call `quote_requests` "Phase 1 scaffolding scoped to manufacturing_quote." Phase 2 introduces the service-request line-item model as the authoritative unit of work and enables multi-vendor quote collection.
+### Phase 2 (following immediate steps)
 
-Phase 2 work items (order matters):
-1. [x] Add `service_request_line_items` table migration — `id, project_id, job_id?, service_type, status, scope, service_detail (jsonb)` — see TODO-013
-2. [x] Backfill existing jobs → implicit `manufacturing_quote` line items
-3. [x] Update `api_request_quote` to fan out across multiple enabled vendors per org (not just Xometry) — see TODO-014
-4. Promote vendor preferences from localStorage (`vendor-exclusions.ts`) to server-persisted per-job or per-project preferences
-5. Update client workspace UI to show multi-vendor quote comparison and vendor-level status per lane
-6. Add worker observability — task duration and failure-rate metrics — see TODO-011
-7. Add loading skeleton to quote-request-in-flight UI states — see TODO-012
+- Full cross-CAD plugin coverage.
+- PDM versioning and revision-aware agents.
+- Fulfillment coordination agents.
+- Production hardening (observability, rate-limiting, self-healing harness).
+
+All previous Phase 1/2 quote-run items are now considered scaffolding that will be progressively hidden or repurposed under the new UX.
 
 ## Completed milestones
 

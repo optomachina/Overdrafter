@@ -1,6 +1,6 @@
 # OverDrafter Architecture
 
-Last updated: March 19, 2026
+Last updated: March 27, 2026
 
 ## Purpose
 
@@ -8,9 +8,9 @@ This document defines the major architectural boundaries in OverDrafter. It exis
 
 ## System overview
 
-OverDrafter is a workflow system for manufactured-part quoting. It connects client intake, internal estimation, asynchronous file processing, sourcing workflows, and curated quote publication within a single workspace-oriented product model.
+OverDrafter is a multi-agent manufacturing co-pilot. The system connects CAD-native intake, invisible specialist agents, asynchronous orchestration, and curated output while keeping all complexity hidden until it adds value.
 
-The next-phase domain model should expand that quote-centric shape into an explicit service-request model. Projects remain collaboration containers, parts remain technical entities, and service request line items become the authoritative unit of requested work.
+The primary canvas is the user’s CAD tool (plugins) or a live 3D viewer. Natural language is the sole control surface. OpenClaw browser automation runs server-side and is never visible to the user. Specialist agents (DFM, extraction, quoting swarm, modeling/drafting, assembly/fulfillment, PDM) negotiate on an internal blackboard and execute in parallel. On-demand visualizations (heatmaps, diffs, scatters) are summoned only when needed and collapse immediately afterward.
 
 ## Subsystems
 
@@ -85,6 +85,17 @@ Internal review implementation boundary:
 - collaborator invitation and access
 - project-scoped visibility boundaries
 - project-level navigation that does not treat assemblies as the umbrella container
+
+### 9. Multi-agent orchestration & CAD-native layer (new)
+
+- CAD plugins (thin clients that inject into SolidWorks/Fusion/Onshape/etc.)
+- Live 3D STEP viewer as web fallback
+- Natural-language intent parser → agent decomposition
+- Internal blackboard for agent negotiation (never surfaced to user)
+- On-demand visualization engine (DFM heatmap, quote scatter, revision diff, risk heatmap)
+- Instant human override protocol
+- OpenClaw harness (invisible browser automation)
+- PDM graph and revision sandboxing
 
 ## Domain hierarchy
 
