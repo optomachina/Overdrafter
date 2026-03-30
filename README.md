@@ -197,6 +197,7 @@ Quote comparison data path:
 - client surfaces do not read `vendor_quote_results` or `vendor_quote_offers` directly because those tables remain internal-only behind RLS
 - `vendor_quote_offers` is the authoritative chart lane source; `vendor_quote_results.raw_payload.offers` is compatibility fallback only
 - hosted environments must include migration `20260319113000_add_client_quote_workspace_projection.sql` and a refreshed PostgREST schema cache before client quote charts can load real data
+- hosted environments must also be at migration head for startup/auth RPCs such as `public.api_get_is_platform_admin()` and `public.api_create_self_service_organization(text)`; after pushing hosted migrations, refresh the PostgREST schema cache before debugging signed-in workspace bootstrap errors
 
 Archive delete requires the hosted environment to have the archived delete RPCs at migration head:
 `public.api_delete_archived_jobs(uuid[])` as the primary contract and

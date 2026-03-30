@@ -94,6 +94,8 @@ export function useClientHomeController() {
     authState,
     activeMembership,
     isLoading,
+    isFetching,
+    isPlatformAdmin,
     isVerifiedAuth,
     signOut,
     isAuthInitializing,
@@ -183,6 +185,19 @@ export function useClientHomeController() {
     !activeMembership &&
     (bootstrapAccountMutation.status === "success" ||
       (bootstrapAccountMutation.status === "error" && isExistingMembershipBootstrapError(bootstrapErrorMessage)));
+
+  const canBootstrapSelfServiceOrganization =
+    Boolean(user) &&
+    !isPlatformAdmin &&
+    authState === "authenticated" &&
+    isVerifiedAuth &&
+    !isAuthInitializing &&
+    !isLoading &&
+    !isFetching &&
+    !membershipError &&
+    !activeMembership &&
+    memberships.length === 0 &&
+    bootstrapAccountMutation.status === "idle";
 
   const { readiness: workspaceReadiness, waitForReady } = useWorkspaceReadiness({
     user,
@@ -334,28 +349,24 @@ export function useClientHomeController() {
   }, [activeMembership, isVerifiedAuth, user]);
 
   useEffect(() => {
-    if (
-      !user ||
-      isAuthInitializing ||
-      membershipError ||
-      isLoading ||
-      activeMembership ||
-      !isVerifiedAuth ||
-      bootstrapAccountMutation.status !== "idle"
-    ) {
+    if (!canBootstrapSelfServiceOrganization) {
       return;
     }
 
     bootstrapAccountMutation.mutate(defaultAccountName);
   }, [
-    activeMembership,
     bootstrapAccountMutation,
     defaultAccountName,
+    canBootstrapSelfServiceOrganization,
     isAuthInitializing,
+    isFetching,
     isLoading,
     isVerifiedAuth,
     membershipError,
     user,
+    authState,
+    memberships.length,
+    activeMembership,
   ]);
 
   useEffect(() => {
