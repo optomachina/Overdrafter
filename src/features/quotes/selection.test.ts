@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { VendorQuoteAggregate } from "@/features/quotes/types";
 import {
   applyBulkPresetSelection,
+  buildScopedPreset,
   buildClientQuoteSelectionOptions,
   buildClientQuoteSelectionResult,
   buildVendorLabelMap,
   filterVisibleQuoteOptions,
+  getPresetMode,
+  getPresetScope,
   pickPresetOption,
   revertBulkPresetSelection,
   summarizeSelectedQuoteOptions,
@@ -631,5 +634,11 @@ describe("selection helpers", () => {
     });
 
     expect(pickPresetOption(options, "cheapest_domestic")).toBeNull();
+  });
+
+  it("derives part and project preset helpers with domestic defaults", () => {
+    expect(getPresetScope(null)).toBe("domestic");
+    expect(getPresetMode(null)).toBe("cheapest");
+    expect(buildScopedPreset("fastest", "global")).toBe("fastest_global");
   });
 });

@@ -638,10 +638,7 @@ describe("top-level create actions", () => {
     });
 
     expect(screen.getByRole("button", { name: "Manage projects" })).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /set due date/i }));
-    fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-04-22" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save due date" }));
+    fireEvent.change(screen.getByLabelText("Due by"), { target: { value: "2026-04-22" } });
 
     await waitFor(() => {
       expect(api.updateClientPartRequest).toHaveBeenCalledWith(

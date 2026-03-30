@@ -6,6 +6,7 @@ import {
   Search as SearchIcon,
 } from "lucide-react";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
+import { QuoteSelectionFunctionBar } from "@/components/quotes/QuoteSelectionFunctionBar";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { ProjectInspectorPanel } from "@/components/workspace/ProjectInspectorPanel";
 import { WorkspaceInlineSearch } from "@/components/workspace/WorkspaceInlineSearch";
@@ -27,7 +28,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import {
@@ -45,13 +45,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   clientFilterOptions,
   useClientProjectController,
 } from "@/features/quotes/use-client-project-controller";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
+import { buildScopedPreset, getPresetMode, getPresetScope } from "@/features/quotes/selection";
 import { formatStatusLabel, normalizeDrawingExtraction } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
 
@@ -82,81 +82,6 @@ function formatDateLabel(value: string | null | undefined) {
     month: "short",
     day: "numeric",
   }).format(new Date(parsed));
-}
-function RoundUsaFlagIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 32 32" className={className} aria-hidden>
-      <defs>
-        <clipPath id="usa-flag-circle">
-          <circle cx="16" cy="16" r="16" />
-        </clipPath>
-      </defs>
-      <g clipPath="url(#usa-flag-circle)">
-        <rect width="32" height="32" fill="#fff" />
-        <rect y="0" width="32" height="2.46" fill="#b22234" />
-        <rect y="4.92" width="32" height="2.46" fill="#b22234" />
-        <rect y="9.84" width="32" height="2.46" fill="#b22234" />
-        <rect y="14.76" width="32" height="2.46" fill="#b22234" />
-        <rect y="19.68" width="32" height="2.46" fill="#b22234" />
-        <rect y="24.6" width="32" height="2.46" fill="#b22234" />
-        <rect y="29.52" width="32" height="2.48" fill="#b22234" />
-        <rect width="17.1" height="17.22" fill="#3c3b6e" />
-        <g fill="#fff">
-          <circle cx="2.2" cy="2.2" r="0.8" />
-          <circle cx="5.2" cy="2.2" r="0.8" />
-          <circle cx="8.2" cy="2.2" r="0.8" />
-          <circle cx="11.2" cy="2.2" r="0.8" />
-          <circle cx="14.2" cy="2.2" r="0.8" />
-          <circle cx="3.7" cy="4.5" r="0.8" />
-          <circle cx="6.7" cy="4.5" r="0.8" />
-          <circle cx="9.7" cy="4.5" r="0.8" />
-          <circle cx="12.7" cy="4.5" r="0.8" />
-          <circle cx="2.2" cy="6.8" r="0.8" />
-          <circle cx="5.2" cy="6.8" r="0.8" />
-          <circle cx="8.2" cy="6.8" r="0.8" />
-          <circle cx="11.2" cy="6.8" r="0.8" />
-          <circle cx="14.2" cy="6.8" r="0.8" />
-          <circle cx="3.7" cy="9.1" r="0.8" />
-          <circle cx="6.7" cy="9.1" r="0.8" />
-          <circle cx="9.7" cy="9.1" r="0.8" />
-          <circle cx="12.7" cy="9.1" r="0.8" />
-          <circle cx="2.2" cy="11.4" r="0.8" />
-          <circle cx="5.2" cy="11.4" r="0.8" />
-          <circle cx="8.2" cy="11.4" r="0.8" />
-          <circle cx="11.2" cy="11.4" r="0.8" />
-          <circle cx="14.2" cy="11.4" r="0.8" />
-          <circle cx="3.7" cy="13.7" r="0.8" />
-          <circle cx="6.7" cy="13.7" r="0.8" />
-          <circle cx="9.7" cy="13.7" r="0.8" />
-          <circle cx="12.7" cy="13.7" r="0.8" />
-        </g>
-      </g>
-    </svg>
-  );
-}
-
-function RoundGlobeIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 32 32" className={className} aria-hidden>
-      <defs>
-        <radialGradient id="project-globe-ocean" cx="34%" cy="29%" r="72%">
-          <stop offset="0%" stopColor="#92d5ff" />
-          <stop offset="50%" stopColor="#3b82f6" />
-          <stop offset="100%" stopColor="#1d4ed8" />
-        </radialGradient>
-      </defs>
-      <circle cx="16" cy="16" r="16" fill="url(#project-globe-ocean)" />
-      <path
-        d="M7.6 9.9c2-1.9 4.8-2.9 7.7-2.9 2 0 3.9.5 5.4 1.3 1.4.7 2 2.3 1.7 3.7l-.4 1.4c-.2 1 .1 2 .8 2.8l1.4 1.3c.8.7 1.9 1.1 3 .9l.6-.1c.1.5.1 1 .1 1.5 0 1.8-.4 3.6-1.2 5.1l-1.6.5c-1 .3-1.9 1.1-2.4 2.1l-.9 1.6c-.6 1.1-1.7 1.8-3 1.8h-1.5c-1.2 0-2.3-.5-3-1.4l-1.5-1.8c-.8-.9-1.2-2.2-1-3.4l.2-1.6c.2-1.1-.3-2.2-1.3-2.8l-2.4-1.4c-1-.6-1.6-1.9-1.6-3.1 0-1.7.6-3.5 1.6-5Z"
-        fill="#34d399"
-      />
-      <path
-        d="M23 20.2c1.7.2 3.2 1 4.4 2.2-.8 1.7-2 3.2-3.6 4.3l-1.8.1c-1.1.1-2.1-.5-2.6-1.6l-.7-1.4c-.5-1.2.1-2.7 1.3-3.3l1.3-.5c.5-.1 1.1-.1 1.7-.1Z"
-        fill="#16a34a"
-      />
-      <circle cx="16" cy="16" r="15.3" fill="none" stroke="#e0f2fe" strokeWidth="1.1" opacity="0.9" />
-    </svg>
-  );
 }
 const ClientProject = () => {
   const {
@@ -371,30 +296,11 @@ const ClientProject = () => {
     focusedSelectedOption?.leadTimeBusinessDays ?? focusedSummary?.selectedLeadTimeBusinessDays ?? null;
   const focusedSelectedOfferId = focusedSelectedOption?.offerId ?? null;
   const projectLabel = projectQuery.data?.name ?? "Project";
-  const bulkPresetScope =
-    activePreset === "cheapest_domestic" || activePreset === "fastest_domestic"
-      ? "domestic"
-      : activePreset === "cheapest_global" || activePreset === "fastest_global"
-        ? "global"
-        : "domestic";
-  const bulkPresetMode =
-    activePreset === "fastest_domestic" || activePreset === "fastest_global"
-      ? "fastest"
-      : activePreset === "cheapest_domestic" || activePreset === "cheapest_global"
-        ? "cheapest"
-        : "cheapest";
+  const bulkPresetScope = getPresetScope(activePreset);
+  const bulkPresetMode = getPresetMode(activePreset);
 
   const applyProjectPreset = (mode: "cheapest" | "fastest", scope: "domestic" | "global") => {
-    const nextPreset =
-      mode === "fastest"
-        ? scope === "domestic"
-          ? "fastest_domestic"
-          : "fastest_global"
-        : scope === "domestic"
-          ? "cheapest_domestic"
-          : "cheapest_global";
-
-    handleBulkPreset(nextPreset);
+    handleBulkPreset(buildScopedPreset(mode, scope));
   };
 
   const handleInspectorQuoteSelect = (offerId: string | null) => {
@@ -664,115 +570,17 @@ const ClientProject = () => {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <TooltipProvider delayDuration={150}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className={cn(
-                            "h-8 w-8 overflow-hidden rounded-full border border-white/10 p-0 [&_svg]:h-full [&_svg]:w-full",
-                            bulkPresetScope === "domestic"
-                              ? "border-white/20 bg-white text-black hover:bg-white/90"
-                              : "bg-transparent text-white hover:bg-white/6",
-                          )}
-                          aria-label={bulkPresetScope === "domestic" ? "Using domestic quotes for all parts" : "Using global quotes for all parts"}
-                          aria-pressed={bulkPresetScope === "domestic"}
-                          onClick={() => applyProjectPreset(bulkPresetMode, bulkPresetScope === "domestic" ? "global" : "domestic")}
-                        >
-                          {bulkPresetScope === "domestic" ? (
-                            <RoundUsaFlagIcon className="h-full w-full" />
-                          ) : (
-                            <RoundGlobeIcon className="h-full w-full" />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        {bulkPresetScope === "domestic" ? "Made in the USA" : "Sourced internationally"}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-
-                  <div
-                    className="inline-flex items-center overflow-hidden rounded-full border border-white/10 bg-black/20 p-0.5"
-                    role="group"
-                    aria-label="Project quote preset"
-                  >
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className={cn(
-                        "h-7 rounded-full px-3 text-xs",
-                        bulkPresetMode === "fastest"
-                          ? "bg-white text-black hover:bg-white/90"
-                          : "text-white hover:bg-white/6",
-                      )}
-                      aria-pressed={bulkPresetMode === "fastest"}
-                      onClick={() => applyProjectPreset("fastest", bulkPresetScope)}
-                    >
-                      Fast
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className={cn(
-                        "h-7 rounded-full px-3 text-xs",
-                        bulkPresetMode === "cheapest"
-                          ? "bg-white text-black hover:bg-white/90"
-                          : "text-white hover:bg-white/6",
-                      )}
-                      aria-pressed={bulkPresetMode === "cheapest"}
-                      onClick={() => applyProjectPreset("cheapest", bulkPresetScope)}
-                    >
-                      Cheap
-                    </Button>
-                  </div>
-
-                  <div className="ml-auto flex items-center gap-2">
-                    <TooltipProvider delayDuration={150}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <label
-                            className="cursor-help text-[11px] font-medium uppercase tracking-[0.14em] text-white/45"
-                            htmlFor="project-due-by"
-                          >
-                            DUE BY:
-                          </label>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom">
-                          Applies to this project unless a part has its own requested-by date.
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="project-due-by"
-                        type="date"
-                        value={projectDueByDate ?? ""}
-                        onChange={(event) => setProjectDueByDate(event.target.value || null)}
-                        aria-label="Due by"
-                        className="h-8 w-[7.6rem] appearance-none rounded-full border-white/10 bg-white/[0.03] px-2 text-center text-sm text-white focus-visible:ring-white/20 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-70 [&::-webkit-date-and-time-value]:text-center [&::-webkit-datetime-edit]:flex [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:items-center [&::-webkit-datetime-edit]:justify-center [&::-webkit-datetime-edit]:text-center [&::-webkit-datetime-edit-fields-wrapper]:flex [&::-webkit-datetime-edit-fields-wrapper]:w-full [&::-webkit-datetime-edit-fields-wrapper]:justify-center"
-                      />
-                      {projectDueByDate ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 rounded-full px-3 text-xs text-white/70 hover:bg-white/6 hover:text-white"
-                          onClick={() => setProjectDueByDate(null)}
-                        >
-                          Clear
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <QuoteSelectionFunctionBar
+                scope={bulkPresetScope}
+                mode={bulkPresetMode}
+                requestedByDate={projectDueByDate}
+                onScopeChange={(nextScope) => applyProjectPreset(bulkPresetMode, nextScope)}
+                onModeChange={(nextMode) => applyProjectPreset(nextMode, bulkPresetScope)}
+                onRequestedByDateChange={setProjectDueByDate}
+                dueDateHelpText="Applies to this project unless a part has its own requested-by date."
+                domesticAriaLabel="Using domestic quotes for all parts"
+                globalAriaLabel="Using global quotes for all parts"
+              />
 
               <div className="overflow-hidden rounded-lg border border-ws-border-subtle bg-ws-card">
                 {projectJobsQuery.isLoading || projectWorkspaceItemsQuery.isLoading ? (

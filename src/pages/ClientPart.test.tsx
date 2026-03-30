@@ -61,6 +61,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
 let lastAccountMenuProps: Record<string, unknown> | null = null;
 let lastDrawingPreviewDialogProps: Record<string, unknown> | null = null;
 let lastPartInfoPanelProps: Record<string, unknown> | null = null;
+let lastQuoteDecisionPanelProps: Record<string, unknown> | null = null;
 
 vi.mock("@/features/quotes/api", () => api);
 vi.mock("@/features/quotes/api/archive-api", () => ({
@@ -306,21 +307,49 @@ vi.mock("@/components/quotes/ClientWorkspacePanelContent", () => ({
     ) : null,
 }));
 
-vi.mock("@/components/workspace/QuoteStatBar", () => ({
-  QuoteStatBar: () => <div>Quote stats</div>,
+vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
+  ClientQuoteDecisionPanel: ({
+    options,
+    controls,
+  }: {
+    options?: Array<{ vendorLabel?: string; tier?: string | null }>;
+    controls?: ReactNode;
+  }) => {
+    lastQuoteDecisionPanelProps = { optionCount: options?.length ?? 0 };
+
+    return (
+      <div data-testid="quote-decision-panel">
+        Quote decision panel
+        {controls}
+        {options?.map((quote) => (
+          <div key={`${quote.vendorLabel}-${quote.tier}`}>{[quote.vendorLabel, quote.tier].filter(Boolean).join(" · ")}</div>
+        ))}
+      </div>
+    );
+  },
 }));
 
-vi.mock("@/components/workspace/QuoteChart", () => ({
-  QuoteChart: () => <div>Chart</div>,
-}));
-
-vi.mock("@/components/workspace/QuoteList", () => ({
-  QuoteList: ({ quotes }: { quotes?: Array<{ vendorLabel?: string; tier?: string | null }> }) => (
-    <div data-testid="quote-list">
-      Quote list
-      {quotes?.map((quote) => (
-        <div key={`${quote.vendorLabel}-${quote.tier}`}>{[quote.vendorLabel, quote.tier].filter(Boolean).join(" · ")}</div>
-      ))}
+vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
+  QuoteSelectionFunctionBar: ({
+    requestedByDate,
+    onRequestedByDateChange,
+  }: {
+    requestedByDate?: string | null;
+    onRequestedByDateChange?: (next: string | null) => void;
+  }) => (
+    <div data-testid="quote-selection-function-bar">
+      <label htmlFor="mock-due-by">Due by</label>
+      <input
+        id="mock-due-by"
+        aria-label="Due by"
+        value={requestedByDate ?? ""}
+        onChange={(event) => onRequestedByDateChange?.(event.target.value || null)}
+      />
+      <button type="button" onClick={() => onRequestedByDateChange?.(null)}>
+        Clear
+      </button>
+      <button type="button">Fast</button>
+      <button type="button">Cheap</button>
     </div>
   ),
 }));
@@ -493,6 +522,7 @@ describe("ClientPart", () => {
     lastAccountMenuProps = null;
     lastDrawingPreviewDialogProps = null;
     lastPartInfoPanelProps = null;
+    lastQuoteDecisionPanelProps = null;
     vi.resetAllMocks();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -616,8 +646,8 @@ describe("ClientPart", () => {
       expect(screen.getByRole("button", { name: "A" })).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Quote stats")).toBeInTheDocument();
-    expect(screen.getByText("Quote list")).toBeInTheDocument();
+    expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
+    expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
     expect(screen.getByText("Part information")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /prev rev/i })).toBeInTheDocument();
     expect(screen.queryByText("This part could not be loaded.")).not.toBeInTheDocument();
@@ -627,11 +657,11 @@ describe("ClientPart", () => {
   it("renders part information inline after the quote section", async () => {
     renderWithClient("/parts/job-1");
 
-    const quoteList = await screen.findByTestId("quote-list");
+    const quoteDecisionPanel = await screen.findByTestId("quote-decision-panel");
     const partInfoPanel = await screen.findByTestId("part-info-panel");
     const cadPanel = await screen.findByTestId("cad-panel");
 
-    expect(quoteList.compareDocumentPosition(partInfoPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(quoteDecisionPanel.compareDocumentPosition(partInfoPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(partInfoPanel.compareDocumentPosition(cadPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -722,8 +752,8 @@ describe("ClientPart", () => {
       expect(screen.getByText("Xometry · Standard")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Chart")).toBeInTheDocument();
-    expect(screen.getByText("Quote list")).toBeInTheDocument();
+    expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
+    expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 1 });
   });
 
   it("canonicalizes legacy part-id routes onto the owning job route", async () => {
@@ -1245,17 +1275,14 @@ describe("ClientPart", () => {
     });
   });
 
-  it("saves a due date from the detail actions menu", async () => {
+  it("saves a due date from the inline function bar", async () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
+      expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /set due date/i }));
-    fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-04-22" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save due date" }));
+    fireEvent.change(screen.getByLabelText("Due by"), { target: { value: "2026-04-22" } });
 
     await waitFor(() => {
       expect(api.updateClientPartRequest).toHaveBeenCalledWith(
@@ -1331,43 +1358,20 @@ describe("ClientPart", () => {
     });
   });
 
-  it("formats quick due-date presets in local calendar time", async () => {
+  it("clears the inline due date from the function bar", async () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
+      expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
     });
 
-    const RealDate = Date;
-    const fixedNow = new RealDate("2026-03-22T20:00:00-07:00");
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
 
-    class MockDate extends RealDate {
-      constructor(value?: string | number | Date) {
-        super(value ?? fixedNow);
-      }
-
-      static now() {
-        return fixedNow.getTime();
-      }
-    }
-
-    vi.stubGlobal("Date", MockDate);
-
-    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /set due date/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Tomorrow" }));
-
-    const expectedTomorrow = new RealDate(fixedNow);
-    expectedTomorrow.setDate(expectedTomorrow.getDate() + 1);
-    const expectedValue = [
-      expectedTomorrow.getFullYear(),
-      String(expectedTomorrow.getMonth() + 1).padStart(2, "0"),
-      String(expectedTomorrow.getDate()).padStart(2, "0"),
-    ].join("-");
-
-    expect((screen.getByLabelText("Due date") as HTMLInputElement).value).toBe(expectedValue);
-
-    vi.unstubAllGlobals();
+    await waitFor(() => {
+      expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ jobId: "job-1", requestedByDate: null }),
+      );
+    });
   });
 
   it("labels the destructive menu action as archive", async () => {
