@@ -150,6 +150,7 @@ function createSessionData(input: {
   memberships?: AppSessionData["memberships"];
   authState?: AppSessionData["authState"];
   isVerifiedAuth?: boolean;
+  isPlatformAdmin?: boolean;
   membershipError?: string;
 }): AppSessionData {
   return {
@@ -159,6 +160,7 @@ function createSessionData(input: {
     } as AppSessionData["user"],
     memberships: input.memberships ?? [],
     isVerifiedAuth: input.isVerifiedAuth ?? true,
+    isPlatformAdmin: input.isPlatformAdmin ?? false,
     authState: input.authState ?? "authenticated",
     membershipError: input.membershipError,
   };
@@ -449,6 +451,28 @@ describe("useClientHomeController membership recovery", () => {
       createSessionData({
         memberships: [],
         membershipError: "temporary membership lookup failure",
+      }),
+    );
+
+    const { unmount } = renderHook(() => useClientHomeController(), {
+      wrapper: createWrapper(),
+    });
+
+    emitSignedInAuthEvent();
+
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalled();
+    });
+
+    expect(createSelfServiceOrganizationMock).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("does not bootstrap a zero-membership platform admin", async () => {
+    fetchAppSessionDataMock.mockResolvedValue(
+      createSessionData({
+        memberships: [],
+        isPlatformAdmin: true,
       }),
     );
 

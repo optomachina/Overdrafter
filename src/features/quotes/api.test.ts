@@ -3159,6 +3159,9 @@ describe("quotes api helpers", () => {
     supabaseMock.rpc.mockResolvedValueOnce({
       data: null,
       error: {
+        code: "PGRST202",
+        details: null,
+        hint: null,
         message: "Could not find the function public.api_get_is_platform_admin() in the schema cache",
       },
     });
@@ -3202,6 +3205,9 @@ describe("quotes api helpers", () => {
       .mockResolvedValueOnce({
         data: null,
         error: {
+          code: "PGRST202",
+          details: null,
+          hint: null,
           message: "Could not find the function public.api_get_is_platform_admin() in the schema cache",
         },
       })
@@ -3258,7 +3264,15 @@ describe("quotes api helpers", () => {
       error: null,
     });
 
-    let resolveRpc!: (value: { data: null; error: { message: string } }) => void;
+    let resolveRpc!: (value: {
+      data: null;
+      error: {
+        code: string;
+        details: null;
+        hint: null;
+        message: string;
+      };
+    }) => void;
     supabaseMock.rpc.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveRpc = resolve;
@@ -3271,6 +3285,9 @@ describe("quotes api helpers", () => {
     resolveRpc({
       data: null,
       error: {
+        code: "PGRST202",
+        details: null,
+        hint: null,
         message: "Could not find the function public.api_get_is_platform_admin() in the schema cache",
       },
     });
@@ -3305,6 +3322,68 @@ describe("quotes api helpers", () => {
     ]);
 
     expect(supabaseMock.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries platform admin lookup after a transient failure", async () => {
+    supabaseMock.membershipsOrder.mockResolvedValue({
+      data: [
+        {
+          id: "membership-1",
+          organization_id: "org-123",
+          role: "internal_admin",
+          organizations: {
+            id: "org-123",
+            name: "Acme",
+            slug: "acme",
+          },
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "57014",
+          details: null,
+          hint: null,
+          message: "statement timeout",
+        },
+      })
+      .mockResolvedValueOnce({
+        data: true,
+        error: null,
+      });
+
+    await expect(fetchAppSessionData()).resolves.toMatchObject({
+      memberships: [
+        {
+          id: "membership-1",
+          role: "internal_admin",
+          organizationId: "org-123",
+          organizationName: "Acme",
+          organizationSlug: "acme",
+        },
+      ],
+      isPlatformAdmin: false,
+      authState: "authenticated",
+    });
+
+    await expect(fetchAppSessionData()).resolves.toMatchObject({
+      memberships: [
+        {
+          id: "membership-1",
+          role: "internal_admin",
+          organizationId: "org-123",
+          organizationName: "Acme",
+          organizationSlug: "acme",
+        },
+      ],
+      isPlatformAdmin: true,
+      authState: "authenticated",
+    });
+
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(2);
   });
 
   it("surfaces a clean not-found error when a project row is missing", async () => {

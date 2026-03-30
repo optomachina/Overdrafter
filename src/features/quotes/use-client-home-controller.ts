@@ -96,6 +96,7 @@ export function useClientHomeController() {
     activeMembership,
     isLoading,
     isFetching,
+    isPlatformAdmin,
     isVerifiedAuth,
     signOut,
     isAuthInitializing,
@@ -181,6 +182,7 @@ export function useClientHomeController() {
 
   const canBootstrapSelfServiceOrganization =
     Boolean(user) &&
+    !isPlatformAdmin &&
     authState === "authenticated" &&
     isVerifiedAuth &&
     !isAuthInitializing &&

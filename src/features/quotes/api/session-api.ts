@@ -4,7 +4,7 @@ import { buildAuthRedirectUrl } from "@/lib/auth-redirect";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
-import type { PostgrestResponse } from "@supabase/supabase-js";
+import type { PostgrestError, PostgrestResponse } from "@supabase/supabase-js";
 import { callRpc } from "./shared/rpc";
 import {
   getStartupBootstrapAgeMs,
@@ -24,9 +24,13 @@ type MembershipJoinRow = {
 };
 
 type PlatformAdminRpcAvailability = "unknown" | "available" | "unavailable";
+type PlatformAdminRpcResult = {
+  data: boolean;
+  error: PostgrestError | null;
+};
 
 let platformAdminRpcAvailability: PlatformAdminRpcAvailability = "unknown";
-let platformAdminRpcRequest: Promise<{ data: boolean; error: { message: string } | null }> | null = null;
+let platformAdminRpcRequest: Promise<PlatformAdminRpcResult> | null = null;
 
 function markPlatformAdminRpcAvailability(next: Exclude<PlatformAdminRpcAvailability, "unknown">): void {
   platformAdminRpcAvailability = next;
@@ -37,7 +41,7 @@ export function resetPlatformAdminRpcAvailabilityForTests(): void {
   platformAdminRpcRequest = null;
 }
 
-async function fetchPlatformAdminAvailability(): Promise<{ data: boolean; error: { message: string } | null }> {
+async function fetchPlatformAdminAvailability(): Promise<PlatformAdminRpcResult> {
   if (platformAdminRpcAvailability === "unavailable") {
     return { data: false, error: null };
   }
@@ -49,16 +53,31 @@ async function fetchPlatformAdminAvailability(): Promise<{ data: boolean; error:
   platformAdminRpcRequest = callRpc("api_get_is_platform_admin", {})
     .then((result) => {
       if (result.error) {
-        markPlatformAdminRpcAvailability("unavailable");
-        recordWorkspaceSessionDiagnostic(
-          "warn",
-          "session-api.fetch.platform-admin-unavailable",
-          "Platform-admin RPC unavailable; defaulting to non-admin mode for this browser session.",
-          {
-            error: result.error.message,
-          },
-        );
-        return { data: false, error: { message: result.error.message } };
+        if (isNonRetriablePlatformAdminRpcError(result.status, result.error)) {
+          markPlatformAdminRpcAvailability("unavailable");
+          recordWorkspaceSessionDiagnostic(
+            "warn",
+            "session-api.fetch.platform-admin-unavailable",
+            "Platform-admin RPC unavailable; defaulting to non-admin mode for this browser session.",
+            {
+              code: result.error.code,
+              error: result.error.message,
+              status: result.status ?? null,
+            },
+          );
+        } else {
+          recordWorkspaceSessionDiagnostic(
+            "warn",
+            "session-api.fetch.platform-admin-transient-error",
+            "Platform-admin RPC failed transiently; defaulting to non-admin mode for this request.",
+            {
+              code: result.error.code,
+              error: result.error.message,
+              status: result.status ?? null,
+            },
+          );
+        }
+        return { data: false, error: result.error };
       }
 
       if (platformAdminRpcAvailability === "unknown") {
@@ -72,6 +91,10 @@ async function fetchPlatformAdminAvailability(): Promise<{ data: boolean; error:
     });
 
   return platformAdminRpcRequest;
+}
+
+function isNonRetriablePlatformAdminRpcError(status: number, error: PostgrestError): boolean {
+  return status === 404 || status === 403 || error.code === "PGRST202" || error.code === "42501";
 }
 
 function emitSessionPayloadDiagnostic(session: AppSessionData, source: string): void {
