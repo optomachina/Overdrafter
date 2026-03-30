@@ -111,6 +111,29 @@ export type DrawingExtractionData = {
     name: string | null;
     promptVersion: string | null;
   };
+  geometryProjection?: {
+    schemaVersion: string;
+    extractorVersion: string;
+    generatedFrom: {
+      drawingExtraction: boolean;
+      approvedRequirement: boolean;
+    };
+    scene: {
+      width: number;
+      height: number;
+      depth: number;
+      primitives: Array<{
+        id: string;
+        kind: "box" | "cylinder" | "hole" | "cutout";
+        position: { x: number; y: number; z: number };
+        size: { x: number; y: number; z: number };
+        metadata: {
+          featureClass: "body" | "hole" | "pocket" | "wall";
+          confidence: number;
+        };
+      }>;
+    };
+  } | null;
   fieldSelections?: Partial<
     Record<"description" | "partNumber" | "revision" | "material" | "finish" | "process", "parser" | "model" | "review">
   >;

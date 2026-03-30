@@ -178,6 +178,7 @@ describe("quotes utils", () => {
         reviewNeeded: false,
         reasons: [],
       },
+      geometryProjection: null,
       tightestTolerance: {
         raw: "+/- .002 in",
         valueInch: 0.002,
