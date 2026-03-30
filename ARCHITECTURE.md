@@ -174,3 +174,13 @@ Drawing extraction is advisory evidence, not the canonical quote contract.
 - `approved_part_requirements` stores the normalized requirement record used by quoting and estimator workflows.
 - `approved_part_requirements.spec_snapshot` is the transitional home for normalized quote-facing variants such as `quoteDescription`, `quoteFinish`, and field provenance or override state.
 - Auto-approval may refresh auto-managed normalized fields from extraction output, but it must preserve reviewed user-managed values and must not silently promote low-confidence raw extraction into approved requirements.
+
+
+## North Star sequencing slices
+
+The current North Star execution track includes these baseline slices for deterministic-first delivery:
+
+- OVD-104 baseline: establish canonical workspace/artifact/review/override primitives before downstream orchestration or UX wiring.
+- OVD-105 baseline: deterministic upload ingestion pairing should first normalize STEP/PDF candidates by stable stem matching and explicit unmatched-upload tracking before broader folder/zip expansion and inference stages.
+
+These slices are intentionally minimal so later OVD-106+ work can compose over stable contracts instead of ad hoc conditional behavior.
