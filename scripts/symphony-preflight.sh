@@ -11,7 +11,13 @@ fail() {
   exit 1
 }
 
-[ "$first_line" = "# OverDrafter Curated CNC Quote Platform" ] || fail "Symphony preflight failed: README.md does not identify this repo as OverDrafter."
+case "$first_line" in
+  "# OverDrafter"*)
+    ;;
+  *)
+    fail "Symphony preflight failed: README.md does not identify this repo as OverDrafter."
+    ;;
+esac
 [ -f PRD.md ] || fail "Symphony preflight failed: PRD.md is missing."
 [ -f PLAN.md ] || fail "Symphony preflight failed: PLAN.md is missing."
 [ -f AGENTS.md ] || fail "Symphony preflight failed: AGENTS.md is missing."
