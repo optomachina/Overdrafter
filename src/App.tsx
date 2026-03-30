@@ -23,6 +23,7 @@ import InternalAdmin from "./pages/InternalAdmin";
 import InternalJobDetail from "./pages/InternalJobDetail";
 import ClientPackage from "./pages/ClientPackage";
 import AuthCallback from "./pages/AuthCallback";
+import DevLogin from "./pages/DevLogin";
 import ClientProject from "./pages/ClientProject";
 import ClientPart from "./pages/ClientPart";
 import ClientPartReview from "./pages/ClientPartReview";
@@ -113,6 +114,7 @@ const App = () => (
             <Route path="/client/packages/:packageId" element={<ClientPackage />} />
             <Route path="/signin" element={<SignIn />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path="/dev-login" element={<DevLogin />} />
             <Route path="/debug/state-gallery" element={<StateGallery />} />
             <Route path="/debug/concepts" element={<ConceptsGallery />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

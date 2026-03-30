@@ -139,6 +139,11 @@ function asStringArray(value: unknown): string[] {
     .filter((item) => item.length > 0);
 }
 
+function asFiniteNumber(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function normalizeEvidence(extraction: DrawingExtractionRecord | null): DrawingExtractionData["evidence"] {
   return asArray<Record<string, unknown>>(extraction?.evidence).map((item) => ({
     field: String(item.field ?? "unknown"),
@@ -392,6 +397,7 @@ export function normalizeDrawingExtraction(
   const warnings = asArray<string>(extraction?.warnings).map(String);
   const storedReviewFields = asStringArray(payload.reviewFields);
   const fieldSelections = asObject(payload.fieldSelections);
+  const geometryProjectionPayload = asObject(payload.geometryProjection);
   const isLegacyNeedsReviewRecord =
     extraction?.status === "needs_review" &&
     storedReviewFields.length === 0 &&
@@ -436,6 +442,55 @@ export function normalizeDrawingExtraction(
       name: typeof payload.modelName === "string" ? payload.modelName : null,
       promptVersion: typeof payload.modelPromptVersion === "string" ? payload.modelPromptVersion : null,
     },
+    geometryProjection:
+      typeof geometryProjectionPayload.schemaVersion === "string" &&
+      typeof geometryProjectionPayload.extractorVersion === "string"
+        ? {
+            schemaVersion: geometryProjectionPayload.schemaVersion,
+            extractorVersion: geometryProjectionPayload.extractorVersion,
+            generatedFrom: {
+              drawingExtraction: Boolean(asObject(geometryProjectionPayload.generatedFrom).drawingExtraction),
+              approvedRequirement: Boolean(asObject(geometryProjectionPayload.generatedFrom).approvedRequirement),
+            },
+            scene: {
+              width: asFiniteNumber(asObject(geometryProjectionPayload.scene).width),
+              height: asFiniteNumber(asObject(geometryProjectionPayload.scene).height),
+              depth: asFiniteNumber(asObject(geometryProjectionPayload.scene).depth),
+              primitives: asArray<Record<string, unknown>>(asObject(geometryProjectionPayload.scene).primitives).map(
+                (primitive, index) => ({
+                  id: typeof primitive.id === "string" ? primitive.id : `primitive-${index + 1}`,
+                  kind:
+                    primitive.kind === "cylinder" ||
+                    primitive.kind === "hole" ||
+                    primitive.kind === "cutout" ||
+                    primitive.kind === "box"
+                      ? primitive.kind
+                      : "box",
+                  position: {
+                    x: asFiniteNumber(asObject(primitive.position).x),
+                    y: asFiniteNumber(asObject(primitive.position).y),
+                    z: asFiniteNumber(asObject(primitive.position).z),
+                  },
+                  size: {
+                    x: asFiniteNumber(asObject(primitive.size).x),
+                    y: asFiniteNumber(asObject(primitive.size).y),
+                    z: asFiniteNumber(asObject(primitive.size).z),
+                  },
+                  metadata: {
+                    featureClass:
+                      asObject(primitive.metadata).featureClass === "hole" ||
+                      asObject(primitive.metadata).featureClass === "pocket" ||
+                      asObject(primitive.metadata).featureClass === "wall" ||
+                      asObject(primitive.metadata).featureClass === "body"
+                        ? (asObject(primitive.metadata).featureClass as "body" | "hole" | "pocket" | "wall")
+                        : "body",
+                    confidence: asFiniteNumber(asObject(primitive.metadata).confidence),
+                  },
+                }),
+              ),
+            },
+          }
+        : null,
     fieldSelections: {
       description:
         typeof fieldSelections.description === "string" ? (fieldSelections.description as "parser" | "model" | "review") : undefined,

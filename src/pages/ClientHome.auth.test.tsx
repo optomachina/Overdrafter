@@ -193,6 +193,7 @@ vi.mock("@/features/quotes/use-client-home-controller", async () => {
         signOut: session.signOut,
         summariesByJobId: new Map(),
         user: session.user,
+        accessibleJobs: [],
         accessibleJobsQuery: { data: [], isLoading: false },
       };
     },

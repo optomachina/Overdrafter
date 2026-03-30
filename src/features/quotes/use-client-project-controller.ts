@@ -46,15 +46,13 @@ import {
   fetchProjectAssigneeProfiles,
 } from "@/features/quotes/api/workspace-access";
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
-import { getClientItemPresentation, matchesClientJobSearch } from "@/features/quotes/client-presentation";
+import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {
   logArchivedDeleteFailure,
   toArchivedDeleteError,
   withArchivedDeleteReporting,
 } from "@/features/quotes/archive-delete-errors";
 import {
-  buildSidebarProjectIdsByJobId,
-  buildSidebarProjects,
   resolveWorkspaceProjectIdsForJob,
 } from "@/features/quotes/client-workspace";
 import {
@@ -93,6 +91,7 @@ import type {
 import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
+import { useWorkspaceNavigationModel } from "@/features/quotes/use-workspace-navigation-model";
 import {
   prefetchPartPage,
   prefetchProjectPage,
@@ -149,7 +148,6 @@ export function useClientProjectController() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user, activeMembership, signOut, isAuthInitializing } = useAppSession();
-  const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<JobFilter>("all");
   const [focusedJobId, setFocusedJobId] = useState<string | null>(null);
   const [showAddPart, setShowAddPart] = useState(false);
@@ -162,6 +160,8 @@ export function useClientProjectController() {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [selectedOfferOverrides, setSelectedOfferOverrides] = useState<Record<string, string | null>>({});
   const [lastBulkAction, setLastBulkAction] = useState<BulkSelectionChange[]>([]);
+  const [activePreset, setActivePreset] = useState<QuotePreset | null>(null);
+  const [projectDueByDate, setProjectDueByDate] = useState<string | null>(null);
   const [excludedVendorKeysByJobId, setExcludedVendorKeysByJobId] = useState<Record<string, VendorName[]>>({});
   const [requestDraftsByJobId, setRequestDraftsByJobId] = useState<Record<string, ClientPartRequestUpdateInput>>({});
   const [quoteQuantityInputsByJobId, setQuoteQuantityInputsByJobId] = useState<Record<string, string>>({});
@@ -170,13 +170,24 @@ export function useClientProjectController() {
   const isMobile = useIsMobile();
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+
+  useEffect(() => {
+    if (!focusedJobId) {
+      setMobileDrawerOpen(false);
+      return;
+    }
+
+    setMobileDrawerOpen(isMobile);
+  }, [focusedJobId, isMobile]);
+
   const {
     accessibleProjects,
+    accessibleJobs,
     accessibleProjectsQuery,
     accessibleJobsQuery,
     accessibleJobsById,
     projectJobMemberships,
-    projectJobMembershipsQuery: sidebarProjectJobMembershipsQuery,
+    projectJobMembershipsQuery,
     sidebarPinsQuery,
     archivedProjectsQuery,
     archivedJobsQuery,
@@ -186,17 +197,22 @@ export function useClientProjectController() {
     userId: user?.id,
     projectCollaborationUnavailable,
   });
-  const sidebarProjectIdsByJobId = useMemo(
-    () => buildSidebarProjectIdsByJobId(projectJobMemberships),
-    [projectJobMemberships],
-  );
-  const { sidebarProjects } = useMemo(
-    () =>
-      buildSidebarProjects({
-        accessibleProjects,
-      }),
-    [accessibleProjects],
-  );
+  const safeProjectJobMembershipsQuery = projectJobMembershipsQuery ?? {
+    isFetching: false,
+    isSuccess: projectCollaborationUnavailable || projectJobMemberships.length > 0 || accessibleJobs.length === 0,
+  };
+  const navigationModel = useWorkspaceNavigationModel({
+    accessibleJobs,
+    accessibleProjects,
+    projectJobMemberships,
+    summariesByJobId,
+    accessibleJobsQuery,
+    accessibleProjectsQuery,
+    projectJobMembershipsQuery: safeProjectJobMembershipsQuery,
+    projectCollaborationUnavailable,
+  });
+  const sidebarProjects = navigationModel.sidebarProjects;
+  const sidebarProjectIdsByJobId = navigationModel.partToProjectIds;
   const canLoadRemoteProjectData =
     Boolean(user) && !projectCollaborationUnavailable;
   const projectQuery = useQuery({
@@ -237,20 +253,20 @@ export function useClientProjectController() {
   );
   const projectJobMembershipsByCompositeKey = useMemo(
     () =>
-      sidebarProjectJobMembershipsQuery.isSuccess
+      projectJobMembershipsQuery.isSuccess
         ? new Map(
-            sidebarProjectJobMembershipsQuery.data.map((membership) => [
+            projectJobMembershipsQuery.data.map((membership) => [
               `${membership.project_id}:${membership.job_id}`,
               membership,
             ]),
           )
         : null,
-    [sidebarProjectJobMembershipsQuery.data, sidebarProjectJobMembershipsQuery.isSuccess],
+    [projectJobMembershipsQuery.data, projectJobMembershipsQuery.isSuccess],
   );
   const projectAssigneeLookupReady =
-    projectAssigneesQuery.isSuccess && sidebarProjectJobMembershipsQuery.isSuccess;
+    projectAssigneesQuery.isSuccess && projectJobMembershipsQuery.isSuccess;
   const projectAssigneeLookupFailed =
-    projectAssigneesQuery.isError || sidebarProjectJobMembershipsQuery.isError;
+    projectAssigneesQuery.isError || projectJobMembershipsQuery.isError;
   const projectJobIds = useMemo(() => stableJobIds(projectJobs.map((job) => job.id)), [projectJobs]);
   const projectWorkspaceItemsQuery = useQuery({
     queryKey: workspaceQueryKeys.clientQuoteWorkspace(projectJobIds),
@@ -308,6 +324,7 @@ export function useClientProjectController() {
             requestDraftsByJobId[jobId]?.requestedByDate ??
             workspaceItem.summary?.requestedByDate ??
             workspaceItem.job.requested_by_date ??
+            projectDueByDate ??
             null;
           const vendorLabels = buildVendorLabelMap(
             workspaceItem.part.vendorQuotes.map((quote) => quote.vendor),
@@ -337,7 +354,7 @@ export function useClientProjectController() {
           diagnostics: QuoteDiagnostics;
         }
       >,
-    [excludedVendorKeysByJobId, projectJobIds, requestDraftsByJobId, workspaceItemsByJobId],
+    [excludedVendorKeysByJobId, projectDueByDate, projectJobIds, requestDraftsByJobId, workspaceItemsByJobId],
   );
   const optionsByJobId = useMemo(
     () =>
@@ -368,11 +385,8 @@ export function useClientProjectController() {
     [projectJobIds, selectedOptionsByJobId],
   );
   const filteredJobs = useMemo(
-    () =>
-      projectJobs.filter(
-        (job) => matchesJobFilter(job.status, activeFilter) && matchesClientJobSearch(job, search),
-      ),
-    [activeFilter, projectJobs, search],
+    () => projectJobs.filter((job) => matchesJobFilter(job.status, activeFilter)),
+    [activeFilter, projectJobs],
   );
   const focusedJob = useMemo(
     () => filteredJobs.find((job) => job.id === focusedJobId) ?? null,
@@ -411,6 +425,20 @@ export function useClientProjectController() {
   const canManageMembers = (projectSummary?.currentUserRole ?? "editor") === "owner";
   const canDissolveProject = canManageMembers;
   const focusedDraft = focusedJob ? requestDraftsByJobId[focusedJob.id] ?? null : null;
+  const focusedRequestedByDate =
+    focusedJob && focusedWorkspaceItem
+      ? requestDraftsByJobId[focusedJob.id]?.requestedByDate ??
+        focusedWorkspaceItem.summary?.requestedByDate ??
+        focusedWorkspaceItem.job.requested_by_date ??
+        projectDueByDate ??
+        null
+      : focusedJob
+        ? requestDraftsByJobId[focusedJob.id]?.requestedByDate ??
+          focusedSummary?.requestedByDate ??
+          focusedJob.requested_by_date ??
+          projectDueByDate ??
+          null
+        : null;
   const focusedQuoteQuantityInput = focusedJob ? quoteQuantityInputsByJobId[focusedJob.id] ?? "" : "";
   const focusedActivityEntries = useMemo<ActivityLogEntry[]>(() => {
     if (!focusedJob) {
@@ -627,7 +655,7 @@ export function useClientProjectController() {
     enabled: Boolean(user),
     canPrefetchProjects: !projectCollaborationUnavailable,
     projects: sidebarProjects,
-    jobs: accessibleJobsQuery.data ?? [],
+    jobs: navigationModel.parts,
     pinnedProjectIds: sidebarPinsQuery.data?.projectIds ?? [],
     pinnedJobIds: sidebarPinsQuery.data?.jobIds ?? [],
     resolveProjectIdsForJob: (job) => resolveSidebarProjectIdsForJob(job),
@@ -972,19 +1000,18 @@ export function useClientProjectController() {
   };
 
   const handleOpenJobDrawer = (jobId: string) => {
-    setFocusedJobId(jobId);
-
-    if (isMobile) {
-      setMobileDrawerOpen(true);
+    if (focusedJobId === jobId) {
+      setFocusedJobId(null);
+      setMobileDrawerOpen(false);
+    } else {
+      setFocusedJobId(jobId);
+      setMobileDrawerOpen(isMobile);
     }
   };
 
   const handleClearFocusedJob = () => {
     setFocusedJobId(null);
-
-    if (isMobile) {
-      setMobileDrawerOpen(false);
-    }
+    setMobileDrawerOpen(false);
   };
 
   const handleToggleVendorExclusion = (
@@ -1026,50 +1053,6 @@ export function useClientProjectController() {
     }
   };
 
-  const handleBulkPreset = async (preset: QuotePreset) => {
-    const result = applyBulkPresetSelection({
-      optionsByJobId,
-      currentSelectedOfferIdsByJobId,
-      preset,
-    });
-
-    if (result.changes.length === 0) {
-      toast.error(
-        result.unavailableJobIds.length > 0
-          ? "No eligible project quotes were available for that preset."
-          : "Selections already match this preset.",
-      );
-      return;
-    }
-
-    setSelectedOfferOverrides((current) => ({
-      ...current,
-      ...Object.fromEntries(result.changes.map((change) => [change.jobId, change.appliedOfferId])),
-    }));
-    setLastBulkAction(result.changes);
-
-    try {
-      await Promise.all(
-        result.changes.map((change) =>
-          setJobSelectedVendorQuoteOffer(change.jobId, change.appliedOfferId),
-        ),
-      );
-      await invalidateClientWorkspaceQueries(queryClient, {
-        projectId,
-        clientQuoteWorkspaceJobIds: projectJobIds,
-      });
-      toast.success(
-        `${preset === "cheapest" ? "Cheapest" : preset === "fastest" ? "Fastest" : "Domestic"} preset applied to ${result.changes.length} part${result.changes.length === 1 ? "" : "s"}.`,
-      );
-    } catch (error) {
-      setSelectedOfferOverrides((current) => ({
-        ...current,
-        ...Object.fromEntries(result.changes.map((change) => [change.jobId, change.previousOfferId])),
-      }));
-      toast.error(error instanceof Error ? error.message : "Bulk preset failed.");
-    }
-  };
-
   const handleRevertBulk = async () => {
     if (lastBulkAction.length === 0) {
       return;
@@ -1106,9 +1089,71 @@ export function useClientProjectController() {
         clientQuoteWorkspaceJobIds: projectJobIds,
       });
       setLastBulkAction([]);
+      setActivePreset(null);
       toast.success("Bulk selection reverted.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to revert bulk selection.");
+    }
+  };
+
+  const handleBulkPreset = async (preset: QuotePreset) => {
+    if (activePreset === preset && lastBulkAction.length > 0) {
+      await handleRevertBulk();
+      return;
+    }
+
+    const result = applyBulkPresetSelection({
+      optionsByJobId,
+      currentSelectedOfferIdsByJobId,
+      preset,
+    });
+
+    if (result.changes.length === 0) {
+      toast.error(
+        result.unavailableJobIds.length > 0
+          ? "No eligible project quotes were available for that preset."
+          : "Selections already match this preset.",
+      );
+      return;
+    }
+
+    setSelectedOfferOverrides((current) => ({
+      ...current,
+      ...Object.fromEntries(result.changes.map((change) => [change.jobId, change.appliedOfferId])),
+    }));
+    setLastBulkAction(result.changes);
+    setActivePreset(preset);
+
+    const presetLabel =
+      preset === "cheapest" ? "Cheapest"
+      : preset === "fastest" ? "Fastest"
+      : preset === "domestic" ? "Domestic"
+      : preset === "cheapest_domestic" ? "Cheapest domestic"
+      : preset === "fastest_domestic" ? "Fastest domestic"
+      : preset === "cheapest_global" ? "Cheapest global"
+      : preset === "fastest_global" ? "Fastest global"
+      : preset;
+
+    try {
+      await Promise.all(
+        result.changes.map((change) =>
+          setJobSelectedVendorQuoteOffer(change.jobId, change.appliedOfferId),
+        ),
+      );
+      await invalidateClientWorkspaceQueries(queryClient, {
+        projectId,
+        clientQuoteWorkspaceJobIds: projectJobIds,
+      });
+      toast.success(
+        `${presetLabel} preset applied to ${result.changes.length} part${result.changes.length === 1 ? "" : "s"}.`,
+      );
+    } catch (error) {
+      setSelectedOfferOverrides((current) => ({
+        ...current,
+        ...Object.fromEntries(result.changes.map((change) => [change.jobId, change.previousOfferId])),
+      }));
+      setActivePreset(null);
+      toast.error(error instanceof Error ? error.message : "Bulk preset failed.");
     }
   };
 
@@ -1269,10 +1314,13 @@ export function useClientProjectController() {
       isCancelQuoteRequestLockedRef.current = false;
     }
   };
+  const sidebarJobs = navigationModel.parts;
 
   return {
+    accessibleJobs: sidebarJobs,
     accessibleJobsQuery,
     activeFilter,
+    activePreset,
     activeMembership,
     archivedJobsQuery,
     archivedProjectsQuery,
@@ -1291,6 +1339,7 @@ export function useClientProjectController() {
     focusedQuoteDiagnostics,
     focusedQuoteOptions,
     focusedQuoteQuantityInput,
+    focusedRequestedByDate,
     focusedSelectedOption,
     focusedSummary,
     focusedWorkspaceItem,
@@ -1331,6 +1380,7 @@ export function useClientProjectController() {
     prefetchPart,
     prefetchProject,
     projectCollaborationUnavailable,
+    projectDueByDate,
     projectId,
     projectAssigneeLookupFailed,
     projectAssigneeLookupReady,
@@ -1346,7 +1396,7 @@ export function useClientProjectController() {
     projectWorkspaceItemsQuery,
     requestDraftsByJobId,
     resolveSidebarProjectIdsForJob,
-    search,
+    navigationModel,
     saveRequestMutation,
     optionsByJobId,
     selectedOptionsByJobId,
@@ -1356,7 +1406,7 @@ export function useClientProjectController() {
     setIsSearchOpen,
     setMobileDrawerOpen,
     setProjectName,
-    setSearch,
+    setProjectDueByDate,
     setShowAddPart,
     setShowArchive,
     setShowDissolve,
@@ -1377,5 +1427,6 @@ export function useClientProjectController() {
     user,
     isAuthInitializing,
     workspaceItemsByJobId,
+    accessibleProjects,
   };
 }

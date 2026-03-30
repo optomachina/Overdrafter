@@ -116,18 +116,50 @@ const SIDEBAR_ACTION_BUTTON_PADDING_CLASS = "pl-1 pr-3";
 const SIDEBAR_ROW_PADDING_CLASS = "px-2 py-2";
 const SIDEBAR_PREFETCH_DELAY_MS = 75;
 
+function formatSidebarPrice(priceUsd: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(priceUsd);
+}
+
 function formatSelectedQuote(summary: JobPartSummary | undefined) {
   if (!summary?.selectedSupplier || summary.selectedPriceUsd === null) {
     return null;
   }
 
-  const price = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(summary.selectedPriceUsd);
+  const price = formatSidebarPrice(summary.selectedPriceUsd);
 
-  return `${price}${summary.selectedLeadTimeBusinessDays ? ` · ${summary.selectedLeadTimeBusinessDays}d` : ""}`;
+  return `${price}${summary.selectedLeadTimeBusinessDays !== null ? ` · ${summary.selectedLeadTimeBusinessDays}d` : ""}`;
+}
+
+function formatProjectSelectedQuote(projectJobs: JobRecord[], summariesByJobId: Map<string, JobPartSummary>) {
+  if (projectJobs.length === 0) {
+    return null;
+  }
+
+  let totalPriceUsd = 0;
+  let maxLeadTimeBusinessDays: number | null = null;
+
+  for (const job of projectJobs) {
+    const summary = summariesByJobId.get(job.id);
+
+    if (
+      !summary?.selectedSupplier ||
+      summary.selectedPriceUsd === null ||
+      summary.selectedPriceUsd === undefined ||
+      typeof summary.selectedLeadTimeBusinessDays !== "number"
+    ) {
+      return null;
+    }
+
+    totalPriceUsd += summary.selectedPriceUsd;
+
+    maxLeadTimeBusinessDays = Math.max(maxLeadTimeBusinessDays ?? 0, summary.selectedLeadTimeBusinessDays);
+  }
+
+  return `${formatSidebarPrice(totalPriceUsd)}${maxLeadTimeBusinessDays !== null && maxLeadTimeBusinessDays !== undefined ? ` · ${maxLeadTimeBusinessDays}d` : ""}`;
 }
 
 function readFilters(storageKey: string): SidebarFilters {
@@ -478,11 +510,6 @@ export function WorkspaceSidebar({
     return grouped;
   }, [getProjectIdsForJob, jobs, projectsById]);
 
-  const ungroupedJobs = useMemo(
-    () => jobs.filter((job) => getProjectIdsForJob(job).filter((projectId) => projectsById.has(projectId)).length === 0),
-    [getProjectIdsForJob, jobs, projectsById],
-  );
-
   const sortedProjects = useMemo(() => {
     const getProjectSortTimestamp = (project: WorkspaceSidebarProject) => {
       const projectJobs = jobsByProjectId.get(project.id) ?? [];
@@ -543,9 +570,9 @@ export function WorkspaceSidebar({
   const visibleParts = useMemo(
     () =>
       filters.show === "relevant"
-        ? sortedJobs(ungroupedJobs.filter((job) => pinnedPartSet.has(job.id)))
-        : sortedJobs(ungroupedJobs),
-    [filters.show, pinnedPartSet, sortedJobs, ungroupedJobs],
+        ? sortedJobs(jobs.filter((job) => pinnedPartSet.has(job.id)))
+        : sortedJobs(jobs),
+    [filters.show, jobs, pinnedPartSet, sortedJobs],
   );
 
   const selectionOrderJobIds = useMemo(() => visibleParts.map((job) => job.id), [visibleParts]);
@@ -998,6 +1025,7 @@ export function WorkspaceSidebar({
     const expanded = isProjectExpanded(project.id);
     const isDragging = draggingProjectId === project.id;
     const dropPosition = projectDropTarget?.projectId === project.id ? projectDropTarget.position : null;
+    const selectedQuote = formatProjectSelectedQuote(projectJobs, summariesByJobId);
 
     return (
       <div key={project.id} className="space-y-1">
@@ -1104,7 +1132,12 @@ export function WorkspaceSidebar({
               )}
               <Folder className="h-4 w-4 shrink-0 text-white/[0.9]" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm leading-5">{project.name}</p>
+                <div className="flex items-center gap-2">
+                  <p className="min-w-0 truncate text-sm leading-5">{project.name}</p>
+                  {selectedQuote ? (
+                    <p className="ml-auto shrink-0 text-[11px] leading-5 text-emerald-300/90">{selectedQuote}</p>
+                  ) : null}
+                </div>
               </div>
               {isPinned ? (
                 <div className="flex items-center gap-2">

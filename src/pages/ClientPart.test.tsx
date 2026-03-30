@@ -61,6 +61,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
 let lastAccountMenuProps: Record<string, unknown> | null = null;
 let lastDrawingPreviewDialogProps: Record<string, unknown> | null = null;
 let lastPartInfoPanelProps: Record<string, unknown> | null = null;
+let lastQuoteDecisionPanelProps: Record<string, unknown> | null = null;
 
 vi.mock("@/features/quotes/api", () => api);
 vi.mock("@/features/quotes/api/archive-api", () => ({
@@ -160,12 +161,23 @@ vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
 
 vi.mock("@/components/chat/WorkspaceSidebar", () => ({
   WorkspaceSidebar: (props: Record<string, unknown>) => {
+    const jobs = Array.isArray(props.jobs)
+      ? (props.jobs as Array<{ id: string; title: string }>)
+      : [];
+    const resolveProjectIdsForJob =
+      (props.resolveProjectIdsForJob as ((job: { id: string; title: string }) => string[]) | undefined) ?? null;
+
     return (
       <div>
         <button type="button" onClick={() => void (props.onPrefetchProject as ((id: string) => void) | undefined)?.("project-2")}>
           Prefetch project
         </button>
         Sidebar
+        {jobs.map((job) => (
+          <div key={job.id} data-testid={`sidebar-job-${job.id}`}>
+            {job.title}:{(resolveProjectIdsForJob?.(job) ?? []).join(",") || "ungrouped"}
+          </div>
+        ))}
       </div>
     );
   },
@@ -295,21 +307,49 @@ vi.mock("@/components/quotes/ClientWorkspacePanelContent", () => ({
     ) : null,
 }));
 
-vi.mock("@/components/workspace/QuoteStatBar", () => ({
-  QuoteStatBar: () => <div>Quote stats</div>,
+vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
+  ClientQuoteDecisionPanel: ({
+    options,
+    controls,
+  }: {
+    options?: Array<{ vendorLabel?: string; tier?: string | null }>;
+    controls?: ReactNode;
+  }) => {
+    lastQuoteDecisionPanelProps = { optionCount: options?.length ?? 0 };
+
+    return (
+      <div data-testid="quote-decision-panel">
+        Quote decision panel
+        {controls}
+        {options?.map((quote) => (
+          <div key={`${quote.vendorLabel}-${quote.tier}`}>{[quote.vendorLabel, quote.tier].filter(Boolean).join(" · ")}</div>
+        ))}
+      </div>
+    );
+  },
 }));
 
-vi.mock("@/components/workspace/QuoteChart", () => ({
-  QuoteChart: () => <div>Chart</div>,
-}));
-
-vi.mock("@/components/workspace/QuoteList", () => ({
-  QuoteList: ({ quotes }: { quotes?: Array<{ vendorLabel?: string; tier?: string | null }> }) => (
-    <div data-testid="quote-list">
-      Quote list
-      {quotes?.map((quote) => (
-        <div key={`${quote.vendorLabel}-${quote.tier}`}>{[quote.vendorLabel, quote.tier].filter(Boolean).join(" · ")}</div>
-      ))}
+vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
+  QuoteSelectionFunctionBar: ({
+    requestedByDate,
+    onRequestedByDateChange,
+  }: {
+    requestedByDate?: string | null;
+    onRequestedByDateChange?: (next: string | null) => void;
+  }) => (
+    <div data-testid="quote-selection-function-bar">
+      <label htmlFor="mock-due-by">Due by</label>
+      <input
+        id="mock-due-by"
+        aria-label="Due by"
+        value={requestedByDate ?? ""}
+        onChange={(event) => onRequestedByDateChange?.(event.target.value || null)}
+      />
+      <button type="button" onClick={() => onRequestedByDateChange?.(null)}>
+        Clear
+      </button>
+      <button type="button">Fast</button>
+      <button type="button">Cheap</button>
     </div>
   ),
 }));
@@ -482,6 +522,7 @@ describe("ClientPart", () => {
     lastAccountMenuProps = null;
     lastDrawingPreviewDialogProps = null;
     lastPartInfoPanelProps = null;
+    lastQuoteDecisionPanelProps = null;
     vi.resetAllMocks();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -605,8 +646,8 @@ describe("ClientPart", () => {
       expect(screen.getByRole("button", { name: "A" })).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Quote stats")).toBeInTheDocument();
-    expect(screen.getByText("Quote list")).toBeInTheDocument();
+    expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
+    expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
     expect(screen.getByText("Part information")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /prev rev/i })).toBeInTheDocument();
     expect(screen.queryByText("This part could not be loaded.")).not.toBeInTheDocument();
@@ -616,11 +657,11 @@ describe("ClientPart", () => {
   it("renders part information inline after the quote section", async () => {
     renderWithClient("/parts/job-1");
 
-    const quoteList = await screen.findByTestId("quote-list");
+    const quoteDecisionPanel = await screen.findByTestId("quote-decision-panel");
     const partInfoPanel = await screen.findByTestId("part-info-panel");
     const cadPanel = await screen.findByTestId("cad-panel");
 
-    expect(quoteList.compareDocumentPosition(partInfoPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(quoteDecisionPanel.compareDocumentPosition(partInfoPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(partInfoPanel.compareDocumentPosition(cadPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -711,8 +752,8 @@ describe("ClientPart", () => {
       expect(screen.getByText("Xometry · Standard")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Chart")).toBeInTheDocument();
-    expect(screen.getByText("Quote list")).toBeInTheDocument();
+    expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
+    expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 1 });
   });
 
   it("canonicalizes legacy part-id routes onto the owning job route", async () => {
@@ -767,6 +808,138 @@ describe("ClientPart", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["client-part-summaries"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["part-detail"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["part-detail", "job-1"] });
+  });
+
+  it("keeps the prior sidebar jobs grouped while the membership refetch is unresolved", async () => {
+    const deferredMemberships = createDeferredPromise<Array<{ job_id: string; project_id: string }>>();
+    let accessibleJobsFetchCount = 0;
+    let projectMembershipFetchCount = 0;
+
+    api.fetchAccessibleProjects.mockResolvedValue([
+      {
+        project: {
+          id: "project-1",
+          organization_id: "org-1",
+          name: "Bracket Project",
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-05T00:00:00Z",
+        },
+        partCount: 1,
+        inviteCount: 0,
+        currentUserRole: "owner",
+      },
+    ]);
+    api.fetchAccessibleJobs.mockImplementation(async () => {
+      accessibleJobsFetchCount += 1;
+
+      if (accessibleJobsFetchCount === 1) {
+        return [
+          {
+            id: "job-1",
+            organization_id: "org-1",
+            project_id: null,
+            created_by: "user-1",
+            title: "Bracket",
+            description: null,
+            status: "ready_to_quote",
+            source: "client_home",
+            active_pricing_policy_id: null,
+            selected_vendor_quote_offer_id: null,
+            tags: [],
+            requested_service_kinds: ["manufacturing_quote"],
+            primary_service_kind: "manufacturing_quote",
+            service_notes: null,
+            requested_quote_quantities: [10],
+            requested_by_date: "2026-04-15",
+            archived_at: null,
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        ];
+      }
+
+      return [
+        {
+          id: "job-1",
+          organization_id: "org-1",
+          project_id: null,
+          created_by: "user-1",
+          title: "Bracket",
+          description: null,
+          status: "ready_to_quote",
+          source: "client_home",
+          active_pricing_policy_id: null,
+          selected_vendor_quote_offer_id: null,
+          tags: [],
+          requested_service_kinds: ["manufacturing_quote"],
+          primary_service_kind: "manufacturing_quote",
+          service_notes: null,
+          requested_quote_quantities: [10],
+          requested_by_date: "2026-04-15",
+          archived_at: null,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+        },
+        {
+          id: "job-2",
+          organization_id: "org-1",
+          project_id: null,
+          created_by: "user-1",
+          title: "Plate",
+          description: null,
+          status: "ready_to_quote",
+          source: "client_home",
+          active_pricing_policy_id: null,
+          selected_vendor_quote_offer_id: null,
+          tags: [],
+          requested_service_kinds: ["manufacturing_quote"],
+          primary_service_kind: "manufacturing_quote",
+          service_notes: null,
+          requested_quote_quantities: [5],
+          requested_by_date: "2026-04-15",
+          archived_at: null,
+          created_at: "2026-03-02T00:00:00Z",
+          updated_at: "2026-03-02T00:00:00Z",
+        },
+      ];
+    });
+    api.fetchProjectJobMembershipsByJobIds.mockImplementation(async (jobIds: string[]) => {
+      projectMembershipFetchCount += 1;
+
+      if (projectMembershipFetchCount === 1) {
+        return [{ job_id: "job-1", project_id: "project-1" }];
+      }
+
+      expect(jobIds).toEqual(["job-1", "job-2"]);
+      return deferredMemberships.promise;
+    });
+
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-job-job-1")).toHaveTextContent("Bracket:project-1");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
+
+    await waitFor(() => {
+      expect(api.updateClientPartRequest).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(api.fetchProjectJobMembershipsByJobIds).toHaveBeenCalledWith(["job-1", "job-2"]);
+    });
+
+    expect(screen.getByTestId("sidebar-job-job-1")).toHaveTextContent("Bracket:project-1");
+    expect(screen.queryByTestId("sidebar-job-job-2")).not.toBeInTheDocument();
+
+    deferredMemberships.resolve([
+      { job_id: "job-1", project_id: "project-1" },
+      { job_id: "job-2", project_id: "project-1" },
+    ]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-job-job-2")).toHaveTextContent("Plate:project-1");
+    });
   });
 
   it("submits a client quote request when the part is ready", async () => {
@@ -1102,17 +1275,14 @@ describe("ClientPart", () => {
     });
   });
 
-  it("saves a due date from the detail actions menu", async () => {
+  it("saves a due date from the inline function bar", async () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
+      expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /set due date/i }));
-    fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-04-22" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save due date" }));
+    fireEvent.change(screen.getByLabelText("Due by"), { target: { value: "2026-04-22" } });
 
     await waitFor(() => {
       expect(api.updateClientPartRequest).toHaveBeenCalledWith(
@@ -1188,43 +1358,20 @@ describe("ClientPart", () => {
     });
   });
 
-  it("formats quick due-date presets in local calendar time", async () => {
+  it("clears the inline due date from the function bar", async () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
+      expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
     });
 
-    const RealDate = Date;
-    const fixedNow = new RealDate("2026-03-22T20:00:00-07:00");
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
 
-    class MockDate extends RealDate {
-      constructor(value?: string | number | Date) {
-        super(value ?? fixedNow);
-      }
-
-      static now() {
-        return fixedNow.getTime();
-      }
-    }
-
-    vi.stubGlobal("Date", MockDate);
-
-    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /set due date/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Tomorrow" }));
-
-    const expectedTomorrow = new RealDate(fixedNow);
-    expectedTomorrow.setDate(expectedTomorrow.getDate() + 1);
-    const expectedValue = [
-      expectedTomorrow.getFullYear(),
-      String(expectedTomorrow.getMonth() + 1).padStart(2, "0"),
-      String(expectedTomorrow.getDate()).padStart(2, "0"),
-    ].join("-");
-
-    expect((screen.getByLabelText("Due date") as HTMLInputElement).value).toBe(expectedValue);
-
-    vi.unstubAllGlobals();
+    await waitFor(() => {
+      expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ jobId: "job-1", requestedByDate: null }),
+      );
+    });
   });
 
   it("labels the destructive menu action as archive", async () => {

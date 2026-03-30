@@ -4,7 +4,7 @@ import { buildAuthRedirectUrl } from "@/lib/auth-redirect";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
-import type { PostgrestResponse } from "@supabase/supabase-js";
+import type { PostgrestError, PostgrestResponse } from "@supabase/supabase-js";
 import { callRpc } from "./shared/rpc";
 import {
   getStartupBootstrapAgeMs,
@@ -22,6 +22,80 @@ type MembershipJoinRow = {
     slug: string;
   } | null;
 };
+
+type PlatformAdminRpcAvailability = "unknown" | "available" | "unavailable";
+type PlatformAdminRpcResult = {
+  data: boolean;
+  error: PostgrestError | null;
+};
+
+let platformAdminRpcAvailability: PlatformAdminRpcAvailability = "unknown";
+let platformAdminRpcRequest: Promise<PlatformAdminRpcResult> | null = null;
+
+function markPlatformAdminRpcAvailability(next: Exclude<PlatformAdminRpcAvailability, "unknown">): void {
+  platformAdminRpcAvailability = next;
+}
+
+export function resetPlatformAdminRpcAvailabilityForTests(): void {
+  platformAdminRpcAvailability = "unknown";
+  platformAdminRpcRequest = null;
+}
+
+async function fetchPlatformAdminAvailability(): Promise<PlatformAdminRpcResult> {
+  if (platformAdminRpcAvailability === "unavailable") {
+    return { data: false, error: null };
+  }
+
+  if (platformAdminRpcRequest) {
+    return platformAdminRpcRequest;
+  }
+
+  platformAdminRpcRequest = callRpc("api_get_is_platform_admin", {})
+    .then((result) => {
+      if (result.error) {
+        if (isNonRetriablePlatformAdminRpcError(result.status, result.error)) {
+          markPlatformAdminRpcAvailability("unavailable");
+          recordWorkspaceSessionDiagnostic(
+            "warn",
+            "session-api.fetch.platform-admin-unavailable",
+            "Platform-admin RPC unavailable; defaulting to non-admin mode for this browser session.",
+            {
+              code: result.error.code,
+              error: result.error.message,
+              status: result.status ?? null,
+            },
+          );
+        } else {
+          recordWorkspaceSessionDiagnostic(
+            "warn",
+            "session-api.fetch.platform-admin-transient-error",
+            "Platform-admin RPC failed transiently; defaulting to non-admin mode for this request.",
+            {
+              code: result.error.code,
+              error: result.error.message,
+              status: result.status ?? null,
+            },
+          );
+        }
+        return { data: false, error: result.error };
+      }
+
+      if (platformAdminRpcAvailability === "unknown") {
+        markPlatformAdminRpcAvailability("available");
+      }
+
+      return { data: result.data === true, error: null };
+    })
+    .finally(() => {
+      platformAdminRpcRequest = null;
+    });
+
+  return platformAdminRpcRequest;
+}
+
+function isNonRetriablePlatformAdminRpcError(status: number, error: PostgrestError): boolean {
+  return status === 404 || status === 403 || error.code === "PGRST202" || error.code === "42501";
+}
 
 function emitSessionPayloadDiagnostic(session: AppSessionData, source: string): void {
   recordWorkspaceSessionDiagnostic("info", source, "Fetched app-session payload.", {
@@ -124,36 +198,10 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
 
   const [membershipResult, platformAdminResult] = await Promise.all([
     membershipQuery as unknown as Promise<PostgrestResponse<MembershipJoinRow>>,
-    callRpc("api_get_is_platform_admin", {}),
+    fetchPlatformAdminAvailability(),
   ]);
   const { data, error } = membershipResult;
   const isPlatformAdmin = platformAdminResult.data === true;
-  const platformAdminErrorMessage =
-    platformAdminResult.error?.message ??
-    (typeof platformAdminResult.data === "boolean" ? null : "Failed to load platform admin status.");
-
-  if (error || platformAdminErrorMessage) {
-    const memberships: AppMembership[] = (data ?? []).map((row) => ({
-      id: row.id,
-      role: row.role,
-      organizationId: row.organization_id,
-      organizationName: row.organizations?.name ?? "Unassigned organization",
-      organizationSlug: row.organizations?.slug ?? "unassigned",
-    }));
-    const session: AppSessionData = {
-      user,
-      memberships: error ? [] : memberships,
-      isVerifiedAuth: hasVerifiedAuth(user),
-      isPlatformAdmin,
-      authState: "authenticated",
-      membershipError: error?.message ?? platformAdminErrorMessage ?? undefined,
-    };
-    emitSessionPayloadDiagnostic(
-      session,
-      error ? "session-api.fetch.membership-error" : "session-api.fetch.platform-admin-error",
-    );
-    return session;
-  }
 
   const memberships: AppMembership[] = (data ?? []).map((row) => ({
     id: row.id,
@@ -165,12 +213,13 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
 
   const session: AppSessionData = {
     user,
-    memberships,
+    memberships: error ? [] : memberships,
     isVerifiedAuth: hasVerifiedAuth(user),
     isPlatformAdmin,
     authState: "authenticated",
+    membershipError: error?.message ?? undefined,
   };
-  emitSessionPayloadDiagnostic(session, "session-api.fetch.authenticated");
+  emitSessionPayloadDiagnostic(session, error ? "session-api.fetch.membership-error" : "session-api.fetch.authenticated");
   return session;
 }
 

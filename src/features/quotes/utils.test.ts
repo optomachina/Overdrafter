@@ -178,6 +178,7 @@ describe("quotes utils", () => {
         reviewNeeded: false,
         reasons: [],
       },
+      geometryProjection: null,
       tightestTolerance: {
         raw: "+/- .002 in",
         valueInch: 0.002,
@@ -254,6 +255,64 @@ describe("quotes utils", () => {
         notes: null,
       },
       applicableVendors: ["xometry", "fictiv", "protolabs"],
+    });
+  });
+
+  it("normalizes geometry projection payloads and clamps invalid numeric fields", () => {
+    const extraction = makeExtractionRecord({
+      extraction: {
+        geometryProjection: {
+          schemaVersion: "2026-03-29",
+          extractorVersion: "worker-geometry-v1",
+          generatedFrom: {
+            drawingExtraction: true,
+            approvedRequirement: false,
+          },
+          scene: {
+            width: "bad-width",
+            height: 24,
+            depth: 12,
+            primitives: [
+              {
+                id: "pocket-a",
+                kind: "cutout",
+                position: { x: "oops", y: 2, z: 3 },
+                size: { x: 10, y: "invalid", z: 4 },
+                metadata: {
+                  featureClass: "pocket",
+                  confidence: "bad-confidence",
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(normalizeDrawingExtraction(extraction, "part-1").geometryProjection).toEqual({
+      schemaVersion: "2026-03-29",
+      extractorVersion: "worker-geometry-v1",
+      generatedFrom: {
+        drawingExtraction: true,
+        approvedRequirement: false,
+      },
+      scene: {
+        width: 0,
+        height: 24,
+        depth: 12,
+        primitives: [
+          {
+            id: "pocket-a",
+            kind: "cutout",
+            position: { x: 0, y: 2, z: 3 },
+            size: { x: 10, y: 0, z: 4 },
+            metadata: {
+              featureClass: "pocket",
+              confidence: 0,
+            },
+          },
+        ],
+      },
     });
   });
 

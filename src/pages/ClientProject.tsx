@@ -1,25 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
-  CircleOff,
   Loader2,
   PlusSquare,
   Search as SearchIcon,
-  TriangleAlert,
-  X,
 } from "lucide-react";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
+import { QuoteSelectionFunctionBar } from "@/components/quotes/QuoteSelectionFunctionBar";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
+import { ProjectInspectorPanel } from "@/components/workspace/ProjectInspectorPanel";
+import { WorkspaceInlineSearch } from "@/components/workspace/WorkspaceInlineSearch";
 import { ProjectMembersDialog } from "@/components/chat/ProjectMembersDialog";
 import { PromptComposer } from "@/components/chat/PromptComposer";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
-import {
-  ClientCadPreviewPanel,
-  ClientDrawingPreviewPanel,
-} from "@/components/quotes/ClientQuoteAssetPanels";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,9 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
-import { QuoteChart } from "@/components/workspace/QuoteChart";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import {
   Dialog,
@@ -57,7 +51,8 @@ import {
 } from "@/features/quotes/use-client-project-controller";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
-import { formatStatusLabel } from "@/features/quotes/utils";
+import { buildScopedPreset, getPresetMode, getPresetScope } from "@/features/quotes/selection";
+import { formatStatusLabel, normalizeDrawingExtraction } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
 
 function formatCurrency(value: number | null) {
@@ -88,39 +83,10 @@ function formatDateLabel(value: string | null | undefined) {
     day: "numeric",
   }).format(new Date(parsed));
 }
-
-function propertyValue(value: string | number | null | undefined) {
-  if (value === null || value === undefined || value === "") {
-    return "Not set";
-  }
-
-  return String(value);
-}
-
-function QuoteStatusCard({
-  title,
-  body,
-  tone = "neutral",
-}: {
-  title: string;
-  body: string;
-  tone?: "neutral" | "warning";
-}) {
-  const Icon = tone === "warning" ? TriangleAlert : CircleOff;
-
-  return (
-    <div className="rounded-lg border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-white/55">
-      <Icon className="h-4 w-4 text-white/35" />
-      <p className="mt-3 font-medium text-white/80">{title}</p>
-      <p className="mt-2">{body}</p>
-    </div>
-  );
-}
-
 const ClientProject = () => {
   const {
     activeFilter,
-    accessibleJobsQuery,
+    activePreset,
     activeMembership,
     archivedJobsQuery,
     archivedProjectsQuery,
@@ -136,6 +102,7 @@ const ClientProject = () => {
     focusedQuoteOptions,
     focusedSelectedOption,
     focusedSummary,
+    focusedRequestedByDate,
     focusedWorkspaceItem,
     handleClearFocusedJob,
     dissolveProjectMutation,
@@ -154,13 +121,14 @@ const ClientProject = () => {
     handleRemovePartFromProject,
     handleRemoveProjectMember,
     handleRenameProject,
+    handleBulkPreset,
     handleRequestProjectQuotes,
     handleSelectQuoteOption,
     handleUnarchivePart,
     handleUnpinPart,
     handleUnpinProject,
-    isCancelingQuoteRequest,
     isMobile,
+    isCancelingQuoteRequest,
     mobileDrawerOpen,
     navigate,
     newJobFilePicker,
@@ -168,6 +136,7 @@ const ClientProject = () => {
     prefetchPart,
     prefetchProject,
     projectCollaborationUnavailable,
+    projectDueByDate,
     projectId,
     projectInvitesQuery,
     projectJobs,
@@ -177,14 +146,13 @@ const ClientProject = () => {
     projectQuery,
     projectWorkspaceItemsQuery,
     resolveSidebarProjectIdsForJob,
-    search,
     requestProjectQuotesMutation,
     setActiveFilter,
     isSearchOpen,
     setIsSearchOpen,
     setMobileDrawerOpen,
     setProjectName,
-    setSearch,
+    setProjectDueByDate,
     setShowAddPart,
     setShowArchive,
     setShowDissolve,
@@ -201,13 +169,14 @@ const ClientProject = () => {
     summariesByJobId,
     updateProjectMutation,
     user,
+    accessibleJobs,
+    accessibleProjects,
     isAuthInitializing,
     workspaceItemsByJobId,
   } = useClientProjectController();
-  const [desktopInspectorOpen, setDesktopInspectorOpen] = useState(true);
   const [showCancelRequestDialog, setShowCancelRequestDialog] = useState(false);
   const notificationCenter = useWorkspaceNotifications({
-    jobIds: (accessibleJobsQuery.data ?? []).map((job) => job.id),
+    jobIds: accessibleJobs.map((job) => job.id),
     role: activeMembership?.role,
     userId: user?.id,
   });
@@ -295,10 +264,44 @@ const ClientProject = () => {
       : null;
   const focusedQuantity = focusedDraft?.quantity ?? focusedSummary?.quantity ?? null;
   const focusedProperties = focusedWorkspaceItem?.part?.approvedRequirement ?? null;
+  const focusedGeometryProjection =
+    focusedWorkspaceItem?.part?.extraction && focusedWorkspaceItem.part
+      ? normalizeDrawingExtraction(focusedWorkspaceItem.part.extraction, focusedWorkspaceItem.part.id).geometryProjection
+      : null;
+  const jobSearchTextById = useMemo(
+    () =>
+      new Map(
+        Array.from(workspaceItemsByJobId.entries()).map(([jobId, item]) => {
+          const requirement = item.part?.clientRequirement;
+          const approvedRequirement = item.part?.approvedRequirement;
+
+          return [
+            jobId,
+            [
+              requirement?.material ?? approvedRequirement?.material ?? "",
+              requirement?.finish ?? approvedRequirement?.finish ?? "",
+              requirement?.process ?? "",
+              requirement?.notes ?? "",
+              item.summary?.serviceNotes ?? "",
+            ]
+              .join(" ")
+              .trim(),
+          ];
+        }),
+      ),
+    [workspaceItemsByJobId],
+  );
   const focusedSelectedPrice = focusedSelectedOption?.totalPriceUsd ?? focusedSummary?.selectedPriceUsd ?? null;
   const focusedSelectedLeadTime =
     focusedSelectedOption?.leadTimeBusinessDays ?? focusedSummary?.selectedLeadTimeBusinessDays ?? null;
   const focusedSelectedOfferId = focusedSelectedOption?.offerId ?? null;
+  const projectLabel = projectQuery.data?.name ?? "Project";
+  const bulkPresetScope = getPresetScope(activePreset);
+  const bulkPresetMode = getPresetMode(activePreset);
+
+  const applyProjectPreset = (mode: "cheapest" | "fastest", scope: "domestic" | "global") => {
+    handleBulkPreset(buildScopedPreset(mode, scope));
+  };
 
   const handleInspectorQuoteSelect = (offerId: string | null) => {
     if (!focusedJob || offerId === null) {
@@ -312,136 +315,6 @@ const ClientProject = () => {
     }
 
     void handleSelectQuoteOption(focusedJob.id, nextOption);
-  };
-
-  const renderInspectorContent = () => {
-    if (!focusedJob || !focusedWorkspaceItem || !focusedPresentation) {
-      return (
-        <div className="space-y-4">
-          <div className="rounded-lg border border-white/10 bg-black/20 p-5">
-            <h2 className="text-lg font-semibold text-white">Project inspector</h2>
-            <p className="mt-2 text-sm text-white/55">
-              Single-click a part row to inspect it here. Double-click opens the full part workspace, and `Escape` clears the selection.
-            </p>
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="space-y-4">
-        <div className="rounded-lg border border-white/10 bg-black/20 p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <h2 className="truncate text-base font-semibold text-white">{focusedPresentation.title}</h2>
-              {focusedPresentation.description ? (
-                <p className="mt-1 line-clamp-2 text-xs text-white/45">{focusedPresentation.description}</p>
-              ) : null}
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0 rounded-full text-white/40 hover:bg-white/8 hover:text-white"
-              onClick={handleClearFocusedJob}
-              aria-label="Clear selected part"
-            >
-              <X className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-white/8 bg-white/8">
-            <div className="bg-black/40 px-3 py-2.5">
-              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Part no.</p>
-              <p className="mt-1 text-sm font-medium text-white">{propertyValue(focusedProperties?.part_number ?? focusedSummary?.partNumber)}</p>
-            </div>
-            <div className="bg-black/40 px-3 py-2.5">
-              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Rev</p>
-              <p className="mt-1 text-sm font-medium text-white">{propertyValue(focusedProperties?.revision ?? focusedSummary?.revision)}</p>
-            </div>
-            <div className="bg-black/40 px-3 py-2.5">
-              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Material</p>
-              <p className="mt-1 text-sm font-medium text-white">{propertyValue(focusedProperties?.material)}</p>
-            </div>
-            <div className="bg-black/40 px-3 py-2.5">
-              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Finish</p>
-              <p className="mt-1 text-sm font-medium text-white">{propertyValue(focusedProperties?.finish)}</p>
-            </div>
-            <div className="bg-black/40 px-3 py-2.5">
-              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Qty</p>
-              <p className="mt-1 text-sm font-medium text-white">{propertyValue(focusedQuantity)}</p>
-            </div>
-            <div className="bg-black/40 px-3 py-2.5">
-              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Status</p>
-              <p className="mt-1 text-sm font-medium text-white">{formatStatusLabel(focusedJob.status)}</p>
-            </div>
-            <div className="bg-black/40 px-3 py-2.5">
-              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Created</p>
-              <p className="mt-1 text-sm font-medium text-white">{formatDateLabel(focusedJob.created_at)}</p>
-            </div>
-            <div className="bg-black/40 px-3 py-2.5">
-              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Project</p>
-              <p className="mt-1 text-sm font-medium text-white">{projectQuery.data?.name ?? "Project"}</p>
-            </div>
-            <div className="bg-black/40 px-3 py-2.5">
-              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Selected quote</p>
-              <p className="mt-1 text-sm font-semibold text-white">{focusedSelectedPrice != null ? formatCurrency(focusedSelectedPrice) : "—"}</p>
-            </div>
-            <div className="bg-black/40 px-3 py-2.5">
-              <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Lead time</p>
-              <p className="mt-1 text-sm font-semibold text-white">
-                {typeof focusedSelectedLeadTime === "number" ? `${focusedSelectedLeadTime}d` : "—"}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <ClientDrawingPreviewPanel
-          drawingFile={focusedWorkspaceItem.part?.drawingFile ?? null}
-          drawingPreview={focusedWorkspaceItem.drawingPreview}
-          className="rounded-lg"
-        />
-
-        <ClientCadPreviewPanel
-          cadFile={focusedWorkspaceItem.part?.cadFile ?? null}
-          className="rounded-lg"
-        />
-
-        <section className="rounded-lg border border-white/10 bg-black/20 p-5">
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-white/35">Quotes</p>
-            <p className="mt-2 text-sm text-white/55">
-              Compare vendor offers here and select the quote to keep without leaving the project ledger.
-            </p>
-          </div>
-          <div className="mt-4">
-            {focusedQuoteDataStatus === "schema_unavailable" ? (
-              <QuoteStatusCard
-                title="Quote comparison is unavailable"
-                body={focusedQuoteDataMessage ?? "The quote workspace projection is unavailable in this environment."}
-                tone="warning"
-              />
-            ) : focusedQuoteDataStatus === "invalid_for_plotting" ? (
-              <QuoteStatusCard
-                title="Quote rows were loaded but need review"
-                body={focusedQuoteDataMessage ?? "Quote rows were loaded but could not be plotted."}
-                tone="warning"
-              />
-            ) : focusedQuoteOptions.length > 0 ? (
-              <QuoteChart
-                quotes={focusedQuoteOptions}
-                selectedOfferId={focusedSelectedOfferId}
-                onSelect={handleInspectorQuoteSelect}
-              />
-            ) : (
-              <div className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-5 text-sm text-white/45">
-                No plottable quote offers are available for this part yet.
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
-    );
   };
 
   if (isAuthInitializing && !user) {
@@ -486,8 +359,33 @@ const ClientProject = () => {
         onLogoClick={() => navigate("/")}
         headerContent={
           <span className="truncate text-[15px] font-medium tracking-[-0.01em] text-white/[0.94]">
-            {projectQuery.data?.name ?? "Project"}
+            {projectLabel}
           </span>
+        }
+        topRightContent={
+          <WorkspaceInlineSearch
+            className="w-full md:w-[360px] md:max-w-[42vw]"
+            projects={accessibleProjects.map((project) => ({
+              id: project.project.id,
+              name: project.project.name,
+              partCount: project.partCount,
+            }))}
+            jobs={accessibleJobs}
+            summariesByJobId={summariesByJobId}
+            jobSearchTextById={jobSearchTextById}
+            scopedProject={
+              projectQuery.data
+                ? {
+                    id: projectId,
+                    name: projectQuery.data.name,
+                    partCount: projectJobs.length,
+                  }
+                : null
+            }
+            resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
+            onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
+            onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+          />
         }
         sidebarRailActions={[
           { label: "New Job", icon: PlusSquare, onClick: newJobFilePicker.openFilePicker },
@@ -496,7 +394,7 @@ const ClientProject = () => {
         sidebarContent={
           <WorkspaceSidebar
             projects={sidebarProjects}
-            jobs={accessibleJobsQuery.data ?? []}
+            jobs={accessibleJobs}
             summariesByJobId={summariesByJobId}
             activeProjectId={projectId}
             onCreateJob={newJobFilePicker.openFilePicker}
@@ -628,43 +526,24 @@ const ClientProject = () => {
             </div>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-            <div className="space-y-4">
+          <div className={cn("flex min-w-0 flex-col gap-4", !isMobile && focusedJobId && "xl:flex-row xl:items-start xl:gap-6")}>
+            <div className="min-w-0 flex-1 space-y-4">
               <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-4">
-                <div className="flex flex-col gap-3">
-                  <Input
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search project parts"
-                    className="border-white/10 bg-white/[0.03] text-white placeholder:text-white/35 focus-visible:ring-white/20"
-                    aria-label="Search project parts"
-                  />
-                  <div className="flex flex-wrap items-center gap-2">
-                    {clientFilterOptions.map((filter) => (
-                      <Button
-                        key={filter.id}
-                        type="button"
-                        variant="outline"
-                        className={cn(
-                          "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
-                          activeFilter === filter.id && "border-white/20 bg-white/10",
-                        )}
-                        onClick={() => setActiveFilter(filter.id)}
-                      >
-                        {filter.label}
-                      </Button>
-                    ))}
-                    {!isMobile ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="ml-auto rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
-                        onClick={() => setDesktopInspectorOpen((current) => !current)}
-                      >
-                        {desktopInspectorOpen ? "Hide inspector" : "Show inspector"}
-                      </Button>
-                    ) : null}
-                  </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {clientFilterOptions.map((filter) => (
+                    <Button
+                      key={filter.id}
+                      type="button"
+                      variant="outline"
+                      className={cn(
+                        "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
+                        activeFilter === filter.id && "border-white/20 bg-white/10",
+                      )}
+                      onClick={() => setActiveFilter(filter.id)}
+                    >
+                      {filter.label}
+                    </Button>
+                  ))}
                 </div>
               </div>
 
@@ -690,6 +569,18 @@ const ClientProject = () => {
                   </p>
                 </div>
               </div>
+
+              <QuoteSelectionFunctionBar
+                scope={bulkPresetScope}
+                mode={bulkPresetMode}
+                requestedByDate={projectDueByDate}
+                onScopeChange={(nextScope) => applyProjectPreset(bulkPresetMode, nextScope)}
+                onModeChange={(nextMode) => applyProjectPreset(nextMode, bulkPresetScope)}
+                onRequestedByDateChange={setProjectDueByDate}
+                dueDateHelpText="Applies to this project unless a part has its own requested-by date."
+                domesticAriaLabel="Using domestic quotes for all parts"
+                globalAriaLabel="Using global quotes for all parts"
+              />
 
               <div className="overflow-hidden rounded-lg border border-ws-border-subtle bg-ws-card">
                 {projectJobsQuery.isLoading || projectWorkspaceItemsQuery.isLoading ? (
@@ -720,6 +611,9 @@ const ClientProject = () => {
                         quoteRequestViewModel &&
                         !quoteRequestViewModel.action.disabled &&
                         (quoteRequestViewModel.action.kind === "request" || quoteRequestViewModel.action.kind === "retry");
+                      const rowSelectedPrice = summary?.selectedPriceUsd ?? null;
+                      const rowSelectedLeadTime = summary?.selectedLeadTimeBusinessDays ?? null;
+                      const hasQuote = rowSelectedPrice != null || rowSelectedLeadTime != null;
                       return (
                         <TableRow
                           key={job.id}
@@ -761,9 +655,20 @@ const ClientProject = () => {
                           <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
                             <Badge className={quoteStatusClassName}>{quoteStatusLabel}</Badge>
                           </TableCell>
-                          <TableCell className={cn("w-px whitespace-nowrap py-2.5 text-[13px] text-white/55", canTriggerRequest ? "px-2" : "pl-2 pr-5")}>
-                            {formatDateLabel(job.created_at)}
-                          </TableCell>
+                          {hasQuote ? (
+                            <>
+                              <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-right text-[13px] text-white">
+                                {rowSelectedPrice != null ? formatCurrency(rowSelectedPrice) : "—"}
+                              </TableCell>
+                              <TableCell className={cn("w-px whitespace-nowrap py-2.5 text-[13px] text-white/55", canTriggerRequest ? "px-2" : "pl-2 pr-5")}>
+                                {typeof rowSelectedLeadTime === "number" ? `${rowSelectedLeadTime}d` : "—"}
+                              </TableCell>
+                            </>
+                          ) : (
+                            <TableCell className={cn("w-px whitespace-nowrap py-2.5 text-[13px] text-white/30", canTriggerRequest ? "px-2" : "pl-2 pr-5")} colSpan={2}>
+                              —
+                            </TableCell>
+                          )}
                           <TableCell className="w-px whitespace-nowrap pl-2 pr-5 py-2.5 text-right">
                             {canTriggerRequest ? (
                               <Button
@@ -795,32 +700,112 @@ const ClientProject = () => {
               </div>
             </div>
 
-            {!isMobile && desktopInspectorOpen ? (
-              <aside className="xl:sticky xl:top-4 xl:self-start">
-                {renderInspectorContent()}
+            {!isMobile && focusedJobId ? (
+              <aside className="min-w-0 xl:sticky xl:top-4 xl:w-[clamp(20rem,30vw,26.25rem)] xl:min-w-[20rem] xl:max-w-[26.25rem] xl:shrink-0">
+                {focusedJob && focusedWorkspaceItem && focusedPresentation ? (
+                  <ProjectInspectorPanel
+                    mode="detail"
+                    title={focusedPresentation.title}
+                    description={focusedPresentation.description}
+                    partNumber={focusedProperties?.part_number ?? focusedSummary?.partNumber}
+                    revision={focusedProperties?.revision ?? focusedSummary?.revision}
+                    material={focusedProperties?.material}
+                    finish={focusedProperties?.finish}
+                    quantity={focusedQuantity}
+                    statusLabel={formatStatusLabel(focusedJob.status)}
+                    createdLabel={formatDateLabel(focusedJob.created_at)}
+                    projectName={projectLabel}
+                    selectedQuoteLabel={focusedSelectedPrice != null ? formatCurrency(focusedSelectedPrice) : "—"}
+                    leadTimeLabel={typeof focusedSelectedLeadTime === "number" ? `${focusedSelectedLeadTime}d` : "—"}
+                    drawingFile={focusedWorkspaceItem.part?.drawingFile ?? null}
+                    drawingPreview={focusedWorkspaceItem.drawingPreview}
+                    cadFile={focusedWorkspaceItem.part?.cadFile ?? null}
+                    geometryProjection={focusedGeometryProjection}
+                    quoteDataStatus={focusedQuoteDataStatus}
+                    quoteDataMessage={focusedQuoteDataMessage}
+                    quoteOptions={focusedQuoteOptions}
+                    requestedByDate={focusedRequestedByDate}
+                    selectedOfferId={focusedSelectedOfferId}
+                    onSelectQuote={handleInspectorQuoteSelect}
+                    onClear={handleClearFocusedJob}
+                  />
+                ) : (
+                  <ProjectInspectorPanel
+                    mode="empty"
+                    emptyTitle="Loading line item detail"
+                    emptyBody="Selected-part details are still loading."
+                  />
+                )}
               </aside>
             ) : null}
           </div>
         </div>
       </ClientWorkspaceShell>
 
-      <Sheet open={mobileDrawerOpen && Boolean(focusedJobId)} onOpenChange={setMobileDrawerOpen}>
-        <SheetContent side="right" className="w-[min(96vw,38rem)] overflow-y-auto border-white/10 bg-[#1f1f1f] p-0 text-white sm:max-w-[38rem]">
-          <SheetHeader className="border-b border-white/10 px-6 py-5">
-            <SheetTitle className="text-white">Line item detail</SheetTitle>
-            <SheetDescription className="text-white/55">
-              Review selected-part details without leaving the project ledger.
-            </SheetDescription>
-          </SheetHeader>
-          <div className="px-6 py-5">{renderInspectorContent()}</div>
-        </SheetContent>
-      </Sheet>
+      {isMobile ? (
+        <Sheet
+          open={mobileDrawerOpen && Boolean(focusedJobId)}
+          onOpenChange={(open) => {
+            if (open) {
+              setMobileDrawerOpen(true);
+              return;
+            }
+
+            handleClearFocusedJob();
+          }}
+        >
+          <SheetContent side="right" className="w-[min(96vw,38rem)] overflow-y-auto border-white/10 bg-[#1f1f1f] p-0 text-white sm:max-w-[38rem]">
+            <SheetHeader className="border-b border-white/10 px-6 py-5">
+              <SheetTitle className="text-white">Line item detail</SheetTitle>
+              <SheetDescription className="text-white/55">
+                Review selected-part details without leaving the project ledger.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="px-6 py-5">
+              {focusedJob && focusedWorkspaceItem && focusedPresentation ? (
+                <ProjectInspectorPanel
+                  mode="detail"
+                  title={focusedPresentation.title}
+                  description={focusedPresentation.description}
+                  partNumber={focusedProperties?.part_number ?? focusedSummary?.partNumber}
+                  revision={focusedProperties?.revision ?? focusedSummary?.revision}
+                  material={focusedProperties?.material}
+                  finish={focusedProperties?.finish}
+                  quantity={focusedQuantity}
+                  statusLabel={formatStatusLabel(focusedJob.status)}
+                  createdLabel={formatDateLabel(focusedJob.created_at)}
+                  projectName={projectLabel}
+                  selectedQuoteLabel={focusedSelectedPrice != null ? formatCurrency(focusedSelectedPrice) : "—"}
+                  leadTimeLabel={typeof focusedSelectedLeadTime === "number" ? `${focusedSelectedLeadTime}d` : "—"}
+                  drawingFile={focusedWorkspaceItem.part?.drawingFile ?? null}
+                  drawingPreview={focusedWorkspaceItem.drawingPreview}
+                  cadFile={focusedWorkspaceItem.part?.cadFile ?? null}
+                  geometryProjection={focusedGeometryProjection}
+                  quoteDataStatus={focusedQuoteDataStatus}
+                  quoteDataMessage={focusedQuoteDataMessage}
+                  quoteOptions={focusedQuoteOptions}
+                  requestedByDate={focusedRequestedByDate}
+                  selectedOfferId={focusedSelectedOfferId}
+                  onSelectQuote={handleInspectorQuoteSelect}
+                  onClear={handleClearFocusedJob}
+                />
+              ) : (
+                <ProjectInspectorPanel
+                  mode="empty"
+                  emptyTitle="Loading line item detail"
+                  emptyBody="Selected-part details are still loading."
+                />
+              )}
+            </div>
+          </SheetContent>
+        </Sheet>
+      ) : null}
 
       <SearchPartsDialog
         open={isSearchOpen}
         onOpenChange={setIsSearchOpen}
         projects={sidebarProjects}
-        jobs={accessibleJobsQuery.data ?? []}
+        jobs={accessibleJobs}
         summariesByJobId={summariesByJobId}
         onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
         onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}

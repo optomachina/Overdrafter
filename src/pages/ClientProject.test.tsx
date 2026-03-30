@@ -2,11 +2,12 @@ import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ClientQuoteWorkspaceItem } from "@/features/quotes/types";
 import ClientProject from "./ClientProject";
 
-const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock } = vi.hoisted(() => ({
+const { api, mockUseAppSession, mockUseIsMobile, prefetchProjectPage, prefetchPartPage, toastMock } = vi.hoisted(() => ({
   api: {
     archiveJob: vi.fn(),
     archiveProject: vi.fn(),
@@ -52,6 +53,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
     uploadFilesToJob: vi.fn(),
   },
   mockUseAppSession: vi.fn(),
+  mockUseIsMobile: vi.fn(),
   prefetchProjectPage: vi.fn(),
   prefetchPartPage: vi.fn(),
   toastMock: {
@@ -135,6 +137,10 @@ vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
 }));
 
+vi.mock("@/hooks/use-mobile", () => ({
+  useIsMobile: () => mockUseIsMobile(),
+}));
+
 vi.mock("sonner", () => ({
   toast: toastMock,
 }));
@@ -146,12 +152,18 @@ vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
     children,
     sidebarContent,
     sidebarFooter,
+    headerContent,
+    topRightContent,
   }: {
     children?: ReactNode;
     sidebarContent?: ReactNode;
     sidebarFooter?: ReactNode;
+    headerContent?: ReactNode;
+    topRightContent?: ReactNode;
   }) => (
     <div>
+      <div data-testid="shell-header">{headerContent}</div>
+      <div data-testid="shell-top-right">{topRightContent}</div>
       <div>{sidebarContent}</div>
       <div>{children}</div>
       <div>{sidebarFooter}</div>
@@ -196,9 +208,72 @@ vi.mock("@/components/quotes/ClientQuoteAssetPanels", () => ({
   ClientDrawingPreviewPanel: () => <div>Drawing</div>,
 }));
 
-vi.mock("@/components/workspace/QuoteChart", () => ({
-  QuoteChart: () => <div>Quote Chart</div>,
+vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
+  ClientQuoteDecisionPanel: ({
+    title,
+    quoteDataStatus,
+    quoteDataMessage,
+    emptyState,
+    options,
+  }: {
+    title?: string;
+    quoteDataStatus?: string;
+    quoteDataMessage?: string | null;
+    emptyState?: string;
+    options?: Array<{ vendorLabel?: string }>;
+  }) => {
+    const deadlinePrefix = "No quotes meet the due date.";
+    const deadlineDetail =
+      emptyState && emptyState.startsWith(deadlinePrefix)
+        ? emptyState.slice(deadlinePrefix.length).trim()
+        : null;
+
+    return (
+      <div data-testid="quote-decision-panel">
+        {title ? <div>{title}</div> : null}
+        {quoteDataStatus === "schema_unavailable" ? (
+          <>
+            <div>Quote comparison is unavailable</div>
+            {quoteDataMessage ? <div>{quoteDataMessage}</div> : null}
+          </>
+        ) : quoteDataStatus === "invalid_for_plotting" ? (
+          <>
+            <div>Quote rows were loaded but could not be plotted</div>
+            {quoteDataMessage ? <div>{quoteDataMessage}</div> : null}
+          </>
+        ) : options && options.length > 0 ? (
+          options.map((option, index) => <div key={`${option.vendorLabel}-${index}`}>{option.vendorLabel}</div>)
+        ) : deadlineDetail ? (
+          <>
+            <div>No quotes meet the due date</div>
+            <div>{deadlineDetail}</div>
+          </>
+        ) : emptyState ? (
+          <div>{emptyState}</div>
+        ) : null}
+      </div>
+    );
+  },
 }));
+
+function buildProjectTree(initialEntry: string, queryClient: QueryClient) {
+  function LocationProbe() {
+    const location = useLocation();
+    return <div data-testid="location-path">{location.pathname}</div>;
+  }
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <LocationProbe />
+        <Routes>
+          <Route path="/projects/:projectId" element={<ClientProject />} />
+          <Route path="/parts/:jobId" element={<div>Part Route</div>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
 
 function renderWithClient(initialEntry: string) {
   const queryClient = new QueryClient({
@@ -207,16 +282,12 @@ function renderWithClient(initialEntry: string) {
     },
   });
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[initialEntry]}>
-        <Routes>
-          <Route path="/projects/:projectId" element={<ClientProject />} />
-          <Route path="/parts/:jobId" element={<div>Part Route</div>} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  const view = render(buildProjectTree(initialEntry, queryClient));
+
+  return {
+    ...view,
+    rerenderProject: () => view.rerender(buildProjectTree(initialEntry, queryClient)),
+  };
 }
 
 function createDeferredPromise<T>() {
@@ -230,10 +301,226 @@ function createDeferredPromise<T>() {
   return { promise, resolve, reject };
 }
 
+function buildWorkspaceItemWithQuotes(): ClientQuoteWorkspaceItem {
+  return {
+    job: {
+      id: "job-1",
+      organization_id: "org-1",
+      project_id: "project-1",
+      created_by: "user-1",
+      title: "Bracket",
+      description: null,
+      status: "ready_to_quote",
+      source: "client_home",
+      active_pricing_policy_id: null,
+      tags: [],
+      requested_service_kinds: ["manufacturing_quote"],
+      primary_service_kind: "manufacturing_quote",
+      service_notes: null,
+      requested_by_date: "2026-04-15",
+      requested_quote_quantities: [10],
+      archived_at: null,
+      created_at: "2026-03-01T00:00:00Z",
+      updated_at: "2026-03-01T00:00:00Z",
+      selected_vendor_quote_offer_id: null,
+    },
+    part: {
+      id: "part-1",
+      job_id: "job-1",
+      organization_id: "org-1",
+      name: "Bracket",
+      normalized_key: "bracket",
+      cad_file_id: "cad-1",
+      drawing_file_id: null,
+      quantity: 10,
+      created_at: "2026-03-01T00:00:00Z",
+      updated_at: "2026-03-01T00:00:00Z",
+      cadFile: {
+        id: "cad-1",
+        job_id: "job-1",
+        organization_id: "org-1",
+        file_kind: "cad",
+        blob_id: "blob-1",
+        storage_bucket: "job-files",
+        storage_path: "cad.step",
+        normalized_name: "cad.step",
+        original_name: "cad.step",
+        size_bytes: 123,
+        mime_type: "application/step",
+        content_sha256: "hash",
+        matched_part_key: null,
+        uploaded_by: "user-1",
+        created_at: "2026-03-01T00:00:00Z",
+      },
+      drawingFile: null,
+      extraction: null,
+      approvedRequirement: {
+        id: "requirement-1",
+        part_id: "part-1",
+        organization_id: "org-1",
+        approved_by: "user-1",
+        description: "Bracket",
+        part_number: "BRKT-001",
+        revision: "A",
+        material: "6061-T6",
+        finish: null,
+        tightest_tolerance_inch: null,
+        quantity: 10,
+        quote_quantities: [10],
+        requested_by_date: "2026-04-15",
+        applicable_vendors: ["xometry", "fictiv"],
+        spec_snapshot: {},
+        approved_at: "2026-03-01T00:00:00Z",
+        created_at: "2026-03-01T00:00:00Z",
+        updated_at: "2026-03-01T00:00:00Z",
+      },
+      vendorQuotes: [
+        {
+          id: "quote-domestic",
+          quote_run_id: "run-1",
+          part_id: "part-1",
+          organization_id: "org-1",
+          vendor: "xometry",
+          requested_quantity: 10,
+          status: "official_quote_received",
+          unit_price_usd: 12,
+          total_price_usd: 120,
+          lead_time_business_days: 7,
+          quote_url: null,
+          dfm_issues: [],
+          notes: [],
+          raw_payload: { domestic: true },
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+          offers: [
+            {
+              id: "offer-domestic",
+              vendor_quote_result_id: "quote-domestic",
+              organization_id: "org-1",
+              offer_key: "offer-domestic",
+              supplier: "Xometry USA",
+              lane_label: "Standard",
+              sourcing: "Domestic",
+              tier: null,
+              quote_ref: null,
+              quote_date: "2026-03-01",
+              unit_price_usd: 12,
+              total_price_usd: 120,
+              lead_time_business_days: 7,
+              ship_receive_by: "2026-04-10",
+              due_date: null,
+              process: null,
+              material: null,
+              finish: null,
+              tightest_tolerance: null,
+              tolerance_source: null,
+              thread_callouts: null,
+              thread_match_notes: null,
+              notes: null,
+              sort_rank: 1,
+              raw_payload: { domestic: true },
+              created_at: "2026-03-01T00:00:00Z",
+              updated_at: "2026-03-01T00:00:00Z",
+            },
+          ],
+          artifacts: [],
+        },
+        {
+          id: "quote-global",
+          quote_run_id: "run-1",
+          part_id: "part-1",
+          organization_id: "org-1",
+          vendor: "fictiv",
+          requested_quantity: 10,
+          status: "official_quote_received",
+          unit_price_usd: 9,
+          total_price_usd: 90,
+          lead_time_business_days: 10,
+          quote_url: null,
+          dfm_issues: [],
+          notes: [],
+          raw_payload: { domestic: false },
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+          offers: [
+            {
+              id: "offer-global",
+              vendor_quote_result_id: "quote-global",
+              organization_id: "org-1",
+              offer_key: "offer-global",
+              supplier: "Fictiv Global",
+              lane_label: "Economy",
+              sourcing: "Overseas",
+              tier: null,
+              quote_ref: null,
+              quote_date: "2026-03-01",
+              unit_price_usd: 9,
+              total_price_usd: 90,
+              lead_time_business_days: 10,
+              ship_receive_by: "2026-04-15",
+              due_date: null,
+              process: null,
+              material: null,
+              finish: null,
+              tightest_tolerance: null,
+              tolerance_source: null,
+              thread_callouts: null,
+              thread_match_notes: null,
+              notes: null,
+              sort_rank: 2,
+              raw_payload: { domestic: false },
+              created_at: "2026-03-01T00:00:00Z",
+              updated_at: "2026-03-01T00:00:00Z",
+            },
+          ],
+          artifacts: [],
+        },
+      ],
+    },
+    summary: {
+      jobId: "job-1",
+      partNumber: "BRKT-001",
+      revision: "A",
+      description: "Bracket",
+      quantity: 10,
+      importedBatch: null,
+      requestedServiceKinds: ["manufacturing_quote"],
+      primaryServiceKind: "manufacturing_quote",
+      serviceNotes: null,
+      requestedQuoteQuantities: [10],
+      requestedByDate: "2026-04-15",
+      selectedSupplier: null,
+      selectedPriceUsd: null,
+      selectedLeadTimeBusinessDays: null,
+    },
+    files: [],
+    projectIds: ["project-1"],
+    drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+    quoteDataStatus: "available",
+    quoteDataMessage: null,
+    quoteDiagnostics: {
+      rawQuoteRowCount: 2,
+      rawOfferCount: 2,
+      plottableOfferCount: 2,
+      excludedOfferCount: 0,
+      excludedOffers: [],
+      excludedReasonCounts: [],
+    },
+    latestQuoteRequest: null,
+    latestQuoteRun: null,
+  };
+}
+
 describe("ClientProject", () => {
   beforeEach(() => {
     lastAccountMenuProps = null;
     vi.clearAllMocks();
+    class ResizeObserverMock {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
     Object.defineProperty(window, "matchMedia", {
       writable: true,
       value: vi.fn().mockImplementation(() => ({
@@ -253,6 +540,7 @@ describe("ClientProject", () => {
       activeMembership: { organizationId: "org-1", role: "client" },
       signOut: vi.fn(),
     });
+    mockUseIsMobile.mockReturnValue(false);
 
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
     api.fetchClientActivityEventsByJobIds.mockResolvedValue([]);
@@ -474,7 +762,7 @@ describe("ClientProject", () => {
     });
   });
 
-  it("renders the ledger with a default inspector and supports selection shortcuts", async () => {
+  it("renders the ledger without a desktop sheet and supports selection shortcuts", async () => {
     renderWithClient("/projects/project-1");
 
     await waitFor(() => {
@@ -482,7 +770,8 @@ describe("ClientProject", () => {
     });
 
     expect(screen.getByText(/Scan and manage parts/i)).toBeInTheDocument();
-    expect(screen.getByText("Project inspector")).toBeInTheDocument();
+    expect(screen.queryByText("Project inspector")).not.toBeInTheDocument();
+    expect(screen.queryByText("Line item detail")).not.toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
     expect(screen.queryByRole("columnheader")).not.toBeInTheDocument();
 
@@ -494,10 +783,21 @@ describe("ClientProject", () => {
     expect(screen.getByText("No plottable quote offers are available for this part yet.")).toBeInTheDocument();
     expect(screen.getAllByText("CAD").length).toBeGreaterThan(0);
     expect(screen.getByText("Drawing")).toBeInTheDocument();
+    expect(screen.queryByText("Line item detail")).not.toBeInTheDocument();
+
+    const searchInput = screen.getByLabelText("/ Search");
+    searchInput.focus();
+    expect(document.activeElement).toBe(searchInput);
+
+    fireEvent.keyDown(searchInput, { key: "Escape" });
+
+    expect(document.activeElement).not.toBe(searchInput);
+    expect(screen.getByRole("button", { name: "Clear selected part" })).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "Escape" });
 
-    expect(screen.getByText("Project inspector")).toBeInTheDocument();
+    expect(screen.queryByText("Quotes")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear selected part" })).not.toBeInTheDocument();
 
     fireEvent.doubleClick(row);
 
@@ -581,6 +881,50 @@ describe("ClientProject", () => {
     expect(await screen.findByText("Quote comparison is unavailable")).toBeInTheDocument();
     expect(screen.getByText("Apply the latest Supabase migrations.")).toBeInTheDocument();
     expect(screen.queryByText("No plottable quote offers are available for this part yet.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Line item detail")).not.toBeInTheDocument();
+  });
+
+  it("opens the selected line item in a sheet on mobile and clears selection on close", async () => {
+    mockUseIsMobile.mockReturnValue(true);
+
+    renderWithClient("/projects/project-1");
+
+    const row = await screen.findByRole("button", { name: /open .* line item/i });
+    fireEvent.click(row);
+
+    expect(await screen.findByText("Line item detail")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Clear selected part" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Line item detail")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Clear selected part" })).not.toBeInTheDocument();
+  });
+
+  it("moves the inspector between inline desktop and mobile sheet when the viewport mode changes", async () => {
+    mockUseIsMobile.mockReturnValue(false);
+    const view = renderWithClient("/projects/project-1");
+
+    const row = await screen.findByRole("button", { name: /open .* line item/i });
+    fireEvent.click(row);
+
+    expect(screen.getByRole("button", { name: "Clear selected part" })).toBeInTheDocument();
+    expect(screen.queryByText("Line item detail")).not.toBeInTheDocument();
+
+    mockUseIsMobile.mockReturnValue(true);
+    view.rerenderProject();
+
+    expect(await screen.findByText("Line item detail")).toBeInTheDocument();
+
+    mockUseIsMobile.mockReturnValue(false);
+    view.rerenderProject();
+
+    await waitFor(() => {
+      expect(screen.queryByText("Line item detail")).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Clear selected part" })).toBeInTheDocument();
   });
 
   it("passes collaboration-disabled project prefetch through to the sidebar callback", async () => {
@@ -918,6 +1262,285 @@ describe("ClientProject", () => {
 
     expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
     expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
+  });
+
+  it("renders a single sourcing toggle with fast and cheap project presets", async () => {
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([buildWorkspaceItemWithQuotes()]);
+
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Using domestic quotes for all parts" })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: "Cheap" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Fast" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Using global quotes for all parts" })).not.toBeInTheDocument();
+  });
+
+  it("defaults the sourcing toggle to domestic", async () => {
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([buildWorkspaceItemWithQuotes()]);
+
+    renderWithClient("/projects/project-1");
+
+    expect(await screen.findByRole("button", { name: "Using domestic quotes for all parts" })).toBeInTheDocument();
+  });
+
+  it("renders a project-level due by control with the inline due-by label", async () => {
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([buildWorkspaceItemWithQuotes()]);
+
+    renderWithClient("/projects/project-1");
+
+    expect(await screen.findByLabelText("Due by")).toBeInTheDocument();
+    expect(screen.getByText("DUE BY:")).toBeInTheDocument();
+  });
+
+  it("hides late project quotes in the inspector when the project due date is tightened", async () => {
+    const workspaceItem = buildWorkspaceItemWithQuotes();
+    workspaceItem.job.requested_by_date = null;
+    workspaceItem.summary.requestedByDate = null;
+    workspaceItem.part.approvedRequirement!.requested_by_date = null;
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([workspaceItem]);
+
+    renderWithClient("/projects/project-1");
+
+    fireEvent.click(await screen.findByRole("button", { name: /open .* line item/i }));
+    expect(screen.getByText("Quotes")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Due by"), { target: { value: "2026-04-12" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("2026-04-12")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("No quotes meet the due date")).not.toBeInTheDocument();
+  });
+
+  it("shows a deadline-aware empty state when all project quotes miss the due date", async () => {
+    const workspaceItem = buildWorkspaceItemWithQuotes();
+    workspaceItem.job.requested_by_date = null;
+    workspaceItem.summary.requestedByDate = null;
+    workspaceItem.part.approvedRequirement!.requested_by_date = null;
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([workspaceItem]);
+
+    renderWithClient("/projects/project-1");
+
+    fireEvent.click(await screen.findByRole("button", { name: /open .* line item/i }));
+    fireEvent.change(screen.getByLabelText("Due by"), { target: { value: "2026-04-09" } });
+
+    expect(await screen.findByText("No quotes meet the due date")).toBeInTheDocument();
+    expect(
+      screen.getByText(/All current quote options arrive after 2026-04-09/i),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps part-level requested dates as overrides over the project due date", async () => {
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([buildWorkspaceItemWithQuotes()]);
+
+    renderWithClient("/projects/project-1");
+
+    fireEvent.click(await screen.findByRole("button", { name: /open .* line item/i }));
+    fireEvent.change(screen.getByLabelText("Due by"), { target: { value: "2026-04-09" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("2026-04-15")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("No quotes meet the due date")).not.toBeInTheDocument();
+  });
+
+  it("applies the cheap bulk preset using the cheapest in-time quote", async () => {
+    const workspaceItem = buildWorkspaceItemWithQuotes();
+    workspaceItem.job.requested_by_date = null;
+    workspaceItem.summary.requestedByDate = null;
+    workspaceItem.part.approvedRequirement!.requested_by_date = null;
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([workspaceItem]);
+
+    renderWithClient("/projects/project-1");
+
+    fireEvent.change(await screen.findByLabelText("Due by"), { target: { value: "2026-04-12" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cheap" }));
+
+    await waitFor(() => {
+      expect(api.setJobSelectedVendorQuoteOffer).toHaveBeenCalledWith("job-1", "offer-domestic");
+    });
+  });
+
+  it("applies the fast bulk preset using the fastest in-time quote", async () => {
+    const workspaceItem = buildWorkspaceItemWithQuotes();
+    workspaceItem.job.requested_by_date = null;
+    workspaceItem.summary.requestedByDate = null;
+    workspaceItem.part.approvedRequirement!.requested_by_date = null;
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([workspaceItem]);
+
+    renderWithClient("/projects/project-1");
+
+    fireEvent.change(await screen.findByLabelText("Due by"), { target: { value: "2026-04-15" } });
+    fireEvent.click(screen.getByRole("button", { name: "Fast" }));
+
+    await waitFor(() => {
+      expect(api.setJobSelectedVendorQuoteOffer).toHaveBeenCalledWith("job-1", "offer-domestic");
+    });
+  });
+
+  it("restores the full quote list when the project due date is cleared", async () => {
+    const workspaceItem = buildWorkspaceItemWithQuotes();
+    workspaceItem.job.requested_by_date = null;
+    workspaceItem.summary.requestedByDate = null;
+    workspaceItem.part.approvedRequirement!.requested_by_date = null;
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([workspaceItem]);
+
+    renderWithClient("/projects/project-1");
+
+    fireEvent.click(await screen.findByRole("button", { name: /open .* line item/i }));
+    fireEvent.change(screen.getByLabelText("Due by"), { target: { value: "2026-04-09" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("No quotes meet the due date")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("No quotes meet the due date")).not.toBeInTheDocument();
+    });
+  });
+
+  it("renders the inline search in the shell header and removes the old body search", async () => {
+    renderWithClient("/projects/project-1");
+
+    expect(await screen.findByTestId("shell-top-right")).toBeInTheDocument();
+    expect(screen.getByLabelText("/ Search")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Search project parts" })).not.toBeInTheDocument();
+  });
+
+  it("filters autosuggest results across projects and parts and navigates on selection", async () => {
+    api.fetchAccessibleProjects.mockResolvedValue([
+      {
+        project: {
+          id: "project-1",
+          name: "Bracket Project",
+          organization_id: "org-1",
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-02T00:00:00Z",
+        },
+        partCount: 1,
+        inviteCount: 0,
+        currentUserRole: "owner",
+      },
+      {
+        project: {
+          id: "project-2",
+          name: "Valve Project",
+          organization_id: "org-1",
+          created_at: "2026-03-03T00:00:00Z",
+          updated_at: "2026-03-04T00:00:00Z",
+        },
+        partCount: 1,
+        inviteCount: 0,
+        currentUserRole: "owner",
+      },
+    ]);
+    api.fetchAccessibleJobs.mockResolvedValue([
+      {
+        id: "job-1",
+        organization_id: "org-1",
+        project_id: "project-1",
+        created_by: "user-1",
+        title: "Bracket",
+        description: null,
+        status: "ready_to_quote",
+        source: "client_home",
+        active_pricing_policy_id: null,
+        tags: [],
+        requested_service_kinds: ["manufacturing_quote"],
+        primary_service_kind: "manufacturing_quote",
+        service_notes: null,
+        requested_quote_quantities: [10],
+        requested_by_date: "2026-04-15",
+        archived_at: null,
+        created_at: "2026-03-01T00:00:00Z",
+        updated_at: "2026-03-01T00:00:00Z",
+        selected_vendor_quote_offer_id: null,
+      },
+      {
+        id: "job-2",
+        organization_id: "org-1",
+        project_id: "project-2",
+        created_by: "user-1",
+        title: "Valve Housing",
+        description: "Machined housing",
+        status: "ready_to_quote",
+        source: "client_home",
+        active_pricing_policy_id: null,
+        tags: ["housing"],
+        requested_service_kinds: ["manufacturing_quote"],
+        primary_service_kind: "manufacturing_quote",
+        service_notes: null,
+        requested_quote_quantities: [5],
+        requested_by_date: "2026-04-15",
+        archived_at: null,
+        created_at: "2026-03-02T00:00:00Z",
+        updated_at: "2026-03-02T00:00:00Z",
+        selected_vendor_quote_offer_id: null,
+      },
+    ]);
+    api.fetchJobPartSummariesByJobIds.mockResolvedValue([
+      {
+        jobId: "job-1",
+        partNumber: "BRKT-001",
+        revision: "A",
+        description: "Bracket",
+        quantity: 10,
+        importedBatch: null,
+        requestedServiceKinds: ["manufacturing_quote"],
+        primaryServiceKind: "manufacturing_quote",
+        serviceNotes: null,
+        requestedQuoteQuantities: [10],
+        requestedByDate: "2026-04-15",
+        selectedSupplier: null,
+        selectedPriceUsd: null,
+        selectedLeadTimeBusinessDays: null,
+      },
+      {
+        jobId: "job-2",
+        partNumber: "VALV-001",
+        revision: "B",
+        description: "Valve Housing",
+        quantity: 5,
+        importedBatch: null,
+        requestedServiceKinds: ["manufacturing_quote"],
+        primaryServiceKind: "manufacturing_quote",
+        serviceNotes: null,
+        requestedQuoteQuantities: [5],
+        requestedByDate: "2026-04-15",
+        selectedSupplier: null,
+        selectedPriceUsd: null,
+        selectedLeadTimeBusinessDays: null,
+      },
+    ]);
+
+    renderWithClient("/projects/project-1");
+
+    const searchInput = (await screen.findByLabelText("/ Search")) as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: "valve" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear Bracket Project search scope" }));
+
+    expect(await screen.findByText("Valve Project")).toBeInTheDocument();
+    expect(screen.getByText("VALV-001 rev B")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Valve Project"));
+    await waitFor(() => {
+      expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-2");
+    });
+
+    fireEvent.change(screen.getByLabelText("/ Search"), {
+      target: { value: "housing" },
+    });
+    fireEvent.click(screen.getByText("VALV-001 rev B"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location-path")).toHaveTextContent("/parts/job-2");
+    });
   });
 
   it("logs structured archived delete failures through the account menu callback", async () => {

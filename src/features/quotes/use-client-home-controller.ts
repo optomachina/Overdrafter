@@ -37,8 +37,6 @@ import {
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import {
-  buildSidebarProjectIdsByJobId,
-  buildSidebarProjects,
   PROJECT_STORAGE_PREFIX,
   resolveWorkspaceProjectIdsForJob,
 } from "@/features/quotes/client-workspace";
@@ -56,6 +54,7 @@ import { prefetchPartPage, prefetchProjectPage } from "@/features/quotes/workspa
 import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { buildProjectNameFromLabels } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
+import { useWorkspaceNavigationModel } from "@/features/quotes/use-workspace-navigation-model";
 import { useAppSession } from "@/hooks/use-app-session";
 import { useWorkspaceReadiness } from "@/hooks/use-workspace-readiness";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
@@ -95,6 +94,8 @@ export function useClientHomeController() {
     authState,
     activeMembership,
     isLoading,
+    isFetching,
+    isPlatformAdmin,
     isVerifiedAuth,
     signOut,
     isAuthInitializing,
@@ -119,10 +120,12 @@ export function useClientHomeController() {
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const {
     accessibleProjects,
+    accessibleJobs,
     accessibleProjectsQuery,
     accessibleJobsQuery,
     accessibleJobsById,
     projectJobMemberships,
+    projectJobMembershipsQuery,
     sidebarPinsQuery,
     archivedProjectsQuery,
     archivedJobsQuery,
@@ -140,17 +143,22 @@ export function useClientHomeController() {
     setIsAuthDialogOpen(true);
   };
 
-  const sidebarProjectIdsByJobId = useMemo(
-    () => buildSidebarProjectIdsByJobId(projectJobMemberships),
-    [projectJobMemberships],
-  );
-  const { sidebarProjects } = useMemo(
-    () =>
-      buildSidebarProjects({
-        accessibleProjects,
-      }),
-    [accessibleProjects],
-  );
+  const safeProjectJobMembershipsQuery = projectJobMembershipsQuery ?? {
+    isFetching: false,
+    isSuccess: projectCollaborationUnavailable || projectJobMemberships.length > 0 || accessibleJobs.length === 0,
+  };
+  const navigationModel = useWorkspaceNavigationModel({
+    accessibleJobs,
+    accessibleProjects,
+    projectJobMemberships,
+    summariesByJobId,
+    accessibleJobsQuery,
+    accessibleProjectsQuery,
+    projectJobMembershipsQuery: safeProjectJobMembershipsQuery,
+    projectCollaborationUnavailable,
+  });
+  const sidebarProjects = navigationModel.sidebarProjects;
+  const sidebarProjectIdsByJobId = navigationModel.partToProjectIds;
 
   const bootstrapAccountMutation = useMutation({
     mutationKey: ["client-home", "bootstrap-account"],
@@ -177,6 +185,19 @@ export function useClientHomeController() {
     !activeMembership &&
     (bootstrapAccountMutation.status === "success" ||
       (bootstrapAccountMutation.status === "error" && isExistingMembershipBootstrapError(bootstrapErrorMessage)));
+
+  const canBootstrapSelfServiceOrganization =
+    Boolean(user) &&
+    !isPlatformAdmin &&
+    authState === "authenticated" &&
+    isVerifiedAuth &&
+    !isAuthInitializing &&
+    !isLoading &&
+    !isFetching &&
+    !membershipError &&
+    !activeMembership &&
+    memberships.length === 0 &&
+    bootstrapAccountMutation.status === "idle";
 
   const { readiness: workspaceReadiness, waitForReady } = useWorkspaceReadiness({
     user,
@@ -328,28 +349,24 @@ export function useClientHomeController() {
   }, [activeMembership, isVerifiedAuth, user]);
 
   useEffect(() => {
-    if (
-      !user ||
-      isAuthInitializing ||
-      membershipError ||
-      isLoading ||
-      activeMembership ||
-      !isVerifiedAuth ||
-      bootstrapAccountMutation.status !== "idle"
-    ) {
+    if (!canBootstrapSelfServiceOrganization) {
       return;
     }
 
     bootstrapAccountMutation.mutate(defaultAccountName);
   }, [
-    activeMembership,
     bootstrapAccountMutation,
     defaultAccountName,
+    canBootstrapSelfServiceOrganization,
     isAuthInitializing,
+    isFetching,
     isLoading,
     isVerifiedAuth,
     membershipError,
     user,
+    authState,
+    memberships.length,
+    activeMembership,
   ]);
 
   useEffect(() => {
@@ -507,7 +524,7 @@ export function useClientHomeController() {
     enabled: shouldWarmWorkspaceNavigation,
     canPrefetchProjects: !projectCollaborationUnavailable,
     projects: sidebarProjects,
-    jobs: accessibleJobsQuery.data ?? [],
+    jobs: navigationModel.parts,
     pinnedProjectIds: sidebarPinsQuery.data?.projectIds ?? [],
     pinnedJobIds: sidebarPinsQuery.data?.jobIds ?? [],
     resolveProjectIdsForJob: resolveSidebarProjectIdsForJob,
@@ -814,6 +831,7 @@ export function useClientHomeController() {
   const prefetchPart = (jobId: string) => {
     void prefetchPartPage(queryClient, jobId);
   };
+  const sidebarJobs = navigationModel.parts;
 
   return {
     activeMembership,
@@ -850,6 +868,7 @@ export function useClientHomeController() {
     prefetchProject,
     projectCollaborationUnavailable,
     resolveSidebarProjectIdsForJob,
+    navigationModel,
     setIsAuthDialogOpen,
     setIsSearchOpen,
     sidebarPinsQuery,
@@ -857,6 +876,7 @@ export function useClientHomeController() {
     signOut,
     summariesByJobId,
     user,
+    accessibleJobs: sidebarJobs,
     accessibleJobsQuery,
   };
 }

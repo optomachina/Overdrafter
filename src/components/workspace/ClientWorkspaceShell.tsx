@@ -437,7 +437,7 @@ export function ClientWorkspaceShell({
           {showSidebar ? (
             <aside
               className={cn(
-                "sidebar-host relative sticky top-0 hidden shrink-0 self-start overflow-visible border-r border-white/[0.08] shadow-[1px_0_0_0_rgba(255,255,255,0.02)] md:block",
+                "sidebar-host relative sticky top-0 hidden shrink-0 self-start overflow-visible border-r border-white/[0.08] md:block",
                 !isResizing && "transition-[width] duration-200 ease-out",
               )}
               style={{
@@ -452,11 +452,15 @@ export function ClientWorkspaceShell({
                     onCollapse={() => setDesktopSidebarCollapsed(true)}
                     onLogoClick={onLogoClick}
                   />
-                  {/* Resize handle */}
                   <div
-                    className="absolute inset-y-0 right-0 z-20 hidden w-1 cursor-col-resize md:block"
+                    role="separator"
+                    aria-label="Resize sidebar"
+                    aria-orientation="vertical"
+                    className="absolute inset-y-0 right-0 z-20 hidden w-3 translate-x-1/2 cursor-col-resize md:block"
                     onPointerDown={handleResizePointerDown}
-                  />
+                  >
+                    <div className="absolute inset-y-6 left-1/2 w-px -translate-x-1/2 rounded-full bg-white/10 transition-colors duration-150 hover:bg-white/22" />
+                  </div>
                 </div>
                 <div className={cn("h-full", desktopSidebarCollapsed ? "block" : "hidden")}>
                   <CollapsedSidebarRail
@@ -468,7 +472,7 @@ export function ClientWorkspaceShell({
             </aside>
           ) : null}
 
-          <div className="relative flex min-h-svh flex-1 flex-col">
+          <div className="relative flex min-h-svh min-w-0 flex-1 flex-col">
             {showSidebar && desktopSidebarCollapsed ? (
               <button
                 type="button"
@@ -477,7 +481,7 @@ export function ClientWorkspaceShell({
                 onClick={() => setDesktopSidebarCollapsed(false)}
               />
             ) : null}
-            <header className="flex items-center justify-between gap-3 px-4 py-3 md:px-6">
+            <header className="flex flex-wrap items-center gap-3 px-4 py-3 md:flex-nowrap md:justify-between md:px-6">
               {showSidebar ? (
                 <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
                   <SheetTrigger asChild>
@@ -530,10 +534,10 @@ export function ClientWorkspaceShell({
                 ) : null}
               </div>
 
-              <div className="ml-auto flex items-center gap-2">{topRightContent}</div>
+              <div className="flex w-full items-center justify-end gap-2 md:ml-auto md:w-auto">{topRightContent}</div>
             </header>
 
-            <main className="flex flex-1 flex-col">{children}</main>
+            <main className="flex min-w-0 flex-1 flex-col">{children}</main>
           </div>
         </div>
       </div>

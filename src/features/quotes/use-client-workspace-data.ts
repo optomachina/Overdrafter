@@ -50,6 +50,30 @@ function pushUnique(target: string[], value: string | null | undefined, limit: n
   target.push(value);
 }
 
+function useStableWorkspaceList<T>({
+  data,
+  isFetching,
+}: {
+  data: T[] | undefined;
+  isFetching: boolean;
+}): T[] {
+  const stableRef = useRef<T[]>(data ?? []);
+
+  useEffect(() => {
+    const nextItems = data ?? [];
+
+    if (nextItems.length > 0 || !isFetching) {
+      stableRef.current = nextItems;
+    }
+  }, [data, isFetching]);
+
+  if (isFetching && (data?.length ?? 0) === 0) {
+    return stableRef.current;
+  }
+
+  return data ?? [];
+}
+
 export function useClientWorkspaceData({
   enabled,
   userId,
@@ -69,9 +93,13 @@ export function useClientWorkspaceData({
     staleTime: WORKSPACE_SHARED_STALE_TIME_MS,
     gcTime: WORKSPACE_GC_TIME_MS,
   });
+  const rawAccessibleJobs = useStableWorkspaceList({
+    data: accessibleJobsQuery.data,
+    isFetching: accessibleJobsQuery.isFetching,
+  });
   const accessibleJobIds = useMemo(
-    () => stableJobIds((accessibleJobsQuery.data ?? []).map((job) => job.id)),
-    [accessibleJobsQuery.data],
+    () => stableJobIds(rawAccessibleJobs.map((job) => job.id)),
+    [rawAccessibleJobs],
   );
   const partSummariesQuery = useQuery({
     queryKey: workspaceQueryKeys.clientPartSummaries(accessibleJobIds),
@@ -109,43 +137,27 @@ export function useClientWorkspaceData({
     gcTime: WORKSPACE_GC_TIME_MS,
   });
 
+  const accessibleProjects = useStableWorkspaceList({
+    data: accessibleProjectsQuery.data,
+    isFetching: accessibleProjectsQuery.isFetching,
+  });
+  const projectJobMemberships = useStableWorkspaceList({
+    data: projectJobMembershipsQuery.data,
+    isFetching: projectJobMembershipsQuery.isFetching,
+  });
+  const accessibleJobs = rawAccessibleJobs;
   const summariesByJobId = useMemo(
     () => new Map((partSummariesQuery.data ?? []).map((summary) => [summary.jobId, summary])),
     [partSummariesQuery.data],
   );
   const accessibleJobsById = useMemo(
-    () => new Map((accessibleJobsQuery.data ?? []).map((job) => [job.id, job])),
-    [accessibleJobsQuery.data],
+    () => new Map(accessibleJobs.map((job) => [job.id, job])),
+    [accessibleJobs],
   );
-  const stableAccessibleProjectsRef = useRef(accessibleProjectsQuery.data ?? []);
-  const stableProjectJobMembershipsRef = useRef(projectJobMembershipsQuery.data ?? []);
-
-  useEffect(() => {
-    const nextProjects = accessibleProjectsQuery.data ?? [];
-
-    if (nextProjects.length > 0 || !accessibleProjectsQuery.isFetching) {
-      stableAccessibleProjectsRef.current = nextProjects;
-    }
-  }, [accessibleProjectsQuery.data, accessibleProjectsQuery.isFetching]);
-
-  useEffect(() => {
-    const nextMemberships = projectJobMembershipsQuery.data ?? [];
-
-    if (nextMemberships.length > 0 || !projectJobMembershipsQuery.isFetching) {
-      stableProjectJobMembershipsRef.current = nextMemberships;
-    }
-  }, [projectJobMembershipsQuery.data, projectJobMembershipsQuery.isFetching]);
-
-  const accessibleProjects = accessibleProjectsQuery.isFetching && (accessibleProjectsQuery.data?.length ?? 0) === 0
-    ? stableAccessibleProjectsRef.current
-    : (accessibleProjectsQuery.data ?? []);
-  const projectJobMemberships =
-    projectJobMembershipsQuery.isFetching && (projectJobMembershipsQuery.data?.length ?? 0) === 0
-      ? stableProjectJobMembershipsRef.current
-      : (projectJobMembershipsQuery.data ?? []);
 
   return {
     accessibleProjects,
+    accessibleJobs,
     accessibleProjectsQuery,
     projectJobMemberships,
     accessibleJobsQuery,

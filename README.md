@@ -1,10 +1,8 @@
-# OverDrafter Curated CNC Quote Platform
+# OverDrafter – Manufacturing Co-Pilot
 
-This repo now contains the portal layer for a curated CNC quote workflow:
+OverDrafter is a multi-agent CAD-native platform that lets users upload CAD files and drawings and receive DFM reviews, quotes, assembly plans, fulfillment, modeling updates, drafting updates, remodeling/redrafting, and PDM—all driven by invisible specialist agents via natural language.
 
-- React + Vite frontend for internal estimators and client users
-- Supabase schema, RLS, storage, and RPCs for jobs, extractions, quote runs, and published packages
-- A separate `worker/` package for queue processing, hybrid extraction, and vendor adapter orchestration
+The primary interface lives inside the user’s CAD tool (plugins for SolidWorks, Fusion 360, Onshape, etc.) or a live 3D web viewer. Complexity (queues, extraction steps, vendor tabs, cards) is hidden until the exact moment it adds value.
 
 `npm` is the authoritative package manager for both the repo root and `worker/`. Use the committed
 `package-lock.json` files and do not introduce Bun, pnpm, or Yarn lockfiles unless the repo policy changes.
@@ -123,13 +121,9 @@ appear in old diffs or stale local artifacts, do not treat them as canonical run
 
 ## What Was Implemented
 
-### Web app
+### What Was Implemented (scaffolding)
 
-- Role-aware dashboard at `/`
-- Job intake at `/jobs/new`
-- Internal review and compare view at `/internal/jobs/:jobId`
-- Client package view at `/client/packages/:packageId`
-- Supabase-backed quote service modules in [`src/features/quotes/api/`](src/features/quotes/api/) with a thin compatibility shim at [`src/features/quotes/api.ts`](src/features/quotes/api.ts)
+The current React + Supabase + worker implementation provides the solid foundation (job intake, extraction, quote orchestration, OpenClaw harness) that will now be progressively wrapped and hidden behind the ideal multi-agent UX.
 
 ### Supabase
 
@@ -146,13 +140,6 @@ appear in old diffs or stale local artifacts, do not treat them as canonical run
   - `api_get_quote_run_readiness`
   - `api_publish_quote_package`
   - `api_select_quote_option`
-
-### Worker
-
-- Queue claim/complete/fail flow
-- Hybrid extraction scaffold
-- Deterministic vendor adapter contracts
-- Simulation mode so orchestration can run before live browser automation is filled in
 
 ## Local Setup
 
@@ -210,6 +197,7 @@ Quote comparison data path:
 - client surfaces do not read `vendor_quote_results` or `vendor_quote_offers` directly because those tables remain internal-only behind RLS
 - `vendor_quote_offers` is the authoritative chart lane source; `vendor_quote_results.raw_payload.offers` is compatibility fallback only
 - hosted environments must include migration `20260319113000_add_client_quote_workspace_projection.sql` and a refreshed PostgREST schema cache before client quote charts can load real data
+- hosted environments must also be at migration head for startup/auth RPCs such as `public.api_get_is_platform_admin()` and `public.api_create_self_service_organization(text)`; after pushing hosted migrations, refresh the PostgREST schema cache before debugging signed-in workspace bootstrap errors
 
 Archive delete requires the hosted environment to have the archived delete RPCs at migration head:
 `public.api_delete_archived_jobs(uuid[])` as the primary contract and
@@ -322,6 +310,12 @@ Seeded local users:
 - `estimator.demo@overdrafter.local`
 - `admin.demo@overdrafter.local`
 - password: `Overdrafter123!`
+
+Dev-only instant login shortcut:
+
+- visit `http://localhost:8080/dev-login?redirect=/`
+- or run `npm run dev:login`
+- this only works in local development and signs in as the existing `dmrifles@gmail.com` auth user when that user exists in the connected database
 
 Fast E2E setup:
 

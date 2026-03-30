@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { VendorQuoteAggregate } from "@/features/quotes/types";
 import {
   applyBulkPresetSelection,
+  buildScopedPreset,
   buildClientQuoteSelectionOptions,
   buildClientQuoteSelectionResult,
   buildVendorLabelMap,
+  filterVisibleQuoteOptions,
+  getPresetMode,
+  getPresetScope,
   pickPresetOption,
   revertBulkPresetSelection,
   summarizeSelectedQuoteOptions,
@@ -140,6 +144,83 @@ describe("selection helpers", () => {
 
     expect(pickPresetOption(options, "cheapest")?.persistedOfferId).toBe("offer-on-time");
     expect(options.find((option) => option.persistedOfferId === "offer-late")?.dueDateEligible).toBe(false);
+  });
+
+  it("returns only due-date-eligible options for project visibility", () => {
+    const options = buildClientQuoteSelectionOptions({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          id: "quote-late",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-late",
+              vendor_quote_result_id: "quote-late",
+              total_price_usd: 80,
+              unit_price_usd: 8,
+              ship_receive_by: "2026-03-20",
+            },
+          ],
+        }),
+        makeQuoteAggregate({
+          id: "quote-ok",
+          vendor: "fictiv",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-ok",
+              vendor_quote_result_id: "quote-ok",
+              total_price_usd: 95,
+              unit_price_usd: 9.5,
+              ship_receive_by: "2026-03-08",
+            },
+          ],
+        }),
+      ],
+      requestedByDate: "2026-03-12",
+    });
+
+    expect(filterVisibleQuoteOptions(options, "2026-03-12").map((option) => option.persistedOfferId)).toEqual([
+      "offer-ok",
+    ]);
+  });
+
+  it("returns no preset candidate when every quote is late", () => {
+    const options = buildClientQuoteSelectionOptions({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          id: "quote-late-1",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-late-1",
+              vendor_quote_result_id: "quote-late-1",
+              total_price_usd: 80,
+              unit_price_usd: 8,
+              ship_receive_by: "2026-03-20",
+            },
+          ],
+        }),
+        makeQuoteAggregate({
+          id: "quote-late-2",
+          vendor: "fictiv",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-late-2",
+              vendor_quote_result_id: "quote-late-2",
+              total_price_usd: 95,
+              unit_price_usd: 9.5,
+              ship_receive_by: "2026-03-18",
+            },
+          ],
+        }),
+      ],
+      requestedByDate: "2026-03-12",
+    });
+
+    expect(pickPresetOption(options, "cheapest")).toBeNull();
+    expect(pickPresetOption(options, "fastest")).toBeNull();
   });
 
   it("prefers domestic options for the domestic preset and preserves unknown when signals are missing", () => {
@@ -385,5 +466,179 @@ describe("selection helpers", () => {
       "invalid_total_price_format",
       "invalid_lead_time_format",
     ]);
+  });
+
+  it("cheapest_domestic picks cheapest domestic option and ignores foreign", () => {
+    const options = buildClientQuoteSelectionOptions({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          id: "quote-foreign",
+          vendor: "xometry",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-foreign-cheap",
+              vendor_quote_result_id: "quote-foreign",
+              sourcing: "Overseas",
+              total_price_usd: 50,
+              unit_price_usd: 5,
+            },
+          ],
+        }),
+        makeQuoteAggregate({
+          id: "quote-domestic-expensive",
+          vendor: "fictiv",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-domestic-expensive",
+              vendor_quote_result_id: "quote-domestic-expensive",
+              sourcing: "Domestic",
+              total_price_usd: 90,
+              unit_price_usd: 9,
+            },
+          ],
+        }),
+        makeQuoteAggregate({
+          id: "quote-domestic-cheap",
+          vendor: "protolabs",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-domestic-cheap",
+              vendor_quote_result_id: "quote-domestic-cheap",
+              sourcing: "Domestic",
+              total_price_usd: 70,
+              unit_price_usd: 7,
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(pickPresetOption(options, "cheapest_domestic")?.persistedOfferId).toBe("offer-domestic-cheap");
+  });
+
+  it("fastest_domestic picks fastest domestic option and ignores foreign", () => {
+    const options = buildClientQuoteSelectionOptions({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          id: "quote-foreign-fast",
+          vendor: "xometry",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-foreign-fast",
+              vendor_quote_result_id: "quote-foreign-fast",
+              sourcing: "Overseas",
+              total_price_usd: 100,
+              unit_price_usd: 10,
+              lead_time_business_days: 2,
+              ship_receive_by: "2026-03-05",
+            },
+          ],
+        }),
+        makeQuoteAggregate({
+          id: "quote-domestic-fast",
+          vendor: "fictiv",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-domestic-fast",
+              vendor_quote_result_id: "quote-domestic-fast",
+              sourcing: "Domestic",
+              total_price_usd: 120,
+              unit_price_usd: 12,
+              lead_time_business_days: 4,
+              ship_receive_by: "2026-03-07",
+            },
+          ],
+        }),
+        makeQuoteAggregate({
+          id: "quote-domestic-slow",
+          vendor: "protolabs",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-domestic-slow",
+              vendor_quote_result_id: "quote-domestic-slow",
+              sourcing: "Domestic",
+              total_price_usd: 90,
+              unit_price_usd: 9,
+              lead_time_business_days: 10,
+              ship_receive_by: "2026-03-15",
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(pickPresetOption(options, "fastest_domestic")?.persistedOfferId).toBe("offer-domestic-fast");
+  });
+
+  it("cheapest_global picks cheapest option regardless of sourcing", () => {
+    const options = buildClientQuoteSelectionOptions({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          id: "quote-foreign",
+          vendor: "xometry",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-foreign-cheapest",
+              vendor_quote_result_id: "quote-foreign",
+              sourcing: "Overseas",
+              total_price_usd: 40,
+              unit_price_usd: 4,
+            },
+          ],
+        }),
+        makeQuoteAggregate({
+          id: "quote-domestic",
+          vendor: "fictiv",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-domestic",
+              vendor_quote_result_id: "quote-domestic",
+              sourcing: "Domestic",
+              total_price_usd: 80,
+              unit_price_usd: 8,
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(pickPresetOption(options, "cheapest_global")?.persistedOfferId).toBe("offer-foreign-cheapest");
+  });
+
+  it("falls back to no match when no domestic options exist for cheapest_domestic", () => {
+    const options = buildClientQuoteSelectionOptions({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          id: "quote-foreign",
+          vendor: "xometry",
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "offer-foreign",
+              vendor_quote_result_id: "quote-foreign",
+              sourcing: "Overseas",
+              total_price_usd: 100,
+              unit_price_usd: 10,
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(pickPresetOption(options, "cheapest_domestic")).toBeNull();
+  });
+
+  it("derives part and project preset helpers with domestic defaults", () => {
+    expect(getPresetScope(null)).toBe("domestic");
+    expect(getPresetMode(null)).toBe("cheapest");
+    expect(buildScopedPreset("fastest", "global")).toBe("fastest_global");
   });
 });

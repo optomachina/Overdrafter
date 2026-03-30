@@ -269,6 +269,104 @@ describe("WorkspaceSidebar", () => {
     expect(partRow).toHaveClass("px-2", "py-2");
   });
 
+  it("shows rounded selected quote summaries for parts and fully quoted projects", () => {
+    renderSidebar({
+      summariesByJobId: new Map<string, JobPartSummary>([
+        [
+          "job-1",
+          makeSummary({
+            jobId: "job-1",
+            selectedSupplier: "Xometry USA",
+            selectedPriceUsd: 123.6,
+            selectedLeadTimeBusinessDays: 7,
+          }),
+        ],
+        [
+          "job-2",
+          makeSummary({
+            jobId: "job-2",
+            partNumber: "1093-00002",
+            selectedSupplier: "Fictiv USA",
+            selectedPriceUsd: 245.2,
+            selectedLeadTimeBusinessDays: 11,
+          }),
+        ],
+        [
+          "job-3",
+          makeSummary({
+            jobId: "job-3",
+            partNumber: "1093-00003",
+          }),
+        ],
+      ]),
+    });
+
+    expect(screen.getAllByText("$124 · 7d").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("$369 · 11d")).toBeInTheDocument();
+  });
+
+  it("hides a project summary badge when any project member lacks a selected quote", () => {
+    renderSidebar({
+      summariesByJobId: new Map<string, JobPartSummary>([
+        [
+          "job-1",
+          makeSummary({
+            jobId: "job-1",
+            selectedSupplier: "Xometry USA",
+            selectedPriceUsd: 123.6,
+            selectedLeadTimeBusinessDays: 7,
+          }),
+        ],
+        [
+          "job-2",
+          makeSummary({
+            jobId: "job-2",
+            partNumber: "1093-00002",
+            selectedSupplier: "Fictiv USA",
+            selectedPriceUsd: 245.2,
+          }),
+        ],
+        [
+          "job-3",
+          makeSummary({
+            jobId: "job-3",
+            partNumber: "1093-00003",
+          }),
+        ],
+      ]),
+    });
+
+    expect(screen.queryByText("$369 · 11d")).not.toBeInTheDocument();
+  });
+
+  it("shows zero-day lead times in part and project summaries", () => {
+    renderSidebar({
+      summariesByJobId: new Map<string, JobPartSummary>([
+        [
+          "job-1",
+          makeSummary({
+            jobId: "job-1",
+            selectedSupplier: "Xometry USA",
+            selectedPriceUsd: 123.6,
+            selectedLeadTimeBusinessDays: 0,
+          }),
+        ],
+        [
+          "job-2",
+          makeSummary({
+            jobId: "job-2",
+            partNumber: "1093-00002",
+            selectedSupplier: "Fictiv USA",
+            selectedPriceUsd: 245.2,
+            selectedLeadTimeBusinessDays: 0,
+          }),
+        ],
+      ]),
+    });
+
+    expect(screen.getAllByText("$124 · 0d").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("$369 · 0d")).toBeInTheDocument();
+  });
   it("prefetches a project on hover and focus", async () => {
     vi.useFakeTimers();
     const onPrefetchProject = vi.fn();
@@ -337,12 +435,44 @@ describe("WorkspaceSidebar", () => {
     expect(screen.queryByText("Blocked")).not.toBeInTheDocument();
   });
 
-  it("shows only ungrouped parts in the flat parts section", () => {
+  it("shows all parts in the flat parts section, including grouped parts", () => {
     renderSidebar();
 
     expect(screen.getByRole("button", { name: /1093-00003/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /1093-00001/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /1093-00002/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /1093-00001/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /1093-00002/i })).toBeInTheDocument();
+  });
+
+  it("shows grouped parts in the flat section when every part is nested under projects", () => {
+    renderSidebar({
+      jobs: [
+        makeJob({
+          id: "job-1",
+          project_id: null,
+          title: "Job One",
+        }),
+        makeJob({
+          id: "job-2",
+          project_id: "project-1",
+          title: "Job Two",
+        }),
+      ],
+      summariesByJobId: new Map([
+        ["job-1", makeSummary()],
+        [
+          "job-2",
+          makeSummary({
+            jobId: "job-2",
+            partNumber: "1093-00002",
+          }),
+        ],
+      ]),
+      resolveProjectIdsForJob: (job) => (job.id === "job-1" ? ["project-1"] : job.project_id ? [job.project_id] : []),
+    });
+
+    expect(screen.queryByText("No parts yet.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /1093-00001/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /1093-00002/i })).toBeInTheDocument();
   });
 
   it("restores expanded project state from local storage", () => {
@@ -358,7 +488,7 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getAllByText(/1093-00001/i).length).toBeGreaterThan(0);
   });
 
-  it("shows grouped parts only inside expanded projects, including multi-project jobs", () => {
+  it("shows grouped parts in both expanded projects and the flat parts section", () => {
     localStorage.setItem(
       "workspace-sidebar-expanded-v1:sidebar-grouped-parts",
       JSON.stringify({ "project-1": true, "project-2": true }),
@@ -368,12 +498,12 @@ describe("WorkspaceSidebar", () => {
       storageScopeKey: "sidebar-grouped-parts",
     });
 
-    expect(screen.getAllByText(/1093-00001/i)).toHaveLength(2);
-    expect(screen.getAllByText(/1093-00002/i)).toHaveLength(1);
+    expect(screen.getAllByText(/1093-00001/i)).toHaveLength(3);
+    expect(screen.getAllByText(/1093-00002/i)).toHaveLength(2);
     expect(screen.getByRole("button", { name: /1093-00003/i })).toBeInTheDocument();
   });
 
-  it("keeps grouped pinned parts out of the parts section in pinned mode", async () => {
+  it("keeps grouped pinned parts visible in the parts section in pinned mode", async () => {
     renderSidebar({
       pinnedJobIds: ["job-1", "job-3"],
     });
@@ -386,11 +516,11 @@ describe("WorkspaceSidebar", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /1093-00003/i })).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: /1093-00001/i })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /1093-00001/i })).toBeInTheDocument();
     });
   });
 
-  it("treats resolved project memberships as grouped even without job.project_id", () => {
+  it("shows resolved project-membership parts in the flat section even without job.project_id", () => {
     renderSidebar({
       projects: [
         {
@@ -419,7 +549,7 @@ describe("WorkspaceSidebar", () => {
       resolveProjectIdsForJob: () => ["seed-qb00001"],
     });
 
-    expect(screen.queryByRole("button", { name: /1093-00010/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /1093-00010/i })).toBeInTheDocument();
   });
 
   it("collapses and persists the projects and parts sections", () => {
@@ -571,7 +701,7 @@ describe("WorkspaceSidebar", () => {
       .map((element) => element.closest('[role="button"]'))
       .filter((row): row is HTMLElement => Boolean(row));
 
-    expect(selectedRows).toHaveLength(2);
+    expect(selectedRows).toHaveLength(3);
     selectedRows.forEach((row) => {
       expect(row).toHaveClass("bg-white/[0.08]");
     });
