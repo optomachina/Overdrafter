@@ -30,6 +30,26 @@ describe("inferWorkspaceComposition", () => {
     expect(result.viewportTargetArtifactId).toBe("artifact-assembly");
   });
 
+  it("does not treat part names containing asm as assembly evidence by themselves", () => {
+    const result = inferWorkspaceComposition([
+      {
+        artifactId: "artifact-gasket",
+        stem: "plasma-cut-gasket",
+        stepPath: "plasma-cut-gasket.step",
+        pdfPath: null,
+      },
+      {
+        artifactId: "artifact-fastener",
+        stem: "fastener",
+        stepPath: "fastener.step",
+        pdfPath: "fastener.pdf",
+      },
+    ]);
+
+    expect(result.composition).toBe("loose_parts");
+    expect(result.viewportTargetArtifactId).toBe("artifact-fastener");
+  });
+
   it("chooses the densest artifact as the default viewport target for loose parts", () => {
     const result = inferWorkspaceComposition([
       {

@@ -1,6 +1,11 @@
-import type { DeterministicArtifactPair } from "@/lib/north-star-ingestion";
-
 export type InferredWorkspaceComposition = "assembly" | "loose_parts";
+
+export interface DeterministicArtifactPair {
+  artifactId: string;
+  stem: string;
+  stepPath: string | null;
+  pdfPath: string | null;
+}
 
 export interface AssemblyInferenceResult {
   composition: InferredWorkspaceComposition;
@@ -9,7 +14,7 @@ export interface AssemblyInferenceResult {
 }
 
 function looksLikeAssembly(stem: string): boolean {
-  return /assembly|assy|asm/i.test(stem);
+  return /(?:^|[_\-. ])(?:assembly|assy|asm)(?:$|[_\-. 0-9])/i.test(stem);
 }
 
 export function inferWorkspaceComposition(
