@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   createWorkspaceDomainSnapshot,
   isArtifactRecord,
+  isOverrideRecord,
+  isReviewRecord,
   sortArtifactsDeterministically,
   type ArtifactRecord,
 } from "./north-star-domain";
@@ -40,6 +42,79 @@ describe("isArtifactRecord", () => {
   it("rejects malformed records", () => {
     expect(isArtifactRecord({ ...ARTIFACT_A, id: "" })).toBe(false);
     expect(isArtifactRecord({ ...ARTIFACT_A, sizeBytes: -1 })).toBe(false);
+    expect(isArtifactRecord({ ...ARTIFACT_A, kind: "spreadsheet" })).toBe(false);
+    expect(isArtifactRecord({ ...ARTIFACT_A, role: "attachment" })).toBe(false);
+  });
+});
+
+describe("isReviewRecord", () => {
+  it("accepts valid review records and rejects invalid status values", () => {
+    expect(
+      isReviewRecord({
+        id: "review-a",
+        workspaceId: "workspace-1",
+        artifactId: "artifact-a",
+        status: "approved",
+        reviewerUserId: "user-1",
+        rationale: "looks good",
+        reviewedAt: "2026-03-29T11:00:00.000Z",
+      }),
+    ).toBe(true);
+    expect(
+      isReviewRecord({
+        id: "review-b",
+        workspaceId: "workspace-1",
+        artifactId: "artifact-a",
+        status: "accepted",
+        reviewerUserId: "user-1",
+        rationale: "looks good",
+        reviewedAt: "2026-03-29T11:00:00.000Z",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isOverrideRecord", () => {
+  it("accepts valid overrides and rejects invalid scope or provenance", () => {
+    expect(
+      isOverrideRecord({
+        id: "override-a",
+        workspaceId: "workspace-1",
+        artifactId: "artifact-a",
+        scope: "metadata",
+        field: "partNumber",
+        value: "A-100",
+        provenance: "human",
+        createdByUserId: "user-1",
+        createdAt: "2026-03-29T11:10:00.000Z",
+      }),
+    ).toBe(true);
+    expect(
+      isOverrideRecord({
+        id: "override-b",
+        workspaceId: "workspace-1",
+        artifactId: "artifact-a",
+        scope: "layout",
+        field: "partNumber",
+        value: "A-100",
+        provenance: "human",
+        createdByUserId: "user-1",
+        createdAt: "2026-03-29T11:10:00.000Z",
+      }),
+    ).toBe(false);
+    expect(
+      isOverrideRecord({
+        id: "override-c",
+        workspaceId: "workspace-1",
+        artifactId: "artifact-a",
+        scope: "metadata",
+        field: "partNumber",
+        value: "A-100",
+        provenance: "operator",
+        createdByUserId: "user-1",
+        createdAt: "2026-03-29T11:10:00.000Z",
+      }),
+    ).toBe(false);
   });
 });
 
@@ -51,10 +126,14 @@ describe("sortArtifactsDeterministically", () => {
 });
 
 describe("createWorkspaceDomainSnapshot", () => {
-  it("drops dangling review and override records that reference unknown artifacts", () => {
+  it("keeps only records that belong to the snapshot workspace and known artifacts", () => {
     const snapshot = createWorkspaceDomainSnapshot({
       workspaceId: "workspace-1",
-      artifacts: [ARTIFACT_B, ARTIFACT_A],
+      artifacts: [
+        ARTIFACT_B,
+        ARTIFACT_A,
+        { ...ARTIFACT_B, id: "artifact-other-workspace", workspaceId: "workspace-2" },
+      ],
       reviews: [
         {
           id: "review-a",
@@ -73,6 +152,15 @@ describe("createWorkspaceDomainSnapshot", () => {
           reviewerUserId: null,
           rationale: null,
           reviewedAt: null,
+        },
+        {
+          id: "review-other-workspace",
+          workspaceId: "workspace-2",
+          artifactId: "artifact-a",
+          status: "approved",
+          reviewerUserId: "user-2",
+          rationale: "wrong workspace",
+          reviewedAt: "2026-03-29T11:05:00.000Z",
         },
       ],
       overrides: [
@@ -97,6 +185,17 @@ describe("createWorkspaceDomainSnapshot", () => {
           provenance: "human",
           createdByUserId: "user-1",
           createdAt: "2026-03-29T11:11:00.000Z",
+        },
+        {
+          id: "override-other-workspace",
+          workspaceId: "workspace-2",
+          artifactId: "artifact-a",
+          scope: "metadata",
+          field: "partNumber",
+          value: "A-999",
+          provenance: "system",
+          createdByUserId: null,
+          createdAt: "2026-03-29T11:12:00.000Z",
         },
       ],
     });
