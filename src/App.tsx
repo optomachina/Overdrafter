@@ -29,6 +29,7 @@ import ClientPartReview from "./pages/ClientPartReview";
 import ClientProjectReview from "./pages/ClientProjectReview";
 import SharedInvite from "./pages/SharedInvite";
 import StateGallery from "./pages/StateGallery";
+import { ConceptsGallery } from "@/concepts/ConceptsGallery";
 import "./App.css";
 
 function formatTargetName(value: unknown) {
@@ -113,6 +114,7 @@ const App = () => (
             <Route path="/signin" element={<SignIn />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/debug/state-gallery" element={<StateGallery />} />
+            <Route path="/debug/concepts" element={<ConceptsGallery />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
