@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { getArchivedDeleteReporting } from "./archive-delete-errors";
+import { resetPlatformAdminRpcAvailabilityForTests } from "./api/session-api";
 import {
   getSupabaseAuthStorageKey,
   resetStartupAuthBootstrapForTests,
@@ -431,6 +432,7 @@ describe("quotes api helpers", () => {
       value: storageMock,
     });
     resetStartupAuthBootstrapForTests();
+    resetPlatformAdminRpcAvailabilityForTests();
     resetClientIntakeSchemaAvailabilityForTests();
     resetJobArchivingSchemaAvailabilityForTests();
     resetProjectCollaborationSchemaAvailabilityForTests();
@@ -505,6 +507,7 @@ describe("quotes api helpers", () => {
     vi.unstubAllEnvs();
     storageMock.clear();
     resetStartupAuthBootstrapForTests();
+    resetPlatformAdminRpcAvailabilityForTests();
   });
 
   it("infers CAD, drawing, and other file kinds case-insensitively", () => {
@@ -3137,7 +3140,7 @@ describe("quotes api helpers", () => {
     expect(supabaseMock.rpc).toHaveBeenCalledWith("api_get_is_platform_admin", {});
   });
 
-  it("persists platform admin lookup failures instead of silently coercing them to false", async () => {
+  it("preserves memberships when platform admin lookup is unavailable", async () => {
     supabaseMock.membershipsOrder.mockResolvedValueOnce({
       data: [
         {
@@ -3176,8 +3179,132 @@ describe("quotes api helpers", () => {
       isVerifiedAuth: false,
       isPlatformAdmin: false,
       authState: "authenticated",
-      membershipError: "Could not find the function public.api_get_is_platform_admin() in the schema cache",
     });
+  });
+
+  it("stops retrying platform admin lookup after a missing-rpc failure in the same browser session", async () => {
+    supabaseMock.membershipsOrder.mockResolvedValue({
+      data: [
+        {
+          id: "membership-1",
+          organization_id: "org-123",
+          role: "internal_admin",
+          organizations: {
+            id: "org-123",
+            name: "Acme",
+            slug: "acme",
+          },
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.rpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          message: "Could not find the function public.api_get_is_platform_admin() in the schema cache",
+        },
+      })
+      .mockResolvedValue({
+        data: true,
+        error: null,
+      });
+
+    await expect(fetchAppSessionData()).resolves.toMatchObject({
+      memberships: [
+        {
+          id: "membership-1",
+          role: "internal_admin",
+          organizationId: "org-123",
+          organizationName: "Acme",
+          organizationSlug: "acme",
+        },
+      ],
+      isPlatformAdmin: false,
+      authState: "authenticated",
+    });
+
+    await expect(fetchAppSessionData()).resolves.toMatchObject({
+      memberships: [
+        {
+          id: "membership-1",
+          role: "internal_admin",
+          organizationId: "org-123",
+          organizationName: "Acme",
+          organizationSlug: "acme",
+        },
+      ],
+      isPlatformAdmin: false,
+      authState: "authenticated",
+    });
+
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares one in-flight platform admin lookup across concurrent app-session fetches", async () => {
+    supabaseMock.membershipsOrder.mockResolvedValue({
+      data: [
+        {
+          id: "membership-1",
+          organization_id: "org-123",
+          role: "internal_admin",
+          organizations: {
+            id: "org-123",
+            name: "Acme",
+            slug: "acme",
+          },
+        },
+      ],
+      error: null,
+    });
+
+    let resolveRpc!: (value: { data: null; error: { message: string } }) => void;
+    supabaseMock.rpc.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveRpc = resolve;
+      }),
+    );
+
+    const first = fetchAppSessionData();
+    const second = fetchAppSessionData();
+
+    resolveRpc({
+      data: null,
+      error: {
+        message: "Could not find the function public.api_get_is_platform_admin() in the schema cache",
+      },
+    });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({
+        memberships: [
+          {
+            id: "membership-1",
+            role: "internal_admin",
+            organizationId: "org-123",
+            organizationName: "Acme",
+            organizationSlug: "acme",
+          },
+        ],
+        isPlatformAdmin: false,
+        authState: "authenticated",
+      }),
+      expect.objectContaining({
+        memberships: [
+          {
+            id: "membership-1",
+            role: "internal_admin",
+            organizationId: "org-123",
+            organizationName: "Acme",
+            organizationSlug: "acme",
+          },
+        ],
+        isPlatformAdmin: false,
+        authState: "authenticated",
+      }),
+    ]);
+
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces a clean not-found error when a project row is missing", async () => {

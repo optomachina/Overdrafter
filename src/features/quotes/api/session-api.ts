@@ -23,6 +23,57 @@ type MembershipJoinRow = {
   } | null;
 };
 
+type PlatformAdminRpcAvailability = "unknown" | "available" | "unavailable";
+
+let platformAdminRpcAvailability: PlatformAdminRpcAvailability = "unknown";
+let platformAdminRpcRequest: Promise<{ data: boolean; error: { message: string } | null }> | null = null;
+
+function markPlatformAdminRpcAvailability(next: Exclude<PlatformAdminRpcAvailability, "unknown">): void {
+  platformAdminRpcAvailability = next;
+}
+
+export function resetPlatformAdminRpcAvailabilityForTests(): void {
+  platformAdminRpcAvailability = "unknown";
+  platformAdminRpcRequest = null;
+}
+
+async function fetchPlatformAdminAvailability(): Promise<{ data: boolean; error: { message: string } | null }> {
+  if (platformAdminRpcAvailability === "unavailable") {
+    return { data: false, error: null };
+  }
+
+  if (platformAdminRpcRequest) {
+    return platformAdminRpcRequest;
+  }
+
+  platformAdminRpcRequest = callRpc("api_get_is_platform_admin", {})
+    .then((result) => {
+      if (result.error) {
+        markPlatformAdminRpcAvailability("unavailable");
+        recordWorkspaceSessionDiagnostic(
+          "warn",
+          "session-api.fetch.platform-admin-unavailable",
+          "Platform-admin RPC unavailable; defaulting to non-admin mode for this browser session.",
+          {
+            error: result.error.message,
+          },
+        );
+        return { data: false, error: { message: result.error.message } };
+      }
+
+      if (platformAdminRpcAvailability === "unknown") {
+        markPlatformAdminRpcAvailability("available");
+      }
+
+      return { data: result.data === true, error: null };
+    })
+    .finally(() => {
+      platformAdminRpcRequest = null;
+    });
+
+  return platformAdminRpcRequest;
+}
+
 function emitSessionPayloadDiagnostic(session: AppSessionData, source: string): void {
   recordWorkspaceSessionDiagnostic("info", source, "Fetched app-session payload.", {
     authState: session.authState ?? "anonymous",
@@ -124,36 +175,10 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
 
   const [membershipResult, platformAdminResult] = await Promise.all([
     membershipQuery as unknown as Promise<PostgrestResponse<MembershipJoinRow>>,
-    callRpc("api_get_is_platform_admin", {}),
+    fetchPlatformAdminAvailability(),
   ]);
   const { data, error } = membershipResult;
   const isPlatformAdmin = platformAdminResult.data === true;
-  const platformAdminErrorMessage =
-    platformAdminResult.error?.message ??
-    (typeof platformAdminResult.data === "boolean" ? null : "Failed to load platform admin status.");
-
-  if (error || platformAdminErrorMessage) {
-    const memberships: AppMembership[] = (data ?? []).map((row) => ({
-      id: row.id,
-      role: row.role,
-      organizationId: row.organization_id,
-      organizationName: row.organizations?.name ?? "Unassigned organization",
-      organizationSlug: row.organizations?.slug ?? "unassigned",
-    }));
-    const session: AppSessionData = {
-      user,
-      memberships: error ? [] : memberships,
-      isVerifiedAuth: hasVerifiedAuth(user),
-      isPlatformAdmin,
-      authState: "authenticated",
-      membershipError: error?.message ?? platformAdminErrorMessage ?? undefined,
-    };
-    emitSessionPayloadDiagnostic(
-      session,
-      error ? "session-api.fetch.membership-error" : "session-api.fetch.platform-admin-error",
-    );
-    return session;
-  }
 
   const memberships: AppMembership[] = (data ?? []).map((row) => ({
     id: row.id,
@@ -165,12 +190,13 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
 
   const session: AppSessionData = {
     user,
-    memberships,
+    memberships: error ? [] : memberships,
     isVerifiedAuth: hasVerifiedAuth(user),
     isPlatformAdmin,
     authState: "authenticated",
+    membershipError: error?.message ?? undefined,
   };
-  emitSessionPayloadDiagnostic(session, "session-api.fetch.authenticated");
+  emitSessionPayloadDiagnostic(session, error ? "session-api.fetch.membership-error" : "session-api.fetch.authenticated");
   return session;
 }
 
