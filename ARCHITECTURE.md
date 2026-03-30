@@ -26,7 +26,6 @@ The next-phase domain model should expand that quote-centric shape into an expli
 - internal estimator interfaces
 - quote comparison and package publication surfaces
 - route-local page composition for complex screens, with reusable quote-domain logic staying in `src/features/quotes/`
-- North Star workspace preview must stay behind a dual gate (`VITE_ENABLE_NORTH_STAR_UI` plus `north_star_ui=1` URL param), with classic workspace as the default fallback until explicit rollout approval
 
 ### 2. Backend data and domain layer
 - persistence of workspaces, projects, parts, jobs, files, quotes, packages, and service request records
