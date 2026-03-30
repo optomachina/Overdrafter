@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import {
   Dialog,
@@ -591,6 +591,17 @@ const ClientProject = () => {
                   <div className="px-6 py-12 text-center text-white/45">No parts match the current project filter.</div>
                 ) : (
                   <Table className="w-full text-white">
+                    <TableHeader>
+                      <TableRow className="border-white/10 hover:bg-transparent">
+                        <TableHead className="h-10 px-5 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">Part Number</TableHead>
+                        <TableHead className="h-10 px-4 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">Description</TableHead>
+                        <TableHead className="h-10 px-2 py-2 text-center text-[11px] uppercase tracking-[0.18em] text-white/45">CAD</TableHead>
+                        <TableHead className="h-10 px-2 py-2 text-center text-[11px] uppercase tracking-[0.18em] text-white/45">DWG</TableHead>
+                        <TableHead className="h-10 px-2 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">Quote</TableHead>
+                        <TableHead className="h-10 px-2 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">Assignee</TableHead>
+                        <TableHead className="h-10 pl-2 pr-5 py-2 text-right text-[11px] uppercase tracking-[0.18em] text-white/45">Creation Date</TableHead>
+                      </TableRow>
+                    </TableHeader>
                     <TableBody>
                       {filteredJobs.map((job) => {
                       const workspaceItem = workspaceItemsByJobId.get(job.id) ?? null;
@@ -607,13 +618,8 @@ const ClientProject = () => {
                             : quoteRequestViewModel?.status === "failed" || quoteRequestViewModel?.status === "canceled"
                               ? "border border-rose-400/20 bg-rose-500/10 text-rose-100"
                               : "border border-white/10 bg-white/6 text-white/70";
-                      const canTriggerRequest =
-                        quoteRequestViewModel &&
-                        !quoteRequestViewModel.action.disabled &&
-                        (quoteRequestViewModel.action.kind === "request" || quoteRequestViewModel.action.kind === "retry");
-                      const rowSelectedPrice = summary?.selectedPriceUsd ?? null;
-                      const rowSelectedLeadTime = summary?.selectedLeadTimeBusinessDays ?? null;
-                      const hasQuote = rowSelectedPrice != null || rowSelectedLeadTime != null;
+                      const partNumber = workspaceItem?.part?.approvedRequirement?.part_number ?? presentation.partNumber ?? "—";
+                      const description = workspaceItem?.part?.approvedRequirement?.description ?? presentation.description;
                       return (
                         <TableRow
                           key={job.id}
@@ -633,21 +639,18 @@ const ClientProject = () => {
                           tabIndex={0}
                           aria-label={`Open ${presentation.title} line item`}
                         >
-                          <TableCell className="w-[1%] max-w-[200px] px-5 py-2.5">
-                            <p className="truncate text-[13px] font-medium text-white">{presentation.title}</p>
+                          <TableCell className="w-[18%] max-w-[220px] px-5 py-2.5">
+                            <p className="truncate text-[13px] font-medium text-white">{partNumber}</p>
                           </TableCell>
-                          <TableCell className="px-4 py-2.5">
-                            <p className="truncate text-[13px] text-white/65">{presentation.description}</p>
+                          <TableCell className="max-w-[420px] px-4 py-2.5">
+                            <p className="truncate text-[13px] text-white/65">{description}</p>
                           </TableCell>
-                          <TableCell className="w-px whitespace-nowrap pl-8 pr-2 py-2.5 text-[13px] text-white/45">
-                            {summary?.revision ? `Rev ${summary.revision}` : null}
-                          </TableCell>
-                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
+                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-center">
                             <Badge className={workspaceItem?.part?.cadFile ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300" : "border border-white/10 bg-white/6 text-white/30"}>
                               CAD
                             </Badge>
                           </TableCell>
-                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
+                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-center">
                             <Badge className={workspaceItem?.part?.drawingFile ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300" : "border border-white/10 bg-white/6 text-white/30"}>
                               DWG
                             </Badge>
@@ -655,41 +658,11 @@ const ClientProject = () => {
                           <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
                             <Badge className={quoteStatusClassName}>{quoteStatusLabel}</Badge>
                           </TableCell>
-                          {hasQuote ? (
-                            <>
-                              <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-right text-[13px] text-white">
-                                {rowSelectedPrice != null ? formatCurrency(rowSelectedPrice) : "—"}
-                              </TableCell>
-                              <TableCell className={cn("w-px whitespace-nowrap py-2.5 text-[13px] text-white/55", canTriggerRequest ? "px-2" : "pl-2 pr-5")}>
-                                {typeof rowSelectedLeadTime === "number" ? `${rowSelectedLeadTime}d` : "—"}
-                              </TableCell>
-                            </>
-                          ) : (
-                            <TableCell className={cn("w-px whitespace-nowrap py-2.5 text-[13px] text-white/30", canTriggerRequest ? "px-2" : "pl-2 pr-5")} colSpan={2}>
-                              —
-                            </TableCell>
-                          )}
-                          <TableCell className="w-px whitespace-nowrap pl-2 pr-5 py-2.5 text-right">
-                            {canTriggerRequest ? (
-                              <Button
-                                type="button"
-                                className="h-auto rounded-lg px-2 py-1 text-xs"
-                                disabled={
-                                  quoteRequestViewModel.action.disabled ||
-                                  requestProjectQuotesMutation.isPending
-                                }
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void handleRequestProjectQuotes(
-                                    [job.id],
-                                    quoteRequestViewModel.action.kind === "retry",
-                                  );
-                                }}
-                              >
-                                {quoteRequestViewModel.action.kind === "retry" ? "Retry" : "Request"}
-                                <ArrowRight className="ml-1 h-3 w-3" />
-                              </Button>
-                            ) : null}
+                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-[13px] font-medium text-white/75">
+                            BW
+                          </TableCell>
+                          <TableCell className="w-px whitespace-nowrap pl-2 pr-5 py-2.5 text-right text-[13px] text-white/55">
+                            {formatDateLabel(job.created_at)}
                           </TableCell>
                         </TableRow>
                       );

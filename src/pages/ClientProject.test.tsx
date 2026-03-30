@@ -762,7 +762,7 @@ describe("ClientProject", () => {
     });
   });
 
-  it("renders the ledger without a desktop sheet and supports selection shortcuts", async () => {
+  it("renders the dense project ledger with semantic headers", async () => {
     renderWithClient("/projects/project-1");
 
     await waitFor(() => {
@@ -773,7 +773,15 @@ describe("ClientProject", () => {
     expect(screen.queryByText("Project inspector")).not.toBeInTheDocument();
     expect(screen.queryByText("Line item detail")).not.toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
-    expect(screen.queryByRole("columnheader")).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Part Number" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Description" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "CAD" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "DWG" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Quote" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Assignee" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Creation Date" })).toBeInTheDocument();
+    expect(screen.getByText("BRKT-001")).toBeInTheDocument();
+    expect(screen.getAllByText("BW").length).toBeGreaterThan(0);
 
     const row = screen.getByRole("button", { name: /open .* line item/i });
     fireEvent.click(row);
@@ -1022,14 +1030,12 @@ describe("ClientProject", () => {
 
     renderWithClient("/projects/project-1");
 
-    const rowButton = await screen.findByRole("button", { name: "Request" });
     const headerButton = await screen.findByRole("button", { name: /request 1 quote/i });
 
-    expect(rowButton).toBeEnabled();
     expect(headerButton).toBeEnabled();
 
-    fireEvent.click(rowButton);
-    fireEvent.click(rowButton);
+    fireEvent.click(headerButton);
+    fireEvent.click(headerButton);
 
     await waitFor(() => {
       expect(api.requestQuotes).toHaveBeenCalledTimes(1);
@@ -1038,14 +1044,12 @@ describe("ClientProject", () => {
     expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
 
     await waitFor(() => {
-      expect(rowButton).toBeDisabled();
       expect(headerButton).toBeDisabled();
     });
 
     deferred.reject(new Error("Request failed"));
 
     await waitFor(() => {
-      expect(rowButton).toBeEnabled();
       expect(headerButton).toBeEnabled();
     });
   });
@@ -1203,7 +1207,7 @@ describe("ClientProject", () => {
     expect(api.cancelQuoteRequest).not.toHaveBeenCalled();
   });
 
-  it("does not render the removed assignee column when no assignee profile resolves for a row", async () => {
+  it("renders the placeholder assignee when no assignee profile resolves for a row", async () => {
     api.fetchProjectAssigneeProfiles.mockResolvedValue([]);
 
     renderWithClient("/projects/project-1");
@@ -1212,10 +1216,11 @@ describe("ClientProject", () => {
       expect(screen.getByRole("table")).toBeInTheDocument();
     });
 
-    expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Assignee" })).toBeInTheDocument();
+    expect(screen.getAllByText("BW").length).toBeGreaterThan(0);
   });
 
-  it("does not render assignee loading UI while assignee lookups are pending", async () => {
+  it("keeps the placeholder assignee while assignee lookups are pending", async () => {
     const assigneeProfiles = createDeferredPromise<
       Array<{
         userId: string;
@@ -1234,7 +1239,7 @@ describe("ClientProject", () => {
     });
 
     expect(screen.queryByText("Loading")).not.toBeInTheDocument();
-    expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
+    expect(screen.getAllByText("BW").length).toBeGreaterThan(0);
 
     assigneeProfiles.resolve([
       {
@@ -1251,7 +1256,7 @@ describe("ClientProject", () => {
     });
   });
 
-  it("does not render assignee failure UI when the assignee column is removed", async () => {
+  it("keeps the placeholder assignee when assignee lookup fails", async () => {
     api.fetchProjectAssigneeProfiles.mockRejectedValue(new Error("lookup failed"));
 
     renderWithClient("/projects/project-1");
@@ -1261,7 +1266,7 @@ describe("ClientProject", () => {
     });
 
     expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
-    expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
+    expect(screen.getAllByText("BW").length).toBeGreaterThan(0);
   });
 
   it("renders a single sourcing toggle with fast and cheap project presets", async () => {
