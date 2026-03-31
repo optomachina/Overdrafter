@@ -58,7 +58,7 @@ export function ActivityLog({
   emptyState = "No notable system activity yet.",
 }: ActivityLogProps) {
   return (
-    <section className={cn("rounded-[24px] border border-white/8 bg-[#262626] p-5", className)}>
+    <section className={cn("rounded-surface-lg border border-white/8 bg-ws-card p-5", className)}>
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-white/35">{title}</p>

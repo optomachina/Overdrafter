@@ -82,7 +82,7 @@ export function ClientQuoteRequestStatusCard({
   return (
     <section
       className={cn(
-        "rounded-[24px] border p-4",
+        "rounded-surface-lg border p-4",
         tone === "ready"
           ? "border-emerald-400/20 bg-emerald-500/8"
           : tone === "warning"
@@ -303,7 +303,7 @@ export function ClientReadOnlyChatPanel({
         <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Suggested prompts</p>
         <div className="mt-3 space-y-2">
           {prompts.map((prompt) => (
-            <div key={prompt} className="rounded-2xl border border-white/8 bg-[#202020] px-4 py-3 text-sm text-white/70">
+            <div key={prompt} className="rounded-2xl border border-white/8 bg-ws-base px-4 py-3 text-sm text-white/70">
               {prompt}
             </div>
           ))}

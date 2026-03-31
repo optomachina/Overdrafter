@@ -187,6 +187,16 @@ For the linked hosted dev project:
 npm run db:push
 ```
 
+When schema changes affect the generated Supabase surface, regenerate
+[`src/integrations/supabase/types.ts`](/Users/blainewilson/Documents/GitHub/Overdrafter/src/integrations/supabase/types.ts)
+from local migration head after the local stack is running:
+
+```bash
+npm run db:types
+```
+
+The canonical local flow is `npm run db:start` or `npm run db:reset` first, then `npm run db:types`.
+
 After either flow, verify the latest migrations have been applied and that `public.projects.archived_at`
 and `public.jobs.archived_at` exist before debugging app-layer query failures.
 

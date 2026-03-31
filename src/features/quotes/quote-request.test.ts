@@ -311,4 +311,124 @@ describe("buildQuoteRequestViewModel", () => {
     expect(model.label).toBe("Quoted");
     expect(model.action.disabled).toBe(true);
   });
+
+  it("surfaces the received state from a live request record", () => {
+    const model = buildQuoteRequestViewModel({
+      job: makeJob({ status: "internal_review" }),
+      part: makePart(),
+      latestQuoteRequest: makeRequest({ status: "received" }),
+      latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "completed" }),
+    });
+
+    expect(model.status).toBe("received");
+    expect(model.label).toBe("Quoted");
+    expect(model.tone).toBe("ready");
+    expect(model.action).toEqual({
+      kind: "none",
+      label: "Quoted",
+      disabled: true,
+    });
+  });
+
+  it("blocks requests when the job is archived", () => {
+    const model = buildQuoteRequestViewModel({
+      job: makeJob({ archived_at: "2026-03-20T00:00:00.000Z" }),
+      part: makePart(),
+      latestQuoteRequest: null,
+      latestQuoteRun: null,
+    });
+
+    expect(model.tone).toBe("blocked");
+    expect(model.blockerReasons).toContain("Archived parts cannot request quotes.");
+    expect(model.action.disabled).toBe(true);
+  });
+
+  it("blocks requests when the job is closed", () => {
+    const model = buildQuoteRequestViewModel({
+      job: makeJob({ status: "closed" }),
+      part: makePart(),
+      latestQuoteRequest: null,
+      latestQuoteRun: null,
+    });
+
+    expect(model.tone).toBe("blocked");
+    expect(model.blockerReasons).toContain("This part is already closed to new quote requests.");
+    expect(model.action.disabled).toBe(true);
+  });
+
+  it("blocks requests when the job is client_selected", () => {
+    const model = buildQuoteRequestViewModel({
+      job: makeJob({ status: "client_selected" }),
+      part: makePart(),
+      latestQuoteRequest: null,
+      latestQuoteRun: null,
+    });
+
+    expect(model.tone).toBe("blocked");
+    expect(model.blockerReasons).toContain("This part is already closed to new quote requests.");
+    expect(model.action.disabled).toBe(true);
+  });
+
+  it("blocks requests when the job has no quote-compatible service kinds", () => {
+    const model = buildQuoteRequestViewModel({
+      job: makeJob({ requested_service_kinds: ["design_review"] }),
+      part: makePart(),
+      latestQuoteRequest: null,
+      latestQuoteRun: null,
+    });
+
+    expect(model.tone).toBe("blocked");
+    expect(model.blockerReasons).toContain(
+      "Only manufacturing quote and sourcing-only requests can start vendor quoting.",
+    );
+    expect(model.action.disabled).toBe(true);
+  });
+
+  it("blocks requests when the part has no approved requirement", () => {
+    const model = buildQuoteRequestViewModel({
+      job: makeJob(),
+      part: makePart({ approvedRequirement: null }),
+      latestQuoteRequest: null,
+      latestQuoteRun: null,
+    });
+
+    expect(model.tone).toBe("blocked");
+    expect(model.blockerReasons).toContain(
+      "Finish the request details so OverDrafter can create approved quote requirements.",
+    );
+    expect(model.action.disabled).toBe(true);
+  });
+
+  it("disables retry and sets blocked tone when a failed request has active blockers", () => {
+    const model = buildQuoteRequestViewModel({
+      job: makeJob({ archived_at: "2026-03-20T00:00:00.000Z" }),
+      part: makePart(),
+      latestQuoteRequest: makeRequest({ status: "failed", failure_reason: null }),
+      latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "failed" }),
+    });
+
+    expect(model.status).toBe("failed");
+    expect(model.tone).toBe("blocked");
+    expect(model.action).toEqual({
+      kind: "retry",
+      label: "Retry quote",
+      disabled: true,
+    });
+    expect(model.blockerReasons.length).toBeGreaterThan(0);
+  });
+
+  it("uses latestQuoteRequest status over the quote-run fallback when both are present", () => {
+    // The run is "completed" which would normally derive "received",
+    // but the request record says "queued" — request wins.
+    const model = buildQuoteRequestViewModel({
+      job: makeJob({ status: "quoting" }),
+      part: makePart(),
+      latestQuoteRequest: makeRequest({ status: "queued" }),
+      latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "completed" }),
+    });
+
+    expect(model.status).toBe("queued");
+    expect(model.label).toBe("Queued");
+    expect(model.action.kind).toBe("cancel");
+  });
 });

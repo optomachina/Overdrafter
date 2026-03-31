@@ -114,7 +114,8 @@ export function useClientHomeController() {
   const membershipRecoveryKeyRef = useRef<string | null>(null);
   const authIntent = searchParams.get("auth");
   const focusComposerIntent = searchParams.get("focusComposer");
-  const authDialogMode: "sign-in" | "sign-up" = authIntent === "signup" ? "sign-up" : "sign-in";
+  const authDialogMode: "sign-in" | "sign-up" | "forgot-password" =
+    authIntent === "signup" ? "sign-up" : authIntent === "forgot-password" ? "forgot-password" : "sign-in";
   const defaultAccountName = useMemo(() => getDefaultAccountName(user), [user]);
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
@@ -304,7 +305,7 @@ export function useClientHomeController() {
   };
 
   useEffect(() => {
-    if (authIntent === "signin" || authIntent === "signup") {
+    if (authIntent === "signin" || authIntent === "signup" || authIntent === "forgot-password") {
       setIsAuthDialogOpen(true);
     }
   }, [authIntent]);

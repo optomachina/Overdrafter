@@ -1146,7 +1146,7 @@ export function WorkspaceSidebar({
               ) : null}
             </div>
           </ContextMenuTrigger>
-          <ContextMenuContent className="workspace-shell w-56 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">
+          <ContextMenuContent className="workspace-shell w-56 rounded-xl border-white/[0.08] bg-ws-raised p-1 text-white">
             <ContextMenuItem onSelect={() => onSelectProject(project.id)}>Edit project</ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
@@ -1231,7 +1231,7 @@ export function WorkspaceSidebar({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="workspace-shell w-64 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1.5 text-white"
+          className="workspace-shell w-64 rounded-xl border-white/[0.08] bg-ws-raised p-1.5 text-white"
         >
           <SectionTitle>Sort by</SectionTitle>
           <FilterOption
@@ -1269,7 +1269,7 @@ export function WorkspaceSidebar({
 
   return (
     <>
-      <div className="flex h-full flex-col px-2.5">
+      <nav aria-label="Workspace navigation" className="flex h-full flex-col px-2.5">
         {onCreateJob || onSearch ? (
           <div className={cn("shrink-0 space-y-2 pb-3 pt-0", SIDEBAR_COLUMN_INSET_CLASS)}>
             {onCreateJob ? (
@@ -1342,7 +1342,7 @@ export function WorkspaceSidebar({
             </div>
           ) : null}
         </div>
-      </div>
+      </nav>
 
       <ProjectNameDialog
         open={Boolean(projectToRename)}
@@ -1431,7 +1431,7 @@ export function WorkspaceSidebar({
           }
         }}
       >
-        <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-[#2a2a2a] text-white">
+        <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-ws-raised text-white">
           <DialogHeader>
             <DialogTitle>Archive project</DialogTitle>
             <DialogDescription className="text-white/55">
@@ -1481,7 +1481,7 @@ export function WorkspaceSidebar({
           }
         }}
       >
-        <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-[#2a2a2a] text-white">
+        <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-ws-raised text-white">
           <DialogHeader>
             <DialogTitle>Dissolve project</DialogTitle>
             <DialogDescription className="text-white/55">

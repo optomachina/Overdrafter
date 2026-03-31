@@ -211,7 +211,7 @@ export function WorkspaceInlineSearch({
           </div>
         ) : null}
         {isOpen && hasQuery ? (
-          <div className="absolute right-0 top-[calc(100%+0.5rem)] z-30 w-full overflow-hidden rounded-xl border border-white/10 bg-[#171717] shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
+          <div className="absolute right-0 top-[calc(100%+0.5rem)] z-30 w-full overflow-hidden rounded-xl border border-white/10 bg-ws-shell shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
             <CommandList className="max-h-[360px] bg-transparent p-2 text-white">
               {!hasResults ? <CommandEmpty>No matching projects or parts.</CommandEmpty> : null}
 

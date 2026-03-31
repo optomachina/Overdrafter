@@ -39,7 +39,7 @@ export function ProjectMembersDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
+      <DialogContent className="border-white/10 bg-ws-overlay text-white">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Users className="h-5 w-5" />
@@ -57,7 +57,7 @@ export function ProjectMembersDialog({
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="name@example.com"
-                className="border-white/10 bg-[#2a2a2a] text-white placeholder:text-white/35"
+                className="border-white/10 bg-ws-raised text-white placeholder:text-white/35"
               />
               <Button
                 className="rounded-full"

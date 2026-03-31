@@ -1,0 +1,695 @@
+{
+  "meta": {
+    "workspace": "blainew",
+    "team": "OVD",
+    "defaultProject": "Symphony",
+    "subBacklogProject": "Symphony Sub-Backlog",
+    "reportPath": "planning/linear_import_report.md",
+    "sourceDocs": [
+      "PRD.md",
+      "PLAN.md",
+      "ARCHITECTURE.md",
+      "TEST_STRATEGY.md",
+      "ACCEPTANCE_CRITERIA.md",
+      "capabilitymap.md",
+      "docs/service-request-taxonomy.md",
+      "docs/manufacturing-review-status-model.md"
+    ]
+  },
+  "projects": [
+    {
+      "name": "Symphony",
+      "team": "OVD",
+      "status": "backlog",
+      "description": "Project used by Symphony to orchestrate agent work for team OVD.",
+      "importPolicy": "report-only"
+    },
+    {
+      "name": "Symphony Sub-Backlog",
+      "team": "OVD",
+      "status": "backlog",
+      "description": "Cold backlog for forward-looking Symphony roadmap work that is not in the current implementation band.",
+      "importPolicy": "report-only"
+    }
+  ],
+  "labelPolicy": {
+    "allowCreate": [
+      {
+        "name": "draft",
+        "color": "#94A3B8",
+        "description": "Uncertain or deferred planning item that is not ready for active execution"
+      },
+      {
+        "name": "free-tier",
+        "color": "#2563EB",
+        "description": "Available on the baseline OverDrafter tier"
+      },
+      {
+        "name": "paid-tier",
+        "color": "#7C3AED",
+        "description": "Available only on paid plans"
+      },
+      {
+        "name": "enterprise",
+        "color": "#0F766E",
+        "description": "Available only for enterprise scope"
+      }
+    ]
+  },
+  "items": [
+    {
+      "key": "horizon-2-parent",
+      "kind": "epic",
+      "title": "Horizon 2 — Expand Manufacturing Workspace Capabilities",
+      "existingIssue": "OVD-23",
+      "importPolicy": "report-only",
+      "targetProject": "Symphony",
+      "state": "Todo",
+      "priority": 3,
+      "estimate": 8,
+      "labels": ["next", "product-foundation", "workspace", "horizon-2", "roadmap", "Feature", "free-tier"],
+      "problem": "Horizon 2 is already the canonical parent for manufacturing workspace expansion, including service taxonomy, richer RFQ metadata, and future downstream state modeling.",
+      "outcome": "Use this existing parent as the logical grouping point for any new current-scope RFQ line-item and routing work instead of creating a second umbrella issue.",
+      "whyNow": "The seed importer should reconcile against the real backlog and avoid creating duplicate parent issues.",
+      "scope": [
+        "Treat OVD-23 as the active parent for new Symphony-side manufacturing workspace cards.",
+        "Report overlaps against its completed child issues instead of recreating them."
+      ],
+      "outOfScope": [
+        "Mutating this completed child set automatically.",
+        "Moving North Star implementation cards under Horizon 2."
+      ],
+      "implementationNotes": [
+        "This item exists in the seed for reconciliation and parent lookup only."
+      ],
+      "acceptanceCriteria": [
+        "The importer resolves OVD-23 successfully.",
+        "Dry-run output shows OVD-23 as a report-only overlap.",
+        "New Symphony-side child issues can reference OVD-23 as their parent."
+      ],
+      "testing": [
+        "Verify OVD-23 resolves via exact identifier lookup."
+      ],
+      "dependencies": [],
+      "tierGating": "free-tier",
+      "metricsImpact": [
+        "Reduces duplicate backlog creation."
+      ],
+      "sourceContext": [
+        "PLAN.md",
+        "capabilitymap.md",
+        "docs/service-request-taxonomy.md"
+      ]
+    },
+    {
+      "key": "service-line-item-schema-foundation",
+      "kind": "issue",
+      "title": "Introduce service_request_line_items schema foundation",
+      "importPolicy": "sync",
+      "parentKey": "horizon-2-parent",
+      "targetProject": "Symphony",
+      "state": "Backlog",
+      "priority": 2,
+      "estimate": 5,
+      "labels": ["next", "quotes", "product-foundation", "workspace", "horizon-2", "Feature", "free-tier"],
+      "problem": "The repo now documents service request line items as the authoritative unit of requested work, but the runtime model is still quote-envelope-shaped. There is no execution-ready issue for the schema, TypeScript contract, and migration-safe persistence boundary that makes line items real.",
+      "outcome": "OverDrafter has a concrete `service_request_line_items` foundation that can hold one canonical service per line item while coexisting with the current quote workflow.",
+      "whyNow": "PLAN.md explicitly calls the line-item model an immediate next step, and later routing, summaries, and review-state work all depend on it.",
+      "scope": [
+        "Add the core `service_request_line_items` data model and migration.",
+        "Define the TypeScript contract for line items and service-specific detail payloads.",
+        "Preserve project and part linkage without collapsing service intent back into jobs alone.",
+        "Keep `manufacturing_quote` as the default compatibility path for current quote workflows."
+      ],
+      "outOfScope": [
+        "Full cross-revision review history.",
+        "Assembly-level attachment beyond the documented placeholder boundary.",
+        "Client-facing workflow redesign unrelated to line-item summaries."
+      ],
+      "implementationNotes": [
+        "Ground the shape in docs/service-request-taxonomy.md.",
+        "Keep quote-specific fields service-scoped instead of universal.",
+        "Document how existing request envelopes map to the new entity."
+      ],
+      "acceptanceCriteria": [
+        "A line item entity exists with one canonical service type per record.",
+        "The schema links line items to a project and optionally a part/job without breaking current quote flows.",
+        "The TypeScript contract distinguishes shared scheduling and service-specific detail payloads.",
+        "The implementation documents the compatibility rule for current manufacturing quote requests."
+      ],
+      "testing": [
+        "Migration validation for the new line-item table and indexes.",
+        "Type-level or unit verification for the line-item contract.",
+        "Targeted quote-path regression coverage proving current manufacturing quote flows still resolve."
+      ],
+      "dependencies": [],
+      "tierGating": "free-tier",
+      "metricsImpact": [
+        "Unblocks mixed-service project modeling.",
+        "Reduces future schema drift across quote and non-quote work."
+      ],
+      "sourceContext": [
+        "PLAN.md",
+        "ARCHITECTURE.md",
+        "docs/service-request-taxonomy.md"
+      ]
+    },
+    {
+      "key": "quote-request-line-item-bridge",
+      "kind": "issue",
+      "title": "Bridge quote_requests onto manufacturing_quote line items",
+      "importPolicy": "sync",
+      "parentKey": "horizon-2-parent",
+      "targetProject": "Symphony",
+      "state": "Backlog",
+      "priority": 2,
+      "estimate": 5,
+      "labels": ["next", "quotes", "product-foundation", "horizon-2", "Feature", "free-tier"],
+      "problem": "`quote_requests` and `quote_runs` intentionally separate request intent from execution, but the documented future model says service line items become the authoritative unit of requested work. There is no implementation-ready card for how those records coexist during migration.",
+      "outcome": "Current client-triggered quote requests resolve through or alongside `manufacturing_quote` line items without breaking existing lifecycle visibility or vendor result tracking.",
+      "whyNow": "The repo must preserve current quote behavior while introducing line items, or the transition will fork the model into competing sources of truth.",
+      "scope": [
+        "Define the compatibility bridge between current quote request records and manufacturing_quote line items.",
+        "Decide what record owns service intent versus execution state during the transition.",
+        "Keep quote request lifecycle rendering intact for the client workspace.",
+        "Ensure vendor quote result linkage remains traceable to the request and line-item boundary."
+      ],
+      "outOfScope": [
+        "A full rewrite of the client quote request UI.",
+        "Changing the vendor result contract beyond what the bridge requires.",
+        "Generalizing non-quote service execution into the worker in the same slice."
+      ],
+      "implementationNotes": [
+        "Follow the Architecture rule that quote_requests remain a manufacturing_quote-scoped specialization, not the general home for service intent.",
+        "Prefer a migration-safe coexistence model over a one-shot replacement."
+      ],
+      "acceptanceCriteria": [
+        "Current quote request intent can be associated with a manufacturing_quote line item.",
+        "Quote run execution remains separate from user request intent.",
+        "The bridge does not require a breaking change to current client lifecycle states.",
+        "The implementation documents ownership of service intent, request lifecycle, and execution records."
+      ],
+      "testing": [
+        "Targeted RPC or integration coverage for request creation and lifecycle lookup after the bridge lands.",
+        "Regression verification for client quote-request rendering and latest-request fallback logic."
+      ],
+      "dependencies": [
+        {
+          "key": "service-line-item-schema-foundation",
+          "type": "blocked-by"
+        }
+      ],
+      "tierGating": "free-tier",
+      "metricsImpact": [
+        "Preserves quote request continuity during the line-item migration.",
+        "Reduces risk of duplicate or conflicting request-state models."
+      ],
+      "sourceContext": [
+        "PRD.md",
+        "ARCHITECTURE.md",
+        "docs/service-request-taxonomy.md"
+      ]
+    },
+    {
+      "key": "service-line-item-rollups",
+      "kind": "issue",
+      "title": "Add service-aware project and part request rollups",
+      "importPolicy": "sync",
+      "parentKey": "horizon-2-parent",
+      "targetProject": "Symphony",
+      "state": "Backlog",
+      "priority": 3,
+      "estimate": 3,
+      "labels": ["next", "quotes", "workspace", "horizon-2", "Feature", "free-tier"],
+      "problem": "Once line items exist, project and part workspaces need service-aware summaries. The current helpers are quote-oriented and will misrepresent mixed-service work if left unchanged.",
+      "outcome": "Project and part surfaces can summarize present service types and quote-compatible rollups without flattening everything back into one request blob.",
+      "whyNow": "The service-line-item model is only usable if the workspace can display it coherently in the current artifact-first UX.",
+      "scope": [
+        "Add derived summary helpers for service line items.",
+        "Show quote-only rollups only when the selected line items are quote-compatible.",
+        "Keep editing on individual line items rather than moving service intent back to project-level freeform fields."
+      ],
+      "outOfScope": [
+        "Full workspace redesign.",
+        "Advanced assembly-aware summaries.",
+        "A new client compare UI."
+      ],
+      "implementationNotes": [
+        "Ground the rules in docs/service-request-taxonomy.md mixed-service representation.",
+        "Preserve current quote summary behavior for legacy-compatible requests."
+      ],
+      "acceptanceCriteria": [
+        "Project and part rollups can represent multiple service types.",
+        "Quote quantities and requested date are only shown when every selected line item is quote-compatible.",
+        "The implementation does not move editing off the individual line-item surface."
+      ],
+      "testing": [
+        "Unit coverage for derived rollup helpers.",
+        "Targeted UI or view-model verification for mixed-service and quote-only cases."
+      ],
+      "dependencies": [
+        {
+          "key": "service-line-item-schema-foundation",
+          "type": "blocked-by"
+        }
+      ],
+      "tierGating": "free-tier",
+      "metricsImpact": [
+        "Improves mixed-service workspace clarity.",
+        "Prevents quote-summary regressions during line-item adoption."
+      ],
+      "sourceContext": [
+        "ARCHITECTURE.md",
+        "docs/service-request-taxonomy.md"
+      ]
+    },
+    {
+      "key": "vendor-capability-profile-model",
+      "kind": "issue",
+      "title": "Add vendor capability profile model",
+      "existingIssue": "OVD-134",
+      "importPolicy": "sync",
+      "parentKey": "horizon-2-parent",
+      "targetProject": "Symphony",
+      "state": "Backlog",
+      "priority": 2,
+      "estimate": 5,
+      "labels": ["next", "quotes", "product-foundation", "horizon-2", "Feature", "free-tier"],
+      "problem": "Vendor routing and ranking need a durable capability model rather than scattered heuristics. The issue already exists, but it is not normalized into the active Symphony project or current label system.",
+      "outcome": "OVD-134 becomes an active Symphony card with consistent labels, parentage, and seed ownership.",
+      "whyNow": "Capability profiles are the prerequisite for deterministic routing and explainable tradeoff summaries.",
+      "scope": [
+        "Normalize OVD-134 into Symphony with Horizon 2 labeling.",
+        "Keep its structured vendor capability model as the foundation for routing and ranking."
+      ],
+      "outOfScope": [
+        "Implementing ranking itself.",
+        "Client-facing comparison UI changes."
+      ],
+      "implementationNotes": [
+        "This is an existing issue normalization target, not a net-new card."
+      ],
+      "acceptanceCriteria": [
+        "OVD-134 is attached to Symphony during live sync.",
+        "OVD-134 carries the normalized label set from the seed.",
+        "OVD-134 is linked under OVD-23 as a child issue."
+      ],
+      "testing": [
+        "Dry-run confirms update action for OVD-134 rather than create."
+      ],
+      "dependencies": [],
+      "tierGating": "free-tier",
+      "metricsImpact": [
+        "Unblocks deterministic vendor filtering and ranking."
+      ],
+      "sourceContext": [
+        "PLAN.md",
+        "user brainstorm"
+      ]
+    },
+    {
+      "key": "seed-vendor-records",
+      "kind": "issue",
+      "title": "Seed lasercut vendor records and heuristics",
+      "existingIssue": "OVD-135",
+      "importPolicy": "sync",
+      "parentKey": "horizon-2-parent",
+      "targetProject": "Symphony",
+      "state": "Backlog",
+      "priority": 3,
+      "estimate": 3,
+      "labels": ["next", "quotes", "horizon-2", "Feature", "free-tier"],
+      "problem": "Seed vendor data is already represented by OVD-135, but it is currently floating outside the active Symphony plan.",
+      "outcome": "OVD-135 becomes a normalized Symphony child issue for current routing work.",
+      "whyNow": "Routing and comparison work need concrete seed vendor records before capability-aware scoring is meaningful.",
+      "scope": [
+        "Normalize OVD-135 into Symphony and attach it to the Horizon 2 parent."
+      ],
+      "outOfScope": [
+        "Advanced vendor recommendation logic.",
+        "Client-side vendor management surfaces."
+      ],
+      "implementationNotes": [
+        "This is an existing issue normalization target."
+      ],
+      "acceptanceCriteria": [
+        "OVD-135 is recognized as an update target during sync.",
+        "OVD-135 is parented under OVD-23 in Symphony."
+      ],
+      "testing": [
+        "Dry-run confirms update action for OVD-135."
+      ],
+      "dependencies": [
+        {
+          "key": "vendor-capability-profile-model",
+          "type": "blocked-by"
+        }
+      ],
+      "tierGating": "free-tier",
+      "metricsImpact": [
+        "Provides the initial routing dataset."
+      ],
+      "sourceContext": [
+        "user brainstorm"
+      ]
+    },
+    {
+      "key": "vendor-routing-scores",
+      "kind": "issue",
+      "title": "Rank vendors with weighted routing scores",
+      "existingIssue": "OVD-138",
+      "importPolicy": "sync",
+      "parentKey": "horizon-2-parent",
+      "targetProject": "Symphony",
+      "state": "Backlog",
+      "priority": 2,
+      "estimate": 5,
+      "labels": ["next", "quotes", "horizon-2", "Feature", "free-tier"],
+      "problem": "OVD-138 already exists as the ranking engine slice, but it is not currently normalized into the active Symphony planning band.",
+      "outcome": "OVD-138 becomes the active scoring issue under the manufacturing workspace parent instead of sitting ungrouped.",
+      "whyNow": "Weighted scores are the bridge from static vendor capability data to real routing decisions.",
+      "scope": [
+        "Normalize OVD-138 into Symphony with parent, project, and label alignment."
+      ],
+      "outOfScope": [
+        "The final client-facing explanation copy.",
+        "A long-range vendor recommendation engine."
+      ],
+      "implementationNotes": [
+        "This is an existing issue normalization target."
+      ],
+      "acceptanceCriteria": [
+        "OVD-138 is updated rather than recreated.",
+        "OVD-138 is labeled and parented consistently with the seed."
+      ],
+      "testing": [
+        "Dry-run confirms update action for OVD-138."
+      ],
+      "dependencies": [
+        {
+          "key": "vendor-capability-profile-model",
+          "type": "blocked-by"
+        }
+      ],
+      "tierGating": "free-tier",
+      "metricsImpact": [
+        "Improves routing quality and explainability."
+      ],
+      "sourceContext": [
+        "user brainstorm"
+      ]
+    },
+    {
+      "key": "vendor-tradeoff-summary",
+      "kind": "issue",
+      "title": "Return ranked vendors with tradeoff summary",
+      "existingIssue": "OVD-139",
+      "importPolicy": "sync",
+      "parentKey": "horizon-2-parent",
+      "targetProject": "Symphony",
+      "state": "Backlog",
+      "priority": 2,
+      "estimate": 3,
+      "labels": ["next", "quotes", "workspace", "horizon-2", "Feature", "free-tier"],
+      "problem": "OVD-139 already captures the comparison-side ranking summary, but it is not yet normalized into Symphony or connected to the rest of the routing band.",
+      "outcome": "OVD-139 becomes the active explanation and tradeoff summary card in the same plan as capability profiles and routing scores.",
+      "whyNow": "The user brainstorm explicitly calls for comparison and vendor tradeoff reasoning; the issue already exists and should be pulled into the active band.",
+      "scope": [
+        "Normalize OVD-139 into Symphony with parent and labels."
+      ],
+      "outOfScope": [
+        "A full rework of the quote comparison UI.",
+        "General-purpose sourcing recommendations beyond ranked tradeoff output."
+      ],
+      "implementationNotes": [
+        "This is an existing issue normalization target."
+      ],
+      "acceptanceCriteria": [
+        "OVD-139 is updated rather than recreated.",
+        "OVD-139 is parented under OVD-23 and carries the workspace/quotes labels."
+      ],
+      "testing": [
+        "Dry-run confirms update action for OVD-139."
+      ],
+      "dependencies": [
+        {
+          "key": "vendor-routing-scores",
+          "type": "blocked-by"
+        }
+      ],
+      "tierGating": "free-tier",
+      "metricsImpact": [
+        "Improves buyer understanding of routing tradeoffs."
+      ],
+      "sourceContext": [
+        "user brainstorm"
+      ]
+    },
+    {
+      "key": "quote-package-parent-overlap",
+      "kind": "epic",
+      "title": "Define quote package model and deterministic adapter layer",
+      "existingIssue": "OVD-109",
+      "importPolicy": "report-only",
+      "targetProject": "OverDrafter North Star Implementation",
+      "state": "Backlog",
+      "priority": 2,
+      "estimate": 8,
+      "labels": ["quotes", "Feature", "free-tier"],
+      "problem": "The brainstorm includes quote ingestion and normalization, but North Star backlog already has a canonical parent issue for that work.",
+      "outcome": "Report OVD-109 as an overlap instead of recreating a second quote normalization epic in Symphony.",
+      "whyNow": "Avoid cross-project duplication between Symphony and the North Star project.",
+      "scope": [
+        "Resolve OVD-109 during dry-run and report it as an overlap."
+      ],
+      "outOfScope": [
+        "Moving OVD-109 into Symphony."
+      ],
+      "implementationNotes": [
+        "Report-only overlap."
+      ],
+      "acceptanceCriteria": [
+        "Dry-run shows OVD-109 as an overlap in OverDrafter North Star Implementation."
+      ],
+      "testing": [
+        "Verify OVD-109 resolves via identifier lookup."
+      ],
+      "dependencies": [],
+      "tierGating": "free-tier",
+      "metricsImpact": [
+        "Prevents duplicate quote-normalization epics."
+      ],
+      "sourceContext": [
+        "user brainstorm",
+        "OVD-109"
+      ]
+    },
+    {
+      "key": "normalized-quote-package-schema-overlap",
+      "kind": "issue",
+      "title": "Define normalized quote package schema and internal contract",
+      "existingIssue": "OVD-147",
+      "importPolicy": "report-only",
+      "targetProject": "OverDrafter North Star Implementation",
+      "state": "Backlog",
+      "priority": 2,
+      "estimate": 5,
+      "labels": ["quotes", "Feature", "free-tier"],
+      "problem": "Quote ingestion and normalization already have an execution-ready schema card in OVD-147.",
+      "outcome": "Report OVD-147 as the existing normalized quote package schema issue instead of recreating it.",
+      "whyNow": "Keeps the seed honest about current backlog reality.",
+      "scope": [
+        "Resolve and report OVD-147."
+      ],
+      "outOfScope": [
+        "Creating a duplicate issue in Symphony."
+      ],
+      "implementationNotes": [
+        "Report-only overlap."
+      ],
+      "acceptanceCriteria": [
+        "Dry-run shows OVD-147 as a report-only overlap."
+      ],
+      "testing": [
+        "Verify OVD-147 resolves via identifier lookup."
+      ],
+      "dependencies": [
+        {
+          "key": "quote-package-parent-overlap",
+          "type": "blocked-by"
+        }
+      ],
+      "tierGating": "free-tier",
+      "metricsImpact": [
+        "Prevents duplicate schema work."
+      ],
+      "sourceContext": [
+        "OVD-147"
+      ]
+    },
+    {
+      "key": "first-deterministic-quote-adapter-overlap",
+      "kind": "issue",
+      "title": "Implement first deterministic quote adapter against the normalized package model",
+      "existingIssue": "OVD-148",
+      "importPolicy": "report-only",
+      "targetProject": "OverDrafter North Star Implementation",
+      "state": "Backlog",
+      "priority": 2,
+      "estimate": 5,
+      "labels": ["quotes", "Feature", "free-tier"],
+      "problem": "The brainstorm includes quote ingestion and normalization, but OVD-148 already exists for the first adapter implementation slice.",
+      "outcome": "Report OVD-148 as an overlap and keep it in the North Star execution band.",
+      "whyNow": "Prevents an unnecessary second adapter issue in Symphony.",
+      "scope": [
+        "Resolve and report OVD-148."
+      ],
+      "outOfScope": [
+        "Creating a duplicate adapter implementation card."
+      ],
+      "implementationNotes": [
+        "Report-only overlap."
+      ],
+      "acceptanceCriteria": [
+        "Dry-run shows OVD-148 as a report-only overlap."
+      ],
+      "testing": [
+        "Verify OVD-148 resolves via identifier lookup."
+      ],
+      "dependencies": [
+        {
+          "key": "normalized-quote-package-schema-overlap",
+          "type": "blocked-by"
+        }
+      ],
+      "tierGating": "free-tier",
+      "metricsImpact": [
+        "Prevents duplicate adapter work."
+      ],
+      "sourceContext": [
+        "OVD-148"
+      ]
+    },
+    {
+      "key": "unified-comms-threading",
+      "kind": "issue",
+      "title": "Define unified vendor and client communication threading",
+      "importPolicy": "deferred",
+      "targetProject": "Symphony Sub-Backlog",
+      "state": "Backlog",
+      "priority": 4,
+      "estimate": 5,
+      "labels": ["sub-backlog", "roadmap-only", "draft", "workspace", "review", "Feature", "paid-tier"],
+      "problem": "The brainstorm includes unified comms threading, but the current PRD explicitly excludes real-time chat or threaded messaging as a core workflow surface.",
+      "outcome": "Capture communication threading as a deferred roadmap card without mixing it into the current RFQ execution band.",
+      "whyNow": "The idea is useful to preserve, but it conflicts with current product boundaries and should not be imported into Symphony by default.",
+      "scope": [
+        "Frame the future problem and preserve it as deferred backlog only."
+      ],
+      "outOfScope": [
+        "Any active implementation work.",
+        "Changing the current PRD boundary."
+      ],
+      "implementationNotes": [
+        "Deferred roadmap item.",
+        "Default live import should skip this item unless --include-sub-backlog is used."
+      ],
+      "acceptanceCriteria": [
+        "Dry-run reports this item as deferred and skipped by default."
+      ],
+      "testing": [
+        "Verify deferred items are omitted from default live import."
+      ],
+      "dependencies": [],
+      "tierGating": "paid-tier",
+      "metricsImpact": [
+        "Preserves future communication workflow intent without polluting current execution."
+      ],
+      "sourceContext": [
+        "PRD.md non-goals",
+        "user brainstorm"
+      ]
+    },
+    {
+      "key": "multi-vendor-checkout-po-split",
+      "kind": "issue",
+      "title": "Define multi-vendor checkout and PO split model",
+      "importPolicy": "deferred",
+      "targetProject": "Symphony Sub-Backlog",
+      "state": "Backlog",
+      "priority": 4,
+      "estimate": 5,
+      "labels": ["sub-backlog", "roadmap-only", "draft", "quotes", "review", "Feature", "enterprise"],
+      "problem": "The brainstorm includes multi-vendor checkout and PO split, but the current PRD says direct ordering, PO issuance, and payment collection are not owned by the current product.",
+      "outcome": "Preserve the idea as a deferred roadmap card without treating it as active RFQ-core work.",
+      "whyNow": "This is strategically relevant, but out of current scope and should not ship through the RFQ seed by default.",
+      "scope": [
+        "Capture the future problem statement and boundary only."
+      ],
+      "outOfScope": [
+        "Checkout implementation.",
+        "Procurement execution.",
+        "Payment collection."
+      ],
+      "implementationNotes": [
+        "Deferred roadmap item.",
+        "Default live import should skip this item unless --include-sub-backlog is used."
+      ],
+      "acceptanceCriteria": [
+        "Dry-run reports this item as deferred and skipped by default."
+      ],
+      "testing": [
+        "Verify deferred items do not enter Symphony without the sub-backlog flag."
+      ],
+      "dependencies": [],
+      "tierGating": "enterprise",
+      "metricsImpact": [
+        "Preserves future procurement intent without violating current PRD scope."
+      ],
+      "sourceContext": [
+        "PRD.md non-goals",
+        "user brainstorm"
+      ]
+    },
+    {
+      "key": "financing-integration-v1",
+      "kind": "issue",
+      "title": "Define financing integration v1 boundary",
+      "importPolicy": "deferred",
+      "targetProject": "Symphony Sub-Backlog",
+      "state": "Backlog",
+      "priority": 4,
+      "estimate": 3,
+      "labels": ["sub-backlog", "roadmap-only", "draft", "Feature", "paid-tier"],
+      "problem": "The brainstorm includes financing integration, but billing and payments are current product non-goals.",
+      "outcome": "Capture the financing idea as a deferred roadmap boundary instead of mixing it into active RFQ execution.",
+      "whyNow": "Useful to preserve for later, but not eligible for default live import.",
+      "scope": [
+        "Store the future financing concept as a deferred backlog note."
+      ],
+      "outOfScope": [
+        "Any billing or payments implementation.",
+        "Plan-state or entitlement execution."
+      ],
+      "implementationNotes": [
+        "Deferred roadmap item.",
+        "Default live import should skip this item unless --include-sub-backlog is used."
+      ],
+      "acceptanceCriteria": [
+        "Dry-run reports this item as deferred and skipped by default."
+      ],
+      "testing": [
+        "Verify deferred items are excluded from default live import."
+      ],
+      "dependencies": [],
+      "tierGating": "paid-tier",
+      "metricsImpact": [
+        "Preserves later monetization intent without polluting current RFQ backlog."
+      ],
+      "sourceContext": [
+        "PRD.md non-goals",
+        "user brainstorm"
+      ]
+    }
+  ]
+}

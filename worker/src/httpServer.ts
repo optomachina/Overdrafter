@@ -240,6 +240,42 @@ async function readJsonBody(request: http.IncomingMessage) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
 }
 
+function isLoopbackAddress(address: string | null | undefined) {
+  if (!address) {
+    return false;
+  }
+
+  return (
+    address === "127.0.0.1" ||
+    address === "::1" ||
+    address.startsWith("::ffff:127.") ||
+    address === "::ffff:localhost"
+  );
+}
+
+function canAccessDebugRoutes(config: WorkerConfig, request: http.IncomingMessage) {
+  if (config.workerMode === "live") {
+    return false;
+  }
+
+  return isLoopbackAddress(request.socket.remoteAddress);
+}
+
+function writeDebugRouteDenied(
+  response: http.ServerResponse<http.IncomingMessage>,
+  config: WorkerConfig,
+) {
+  const message =
+    config.workerMode === "live"
+      ? "Worker debug endpoints are disabled when WORKER_MODE=live."
+      : "Worker debug endpoints are only available from loopback clients in non-live mode.";
+
+  writeJson(response, 403, {
+    error: "debug_route_disabled",
+    message,
+  });
+}
+
 function getSnapshot(config: WorkerConfig, state: WorkerRuntimeState) {
   const ready = state.status === "running" && state.readinessIssues.length === 0;
 
@@ -289,6 +325,11 @@ export async function startHealthServer(
     }
 
     if (url === "/debug/events") {
+      if (!canAccessDebugRoutes(config, request)) {
+        writeDebugRouteDenied(response, config);
+        return;
+      }
+
       writeJson(response, 200, {
         service: "overdrafter-cad-worker",
         workerName: config.workerName,
@@ -300,6 +341,11 @@ export async function startHealthServer(
     }
 
     if (url === "/debug/extraction/models" && request.method === "GET") {
+      if (!canAccessDebugRoutes(config, request)) {
+        writeDebugRouteDenied(response, config);
+        return;
+      }
+
       if (!handlers.getExtractionModels) {
         writeJson(response, 404, { error: "not_found", path: url });
         return;
@@ -317,6 +363,11 @@ export async function startHealthServer(
     }
 
     if (url === "/debug/extraction/models/refresh" && request.method === "POST") {
+      if (!canAccessDebugRoutes(config, request)) {
+        writeDebugRouteDenied(response, config);
+        return;
+      }
+
       if (!handlers.refreshExtractionModels) {
         writeJson(response, 404, { error: "not_found", path: url });
         return;
@@ -334,6 +385,11 @@ export async function startHealthServer(
     }
 
     if (url === "/debug/extraction/preview" && request.method === "POST") {
+      if (!canAccessDebugRoutes(config, request)) {
+        writeDebugRouteDenied(response, config);
+        return;
+      }
+
       if (!handlers.previewExtraction) {
         writeJson(response, 404, { error: "not_found", path: url });
         return;

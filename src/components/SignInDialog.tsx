@@ -5,7 +5,7 @@ import { Dialog, DialogDescription, DialogOverlay, DialogPortal } from "@/compon
 interface SignInDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  initialMode?: "sign-in" | "sign-up";
+  initialMode?: "sign-in" | "sign-up" | "forgot-password";
   redirectPath?: string;
 }
 
@@ -21,12 +21,14 @@ export function SignInDialog({
         <DialogOverlay className="bg-black/28 backdrop-blur-[2px]" />
         <DialogPrimitive.Content className="fixed inset-x-4 bottom-4 z-50 outline-none sm:inset-x-auto sm:right-6 sm:top-20 sm:w-[380px]">
           <DialogPrimitive.Title className="sr-only">
-            {initialMode === "sign-up" ? "Create account" : "Log in"}
+            {initialMode === "sign-up" ? "Create account" : initialMode === "forgot-password" ? "Reset password" : "Log in"}
           </DialogPrimitive.Title>
           <DialogDescription className="sr-only">
             {initialMode === "sign-up"
               ? "Create an OverDrafter account to access uploads, quote reviews, and published packages."
-              : "Log in to OverDrafter to access uploads, quote reviews, and published packages."}
+              : initialMode === "forgot-password"
+                ? "Enter your email address to receive a password reset link."
+                : "Log in to OverDrafter to access uploads, quote reviews, and published packages."}
           </DialogDescription>
           <AuthPanel
             initialMode={initialMode}

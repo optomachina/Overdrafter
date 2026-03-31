@@ -75,7 +75,7 @@ export function ClientWorkspaceStateSummary({
   const visibleReasons = state.reasons.slice(0, maxReasons);
 
   return (
-    <div className={cn("rounded-[24px] border p-4", classes.panel, className)}>
+    <div className={cn("rounded-surface-lg border p-4", classes.panel, className)}>
       <div className="flex flex-wrap items-center gap-2">
         <ClientWorkspaceToneBadge tone={state.tone} />
         <p className="text-sm font-medium text-white">{state.selection.label}</p>
