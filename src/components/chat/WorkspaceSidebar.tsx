@@ -1269,7 +1269,7 @@ export function WorkspaceSidebar({
 
   return (
     <>
-      <div className="flex h-full flex-col px-2.5">
+      <nav aria-label="Workspace navigation" className="flex h-full flex-col px-2.5">
         {onCreateJob || onSearch ? (
           <div className={cn("shrink-0 space-y-2 pb-3 pt-0", SIDEBAR_COLUMN_INSET_CLASS)}>
             {onCreateJob ? (
@@ -1342,7 +1342,7 @@ export function WorkspaceSidebar({
             </div>
           ) : null}
         </div>
-      </div>
+      </nav>
 
       <ProjectNameDialog
         open={Boolean(projectToRename)}

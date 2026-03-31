@@ -582,7 +582,7 @@ const ClientProject = () => {
                 globalAriaLabel="Using global quotes for all parts"
               />
 
-              <div className="overflow-hidden rounded-lg border border-ws-border-subtle bg-ws-card">
+              <div className="overflow-x-auto rounded-lg border border-ws-border-subtle bg-ws-card">
                 {projectJobsQuery.isLoading || projectWorkspaceItemsQuery.isLoading ? (
                   <div className="flex min-h-[240px] items-center justify-center">
                     <Loader2 className="h-6 w-6 animate-spin text-white/60" />
@@ -590,7 +590,7 @@ const ClientProject = () => {
                 ) : filteredJobs.length === 0 ? (
                   <div className="px-6 py-12 text-center text-white/45">No parts match the current project filter.</div>
                 ) : (
-                  <Table className="w-full text-white">
+                  <Table className="w-full min-w-[640px] text-white">
                     <TableBody>
                       {filteredJobs.map((job) => {
                       const workspaceItem = workspaceItemsByJobId.get(job.id) ?? null;
