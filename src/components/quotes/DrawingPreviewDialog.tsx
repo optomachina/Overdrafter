@@ -160,7 +160,7 @@ export function DrawingPreviewDialog({
             ) : null}
           </div>
 
-          <div className="relative min-h-0 flex-1 overflow-hidden rounded-[24px] border border-white/8 bg-ws-deep">
+          <div className="relative min-h-0 flex-1 overflow-hidden rounded-surface-lg border border-white/8 bg-ws-deep">
             {isLoading ? (
               <div className="flex h-full items-center justify-center text-white/55">
                 <Loader2 className="h-6 w-6 animate-spin" />

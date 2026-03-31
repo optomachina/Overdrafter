@@ -82,7 +82,7 @@ export function ClientQuoteRequestStatusCard({
   return (
     <section
       className={cn(
-        "rounded-[24px] border p-4",
+        "rounded-surface-lg border p-4",
         tone === "ready"
           ? "border-emerald-400/20 bg-emerald-500/8"
           : tone === "warning"

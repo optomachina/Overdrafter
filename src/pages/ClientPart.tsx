@@ -797,7 +797,7 @@ const ClientPart = () => {
                   </div>
                 </div>
 
-                <div className="mt-5 rounded-[24px] border border-white/8 bg-black/20 p-4">
+                <div className="mt-5 rounded-surface-lg border border-white/8 bg-black/20 p-4">
                   <label htmlFor="activity-comment" className="text-sm font-medium text-white/78">
                     Leave a comment
                   </label>
@@ -827,7 +827,7 @@ const ClientPart = () => {
                     <ActivityLog entries={activityEntries} />
                   </TabsContent>
                   <TabsContent value="comments" className="mt-4">
-                    <div className="rounded-[24px] border border-white/8 bg-ws-card p-5">
+                    <div className="rounded-surface-lg border border-white/8 bg-ws-card p-5">
                       {comments.length === 0 ? (
                         <p className="text-sm text-white/45">No comments yet.</p>
                       ) : (
@@ -988,7 +988,7 @@ const ClientPart = () => {
 
           <div className="grid gap-4 lg:grid-cols-2">
             <ActivityLog entries={activityEntries} className="bg-ws-card" />
-            <div className="rounded-[24px] border border-white/8 bg-ws-card p-5">
+            <div className="rounded-surface-lg border border-white/8 bg-ws-card p-5">
               <p className="text-xs uppercase tracking-[0.18em] text-white/35">Comments</p>
               {comments.length === 0 ? (
                 <p className="mt-4 text-sm text-white/45">No comments yet.</p>
