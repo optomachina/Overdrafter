@@ -74,7 +74,7 @@ const SharedInvite = () => {
         sidebarFooter={!user ? <GuestSidebarCta onLogIn={() => setAuthOpen(true)} /> : null}
       >
         <div className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-6 pb-16">
-          <div className="w-full rounded-[28px] border border-white/8 bg-[#2a2a2a] p-8 text-center shadow-[0_8px_40px_rgba(0,0,0,0.2)]">
+          <div className="w-full rounded-[28px] border border-white/8 bg-ws-raised p-8 text-center shadow-[0_8px_40px_rgba(0,0,0,0.2)]">
             <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-full bg-white/8">
               <Loader2 className="h-5 w-5 animate-spin text-white/80" />
             </div>

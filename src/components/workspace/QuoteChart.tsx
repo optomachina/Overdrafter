@@ -97,7 +97,7 @@ function QuoteChartTooltip({
   }
 
   return (
-    <div className="rounded-xl border border-white/10 bg-[#2a2a2a] px-3 py-2 text-xs text-white/80 shadow-xl">
+    <div className="rounded-xl border border-white/10 bg-ws-raised px-3 py-2 text-xs text-white/80 shadow-xl">
       <p className="font-semibold text-white">{point.vendorLabel}</p>
       {point.tier || point.sourcing ? (
         <p className="text-white/55">{[point.tier, point.sourcing].filter(Boolean).join(" · ")}</p>

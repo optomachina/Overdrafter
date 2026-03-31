@@ -754,7 +754,7 @@ const ClientProject = () => {
             handleClearFocusedJob();
           }}
         >
-          <SheetContent side="right" className="w-[min(96vw,38rem)] overflow-y-auto border-white/10 bg-[#1f1f1f] p-0 text-white sm:max-w-[38rem]">
+          <SheetContent side="right" className="w-[min(96vw,38rem)] overflow-y-auto border-white/10 bg-ws-overlay p-0 text-white sm:max-w-[38rem]">
             <SheetHeader className="border-b border-white/10 px-6 py-5">
               <SheetTitle className="text-white">Line item detail</SheetTitle>
               <SheetDescription className="text-white/55">
@@ -835,7 +835,7 @@ const ClientProject = () => {
       />
 
       <Dialog open={showAddPart} onOpenChange={setShowAddPart}>
-        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
+        <DialogContent className="border-white/10 bg-ws-overlay text-white">
           <DialogHeader>
             <DialogTitle>Add part</DialogTitle>
             <DialogDescription className="text-white/55">
@@ -860,7 +860,7 @@ const ClientProject = () => {
       />
 
       <Dialog open={showArchive} onOpenChange={setShowArchive}>
-        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
+        <DialogContent className="border-white/10 bg-ws-overlay text-white">
           <DialogHeader>
             <DialogTitle>Archive project</DialogTitle>
             <DialogDescription className="text-white/55">
@@ -883,7 +883,7 @@ const ClientProject = () => {
       </Dialog>
 
       <Dialog open={showDissolve} onOpenChange={setShowDissolve}>
-        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
+        <DialogContent className="border-white/10 bg-ws-overlay text-white">
           <DialogHeader>
             <DialogTitle>Dissolve project</DialogTitle>
             <DialogDescription className="text-white/55">

@@ -760,7 +760,7 @@ export function ExtractionLabCard({
       </Card>
 
       <Dialog open={Boolean(activeInspection)} onOpenChange={(open) => !open && setActiveInspection(null)}>
-        <DialogContent className="h-[88vh] w-[min(96vw,72rem)] max-w-[72rem] overflow-y-auto border-white/10 bg-[#1f1f1f] p-0 text-white">
+        <DialogContent className="h-[88vh] w-[min(96vw,72rem)] max-w-[72rem] overflow-y-auto border-white/10 bg-ws-overlay p-0 text-white">
           <DialogHeader className="border-b border-white/8 px-6 py-5">
             <DialogTitle>Extraction inspection</DialogTitle>
             <DialogDescription className="text-white/55">
@@ -848,7 +848,7 @@ export function ExtractionLabCard({
                     <>
                       <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
                         <p className="text-sm font-medium text-white">Parser context</p>
-                        <pre className="mt-3 max-h-64 overflow-auto rounded-xl border border-white/8 bg-[#111111] p-3 text-xs text-white/70">
+                        <pre className="mt-3 max-h-64 overflow-auto rounded-xl border border-white/8 bg-ws-inset p-3 text-xs text-white/70">
                           {activePreviewRun.result.parserContext}
                         </pre>
                       </div>
@@ -857,7 +857,7 @@ export function ExtractionLabCard({
                         <p className="text-sm font-medium text-white">Model attempts</p>
                         <div className="mt-3 space-y-3">
                           {activePreviewRun.result.modelAttempts.map((attempt) => (
-                            <div key={attempt.attempt} className="rounded-xl border border-white/8 bg-[#111111] p-3">
+                            <div key={attempt.attempt} className="rounded-xl border border-white/8 bg-ws-inset p-3">
                               <div className="flex flex-wrap gap-2 text-xs">
                                 <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
                                   {attempt.attempt}
@@ -877,7 +877,7 @@ export function ExtractionLabCard({
                   ) : (
                     <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
                       <p className="text-sm font-medium text-white">Raw debug payload</p>
-                      <pre className="mt-3 max-h-80 overflow-auto rounded-xl border border-white/8 bg-[#111111] p-3 text-xs text-white/70">
+                      <pre className="mt-3 max-h-80 overflow-auto rounded-xl border border-white/8 bg-ws-inset p-3 text-xs text-white/70">
                         {JSON.stringify(activeDebugRun?.result, null, 2)}
                       </pre>
                     </div>
@@ -890,7 +890,7 @@ export function ExtractionLabCard({
                       <ImageIcon className="h-4 w-4 text-white/60" />
                       <p className="text-sm font-medium text-white">Preview image</p>
                     </div>
-                    <div className="mt-4 overflow-hidden rounded-xl border border-white/8 bg-[#111111]">
+                    <div className="mt-4 overflow-hidden rounded-xl border border-white/8 bg-ws-inset">
                       {isPreviewImageLoading ? (
                         <div className="flex h-64 items-center justify-center text-white/50">
                           <Loader2 className="h-5 w-5 animate-spin" />
@@ -964,7 +964,7 @@ export function ExtractionLabCard({
       </Dialog>
 
       <AlertDialog open={Boolean(confirmAction)} onOpenChange={(open) => !open && setConfirmAction(null)}>
-        <AlertDialogContent className="border-white/10 bg-[#1f1f1f] text-white">
+        <AlertDialogContent className="border-white/10 bg-ws-overlay text-white">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {confirmAction?.kind === "queue-canonical" ? "Queue canonical extraction?" : "Save debug run?"}

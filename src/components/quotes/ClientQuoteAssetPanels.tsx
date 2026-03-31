@@ -138,7 +138,7 @@ export function ClientDrawingPreviewPanel({
   }, [resolvedState, resolvedViewerMode, statusMessage]);
 
   return (
-    <section className={cn("rounded-[26px] border border-white/8 bg-[#262626] p-5", className)}>
+    <section className={cn("rounded-[26px] border border-white/8 bg-ws-card p-5", className)}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-white/35">Drawing</p>
@@ -254,7 +254,7 @@ export function ClientCadPreviewPanel({
   const previewable = cadFile ? isStepPreviewableFile(cadFile.original_name) : false;
 
   return (
-    <section className={cn("rounded-[26px] border border-white/8 bg-[#262626] p-5", className)}>
+    <section className={cn("rounded-[26px] border border-white/8 bg-ws-card p-5", className)}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-white/35">CAD / isometric</p>

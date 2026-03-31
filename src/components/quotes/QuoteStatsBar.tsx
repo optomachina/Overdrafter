@@ -78,7 +78,7 @@ export function QuoteStatsBar({ options }: QuoteStatsBarProps) {
   return (
     <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/8 bg-white/8 md:grid-cols-4">
       {stats.map((stat) => (
-        <div key={stat.label} className="bg-[#1a1a1a] px-4 py-3">
+        <div key={stat.label} className="bg-ws-inset px-4 py-3">
           <p className="text-[10px] uppercase tracking-widest text-white/40">
             {stat.label}
           </p>

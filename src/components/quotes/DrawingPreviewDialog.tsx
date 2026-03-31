@@ -102,7 +102,7 @@ export function DrawingPreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[80vh] w-[80vw] max-w-[min(80vw,1100px)] border-white/10 bg-[#1f1f1f] p-0 text-white">
+      <DialogContent className="h-[80vh] w-[80vw] max-w-[min(80vw,1100px)] border-white/10 bg-ws-overlay p-0 text-white">
         <DialogHeader className="gap-3 border-b border-white/8 px-6 py-5 pr-20">
           <DialogTitle>{fileName}</DialogTitle>
           <DialogDescription className="text-white/55">
@@ -160,7 +160,7 @@ export function DrawingPreviewDialog({
             ) : null}
           </div>
 
-          <div className="relative min-h-0 flex-1 overflow-hidden rounded-[24px] border border-white/8 bg-[#0d0d0d]">
+          <div className="relative min-h-0 flex-1 overflow-hidden rounded-[24px] border border-white/8 bg-ws-deep">
             {isLoading ? (
               <div className="flex h-full items-center justify-center text-white/55">
                 <Loader2 className="h-6 w-6 animate-spin" />
