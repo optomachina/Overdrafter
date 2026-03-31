@@ -691,7 +691,7 @@ describe("ClientProject", () => {
     });
   });
 
-  it("renders the placeholder assignee when no assignee profile resolves for a row", async () => {
+  it("renders an explicit unassigned state when no assignee profile resolves for a row", async () => {
     api.fetchProjectAssigneeProfiles.mockResolvedValue([]);
 
     renderWithClient("/projects/project-1");
@@ -701,10 +701,10 @@ describe("ClientProject", () => {
     });
 
     expect(screen.getByRole("columnheader", { name: "Assignee" })).toBeInTheDocument();
-    expect(screen.getAllByText("BW").length).toBeGreaterThan(0);
+    expect(screen.getByText("Unassigned")).toBeInTheDocument();
   });
 
-  it("keeps the placeholder assignee while assignee lookups are pending", async () => {
+  it("renders empty assignee cells while assignee lookups are pending", async () => {
     const assigneeProfiles = createDeferredPromise<
       Array<{
         userId: string;
@@ -723,7 +723,7 @@ describe("ClientProject", () => {
     });
 
     expect(screen.queryByText("Loading")).not.toBeInTheDocument();
-    expect(screen.getAllByText("BW").length).toBeGreaterThan(0);
+    expect(screen.queryByText("BW")).not.toBeInTheDocument();
 
     assigneeProfiles.resolve([
       {
@@ -736,11 +736,11 @@ describe("ClientProject", () => {
     ]);
 
     await waitFor(() => {
-      expect(screen.getByRole("table")).toBeInTheDocument();
+      expect(screen.getByLabelText("Blaine Wilson assignee")).toBeInTheDocument();
     });
   });
 
-  it("keeps the placeholder assignee when assignee lookup fails", async () => {
+  it("renders empty assignee cells when assignee lookup fails", async () => {
     api.fetchProjectAssigneeProfiles.mockRejectedValue(new Error("lookup failed"));
 
     renderWithClient("/projects/project-1");
@@ -750,7 +750,7 @@ describe("ClientProject", () => {
     });
 
     expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
-    expect(screen.getAllByText("BW").length).toBeGreaterThan(0);
+    expect(screen.queryByText("BW")).not.toBeInTheDocument();
   });
 
   it("renders the inline search in the shell header and removes the old body search", async () => {

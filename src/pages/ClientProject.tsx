@@ -22,6 +22,7 @@ import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShel
 import { WorkspaceInlineSearch } from "@/components/workspace/WorkspaceInlineSearch";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import { buildProjectAssigneeBadgeModel } from "@/features/quotes/project-assignee";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import {
   clientFilterOptions,
@@ -113,6 +114,9 @@ const ClientProject = () => {
     accessibleProjects,
     isAuthInitializing,
     workspaceItemsByJobId,
+    projectAssigneeLookupReady,
+    projectAssigneesByUserId,
+    projectJobMembershipsByCompositeKey,
   } = useClientProjectController();
 
   const notificationCenter = useWorkspaceNotifications({
@@ -140,6 +144,33 @@ const ClientProject = () => {
       ),
     [projectJobs, workspaceItemsByJobId],
   );
+
+  const projectAssigneeBadgesByJobId = useMemo(() => {
+    if (!projectAssigneeLookupReady) {
+      return new Map<string, ReturnType<typeof buildProjectAssigneeBadgeModel>>();
+    }
+
+    // Until a dedicated part-assignee relation exists, the ledger uses
+    // project_jobs.created_by as the minimum safe per-row assignee source.
+    return new Map(
+      projectJobs.map((job) => {
+        const projectJobMembership =
+          projectJobMembershipsByCompositeKey?.get(`${projectId}:${job.id}`) ?? null;
+        const assigneeProfile =
+          projectJobMembership && projectAssigneesByUserId
+            ? projectAssigneesByUserId.get(projectJobMembership.created_by) ?? null
+            : null;
+
+        return [job.id, buildProjectAssigneeBadgeModel(assigneeProfile)] as const;
+      }),
+    );
+  }, [
+    projectAssigneeLookupReady,
+    projectAssigneesByUserId,
+    projectId,
+    projectJobMembershipsByCompositeKey,
+    projectJobs,
+  ]);
 
   const projectRequestableJobIds = useMemo(
     () =>
@@ -444,6 +475,7 @@ const ClientProject = () => {
                       workspaceItem?.part?.approvedRequirement?.description ??
                       presentation.description ??
                       presentation.title;
+                    const assigneeBadge = projectAssigneeBadgesByJobId.get(job.id) ?? null;
 
                     return (
                       <TableRow key={job.id} className="border-white/[0.04] hover:bg-white/[0.02]">
@@ -478,8 +510,40 @@ const ClientProject = () => {
                         <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
                           <Badge className={quoteStatusClassName}>{quoteStatusLabel}</Badge>
                         </TableCell>
-                        <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-[13px] font-medium text-white/75">
-                          BW
+                        <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
+                          {assigneeBadge ? (
+                            assigneeBadge.isUnassigned ? (
+                              <div className="flex items-center gap-2 text-[13px] text-white/45">
+                                <span
+                                  aria-hidden="true"
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-white/10 bg-white/[0.03] text-[11px] font-semibold text-white/35"
+                                >
+                                  —
+                                </span>
+                                <span>Unassigned</span>
+                              </div>
+                            ) : (
+                              <div className="flex justify-center">
+                                <span
+                                  className={cn(
+                                    "inline-flex h-7 w-7 items-center justify-center rounded-full border text-[11px] font-semibold uppercase tracking-[0.08em] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
+                                    assigneeBadge.colorClassName,
+                                  )}
+                                  title={assigneeBadge.displayName}
+                                  aria-label={`${assigneeBadge.displayName} assignee`}
+                                >
+                                  {assigneeBadge.initials ?? "?"}
+                                </span>
+                              </div>
+                            )
+                          ) : (
+                            <span
+                              aria-hidden="true"
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-white/10 bg-white/[0.03] text-[11px] font-semibold text-white/35"
+                            >
+                              —
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="w-px whitespace-nowrap py-2.5 pl-2 pr-5 text-right text-[13px] text-white/55">
                           {formatDateLabel(job.created_at)}
