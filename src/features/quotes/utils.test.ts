@@ -336,7 +336,6 @@ describe("quotes utils", () => {
           width: 320,
           height: 240,
           created_at: "2026-03-03T00:00:00Z",
-          updated_at: "2026-03-03T00:00:00Z",
         },
         {
           id: "asset-page-2",
@@ -349,7 +348,6 @@ describe("quotes utils", () => {
           width: 1200,
           height: 900,
           created_at: "2026-03-03T00:00:00Z",
-          updated_at: "2026-03-03T00:00:00Z",
         },
         {
           id: "asset-page-1",
@@ -362,7 +360,6 @@ describe("quotes utils", () => {
           width: 1200,
           height: 900,
           created_at: "2026-03-03T00:00:00Z",
-          updated_at: "2026-03-03T00:00:00Z",
         },
       ] as DrawingPreviewAssetRecord[]),
     ).toEqual({

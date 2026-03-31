@@ -118,6 +118,82 @@ describe("startHealthServer", () => {
     });
   });
 
+  it("denies debug routes when the worker is running in live mode", async () => {
+    const runtimeState = createWorkerRuntimeState();
+    runtimeState.status = "running";
+
+    const server = await startHealthServer(
+      {
+        ...workerConfig,
+        workerMode: "live",
+      },
+      runtimeState,
+      {
+        previewExtraction: async () => ({
+          accepted: true,
+        }),
+      },
+    );
+    servers.push(server);
+
+    const previewResponse = await fetch(`${server.url}/debug/extraction/preview`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        partId: "part-1",
+        modelId: "gpt-5.4",
+      }),
+    });
+    const previewPayload = await previewResponse.json();
+
+    expect(previewResponse.status).toBe(403);
+    expect(previewPayload).toEqual({
+      error: "debug_route_disabled",
+      message: "Worker debug endpoints are disabled when WORKER_MODE=live.",
+    });
+  });
+
+  it("allows debug extraction preview from a loopback client in non-live mode", async () => {
+    const runtimeState = createWorkerRuntimeState();
+    runtimeState.status = "running";
+
+    const previewExtraction = vi.fn(async () => ({
+      accepted: true,
+      partId: "part-1",
+      modelId: "gpt-5.4-mini",
+    }));
+
+    const server = await startHealthServer(workerConfig, runtimeState, {
+      previewExtraction,
+    });
+    servers.push(server);
+
+    const previewResponse = await fetch(`${server.url}/debug/extraction/preview`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        partId: "part-1",
+        modelId: "gpt-5.4-mini",
+      }),
+    });
+    const previewPayload = await previewResponse.json();
+
+    expect(previewResponse.status).toBe(200);
+    expect(previewPayload).toEqual({
+      accepted: true,
+      partId: "part-1",
+      modelId: "gpt-5.4-mini",
+    });
+    expect(previewExtraction).toHaveBeenCalledWith({
+      partId: "part-1",
+      modelId: "gpt-5.4-mini",
+    });
+  });
+
   it("reports readiness failures on /readyz", async () => {
     const runtimeState = createWorkerRuntimeState();
     runtimeState.status = "running";

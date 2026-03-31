@@ -11,9 +11,11 @@ export const untypedSupabase = supabase as typeof supabase & {
 
 export function callRpc<Name extends RpcName>(
   fn: Name,
-  args: Database["public"]["Functions"][Name]["Args"],
+  ...args: Database["public"]["Functions"][Name]["Args"] extends never
+    ? []
+    : [args: Database["public"]["Functions"][Name]["Args"]]
 ): Promise<PostgrestSingleResponse<Database["public"]["Functions"][Name]["Returns"]>> {
-  return untypedSupabase.rpc(fn, args) as unknown as Promise<
+  return untypedSupabase.rpc(fn, args[0]) as unknown as Promise<
     PostgrestSingleResponse<Database["public"]["Functions"][Name]["Returns"]>
   >;
 }

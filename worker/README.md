@@ -114,6 +114,11 @@ The worker now starts a lightweight HTTP server on `PORT` and exposes:
 
 This is required for Cloud Run services.
 
+Debug routes are intentionally not part of the deployed contract. `/debug/events`,
+`/debug/extraction/models`, `/debug/extraction/models/refresh`, and
+`/debug/extraction/preview` are available only from loopback clients while the worker
+is running in a non-live mode. When `WORKER_MODE=live`, those routes return HTTP 403.
+
 ## Cloud Run Deployment
 
 This worker is packaged for Cloud Run as a service, not a Cloud Run job.
@@ -160,6 +165,10 @@ The deploy script:
 - injects `SUPABASE_SERVICE_ROLE_KEY` from Secret Manager
 - injects `XOMETRY_STORAGE_STATE_JSON` from Secret Manager
 - enables the Chromium flags that are typically needed in Cloud Run
+
+In Cloud Run, treat `/healthz` and `/readyz` as the only supported HTTP endpoints.
+The worker debug routes are disabled because the deployed service runs with
+`WORKER_MODE=live`.
 
 Recommended first-pass settings:
 
