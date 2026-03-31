@@ -1897,23 +1897,9 @@ describe("quotes api helpers", () => {
     );
   });
 
-  it("enqueues a single debug vendor quote task for an existing Xometry lane", async () => {
-    supabaseMock.vendorQuoteResultsMaybeSingle.mockResolvedValue({
-      data: {
-        id: "vendor-quote-1",
-        organization_id: "org-1",
-        status: "failed",
-      },
-      error: null,
-    });
-    supabaseMock.workQueueIn.mockResolvedValue({
-      data: [],
-      error: null,
-    });
-    supabaseMock.workQueueInsertSingle.mockResolvedValue({
-      data: {
-        id: "task-1",
-      },
+  it("enqueues a single debug vendor quote task via the server-side RPC", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: { taskId: "task-1", created: true, reason: null },
       error: null,
     });
 
@@ -1927,45 +1913,21 @@ describe("quotes api helpers", () => {
       }),
     ).resolves.toBe("task-1");
 
-    expect(supabaseMock.vendorQuoteResultsSelect).toHaveBeenCalledWith("id, organization_id, status");
-    expect(supabaseMock.workQueueInsert).toHaveBeenCalledWith({
-      organization_id: "org-1",
-      job_id: "job-1",
-      part_id: "part-1",
-      quote_run_id: "run-1",
-      task_type: "run_vendor_quote",
-      status: "queued",
-      payload: {
-        quoteRunId: "run-1",
-        partId: "part-1",
-        vendor: "xometry",
-        vendorQuoteResultId: "vendor-quote-1",
-        requestedQuantity: 25,
-        source: "xometry-debug-submit",
-      },
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_enqueue_debug_vendor_quote", {
+      p_quote_run_id: "run-1",
+      p_part_id: "part-1",
+      p_vendor: "xometry",
+      p_requested_quantity: 25,
     });
   });
 
-  it("rejects duplicate queued or running debug submissions for the same Xometry lane", async () => {
-    supabaseMock.vendorQuoteResultsMaybeSingle.mockResolvedValue({
+  it("throws when the RPC reports a duplicate queued or running debug task", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
       data: {
-        id: "vendor-quote-1",
-        organization_id: "org-1",
-        status: "failed",
+        taskId: "task-queued",
+        created: false,
+        reason: "A debug quote task is already queued or running for this lane.",
       },
-      error: null,
-    });
-    supabaseMock.workQueueIn.mockResolvedValue({
-      data: [
-        {
-          id: "task-queued",
-          status: "queued",
-          payload: {
-            vendor: "xometry",
-            requestedQuantity: 10,
-          },
-        },
-      ],
       error: null,
     });
 
@@ -1977,7 +1939,7 @@ describe("quotes api helpers", () => {
         vendor: "xometry",
         requestedQuantity: 10,
       }),
-    ).rejects.toThrow("A Xometry quote task is already queued or running for this part and quantity.");
+    ).rejects.toThrow("A debug quote task is already queued or running for this lane.");
   });
 
   it("returns worker readiness data when the probe is configured", async () => {

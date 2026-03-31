@@ -2,15 +2,12 @@ import type {
   QuoteRequestCancellationResult,
   QuoteRequestSubmissionResult,
   QuoteRunReadiness,
-  WorkQueueRecord,
 } from "@/features/quotes/types";
 import type {
   VendorName,
 } from "@/integrations/supabase/types";
-import type { VendorQuoteResultRecord } from "@/features/quotes/types";
-import type { PostgrestSingleResponse } from "@supabase/supabase-js";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
-import { callRpc, insertUntyped, untypedSupabase } from "./shared/rpc";
+import { callRpc } from "./shared/rpc";
 import { ensureData } from "./shared/response";
 
 export async function setJobSelectedVendorQuoteOffer(jobId: string, offerId: string | null): Promise<string> {
@@ -93,74 +90,20 @@ export async function enqueueDebugVendorQuote(input: {
   vendor: VendorName;
   requestedQuantity: number;
 }): Promise<string> {
-  const { data: quoteResultData, error: quoteResultError } = await untypedSupabase
-    .from("vendor_quote_results")
-    .select("id, organization_id, status")
-    .eq("quote_run_id", input.quoteRunId)
-    .eq("part_id", input.partId)
-    .eq("vendor", input.vendor)
-    .eq("requested_quantity", input.requestedQuantity)
-    .maybeSingle();
-
-  if (quoteResultError) {
-    throw quoteResultError;
-  }
-
-  const quoteResult = quoteResultData as Pick<VendorQuoteResultRecord, "id" | "organization_id" | "status"> | null;
-
-  if (!quoteResult) {
-    throw new Error("No matching vendor quote lane exists for this part and quantity.");
-  }
-
-  const { data: queueRows, error: queueError } = await untypedSupabase
-    .from("work_queue")
-    .select("id, status, payload")
-    .eq("job_id", input.jobId)
-    .eq("quote_run_id", input.quoteRunId)
-    .eq("part_id", input.partId)
-    .eq("task_type", "run_vendor_quote")
-    .in("status", ["queued", "running"]);
-
-  const existingTasks = ensureData(queueRows, queueError) as Pick<
-    WorkQueueRecord,
-    "id" | "status" | "payload"
-  >[];
-
-  const matchingTask = existingTasks.find((task) => {
-    const payload = task.payload && typeof task.payload === "object" && !Array.isArray(task.payload)
-      ? (task.payload as Record<string, unknown>)
-      : {};
-
-    return (
-      payload.vendor === input.vendor &&
-      Number(payload.requestedQuantity ?? 0) === input.requestedQuantity
-    );
+  const { data, error } = await callRpc("api_enqueue_debug_vendor_quote", {
+    p_quote_run_id: input.quoteRunId,
+    p_part_id: input.partId,
+    p_vendor: input.vendor,
+    p_requested_quantity: input.requestedQuantity,
   });
 
-  if (matchingTask) {
-    throw new Error("A Xometry quote task is already queued or running for this part and quantity.");
+  const result = ensureData(data, error) as { taskId: string; created: boolean; reason: string | null };
+
+  if (!result.created && result.reason) {
+    throw new Error(result.reason);
   }
 
-  const { data: insertedTaskData, error: insertError } = await (insertUntyped("work_queue", {
-      organization_id: quoteResult.organization_id,
-      job_id: input.jobId,
-      part_id: input.partId,
-      quote_run_id: input.quoteRunId,
-      task_type: "run_vendor_quote",
-      status: "queued",
-      payload: {
-        quoteRunId: input.quoteRunId,
-        partId: input.partId,
-        vendor: input.vendor,
-        vendorQuoteResultId: quoteResult.id,
-        requestedQuantity: input.requestedQuantity,
-        source: "xometry-debug-submit",
-      },
-    })
-    .select("id")
-    .single() as Promise<PostgrestSingleResponse<Pick<WorkQueueRecord, "id">>>);
-
-  return ensureData(insertedTaskData?.id ?? null, insertError);
+  return result.taskId;
 }
 
 export async function getQuoteRunReadiness(
