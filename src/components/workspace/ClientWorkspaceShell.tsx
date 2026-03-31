@@ -16,6 +16,8 @@ const DESKTOP_SIDEBAR_MAX_WIDTH = 480;
 const DESKTOP_SIDEBAR_COLLAPSED_WIDTH = "52px";
 const SIDEBAR_TOOLTIP_DELAY_MS = 120;
 const CURSOR_TOOLTIP_OFFSET = 14;
+const SIDEBAR_HEADER_INSET_CLASS = "px-2";
+const SIDEBAR_LOGO_VISUAL_OFFSET_CLASS = "translate-x-[5px]";
 const SIDEBAR_ICON_TOOLTIP_CLASS_NAME =
   "workspace-shell rounded-lg border-transparent bg-ws-deep px-2.5 py-1.5 text-[11px] font-medium text-white shadow-[0_10px_30px_rgba(0,0,0,0.45)]";
 const BRAND_NAME = "OverDrafter";
@@ -280,7 +282,7 @@ function SidebarScaffold({
 }) {
   return (
     <div className="workspace-shell flex h-full flex-col bg-ws-shell text-white">
-      <div className="flex items-center justify-between gap-3 pb-3 pl-2.5 pr-2 pt-3">
+      <div className={cn("flex items-center justify-between gap-3 pb-3 pt-3", SIDEBAR_HEADER_INSET_CLASS)}>
         {onLogoClick ? (
           <button
             type="button"
@@ -288,11 +290,19 @@ function SidebarScaffold({
             aria-label={`${BRAND_NAME} home`}
             className="grid h-9 w-9 place-items-center rounded text-left transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
           >
-            <img src={logoMark} alt="OverDrafter logo" className="h-6 w-6 object-contain" />
+            <img
+              src={logoMark}
+              alt="OverDrafter logo"
+              className={cn("h-6 w-6 object-contain", SIDEBAR_LOGO_VISUAL_OFFSET_CLASS)}
+            />
           </button>
         ) : (
           <div className="grid h-9 w-9 place-items-center">
-            <img src={logoMark} alt="OverDrafter logo" className="h-6 w-6 object-contain" />
+            <img
+              src={logoMark}
+              alt="OverDrafter logo"
+              className={cn("h-6 w-6 object-contain", SIDEBAR_LOGO_VISUAL_OFFSET_CLASS)}
+            />
           </div>
         )}
 
