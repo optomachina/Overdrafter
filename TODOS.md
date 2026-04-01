@@ -136,6 +136,22 @@ Remaining adjacent work:
 
 ---
 
+## TODO-017: Protolabs and SendCutSend live adapter automation
+
+**What:** Implement real Playwright automation for Protolabs and SendCutSend adapters (currently simulation-only). These are instant-quote providers that have more tractable APIs than Xometry.
+
+**Why:** Phase 2 Task B ships Xometry + Fictiv live automation. Protolabs and SendCutSend are deferred because they are instant-quote providers that may have programmatic APIs or simpler automation surfaces. Phase 2 multi-vendor live value is proven with Xometry + Fictiv first.
+
+**Blocking state:** Currently both adapters return `manual_vendor_followup` with reason `"not_implemented"` in live mode (added by Task B). No simulated prices in live mode.
+
+**Where to start:** `worker/src/adapters/protolabs.ts` and `worker/src/adapters/sendcutsend.ts` — investigate whether instant-quote API endpoints exist before building Playwright automation. SendCutSend has a known instant-quote API.
+
+**Effort:** M each (human: ~1 week / CC: ~1 day) | **Priority:** P2
+
+**Depends on:** Task B (live harness + adapter guard pattern established)
+
+---
+
 ## ~~TODO-016: Add `locked_at` index to `work_queue` for reaper query performance~~ ✅ DONE (local)
 
 **What:** Add a partial index to `work_queue` supporting the reaper's access pattern:
