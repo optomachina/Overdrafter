@@ -1922,6 +1922,15 @@ export type Database = {
       api_delete_archived_jobs: { Args: { p_job_ids: string[] }; Returns: Json }
       api_delete_project: { Args: { p_project_id: string }; Returns: string }
       api_dissolve_project: { Args: { p_project_id: string }; Returns: string }
+      api_enqueue_debug_vendor_quote: {
+        Args: {
+          p_quote_run_id: string
+          p_part_id: string
+          p_vendor: Database["public"]["Enums"]["vendor_name"]
+          p_requested_quantity: number
+        }
+        Returns: Json
+      }
       api_finalize_job_file_upload: {
         Args: {
           p_content_sha256?: string
