@@ -136,6 +136,7 @@ function makePartDetail(): PartDetailAggregate {
     projectIds: [],
     drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
     latestQuoteRequest: null,
+    latestServiceLineItem: null,
     latestQuoteRun: null,
     revisionSiblings: [],
   };

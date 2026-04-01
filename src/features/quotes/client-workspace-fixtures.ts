@@ -748,6 +748,7 @@ function buildNeedsAttentionScenario(): FixtureState {
     projectIds: [project.id],
     drawingPreview,
     latestQuoteRequest: null,
+    latestServiceLineItem: null,
     latestQuoteRun: null,
     revisionSiblings: [],
   };
@@ -812,6 +813,7 @@ function buildNeedsAttentionScenario(): FixtureState {
         projectIds: [project.id],
         drawingPreview,
         latestQuoteRequest: null,
+        latestServiceLineItem: null,
         latestQuoteRun: null,
       },
     },
@@ -937,6 +939,7 @@ function buildQuotedScenario(): FixtureState {
     projectIds: [project.id],
     drawingPreview,
     latestQuoteRequest: null,
+    latestServiceLineItem: null,
     latestQuoteRun,
     revisionSiblings: [],
   };
@@ -951,6 +954,7 @@ function buildQuotedScenario(): FixtureState {
     projectIds: [project.id],
     drawingPreview,
     latestQuoteRequest: null,
+    latestServiceLineItem: null,
     latestQuoteRun,
   };
   clientActivityByJobId[job.id] = [
@@ -1142,6 +1146,7 @@ function buildPublishedScenario(): FixtureState {
       projectIds: [publishedProject.id],
       drawingPreview,
       latestQuoteRequest: null,
+      latestServiceLineItem: null,
       latestQuoteRun,
       revisionSiblings: [],
     },
@@ -1158,6 +1163,7 @@ function buildPublishedScenario(): FixtureState {
       projectIds: [publishedProject.id],
       drawingPreview,
       latestQuoteRequest: null,
+      latestServiceLineItem: null,
       latestQuoteRun,
     },
   };
