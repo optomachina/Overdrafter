@@ -1,7 +1,95 @@
 import { normalizeRequestedQuoteQuantities } from "@/features/quotes/request-intake";
 import { normalizeRfqLineItemExtendedMetadata } from "@/features/quotes/rfq-metadata";
 import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
-import type { ApprovedPartRequirement, JobPartSummary } from "@/features/quotes/types";
+import type { ApprovedPartRequirement, JobPartSummary, ServiceRequestLineItemRecord } from "@/features/quotes/types";
+
+export type ServiceAwareProjectSummary = {
+  serviceTypes: string[];
+  distinctServiceCount: number;
+  allQuoteCompatible: boolean;
+  requestedByDate: string | null;
+  requestedQuoteQuantities: number[];
+  lineItemCount: number;
+};
+
+const QUOTE_COMPATIBLE_SERVICE_TYPES = new Set([
+  "manufacturing_quote",
+]);
+
+export function getServiceAwareProjectSummary(
+  lineItemsByJobId: Map<string, ServiceRequestLineItemRecord[]>,
+  summariesByJobId: Map<string, JobPartSummary>,
+  jobIds: string[],
+): ServiceAwareProjectSummary | null {
+  if (jobIds.length === 0) {
+    return null;
+  }
+
+  const allLineItems: ServiceRequestLineItemRecord[] = [];
+
+  for (const jobId of jobIds) {
+    const items = lineItemsByJobId.get(jobId);
+    if (!items) {
+      continue;
+    }
+    allLineItems.push(...items);
+  }
+
+  if (allLineItems.length === 0) {
+    return null;
+  }
+
+  const serviceTypeSet = new Set<string>();
+  let allQuoteCompatible = true;
+  let requestedByDate: string | null = null;
+  const allQuoteQuantities: number[] = [];
+
+  for (const item of allLineItems) {
+    serviceTypeSet.add(item.service_type);
+
+    if (!QUOTE_COMPATIBLE_SERVICE_TYPES.has(item.service_type)) {
+      allQuoteCompatible = false;
+    }
+
+    const detail = item.service_detail as Record<string, unknown> | null;
+    if (detail) {
+      const itemDate = (detail.requestedByDate as string) ?? null;
+      if (itemDate && (!requestedByDate || itemDate < requestedByDate)) {
+        requestedByDate = itemDate;
+      }
+      const itemQuantities = detail.requestedQuoteQuantities as number[] | undefined;
+      if (itemQuantities && Array.isArray(itemQuantities)) {
+        for (const q of itemQuantities) {
+          if (!allQuoteQuantities.includes(q)) {
+            allQuoteQuantities.push(q);
+          }
+        }
+      }
+    }
+  }
+
+  if (!requestedByDate) {
+    for (const jobId of jobIds) {
+      const summary = summariesByJobId.get(jobId);
+      if (summary?.requestedByDate && (!requestedByDate || summary.requestedByDate < requestedByDate)) {
+        requestedByDate = summary.requestedByDate;
+      }
+    }
+  }
+
+  const normalizedQuantities = allQuoteQuantities.length > 0
+    ? normalizeRequestedQuoteQuantities(allQuoteQuantities)
+    : [];
+
+  return {
+    serviceTypes: Array.from(serviceTypeSet).sort(),
+    distinctServiceCount: serviceTypeSet.size,
+    allQuoteCompatible,
+    requestedByDate,
+    requestedQuoteQuantities: normalizedQuantities,
+    lineItemCount: allLineItems.length,
+  };
+}
 
 export type RequestedQuantityFilterValue = number | "all";
 

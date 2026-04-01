@@ -753,6 +753,7 @@ export type PartDetailAggregate = {
   projectIds: string[];
   drawingPreview: DrawingPreviewData;
   latestQuoteRequest: QuoteRequestRecord | null;
+  allServiceLineItems: ServiceRequestLineItemRecord[] | null;
   latestServiceLineItem: ServiceRequestLineItemRecord | null;
   latestQuoteRun: QuoteRunRecord | null;
   revisionSiblings: Array<{
@@ -778,8 +779,18 @@ export type ClientQuoteWorkspaceItem = {
   projectIds: string[];
   drawingPreview: DrawingPreviewData;
   latestQuoteRequest: QuoteRequestRecord | null;
+  allServiceLineItems: ServiceRequestLineItemRecord[] | null;
   latestServiceLineItem: ServiceRequestLineItemRecord | null;
   latestQuoteRun: QuoteRunRecord | null;
+};
+
+export type ServiceAwareProjectSummary = {
+  serviceTypes: string[];
+  distinctServiceCount: number;
+  allQuoteCompatible: boolean;
+  requestedByDate: string | null;
+  requestedQuoteQuantities: number[];
+  lineItemCount: number;
 };
 
 export type ArchivedJobSummary = {

@@ -180,6 +180,92 @@ async function fetchLatestServiceLineItemsByJobIds(jobIds: string[]): Promise<Ma
   return latestByJobId;
 }
 
+export async function fetchAllServiceLineItemsByJobIds(jobIds: string[]): Promise<Map<string, ServiceRequestLineItemRecord[]>> {
+  if (jobIds.length === 0) {
+    return new Map();
+  }
+
+  let data: ServiceRequestLineItemRecord[] | null = null;
+  let error: { message: string } | null | undefined;
+
+  try {
+    const response = await supabase
+      .from("service_request_line_items")
+      .select("*")
+      .in("job_id", jobIds)
+      .order("created_at", { ascending: false });
+
+    data = response.data as ServiceRequestLineItemRecord[] | null;
+    error = response.error;
+  } catch (queryError) {
+    if (isMissingQuoteRequestSchemaError(queryError)) {
+      return new Map();
+    }
+
+    throw queryError;
+  }
+
+  if (error && isMissingQuoteRequestSchemaError(error)) {
+    return new Map();
+  }
+
+  const items = ensureData(data, error) as ServiceRequestLineItemRecord[];
+  const allByJobId = new Map<string, ServiceRequestLineItemRecord[]>();
+
+  items.forEach((item) => {
+    if (!allByJobId.has(item.job_id!)) {
+      allByJobId.set(item.job_id!, []);
+    }
+    allByJobId.get(item.job_id!)!.push(item);
+  });
+
+  return allByJobId;
+}
+
+export async function fetchServiceLineItemsByProjectIds(projectIds: string[]): Promise<Map<string, ServiceRequestLineItemRecord[]>> {
+  if (projectIds.length === 0) {
+    return new Map();
+  }
+
+  let data: ServiceRequestLineItemRecord[] | null = null;
+  let error: { message: string } | null | undefined;
+
+  try {
+    const response = await supabase
+      .from("service_request_line_items")
+      .select("*")
+      .in("project_id", projectIds)
+      .order("created_at", { ascending: false });
+
+    data = response.data as ServiceRequestLineItemRecord[] | null;
+    error = response.error;
+  } catch (queryError) {
+    if (isMissingQuoteRequestSchemaError(queryError)) {
+      return new Map();
+    }
+
+    throw queryError;
+  }
+
+  if (error && isMissingQuoteRequestSchemaError(error)) {
+    return new Map();
+  }
+
+  const items = ensureData(data, error) as ServiceRequestLineItemRecord[];
+  const allByProjectId = new Map<string, ServiceRequestLineItemRecord[]>();
+
+  items.forEach((item) => {
+    if (item.project_id) {
+      if (!allByProjectId.has(item.project_id)) {
+        allByProjectId.set(item.project_id, []);
+      }
+      allByProjectId.get(item.project_id)!.push(item);
+    }
+  });
+
+  return allByProjectId;
+}
+
 export async function resolveClientPartDetailRoute(candidateId: string): Promise<ResolvedClientPartDetailRoute | null> {
   if (!candidateId) {
     return null;
@@ -297,6 +383,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     summaries,
     projectMemberships,
     latestQuoteRequestsByJobId,
+    allServiceLineItemsByJobId,
     latestServiceLineItemsByJobId,
     quoteWorkspaceByJobId,
   ] = await Promise.all([
@@ -308,6 +395,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     fetchJobPartSummariesByJobIds(jobIds),
     fetchProjectJobMembershipsByJobIds(jobIds),
     fetchLatestQuoteRequestsByJobIds(jobIds),
+    fetchAllServiceLineItemsByJobIds(jobIds),
     fetchLatestServiceLineItemsByJobIds(jobIds),
     fetchClientQuoteWorkspaceProjectionByJobIds(jobIds),
   ]);
@@ -428,6 +516,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
                 previewAssetsByPartId.get(partWithRelations.id) ?? [],
               ),
         latestQuoteRequest: latestQuoteRequestsByJobId.get(jobId) ?? null,
+        allServiceLineItems: allServiceLineItemsByJobId.get(jobId) ?? null,
         latestServiceLineItem: latestServiceLineItemsByJobId.get(jobId) ?? null,
         latestQuoteRun: quoteWorkspace.latestQuoteRun,
       } satisfies ClientQuoteWorkspaceItem,
@@ -545,6 +634,7 @@ export async function fetchPartDetailByJobId(jobId: string): Promise<PartDetailA
     projectIds: projectMemberships.map((membership) => membership.project_id),
     drawingPreview: normalizeDrawingPreview(part?.clientExtraction ?? null, previewAssets),
     latestQuoteRequest: workspaceItem.latestQuoteRequest,
+    allServiceLineItems: workspaceItem.allServiceLineItems,
     latestServiceLineItem: workspaceItem.latestServiceLineItem,
     latestQuoteRun: workspaceItem.latestQuoteRun,
     revisionSiblings,

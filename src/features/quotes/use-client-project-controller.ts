@@ -67,7 +67,7 @@ import {
   parseRequestedQuoteQuantitiesInput,
 } from "@/features/quotes/request-intake";
 import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadata";
-import { getSharedRequestMetadata } from "@/features/quotes/request-scenarios";
+import { getSharedRequestMetadata, getServiceAwareProjectSummary } from "@/features/quotes/request-scenarios";
 import {
   applyBulkPresetSelection,
   buildClientQuoteSelectionResult,
@@ -418,6 +418,22 @@ export function useClientProjectController() {
   const sharedRequestSummary = useMemo(
     () => getSharedRequestMetadata(projectJobs.map((job) => summariesByJobId.get(job.id) ?? null)),
     [projectJobs, summariesByJobId],
+  );
+  const lineItemsByJobId = useMemo(
+    () => {
+      const map = new Map<string, import("@/features/quotes/types").ServiceRequestLineItemRecord[]>();
+      for (const item of projectWorkspaceItemsQuery.data ?? []) {
+        if (item.allServiceLineItems) {
+          map.set(item.job.id, item.allServiceLineItems);
+        }
+      }
+      return map;
+    },
+    [projectWorkspaceItemsQuery.data],
+  );
+  const serviceAwareProjectSummary = useMemo(
+    () => getServiceAwareProjectSummary(lineItemsByJobId, summariesByJobId, projectJobIds),
+    [lineItemsByJobId, summariesByJobId, projectJobIds],
   );
   const projectSummary =
     accessibleProjectsQuery.data?.find((project) => project.project.id === projectId) ?? null;
