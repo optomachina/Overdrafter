@@ -311,6 +311,7 @@ const ClientPart = () => {
           job: partDetail.job,
           part: partDetail.part,
           latestQuoteRequest: partDetail.latestQuoteRequest,
+          latestServiceLineItem: partDetail.latestServiceLineItem,
           latestQuoteRun: partDetail.latestQuoteRun,
         })
       : null;

@@ -10,6 +10,7 @@ import type {
   QuoteDataStatus,
   QuoteDiagnostics,
   QuoteRequestRecord,
+  ServiceRequestLineItemRecord,
   VendorQuoteAggregate,
 } from "@/features/quotes/types";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
@@ -138,6 +139,47 @@ async function fetchLatestQuoteRequestsByJobIds(jobIds: string[]): Promise<Map<s
   return latestByJobId;
 }
 
+async function fetchLatestServiceLineItemsByJobIds(jobIds: string[]): Promise<Map<string, ServiceRequestLineItemRecord>> {
+  if (jobIds.length === 0) {
+    return new Map();
+  }
+
+  let data: ServiceRequestLineItemRecord[] | null = null;
+  let error: { message: string } | null | undefined;
+
+  try {
+    const response = await supabase
+      .from("service_request_line_items")
+      .select("*")
+      .in("job_id", jobIds)
+      .order("created_at", { ascending: false });
+
+    data = response.data as ServiceRequestLineItemRecord[] | null;
+    error = response.error;
+  } catch (queryError) {
+    if (isMissingQuoteRequestSchemaError(queryError)) {
+      return new Map();
+    }
+
+    throw queryError;
+  }
+
+  if (error && isMissingQuoteRequestSchemaError(error)) {
+    return new Map();
+  }
+
+  const items = ensureData(data, error) as ServiceRequestLineItemRecord[];
+  const latestByJobId = new Map<string, ServiceRequestLineItemRecord>();
+
+  items.forEach((item) => {
+    if (!latestByJobId.has(item.job_id!)) {
+      latestByJobId.set(item.job_id!, item);
+    }
+  });
+
+  return latestByJobId;
+}
+
 export async function resolveClientPartDetailRoute(candidateId: string): Promise<ResolvedClientPartDetailRoute | null> {
   if (!candidateId) {
     return null;
@@ -255,6 +297,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     summaries,
     projectMemberships,
     latestQuoteRequestsByJobId,
+    latestServiceLineItemsByJobId,
     quoteWorkspaceByJobId,
   ] = await Promise.all([
     fetchJobsByIds(jobIds, {
@@ -265,6 +308,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     fetchJobPartSummariesByJobIds(jobIds),
     fetchProjectJobMembershipsByJobIds(jobIds),
     fetchLatestQuoteRequestsByJobIds(jobIds),
+    fetchLatestServiceLineItemsByJobIds(jobIds),
     fetchClientQuoteWorkspaceProjectionByJobIds(jobIds),
   ]);
 
@@ -384,6 +428,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
                 previewAssetsByPartId.get(partWithRelations.id) ?? [],
               ),
         latestQuoteRequest: latestQuoteRequestsByJobId.get(jobId) ?? null,
+        latestServiceLineItem: latestServiceLineItemsByJobId.get(jobId) ?? null,
         latestQuoteRun: quoteWorkspace.latestQuoteRun,
       } satisfies ClientQuoteWorkspaceItem,
     ];
@@ -500,6 +545,7 @@ export async function fetchPartDetailByJobId(jobId: string): Promise<PartDetailA
     projectIds: projectMemberships.map((membership) => membership.project_id),
     drawingPreview: normalizeDrawingPreview(part?.clientExtraction ?? null, previewAssets),
     latestQuoteRequest: workspaceItem.latestQuoteRequest,
+    latestServiceLineItem: workspaceItem.latestServiceLineItem,
     latestQuoteRun: workspaceItem.latestQuoteRun,
     revisionSiblings,
   };

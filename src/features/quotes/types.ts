@@ -753,6 +753,7 @@ export type PartDetailAggregate = {
   projectIds: string[];
   drawingPreview: DrawingPreviewData;
   latestQuoteRequest: QuoteRequestRecord | null;
+  latestServiceLineItem: ServiceRequestLineItemRecord | null;
   latestQuoteRun: QuoteRunRecord | null;
   revisionSiblings: Array<{
     jobId: string;
@@ -777,6 +778,7 @@ export type ClientQuoteWorkspaceItem = {
   projectIds: string[];
   drawingPreview: DrawingPreviewData;
   latestQuoteRequest: QuoteRequestRecord | null;
+  latestServiceLineItem: ServiceRequestLineItemRecord | null;
   latestQuoteRun: QuoteRunRecord | null;
 };
 

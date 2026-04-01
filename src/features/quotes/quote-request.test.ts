@@ -5,6 +5,7 @@ import type {
   PartAggregate,
   QuoteRequestRecord,
   QuoteRunRecord,
+  ServiceRequestLineItemRecord,
 } from "@/features/quotes/types";
 
 function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
@@ -129,6 +130,7 @@ describe("buildQuoteRequestViewModel", () => {
       part: makePart(),
       latestQuoteRequest: null,
       latestQuoteRun: null,
+      latestServiceLineItem: null,
     });
 
     expect(model.status).toBe("not_requested");
@@ -148,6 +150,7 @@ describe("buildQuoteRequestViewModel", () => {
       }),
       latestQuoteRequest: null,
       latestQuoteRun: null,
+      latestServiceLineItem: null,
     });
 
     expect(model.status).toBe("not_requested");
@@ -161,12 +164,14 @@ describe("buildQuoteRequestViewModel", () => {
       job: makeJob({ status: "quoting" }),
       part: makePart(),
       latestQuoteRequest: makeRequest({ status: "queued" }),
+      latestServiceLineItem: null,
       latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "queued" }),
     });
     const requesting = buildQuoteRequestViewModel({
       job: makeJob({ status: "quoting" }),
       part: makePart(),
       latestQuoteRequest: makeRequest({ status: "requesting" }),
+      latestServiceLineItem: null,
       latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "running" }),
     });
 
@@ -192,6 +197,7 @@ describe("buildQuoteRequestViewModel", () => {
         status: "failed",
         failure_reason: "Configured vendors could not return an automated quote and need manual follow-up.",
       }),
+      latestServiceLineItem: null,
       latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "completed" }),
     });
 
@@ -212,6 +218,7 @@ describe("buildQuoteRequestViewModel", () => {
         status: "failed",
         failure_reason: "Quote collection failed before a usable vendor response was received.",
       }),
+      latestServiceLineItem: null,
       latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "failed" }),
     });
 
@@ -226,6 +233,7 @@ describe("buildQuoteRequestViewModel", () => {
         status: "failed",
         failure_reason: "Xometry quote collection failed before a usable response was received.",
       }),
+      latestServiceLineItem: null,
       latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "failed" }),
     });
 
@@ -240,6 +248,7 @@ describe("buildQuoteRequestViewModel", () => {
         status: "failed",
         failure_reason: "Error: vendor timeout\n    at runVendorQuote (/worker/src/index.ts:1282:17)",
       }),
+      latestServiceLineItem: null,
       latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "failed" }),
     });
 
@@ -254,6 +263,7 @@ describe("buildQuoteRequestViewModel", () => {
         status: "failed",
         failure_reason: "   ",
       }),
+      latestServiceLineItem: null,
       latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "failed" }),
     });
 
@@ -272,6 +282,7 @@ describe("buildQuoteRequestViewModel", () => {
       }),
       latestQuoteRequest: null,
       latestQuoteRun: null,
+      latestServiceLineItem: null,
     });
 
     expect(model.tone).toBe("blocked");
@@ -286,6 +297,7 @@ describe("buildQuoteRequestViewModel", () => {
       job: makeJob({ status: "ready_to_quote" }),
       part: makePart(),
       latestQuoteRequest: makeRequest({ status: "canceled", canceled_at: "2026-03-23T00:00:00.000Z" }),
+      latestServiceLineItem: null,
       latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "failed" }),
     });
 
@@ -304,6 +316,7 @@ describe("buildQuoteRequestViewModel", () => {
       job: makeJob({ status: "internal_review" }),
       part: makePart(),
       latestQuoteRequest: null,
+      latestServiceLineItem: null,
       latestQuoteRun: makeRun({ status: "completed" }),
     });
 
@@ -317,6 +330,7 @@ describe("buildQuoteRequestViewModel", () => {
       job: makeJob({ status: "internal_review" }),
       part: makePart(),
       latestQuoteRequest: makeRequest({ status: "received" }),
+      latestServiceLineItem: null,
       latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "completed" }),
     });
 
@@ -336,6 +350,7 @@ describe("buildQuoteRequestViewModel", () => {
       part: makePart(),
       latestQuoteRequest: null,
       latestQuoteRun: null,
+      latestServiceLineItem: null,
     });
 
     expect(model.tone).toBe("blocked");
@@ -349,6 +364,7 @@ describe("buildQuoteRequestViewModel", () => {
       part: makePart(),
       latestQuoteRequest: null,
       latestQuoteRun: null,
+      latestServiceLineItem: null,
     });
 
     expect(model.tone).toBe("blocked");
@@ -362,6 +378,7 @@ describe("buildQuoteRequestViewModel", () => {
       part: makePart(),
       latestQuoteRequest: null,
       latestQuoteRun: null,
+      latestServiceLineItem: null,
     });
 
     expect(model.tone).toBe("blocked");
@@ -375,6 +392,7 @@ describe("buildQuoteRequestViewModel", () => {
       part: makePart(),
       latestQuoteRequest: null,
       latestQuoteRun: null,
+      latestServiceLineItem: null,
     });
 
     expect(model.tone).toBe("blocked");
@@ -390,6 +408,7 @@ describe("buildQuoteRequestViewModel", () => {
       part: makePart({ approvedRequirement: null }),
       latestQuoteRequest: null,
       latestQuoteRun: null,
+      latestServiceLineItem: null,
     });
 
     expect(model.tone).toBe("blocked");
@@ -404,6 +423,7 @@ describe("buildQuoteRequestViewModel", () => {
       job: makeJob({ archived_at: "2026-03-20T00:00:00.000Z" }),
       part: makePart(),
       latestQuoteRequest: makeRequest({ status: "failed", failure_reason: null }),
+      latestServiceLineItem: null,
       latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "failed" }),
     });
 
@@ -424,11 +444,52 @@ describe("buildQuoteRequestViewModel", () => {
       job: makeJob({ status: "quoting" }),
       part: makePart(),
       latestQuoteRequest: makeRequest({ status: "queued" }),
+      latestServiceLineItem: null,
       latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "completed" }),
     });
 
     expect(model.status).toBe("queued");
     expect(model.label).toBe("Queued");
     expect(model.action.kind).toBe("cancel");
+  });
+
+  it("uses line item status over quote request when both are present", () => {
+    const lineItem: ServiceRequestLineItemRecord = {
+      id: "line-item-1",
+      organization_id: "org-1",
+      project_id: null,
+      job_id: "job-1",
+      service_type: "manufacturing_quote",
+      scope: "part",
+      status: "received",
+      service_detail: {},
+      created_at: "2026-03-15T00:00:00.000Z",
+      updated_at: "2026-03-15T00:00:00.000Z",
+    };
+
+    const model = buildQuoteRequestViewModel({
+      job: makeJob({ status: "quoting" }),
+      part: makePart(),
+      latestQuoteRequest: makeRequest({ status: "queued" }),
+      latestServiceLineItem: lineItem,
+      latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "completed" }),
+    });
+
+    expect(model.status).toBe("received");
+    expect(model.label).toBe("Quoted");
+    expect(model.action.kind).toBe("none");
+  });
+
+  it("falls back to quote request status when line item is null", () => {
+    const model = buildQuoteRequestViewModel({
+      job: makeJob({ status: "quoting" }),
+      part: makePart(),
+      latestQuoteRequest: makeRequest({ status: "requesting" }),
+      latestServiceLineItem: null,
+      latestQuoteRun: makeRun({ quote_request_id: "request-1", status: "queued" }),
+    });
+
+    expect(model.status).toBe("requesting");
+    expect(model.label).toBe("Requesting");
   });
 });

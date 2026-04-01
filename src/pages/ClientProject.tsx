@@ -137,6 +137,7 @@ const ClientProject = () => {
               job,
               part: workspaceItem?.part ?? null,
               latestQuoteRequest: workspaceItem?.latestQuoteRequest ?? null,
+              latestServiceLineItem: workspaceItem?.latestServiceLineItem ?? null,
               latestQuoteRun: workspaceItem?.latestQuoteRun ?? null,
             }),
           ] as const;

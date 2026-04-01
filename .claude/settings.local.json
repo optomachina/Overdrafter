@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(head -5 grep -n \"ChatWorkspaceLayout\\\\|ClientWorkspaceShell\" /Users/blainewilson/Documents/GitHub/Overdrafter/src/pages/ClientReviews.test.tsx)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(gh pr:*)",
+      "Bash(node ./scripts/validate-pr-body.mjs --stdin)",
+      "Bash(find /Users/blainewilson/Documents/GitHub/Overdrafter/worker/src -type f \\\\\\(-name *.ts -o -name *.tsx \\\\\\))",
+      "Bash(node /Users/blainewilson/Documents/GitHub/Overdrafter/.understand-anything/tmp/ua-project-scan.js \"/Users/blainewilson/Documents/GitHub/Overdrafter\" \"/Users/blainewilson/Documents/GitHub/Overdrafter/.understand-anything/tmp/ua-scan-results.json\")",
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(node /Users/blainewilson/Documents/GitHub/Overdrafter/.understand-anything/tmp/ua-project-scan.cjs \"/Users/blainewilson/Documents/GitHub/Overdrafter\" \"/Users/blainewilson/Documents/GitHub/Overdrafter/.understand-anything/tmp/ua-scan-results.json\")",
+      "Bash(node:*)",
+      "Bash(find /Users/blainewilson/Documents/GitHub/Overdrafter/src -name *sidebar* -o -name *Sidebar*)",
+      "Bash(find /Users/blainewilson/Documents/GitHub/Overdrafter/src -type f \\\\\\(-name *Shell* -o -name *Layout* \\\\\\))",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git stash:*)",
+      "Bash(git checkout:*)",
+      "Bash(git push:*)",
+      "Bash(gh run:*)",
+      "Bash(gh api:*)",
+      "Bash(npm install:*)",
+      "Skill(browse)",
+      "Skill(browse:*)",
+      "Bash(B=~/.claude/skills/gstack/browse/dist/browse)",
+      "Bash($B goto:*)",
+      "Bash($B wait:*)",
+      "Bash($B screenshot:*)",
+      "Bash($B console:*)",
+      "Bash($B js:*)",
+      "Bash($B reload:*)",
+      "Bash($B restart:*)",
+      "Bash(git rm:*)"
+    ]
+  }
+}

@@ -3,6 +3,7 @@ import type {
   PartAggregate,
   QuoteRequestRecord,
   QuoteRunRecord,
+  ServiceRequestLineItemRecord,
 } from "@/features/quotes/types";
 import type { JobRecord } from "@/features/quotes/types";
 
@@ -177,6 +178,7 @@ export function buildQuoteRequestViewModel(input: {
   job: JobRecord;
   part: PartAggregate | null;
   latestQuoteRequest: QuoteRequestRecord | null;
+  latestServiceLineItem: ServiceRequestLineItemRecord | null;
   latestQuoteRun: QuoteRunRecord | null;
 }): QuoteRequestViewModel {
   const blockerReasons = buildBlockerReasons({
@@ -184,7 +186,8 @@ export function buildQuoteRequestViewModel(input: {
     part: input.part,
   });
   const latestRequest = input.latestQuoteRequest;
-  const status = latestRequest?.status ?? deriveFallbackStatus(input);
+  const lineItem = input.latestServiceLineItem;
+  const status = lineItem?.status ?? latestRequest?.status ?? deriveFallbackStatus(input);
 
   switch (status) {
     case "queued":
