@@ -870,3 +870,52 @@ export type JobSummaryMetrics = {
 export type UploadableFile = File & {
   previewKind?: JobFileKind;
 };
+
+export type VendorCapabilityTag =
+  | "cnc_milling"
+  | "cnc_turning"
+  | "sheet_metal"
+  | "injection_molding"
+  | "3d_printing"
+  | "laser_cutting"
+  | "waterjet"
+  | "edm"
+  | "urethane_casting"
+  | "metal_3d_printing"
+  | "finishing_anodize"
+  | "finishing_powder_coat"
+  | "finishing_bead_blast"
+  | "finishing_plating"
+  | "finishing_passivation"
+  | "material_aluminum"
+  | "material_steel"
+  | "material_stainless"
+  | "material_plastic_abs"
+  | "material_plastic_delrin"
+  | "material_plastic_peek"
+  | "material_plastic_nylon"
+  | "material_brass"
+  | "material_copper"
+  | "material_titanium"
+  | "tight_tolerance"
+  | "high_volume"
+  | "rapid_prototyping"
+  | "production_run";
+
+export type VendorCapabilityProfile = {
+  id: string;
+  vendor: VendorName;
+  displayName: string;
+  supportedProcesses: string[];
+  supportedMaterials: string[];
+  supportedFinishes: string[];
+  capabilityTags: VendorCapabilityTag[];
+  minToleranceInch: number | null;
+  minQuantity: number;
+  maxQuantity: number | null;
+  typicalLeadMinDays: number | null;
+  typicalLeadMaxDays: number | null;
+  supportsInstantQuote: boolean;
+  activeForQuotes: boolean;
+  notes: string | null;
+};

@@ -294,6 +294,7 @@ describe("quotes api schema drift handling", () => {
     supabaseMock.setResolver("published_quote_packages", () => response([]));
     supabaseMock.setResolver("work_queue", () => response([]));
     supabaseMock.setResolver("pricing_policies", () => response(null));
+    supabaseMock.setResolver("service_request_line_items", () => response([]));
     supabaseMock.setResolver("drawing_preview_assets", () =>
       response(null, {
         code: "42703",
@@ -515,6 +516,7 @@ describe("quotes api schema drift handling", () => {
     supabaseMock.setResolver("project_jobs", () => response([]));
     supabaseMock.setResolver("drawing_preview_assets", () => response([]));
     supabaseMock.setResolver("quote_requests", () => response([]));
+    supabaseMock.setResolver("service_request_line_items", () => response([]));
     supabaseMock.rpc.mockImplementation((fn: string) => {
       if (fn === "api_list_client_part_metadata") {
         return Promise.resolve(
@@ -782,6 +784,7 @@ describe("quotes api schema drift handling", () => {
     supabaseMock.setResolver("project_jobs", () => response([]));
     supabaseMock.setResolver("drawing_preview_assets", () => response([]));
     supabaseMock.setResolver("quote_requests", () => response([]));
+    supabaseMock.setResolver("service_request_line_items", () => response([]));
     supabaseMock.rpc.mockImplementation((fn: string) => {
       if (fn === "api_list_client_part_metadata") {
         return Promise.resolve(
@@ -937,6 +940,7 @@ describe("quotes api schema drift handling", () => {
     supabaseMock.setResolver("project_jobs", () => response([]));
     supabaseMock.setResolver("drawing_preview_assets", () => response([]));
     supabaseMock.setResolver("quote_requests", () => response([]));
+    supabaseMock.setResolver("service_request_line_items", () => response([]));
     supabaseMock.rpc.mockImplementation((fn: string) => {
       if (fn === "api_list_client_part_metadata") {
         return Promise.resolve(
@@ -1102,6 +1106,7 @@ describe("quotes api schema drift handling", () => {
     supabaseMock.setResolver("project_jobs", () => response([]));
     supabaseMock.setResolver("drawing_preview_assets", () => response([]));
     supabaseMock.setResolver("quote_requests", () => response([]));
+    supabaseMock.setResolver("service_request_line_items", () => response([]));
     supabaseMock.rpc.mockImplementation((fn: string) => {
       if (fn === "api_list_client_part_metadata") {
         return Promise.resolve(
@@ -1386,6 +1391,7 @@ describe("quotes api schema drift handling", () => {
     supabaseMock.setResolver("quote_runs", () => response([]));
     supabaseMock.setResolver("drawing_preview_assets", () => response([]));
     supabaseMock.setResolver("vendor_quote_results", () => response([]));
+    supabaseMock.setResolver("service_request_line_items", () => response([]));
     supabaseMock.rpc.mockImplementation((fn: string) => {
       if (fn === "api_list_client_part_metadata") {
         return Promise.resolve(
@@ -1555,6 +1561,7 @@ describe("quotes api schema drift handling", () => {
     supabaseMock.setResolver("quote_runs", () => response([]));
     supabaseMock.setResolver("drawing_preview_assets", () => response([]));
     supabaseMock.setResolver("vendor_quote_results", () => response([]));
+    supabaseMock.setResolver("service_request_line_items", () => response([]));
     supabaseMock.rpc.mockImplementation((fn: string) => {
       if (fn === "api_list_client_part_metadata") {
         return Promise.resolve(
@@ -1597,6 +1604,7 @@ describe("quotes api schema drift handling", () => {
             jobId: "job-1",
             latestQuoteRun: null,
             selectedOffer: null,
+
             vendorQuotes: [],
           },
         ]));

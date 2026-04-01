@@ -853,6 +853,175 @@ async function insertSeedData(admin, users, assetFiles) {
       created_at: FIXTURE_TIMESTAMP,
     },
   ]);
+
+  // Seed vendor capability profiles (OVD-134/OVD-135)
+  await upsertRows(admin, "vendor_capability_profiles", [
+    {
+      vendor: "xometry",
+      display_name: "Xometry",
+      supported_processes: ["cnc_milling", "cnc_turning", "sheet_metal", "injection_molding", "3d_printing", "laser_cutting", "waterjet", "edm", "urethane_casting", "metal_3d_printing"],
+      supported_materials: ["aluminum_6061", "aluminum_7075", "stainless_steel_304", "stainless_steel_316", "steel_1018", "steel_4140", "brass", "copper", "titanium_ti64", "abs", "delrin", "peek", "nylon", "polycarbonate"],
+      supported_finishes: ["anodize_type_ii", "anodize_type_iii", "powder_coat", "bead_blast", "passivation", "plating", "chromate"],
+      capability_tags: ["cnc_milling", "cnc_turning", "sheet_metal", "injection_molding", "3d_printing", "laser_cutting", "waterjet", "edm", "urethane_casting", "metal_3d_printing", "finishing_anodize", "finishing_powder_coat", "finishing_bead_blast", "finishing_plating", "finishing_passivation", "material_aluminum", "material_steel", "material_stainless", "material_plastic_abs", "material_plastic_delrin", "material_plastic_peek", "material_plastic_nylon", "material_brass", "material_copper", "material_titanium", "tight_tolerance", "high_volume", "rapid_prototyping", "production_run"],
+      min_tolerance_inch: 0.0005,
+      min_quantity: 1,
+      typical_lead_min_days: 1,
+      typical_lead_max_days: 20,
+      supports_instant_quote: true,
+      active_for_quotes: true,
+      notes: "Full-service marketplace with broadest capability coverage.",
+    },
+    {
+      vendor: "fictiv",
+      display_name: "Fictiv",
+      supported_processes: ["cnc_milling", "cnc_turning", "sheet_metal", "injection_molding", "3d_printing", "urethane_casting"],
+      supported_materials: ["aluminum_6061", "aluminum_7075", "stainless_steel_304", "stainless_steel_316", "steel_1018", "brass", "abs", "delrin", "peek", "nylon", "polycarbonate"],
+      supported_finishes: ["anodize_type_ii", "anodize_type_iii", "powder_coat", "bead_blast", "passivation", "plating"],
+      capability_tags: ["cnc_milling", "cnc_turning", "sheet_metal", "injection_molding", "3d_printing", "urethane_casting", "finishing_anodize", "finishing_powder_coat", "finishing_bead_blast", "finishing_plating", "finishing_passivation", "material_aluminum", "material_steel", "material_stainless", "material_plastic_abs", "material_plastic_delrin", "material_plastic_peek", "material_plastic_nylon", "material_brass", "tight_tolerance", "rapid_prototyping", "production_run"],
+      min_tolerance_inch: 0.001,
+      min_quantity: 1,
+      typical_lead_min_days: 2,
+      typical_lead_max_days: 15,
+      supports_instant_quote: true,
+      active_for_quotes: true,
+      notes: "Digital manufacturing platform focused on CNC and injection molding.",
+    },
+    {
+      vendor: "protolabs",
+      display_name: "Protolabs",
+      supported_processes: ["cnc_milling", "cnc_turning", "injection_molding", "3d_printing", "sheet_metal"],
+      supported_materials: ["aluminum_6061", "aluminum_7075", "stainless_steel_304", "steel_1018", "brass", "abs", "delrin", "peek", "nylon", "polycarbonate", "polypropylene"],
+      supported_finishes: ["anodize_type_ii", "bead_blast", "powder_coat", "passivation"],
+      capability_tags: ["cnc_milling", "cnc_turning", "injection_molding", "3d_printing", "sheet_metal", "finishing_anodize", "finishing_powder_coat", "finishing_bead_blast", "finishing_passivation", "material_aluminum", "material_steel", "material_stainless", "material_plastic_abs", "material_plastic_delrin", "material_plastic_peek", "material_plastic_nylon", "material_brass", "tight_tolerance", "rapid_prototyping", "production_run"],
+      min_tolerance_inch: 0.001,
+      min_quantity: 1,
+      typical_lead_min_days: 1,
+      typical_lead_max_days: 15,
+      supports_instant_quote: true,
+      active_for_quotes: true,
+      notes: "Rapid prototyping and low-volume production with automated quoting.",
+    },
+    {
+      vendor: "sendcutsend",
+      display_name: "SendCutSend",
+      supported_processes: ["laser_cutting", "waterjet", "sheet_metal"],
+      supported_materials: ["aluminum_5052", "aluminum_6061", "stainless_steel_304", "stainless_steel_316", "steel_1018", "brass", "copper", "titanium_ti64", "acrylic", "wood"],
+      supported_finishes: ["anodize_type_ii", "anodize_type_iii", "powder_coat", "bead_blast", "plating", "chromate"],
+      capability_tags: ["laser_cutting", "waterjet", "sheet_metal", "finishing_anodize", "finishing_powder_coat", "finishing_bead_blast", "finishing_plating", "material_aluminum", "material_steel", "material_stainless", "material_brass", "material_copper", "material_titanium", "rapid_prototyping"],
+      min_tolerance_inch: 0.005,
+      min_quantity: 1,
+      typical_lead_min_days: 2,
+      typical_lead_max_days: 10,
+      supports_instant_quote: true,
+      active_for_quotes: true,
+      notes: "Specialized in laser-cut and sheet metal parts.",
+    },
+    {
+      vendor: "partsbadger",
+      display_name: "PartsBadger",
+      supported_processes: ["cnc_milling", "cnc_turning", "sheet_metal"],
+      supported_materials: ["aluminum_6061", "stainless_steel_304", "steel_1018", "delrin"],
+      supported_finishes: ["anodize_type_ii", "bead_blast"],
+      capability_tags: ["cnc_milling", "cnc_turning", "sheet_metal", "finishing_anodize", "finishing_bead_blast", "material_aluminum", "material_steel", "material_stainless", "material_plastic_delrin"],
+      min_tolerance_inch: 0.002,
+      min_quantity: 1,
+      typical_lead_min_days: 3,
+      typical_lead_max_days: 14,
+      supports_instant_quote: false,
+      active_for_quotes: true,
+      notes: "Manual import vendor. CNC and sheet metal focus.",
+    },
+    {
+      vendor: "fastdms",
+      display_name: "FastDMS",
+      supported_processes: ["cnc_milling", "cnc_turning", "injection_molding"],
+      supported_materials: ["aluminum_6061", "stainless_steel_304", "steel_1018", "abs", "delrin"],
+      supported_finishes: ["anodize_type_ii", "bead_blast"],
+      capability_tags: ["cnc_milling", "cnc_turning", "injection_molding", "finishing_anodize", "finishing_bead_blast", "material_aluminum", "material_steel", "material_stainless", "material_plastic_abs", "material_plastic_delrin"],
+      min_tolerance_inch: 0.002,
+      min_quantity: 1,
+      typical_lead_min_days: 5,
+      typical_lead_max_days: 20,
+      supports_instant_quote: false,
+      active_for_quotes: true,
+      notes: "Manual import vendor. CNC and molding.",
+    },
+    {
+      vendor: "devzmanufacturing",
+      display_name: "DEVZ Manufacturing",
+      supported_processes: ["cnc_milling", "cnc_turning", "sheet_metal"],
+      supported_materials: ["aluminum_6061", "stainless_steel_304", "steel_1018"],
+      supported_finishes: ["anodize_type_ii", "bead_blast"],
+      capability_tags: ["cnc_milling", "cnc_turning", "sheet_metal", "finishing_anodize", "finishing_bead_blast", "material_aluminum", "material_steel", "material_stainless"],
+      min_tolerance_inch: 0.002,
+      min_quantity: 1,
+      typical_lead_min_days: 5,
+      typical_lead_max_days: 21,
+      supports_instant_quote: false,
+      active_for_quotes: true,
+      notes: "Manual import vendor. General CNC and fabrication.",
+    },
+    {
+      vendor: "infraredlaboratories",
+      display_name: "Infrared Laboratories",
+      supported_processes: ["cnc_milling", "edm"],
+      supported_materials: ["aluminum_6061", "stainless_steel_304", "titanium_ti64", "peek"],
+      supported_finishes: ["anodize_type_ii", "passivation"],
+      capability_tags: ["cnc_milling", "edm", "finishing_anodize", "finishing_passivation", "material_aluminum", "material_stainless", "material_titanium", "material_plastic_peek", "tight_tolerance"],
+      min_tolerance_inch: 0.0005,
+      min_quantity: 1,
+      typical_lead_min_days: 7,
+      typical_lead_max_days: 30,
+      supports_instant_quote: false,
+      active_for_quotes: true,
+      notes: "Manual import vendor. Specialized precision and aerospace-grade work.",
+    },
+  ], "vendor");
+
+  // Seed org vendor configs (OVD-135)
+  // Enable the 4 instant-quote vendors by default for the seed org
+  await upsertRows(admin, "org_vendor_configs", [
+    {
+      organization_id: ids.organization,
+      vendor: "xometry",
+      enabled_for_client_quote_requests: true,
+    },
+    {
+      organization_id: ids.organization,
+      vendor: "fictiv",
+      enabled_for_client_quote_requests: true,
+    },
+    {
+      organization_id: ids.organization,
+      vendor: "protolabs",
+      enabled_for_client_quote_requests: true,
+    },
+    {
+      organization_id: ids.organization,
+      vendor: "sendcutsend",
+      enabled_for_client_quote_requests: true,
+    },
+    {
+      organization_id: ids.organization,
+      vendor: "partsbadger",
+      enabled_for_client_quote_requests: false,
+    },
+    {
+      organization_id: ids.organization,
+      vendor: "fastdms",
+      enabled_for_client_quote_requests: false,
+    },
+    {
+      organization_id: ids.organization,
+      vendor: "devzmanufacturing",
+      enabled_for_client_quote_requests: false,
+    },
+    {
+      organization_id: ids.organization,
+      vendor: "infraredlaboratories",
+      enabled_for_client_quote_requests: false,
+    },
+  ], "organization_id,vendor");
 }
 
 function createJobFileRow(input) {
@@ -1107,8 +1276,8 @@ function createQuotedSampleOfferRow({ id, quoteResultId, lane, sortRank }) {
   };
 }
 
-async function upsertRows(admin, table, rows) {
-  const { error } = await admin.from(table).upsert(rows, { onConflict: "id" });
+async function upsertRows(admin, table, rows, onConflict = "id") {
+  const { error } = await admin.from(table).upsert(rows, { onConflict });
 
   if (error) {
     throw error;

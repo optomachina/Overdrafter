@@ -23,13 +23,17 @@ import type {
 import type { ClientOptionKind, Json, VendorName } from "@/integrations/supabase/types";
 import { readRfqLineItemExtendedMetadata } from "@/features/quotes/rfq-metadata";
 import {
-  formatRequestedQuoteQuantitiesInput,
+  normalizeRequestedQuoteQuantitiesInput,
   normalizeRequestedQuoteQuantities,
 } from "@/features/quotes/request-intake";
 import {
   normalizeRequestedServiceIntent,
   requestedServicesRequireMaterial,
 } from "@/features/quotes/service-intent";
+import {
+  resolveApplicableVendors,
+  getFallbackCapabilityProfiles,
+} from "@/features/quotes/vendor-capabilities";
 
 export const DEFAULT_APPLICABLE_VENDORS: VendorName[] = [
   "xometry",
@@ -856,10 +860,12 @@ export function buildRequirementDraft(
     applicableVendors:
       approved?.applicable_vendors?.length
         ? approved.applicable_vendors
-        : DEFAULT_APPLICABLE_VENDORS.filter((vendor) =>
-            vendor === "sendcutsend"
-              ? (normalizedExtraction.tightestTolerance.valueInch ?? 0.005) >= 0.005
-              : true,
+        : resolveApplicableVendors(
+            getFallbackCapabilityProfiles(),
+            null,
+            {
+              toleranceInch: normalizedExtraction.tightestTolerance.valueInch,
+            },
           ),
   };
 }
