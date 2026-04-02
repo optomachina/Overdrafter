@@ -710,7 +710,7 @@ export function WorkspaceSidebar({
       }
 
       try {
-        window.localStorage.setItem(expandedStorageKey, JSON.stringify(next));
+        globalThis.localStorage.setItem(expandedStorageKey, JSON.stringify(next));
       } catch {
         // Ignore storage failures.
       }
