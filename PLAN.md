@@ -52,6 +52,7 @@ Implement the ideal multi-agent UX (see PRD.md North Star).
 - Scope: Xometry + Fictiv only (Protolabs/SendCutSend are instant-quote providers deferred to TODO-017)
 - Include concurrent-session scenario in test suite
 - Document go/no-go result before enabling production traffic
+- Worker gate harness command: `npm --prefix worker run validate:openclaw-gate -- --quote-run-id <quote-run-id>`
 
 **Task B: Live OpenClaw harness (Xometry + Fictiv)** *(gated on Task A passing)*
 - Xometry: already has live Playwright automation (`worker/src/adapters/xometry.ts:477+`); enable in production
