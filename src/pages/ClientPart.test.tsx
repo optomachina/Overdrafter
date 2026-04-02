@@ -194,89 +194,6 @@ vi.mock("@/components/chat/SearchPartsDialog", () => ({
   SearchPartsDialog: () => null,
 }));
 
-vi.mock("@/components/ui/tabs", async () => {
-  const React = await vi.importActual<typeof import("react")>("react");
-  const TabsContext = React.createContext<{
-    value: string;
-    setValue: (next: string) => void;
-  } | null>(null);
-
-  function useTabsContext() {
-    const context = React.useContext(TabsContext);
-    if (!context) {
-      throw new Error("Tabs components must be rendered inside Tabs");
-    }
-    return context;
-  }
-
-  return {
-    Tabs: ({
-      defaultValue,
-      className,
-      children,
-    }: {
-      defaultValue: string;
-      className?: string;
-      children?: ReactNode;
-    }) => {
-      const [value, setValue] = React.useState(defaultValue);
-      return (
-        <TabsContext.Provider value={{ value, setValue }}>
-          <div className={className}>{children}</div>
-        </TabsContext.Provider>
-      );
-    },
-    TabsList: ({ className, children }: { className?: string; children?: ReactNode }) => (
-      <div role="tablist" className={className}>
-        {children}
-      </div>
-    ),
-    TabsTrigger: ({
-      value,
-      className,
-      children,
-    }: {
-      value: string;
-      className?: string;
-      children?: ReactNode;
-    }) => {
-      const context = useTabsContext();
-      const isActive = context.value === value;
-      return (
-        <button
-          type="button"
-          role="tab"
-          aria-selected={isActive}
-          data-state={isActive ? "active" : "inactive"}
-          className={className}
-          onClick={() => context.setValue(value)}
-        >
-          {children}
-        </button>
-      );
-    },
-    TabsContent: ({
-      value,
-      className,
-      children,
-    }: {
-      value: string;
-      className?: string;
-      children?: ReactNode;
-    }) => {
-      const context = useTabsContext();
-      if (context.value !== value) {
-        return null;
-      }
-      return (
-        <div role="tabpanel" className={className}>
-          {children}
-        </div>
-      );
-    },
-  };
-});
-
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   DropdownMenuTrigger: ({ children }: { children?: ReactNode }) => <>{children}</>,
@@ -516,6 +433,8 @@ function renderWithClient(initialEntry: string) {
 
 async function openWorkspaceTab(name: "Quote" | "Request" | "Files" | "Activity") {
   const [tab] = await screen.findAllByRole("tab", { name });
+  fireEvent.pointerDown(tab, { button: 0, ctrlKey: false });
+  fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
   fireEvent.click(tab);
 }
 
