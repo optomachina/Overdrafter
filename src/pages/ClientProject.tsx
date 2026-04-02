@@ -25,6 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { WorkspaceInlineSearch } from "@/components/workspace/WorkspaceInlineSearch";
@@ -109,6 +110,149 @@ function quoteStatusBadgeClassName(status: string | null | undefined) {
   return "border border-white/10 bg-white/6 text-white/70";
 }
 
+type ProjectInspectorItem = {
+  label: string;
+  value: string;
+};
+
+type ProjectInspectorContentProps = {
+  focusedJobId: string | null;
+  focusedWorkspaceItem: ReturnType<typeof useClientProjectController>["focusedWorkspaceItem"];
+  focusedInspectorModel: {
+    description: string;
+    partNumber: string;
+    properties: ProjectInspectorItem[];
+    project: ProjectInspectorItem[];
+    quoteBadge: {
+      label: string;
+      status: string;
+    } | null;
+  } | null;
+  onClear: () => void;
+  onOpenPartWorkspace: () => void;
+};
+
+function ProjectInspectorContent({
+  focusedJobId,
+  focusedWorkspaceItem,
+  focusedInspectorModel,
+  onClear,
+  onOpenPartWorkspace,
+}: ProjectInspectorContentProps) {
+  return (
+    <>
+      <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
+        <div className="space-y-1">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Inspector</p>
+          {focusedJobId && focusedWorkspaceItem ? (
+            <>
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-white">
+                {focusedInspectorModel?.partNumber ??
+                  focusedWorkspaceItem.part?.approvedRequirement?.part_number ??
+                  focusedWorkspaceItem.summary?.partNumber ??
+                  focusedWorkspaceItem.part?.name ??
+                  focusedWorkspaceItem.job.title}
+              </h2>
+              <p className="text-sm text-white/55">
+                {focusedInspectorModel?.description ??
+                  focusedWorkspaceItem.part?.approvedRequirement?.description ??
+                  focusedWorkspaceItem.summary?.description ??
+                  focusedWorkspaceItem.part?.name ??
+                  "Inspector shell only until OVD-81c wires real content."}
+              </p>
+            </>
+          ) : (
+            <>
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-white">No part selected</h2>
+              <p className="text-sm text-white/55">
+                Select a row in the ledger to inspect that part without leaving the project workspace.
+              </p>
+            </>
+          )}
+        </div>
+        {focusedJobId ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-8 rounded-full px-3 text-white/65 hover:bg-white/6 hover:text-white"
+            onClick={onClear}
+          >
+            Clear
+          </Button>
+        ) : null}
+      </div>
+
+      <div className="mt-4 space-y-3">
+        <details open className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-white marker:content-none">
+            Properties
+          </summary>
+          <div className="border-t border-white/10 px-4 py-3 text-sm text-white/55">
+            {focusedInspectorModel ? (
+              <div className="space-y-2">
+                {focusedInspectorModel.properties.map((item) => (
+                  <div
+                    key={item.label}
+                    className="flex items-start justify-between gap-4 border-b border-white/[0.05] pb-2 last:border-0 last:pb-0"
+                  >
+                    <span className="text-white/45">{item.label}</span>
+                    <span className="text-right font-medium text-white">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              "Properties details appear here after you select a part."
+            )}
+          </div>
+        </details>
+
+        <details open className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-white marker:content-none">
+            Project
+          </summary>
+          <div className="border-t border-white/10 px-4 py-3 text-sm text-white/55">
+            {focusedInspectorModel ? (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  {focusedInspectorModel.project.map((item) => (
+                    <div
+                      key={item.label}
+                      className="flex items-start justify-between gap-4 border-b border-white/[0.05] pb-2 last:border-0 last:pb-0"
+                    >
+                      <span className="text-white/45">{item.label}</span>
+                      <span className="text-right font-medium text-white">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {focusedInspectorModel.quoteBadge ? (
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Quote status</p>
+                    <Badge className={quoteStatusBadgeClassName(focusedInspectorModel.quoteBadge.status)}>
+                      {focusedInspectorModel.quoteBadge.label}
+                    </Badge>
+                  </div>
+                ) : null}
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                  onClick={onOpenPartWorkspace}
+                >
+                  Open part workspace
+                </Button>
+              </div>
+            ) : (
+              "Project details appear here after you select a part."
+            )}
+          </div>
+        </details>
+      </div>
+    </>
+  );
+}
+
 const ClientProject = () => {
   const {
     activeFilter,
@@ -184,6 +328,9 @@ const ClientProject = () => {
     projectJobMembershipsByCompositeKey,
     focusedJobId,
     focusedWorkspaceItem,
+    isMobile,
+    mobileDrawerOpen,
+    setMobileDrawerOpen,
   } = useClientProjectController();
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
@@ -683,6 +830,7 @@ const ClientProject = () => {
                               : "hover:bg-white/[0.02]",
                           )}
                           onClick={() => handleOpenJobDrawer(job.id)}
+                          onDoubleClick={() => navigate(`/parts/${job.id}`)}
                         >
                           <TableCell className="w-[18%] max-w-[220px] px-5 py-2.5">
                             <p className="truncate text-[13px] font-medium text-white">{partNumber}</p>
@@ -761,124 +909,52 @@ const ClientProject = () => {
               )}
             </div>
 
-            {isInspectorOpen ? (
+            {isInspectorOpen && !isMobile ? (
               <aside
                 aria-label="Project inspector"
                 className="w-full shrink-0 rounded-lg border border-ws-border-subtle bg-ws-card p-4 xl:sticky xl:top-4 xl:w-[320px]"
               >
-                <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
-                  <div className="space-y-1">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Inspector</p>
-                    {focusedJobId && focusedWorkspaceItem ? (
-                      <>
-                        <h2 className="text-lg font-semibold tracking-[-0.02em] text-white">
-                          {focusedInspectorModel?.partNumber ??
-                            focusedWorkspaceItem.part?.approvedRequirement?.part_number ??
-                            focusedWorkspaceItem.summary?.partNumber ??
-                            focusedWorkspaceItem.part?.name ??
-                            focusedWorkspaceItem.job.title}
-                        </h2>
-                        <p className="text-sm text-white/55">
-                          {focusedInspectorModel?.description ??
-                            focusedWorkspaceItem.part?.approvedRequirement?.description ??
-                            focusedWorkspaceItem.summary?.description ??
-                            focusedWorkspaceItem.part?.name ??
-                            "Inspector shell only until OVD-81c wires real content."}
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <h2 className="text-lg font-semibold tracking-[-0.02em] text-white">No part selected</h2>
-                        <p className="text-sm text-white/55">
-                          Select a row in the ledger to inspect that part without leaving the project workspace.
-                        </p>
-                      </>
-                    )}
-                  </div>
-                  {focusedJobId ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="h-8 rounded-full px-3 text-white/65 hover:bg-white/6 hover:text-white"
-                      onClick={handleClearFocusedJob}
-                    >
-                      Clear
-                    </Button>
-                  ) : null}
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  <details open className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
-                    <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-white marker:content-none">
-                      Properties
-                    </summary>
-                    <div className="border-t border-white/10 px-4 py-3 text-sm text-white/55">
-                      {focusedInspectorModel ? (
-                        <div className="space-y-2">
-                          {focusedInspectorModel.properties.map((item) => (
-                            <div
-                              key={item.label}
-                              className="flex items-start justify-between gap-4 border-b border-white/[0.05] pb-2 last:border-0 last:pb-0"
-                            >
-                              <span className="text-white/45">{item.label}</span>
-                              <span className="text-right font-medium text-white">{item.value}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        "Properties details appear here after you select a part."
-                      )}
-                    </div>
-                  </details>
-
-                  <details open className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
-                    <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-white marker:content-none">
-                      Project
-                    </summary>
-                    <div className="border-t border-white/10 px-4 py-3 text-sm text-white/55">
-                      {focusedInspectorModel ? (
-                        <div className="space-y-4">
-                          <div className="space-y-2">
-                            {focusedInspectorModel.project.map((item) => (
-                              <div
-                                key={item.label}
-                                className="flex items-start justify-between gap-4 border-b border-white/[0.05] pb-2 last:border-0 last:pb-0"
-                              >
-                                <span className="text-white/45">{item.label}</span>
-                                <span className="text-right font-medium text-white">{item.value}</span>
-                              </div>
-                            ))}
-                          </div>
-
-                          {focusedInspectorModel.quoteBadge ? (
-                            <div className="space-y-2">
-                              <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Quote status</p>
-                              <Badge className={quoteStatusBadgeClassName(focusedInspectorModel.quoteBadge.status)}>
-                                {focusedInspectorModel.quoteBadge.label}
-                              </Badge>
-                            </div>
-                          ) : null}
-
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="w-full rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
-                            onClick={() => navigate(`/parts/${focusedJobId}`)}
-                          >
-                            Open part workspace
-                          </Button>
-                        </div>
-                      ) : (
-                        "Project details appear here after you select a part."
-                      )}
-                    </div>
-                  </details>
-                </div>
+                <ProjectInspectorContent
+                  focusedJobId={focusedJobId}
+                  focusedWorkspaceItem={focusedWorkspaceItem}
+                  focusedInspectorModel={focusedInspectorModel}
+                  onClear={handleClearFocusedJob}
+                  onOpenPartWorkspace={() => {
+                    if (focusedJobId) {
+                      navigate(`/parts/${focusedJobId}`);
+                    }
+                  }}
+                />
               </aside>
             ) : null}
           </div>
         </div>
       </ClientWorkspaceShell>
+
+      {isInspectorOpen && isMobile ? (
+        <Sheet open={mobileDrawerOpen} onOpenChange={setMobileDrawerOpen}>
+          <SheetContent
+            side="bottom"
+            className="h-[min(85vh,42rem)] overflow-y-auto border-white/10 bg-ws-card px-4 pb-6 pt-10 text-white sm:max-w-none"
+          >
+            <SheetHeader className="sr-only">
+              <SheetTitle>Project inspector</SheetTitle>
+              <SheetDescription>Inspect the currently selected part inside the project workspace.</SheetDescription>
+            </SheetHeader>
+            <ProjectInspectorContent
+              focusedJobId={focusedJobId}
+              focusedWorkspaceItem={focusedWorkspaceItem}
+              focusedInspectorModel={focusedInspectorModel}
+              onClear={handleClearFocusedJob}
+              onOpenPartWorkspace={() => {
+                if (focusedJobId) {
+                  navigate(`/parts/${focusedJobId}`);
+                }
+              }}
+            />
+          </SheetContent>
+        </Sheet>
+      ) : null}
 
       <SearchPartsDialog
         open={isSearchOpen}

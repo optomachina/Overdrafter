@@ -13,7 +13,7 @@ import type {
 import { createClientQuoteWorkspaceItemFixture } from "@/features/quotes/client-workspace-fixtures";
 import ClientProject from "./ClientProject";
 
-const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock } = vi.hoisted(() => ({
+const { api, mockUseAppSession, mockUseIsMobile, prefetchProjectPage, prefetchPartPage, toastMock } = vi.hoisted(() => ({
   api: {
     archiveJob: vi.fn(),
     archiveProject: vi.fn(),
@@ -59,6 +59,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
     uploadFilesToJob: vi.fn(),
   },
   mockUseAppSession: vi.fn(),
+  mockUseIsMobile: vi.fn(() => false),
   prefetchProjectPage: vi.fn(),
   prefetchPartPage: vi.fn(),
   toastMock: {
@@ -143,7 +144,7 @@ vi.mock("@/hooks/use-app-session", () => ({
 }));
 
 vi.mock("@/hooks/use-mobile", () => ({
-  useIsMobile: () => false,
+  useIsMobile: () => mockUseIsMobile(),
 }));
 
 vi.mock("sonner", () => ({
@@ -415,6 +416,7 @@ describe("ClientProject", () => {
       activeMembership: { organizationId: "org-1", role: "client" },
       signOut: vi.fn(),
     });
+    mockUseIsMobile.mockReturnValue(false);
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
     api.fetchClientActivityEventsByJobIds.mockResolvedValue([]);
     api.fetchAccessibleProjects.mockResolvedValue([
@@ -608,6 +610,17 @@ describe("ClientProject", () => {
     });
   });
 
+  it("double-clicks a row to navigate directly to the part route", async () => {
+    renderWithClient("/projects/project-1");
+
+    const partNumberCell = await screen.findByText("BRKT-001");
+    fireEvent.doubleClick(partNumberCell);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location-path")).toHaveTextContent("/parts/job-1");
+    });
+  });
+
   it("falls back to requirement metadata when the summary is missing", async () => {
     api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([
       createWorkspaceItemFixture({
@@ -764,6 +777,24 @@ describe("ClientProject", () => {
     const inspector = screen.getByRole("complementary", { name: "Project inspector" });
     const quoteBadge = within(inspector).getByText(label);
     expect(quoteBadge).toHaveClass(...classes);
+  });
+
+  it("opens the inspector in a sheet on mobile row selection", async () => {
+    mockUseIsMobile.mockReturnValue(true);
+
+    renderWithClient("/projects/project-1");
+
+    const partNumberCell = await screen.findByText("BRKT-001");
+    fireEvent.click(partNumberCell);
+
+    const inspectorSheet = await screen.findByRole("dialog");
+    expect(screen.queryByRole("complementary", { name: "Project inspector" })).not.toBeInTheDocument();
+    expect(within(inspectorSheet).getByRole("heading", { name: "BRKT-001" })).toBeInTheDocument();
+    expect(within(inspectorSheet).getAllByText("Machined mounting bracket").length).toBeGreaterThan(0);
+    expect(within(inspectorSheet).getByText("Material")).toBeInTheDocument();
+    expect(within(inspectorSheet).getByText("6061-T6")).toBeInTheDocument();
+    expect(within(inspectorSheet).getByRole("button", { name: "Open part workspace" })).toBeInTheDocument();
+    expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-1");
   });
 
   it("clears the selected row on Escape and returns the inspector to the default state", async () => {
