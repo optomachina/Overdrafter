@@ -110,7 +110,8 @@ async function fetchLatestQuoteRequestsByJobIds(jobIds: string[]): Promise<Map<s
       .from("quote_requests")
       .select("*")
       .in("job_id", jobIds)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false });
 
     data = response.data as QuoteRequestRecord[] | null;
     error = response.error;
@@ -127,9 +128,18 @@ async function fetchLatestQuoteRequestsByJobIds(jobIds: string[]): Promise<Map<s
   }
 
   const requests = ensureData(data, error) as QuoteRequestRecord[];
+  const requestsByRecency = [...requests].sort((left, right) => {
+    const createdAtComparison = right.created_at.localeCompare(left.created_at);
+
+    if (createdAtComparison !== 0) {
+      return createdAtComparison;
+    }
+
+    return right.id.localeCompare(left.id);
+  });
   const latestByJobId = new Map<string, QuoteRequestRecord>();
 
-  requests.forEach((request) => {
+  requestsByRecency.forEach((request) => {
     if (!latestByJobId.has(request.job_id)) {
       latestByJobId.set(request.job_id, request);
     }

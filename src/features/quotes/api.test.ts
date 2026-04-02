@@ -110,6 +110,16 @@ const supabaseMock = vi.hoisted(() => {
   projectJobsIn.mockImplementation(() => projectJobsQuery);
   const projectJobsSelect = vi.fn(() => projectJobsQuery);
 
+  const quoteRequestsOrder = vi.fn();
+  const quoteRequestsIn = vi.fn();
+  const quoteRequestsQuery = {
+    in: quoteRequestsIn,
+    order: quoteRequestsOrder,
+  };
+  quoteRequestsIn.mockImplementation(() => quoteRequestsQuery);
+  quoteRequestsOrder.mockImplementation(() => quoteRequestsQuery);
+  const quoteRequestsSelect = vi.fn(() => quoteRequestsQuery);
+
   const pinnedProjectsOrder = vi.fn();
   const pinnedProjectsEq = vi.fn(() => ({ order: pinnedProjectsOrder }));
   const pinnedProjectsSelect = vi.fn(() => ({ eq: pinnedProjectsEq }));
@@ -184,6 +194,12 @@ const supabaseMock = vi.hoisted(() => {
       };
     }
 
+    if (table === "quote_requests") {
+      return {
+        select: quoteRequestsSelect,
+      };
+    }
+
     if (table === "user_pinned_projects") {
       return {
         select: pinnedProjectsSelect,
@@ -255,6 +271,10 @@ const supabaseMock = vi.hoisted(() => {
     projectJobsOrder,
     projectJobsQuery,
     projectJobsSelect,
+    quoteRequestsIn,
+    quoteRequestsOrder,
+    quoteRequestsQuery,
+    quoteRequestsSelect,
     pinnedJobsDelete,
     pinnedJobsDeleteEqFirst,
     pinnedJobsDeleteEqSecond,
@@ -356,6 +376,7 @@ import {
   fetchAccessibleJobs,
   fetchArchivedJobs,
   fetchAppSessionData,
+  fetchClientQuoteWorkspaceByJobIds,
   fetchJobAggregate,
   fetchJobPartSummariesByJobIds,
   fetchProject,
@@ -457,6 +478,9 @@ describe("quotes api helpers", () => {
     supabaseMock.projectJobsEq.mockImplementation(() => supabaseMock.projectJobsQuery);
     supabaseMock.projectJobsIn.mockImplementation(() => supabaseMock.projectJobsQuery);
     supabaseMock.projectJobsSelect.mockImplementation(() => supabaseMock.projectJobsQuery);
+    supabaseMock.quoteRequestsIn.mockImplementation(() => supabaseMock.quoteRequestsQuery);
+    supabaseMock.quoteRequestsOrder.mockImplementation(() => supabaseMock.quoteRequestsQuery);
+    supabaseMock.quoteRequestsSelect.mockImplementation(() => supabaseMock.quoteRequestsQuery);
     supabaseMock.authGetSession.mockResolvedValue({
       data: {
         session: {
@@ -1535,6 +1559,132 @@ describe("quotes api helpers", () => {
         selectedLeadTimeBusinessDays: 7,
       }),
     ]);
+  });
+
+  it("uses the newest quote request fallback when created_at ties by ordering on id", async () => {
+    supabaseMock.jobsIs.mockResolvedValueOnce({
+      data: [
+        {
+          id: "job-1",
+          organization_id: "org-1",
+          project_id: null,
+          selected_vendor_quote_offer_id: null,
+          created_by: "user-1",
+          title: "Bracket",
+          description: null,
+          status: "ready_to_quote",
+          source: "client_home",
+          active_pricing_policy_id: null,
+          tags: [],
+          requested_service_kinds: ["manufacturing_quote"],
+          primary_service_kind: "manufacturing_quote",
+          service_notes: null,
+          requested_quote_quantities: [10],
+          requested_by_date: null,
+          archived_at: null,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.jobsIn
+      .mockImplementationOnce(() => supabaseMock.jobsQuery)
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: "job-1",
+            selected_vendor_quote_offer_id: null,
+            requested_service_kinds: ["manufacturing_quote"],
+            primary_service_kind: "manufacturing_quote",
+            service_notes: null,
+            requested_quote_quantities: [10],
+            requested_by_date: null,
+          },
+        ],
+        error: null,
+      });
+    supabaseMock.jobFilesOrder
+      .mockResolvedValueOnce({ data: [], error: null })
+      .mockResolvedValueOnce({ data: [], error: null });
+    supabaseMock.partsOrder
+      .mockResolvedValueOnce({ data: [], error: null })
+      .mockResolvedValueOnce({ data: [], error: null });
+    supabaseMock.projectJobsIn.mockResolvedValueOnce({
+      data: [],
+      error: null,
+    });
+    supabaseMock.quoteRequestsOrder
+      .mockImplementationOnce(() => supabaseMock.quoteRequestsQuery)
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: "request-a",
+            organization_id: "org-1",
+            job_id: "job-1",
+            requested_by: "user-1",
+            requested_vendors: ["xometry"],
+            service_request_line_item_id: "line-item-1",
+            status: "failed",
+            failure_reason: "Quote collection failed before a usable vendor response was received.",
+            received_at: null,
+            failed_at: "2026-03-02T10:00:00Z",
+            canceled_at: null,
+            created_at: "2026-03-02T10:00:00Z",
+            updated_at: "2026-03-02T10:00:00Z",
+          },
+          {
+            id: "request-b",
+            organization_id: "org-1",
+            job_id: "job-1",
+            requested_by: "user-1",
+            requested_vendors: ["xometry"],
+            service_request_line_item_id: "line-item-1",
+            status: "queued",
+            failure_reason: null,
+            received_at: null,
+            failed_at: null,
+            canceled_at: null,
+            created_at: "2026-03-02T10:00:00Z",
+            updated_at: "2026-03-02T10:00:00Z",
+          },
+        ],
+        error: null,
+      });
+    supabaseMock.rpc.mockImplementation((fn: string) => {
+      if (fn === "api_list_client_part_metadata") {
+        return Promise.resolve({
+          data: [],
+          error: null,
+        });
+      }
+
+      if (fn === "api_list_client_quote_workspace") {
+        return Promise.resolve({
+          data: [
+            {
+              jobId: "job-1",
+              latestQuoteRun: null,
+              selectedOffer: null,
+              vendorQuotes: [],
+            },
+          ],
+          error: null,
+        });
+      }
+
+      return Promise.resolve({
+        data: false,
+        error: null,
+      });
+    });
+
+    const [{ latestQuoteRequest }] = await fetchClientQuoteWorkspaceByJobIds(["job-1"]);
+
+    expect(latestQuoteRequest?.id).toBe("request-b");
+    expect(latestQuoteRequest?.status).toBe("queued");
+    expect(supabaseMock.quoteRequestsOrder).toHaveBeenNthCalledWith(1, "created_at", { ascending: false });
+    expect(supabaseMock.quoteRequestsOrder).toHaveBeenNthCalledWith(2, "id", { ascending: false });
   });
 
   it("falls back to unfiltered job reads when the archive column is missing", async () => {
