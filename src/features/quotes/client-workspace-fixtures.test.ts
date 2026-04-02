@@ -178,4 +178,43 @@ describe("client workspace fixtures", () => {
     expect(propertyState?.createdAt).toEqual(expect.any(String));
     expect(propertyState?.updatedAt).toEqual(expect.any(String));
   });
+
+  it("uses effective default-backed values in fixture mode when a nullable override is cleared", async () => {
+    window.history.replaceState({}, "", "/projects/fx-project-quoted?fixture=client-quoted");
+
+    const gateway = getActiveClientWorkspaceGateway();
+    expect(gateway).not.toBeNull();
+
+    const [workspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
+    const part = workspaceItem?.part;
+    expect(part).toBeTruthy();
+
+    const input = buildClientPartRequestUpdateInput(
+      "fx-job-quoted-a",
+      buildRequirementDraft(part!, {
+        requested_service_kinds: workspaceItem?.job.requested_service_kinds ?? [],
+        primary_service_kind: workspaceItem?.job.primary_service_kind ?? null,
+        service_notes: workspaceItem?.job.service_notes ?? null,
+        requested_quote_quantities: workspaceItem?.job.requested_quote_quantities ?? [],
+        requested_by_date: workspaceItem?.job.requested_by_date ?? null,
+      }),
+    );
+
+    await gateway!.updateClientPartRequest({
+      ...input,
+      description: null,
+    });
+
+    const [updatedWorkspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
+    const summaries = await gateway!.fetchJobPartSummariesByJobIds(["fx-job-quoted-a"]);
+    const propertyState = updatedWorkspaceItem?.part?.clientRequirement?.projectPartProperties;
+
+    expect(updatedWorkspaceItem?.part?.clientRequirement?.description).toBe(input.description);
+    expect(updatedWorkspaceItem?.part?.approvedRequirement?.description).toBe(input.description);
+    expect(updatedWorkspaceItem?.job.description).toBe(input.description);
+    expect(summaries[0]?.description).toBe(input.description);
+    expect(propertyState?.overrides).toMatchObject({
+      description: null,
+    });
+  });
 });

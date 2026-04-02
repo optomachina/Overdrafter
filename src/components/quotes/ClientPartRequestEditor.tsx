@@ -103,7 +103,10 @@ export function ClientPartRequestEditor({
           <Textarea
             id="client-request-threads"
             value={draft.threads ?? ""}
-            onChange={(event) => onChange({ threads: event.target.value || null })}
+            onChange={(event) => {
+              const value = event.target.value.trim();
+              onChange({ threads: value.length > 0 ? value : null });
+            }}
             className="min-h-[88px] border-white/10 bg-black/20 text-white"
             placeholder="Optional thread callouts such as 1/4-20 UNC-2B."
           />

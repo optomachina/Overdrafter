@@ -246,11 +246,14 @@ as $$
             else null
           end,
         'updatedAt',
-          greatest(
-            coalesce(projection.requirement_updated_at, '-infinity'::timestamptz),
-            coalesce(projection.extraction_updated_at, '-infinity'::timestamptz),
-            coalesce(projection.latest_task_updated_at, '-infinity'::timestamptz),
-            coalesce(projection.requirement_created_at, '-infinity'::timestamptz)
+          nullif(
+            greatest(
+              coalesce(projection.requirement_updated_at, '-infinity'::timestamptz),
+              coalesce(projection.extraction_updated_at, '-infinity'::timestamptz),
+              coalesce(projection.latest_task_updated_at, '-infinity'::timestamptz),
+              coalesce(projection.requirement_created_at, '-infinity'::timestamptz)
+            ),
+            '-infinity'::timestamptz
           ),
         'lifecycle',
           case
@@ -277,6 +280,28 @@ as $$
 $$;
 
 grant execute on function public.api_list_client_part_metadata(uuid[]) to authenticated;
+
+drop function if exists public.api_update_client_part_request(
+  uuid,
+  text[],
+  text,
+  text,
+  text,
+  text,
+  text,
+  text,
+  text,
+  numeric,
+  text,
+  text,
+  integer,
+  integer[],
+  date,
+  jsonb,
+  jsonb,
+  jsonb,
+  jsonb
+);
 
 create or replace function public.api_update_client_part_request(
   p_job_id uuid,
@@ -787,6 +812,7 @@ declare
   v_job public.jobs%rowtype;
   v_part public.parts%rowtype;
   v_requirement public.approved_part_requirements%rowtype;
+  v_extraction public.drawing_extractions%rowtype;
   v_timestamp timestamptz := timezone('utc', now());
   v_property_state jsonb := '{}'::jsonb;
   v_property_defaults jsonb := '{}'::jsonb;
@@ -798,6 +824,7 @@ declare
   v_finish_effective text;
   v_threads_effective text;
   v_tightest_tolerance_effective numeric;
+  v_extracted_threads text;
 begin
   perform public.require_verified_auth();
 
@@ -834,9 +861,119 @@ begin
     return v_job.id;
   end if;
 
+  select *
+  into v_extraction
+  from public.drawing_extractions
+  where part_id = v_part.id;
+
   v_property_state := coalesce(v_requirement.spec_snapshot -> 'projectPartProperties', '{}'::jsonb);
   v_property_defaults := coalesce(v_property_state -> 'defaults', '{}'::jsonb);
   v_property_overrides := coalesce(v_property_state -> 'overrides', '{}'::jsonb);
+  v_extracted_threads := array_to_string(
+    array(
+      select trimmed_thread
+      from (
+        select nullif(trim(value), '') as trimmed_thread
+        from jsonb_array_elements_text(coalesce(v_extraction.extraction -> 'threads', '[]'::jsonb)) as thread_values(value)
+      ) trimmed_threads
+      where trimmed_thread is not null
+    ),
+    ', '
+  );
+
+  if not (v_property_defaults ? 'description') then
+    v_property_defaults := v_property_defaults || jsonb_build_object(
+      'description',
+      to_jsonb(
+        coalesce(
+          nullif(trim(coalesce(v_requirement.spec_snapshot ->> 'quoteDescription', '')), ''),
+          nullif(trim(coalesce(v_requirement.description, '')), ''),
+          nullif(trim(coalesce(v_extraction.extraction ->> 'quoteDescription', '')), ''),
+          nullif(trim(coalesce(v_extraction.extraction ->> 'description', v_extraction.extraction ->> 'desc', '')), ''),
+          null
+        )
+      )
+    );
+  end if;
+
+  if not (v_property_defaults ? 'partNumber') then
+    v_property_defaults := v_property_defaults || jsonb_build_object(
+      'partNumber',
+      to_jsonb(
+        coalesce(
+          nullif(trim(coalesce(v_requirement.part_number, '')), ''),
+          nullif(trim(coalesce(v_requirement.spec_snapshot ->> 'partNumber', '')), ''),
+          nullif(trim(coalesce(v_extraction.extraction ->> 'partNumber', v_extraction.extraction ->> 'pn', '')), ''),
+          null
+        )
+      )
+    );
+  end if;
+
+  if not (v_property_defaults ? 'material') then
+    v_property_defaults := v_property_defaults || jsonb_build_object(
+      'material',
+      to_jsonb(
+        coalesce(
+          nullif(trim(coalesce(v_requirement.material, '')), ''),
+          nullif(trim(coalesce(
+            v_extraction.extraction #>> '{material,normalized}',
+            v_extraction.extraction #>> '{material,raw}',
+            v_extraction.extraction #>> '{material,raw_text}',
+            v_extraction.extraction ->> 'material',
+            ''
+          )), ''),
+          ''
+        )
+      )
+    );
+  end if;
+
+  if not (v_property_defaults ? 'finish') then
+    v_property_defaults := v_property_defaults || jsonb_build_object(
+      'finish',
+      to_jsonb(
+        coalesce(
+          nullif(trim(coalesce(v_requirement.spec_snapshot ->> 'quoteFinish', '')), ''),
+          nullif(trim(coalesce(v_requirement.finish, '')), ''),
+          nullif(trim(coalesce(
+            v_extraction.extraction ->> 'quoteFinish',
+            v_extraction.extraction #>> '{finish,normalized}',
+            v_extraction.extraction #>> '{finish,raw}',
+            v_extraction.extraction #>> '{finish,raw_text}',
+            v_extraction.extraction ->> 'finish',
+            ''
+          )), ''),
+          null
+        )
+      )
+    );
+  end if;
+
+  if not (v_property_defaults ? 'threads') then
+    v_property_defaults := v_property_defaults || jsonb_build_object(
+      'threads',
+      to_jsonb(
+        coalesce(
+          nullif(trim(coalesce(v_requirement.spec_snapshot ->> 'threads', '')), ''),
+          v_extracted_threads,
+          null
+        )
+      )
+    );
+  end if;
+
+  if not (v_property_defaults ? 'tightestToleranceInch') then
+    v_property_defaults := v_property_defaults || jsonb_build_object(
+      'tightestToleranceInch',
+      to_jsonb(
+        coalesce(
+          v_requirement.tightest_tolerance_inch,
+          nullif(v_extraction.extraction #>> '{tolerances,valueInch}', '')::numeric
+        )
+      )
+    );
+  end if;
 
   foreach v_field in array coalesce(p_fields, '{}'::text[])
   loop
@@ -875,6 +1012,11 @@ begin
     nullif(v_property_defaults ->> 'tightestToleranceInch', '')::numeric
   );
 
+  if 'manufacturing_quote' = any(coalesce(v_job.requested_service_kinds, '{}'::text[]))
+    and v_material_effective = '' then
+    raise exception 'Material is required for manufacturing quote requests.';
+  end if;
+
   v_requirement.spec_snapshot := coalesce(v_requirement.spec_snapshot, '{}'::jsonb)
     || jsonb_build_object(
       'description', v_description_effective,
@@ -901,12 +1043,15 @@ begin
   update public.approved_part_requirements
   set
     approved_by = auth.uid(),
-    description = v_description_effective,
-    part_number = v_part_number_effective,
-    material = coalesce(v_material_effective, ''),
-    finish = v_finish_effective,
-    tightest_tolerance_inch = v_tightest_tolerance_effective,
-    spec_snapshot = v_requirement.spec_snapshot,
+    description = coalesce(v_description_effective, public.approved_part_requirements.description),
+    part_number = coalesce(v_part_number_effective, public.approved_part_requirements.part_number),
+    material = coalesce(v_material_effective, public.approved_part_requirements.material, ''),
+    finish = coalesce(v_finish_effective, public.approved_part_requirements.finish),
+    tightest_tolerance_inch = coalesce(
+      v_tightest_tolerance_effective,
+      public.approved_part_requirements.tightest_tolerance_inch
+    ),
+    spec_snapshot = coalesce(v_requirement.spec_snapshot, public.approved_part_requirements.spec_snapshot),
     approved_at = v_timestamp,
     updated_at = v_timestamp
   where part_id = v_part.id;

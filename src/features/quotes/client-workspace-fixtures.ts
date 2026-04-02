@@ -7,6 +7,7 @@ import type {
   ArchivedJobSummary,
   ArchivedProjectSummary,
   ClientActivityEvent,
+  ClientPartPropertyState,
   ClientPartRequirementView,
   ProjectAssigneeProfile,
   ClientPartRequestUpdateInput,
@@ -92,6 +93,29 @@ function ensureFixtureClientRequirement(part: PartAggregate | null | undefined):
 
   part.clientRequirement = request;
   return request;
+}
+
+function resolveFixtureProjectPartValue(
+  state: ClientPartPropertyState,
+  field: keyof ClientPartPropertyState["defaults"],
+) {
+  const hasOverride = Object.prototype.hasOwnProperty.call(state.overrides, field);
+
+  if (field === "material") {
+    if (hasOverride) {
+      return (state.overrides[field] as string | null | undefined) ?? "";
+    }
+
+    return (state.defaults[field] as string | null | undefined) ?? "";
+  }
+
+  const overrideValue = hasOverride ? state.overrides[field] : undefined;
+
+  if (overrideValue !== null && overrideValue !== undefined) {
+    return overrideValue;
+  }
+
+  return state.defaults[field];
 }
 
 export const CLIENT_WORKSPACE_FIXTURE_SCENARIOS = [
@@ -1904,9 +1928,24 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
         createdAt: previousPropertyState?.createdAt ?? timestamp,
         updatedAt: timestamp,
       };
+      const resolvedDescription =
+        (resolveFixtureProjectPartValue(nextPropertyState, "description") as string | null | undefined) ?? null;
+      const resolvedPartNumber =
+        (resolveFixtureProjectPartValue(nextPropertyState, "partNumber") as string | null | undefined) ?? null;
+      const resolvedMaterial =
+        ((resolveFixtureProjectPartValue(nextPropertyState, "material") as string | null | undefined) ?? "");
+      const resolvedFinish =
+        (resolveFixtureProjectPartValue(nextPropertyState, "finish") as string | null | undefined) ?? null;
+      const resolvedThreads =
+        (resolveFixtureProjectPartValue(nextPropertyState, "threads") as string | null | undefined) ?? null;
+      const resolvedTightestToleranceInch =
+        (resolveFixtureProjectPartValue(
+          nextPropertyState,
+          "tightestToleranceInch",
+        ) as number | null | undefined) ?? null;
 
-      summary.description = input.description;
-      summary.partNumber = input.partNumber;
+      summary.description = resolvedDescription;
+      summary.partNumber = resolvedPartNumber;
       summary.revision = input.revision;
       summary.requestedServiceKinds = [...input.requestedServiceKinds];
       summary.primaryServiceKind = input.primaryServiceKind;
@@ -1919,26 +1958,26 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       workspaceItem.job.service_notes = input.serviceNotes;
       workspaceItem.job.requested_quote_quantities = [...input.requestedQuoteQuantities];
       workspaceItem.job.requested_by_date = input.requestedByDate;
-      workspaceItem.job.description = input.description;
+      workspaceItem.job.description = resolvedDescription;
       workspaceItem.job.updated_at = timestamp;
       partDetail.job.requested_service_kinds = [...input.requestedServiceKinds];
       partDetail.job.primary_service_kind = input.primaryServiceKind;
       partDetail.job.service_notes = input.serviceNotes;
       partDetail.job.requested_quote_quantities = [...input.requestedQuoteQuantities];
       partDetail.job.requested_by_date = input.requestedByDate;
-      partDetail.job.description = input.description;
+      partDetail.job.description = resolvedDescription;
       partDetail.job.updated_at = timestamp;
 
       if (workspaceItem.part?.clientRequirement) {
         workspaceItem.part.clientRequirement = {
           ...workspaceItem.part.clientRequirement,
-          description: input.description ?? null,
-          partNumber: input.partNumber ?? null,
+          description: resolvedDescription,
+          partNumber: resolvedPartNumber,
           revision: input.revision ?? null,
-          material: input.material,
-          finish: input.finish ?? null,
-          threads: input.threads ?? null,
-          tightestToleranceInch: input.tightestToleranceInch ?? null,
+          material: resolvedMaterial,
+          finish: resolvedFinish,
+          threads: resolvedThreads,
+          tightestToleranceInch: resolvedTightestToleranceInch,
           process: input.process ?? null,
           notes: input.notes ?? null,
           quantity: input.quantity,
@@ -1949,22 +1988,29 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       }
 
       if (workspaceItem.part?.approvedRequirement) {
-        workspaceItem.part.approvedRequirement.description = input.description;
-        workspaceItem.part.approvedRequirement.part_number = input.partNumber;
+        workspaceItem.part.approvedRequirement.description = resolvedDescription;
+        workspaceItem.part.approvedRequirement.part_number = resolvedPartNumber;
         workspaceItem.part.approvedRequirement.revision = input.revision;
-        workspaceItem.part.approvedRequirement.material = input.material;
-        workspaceItem.part.approvedRequirement.finish = input.finish;
-        workspaceItem.part.approvedRequirement.tightest_tolerance_inch = input.tightestToleranceInch;
+        workspaceItem.part.approvedRequirement.material = resolvedMaterial;
+        workspaceItem.part.approvedRequirement.finish = resolvedFinish;
+        workspaceItem.part.approvedRequirement.tightest_tolerance_inch = resolvedTightestToleranceInch;
         workspaceItem.part.approvedRequirement.quantity = input.quantity;
         workspaceItem.part.approvedRequirement.quote_quantities = [...input.requestedQuoteQuantities];
         workspaceItem.part.approvedRequirement.requested_by_date = input.requestedByDate;
         workspaceItem.part.approvedRequirement.updated_at = timestamp;
         workspaceItem.part.approvedRequirement.spec_snapshot = {
           ...(workspaceItem.part.approvedRequirement.spec_snapshot as Record<string, unknown>),
+          description: resolvedDescription,
+          partNumber: resolvedPartNumber,
+          material: resolvedMaterial,
+          finish: resolvedFinish,
+          quoteDescription: resolvedDescription,
+          quoteFinish: resolvedFinish,
           requestedServiceKinds: [...input.requestedServiceKinds],
           primaryServiceKind: input.primaryServiceKind,
           serviceNotes: input.serviceNotes,
-          threads: input.threads ?? null,
+          threads: resolvedThreads,
+          tightestToleranceInch: resolvedTightestToleranceInch,
           process: input.process,
           notes: input.notes,
           projectPartProperties: nextPropertyState,
@@ -2041,31 +2087,36 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
         updatedAt: new Date().toISOString(),
       };
       const timestamp = nextState.updatedAt;
+      const resolvedDescription =
+        (resolveFixtureProjectPartValue(nextState, "description") as string | null | undefined) ?? null;
+      const resolvedPartNumber =
+        (resolveFixtureProjectPartValue(nextState, "partNumber") as string | null | undefined) ?? null;
+      const resolvedMaterial =
+        ((resolveFixtureProjectPartValue(nextState, "material") as string | null | undefined) ?? "");
+      const resolvedFinish =
+        (resolveFixtureProjectPartValue(nextState, "finish") as string | null | undefined) ?? null;
+      const resolvedThreads =
+        (resolveFixtureProjectPartValue(nextState, "threads") as string | null | undefined) ?? null;
+      const resolvedTightestToleranceInch =
+        (resolveFixtureProjectPartValue(nextState, "tightestToleranceInch") as number | null | undefined) ?? null;
 
       if (workspaceItem.part?.clientRequirement) {
-        const defaults = propertyState.defaults;
         workspaceItem.part.clientRequirement = {
           ...workspaceItem.part.clientRequirement,
-          description: fields.includes("description")
-            ? (defaults.description as string | null | undefined) ?? null
-            : workspaceItem.part.clientRequirement.description,
-          partNumber: fields.includes("partNumber")
-            ? (defaults.partNumber as string | null | undefined) ?? null
-            : workspaceItem.part.clientRequirement.partNumber,
-          material: fields.includes("material")
-            ? ((defaults.material as string | null | undefined) ?? "")
-            : workspaceItem.part.clientRequirement.material,
-          finish: fields.includes("finish")
-            ? (defaults.finish as string | null | undefined) ?? null
-            : workspaceItem.part.clientRequirement.finish,
-          threads: fields.includes("threads")
-            ? (defaults.threads as string | null | undefined) ?? null
-            : workspaceItem.part.clientRequirement.threads,
-          tightestToleranceInch: fields.includes("tightestToleranceInch")
-            ? ((defaults.tightestToleranceInch as number | null | undefined) ?? null)
-            : workspaceItem.part.clientRequirement.tightestToleranceInch,
+          description: resolvedDescription,
+          partNumber: resolvedPartNumber,
+          material: resolvedMaterial,
+          finish: resolvedFinish,
+          threads: resolvedThreads,
+          tightestToleranceInch: resolvedTightestToleranceInch,
           projectPartProperties: nextState,
         };
+      }
+
+      const summary = state.partSummariesByJobId[jobId];
+      if (summary) {
+        summary.description = resolvedDescription;
+        summary.partNumber = resolvedPartNumber;
       }
 
       if (partDetail.part && workspaceItem.part?.clientRequirement) {
@@ -2074,33 +2125,29 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       }
 
       if (workspaceItem.part?.approvedRequirement) {
-        workspaceItem.part.approvedRequirement.description =
-          workspaceItem.part.clientRequirement?.description ?? null;
-        workspaceItem.part.approvedRequirement.part_number =
-          workspaceItem.part.clientRequirement?.partNumber ?? null;
-        workspaceItem.part.approvedRequirement.material =
-          workspaceItem.part.clientRequirement?.material ?? "";
-        workspaceItem.part.approvedRequirement.finish =
-          workspaceItem.part.clientRequirement?.finish ?? null;
-        workspaceItem.part.approvedRequirement.tightest_tolerance_inch =
-          workspaceItem.part.clientRequirement?.tightestToleranceInch ?? null;
+        workspaceItem.part.approvedRequirement.description = resolvedDescription;
+        workspaceItem.part.approvedRequirement.part_number = resolvedPartNumber;
+        workspaceItem.part.approvedRequirement.material = resolvedMaterial;
+        workspaceItem.part.approvedRequirement.finish = resolvedFinish;
+        workspaceItem.part.approvedRequirement.tightest_tolerance_inch = resolvedTightestToleranceInch;
         workspaceItem.part.approvedRequirement.updated_at = timestamp;
         workspaceItem.part.approvedRequirement.spec_snapshot = {
           ...(workspaceItem.part.approvedRequirement.spec_snapshot as Record<string, unknown>),
-          description: workspaceItem.part.clientRequirement?.description ?? null,
-          partNumber: workspaceItem.part.clientRequirement?.partNumber ?? null,
-          material: workspaceItem.part.clientRequirement?.material ?? "",
-          finish: workspaceItem.part.clientRequirement?.finish ?? null,
-          threads: workspaceItem.part.clientRequirement?.threads ?? null,
-          quoteDescription: workspaceItem.part.clientRequirement?.description ?? null,
-          quoteFinish: workspaceItem.part.clientRequirement?.finish ?? null,
-          tightestToleranceInch:
-            workspaceItem.part.clientRequirement?.tightestToleranceInch ?? null,
+          description: resolvedDescription,
+          partNumber: resolvedPartNumber,
+          material: resolvedMaterial,
+          finish: resolvedFinish,
+          threads: resolvedThreads,
+          quoteDescription: resolvedDescription,
+          quoteFinish: resolvedFinish,
+          tightestToleranceInch: resolvedTightestToleranceInch,
           projectPartProperties: nextState,
         };
       }
 
+      workspaceItem.job.description = resolvedDescription;
       workspaceItem.job.updated_at = timestamp;
+      partDetail.job.description = resolvedDescription;
       partDetail.job.updated_at = timestamp;
 
       if (partDetail.part?.approvedRequirement && workspaceItem.part?.approvedRequirement) {

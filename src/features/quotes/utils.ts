@@ -886,6 +886,7 @@ export function buildRequirementDraft(
     finish: finishResolution.value,
     threads:
       clientRequirement?.threads ??
+      readSpecSnapshotString(approved?.spec_snapshot, "threads") ??
       (normalizedExtraction.threads && normalizedExtraction.threads.length > 0
         ? normalizedExtraction.threads.join(", ")
         : null) ??

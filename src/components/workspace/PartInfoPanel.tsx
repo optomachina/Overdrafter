@@ -100,7 +100,7 @@ function buildInfoRows(input: {
       label: "Thread",
       value:
         formatTextValue(draft?.threads) ||
-        extraction?.threads?.join(", ") ||
+        formatTextValue(extraction?.threads?.join(", ")) ||
         "—",
     },
   ];

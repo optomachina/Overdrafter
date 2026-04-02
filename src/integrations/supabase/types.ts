@@ -2072,7 +2072,7 @@ export type Database = {
           p_service_notes?: string
           p_shipping?: Json
           p_sourcing?: Json
-          p_threads?: string
+          p_threads?: string | null
           p_tightest_tolerance_inch?: number
         }
         Returns: string
