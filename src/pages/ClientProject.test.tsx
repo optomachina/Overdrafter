@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ClientProject from "./ClientProject";
 
-const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock } = vi.hoisted(() => ({
+const { api, mockUseAppSession, mockUseIsMobile, prefetchProjectPage, prefetchPartPage, toastMock } = vi.hoisted(() => ({
   api: {
     archiveJob: vi.fn(),
     archiveProject: vi.fn(),
@@ -52,6 +52,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
     uploadFilesToJob: vi.fn(),
   },
   mockUseAppSession: vi.fn(),
+  mockUseIsMobile: vi.fn(() => false),
   prefetchProjectPage: vi.fn(),
   prefetchPartPage: vi.fn(),
   toastMock: {
@@ -136,7 +137,7 @@ vi.mock("@/hooks/use-app-session", () => ({
 }));
 
 vi.mock("@/hooks/use-mobile", () => ({
-  useIsMobile: () => false,
+  useIsMobile: () => mockUseIsMobile(),
 }));
 
 vi.mock("sonner", () => ({
@@ -328,6 +329,7 @@ describe("ClientProject", () => {
       activeMembership: { organizationId: "org-1", role: "client" },
       signOut: vi.fn(),
     });
+    mockUseIsMobile.mockReturnValue(false);
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
     api.fetchClientActivityEventsByJobIds.mockResolvedValue([]);
     api.fetchAccessibleProjects.mockResolvedValue([
@@ -592,6 +594,33 @@ describe("ClientProject", () => {
     expect(within(inspector).getByRole("heading", { name: "BRKT-001" })).toBeInTheDocument();
     expect(within(inspector).getByText("Bracket")).toBeInTheDocument();
     expect(within(inspector).getByText("Properties content will be wired in OVD-81c.")).toBeInTheDocument();
+    expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-1");
+  });
+
+  it("double-clicks a row to navigate directly to the part route", async () => {
+    renderWithClient("/projects/project-1");
+
+    const partNumberCell = await screen.findByText("BRKT-001");
+    fireEvent.doubleClick(partNumberCell);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location-path")).toHaveTextContent("/parts/job-1");
+    });
+  });
+
+  it("opens the inspector in a sheet on mobile row selection", async () => {
+    mockUseIsMobile.mockReturnValue(true);
+
+    renderWithClient("/projects/project-1");
+
+    const partNumberCell = await screen.findByText("BRKT-001");
+    fireEvent.click(partNumberCell);
+
+    const inspectorSheet = await screen.findByRole("dialog");
+    expect(screen.queryByRole("complementary", { name: "Project inspector" })).not.toBeInTheDocument();
+    expect(within(inspectorSheet).getByRole("heading", { name: "BRKT-001" })).toBeInTheDocument();
+    expect(within(inspectorSheet).getByText("Bracket")).toBeInTheDocument();
+    expect(within(inspectorSheet).getByText("Properties content will be wired in OVD-81c.")).toBeInTheDocument();
     expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-1");
   });
 
