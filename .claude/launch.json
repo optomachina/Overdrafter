@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Frontend",
+      "runtimeExecutable": "/opt/homebrew/Cellar/node/25.6.1/bin/node",
+      "runtimeArgs": ["/Users/blainewilson/Documents/GitHub/Overdrafter/node_modules/vite/bin/vite.js", "--port", "8080"],
+      "port": 8080
+    },
+    {
+      "name": "Worker",
+      "runtimeExecutable": "/opt/homebrew/Cellar/node/25.6.1/bin/node",
+      "runtimeArgs": ["/Users/blainewilson/Documents/GitHub/Overdrafter/node_modules/tsx/dist/cli.mjs", "watch", "worker/src/index.ts"],
+      "port": 3001
+    }
+  ]
+}
