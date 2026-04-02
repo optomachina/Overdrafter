@@ -286,7 +286,7 @@ export function AuthPanel({
         <p className="text-[11px] font-medium uppercase tracking-[0.24em] text-white/40">
           {panelCopy.eyebrow}
         </p>
-        <h2 className="mt-3 text-2xl font-semibold tracking-tight">{panelCopy.title}</h2>
+        <h2 className="mt-3 text-2xl font-semibold tracking-tight" aria-hidden="true">{panelCopy.title}</h2>
         <p className="mt-2 text-sm leading-6 text-white/55">{panelCopy.description}</p>
       </div>
 

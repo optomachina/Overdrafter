@@ -18,6 +18,7 @@ type QuoteChartProps = {
   quotes: ClientQuoteSelectionOption[];
   selectedOfferId: string | null;
   onSelect: (offerId: string | null) => void;
+  onHoverOffer?: (offerId: string | null) => void;
 };
 
 type ChartPoint = {
@@ -96,7 +97,7 @@ function QuoteChartTooltip({
   }
 
   return (
-    <div className="rounded-xl border border-white/10 bg-[#2a2a2a] px-3 py-2 text-xs text-white/80 shadow-xl">
+    <div className="rounded-xl border border-white/10 bg-ws-raised px-3 py-2 text-xs text-white/80 shadow-xl">
       <p className="font-semibold text-white">{point.vendorLabel}</p>
       {point.tier || point.sourcing ? (
         <p className="text-white/55">{[point.tier, point.sourcing].filter(Boolean).join(" · ")}</p>
@@ -107,7 +108,7 @@ function QuoteChartTooltip({
   );
 }
 
-export function QuoteChart({ quotes, selectedOfferId, onSelect }: QuoteChartProps) {
+export function QuoteChart({ quotes, selectedOfferId, onSelect, onHoverOffer }: QuoteChartProps) {
   const [hoveredOfferId, setHoveredOfferId] = useState<string | null>(null);
   const series = useMemo(() => buildSeries(quotes), [quotes]);
   const hasSelected = selectedOfferId !== null;
@@ -158,10 +159,22 @@ export function QuoteChart({ quotes, selectedOfferId, onSelect }: QuoteChartProp
             onSelect(isSelected ? null : point.offerId);
           }
         }}
-        onFocus={() => setHoveredOfferId(point.offerId)}
-        onBlur={() => setHoveredOfferId((current) => (current === point.offerId ? null : current))}
-        onMouseEnter={() => setHoveredOfferId(point.offerId)}
-        onMouseLeave={() => setHoveredOfferId((current) => (current === point.offerId ? null : current))}
+        onFocus={() => {
+          setHoveredOfferId(point.offerId);
+          onHoverOffer?.(point.offerId);
+        }}
+        onBlur={() => {
+          setHoveredOfferId((current) => (current === point.offerId ? null : current));
+          onHoverOffer?.(null);
+        }}
+        onMouseEnter={() => {
+          setHoveredOfferId(point.offerId);
+          onHoverOffer?.(point.offerId);
+        }}
+        onMouseLeave={() => {
+          setHoveredOfferId((current) => (current === point.offerId ? null : current));
+          onHoverOffer?.(null);
+        }}
       />
     );
   };

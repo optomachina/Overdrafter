@@ -136,6 +136,26 @@ Remaining adjacent work:
 
 ---
 
+## TODO-017: Protolabs and SendCutSend live adapter automation
+
+**What:** Implement real Playwright automation for Protolabs and SendCutSend adapters (currently simulation-only). These are instant-quote providers that have more tractable APIs than Xometry.
+
+**Why:** Phase 2 Task B ships Xometry + Fictiv live automation. Protolabs and SendCutSend are deferred because they are instant-quote providers that may have programmatic APIs or simpler automation surfaces. Phase 2 multi-vendor live value is proven with Xometry + Fictiv first.
+
+**Blocking state:** Current adapter behavior (pre-Task-B) differs by adapter:
+- **Protolabs** (`worker/src/adapters/protolabs.ts`): returns `status: "official_quote_received"` with **simulated non-null prices** (`unitPriceUsd`/`totalPriceUsd`) in `WORKER_MODE=live`. No `VendorAutomationError` guard exists — fake prices are indistinguishable from real quotes in the DB.
+- **SendCutSend** (`worker/src/adapters/sendcutsend.ts`): returns `status: "manual_vendor_followup"` with null prices, but no `"not_implemented"` reason code.
+
+Task B must add a `VendorAutomationError("not_implemented")` guard to both adapters so they route to `manual_vendor_followup` in live mode instead of returning simulated data.
+
+**Where to start:** `worker/src/adapters/protolabs.ts` and `worker/src/adapters/sendcutsend.ts` — investigate whether instant-quote API endpoints exist before building Playwright automation. SendCutSend has a known instant-quote API.
+
+**Effort:** M each (human: ~1 week / CC: ~1 day) | **Priority:** P2
+
+**Depends on:** Task B (live harness + adapter guard pattern established)
+
+---
+
 ## ~~TODO-016: Add `locked_at` index to `work_queue` for reaper query performance~~ ✅ DONE (local)
 
 **What:** Add a partial index to `work_queue` supporting the reaper's access pattern:
@@ -279,3 +299,123 @@ Recommended evaluator behavior:
 **Resolution:** Shipped in `399a6a1` by converting the `ClientProject.tsx` parts list to semantic table markup and updating `ClientPartReview.tsx` to use the deferred two-column review split.
 
 **Verification evidence:** `ClientProject.tsx` now imports and renders `Table`, `TableHeader`, `TableBody`, `TableRow`, and `TableCell` for the parts list, `ClientPartReview.tsx` now uses the `xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]` two-column review layout, and the commit also updated `ClientProject.test.tsx` and `ClientReviews.test.tsx`.
+
+---
+
+## TODO-017: Internal-only view for extraction provenance and worker queue details
+
+**What:** After the Track 3 part page redesign moves extraction provenance badges and status cards into an accordion in the client view, add a dedicated internal view (or admin-only toggle) that surfaces this data without requiring the accordion. Target: `InternalJobPartRequirementCard` or a new `/internal/parts/:id` debug surface.
+
+**Why:** Internal staff debugging a bad extraction currently need to look in the database. Extraction provenance (model fallback, confidence scores, raw extracted fields) is exactly the data needed to diagnose extraction quality issues — but it will be hidden from the default part page view after Track 3 ships. An internal surface makes extraction quality review actionable without affecting the client experience.
+
+**Pros:** Speeds up extraction quality debugging. Complements TODO-006 (extraction quality alerts) — when an alert fires, staff can use this view to investigate without a DB query.
+
+**Cons:** Scope creep relative to the Frank-Ready Sprint. TODO-006's alert evaluator is the more principled approach to proactive quality monitoring. This UI is reactive/diagnostic only.
+
+**Context:** Identified during /plan-eng-review on 2026-03-31. The Track 3 part page redesign (Frank-Ready Sprint) moves `ClientExtractionStatusNotice` and `ClientQuoteRequestStatusCard` to an accordion. The internal extraction debug data — provenance fields, model fallback indicators, raw spec snapshot — will be in the accordion on the client view. Internal users need a cleaner path to this data.
+
+**Where to start:** Check `src/pages/internal-job-detail/` for the existing internal part detail surfaces. `InternalJobPartRequirementCard.tsx` already renders some extraction provenance. Extend that or add a debug panel to the internal route.
+
+**Effort:** S (human: ~3 hours / CC: ~10 min) | **Priority:** P3
+
+**Depends on:** Track 3 (Frank-Ready Sprint) merged. TODO-006 activation is a soft dependency — more useful with alerts in place.
+
+---
+
+## TODO-018: Editable spec fields on part page
+
+**What:** Add editable fields for material, finish, and quantity to the part page (`ClientPart.tsx`). Currently these are read-only after extraction. Frank needs to correct misextracted values without going to an internal admin view.
+
+**Why:** Extraction isn't perfect. When GPT-5.4 fallback produces a wrong material or quantity, Frank has no way to fix it from the client side. The Track 3 redesign deferred editing intentionally — too much CRUD surface for a parallel sprint — but it's the natural next step after the part page layout is stable.
+
+**Pros:** Closes the editing gap for Frank; removes dependency on internal staff to correct bad extractions. Directly increases trust in the product.
+
+**Cons:** Adds mutation surface (RPC + optimistic update + validation). The "reset to extracted" button (TODO-019) is a companion feature — ship together.
+
+**Context:** Deferred from Frank-Ready Sprint Track 3 (part page redesign). The spec display is read-only in that sprint. Editing was explicitly cut to keep Track 3 as a layout-only change. Identified as "NOT in scope" during /plan-eng-review on 2026-03-31.
+
+**Where to start:** `src/pages/ClientPart.tsx` — the spec section rendered after Track 3. `approved_part_requirements` table holds the editable fields. An `api_update_part_requirements` RPC or equivalent needs to exist or be added.
+
+**Effort:** M (human: ~1 week / CC: ~30 min) | **Priority:** P1
+
+**Depends on:** Track 3 (Frank-Ready Sprint) merged.
+
+---
+
+## TODO-019: "Reset to extracted" button on part spec fields
+
+**What:** After editable spec fields (TODO-018) are added, provide a "reset to extracted" action per field that restores the original GPT-extracted value from `approved_part_requirements.spec_snapshot`.
+
+**Why:** Frank may edit a field incorrectly and want to go back to what was extracted. Without a reset path, the original extracted value is effectively lost once overwritten.
+
+**Pros:** Safety net for edits. Makes editing feel low-risk — Frank can try a correction and undo it. Provenance is already stored in `spec_snapshot`.
+
+**Cons:** Requires surfacing per-field reset affordance in the UI without adding visual noise. UX judgment needed.
+
+**Context:** Deferred from Frank-Ready Sprint Track 3. Explicitly called out as out of scope in the design doc. Identified as "NOT in scope" during /plan-eng-review on 2026-03-31.
+
+**Where to start:** `approved_part_requirements.spec_snapshot` already stores the raw extracted values. The reset action is a targeted write back to the editable fields from the snapshot.
+
+**Effort:** S (human: ~2 hours / CC: ~10 min) | **Priority:** P2
+
+**Depends on:** TODO-018 (editable spec fields).
+
+---
+
+## TODO-020: Stripe / cart checkout after Frank's first paid session
+
+**What:** Replace the `ProcurementHandoffPanel` stub and PDF export CTA with a real Stripe checkout flow. Frank selects quotes, clicks "Proceed to checkout," pays via Stripe, and receives a confirmation with the selected vendors and amounts.
+
+**Why:** The Frank-Ready Sprint closes the loop with a PDF export stub. That's enough for the first demo session. Once Frank has paid manually (or confirmed intent), the Stripe integration is the next revenue-enabling step.
+
+**Pros:** Converts a demo into a transaction. Unlocks real revenue from Frank's first session.
+
+**Cons:** Stripe integration, webhook handling, and fulfillment coordination are non-trivial. Should not be rushed before Frank has validated the full loop manually.
+
+**Context:** Explicitly deferred in the Frank-Ready Sprint design doc: "Cart / Stripe can be a stub for the first session." Identified as "NOT in scope" during /plan-eng-review on 2026-03-31. Pick this up only after Frank completes at least one full demo session with the PDF export path.
+
+**Where to start:** `src/pages/ClientProjectReview.tsx` — replace or extend `ProcurementHandoffPanel`. Add Stripe Elements or Stripe Payment Links depending on complexity preference.
+
+**Effort:** L (human: ~2 weeks / CC: ~2 hours) | **Priority:** P1 (after first paid session)
+
+**Depends on:** Frank-Ready Sprint merged and Frank's first demo session completed.
+
+---
+
+## TODO-021: Per-job and per-project vendor preferences
+
+**What:** Allow Frank to pin or exclude specific vendors per job or per project. Currently `api_request_quote` fans out to all org-enabled applicable vendors. Frank may want to always use vendor X for aluminum parts or exclude vendor Y for a specific project.
+
+**Why:** Frank manages multiple RFQ batches with different vendor relationships. Blanket org-level vendor config is too coarse for his workflow once he's using the system regularly.
+
+**Pros:** Reduces noise from irrelevant vendor quotes. Matches how Frank already manages vendor relationships manually (some vendors are better for certain materials or lead times).
+
+**Cons:** Adds preference persistence (new table or JSON column), UI for preference editing, and logic in `api_request_quote` to merge org-level config with job/project overrides.
+
+**Context:** Listed as remaining adjacent work under TODO-014. Identified as "NOT in scope" during /plan-eng-review on 2026-03-31. Phase 2 core.
+
+**Where to start:** `supabase/migrations/` — add `job_vendor_preferences` or `project_vendor_preferences` table. Update `get_enabled_client_quote_vendors()` to accept and merge override preferences. UI: a vendor selector in the part or project inspector panel.
+
+**Effort:** M (human: ~1 week / CC: ~45 min) | **Priority:** P2
+
+**Depends on:** Multi-vendor fan-out (TODO-014, shipped). Frank-Ready Sprint merged.
+
+---
+
+## TODO-022: Client comparison UI for vendor-level in-flight state and results
+
+**What:** After `api_request_quote` fans out to multiple vendors in parallel, show Frank the real-time status of each vendor lane — which vendors have responded, which are still pending, and what each quote looks like side-by-side before he selects one.
+
+**Why:** The current UI shows a single "quote received" state. With multi-vendor fan-out, Frank needs to see "Xometry: $42 / 5 days, Fictiv: pending, Protolabs: $38 / 7 days" and choose. The `ClientQuoteDecisionPanel` exists but doesn't surface per-vendor in-flight state.
+
+**Pros:** This is the core differentiated value of Overdrafter — seeing all vendors at once. Without this view, multi-vendor fan-out is invisible to the client.
+
+**Cons:** Requires polling or subscription for real-time vendor lane updates. The `client-quote-workspace` query already polls on 5s intervals during extraction — same pattern can be extended for quote fan-out.
+
+**Context:** Listed as remaining adjacent work under TODO-014. Identified as "NOT in scope" during /plan-eng-review on 2026-03-31. Phase 2 core.
+
+**Where to start:** `src/components/quotes/ClientQuoteDecisionPanel.tsx` — add per-vendor status indicators using the `options` array (each option has a vendor and status). `use-client-project-controller.ts` — check how `projectWorkspaceItemsQuery` refetch interval works and whether vendor-lane pending state is already in the data shape.
+
+**Effort:** M (human: ~1 week / CC: ~30 min) | **Priority:** P1
+
+**Depends on:** Multi-vendor fan-out (TODO-014, shipped). Frank-Ready Sprint Track 2 merged.

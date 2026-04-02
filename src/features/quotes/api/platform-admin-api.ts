@@ -44,21 +44,21 @@ export type AdminProjectSummary = {
 };
 
 export async function fetchAdminOrganizations(): Promise<AdminOrganizationSummary[]> {
-  const { data, error } = await callRpc("api_admin_list_organizations", {});
+  const { data, error } = await callRpc("api_admin_list_organizations");
   return ensureData(data, error) as AdminOrganizationSummary[];
 }
 
 export async function fetchAdminAllUsers(): Promise<AdminUserSummary[]> {
-  const { data, error } = await callRpc("api_admin_list_all_users", {});
+  const { data, error } = await callRpc("api_admin_list_all_users");
   return ensureData(data, error) as AdminUserSummary[];
 }
 
 export async function fetchAdminAllJobs(): Promise<AdminJobSummary[]> {
-  const { data, error } = await callRpc("api_admin_list_all_jobs", {});
+  const { data, error } = await callRpc("api_admin_list_all_jobs");
   return ensureData(data, error) as AdminJobSummary[];
 }
 
 export async function fetchAdminAllProjects(): Promise<AdminProjectSummary[]> {
-  const { data, error } = await callRpc("api_admin_list_all_projects", {});
+  const { data, error } = await callRpc("api_admin_list_all_projects");
   return ensureData(data, error) as AdminProjectSummary[];
 }

@@ -53,6 +53,12 @@ describe("project-assignee", () => {
     expect(getProjectAssigneeBubbleColor(profile)).toBe(getProjectAssigneeBubbleColor(profile));
   });
 
+  it("uses different stable colors for different user identities when possible", () => {
+    expect(getProjectAssigneeBubbleColor(makeProfile({ userId: "user-1" }))).not.toBe(
+      getProjectAssigneeBubbleColor(makeProfile({ userId: "user-2" })),
+    );
+  });
+
   it("treats a missing profile as an explicit unassigned state", () => {
     expect(buildProjectAssigneeBadgeModel(null)).toEqual({
       displayName: "Unassigned",

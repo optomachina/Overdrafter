@@ -153,4 +153,50 @@ describe("ClientQuoteDecisionPanel", () => {
     expect(screen.getAllByText(/invalid total price format/i)).toHaveLength(2);
     expect(screen.queryByText("Quote Chart")).not.toBeInTheDocument();
   });
+
+  it("renders custom controls instead of the legacy preset row when provided", () => {
+    render(
+      <ClientQuoteDecisionPanel
+        options={[makeOption()]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate="2026-04-15"
+        activePreset="cheapest"
+        onPresetSelect={vi.fn()}
+        controls={<div>Function Box</div>}
+      />,
+    );
+
+    expect(screen.getByText("Function Box")).toBeInTheDocument();
+    expect(screen.queryByText("Presets")).not.toBeInTheDocument();
+  });
+
+  it("renders compact quote cards when requested", async () => {
+    render(
+      <ClientQuoteDecisionPanel
+        options={[
+          makeOption(),
+          makeOption({
+            key: "option-2",
+            offerId: "offer-2",
+            persistedOfferId: "offer-2",
+            vendorQuoteResultId: "result-2",
+            vendorLabel: "Proto Labs",
+            supplier: "Proto Labs",
+            totalPriceUsd: 160,
+          }),
+        ]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate="2026-04-15"
+        layout="compact"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Proto Labs")).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Vendor" })).not.toBeInTheDocument();
+  });
 });

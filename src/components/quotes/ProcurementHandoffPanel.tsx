@@ -34,7 +34,7 @@ export function ProcurementHandoffPanel({
   }
 
   return (
-    <section className="rounded-[26px] border border-white/8 bg-[#262626] p-6">
+    <section className="rounded-[26px] border border-white/8 bg-ws-card p-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-2xl">
           <p className="text-xs uppercase tracking-[0.18em] text-white/35">Procurement handoff</p>

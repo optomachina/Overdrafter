@@ -21,6 +21,16 @@ const useClientWorkspaceDataMock = vi.fn();
 const useWarmClientWorkspaceNavigationMock = vi.fn();
 let authStateChangeCallbacks: Array<(event: string, session: Session | null) => void> = [];
 
+function deferredPromise<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 vi.mock("@/features/quotes/api/session-access", () => ({
   fetchAppSessionData: () => fetchAppSessionDataMock(),
   createSelfServiceOrganization: (...args: unknown[]) => createSelfServiceOrganizationMock(...args),
@@ -137,15 +147,23 @@ vi.mock("@/features/quotes/upload-groups", () => ({
   buildProjectNameFromLabels: vi.fn(() => "Recovered Project"),
 }));
 
-function createSessionData(input: { memberships?: AppSessionData["memberships"] }): AppSessionData {
+function createSessionData(input: {
+  memberships?: AppSessionData["memberships"];
+  authState?: AppSessionData["authState"];
+  isVerifiedAuth?: boolean;
+  isPlatformAdmin?: boolean;
+  membershipError?: string;
+}): AppSessionData {
   return {
     user: {
       id: "user-1",
       email: "client@example.com",
     } as AppSessionData["user"],
     memberships: input.memberships ?? [],
-    isVerifiedAuth: true,
-    authState: "authenticated",
+    isVerifiedAuth: input.isVerifiedAuth ?? true,
+    isPlatformAdmin: input.isPlatformAdmin ?? false,
+    authState: input.authState ?? "authenticated",
+    membershipError: input.membershipError,
   };
 }
 
@@ -306,6 +324,170 @@ describe("useClientHomeController membership recovery", () => {
     });
 
     expect(createJobsFromUploadFilesMock).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("bootstraps a clean verified zero-membership session exactly once", async () => {
+    const emptySession = createSessionData({
+      memberships: [],
+    });
+    const bootstrappedSession = createSessionData({
+      memberships: [
+        {
+          id: "membership-1",
+          role: "client",
+          organizationId: "org-1",
+          organizationName: "Client Org",
+          organizationSlug: "client-org",
+        },
+      ],
+    });
+    const sessionResponses = [
+      {
+        user: null,
+        memberships: [],
+        isVerifiedAuth: false,
+        authState: "anonymous" as const,
+      },
+      emptySession,
+      bootstrappedSession,
+    ];
+
+    fetchAppSessionDataMock.mockImplementation(async () => {
+      return sessionResponses.shift() ?? bootstrappedSession;
+    });
+    createSelfServiceOrganizationMock.mockResolvedValueOnce("org-1");
+
+    const { result, unmount } = renderHook(() => useClientHomeController(), {
+      wrapper: createWrapper(),
+    });
+
+    emitSignedInAuthEvent();
+
+    await waitFor(() => {
+      expect(result.current.user?.id).toBe("user-1");
+      expect(result.current.isAuthInitializing).toBe(false);
+    });
+
+    await waitFor(() => {
+      expect(createSelfServiceOrganizationMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(createSelfServiceOrganizationMock).toHaveBeenCalledWith("Client");
+    expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(3);
+    unmount();
+  });
+
+  it("does not bootstrap when the session is not yet stable", async () => {
+    fetchAppSessionDataMock.mockResolvedValue(
+      createSessionData({
+        memberships: [],
+        authState: "session_error",
+      }),
+    );
+
+    const { unmount } = renderHook(() => useClientHomeController(), {
+      wrapper: createWrapper(),
+    });
+
+    emitSignedInAuthEvent();
+
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalled();
+    });
+
+    expect(createSelfServiceOrganizationMock).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("does not bootstrap from the auth-event seed before the network session resolves", async () => {
+    const deferredSession = deferredPromise<AppSessionData>();
+    fetchAppSessionDataMock
+      .mockResolvedValueOnce({
+        user: null,
+        memberships: [],
+        isVerifiedAuth: false,
+        authState: "anonymous",
+      })
+      .mockReturnValueOnce(deferredSession.promise);
+
+    const { result, unmount } = renderHook(() => useClientHomeController(), {
+      wrapper: createWrapper(),
+    });
+
+    emitSignedInAuthEvent();
+
+    await waitFor(() => {
+      expect(result.current.user?.id).toBe("user-1");
+    });
+
+    expect(createSelfServiceOrganizationMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      deferredSession.resolve(
+        createSessionData({
+          memberships: [
+            {
+              id: "membership-1",
+              role: "client",
+              organizationId: "org-1",
+              organizationName: "Client Org",
+              organizationSlug: "client-org",
+            },
+          ],
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(result.current.activeMembership?.organizationId).toBe("org-1");
+    });
+
+    expect(createSelfServiceOrganizationMock).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("does not bootstrap when membership resolution is degraded", async () => {
+    fetchAppSessionDataMock.mockResolvedValue(
+      createSessionData({
+        memberships: [],
+        membershipError: "temporary membership lookup failure",
+      }),
+    );
+
+    const { unmount } = renderHook(() => useClientHomeController(), {
+      wrapper: createWrapper(),
+    });
+
+    emitSignedInAuthEvent();
+
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalled();
+    });
+
+    expect(createSelfServiceOrganizationMock).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("does not bootstrap a zero-membership platform admin", async () => {
+    fetchAppSessionDataMock.mockResolvedValue(
+      createSessionData({
+        memberships: [],
+        isPlatformAdmin: true,
+      }),
+    );
+
+    const { unmount } = renderHook(() => useClientHomeController(), {
+      wrapper: createWrapper(),
+    });
+
+    emitSignedInAuthEvent();
+
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalled();
+    });
+
+    expect(createSelfServiceOrganizationMock).not.toHaveBeenCalled();
     unmount();
   });
 

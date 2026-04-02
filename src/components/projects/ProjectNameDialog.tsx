@@ -39,7 +39,7 @@ export function ProjectNameDialog({
 }: ProjectNameDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-[#2a2a2a] text-white">
+      <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-ws-raised text-white">
         <form
           className="space-y-4"
           onSubmit={(event) => {
@@ -61,7 +61,7 @@ export function ProjectNameDialog({
             value={value}
             onChange={(event) => onValueChange(event.target.value)}
             placeholder={placeholder}
-            className="h-10 rounded-[10px] border-white/[0.08] bg-[#212121] text-white placeholder:text-white/35 focus-visible:ring-white/20"
+            className="h-10 rounded-[10px] border-white/[0.08] bg-ws-overlay text-white placeholder:text-white/35 focus-visible:ring-white/20"
           />
           <DialogFooter>
             <Button

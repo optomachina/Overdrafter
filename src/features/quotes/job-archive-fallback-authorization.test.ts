@@ -1,34 +1,45 @@
 import { describe, expect, it } from "vitest";
-import { canUserEditJobWithoutAuthContext } from "../../../supabase/functions/job-archive-fallback/authorization";
+import { canUserDestructivelyEditJobWithoutAuthContext } from "../../../supabase/functions/job-archive-fallback/authorization";
 
 describe("job archive fallback authorization", () => {
   it("allows the job creator", () => {
     expect(
-      canUserEditJobWithoutAuthContext({
+      canUserDestructivelyEditJobWithoutAuthContext({
         createdByMatchesUser: true,
-        isOrgMember: false,
+        isInternalAdmin: false,
         canEditDirectProject: false,
         canEditProjectViaJoinTable: false,
       }),
     ).toBe(true);
   });
 
-  it("allows organization members such as client users", () => {
+  it("allows internal admins without project membership", () => {
     expect(
-      canUserEditJobWithoutAuthContext({
+      canUserDestructivelyEditJobWithoutAuthContext({
         createdByMatchesUser: false,
-        isOrgMember: true,
+        isInternalAdmin: true,
         canEditDirectProject: false,
         canEditProjectViaJoinTable: false,
       }),
     ).toBe(true);
+  });
+
+  it("rejects plain organization members such as client users", () => {
+    expect(
+      canUserDestructivelyEditJobWithoutAuthContext({
+        createdByMatchesUser: false,
+        isInternalAdmin: false,
+        canEditDirectProject: false,
+        canEditProjectViaJoinTable: false,
+      }),
+    ).toBe(false);
   });
 
   it("allows project editors reached through a direct jobs.project_id link", () => {
     expect(
-      canUserEditJobWithoutAuthContext({
+      canUserDestructivelyEditJobWithoutAuthContext({
         createdByMatchesUser: false,
-        isOrgMember: false,
+        isInternalAdmin: false,
         canEditDirectProject: true,
         canEditProjectViaJoinTable: false,
       }),
@@ -37,9 +48,9 @@ describe("job archive fallback authorization", () => {
 
   it("allows project editors reached through project_jobs", () => {
     expect(
-      canUserEditJobWithoutAuthContext({
+      canUserDestructivelyEditJobWithoutAuthContext({
         createdByMatchesUser: false,
-        isOrgMember: false,
+        isInternalAdmin: false,
         canEditDirectProject: false,
         canEditProjectViaJoinTable: true,
       }),
@@ -48,9 +59,9 @@ describe("job archive fallback authorization", () => {
 
   it("rejects users with no matching ownership or membership", () => {
     expect(
-      canUserEditJobWithoutAuthContext({
+      canUserDestructivelyEditJobWithoutAuthContext({
         createdByMatchesUser: false,
-        isOrgMember: false,
+        isInternalAdmin: false,
         canEditDirectProject: false,
         canEditProjectViaJoinTable: false,
       }),

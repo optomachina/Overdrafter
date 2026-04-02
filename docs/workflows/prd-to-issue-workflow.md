@@ -7,3 +7,11 @@
 5. Ensure each issue has explicit acceptance criteria.
 6. Add priority and minimal labels (`feature`, `billing`, `spike`, etc.).
 7. Route and scope each issue before coding.
+
+When the PRD or planning slice is large enough to merit batch reconciliation:
+
+1. Capture the source material in `planning/raw_notes.md`.
+2. Normalize it into `planning/linear_seed.yaml`.
+3. Run `python3 tools/linear/import_plan.py` in dry-run mode.
+4. Review `planning/linear_import_report.md`.
+5. Only then rerun with `--live` if the creates and updates are correct.

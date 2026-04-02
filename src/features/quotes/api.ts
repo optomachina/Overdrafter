@@ -72,6 +72,7 @@ export {
   fetchJobPartSummariesByOrganization,
   fetchJobsByOrganization,
   fetchUngroupedParts,
+  resetClientPartPropertyOverrides,
   searchAccessibleParts,
   updateClientPartRequest,
 } from "./api/jobs-api";

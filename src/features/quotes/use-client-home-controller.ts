@@ -94,6 +94,8 @@ export function useClientHomeController() {
     authState,
     activeMembership,
     isLoading,
+    isFetching,
+    isPlatformAdmin,
     isVerifiedAuth,
     signOut,
     isAuthInitializing,
@@ -112,7 +114,8 @@ export function useClientHomeController() {
   const membershipRecoveryKeyRef = useRef<string | null>(null);
   const authIntent = searchParams.get("auth");
   const focusComposerIntent = searchParams.get("focusComposer");
-  const authDialogMode: "sign-in" | "sign-up" = authIntent === "signup" ? "sign-up" : "sign-in";
+  const authDialogMode: "sign-in" | "sign-up" | "forgot-password" =
+    authIntent === "signup" ? "sign-up" : authIntent === "forgot-password" ? "forgot-password" : "sign-in";
   const defaultAccountName = useMemo(() => getDefaultAccountName(user), [user]);
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
@@ -183,6 +186,19 @@ export function useClientHomeController() {
     !activeMembership &&
     (bootstrapAccountMutation.status === "success" ||
       (bootstrapAccountMutation.status === "error" && isExistingMembershipBootstrapError(bootstrapErrorMessage)));
+
+  const canBootstrapSelfServiceOrganization =
+    Boolean(user) &&
+    !isPlatformAdmin &&
+    authState === "authenticated" &&
+    isVerifiedAuth &&
+    !isAuthInitializing &&
+    !isLoading &&
+    !isFetching &&
+    !membershipError &&
+    !activeMembership &&
+    memberships.length === 0 &&
+    bootstrapAccountMutation.status === "idle";
 
   const { readiness: workspaceReadiness, waitForReady } = useWorkspaceReadiness({
     user,
@@ -289,7 +305,7 @@ export function useClientHomeController() {
   };
 
   useEffect(() => {
-    if (authIntent === "signin" || authIntent === "signup") {
+    if (authIntent === "signin" || authIntent === "signup" || authIntent === "forgot-password") {
       setIsAuthDialogOpen(true);
     }
   }, [authIntent]);
@@ -334,28 +350,24 @@ export function useClientHomeController() {
   }, [activeMembership, isVerifiedAuth, user]);
 
   useEffect(() => {
-    if (
-      !user ||
-      isAuthInitializing ||
-      membershipError ||
-      isLoading ||
-      activeMembership ||
-      !isVerifiedAuth ||
-      bootstrapAccountMutation.status !== "idle"
-    ) {
+    if (!canBootstrapSelfServiceOrganization) {
       return;
     }
 
     bootstrapAccountMutation.mutate(defaultAccountName);
   }, [
-    activeMembership,
     bootstrapAccountMutation,
     defaultAccountName,
+    canBootstrapSelfServiceOrganization,
     isAuthInitializing,
+    isFetching,
     isLoading,
     isVerifiedAuth,
     membershipError,
     user,
+    authState,
+    memberships.length,
+    activeMembership,
   ]);
 
   useEffect(() => {

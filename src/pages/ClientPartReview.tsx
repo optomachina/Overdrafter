@@ -108,7 +108,7 @@ const ClientPartReview = () => {
             <Loader2 className="h-6 w-6 animate-spin text-white/60" />
           </div>
         ) : !workspaceQuery.data ? (
-          <div className="rounded-[26px] border border-white/8 bg-[#262626] px-6 py-12 text-center text-white/45">
+          <div className="rounded-[26px] border border-white/8 bg-ws-card px-6 py-12 text-center text-white/45">
             This review page could not be loaded.
           </div>
         ) : (
@@ -148,7 +148,7 @@ const ClientPartReview = () => {
               </div>
             </div>
 
-            <section className="rounded-[26px] border border-white/8 bg-[#262626] p-6">
+            <section className="rounded-[26px] border border-white/8 bg-ws-card p-6">
               <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-white/35">Selected option</p>
@@ -206,7 +206,7 @@ const ClientPartReview = () => {
             />
 
             {showHandoffSummary ? (
-              <section className="rounded-[26px] border border-white/8 bg-[#262626] p-6">
+              <section className="rounded-[26px] border border-white/8 bg-ws-card p-6">
                 <p className="text-xs uppercase tracking-[0.18em] text-white/35">Release check</p>
                 <h2 className="mt-2 text-xl font-semibold text-white">
                   {handoffSummary.ready ? "Ready for OverDrafter follow-up" : "More procurement detail is still needed"}

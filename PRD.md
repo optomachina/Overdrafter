@@ -1,6 +1,6 @@
 # OverDrafter Product Requirements Document
 
-Last updated: March 14, 2026
+Last updated: March 27, 2026
 
 ## Document purpose
 
@@ -60,22 +60,22 @@ Current non-goals:
 
 Enable a CNC buyer to go from “I have a part and a drawing” to “I selected a vetted quote option” in one workspace, while giving internal estimators full control over review, sourcing, pricing, and publication.
 
-## Long-term product direction
+## Long-term product direction (North Star)
 
-OverDrafter’s current implementation is a curated CNC quote platform, but the intended long-term direction is broader: a manufacturing operating system that unifies project-scoped file intake, nested part and assembly organization, revision control, engineering-service workflows, sourcing, quote comparison, purchasing handoff, and fulfillment visibility in one system.
+OverDrafter’s current implementation is a curated CNC quote platform. The intended destination is a **manufacturing co-pilot** that lives inside the designer’s native CAD environment and disappears until it adds value.
 
-The product should evolve from “upload files and receive curated quote options” toward “manage the full lifecycle of manufactured parts and projects from design package to ordered result.” That direction includes:
+The ideal multi-agent UX is:
 
-- a stronger part- and project-centric workspace model
-- support for mixed-content projects containing assemblies, standalone parts, and loose documents in one workflow
-- revision-aware file management for CAD, drawings, and related artifacts
-- explicit support for engineering-service requests such as modeling, redrafting, FEA, DFM, and DFA
-- richer quote orchestration, vendor comparison, and selection workflows
-- downstream review, purchasing, shipping, and fulfillment states
-- cross-platform access across web, desktop, and mobile surfaces
-- CAD-native integrations and plugins for direct submission and synchronization from authoring tools
+- A single, persistent, CAD-native workspace (SolidWorks, Fusion 360, Onshape, Creo, Inventor plugins + web fallback with live 3D STEP viewer).
+- Natural-language direction as the only control surface (“DFM this assembly for CNC aluminum 6061, get firm quotes from the 5 fastest shops under $800…”).
+- Invisible specialist agents (DFM, extraction, quoting swarm via OpenClaw browser harness, modeling/drafting updater, assembly/fulfillment coordinator, PDM agent) that decompose, negotiate on an internal blackboard, and execute in parallel.
+- On-demand visualizations only (live DFM heatmap on geometry, dynamic quote scatter, revision diff, risk heatmap) that collapse back to the clean CAD view when not needed.
+- Branching/merging that feels like breathing; human override is instant and contextual.
+- OpenClaw browser automation stays completely invisible—tabs, form submissions, and quote scraping happen server-side.
 
-This long-term direction does not change the current implementation boundaries or current execution phase. It exists to clarify the intended destination so future planning, architecture, and prioritization can align toward the same product shape over time.
+The product evolves from “upload files and receive curated quote options” to “drop a CAD file, speak your intent, and receive an optimized, quoted, PDM-tracked, shippable result.” All quoting, DFM, modeling, redrafting, assembly, fulfillment, and PDM workflows become delegated to the agent swarm. The human’s job is direction, taste, and final responsibility—nothing else.
+
+This direction does not change current implementation boundaries; it is the guiding star for every future phase.
 
 ## Fulfillment-aware downstream boundary
 

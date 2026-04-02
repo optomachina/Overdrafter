@@ -142,7 +142,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
           </div>
         ) : null}
 
-        <div className="rounded-[28px] border border-white/8 bg-[#303030] shadow-[0_8px_40px_rgba(0,0,0,0.22)]">
+        <div className="rounded-[28px] border border-white/8 bg-ws-raised shadow-[0_8px_40px_rgba(0,0,0,0.22)]">
           <div className="flex items-end gap-2 p-2">
             <Tooltip>
               <TooltipTrigger asChild>

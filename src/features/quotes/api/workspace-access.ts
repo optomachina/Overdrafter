@@ -8,6 +8,7 @@ export {
   fetchAccessibleJobs,
   fetchJobPartSummariesByJobIds,
   fetchJobsByOrganization,
+  resetClientPartPropertyOverrides,
 } from "./jobs-api";
 
 export {

@@ -1,35 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ArrowRight,
+  Filter as FilterIcon,
   Loader2,
+  PanelRightClose,
+  PanelRightOpen,
   PlusSquare,
   Search as SearchIcon,
 } from "lucide-react";
-import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
-import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
-import { ProjectInspectorPanel } from "@/components/workspace/ProjectInspectorPanel";
-import { WorkspaceInlineSearch } from "@/components/workspace/WorkspaceInlineSearch";
+import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ProjectMembersDialog } from "@/components/chat/ProjectMembersDialog";
 import { PromptComposer } from "@/components/chat/PromptComposer";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
+import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
-import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
-import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import {
   Dialog,
   DialogContent,
@@ -38,34 +25,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
+import { WorkspaceInlineSearch } from "@/components/workspace/WorkspaceInlineSearch";
+import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
+import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import { buildProjectAssigneeBadgeModel } from "@/features/quotes/project-assignee";
+import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import {
   clientFilterOptions,
   useClientProjectController,
 } from "@/features/quotes/use-client-project-controller";
-import { getClientItemPresentation } from "@/features/quotes/client-presentation";
-import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
-import { formatStatusLabel, normalizeDrawingExtraction } from "@/features/quotes/utils";
+import { formatStatusLabel } from "@/features/quotes/utils";
 import { cn } from "@/lib/utils";
-
-function formatCurrency(value: number | null) {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return "No quote selected";
-  }
-
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
 
 function formatDateLabel(value: string | null | undefined) {
   if (!value) {
@@ -83,109 +56,218 @@ function formatDateLabel(value: string | null | undefined) {
     day: "numeric",
   }).format(new Date(parsed));
 }
-function RoundUsaFlagIcon({ className }: { className?: string }) {
+
+function formatPropertyValue(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : "—";
+}
+
+function formatQuoteQuantitiesLabel(values: number[] | null | undefined) {
+  return values && values.length > 0 ? values.join(", ") : "—";
+}
+
+function formatToleranceLabel(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "—";
+  }
+
+  return `±${value.toFixed(4)} in`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function readSpecSnapshotString(
+  snapshot: Record<string, unknown> | null,
+  key: string,
+) {
+  const value = snapshot?.[key];
+  return typeof value === "string" ? value : null;
+}
+
+function readSpecSnapshotNumber(
+  snapshot: Record<string, unknown> | null,
+  key: string,
+) {
+  const value = snapshot?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function quoteStatusBadgeClassName(status: string | null | undefined) {
+  if (status === "received") {
+    return "border border-emerald-400/20 bg-emerald-500/10 text-emerald-100";
+  }
+
+  if (status === "queued" || status === "requesting") {
+    return "border border-amber-400/20 bg-amber-500/10 text-amber-100";
+  }
+
+  if (status === "failed" || status === "canceled") {
+    return "border border-rose-400/20 bg-rose-500/10 text-rose-100";
+  }
+
+  return "border border-white/10 bg-white/6 text-white/70";
+}
+
+type ProjectInspectorItem = {
+  label: string;
+  value: string;
+};
+
+type ProjectInspectorContentProps = {
+  focusedJobId: string | null;
+  focusedWorkspaceItem: ReturnType<typeof useClientProjectController>["focusedWorkspaceItem"];
+  focusedInspectorModel: {
+    description: string;
+    partNumber: string;
+    properties: ProjectInspectorItem[];
+    project: ProjectInspectorItem[];
+    quoteBadge: {
+      label: string;
+      status: string;
+    } | null;
+  } | null;
+  onClear: () => void;
+  onOpenPartWorkspace: () => void;
+};
+
+function ProjectInspectorContent({
+  focusedJobId,
+  focusedWorkspaceItem,
+  focusedInspectorModel,
+  onClear,
+  onOpenPartWorkspace,
+}: ProjectInspectorContentProps) {
   return (
-    <svg viewBox="0 0 32 32" className={className} aria-hidden>
-      <defs>
-        <clipPath id="usa-flag-circle">
-          <circle cx="16" cy="16" r="16" />
-        </clipPath>
-      </defs>
-      <g clipPath="url(#usa-flag-circle)">
-        <rect width="32" height="32" fill="#fff" />
-        <rect y="0" width="32" height="2.46" fill="#b22234" />
-        <rect y="4.92" width="32" height="2.46" fill="#b22234" />
-        <rect y="9.84" width="32" height="2.46" fill="#b22234" />
-        <rect y="14.76" width="32" height="2.46" fill="#b22234" />
-        <rect y="19.68" width="32" height="2.46" fill="#b22234" />
-        <rect y="24.6" width="32" height="2.46" fill="#b22234" />
-        <rect y="29.52" width="32" height="2.48" fill="#b22234" />
-        <rect width="17.1" height="17.22" fill="#3c3b6e" />
-        <g fill="#fff">
-          <circle cx="2.2" cy="2.2" r="0.8" />
-          <circle cx="5.2" cy="2.2" r="0.8" />
-          <circle cx="8.2" cy="2.2" r="0.8" />
-          <circle cx="11.2" cy="2.2" r="0.8" />
-          <circle cx="14.2" cy="2.2" r="0.8" />
-          <circle cx="3.7" cy="4.5" r="0.8" />
-          <circle cx="6.7" cy="4.5" r="0.8" />
-          <circle cx="9.7" cy="4.5" r="0.8" />
-          <circle cx="12.7" cy="4.5" r="0.8" />
-          <circle cx="2.2" cy="6.8" r="0.8" />
-          <circle cx="5.2" cy="6.8" r="0.8" />
-          <circle cx="8.2" cy="6.8" r="0.8" />
-          <circle cx="11.2" cy="6.8" r="0.8" />
-          <circle cx="14.2" cy="6.8" r="0.8" />
-          <circle cx="3.7" cy="9.1" r="0.8" />
-          <circle cx="6.7" cy="9.1" r="0.8" />
-          <circle cx="9.7" cy="9.1" r="0.8" />
-          <circle cx="12.7" cy="9.1" r="0.8" />
-          <circle cx="2.2" cy="11.4" r="0.8" />
-          <circle cx="5.2" cy="11.4" r="0.8" />
-          <circle cx="8.2" cy="11.4" r="0.8" />
-          <circle cx="11.2" cy="11.4" r="0.8" />
-          <circle cx="14.2" cy="11.4" r="0.8" />
-          <circle cx="3.7" cy="13.7" r="0.8" />
-          <circle cx="6.7" cy="13.7" r="0.8" />
-          <circle cx="9.7" cy="13.7" r="0.8" />
-          <circle cx="12.7" cy="13.7" r="0.8" />
-        </g>
-      </g>
-    </svg>
+    <>
+      <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
+        <div className="space-y-1">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Inspector</p>
+          {focusedJobId && focusedWorkspaceItem ? (
+            <>
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-white">
+                {focusedInspectorModel?.partNumber ??
+                  focusedWorkspaceItem.part?.approvedRequirement?.part_number ??
+                  focusedWorkspaceItem.summary?.partNumber ??
+                  focusedWorkspaceItem.part?.name ??
+                  focusedWorkspaceItem.job.title}
+              </h2>
+              <p className="text-sm text-white/55">
+                {focusedInspectorModel?.description ??
+                  focusedWorkspaceItem.part?.approvedRequirement?.description ??
+                  focusedWorkspaceItem.summary?.description ??
+                  focusedWorkspaceItem.part?.name ??
+                  "Inspector shell only until OVD-81c wires real content."}
+              </p>
+            </>
+          ) : (
+            <>
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-white">No part selected</h2>
+              <p className="text-sm text-white/55">
+                Select a row in the ledger to inspect that part without leaving the project workspace.
+              </p>
+            </>
+          )}
+        </div>
+        {focusedJobId ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-8 rounded-full px-3 text-white/65 hover:bg-white/6 hover:text-white"
+            onClick={onClear}
+          >
+            Clear
+          </Button>
+        ) : null}
+      </div>
+
+      <div className="mt-4 space-y-3">
+        <details open className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-white marker:content-none">
+            Properties
+          </summary>
+          <div className="border-t border-white/10 px-4 py-3 text-sm text-white/55">
+            {focusedInspectorModel ? (
+              <div className="space-y-2">
+                {focusedInspectorModel.properties.map((item) => (
+                  <div
+                    key={item.label}
+                    className="flex items-start justify-between gap-4 border-b border-white/[0.05] pb-2 last:border-0 last:pb-0"
+                  >
+                    <span className="text-white/45">{item.label}</span>
+                    <span className="text-right font-medium text-white">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              "Properties details appear here after you select a part."
+            )}
+          </div>
+        </details>
+
+        <details open className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-white marker:content-none">
+            Project
+          </summary>
+          <div className="border-t border-white/10 px-4 py-3 text-sm text-white/55">
+            {focusedInspectorModel ? (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  {focusedInspectorModel.project.map((item) => (
+                    <div
+                      key={item.label}
+                      className="flex items-start justify-between gap-4 border-b border-white/[0.05] pb-2 last:border-0 last:pb-0"
+                    >
+                      <span className="text-white/45">{item.label}</span>
+                      <span className="text-right font-medium text-white">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {focusedInspectorModel.quoteBadge ? (
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Quote status</p>
+                    <Badge className={quoteStatusBadgeClassName(focusedInspectorModel.quoteBadge.status)}>
+                      {focusedInspectorModel.quoteBadge.label}
+                    </Badge>
+                  </div>
+                ) : null}
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                  onClick={onOpenPartWorkspace}
+                >
+                  Open part workspace
+                </Button>
+              </div>
+            ) : (
+              "Project details appear here after you select a part."
+            )}
+          </div>
+        </details>
+      </div>
+    </>
   );
 }
 
-function RoundGlobeIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 32 32" className={className} aria-hidden>
-      <defs>
-        <radialGradient id="project-globe-ocean" cx="34%" cy="29%" r="72%">
-          <stop offset="0%" stopColor="#92d5ff" />
-          <stop offset="50%" stopColor="#3b82f6" />
-          <stop offset="100%" stopColor="#1d4ed8" />
-        </radialGradient>
-      </defs>
-      <circle cx="16" cy="16" r="16" fill="url(#project-globe-ocean)" />
-      <path
-        d="M7.6 9.9c2-1.9 4.8-2.9 7.7-2.9 2 0 3.9.5 5.4 1.3 1.4.7 2 2.3 1.7 3.7l-.4 1.4c-.2 1 .1 2 .8 2.8l1.4 1.3c.8.7 1.9 1.1 3 .9l.6-.1c.1.5.1 1 .1 1.5 0 1.8-.4 3.6-1.2 5.1l-1.6.5c-1 .3-1.9 1.1-2.4 2.1l-.9 1.6c-.6 1.1-1.7 1.8-3 1.8h-1.5c-1.2 0-2.3-.5-3-1.4l-1.5-1.8c-.8-.9-1.2-2.2-1-3.4l.2-1.6c.2-1.1-.3-2.2-1.3-2.8l-2.4-1.4c-1-.6-1.6-1.9-1.6-3.1 0-1.7.6-3.5 1.6-5Z"
-        fill="#34d399"
-      />
-      <path
-        d="M23 20.2c1.7.2 3.2 1 4.4 2.2-.8 1.7-2 3.2-3.6 4.3l-1.8.1c-1.1.1-2.1-.5-2.6-1.6l-.7-1.4c-.5-1.2.1-2.7 1.3-3.3l1.3-.5c.5-.1 1.1-.1 1.7-.1Z"
-        fill="#16a34a"
-      />
-      <circle cx="16" cy="16" r="15.3" fill="none" stroke="#e0f2fe" strokeWidth="1.1" opacity="0.9" />
-    </svg>
-  );
-}
 const ClientProject = () => {
   const {
     activeFilter,
-    activePreset,
     activeMembership,
     archivedJobsQuery,
     archivedProjectsQuery,
     archiveProjectMutation,
-    attachFilesPicker,
     canManageMembers,
     filteredJobs,
-    focusedDraft,
-    focusedJob,
-    focusedJobId,
-    focusedQuoteDataMessage,
-    focusedQuoteDataStatus,
-    focusedQuoteOptions,
-    focusedSelectedOption,
-    focusedSummary,
-    focusedRequestedByDate,
-    focusedWorkspaceItem,
-    handleClearFocusedJob,
     dissolveProjectMutation,
     handleAddPartSubmit,
     handleArchivePart,
     handleArchiveProject,
     handleAssignPartToProject,
-    handleCancelQuoteRequest,
+    handleClearFocusedJob,
     handleCreateProjectFromSelection,
     handleDeleteArchivedParts,
     handleDissolveProject,
@@ -196,22 +278,16 @@ const ClientProject = () => {
     handleRemovePartFromProject,
     handleRemoveProjectMember,
     handleRenameProject,
-    handleBulkPreset,
     handleRequestProjectQuotes,
-    handleSelectQuoteOption,
+    handleToggleInspector,
     handleUnarchivePart,
     handleUnpinPart,
     handleUnpinProject,
-    isMobile,
-    isCancelingQuoteRequest,
-    mobileDrawerOpen,
     navigate,
     newJobFilePicker,
-    projectSelectionSummary,
     prefetchPart,
     prefetchProject,
     projectCollaborationUnavailable,
-    projectDueByDate,
     projectId,
     projectInvitesQuery,
     projectJobs,
@@ -225,9 +301,7 @@ const ClientProject = () => {
     setActiveFilter,
     isSearchOpen,
     setIsSearchOpen,
-    setMobileDrawerOpen,
     setProjectName,
-    setProjectDueByDate,
     setShowAddPart,
     setShowArchive,
     setShowDissolve,
@@ -247,26 +321,24 @@ const ClientProject = () => {
     accessibleJobs,
     accessibleProjects,
     isAuthInitializing,
+    isInspectorOpen,
     workspaceItemsByJobId,
+    projectAssigneeLookupReady,
+    projectAssigneesByUserId,
+    projectJobMembershipsByCompositeKey,
+    focusedJobId,
+    focusedWorkspaceItem,
+    isMobile,
+    mobileDrawerOpen,
+    setMobileDrawerOpen,
   } = useClientProjectController();
-  const [showCancelRequestDialog, setShowCancelRequestDialog] = useState(false);
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+
   const notificationCenter = useWorkspaceNotifications({
     jobIds: accessibleJobs.map((job) => job.id),
     role: activeMembership?.role,
     userId: user?.id,
   });
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        handleClearFocusedJob();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleClearFocusedJob]);
 
   const quoteRequestViewModelsByJobId = useMemo(
     () =>
@@ -287,6 +359,34 @@ const ClientProject = () => {
       ),
     [projectJobs, workspaceItemsByJobId],
   );
+
+  const projectAssigneeBadgesByJobId = useMemo(() => {
+    if (!projectAssigneeLookupReady) {
+      return new Map<string, ReturnType<typeof buildProjectAssigneeBadgeModel>>();
+    }
+
+    // Until a dedicated part-assignee relation exists, the ledger uses
+    // project_jobs.created_by as the minimum safe per-row assignee source.
+    return new Map(
+      projectJobs.map((job) => {
+        const projectJobMembership =
+          projectJobMembershipsByCompositeKey?.get(`${projectId}:${job.id}`) ?? null;
+        const assigneeProfile =
+          projectJobMembership && projectAssigneesByUserId
+            ? projectAssigneesByUserId.get(projectJobMembership.created_by) ?? null
+            : null;
+
+        return [job.id, buildProjectAssigneeBadgeModel(assigneeProfile)] as const;
+      }),
+    );
+  }, [
+    projectAssigneeLookupReady,
+    projectAssigneesByUserId,
+    projectId,
+    projectJobMembershipsByCompositeKey,
+    projectJobs,
+  ]);
+
   const projectRequestableJobIds = useMemo(
     () =>
       projectJobs
@@ -300,6 +400,7 @@ const ClientProject = () => {
         .map(([jobId]) => jobId),
     [projectJobs, quoteRequestViewModelsByJobId],
   );
+
   const projectQuoteRequestSummary = useMemo(
     () =>
       Array.from(quoteRequestViewModelsByJobId.values()).reduce(
@@ -333,16 +434,12 @@ const ClientProject = () => {
       ),
     [quoteRequestViewModelsByJobId],
   );
-  const focusedPresentation =
-    focusedJob && focusedSummary ? getClientItemPresentation(focusedJob, focusedSummary) : focusedJob
-      ? getClientItemPresentation(focusedJob, null)
-      : null;
-  const focusedQuantity = focusedDraft?.quantity ?? focusedSummary?.quantity ?? null;
-  const focusedProperties = focusedWorkspaceItem?.part?.approvedRequirement ?? null;
-  const focusedGeometryProjection =
-    focusedWorkspaceItem?.part?.extraction && focusedWorkspaceItem.part
-      ? normalizeDrawingExtraction(focusedWorkspaceItem.part.extraction, focusedWorkspaceItem.part.id).geometryProjection
-      : null;
+
+  const activeFilterOption = useMemo(
+    () => clientFilterOptions.find((filter) => filter.id === activeFilter) ?? clientFilterOptions[0],
+    [activeFilter],
+  );
+
   const jobSearchTextById = useMemo(
     () =>
       new Map(
@@ -366,50 +463,97 @@ const ClientProject = () => {
       ),
     [workspaceItemsByJobId],
   );
-  const focusedSelectedPrice = focusedSelectedOption?.totalPriceUsd ?? focusedSummary?.selectedPriceUsd ?? null;
-  const focusedSelectedLeadTime =
-    focusedSelectedOption?.leadTimeBusinessDays ?? focusedSummary?.selectedLeadTimeBusinessDays ?? null;
-  const focusedSelectedOfferId = focusedSelectedOption?.offerId ?? null;
-  const projectLabel = projectQuery.data?.name ?? "Project";
-  const bulkPresetScope =
-    activePreset === "cheapest_domestic" || activePreset === "fastest_domestic"
-      ? "domestic"
-      : activePreset === "cheapest_global" || activePreset === "fastest_global"
-        ? "global"
-        : "domestic";
-  const bulkPresetMode =
-    activePreset === "fastest_domestic" || activePreset === "fastest_global"
-      ? "fastest"
-      : activePreset === "cheapest_domestic" || activePreset === "cheapest_global"
-        ? "cheapest"
-        : "cheapest";
 
-  const applyProjectPreset = (mode: "cheapest" | "fastest", scope: "domestic" | "global") => {
-    const nextPreset =
-      mode === "fastest"
-        ? scope === "domestic"
-          ? "fastest_domestic"
-          : "fastest_global"
-        : scope === "domestic"
-          ? "cheapest_domestic"
-          : "cheapest_global";
-
-    handleBulkPreset(nextPreset);
-  };
-
-  const handleInspectorQuoteSelect = (offerId: string | null) => {
-    if (!focusedJob || offerId === null) {
-      return;
+  const focusedInspectorModel = useMemo(() => {
+    if (!focusedJobId || !focusedWorkspaceItem) {
+      return null;
     }
 
-    const nextOption = focusedQuoteOptions.find((option) => option.offerId === offerId) ?? null;
+    const job = focusedWorkspaceItem.job;
+    const part = focusedWorkspaceItem.part;
+    const summary = focusedWorkspaceItem.summary;
+    const approvedRequirement = part?.approvedRequirement ?? null;
+    const clientRequirement = part?.clientRequirement ?? null;
+    const specSnapshot = asRecord(approvedRequirement?.spec_snapshot);
+    const quoteRequestViewModel = quoteRequestViewModelsByJobId.get(focusedJobId) ?? null;
 
-    if (!nextOption) {
-      return;
-    }
+    const partNumber =
+      approvedRequirement?.part_number ??
+      clientRequirement?.partNumber ??
+      summary?.partNumber ??
+      part?.name ??
+      job.title;
+    const description =
+      approvedRequirement?.description ??
+      clientRequirement?.description ??
+      summary?.description ??
+      part?.name ??
+      job.title;
+    const material = clientRequirement?.material ?? approvedRequirement?.material ?? null;
+    const finish =
+      clientRequirement?.finish ??
+      approvedRequirement?.finish ??
+      readSpecSnapshotString(specSnapshot, "quoteFinish") ??
+      null;
+    const threads =
+      readSpecSnapshotString(specSnapshot, "threads") ?? readSpecSnapshotString(specSnapshot, "thread") ?? null;
+    const specSnapshotToleranceLabel = readSpecSnapshotString(specSnapshot, "tightest_tolerance");
+    const rawToleranceValue =
+      clientRequirement?.tightestToleranceInch ??
+      approvedRequirement?.tightest_tolerance_inch ??
+      readSpecSnapshotNumber(specSnapshot, "tightest_tolerance");
+    const formattedTolerance = formatToleranceLabel(rawToleranceValue);
+    const tightestTolerance =
+      formattedTolerance !== "—"
+        ? formattedTolerance
+        : formatPropertyValue(specSnapshotToleranceLabel);
 
-    void handleSelectQuoteOption(focusedJob.id, nextOption);
-  };
+    return {
+      description,
+      partNumber,
+      properties: [
+        { label: "Material", value: formatPropertyValue(material) },
+        { label: "Finish", value: formatPropertyValue(finish) },
+        { label: "Threads", value: formatPropertyValue(threads) },
+        { label: "Tightest tolerance", value: tightestTolerance },
+        { label: "Part number", value: formatPropertyValue(partNumber) },
+        { label: "Description", value: formatPropertyValue(description) },
+      ],
+      project: [
+        { label: "Project", value: formatPropertyValue(projectQuery.data?.name ?? projectName ?? "Project") },
+        { label: "Project parts", value: String(projectJobs.length) },
+        {
+          label: "Quote quantities",
+          value: formatQuoteQuantitiesLabel(
+            summary?.requestedQuoteQuantities ??
+              clientRequirement?.quoteQuantities ??
+              approvedRequirement?.quote_quantities,
+          ),
+        },
+        {
+          label: "Need by",
+          value: formatPropertyValue(
+            summary?.requestedByDate ??
+              clientRequirement?.requestedByDate ??
+              approvedRequirement?.requested_by_date,
+          ),
+        },
+      ],
+      quoteBadge: quoteRequestViewModel
+        ? {
+            label: quoteRequestViewModel.label,
+            status: quoteRequestViewModel.status,
+          }
+        : null,
+    };
+  }, [
+    focusedJobId,
+    focusedWorkspaceItem,
+    projectJobs.length,
+    projectName,
+    projectQuery.data?.name,
+    quoteRequestViewModelsByJobId,
+  ]);
 
   if (isAuthInitializing && !user) {
     return <AuthBootstrapScreen message="Restoring your project workspace." />;
@@ -421,39 +565,11 @@ const ClientProject = () => {
 
   return (
     <>
-      <AlertDialog open={showCancelRequestDialog} onOpenChange={setShowCancelRequestDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancel quote request?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This stops the current vendor quote request for this package. You can request a new quote again after canceling.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep request</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                const requestId = focusedWorkspaceItem?.latestQuoteRequest?.id;
-
-                if (!requestId) {
-                  return;
-                }
-
-                void handleCancelQuoteRequest(requestId);
-              }}
-              disabled={isCancelingQuoteRequest}
-            >
-              {isCancelingQuoteRequest ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Cancel request
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
       <ClientWorkspaceShell
         onLogoClick={() => navigate("/")}
         headerContent={
           <span className="truncate text-[15px] font-medium tracking-[-0.01em] text-white/[0.94]">
-            {projectLabel}
+            {projectQuery.data?.name ?? "Project"}
           </span>
         }
         topRightContent={
@@ -492,11 +608,9 @@ const ClientProject = () => {
             summariesByJobId={summariesByJobId}
             activeProjectId={projectId}
             onCreateJob={newJobFilePicker.openFilePicker}
-            onCreateProject={
-              projectCollaborationUnavailable ? undefined : newJobFilePicker.openFilePicker
-            }
+            onCreateProject={projectCollaborationUnavailable ? undefined : newJobFilePicker.openFilePicker}
             onSearch={() => setIsSearchOpen(true)}
-            storageScopeKey={user?.id}
+            storageScopeKey={user.id}
             pinnedProjectIds={sidebarPinsQuery.data?.projectIds ?? []}
             pinnedJobIds={sidebarPinsQuery.data?.jobIds ?? []}
             onPinProject={handlePinProject}
@@ -535,40 +649,38 @@ const ClientProject = () => {
         }
       >
         <div className="mx-auto flex w-full max-w-[1380px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
-          {/* Project header */}
           <div>
             <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-white">
               {projectQuery.data?.name ?? "Project"}
             </h1>
             <p className="mt-2 text-sm text-white/55">
-              Scan and manage parts across this project. Select a line item to inspect its artifacts and quotes.
+              Review every part in this project from a single dense ledger view.
             </p>
 
-            {/* Status badge row */}
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              {projectQuoteRequestSummary.received > 0 && (
+              <Badge className="border border-white/10 bg-white/6 text-white/70">Parts: {projectJobs.length}</Badge>
+              {projectQuoteRequestSummary.received > 0 ? (
                 <Badge className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">
                   Quoted: {projectQuoteRequestSummary.received}
                 </Badge>
-              )}
-              {projectQuoteRequestSummary.requesting > 0 && (
+              ) : null}
+              {projectQuoteRequestSummary.requesting > 0 ? (
                 <Badge className="border border-amber-400/20 bg-amber-500/10 text-amber-100">
                   Requesting: {projectQuoteRequestSummary.requesting}
                 </Badge>
-              )}
-              {projectQuoteRequestSummary.notRequested > 0 && (
+              ) : null}
+              {projectQuoteRequestSummary.notRequested > 0 ? (
                 <Badge className="border border-white/10 bg-white/6 text-white/70">
                   Not requested: {projectQuoteRequestSummary.notRequested}
                 </Badge>
-              )}
-              {projectQuoteRequestSummary.needsAttention > 0 && (
+              ) : null}
+              {projectQuoteRequestSummary.needsAttention > 0 ? (
                 <Badge className="border border-rose-400/20 bg-rose-500/10 text-rose-100">
                   Needs attention: {projectQuoteRequestSummary.needsAttention}
                 </Badge>
-              )}
+              ) : null}
             </div>
 
-            {/* Header actions */}
             <div className="mt-4 flex flex-wrap items-center gap-2">
               {!projectCollaborationUnavailable ? (
                 <Button type="button" className="rounded-full" onClick={() => setShowAddPart(true)}>
@@ -600,31 +712,25 @@ const ClientProject = () => {
             </div>
           </div>
 
-          {/* Stats row */}
-          <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
-            <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-4">
-              <p className="mb-1 text-[11px] text-white/45">Total parts</p>
-              <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{projectJobs.length}</p>
-            </div>
-            <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-4">
-              <p className="mb-1 text-[11px] text-white/45">Quoted</p>
-              <p className="text-[24px] font-bold tracking-[-0.02em] text-emerald-400">{projectQuoteRequestSummary.received}</p>
-            </div>
-            <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-4">
-              <p className="mb-1 text-[11px] text-white/45">Requesting</p>
-              <p className="text-[24px] font-bold tracking-[-0.02em] text-amber-400">{projectQuoteRequestSummary.requesting}</p>
-            </div>
-            <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-4">
-              <p className="mb-1 text-[11px] text-white/45">Not requested</p>
-              <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{projectQuoteRequestSummary.notRequested}</p>
-            </div>
-          </div>
-
-          <div className={cn("flex min-w-0 flex-col gap-4", !isMobile && focusedJobId && "xl:flex-row xl:items-start xl:gap-6")}>
-            <div className="min-w-0 flex-1 space-y-4">
-              <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  {clientFilterOptions.map((filter) => (
+          <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex flex-1 flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  aria-expanded={isFilterPanelOpen}
+                  aria-pressed={activeFilter !== "all"}
+                  className={cn(
+                    "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
+                    (isFilterPanelOpen || activeFilter !== "all") && "border-white/20 bg-white/10",
+                  )}
+                  onClick={() => setIsFilterPanelOpen((current) => !current)}
+                >
+                  <FilterIcon className="mr-2 h-4 w-4" />
+                  {activeFilter === "all" ? "Filter" : `Filter: ${activeFilterOption.label}`}
+                </Button>
+                {isFilterPanelOpen ? (
+                  clientFilterOptions.map((filter) => (
                     <Button
                       key={filter.id}
                       type="button"
@@ -637,358 +743,215 @@ const ClientProject = () => {
                     >
                       {filter.label}
                     </Button>
-                  ))}
-                </div>
+                  ))
+                ) : activeFilter !== "all" ? (
+                  <Badge className="border border-white/10 bg-white/6 text-white/70">
+                    {activeFilterOption.label}
+                  </Badge>
+                ) : null}
               </div>
-
-              <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
-                <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-4">
-                  <p className="mb-1 text-[11px] text-white/45">Selected total</p>
-                  <p className="text-[24px] font-bold tracking-[-0.02em] text-white">
-                    {formatCurrency(projectSelectionSummary.totalPriceUsd)}
-                  </p>
-                </div>
-                <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-4">
-                  <p className="mb-1 text-[11px] text-white/45">Selected lines</p>
-                  <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{projectSelectionSummary.selectedCount}</p>
-                </div>
-                <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-4">
-                  <p className="mb-1 text-[11px] text-white/45">Domestic</p>
-                  <p className="text-[24px] font-bold tracking-[-0.02em] text-emerald-400">{projectSelectionSummary.domesticCount}</p>
-                </div>
-                <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-4">
-                  <p className="mb-1 text-[11px] text-white/45">Foreign / unknown</p>
-                  <p className="text-[24px] font-bold tracking-[-0.02em] text-white">
-                    {projectSelectionSummary.foreignCount + projectSelectionSummary.unknownCount}
-                  </p>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <TooltipProvider delayDuration={150}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className={cn(
-                            "h-8 w-8 overflow-hidden rounded-full border border-white/10 p-0 [&_svg]:h-full [&_svg]:w-full",
-                            bulkPresetScope === "domestic"
-                              ? "border-white/20 bg-white text-black hover:bg-white/90"
-                              : "bg-transparent text-white hover:bg-white/6",
-                          )}
-                          aria-label={bulkPresetScope === "domestic" ? "Using domestic quotes for all parts" : "Using global quotes for all parts"}
-                          aria-pressed={bulkPresetScope === "domestic"}
-                          onClick={() => applyProjectPreset(bulkPresetMode, bulkPresetScope === "domestic" ? "global" : "domestic")}
-                        >
-                          {bulkPresetScope === "domestic" ? (
-                            <RoundUsaFlagIcon className="h-full w-full" />
-                          ) : (
-                            <RoundGlobeIcon className="h-full w-full" />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        {bulkPresetScope === "domestic" ? "Made in the USA" : "Sourced internationally"}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-
-                  <div
-                    className="inline-flex items-center overflow-hidden rounded-full border border-white/10 bg-black/20 p-0.5"
-                    role="group"
-                    aria-label="Project quote preset"
-                  >
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className={cn(
-                        "h-7 rounded-full px-3 text-xs",
-                        bulkPresetMode === "fastest"
-                          ? "bg-white text-black hover:bg-white/90"
-                          : "text-white hover:bg-white/6",
-                      )}
-                      aria-pressed={bulkPresetMode === "fastest"}
-                      onClick={() => applyProjectPreset("fastest", bulkPresetScope)}
-                    >
-                      Fast
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className={cn(
-                        "h-7 rounded-full px-3 text-xs",
-                        bulkPresetMode === "cheapest"
-                          ? "bg-white text-black hover:bg-white/90"
-                          : "text-white hover:bg-white/6",
-                      )}
-                      aria-pressed={bulkPresetMode === "cheapest"}
-                      onClick={() => applyProjectPreset("cheapest", bulkPresetScope)}
-                    >
-                      Cheap
-                    </Button>
-                  </div>
-
-                  <div className="ml-auto flex items-center gap-2">
-                    <TooltipProvider delayDuration={150}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <label
-                            className="cursor-help text-[11px] font-medium uppercase tracking-[0.14em] text-white/45"
-                            htmlFor="project-due-by"
-                          >
-                            DUE BY:
-                          </label>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom">
-                          Applies to this project unless a part has its own requested-by date.
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="project-due-by"
-                        type="date"
-                        value={projectDueByDate ?? ""}
-                        onChange={(event) => setProjectDueByDate(event.target.value || null)}
-                        aria-label="Due by"
-                        className="h-8 w-[7.6rem] appearance-none rounded-full border-white/10 bg-white/[0.03] px-2 text-center text-sm text-white focus-visible:ring-white/20 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-70 [&::-webkit-date-and-time-value]:text-center [&::-webkit-datetime-edit]:flex [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:items-center [&::-webkit-datetime-edit]:justify-center [&::-webkit-datetime-edit]:text-center [&::-webkit-datetime-edit-fields-wrapper]:flex [&::-webkit-datetime-edit-fields-wrapper]:w-full [&::-webkit-datetime-edit-fields-wrapper]:justify-center"
-                      />
-                      {projectDueByDate ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 rounded-full px-3 text-xs text-white/70 hover:bg-white/6 hover:text-white"
-                          onClick={() => setProjectDueByDate(null)}
-                        >
-                          Clear
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="overflow-hidden rounded-lg border border-ws-border-subtle bg-ws-card">
-                {projectJobsQuery.isLoading || projectWorkspaceItemsQuery.isLoading ? (
-                  <div className="flex min-h-[240px] items-center justify-center">
-                    <Loader2 className="h-6 w-6 animate-spin text-white/60" />
-                  </div>
-                ) : filteredJobs.length === 0 ? (
-                  <div className="px-6 py-12 text-center text-white/45">No parts match the current project filter.</div>
+              <Button
+                type="button"
+                variant="outline"
+                aria-label={isInspectorOpen ? "Hide inspector" : "Show inspector"}
+                className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                onClick={handleToggleInspector}
+              >
+                {isInspectorOpen ? (
+                  <PanelRightClose className="h-4 w-4" />
                 ) : (
-                  <Table className="w-full text-white">
-                    <TableBody>
-                      {filteredJobs.map((job) => {
+                  <PanelRightOpen className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+            <div className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-ws-border-subtle bg-ws-card">
+              {projectJobsQuery.isLoading || projectWorkspaceItemsQuery.isLoading ? (
+                <div className="flex min-h-[240px] items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-white/60" />
+                </div>
+              ) : filteredJobs.length === 0 ? (
+                <div className="px-6 py-12 text-center text-white/45">No parts match the current project filter.</div>
+              ) : (
+                <Table className="w-full min-w-[640px] text-white">
+                  <TableHeader>
+                    <TableRow className="border-white/10 hover:bg-transparent">
+                      <TableHead className="h-10 px-5 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+                        Part Number
+                      </TableHead>
+                      <TableHead className="h-10 px-4 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+                        Description
+                      </TableHead>
+                      <TableHead className="h-10 px-2 py-2 text-center text-[11px] uppercase tracking-[0.18em] text-white/45">
+                        CAD
+                      </TableHead>
+                      <TableHead className="h-10 px-2 py-2 text-center text-[11px] uppercase tracking-[0.18em] text-white/45">
+                        DWG
+                      </TableHead>
+                      <TableHead className="h-10 px-2 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+                        Quote
+                      </TableHead>
+                      <TableHead className="h-10 px-2 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+                        Assignee
+                      </TableHead>
+                      <TableHead className="h-10 py-2 pl-2 pr-5 text-right text-[11px] uppercase tracking-[0.18em] text-white/45">
+                        Creation Date
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredJobs.map((job) => {
                       const workspaceItem = workspaceItemsByJobId.get(job.id) ?? null;
                       const summary = workspaceItem?.summary ?? summariesByJobId.get(job.id) ?? null;
                       const presentation = getClientItemPresentation(job, summary);
                       const quoteRequestViewModel = quoteRequestViewModelsByJobId.get(job.id) ?? null;
-                      const isSelected = focusedJobId === job.id;
                       const quoteStatusLabel = quoteRequestViewModel?.label ?? formatStatusLabel(job.status);
-                      const quoteStatusClassName =
-                        quoteRequestViewModel?.status === "received"
-                          ? "border border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
-                          : quoteRequestViewModel?.status === "queued" || quoteRequestViewModel?.status === "requesting"
-                            ? "border border-amber-400/20 bg-amber-500/10 text-amber-100"
-                            : quoteRequestViewModel?.status === "failed" || quoteRequestViewModel?.status === "canceled"
-                              ? "border border-rose-400/20 bg-rose-500/10 text-rose-100"
-                              : "border border-white/10 bg-white/6 text-white/70";
-                      const canTriggerRequest =
-                        quoteRequestViewModel &&
-                        !quoteRequestViewModel.action.disabled &&
-                        (quoteRequestViewModel.action.kind === "request" || quoteRequestViewModel.action.kind === "retry");
-                      const rowSelectedPrice = summary?.selectedPriceUsd ?? null;
-                      const rowSelectedLeadTime = summary?.selectedLeadTimeBusinessDays ?? null;
-                      const hasQuote = rowSelectedPrice != null || rowSelectedLeadTime != null;
+                      const quoteStatusClassName = quoteStatusBadgeClassName(quoteRequestViewModel?.status);
+                      const partNumber =
+                        workspaceItem?.part?.approvedRequirement?.part_number ?? presentation.partNumber ?? "—";
+                      const description =
+                        workspaceItem?.part?.approvedRequirement?.description ??
+                        presentation.description ??
+                        presentation.title;
+                      const assigneeBadge = projectAssigneeBadgesByJobId.get(job.id) ?? null;
+                      const isSelected = focusedJobId === job.id;
+
                       return (
                         <TableRow
                           key={job.id}
+                          aria-selected={isSelected}
+                          data-state={isSelected ? "selected" : "idle"}
                           className={cn(
-                            "cursor-pointer border-white/[0.04] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 focus-visible:ring-inset",
-                            isSelected ? "bg-white/[0.06]" : "hover:bg-white/[0.02]",
+                            "cursor-pointer border-white/[0.04] transition-colors",
+                            isSelected
+                              ? "bg-white/[0.08] shadow-[inset_3px_0_0_rgba(255,255,255,0.92)] hover:bg-white/[0.09]"
+                              : "hover:bg-white/[0.02]",
                           )}
                           onClick={() => handleOpenJobDrawer(job.id)}
                           onDoubleClick={() => navigate(`/parts/${job.id}`)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              handleOpenJobDrawer(job.id);
-                            }
-                          }}
-                          role="button"
-                          tabIndex={0}
-                          aria-label={`Open ${presentation.title} line item`}
                         >
-                          <TableCell className="w-[1%] max-w-[200px] px-5 py-2.5">
-                            <p className="truncate text-[13px] font-medium text-white">{presentation.title}</p>
+                          <TableCell className="w-[18%] max-w-[220px] px-5 py-2.5">
+                            <p className="truncate text-[13px] font-medium text-white">{partNumber}</p>
                           </TableCell>
-                          <TableCell className="px-4 py-2.5">
-                            <p className="truncate text-[13px] text-white/65">{presentation.description}</p>
+                          <TableCell className="max-w-[420px] px-4 py-2.5">
+                            <p className="truncate text-[13px] text-white/65">{description}</p>
                           </TableCell>
-                          <TableCell className="w-px whitespace-nowrap pl-8 pr-2 py-2.5 text-[13px] text-white/45">
-                            {summary?.revision ? `Rev ${summary.revision}` : null}
-                          </TableCell>
-                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
-                            <Badge className={workspaceItem?.part?.cadFile ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300" : "border border-white/10 bg-white/6 text-white/30"}>
-                              CAD
+                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-center">
+                            <Badge
+                              className={
+                                workspaceItem?.part?.cadFile
+                                  ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300"
+                                  : "border border-white/10 bg-white/6 text-white/30"
+                              }
+                            >
+                              {workspaceItem?.part?.cadFile ? "Yes" : "No"}
                             </Badge>
                           </TableCell>
-                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
-                            <Badge className={workspaceItem?.part?.drawingFile ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300" : "border border-white/10 bg-white/6 text-white/30"}>
-                              DWG
+                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-center">
+                            <Badge
+                              className={
+                                workspaceItem?.part?.drawingFile
+                                  ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300"
+                                  : "border border-white/10 bg-white/6 text-white/30"
+                              }
+                            >
+                              {workspaceItem?.part?.drawingFile ? "Yes" : "No"}
                             </Badge>
                           </TableCell>
                           <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
                             <Badge className={quoteStatusClassName}>{quoteStatusLabel}</Badge>
                           </TableCell>
-                          {hasQuote ? (
-                            <>
-                              <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-right text-[13px] text-white">
-                                {rowSelectedPrice != null ? formatCurrency(rowSelectedPrice) : "—"}
-                              </TableCell>
-                              <TableCell className={cn("w-px whitespace-nowrap py-2.5 text-[13px] text-white/55", canTriggerRequest ? "px-2" : "pl-2 pr-5")}>
-                                {typeof rowSelectedLeadTime === "number" ? `${rowSelectedLeadTime}d` : "—"}
-                              </TableCell>
-                            </>
-                          ) : (
-                            <TableCell className={cn("w-px whitespace-nowrap py-2.5 text-[13px] text-white/30", canTriggerRequest ? "px-2" : "pl-2 pr-5")} colSpan={2}>
-                              —
-                            </TableCell>
-                          )}
-                          <TableCell className="w-px whitespace-nowrap pl-2 pr-5 py-2.5 text-right">
-                            {canTriggerRequest ? (
-                              <Button
-                                type="button"
-                                className="h-auto rounded-lg px-2 py-1 text-xs"
-                                disabled={
-                                  quoteRequestViewModel.action.disabled ||
-                                  requestProjectQuotesMutation.isPending
-                                }
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void handleRequestProjectQuotes(
-                                    [job.id],
-                                    quoteRequestViewModel.action.kind === "retry",
-                                  );
-                                }}
+                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
+                            {assigneeBadge ? (
+                              assigneeBadge.isUnassigned ? (
+                                <div className="flex items-center gap-2 text-[13px] text-white/45">
+                                  <span
+                                    aria-hidden="true"
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-white/10 bg-white/[0.03] text-[11px] font-semibold text-white/35"
+                                  >
+                                    —
+                                  </span>
+                                  <span>Unassigned</span>
+                                </div>
+                              ) : (
+                                <div className="flex justify-center">
+                                  <span
+                                    className={cn(
+                                      "inline-flex h-7 w-7 items-center justify-center rounded-full border text-[11px] font-semibold uppercase tracking-[0.08em] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
+                                      assigneeBadge.colorClassName,
+                                    )}
+                                    title={assigneeBadge.displayName}
+                                    aria-label={`${assigneeBadge.displayName} assignee`}
+                                  >
+                                    {assigneeBadge.initials ?? "?"}
+                                  </span>
+                                </div>
+                              )
+                            ) : (
+                              <span
+                                aria-hidden="true"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-white/10 bg-white/[0.03] text-[11px] font-semibold text-white/35"
                               >
-                                {quoteRequestViewModel.action.kind === "retry" ? "Retry" : "Request"}
-                                <ArrowRight className="ml-1 h-3 w-3" />
-                              </Button>
-                            ) : null}
+                                —
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="w-px whitespace-nowrap py-2.5 pl-2 pr-5 text-right text-[13px] text-white/55">
+                            {formatDateLabel(job.created_at)}
                           </TableCell>
                         </TableRow>
                       );
-                      })}
-                    </TableBody>
-                  </Table>
-                )}
-              </div>
+                    })}
+                  </TableBody>
+                </Table>
+              )}
             </div>
 
-            {!isMobile && focusedJobId ? (
-              <aside className="min-w-0 xl:sticky xl:top-4 xl:w-[clamp(20rem,30vw,26.25rem)] xl:min-w-[20rem] xl:max-w-[26.25rem] xl:shrink-0">
-                {focusedJob && focusedWorkspaceItem && focusedPresentation ? (
-                  <ProjectInspectorPanel
-                    mode="detail"
-                    title={focusedPresentation.title}
-                    description={focusedPresentation.description}
-                    partNumber={focusedProperties?.part_number ?? focusedSummary?.partNumber}
-                    revision={focusedProperties?.revision ?? focusedSummary?.revision}
-                    material={focusedProperties?.material}
-                    finish={focusedProperties?.finish}
-                    quantity={focusedQuantity}
-                    statusLabel={formatStatusLabel(focusedJob.status)}
-                    createdLabel={formatDateLabel(focusedJob.created_at)}
-                    projectName={projectLabel}
-                    selectedQuoteLabel={focusedSelectedPrice != null ? formatCurrency(focusedSelectedPrice) : "—"}
-                    leadTimeLabel={typeof focusedSelectedLeadTime === "number" ? `${focusedSelectedLeadTime}d` : "—"}
-                    drawingFile={focusedWorkspaceItem.part?.drawingFile ?? null}
-                    drawingPreview={focusedWorkspaceItem.drawingPreview}
-                    cadFile={focusedWorkspaceItem.part?.cadFile ?? null}
-                    geometryProjection={focusedGeometryProjection}
-                    quoteDataStatus={focusedQuoteDataStatus}
-                    quoteDataMessage={focusedQuoteDataMessage}
-                    quoteOptions={focusedQuoteOptions}
-                    requestedByDate={focusedRequestedByDate}
-                    selectedOfferId={focusedSelectedOfferId}
-                    onSelectQuote={handleInspectorQuoteSelect}
-                    onClear={handleClearFocusedJob}
-                  />
-                ) : (
-                  <ProjectInspectorPanel
-                    mode="empty"
-                    emptyTitle="Loading line item detail"
-                    emptyBody="Selected-part details are still loading."
-                  />
-                )}
+            {isInspectorOpen && !isMobile ? (
+              <aside
+                aria-label="Project inspector"
+                className="w-full shrink-0 rounded-lg border border-ws-border-subtle bg-ws-card p-4 xl:sticky xl:top-4 xl:w-[320px]"
+              >
+                <ProjectInspectorContent
+                  focusedJobId={focusedJobId}
+                  focusedWorkspaceItem={focusedWorkspaceItem}
+                  focusedInspectorModel={focusedInspectorModel}
+                  onClear={handleClearFocusedJob}
+                  onOpenPartWorkspace={() => {
+                    if (focusedJobId) {
+                      navigate(`/parts/${focusedJobId}`);
+                    }
+                  }}
+                />
               </aside>
             ) : null}
           </div>
         </div>
       </ClientWorkspaceShell>
 
-      {isMobile ? (
-        <Sheet
-          open={mobileDrawerOpen && Boolean(focusedJobId)}
-          onOpenChange={(open) => {
-            if (open) {
-              setMobileDrawerOpen(true);
-              return;
-            }
-
-            handleClearFocusedJob();
-          }}
-        >
-          <SheetContent side="right" className="w-[min(96vw,38rem)] overflow-y-auto border-white/10 bg-[#1f1f1f] p-0 text-white sm:max-w-[38rem]">
-            <SheetHeader className="border-b border-white/10 px-6 py-5">
-              <SheetTitle className="text-white">Line item detail</SheetTitle>
-              <SheetDescription className="text-white/55">
-                Review selected-part details without leaving the project ledger.
-              </SheetDescription>
+      {isInspectorOpen && isMobile ? (
+        <Sheet open={mobileDrawerOpen} onOpenChange={setMobileDrawerOpen}>
+          <SheetContent
+            side="bottom"
+            className="h-[min(85vh,42rem)] overflow-y-auto border-white/10 bg-ws-card px-4 pb-6 pt-10 text-white sm:max-w-none"
+          >
+            <SheetHeader className="sr-only">
+              <SheetTitle>Project inspector</SheetTitle>
+              <SheetDescription>Inspect the currently selected part inside the project workspace.</SheetDescription>
             </SheetHeader>
-            <div className="px-6 py-5">
-              {focusedJob && focusedWorkspaceItem && focusedPresentation ? (
-                <ProjectInspectorPanel
-                  mode="detail"
-                  title={focusedPresentation.title}
-                  description={focusedPresentation.description}
-                  partNumber={focusedProperties?.part_number ?? focusedSummary?.partNumber}
-                  revision={focusedProperties?.revision ?? focusedSummary?.revision}
-                  material={focusedProperties?.material}
-                  finish={focusedProperties?.finish}
-                  quantity={focusedQuantity}
-                  statusLabel={formatStatusLabel(focusedJob.status)}
-                  createdLabel={formatDateLabel(focusedJob.created_at)}
-                  projectName={projectLabel}
-                  selectedQuoteLabel={focusedSelectedPrice != null ? formatCurrency(focusedSelectedPrice) : "—"}
-                  leadTimeLabel={typeof focusedSelectedLeadTime === "number" ? `${focusedSelectedLeadTime}d` : "—"}
-                  drawingFile={focusedWorkspaceItem.part?.drawingFile ?? null}
-                  drawingPreview={focusedWorkspaceItem.drawingPreview}
-                  cadFile={focusedWorkspaceItem.part?.cadFile ?? null}
-                  geometryProjection={focusedGeometryProjection}
-                  quoteDataStatus={focusedQuoteDataStatus}
-                  quoteDataMessage={focusedQuoteDataMessage}
-                  quoteOptions={focusedQuoteOptions}
-                  requestedByDate={focusedRequestedByDate}
-                  selectedOfferId={focusedSelectedOfferId}
-                  onSelectQuote={handleInspectorQuoteSelect}
-                  onClear={handleClearFocusedJob}
-                />
-              ) : (
-                <ProjectInspectorPanel
-                  mode="empty"
-                  emptyTitle="Loading line item detail"
-                  emptyBody="Selected-part details are still loading."
-                />
-              )}
-            </div>
+            <ProjectInspectorContent
+              focusedJobId={focusedJobId}
+              focusedWorkspaceItem={focusedWorkspaceItem}
+              focusedInspectorModel={focusedInspectorModel}
+              onClear={handleClearFocusedJob}
+              onOpenPartWorkspace={() => {
+                if (focusedJobId) {
+                  navigate(`/parts/${focusedJobId}`);
+                }
+              }}
+            />
           </SheetContent>
         </Sheet>
       ) : null}
@@ -1013,17 +976,6 @@ const ClientProject = () => {
         }}
         className="hidden"
         aria-label="Create new job from files"
-      />
-      <input
-        ref={attachFilesPicker.inputRef}
-        type="file"
-        multiple
-        accept={attachFilesPicker.accept}
-        onChange={(event) => {
-          void attachFilesPicker.handleFileInputChange(event);
-        }}
-        className="hidden"
-        aria-label="Attach files to selected project line item"
       />
 
       <Dialog open={showAddPart} onOpenChange={setShowAddPart}>
@@ -1104,7 +1056,7 @@ const ClientProject = () => {
       <ProjectMembersDialog
         open={showMembers}
         onOpenChange={setShowMembers}
-        currentUserId={user?.id ?? ""}
+        currentUserId={user.id}
         memberships={projectMembershipsQuery.data ?? []}
         invites={projectInvitesQuery.data ?? []}
         canManage={canManageMembers}

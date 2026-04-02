@@ -11,6 +11,7 @@
     "db:start": "supabase start",
     "db:reset": "supabase db reset",
     "db:push": "supabase db push",
+    "db:types": "node ./scripts/generate-supabase-types.mjs",
     "seed:dev": "node ./scripts/seed-dev.mjs",
     "generate:favicon": "node scripts/generate-favicons.mjs",
     "lint": "eslint .",

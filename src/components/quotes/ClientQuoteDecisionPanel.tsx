@@ -48,6 +48,8 @@ type ClientQuoteDecisionPanelProps = {
   activePreset?: QuotePreset | null;
   onPresetSelect?: (preset: QuotePreset) => void;
   onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
+  controls?: ReactNode;
+  layout?: "full" | "compact";
   headerActions?: ReactNode;
   emptyState?: string;
   className?: string;
@@ -65,7 +67,7 @@ function QuoteDataStatusCard({
   diagnostics?: QuoteDiagnostics | null;
 }) {
   return (
-    <div className="mt-4 rounded-[24px] border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center">
+    <div className="mt-4 rounded-surface-lg border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center">
       <Icon className="mx-auto h-5 w-5 text-white/35" />
       <p className="mt-3 text-sm font-medium text-white/80">{title}</p>
       <p className="mt-2 text-sm text-white/55">{body}</p>
@@ -95,6 +97,7 @@ function PanelHeader({
   title,
   description,
   headerActions,
+  controls,
   activePreset,
   onPresetSelect,
   vendorKeys,
@@ -102,10 +105,13 @@ function PanelHeader({
   title: string;
   description: string;
   headerActions: ReactNode;
+  controls: ReactNode;
   activePreset: QuotePreset | null;
   onPresetSelect?: (preset: QuotePreset) => void;
   vendorKeys: readonly ClientQuoteSelectionOption["vendorKey"][];
 }) {
+  const showLegacyPresets = !controls && onPresetSelect;
+
   return (
     <div className="flex flex-col gap-3 border-b border-white/8 pb-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -117,7 +123,11 @@ function PanelHeader({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        {onPresetSelect ? (
+        {controls ? (
+          <div className="min-w-0 flex-1">{controls}</div>
+        ) : null}
+
+        {showLegacyPresets ? (
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/55">
               <SlidersHorizontal className="mr-2 h-3.5 w-3.5" />
@@ -142,7 +152,7 @@ function PanelHeader({
           </div>
         ) : null}
 
-        <div className="ml-auto">
+        <div className={cn((controls || showLegacyPresets) && "ml-auto")}>
           <QuoteSupplierLegend vendorKeys={vendorKeys} />
         </div>
       </div>
@@ -309,6 +319,125 @@ function QuoteComparisonTable({
   );
 }
 
+function QuoteComparisonCards({
+  options,
+  selectedOption,
+  hoveredKey,
+  onSelect,
+  onHover,
+  requestedByDate,
+  activePreset,
+  onToggleVendorExclusion,
+}: {
+  options: readonly ClientQuoteSelectionOption[];
+  selectedOption: ClientQuoteSelectionOption | null;
+  hoveredKey: string | null;
+  onSelect: (option: ClientQuoteSelectionOption) => void;
+  onHover: (key: string | null) => void;
+  requestedByDate: string | null;
+  activePreset: QuotePreset | null;
+  onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      {options.map((option) => {
+        const selected = selectedOption?.key === option.key;
+        const hovered = hoveredKey === option.key;
+        const reasons = getClientQuoteOptionStateReasons({
+          option,
+          requestedByDate,
+          preset: activePreset,
+        });
+
+        return (
+          <article
+            key={option.key}
+            className={cn(
+              "rounded-2xl border border-white/8 bg-black/20 p-4 transition-colors",
+              option.isSelectable && "cursor-pointer",
+              selected && "border-emerald-400/20 bg-emerald-500/10",
+              !selected && hovered && "bg-white/[0.05]",
+              !selected && !hovered && option.isSelectable && "hover:bg-white/[0.03]",
+              !option.isSelectable && "cursor-not-allowed opacity-60",
+            )}
+            onClick={() => {
+              if (option.isSelectable) {
+                onSelect(option);
+              }
+            }}
+            onMouseEnter={() => onHover(option.key)}
+            onMouseLeave={() => onHover(null)}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: getVendorColor(option.vendorKey) }}
+                  />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-sm font-semibold text-white">{option.vendorLabel}</span>
+                      {selected ? <BadgeCheck className="h-3.5 w-3.5 text-emerald-400" /> : null}
+                      {option.excluded ? (
+                        <Badge className="h-4 border border-white/10 bg-white/6 px-1 text-[9px] text-white/50">
+                          Excl
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 text-xs text-white/45">
+                      {[option.laneLabel ?? option.tier ?? "Standard", option.sourcing].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                </div>
+                {reasons.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-1">
+                    {reasons.map((reason) => (
+                      <ClientWorkspaceToneBadge
+                        key={`${option.key}:${reason.id}`}
+                        tone={reason.tone}
+                        label={reason.label}
+                        className="h-4 text-[9px] tracking-normal normal-case"
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="shrink-0 text-right">
+                <p className="text-base font-semibold text-white">{formatCurrency(option.totalPriceUsd)}</p>
+                <p className="mt-1 text-xs text-white/55">{option.resolvedDeliveryDate ?? formatLeadTime(option.leadTimeBusinessDays)}</p>
+                <p className="mt-1 text-[11px] text-white/40">Unit {formatCurrency(option.unitPriceUsd)}</p>
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {onToggleVendorExclusion ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-7 rounded-full border border-white/10 px-2.5 text-[11px] text-white/55 hover:bg-white/6 hover:text-white"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onToggleVendorExclusion(option.vendorKey, !option.excluded);
+                  }}
+                >
+                  {option.excluded ? "Include" : "Exclude"}
+                </Button>
+              ) : null}
+              {selected ? (
+                <Badge className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">
+                  Selected
+                </Badge>
+              ) : null}
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ClientQuoteDecisionPanel({
   title = "Quote intelligence",
   description = "Compare price and lead time as one decision surface, then commit the selected option from the same workspace.",
@@ -324,6 +453,8 @@ export function ClientQuoteDecisionPanel({
   activePreset = null,
   onPresetSelect,
   onToggleVendorExclusion,
+  controls = null,
+  layout = "full",
   headerActions = null,
   emptyState = "No quote options are available yet.",
   className,
@@ -337,6 +468,7 @@ export function ClientQuoteDecisionPanel({
         title={title}
         description={description}
         headerActions={headerActions}
+        controls={controls}
         activePreset={activePreset ?? null}
         onPresetSelect={onPresetSelect}
         vendorKeys={vendorKeys}
@@ -363,7 +495,7 @@ export function ClientQuoteDecisionPanel({
 
           {selectedOption ? <SelectedOptionBanner option={selectedOption} /> : null}
 
-          <div className="rounded-[24px] border border-white/8 bg-black/20 p-4">
+          <div className="rounded-surface-lg border border-white/8 bg-black/20 p-4">
             <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-white/5" />}>
               <ClientQuoteComparisonChart
                 options={options}
@@ -377,16 +509,29 @@ export function ClientQuoteDecisionPanel({
             </Suspense>
           </div>
 
-          <QuoteComparisonTable
-            options={options}
-            selectedOption={selectedOption}
-            hoveredKey={hoveredKey}
-            onSelect={onSelect}
-            onHover={setHoveredKey}
-            requestedByDate={requestedByDate}
-            activePreset={activePreset ?? null}
-            onToggleVendorExclusion={onToggleVendorExclusion}
-          />
+          {layout === "compact" ? (
+            <QuoteComparisonCards
+              options={options}
+              selectedOption={selectedOption}
+              hoveredKey={hoveredKey}
+              onSelect={onSelect}
+              onHover={setHoveredKey}
+              requestedByDate={requestedByDate}
+              activePreset={activePreset ?? null}
+              onToggleVendorExclusion={onToggleVendorExclusion}
+            />
+          ) : (
+            <QuoteComparisonTable
+              options={options}
+              selectedOption={selectedOption}
+              hoveredKey={hoveredKey}
+              onSelect={onSelect}
+              onHover={setHoveredKey}
+              requestedByDate={requestedByDate}
+              activePreset={activePreset ?? null}
+              onToggleVendorExclusion={onToggleVendorExclusion}
+            />
+          )}
         </div>
       )}
     </section>

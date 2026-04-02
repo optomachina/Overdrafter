@@ -265,19 +265,19 @@ const ClientPackage = () => {
       ) : null}
 
       <section className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/8 bg-white/8 md:grid-cols-4">
-        <div className="bg-[#1a1a1a] px-4 py-3">
+        <div className="bg-ws-inset px-4 py-3">
           <p className="text-[10px] uppercase tracking-widest text-white/40">Published</p>
           <p className="mt-1 text-xl font-bold tracking-tight text-white">
             {new Date(data.package.published_at).toLocaleDateString()}
           </p>
         </div>
-        <div className="bg-[#1a1a1a] px-4 py-3">
+        <div className="bg-ws-inset px-4 py-3">
           <p className="text-[10px] uppercase tracking-widest text-white/40">Options</p>
           <p className="mt-1 text-xl font-bold tracking-tight text-blue-400">
             {data.options.length}
           </p>
         </div>
-        <div className="bg-[#1a1a1a] px-4 py-3">
+        <div className="bg-ws-inset px-4 py-3">
           <p className="text-[10px] uppercase tracking-widest text-white/40">Best Price</p>
           <p className="mt-1 text-xl font-bold tracking-tight text-emerald-400">
             {data.options.length > 0
@@ -285,7 +285,7 @@ const ClientPackage = () => {
               : "—"}
           </p>
         </div>
-        <div className="bg-[#1a1a1a] px-4 py-3">
+        <div className="bg-ws-inset px-4 py-3">
           <p className="text-[10px] uppercase tracking-widest text-white/40">Status</p>
           <div className="mt-1">
             {latestSelection ? (
