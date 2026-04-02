@@ -7,6 +7,7 @@ import type {
   ArchivedJobSummary,
   ArchivedProjectSummary,
   ClientActivityEvent,
+  ClientPartRequirementView,
   ProjectAssigneeProfile,
   ClientPartRequestUpdateInput,
   ClientQuoteWorkspaceItem,
@@ -55,6 +56,42 @@ function buildFixtureQuoteDiagnostics(vendorQuotes: VendorQuoteAggregate[]): Quo
     excludedOffers: [],
     excludedReasonCounts: [],
   };
+}
+
+function ensureFixtureClientRequirement(part: PartAggregate | null | undefined): ClientPartRequirementView | null {
+  if (!part) {
+    return null;
+  }
+
+  if (part.clientRequirement) {
+    return part.clientRequirement;
+  }
+
+  const approved = part.approvedRequirement;
+  const snapshot =
+    approved?.spec_snapshot && typeof approved.spec_snapshot === "object"
+      ? (approved.spec_snapshot as Record<string, unknown>)
+      : null;
+  const request = {
+    description: approved?.description ?? null,
+    partNumber: approved?.part_number ?? null,
+    revision: approved?.revision ?? null,
+    quoteDescription: approved?.description ?? null,
+    material: approved?.material ?? "",
+    finish: approved?.finish ?? null,
+    quoteFinish: approved?.finish ?? null,
+    threads: typeof snapshot?.threads === "string" ? snapshot.threads : null,
+    tightestToleranceInch: approved?.tightest_tolerance_inch ?? null,
+    process: typeof snapshot?.process === "string" ? snapshot.process : null,
+    notes: typeof snapshot?.notes === "string" ? snapshot.notes : null,
+    quantity: approved?.quantity ?? part.quantity ?? 1,
+    quoteQuantities: approved?.quote_quantities ?? [approved?.quantity ?? part.quantity ?? 1],
+    requestedByDate: approved?.requested_by_date ?? null,
+    projectPartProperties: null,
+  } satisfies ClientPartRequirementView;
+
+  part.clientRequirement = request;
+  return request;
 }
 
 export const CLIENT_WORKSPACE_FIXTURE_SCENARIOS = [
@@ -1830,23 +1867,40 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
         normalizeRfqLineItemExtendedMetadata(input),
       );
       const timestamp = new Date().toISOString();
+      const workspaceRequirement = ensureFixtureClientRequirement(workspaceItem.part);
+      const partDetailRequirement = ensureFixtureClientRequirement(partDetail.part);
       const previousPropertyState =
-        workspaceItem.part?.clientRequirement?.projectPartProperties ??
-        partDetail.part?.clientRequirement?.projectPartProperties ??
+        workspaceRequirement?.projectPartProperties ??
+        partDetailRequirement?.projectPartProperties ??
         null;
+      const defaultPropertyState = {
+        description: workspaceRequirement?.description ?? partDetailRequirement?.description ?? null,
+        partNumber: workspaceRequirement?.partNumber ?? partDetailRequirement?.partNumber ?? null,
+        material: workspaceRequirement?.material ?? partDetailRequirement?.material ?? "",
+        finish: workspaceRequirement?.finish ?? partDetailRequirement?.finish ?? null,
+        tightestToleranceInch:
+          workspaceRequirement?.tightestToleranceInch ?? partDetailRequirement?.tightestToleranceInch ?? null,
+        threads: workspaceRequirement?.threads ?? partDetailRequirement?.threads ?? null,
+      };
+      const nextDefaults = {
+        ...defaultPropertyState,
+        ...(previousPropertyState?.defaults ?? {}),
+      };
+      const nextOverrides = Object.fromEntries(
+        (
+          [
+            ["description", input.description ?? null],
+            ["partNumber", input.partNumber ?? null],
+            ["material", input.material],
+            ["finish", input.finish ?? null],
+            ["tightestToleranceInch", input.tightestToleranceInch ?? null],
+            ["threads", input.threads ?? null],
+          ] as const
+        ).filter((entry) => entry[1] !== nextDefaults[entry[0]])
+      );
       const nextPropertyState = {
-        defaults: {
-          ...(previousPropertyState?.defaults ?? {}),
-        },
-        overrides: {
-          ...(previousPropertyState?.overrides ?? {}),
-          description: input.description ?? null,
-          partNumber: input.partNumber ?? null,
-          material: input.material,
-          finish: input.finish ?? null,
-          tightestToleranceInch: input.tightestToleranceInch ?? null,
-          threads: input.threads ?? null,
-        },
+        defaults: nextDefaults,
+        overrides: nextOverrides,
         createdAt: previousPropertyState?.createdAt ?? timestamp,
         updatedAt: timestamp,
       };
@@ -1966,7 +2020,10 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
         state.partDetailsByJobId[jobId],
         `Fixture part detail ${jobId} was not found.`,
       );
-      const propertyState = workspaceItem.part?.clientRequirement?.projectPartProperties;
+      const workspaceRequirement = ensureFixtureClientRequirement(workspaceItem.part);
+      const partDetailRequirement = ensureFixtureClientRequirement(partDetail.part);
+      const propertyState =
+        workspaceRequirement?.projectPartProperties ?? partDetailRequirement?.projectPartProperties ?? null;
 
       if (!propertyState) {
         return jobId;
@@ -1983,8 +2040,6 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
         overrides: nextOverrides,
         updatedAt: new Date().toISOString(),
       };
-      const hasOverrides = Object.keys(nextOverrides).length > 0;
-      const nextProjectPartProperties = hasOverrides ? nextState : null;
       const timestamp = nextState.updatedAt;
 
       if (workspaceItem.part?.clientRequirement) {
@@ -2009,7 +2064,7 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
           tightestToleranceInch: fields.includes("tightestToleranceInch")
             ? ((defaults.tightestToleranceInch as number | null | undefined) ?? null)
             : workspaceItem.part.clientRequirement.tightestToleranceInch,
-          projectPartProperties: nextProjectPartProperties,
+          projectPartProperties: nextState,
         };
       }
 
@@ -2041,14 +2096,8 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
           quoteFinish: workspaceItem.part.clientRequirement?.finish ?? null,
           tightestToleranceInch:
             workspaceItem.part.clientRequirement?.tightestToleranceInch ?? null,
-          ...(hasOverrides
-            ? { projectPartProperties: nextState }
-            : { projectPartProperties: undefined }),
+          projectPartProperties: nextState,
         };
-        if (!hasOverrides) {
-          delete (workspaceItem.part.approvedRequirement.spec_snapshot as Record<string, unknown>)
-            .projectPartProperties;
-        }
       }
 
       workspaceItem.job.updated_at = timestamp;

@@ -627,15 +627,12 @@ begin
       'process', nullif(trim(coalesce(p_process, '')), ''),
       'notes', nullif(trim(coalesce(p_notes, '')), ''),
       'projectPartProperties',
-        case
-          when v_property_overrides = '{}'::jsonb then null
-          else jsonb_build_object(
-            'defaults', v_property_defaults,
-            'overrides', v_property_overrides,
-            'createdAt', coalesce(v_property_created_at, v_timestamp::text),
-            'updatedAt', v_timestamp::text
-          )
-        end,
+        jsonb_build_object(
+          'defaults', v_property_defaults,
+          'overrides', v_property_overrides,
+          'createdAt', coalesce(v_property_created_at, v_timestamp::text),
+          'updatedAt', v_timestamp::text
+        ),
       'shipping', coalesce(v_requirement.spec_snapshot -> 'shipping', '{}'::jsonb)
         || jsonb_build_object(
           'packagingNotes', v_packaging_notes,
@@ -662,10 +659,6 @@ begin
           'notes', v_release_notes
         )
     );
-
-  if v_property_overrides = '{}'::jsonb then
-    v_spec_snapshot := v_spec_snapshot - 'projectPartProperties';
-  end if;
 
   update public.jobs
   set
@@ -894,20 +887,16 @@ begin
       'tightestToleranceInch', v_tightest_tolerance_effective
     );
 
-  if v_property_overrides = '{}'::jsonb then
-    v_requirement.spec_snapshot := v_requirement.spec_snapshot - 'projectPartProperties';
-  else
-    v_requirement.spec_snapshot := v_requirement.spec_snapshot
-      || jsonb_build_object(
-        'projectPartProperties',
-        jsonb_build_object(
-          'defaults', v_property_defaults,
-          'overrides', v_property_overrides,
-          'createdAt', nullif(trim(coalesce(v_property_state ->> 'createdAt', '')), ''),
-          'updatedAt', v_timestamp::text
-        )
-      );
-  end if;
+  v_requirement.spec_snapshot := v_requirement.spec_snapshot
+    || jsonb_build_object(
+      'projectPartProperties',
+      jsonb_build_object(
+        'defaults', v_property_defaults,
+        'overrides', v_property_overrides,
+        'createdAt', nullif(trim(coalesce(v_property_state ->> 'createdAt', '')), ''),
+        'updatedAt', v_timestamp::text
+      )
+    );
 
   update public.approved_part_requirements
   set

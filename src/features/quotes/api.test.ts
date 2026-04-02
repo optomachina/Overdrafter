@@ -369,6 +369,7 @@ import {
   requestDebugExtraction,
   requestQuote,
   requestQuotes,
+  resetClientPartPropertyOverrides,
   resetClientIntakeSchemaAvailabilityForTests,
   resetJobArchivingSchemaAvailabilityForTests,
   isProjectCollaborationSchemaUnavailable,
@@ -1535,6 +1536,25 @@ describe("quotes api helpers", () => {
         selectedLeadTimeBusinessDays: 7,
       }),
     ]);
+  });
+
+  it("resets project-side part property overrides through the dedicated RPC", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: "job-1",
+      error: null,
+    });
+
+    await expect(
+      resetClientPartPropertyOverrides({
+        jobId: "job-1",
+        fields: ["description", "threads"],
+      }),
+    ).resolves.toBe("job-1");
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_reset_client_part_property_overrides", {
+      p_job_id: "job-1",
+      p_fields: ["description", "threads"],
+    });
   });
 
   it("falls back to unfiltered job reads when the archive column is missing", async () => {

@@ -6,6 +6,8 @@ import {
   getFixtureScenarioIdFromSearch,
   resetClientWorkspaceFixtureStateForTests,
 } from "@/features/quotes/client-workspace-fixtures";
+import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadata";
+import { buildRequirementDraft } from "@/features/quotes/utils";
 
 describe("client workspace fixtures", () => {
   beforeEach(() => {
@@ -89,5 +91,91 @@ describe("client workspace fixtures", () => {
       ],
     });
     expect(archivedJobs).toEqual([]);
+  });
+
+  it("preserves project property defaults and timestamps when a save matches the defaults", async () => {
+    window.history.replaceState({}, "", "/projects/fx-project-quoted?fixture=client-quoted");
+
+    const gateway = getActiveClientWorkspaceGateway();
+    expect(gateway).not.toBeNull();
+
+    const [workspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
+    const part = workspaceItem?.part;
+    expect(part).toBeTruthy();
+
+    const input = buildClientPartRequestUpdateInput(
+      "fx-job-quoted-a",
+      buildRequirementDraft(part!, {
+        requested_service_kinds: workspaceItem?.job.requested_service_kinds ?? [],
+        primary_service_kind: workspaceItem?.job.primary_service_kind ?? null,
+        service_notes: workspaceItem?.job.service_notes ?? null,
+        requested_quote_quantities: workspaceItem?.job.requested_quote_quantities ?? [],
+        requested_by_date: workspaceItem?.job.requested_by_date ?? null,
+      }),
+    );
+
+    await gateway!.updateClientPartRequest(input);
+
+    const [updatedWorkspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
+    const propertyState = updatedWorkspaceItem?.part?.clientRequirement?.projectPartProperties;
+
+    expect(propertyState).toMatchObject({
+      defaults: expect.objectContaining({
+        description: input.description,
+        partNumber: input.partNumber,
+        material: input.material,
+        finish: input.finish,
+        tightestToleranceInch: input.tightestToleranceInch,
+        threads: input.threads,
+      }),
+      overrides: {},
+    });
+    expect(propertyState?.createdAt).toEqual(expect.any(String));
+    expect(propertyState?.updatedAt).toEqual(expect.any(String));
+  });
+
+  it("preserves project property defaults and timestamps when the last override is reset", async () => {
+    window.history.replaceState({}, "", "/projects/fx-project-quoted?fixture=client-quoted");
+
+    const gateway = getActiveClientWorkspaceGateway();
+    expect(gateway).not.toBeNull();
+
+    const [workspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
+    const part = workspaceItem?.part;
+    expect(part).toBeTruthy();
+
+    const input = buildClientPartRequestUpdateInput(
+      "fx-job-quoted-a",
+      buildRequirementDraft(part!, {
+        requested_service_kinds: workspaceItem?.job.requested_service_kinds ?? [],
+        primary_service_kind: workspaceItem?.job.primary_service_kind ?? null,
+        service_notes: workspaceItem?.job.service_notes ?? null,
+        requested_quote_quantities: workspaceItem?.job.requested_quote_quantities ?? [],
+        requested_by_date: workspaceItem?.job.requested_by_date ?? null,
+      }),
+    );
+
+    await gateway!.updateClientPartRequest({
+      ...input,
+      finish: "Reset me",
+    });
+
+    await gateway!.resetClientPartPropertyOverrides({
+      jobId: "fx-job-quoted-a",
+      fields: ["finish"],
+    });
+
+    const [updatedWorkspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
+    const propertyState = updatedWorkspaceItem?.part?.clientRequirement?.projectPartProperties;
+
+    expect(updatedWorkspaceItem?.part?.clientRequirement?.finish).toBe(input.finish ?? null);
+    expect(propertyState).toMatchObject({
+      defaults: expect.objectContaining({
+        finish: input.finish ?? null,
+      }),
+      overrides: {},
+    });
+    expect(propertyState?.createdAt).toEqual(expect.any(String));
+    expect(propertyState?.updatedAt).toEqual(expect.any(String));
   });
 });
