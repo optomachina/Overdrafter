@@ -93,6 +93,26 @@ For manufacturing review specifically, Horizon 2 should define the product targe
 
 Revision-aware carry-forward, supersession, and immutable review history remain later PDM work rather than Horizon 2 scope.
 
+## Active decomposition
+
+### Near-term implementation-ready children
+
+- `OVD-159` — Introduce `service_request_line_items` schema foundation
+- `OVD-160` — Bridge `quote_requests` onto `manufacturing_quote` line items
+- `OVD-161` — Add service-aware project and part request rollups
+- `OVD-172` — Persist richer RFQ metadata on project defaults and service line items
+- `OVD-173` — Split manufacturing-quote editing from broader service request editing
+
+These are the execution-ready Horizon 2 slices that directly extend the current request-edit and quote workspace surfaces without pulling revision-control or fulfillment execution work forward.
+
+### Later items that should stay epic or spike level
+
+- `OVD-39` remains the assembly-aware workspace parent, with `OVD-44` and `OVD-73` covering spike-level assembly upload and dependency-visibility exploration.
+- `OVD-40` remains the manufacturing-review status epic until richer RFQ metadata and service-line-item foundations are stable enough to attach review state cleanly.
+- `OVD-41` remains the fulfillment-state epic until the review-route and metadata foundation are mature enough to support a coherent `approved` boundary.
+
+This keeps Horizon 2 distinct from both Horizon 1 workspace polish and Horizon 3 revision/PDM foundations while still making the blocked later themes visible in backlog form.
+
 ### Epic: fulfillment state model
 - downstream state taxonomy
 - visible status strip and project/part rollups
