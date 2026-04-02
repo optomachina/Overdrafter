@@ -48,6 +48,51 @@ function formatDateLabel(value: string | null | undefined) {
   }).format(new Date(parsed));
 }
 
+function formatPropertyValue(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : "—";
+}
+
+function formatQuoteQuantitiesLabel(values: number[] | null | undefined) {
+  return values && values.length > 0 ? values.join(", ") : "—";
+}
+
+function formatToleranceLabel(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "—";
+  }
+
+  return `±${value.toFixed(4)} in`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function readSpecSnapshotString(
+  snapshot: Record<string, unknown> | null,
+  key: string,
+) {
+  const value = snapshot?.[key];
+  return typeof value === "string" ? value : null;
+}
+
+function quoteStatusBadgeClassName(status: string | null | undefined) {
+  if (status === "received") {
+    return "border border-emerald-400/20 bg-emerald-500/10 text-emerald-100";
+  }
+
+  if (status === "queued" || status === "requesting") {
+    return "border border-amber-400/20 bg-amber-500/10 text-amber-100";
+  }
+
+  if (status === "failed" || status === "canceled") {
+    return "border border-rose-400/20 bg-rose-500/10 text-rose-100";
+  }
+
+  return "border border-white/10 bg-white/6 text-white/70";
+}
+
 const ClientProject = () => {
   const {
     activeFilter,
@@ -248,6 +293,81 @@ const ClientProject = () => {
       ),
     [workspaceItemsByJobId],
   );
+
+  const focusedInspectorModel = useMemo(() => {
+    if (!focusedJobId || !focusedWorkspaceItem) {
+      return null;
+    }
+
+    const job = focusedWorkspaceItem.job;
+    const part = focusedWorkspaceItem.part;
+    const summary = focusedWorkspaceItem.summary;
+    const approvedRequirement = part?.approvedRequirement ?? null;
+    const clientRequirement = part?.clientRequirement ?? null;
+    const specSnapshot = asRecord(approvedRequirement?.spec_snapshot);
+    const quoteRequestViewModel = quoteRequestViewModelsByJobId.get(focusedJobId) ?? null;
+
+    const partNumber =
+      approvedRequirement?.part_number ??
+      clientRequirement?.partNumber ??
+      summary?.partNumber ??
+      part?.name ??
+      job.title;
+    const description =
+      approvedRequirement?.description ??
+      clientRequirement?.description ??
+      summary?.description ??
+      part?.name ??
+      job.title;
+    const material = clientRequirement?.material ?? approvedRequirement?.material ?? null;
+    const finish =
+      clientRequirement?.finish ??
+      readSpecSnapshotString(specSnapshot, "quoteFinish") ??
+      approvedRequirement?.finish ??
+      null;
+    const threads =
+      readSpecSnapshotString(specSnapshot, "threads") ?? readSpecSnapshotString(specSnapshot, "thread") ?? null;
+    const tightestTolerance =
+      formatToleranceLabel(
+        clientRequirement?.tightestToleranceInch ?? approvedRequirement?.tightest_tolerance_inch ?? null,
+      ) !== "—"
+        ? formatToleranceLabel(
+            clientRequirement?.tightestToleranceInch ?? approvedRequirement?.tightest_tolerance_inch ?? null,
+          )
+        : formatPropertyValue(readSpecSnapshotString(specSnapshot, "tightest_tolerance"));
+
+    return {
+      description,
+      partNumber,
+      properties: [
+        { label: "Material", value: formatPropertyValue(material) },
+        { label: "Finish", value: formatPropertyValue(finish) },
+        { label: "Threads", value: formatPropertyValue(threads) },
+        { label: "Tightest tolerance", value: tightestTolerance },
+        { label: "Part number", value: formatPropertyValue(partNumber) },
+        { label: "Description", value: formatPropertyValue(description) },
+      ],
+      project: [
+        { label: "Project", value: formatPropertyValue(projectQuery.data?.name ?? projectName ?? "Project") },
+        { label: "Project parts", value: String(projectJobs.length) },
+        { label: "Quote quantities", value: formatQuoteQuantitiesLabel(summary?.requestedQuoteQuantities) },
+        { label: "Need by", value: formatPropertyValue(summary?.requestedByDate ?? approvedRequirement?.requested_by_date) },
+      ],
+      quoteBadge: quoteRequestViewModel
+        ? {
+            label: quoteRequestViewModel.label,
+            status: quoteRequestViewModel.status,
+          }
+        : null,
+    };
+  }, [
+    focusedJobId,
+    focusedWorkspaceItem,
+    projectJobs.length,
+    projectName,
+    projectQuery.data?.name,
+    quoteRequestViewModelsByJobId,
+  ]);
 
   if (isAuthInitializing && !user) {
     return <AuthBootstrapScreen message="Restoring your project workspace." />;
@@ -467,14 +587,7 @@ const ClientProject = () => {
                       const presentation = getClientItemPresentation(job, summary);
                       const quoteRequestViewModel = quoteRequestViewModelsByJobId.get(job.id) ?? null;
                       const quoteStatusLabel = quoteRequestViewModel?.label ?? formatStatusLabel(job.status);
-                      const quoteStatusClassName =
-                        quoteRequestViewModel?.status === "received"
-                          ? "border border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
-                          : quoteRequestViewModel?.status === "queued" || quoteRequestViewModel?.status === "requesting"
-                            ? "border border-amber-400/20 bg-amber-500/10 text-amber-100"
-                            : quoteRequestViewModel?.status === "failed" || quoteRequestViewModel?.status === "canceled"
-                              ? "border border-rose-400/20 bg-rose-500/10 text-rose-100"
-                              : "border border-white/10 bg-white/6 text-white/70";
+                      const quoteStatusClassName = quoteStatusBadgeClassName(quoteRequestViewModel?.status);
                       const partNumber =
                         workspaceItem?.part?.approvedRequirement?.part_number ?? presentation.partNumber ?? "—";
                       const description =
@@ -585,13 +698,15 @@ const ClientProject = () => {
                     {focusedJobId && focusedWorkspaceItem ? (
                       <>
                         <h2 className="text-lg font-semibold tracking-[-0.02em] text-white">
-                          {focusedWorkspaceItem.part?.approvedRequirement?.part_number ??
+                          {focusedInspectorModel?.partNumber ??
+                            focusedWorkspaceItem.part?.approvedRequirement?.part_number ??
                             focusedWorkspaceItem.summary?.partNumber ??
                             focusedWorkspaceItem.part?.name ??
                             focusedWorkspaceItem.job.title}
                         </h2>
                         <p className="text-sm text-white/55">
-                          {focusedWorkspaceItem.part?.approvedRequirement?.description ??
+                          {focusedInspectorModel?.description ??
+                            focusedWorkspaceItem.part?.approvedRequirement?.description ??
                             focusedWorkspaceItem.summary?.description ??
                             focusedWorkspaceItem.part?.name ??
                             "Inspector shell only until OVD-81c wires real content."}
@@ -619,22 +734,71 @@ const ClientProject = () => {
                 </div>
 
                 <div className="mt-4 space-y-3">
-                  {["Properties", "Project"].map((sectionTitle) => (
-                    <details
-                      key={sectionTitle}
-                      open
-                      className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]"
-                    >
-                      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-white marker:content-none">
-                        {sectionTitle}
-                      </summary>
-                      <div className="border-t border-white/10 px-4 py-3 text-sm text-white/55">
-                        {focusedJobId
-                          ? `${sectionTitle} content will be wired in OVD-81c.`
-                          : `${sectionTitle} details appear here after you select a part.`}
-                      </div>
-                    </details>
-                  ))}
+                  <details open className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
+                    <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-white marker:content-none">
+                      Properties
+                    </summary>
+                    <div className="border-t border-white/10 px-4 py-3 text-sm text-white/55">
+                      {focusedInspectorModel ? (
+                        <div className="space-y-2">
+                          {focusedInspectorModel.properties.map((item) => (
+                            <div
+                              key={item.label}
+                              className="flex items-start justify-between gap-4 border-b border-white/[0.05] pb-2 last:border-0 last:pb-0"
+                            >
+                              <span className="text-white/45">{item.label}</span>
+                              <span className="text-right font-medium text-white">{item.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        "Properties details appear here after you select a part."
+                      )}
+                    </div>
+                  </details>
+
+                  <details open className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
+                    <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-white marker:content-none">
+                      Project
+                    </summary>
+                    <div className="border-t border-white/10 px-4 py-3 text-sm text-white/55">
+                      {focusedInspectorModel ? (
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            {focusedInspectorModel.project.map((item) => (
+                              <div
+                                key={item.label}
+                                className="flex items-start justify-between gap-4 border-b border-white/[0.05] pb-2 last:border-0 last:pb-0"
+                              >
+                                <span className="text-white/45">{item.label}</span>
+                                <span className="text-right font-medium text-white">{item.value}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          {focusedInspectorModel.quoteBadge ? (
+                            <div className="space-y-2">
+                              <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Quote status</p>
+                              <Badge className={quoteStatusBadgeClassName(focusedInspectorModel.quoteBadge.status)}>
+                                {focusedInspectorModel.quoteBadge.label}
+                              </Badge>
+                            </div>
+                          ) : null}
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                            onClick={() => navigate(`/parts/${focusedJobId}`)}
+                          >
+                            Open part workspace
+                          </Button>
+                        </div>
+                      ) : (
+                        "Project details appear here after you select a part."
+                      )}
+                    </div>
+                  </details>
                 </div>
               </aside>
             ) : null}
