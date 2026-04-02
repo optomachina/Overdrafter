@@ -194,6 +194,89 @@ vi.mock("@/components/chat/SearchPartsDialog", () => ({
   SearchPartsDialog: () => null,
 }));
 
+vi.mock("@/components/ui/tabs", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  const TabsContext = React.createContext<{
+    value: string;
+    setValue: (next: string) => void;
+  } | null>(null);
+
+  function useTabsContext() {
+    const context = React.useContext(TabsContext);
+    if (!context) {
+      throw new Error("Tabs components must be rendered inside Tabs");
+    }
+    return context;
+  }
+
+  return {
+    Tabs: ({
+      defaultValue,
+      className,
+      children,
+    }: {
+      defaultValue: string;
+      className?: string;
+      children?: ReactNode;
+    }) => {
+      const [value, setValue] = React.useState(defaultValue);
+      return (
+        <TabsContext.Provider value={{ value, setValue }}>
+          <div className={className}>{children}</div>
+        </TabsContext.Provider>
+      );
+    },
+    TabsList: ({ className, children }: { className?: string; children?: ReactNode }) => (
+      <div role="tablist" className={className}>
+        {children}
+      </div>
+    ),
+    TabsTrigger: ({
+      value,
+      className,
+      children,
+    }: {
+      value: string;
+      className?: string;
+      children?: ReactNode;
+    }) => {
+      const context = useTabsContext();
+      const isActive = context.value === value;
+      return (
+        <button
+          type="button"
+          role="tab"
+          aria-selected={isActive}
+          data-state={isActive ? "active" : "inactive"}
+          className={className}
+          onClick={() => context.setValue(value)}
+        >
+          {children}
+        </button>
+      );
+    },
+    TabsContent: ({
+      value,
+      className,
+      children,
+    }: {
+      value: string;
+      className?: string;
+      children?: ReactNode;
+    }) => {
+      const context = useTabsContext();
+      if (context.value !== value) {
+        return null;
+      }
+      return (
+        <div role="tabpanel" className={className}>
+          {children}
+        </div>
+      );
+    },
+  };
+});
+
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   DropdownMenuTrigger: ({ children }: { children?: ReactNode }) => <>{children}</>,
@@ -431,6 +514,11 @@ function renderWithClient(initialEntry: string) {
   };
 }
 
+async function openWorkspaceTab(name: "Quote" | "Request" | "Files" | "Activity") {
+  const [tab] = await screen.findAllByRole("tab", { name });
+  fireEvent.click(tab);
+}
+
 function createDeferredPromise<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -648,29 +736,38 @@ describe("ClientPart", () => {
 
     expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
     expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
+    await openWorkspaceTab("Request");
     expect(screen.getByText("Part information")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /prev rev/i })).toBeInTheDocument();
     expect(screen.queryByText("This part could not be loaded.")).not.toBeInTheDocument();
     expect(api.fetchPartDetailByJobId).toHaveBeenCalledTimes(1);
   });
 
-  it("renders part information inline after the quote section", async () => {
+  it("renders the workspace tabs and switches between quote, request, files, and activity", async () => {
     renderWithClient("/parts/job-1");
 
-    const quoteDecisionPanel = await screen.findByTestId("quote-decision-panel");
-    const partInfoPanel = await screen.findByTestId("part-info-panel");
-    const cadPanel = await screen.findByTestId("cad-panel");
+    expect(await screen.findByRole("tab", { name: "Quote" })).toBeInTheDocument();
+    expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
+    expect(screen.queryByText("Part information")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("cad-panel")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Leave a comment")).not.toBeInTheDocument();
 
-    expect(quoteDecisionPanel.compareDocumentPosition(partInfoPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(partInfoPanel.compareDocumentPosition(cadPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await openWorkspaceTab("Request");
+    expect(await screen.findByTestId("part-info-panel")).toBeInTheDocument();
+
+    await openWorkspaceTab("Files");
+    expect(await screen.findByTestId("cad-panel")).toBeInTheDocument();
+    expect(screen.getByText("Attached source files")).toBeInTheDocument();
+
+    await openWorkspaceTab("Activity");
+    expect(await screen.findByLabelText("Leave a comment")).toBeInTheDocument();
   });
 
   it("passes part metadata into PartInfoPanel and omits the old workspace badge cluster", async () => {
     renderWithClient("/parts/job-1");
 
-    await waitFor(() => {
-      expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
-    });
+    await openWorkspaceTab("Request");
+    expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
 
     expect(lastPartInfoPanelProps).toMatchObject({
       partNumber: "BRKT-001",
@@ -794,9 +891,8 @@ describe("ClientPart", () => {
     const { queryClient } = renderWithClient("/parts/job-1");
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Save Request" })).toBeInTheDocument();
-    });
+    await openWorkspaceTab("Request");
+    expect(screen.getByRole("button", { name: "Save Request" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
 
@@ -920,6 +1016,7 @@ describe("ClientPart", () => {
       expect(screen.getByTestId("sidebar-job-job-1")).toHaveTextContent("Bracket:project-1");
     });
 
+    await openWorkspaceTab("Request");
     fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
 
     await waitFor(() => {
@@ -1009,11 +1106,12 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
+    await openWorkspaceTab("Request");
     await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: /request quote/i })[0]).toBeEnabled();
+      expect(screen.getByRole("button", { name: /request quote/i })).toBeEnabled();
     });
 
-    fireEvent.click(screen.getAllByRole("button", { name: /request quote/i })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: /request quote/i }));
 
     await waitFor(() => {
       expect(api.requestQuote).toHaveBeenCalledWith("job-1", false);
@@ -1101,11 +1199,12 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
+    await openWorkspaceTab("Request");
     await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: /request quote/i })[0]).toBeEnabled();
+      expect(screen.getByRole("button", { name: /request quote/i })).toBeEnabled();
     });
 
-    fireEvent.click(screen.getAllByRole("button", { name: /request quote/i })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: /request quote/i }));
 
     await waitFor(() => {
       expect(toastMock.error).toHaveBeenCalledWith(
@@ -1197,7 +1296,8 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    const button = (await screen.findAllByRole("button", { name: /request quote/i }))[0]!;
+    await openWorkspaceTab("Request");
+    const button = await screen.findByRole("button", { name: /request quote/i });
 
     expect(button).toBeEnabled();
 
@@ -1260,7 +1360,8 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    fireEvent.click(await screen.findAllByRole("button", { name: "Cancel request" }).then((buttons) => buttons[0]!));
+    await openWorkspaceTab("Request");
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel request" }));
     expect(await screen.findByText("Cancel quote request?")).toBeInTheDocument();
     expect(
       await screen.findByText(
@@ -1294,9 +1395,8 @@ describe("ClientPart", () => {
   it("adds browser-local comments in the activity section", async () => {
     renderWithClient("/parts/job-1");
 
-    await waitFor(() => {
-      expect(screen.getByLabelText("Leave a comment")).toBeInTheDocument();
-    });
+    await openWorkspaceTab("Activity");
+    expect(screen.getByLabelText("Leave a comment")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Leave a comment"), {
       target: { value: "Need vendor follow-up before approving." },
@@ -1314,9 +1414,8 @@ describe("ClientPart", () => {
   it("keeps browser-local comments isolated to the active user", async () => {
     const firstRender = renderWithClient("/parts/job-1");
 
-    await waitFor(() => {
-      expect(screen.getByLabelText("Leave a comment")).toBeInTheDocument();
-    });
+    await openWorkspaceTab("Activity");
+    expect(screen.getByLabelText("Leave a comment")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Leave a comment"), {
       target: { value: "Private follow-up for user one." },
@@ -1339,6 +1438,7 @@ describe("ClientPart", () => {
     firstRender.unmount();
     renderWithClient("/parts/job-1");
 
+    await openWorkspaceTab("Activity");
     await waitFor(() => {
       expect(window.localStorage.getItem).toHaveBeenCalledWith("client-part-comments:user-2:job-1");
     });
@@ -1437,6 +1537,7 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
+    await openWorkspaceTab("Request");
     expect(await screen.findAllByText(/drawing extraction in progress/i)).not.toHaveLength(0);
   });
 
@@ -1475,6 +1576,7 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
+    await openWorkspaceTab("Files");
     expect(await screen.findByTitle("bracket.pdf PDF preview")).toHaveAttribute("src", "blob:part-drawing-pdf");
     expect(storedFile.loadStoredPdfObjectUrl).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1536,6 +1638,7 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
+    await openWorkspaceTab("Files");
     await waitFor(() => {
       expect(storedFile.loadStoredDrawingPreviewPages).toHaveBeenCalled();
       expect(lastDrawingPreviewDialogProps?.pages).toEqual([{ pageNumber: 1, url: "blob:page-1" }]);
@@ -1567,6 +1670,7 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
+    await openWorkspaceTab("Request");
     expect(await screen.findAllByText(/drawing extraction failed/i)).not.toHaveLength(0);
     expect(await screen.findAllByText(/could not read text from the uploaded drawing pdf/i)).not.toHaveLength(0);
   });
@@ -1609,6 +1713,7 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
+    await openWorkspaceTab("Request");
     await waitFor(() => {
       expect(screen.getByText(/partial drawing metadata found/i)).toBeInTheDocument();
       expect(screen.getByText(/missing: material, finish/i)).toBeInTheDocument();
