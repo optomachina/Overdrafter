@@ -154,12 +154,26 @@ describe("request-scenarios", () => {
       requestedQuoteQuantities: [10, 100],
       requestedByDate: "2026-04-15",
     });
+  });
 
+  it("rolls up mixed service types while hiding quote-only metadata for non-quote-compatible selections", () => {
     expect(
       getSharedRequestMetadata([
         makeSummary(),
-        makeSummary({ jobId: "job-2", requestedByDate: null }),
+        makeSummary({
+          jobId: "job-2",
+          requestedServiceKinds: ["dfm_review"],
+          primaryServiceKind: "dfm_review",
+          requestedQuoteQuantities: [5],
+          requestedByDate: "2026-04-22",
+        }),
       ]),
-    ).toBeNull();
+    ).toEqual({
+      requestedServiceKinds: ["manufacturing_quote", "dfm_review"],
+      primaryServiceKind: "manufacturing_quote",
+      serviceNotes: null,
+      requestedQuoteQuantities: [],
+      requestedByDate: null,
+    });
   });
 });

@@ -2,6 +2,7 @@ import { MessageSquareLock, Sparkles } from "lucide-react";
 import { ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { requestedServicesSupportQuoteFields } from "@/features/quotes/service-intent";
 import type {
   ClientQuoteRequestStatus,
   DrawingExtractionData,
@@ -152,6 +153,7 @@ export function ClientMetadataPanel({
 }) {
   const approved = part?.approvedRequirement ?? null;
   const liveDfmSignalCount = quoteOptions.reduce((count, option) => count + (option.notes ? 1 : 0), 0);
+  const showQuoteFields = requestedServicesSupportQuoteFields(summary?.requestedServiceKinds);
 
   return (
     <div className="space-y-4">
@@ -164,13 +166,15 @@ export function ClientMetadataPanel({
           { label: "Quantity", value: formatMaybeNumber(summary?.quantity ?? approved?.quantity) },
           {
             label: "Quote quantities",
-            value: (summary?.requestedQuoteQuantities ?? approved?.quote_quantities ?? []).length > 0
+            value: showQuoteFields && (summary?.requestedQuoteQuantities ?? approved?.quote_quantities ?? []).length > 0
               ? (summary?.requestedQuoteQuantities ?? approved?.quote_quantities ?? []).join(", ")
               : "Not available",
           },
           {
             label: "Need by",
-            value: formatMaybeString(summary?.requestedByDate ?? approved?.requested_by_date),
+            value: showQuoteFields
+              ? formatMaybeString(summary?.requestedByDate ?? approved?.requested_by_date)
+              : "Not available",
           },
         ]}
       />
