@@ -1046,6 +1046,10 @@ export function useClientProjectController() {
     setIsInspectorOpen(true);
   };
 
+  const handleToggleInspector = () => {
+    setIsInspectorOpen((current) => !current);
+  };
+
   const handleToggleVendorExclusion = (
     jobId: string,
     vendorKey: VendorName,
@@ -1398,6 +1402,7 @@ export function useClientProjectController() {
     handleRevertBulk,
     handleSaveRequest,
     handleSelectQuoteOption,
+    handleToggleInspector,
     handleToggleVendorExclusion,
     handleUnarchivePart,
     handleUnpinPart,
