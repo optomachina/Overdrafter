@@ -80,7 +80,7 @@
 - Target project: `Symphony`
 - Existing issue: `OVD-134` ([open](https://linear.app/blainew/issue/OVD-134/add-vendor-capability-profile-model))
 - Parent: `OVD-23`
-- State: `Backlog`
+- State: `Todo`
 - Priority / estimate: `P2` / `5`
 - Labels: `next`, `quotes`, `product-foundation`, `horizon-2`, `Feature`, `free-tier`
 
