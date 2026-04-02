@@ -10,6 +10,7 @@ import type {
   QuoteDataStatus,
   QuoteDiagnostics,
   QuoteRequestRecord,
+  ServiceRequestLineItemRecord,
   VendorQuoteAggregate,
 } from "@/features/quotes/types";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
@@ -25,6 +26,7 @@ import {
   isMissingDrawingPreviewSchemaError,
   isMissingFunctionError,
   isMissingQuoteRequestSchemaError,
+  isMissingServiceRequestLineItemSchemaError,
   isNoRowsError,
 } from "./shared/schema-errors";
 import {
@@ -148,6 +150,52 @@ async function fetchLatestQuoteRequestsByJobIds(jobIds: string[]): Promise<Map<s
   return latestByJobId;
 }
 
+async function fetchManufacturingQuoteLineItemsByJobIds(
+  jobIds: string[],
+): Promise<Map<string, ServiceRequestLineItemRecord>> {
+  if (jobIds.length === 0) {
+    return new Map();
+  }
+
+  let data: ServiceRequestLineItemRecord[] | null = null;
+  let error: { message: string } | null | undefined;
+
+  try {
+    const response = await supabase
+      .from("service_request_line_items")
+      .select("*")
+      .in("job_id", jobIds)
+      .eq("service_type", "manufacturing_quote")
+      .eq("scope", "part")
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false });
+
+    data = response.data as ServiceRequestLineItemRecord[] | null;
+    error = response.error;
+  } catch (queryError) {
+    if (isMissingServiceRequestLineItemSchemaError(queryError)) {
+      return new Map();
+    }
+
+    throw queryError;
+  }
+
+  if (error && isMissingServiceRequestLineItemSchemaError(error)) {
+    return new Map();
+  }
+
+  const lineItems = ensureData(data, error) as ServiceRequestLineItemRecord[];
+  const latestByJobId = new Map<string, ServiceRequestLineItemRecord>();
+
+  lineItems.forEach((lineItem) => {
+    if (lineItem.job_id && !latestByJobId.has(lineItem.job_id)) {
+      latestByJobId.set(lineItem.job_id, lineItem);
+    }
+  });
+
+  return latestByJobId;
+}
+
 export async function resolveClientPartDetailRoute(candidateId: string): Promise<ResolvedClientPartDetailRoute | null> {
   if (!candidateId) {
     return null;
@@ -265,6 +313,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     summaries,
     projectMemberships,
     latestQuoteRequestsByJobId,
+    serviceRequestLineItemsByJobId,
     quoteWorkspaceByJobId,
   ] = await Promise.all([
     fetchJobsByIds(jobIds, {
@@ -275,6 +324,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     fetchJobPartSummariesByJobIds(jobIds),
     fetchProjectJobMembershipsByJobIds(jobIds),
     fetchLatestQuoteRequestsByJobIds(jobIds),
+    fetchManufacturingQuoteLineItemsByJobIds(jobIds),
     fetchClientQuoteWorkspaceProjectionByJobIds(jobIds),
   ]);
 
@@ -340,6 +390,8 @@ export async function fetchClientQuoteWorkspaceByJobIds(
 
     const jobFiles = filesByJobId.get(jobId) ?? [];
     const jobParts = partsByJobId.get(jobId) ?? [];
+    const latestQuoteRequest = latestQuoteRequestsByJobId.get(jobId) ?? null;
+    const serviceRequestLineItem = serviceRequestLineItemsByJobId.get(jobId) ?? null;
     const quoteWorkspace = quoteWorkspaceByJobId.get(jobId) ?? {
       jobId,
       latestQuoteRun: null,
@@ -393,8 +445,9 @@ export async function fetchClientQuoteWorkspaceByJobIds(
                 metadataByPartId.get(partWithRelations.id)?.extraction ?? partWithRelations.clientExtraction ?? null,
                 previewAssetsByPartId.get(partWithRelations.id) ?? [],
               ),
-        latestQuoteRequest: latestQuoteRequestsByJobId.get(jobId) ?? null,
+        latestQuoteRequest,
         latestQuoteRun: quoteWorkspace.latestQuoteRun,
+        serviceRequestLineItem,
       } satisfies ClientQuoteWorkspaceItem,
     ];
   });
@@ -511,6 +564,7 @@ export async function fetchPartDetailByJobId(jobId: string): Promise<PartDetailA
     drawingPreview: normalizeDrawingPreview(part?.clientExtraction ?? null, previewAssets),
     latestQuoteRequest: workspaceItem.latestQuoteRequest,
     latestQuoteRun: workspaceItem.latestQuoteRun,
+    serviceRequestLineItem: workspaceItem.serviceRequestLineItem ?? null,
     revisionSiblings,
   };
 }

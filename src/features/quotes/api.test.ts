@@ -120,6 +120,26 @@ const supabaseMock = vi.hoisted(() => {
   quoteRequestsOrder.mockImplementation(() => quoteRequestsQuery);
   const quoteRequestsSelect = vi.fn(() => quoteRequestsQuery);
 
+  const serviceRequestLineItemsOrder = vi.fn();
+  const serviceRequestLineItemsEqScope = vi.fn();
+  const serviceRequestLineItemsEqServiceType = vi.fn(() => ({
+    eq: serviceRequestLineItemsEqScope,
+    order: serviceRequestLineItemsOrder,
+  }));
+  const serviceRequestLineItemsEqJobId = vi.fn(() => ({ order: serviceRequestLineItemsOrder }));
+  const serviceRequestLineItemsIn = vi.fn(() => ({
+    eq: serviceRequestLineItemsEqServiceType,
+    order: serviceRequestLineItemsOrder,
+  }));
+  const serviceRequestLineItemsQuery = {
+    eq: serviceRequestLineItemsEqJobId,
+    in: serviceRequestLineItemsIn,
+    order: serviceRequestLineItemsOrder,
+  };
+  serviceRequestLineItemsEqScope.mockImplementation(() => serviceRequestLineItemsQuery);
+  serviceRequestLineItemsOrder.mockImplementation(() => serviceRequestLineItemsQuery);
+  const serviceRequestLineItemsSelect = vi.fn(() => serviceRequestLineItemsQuery);
+
   const pinnedProjectsOrder = vi.fn();
   const pinnedProjectsEq = vi.fn(() => ({ order: pinnedProjectsOrder }));
   const pinnedProjectsSelect = vi.fn(() => ({ eq: pinnedProjectsEq }));
@@ -200,6 +220,12 @@ const supabaseMock = vi.hoisted(() => {
       };
     }
 
+    if (table === "service_request_line_items") {
+      return {
+        select: serviceRequestLineItemsSelect,
+      };
+    }
+
     if (table === "user_pinned_projects") {
       return {
         select: pinnedProjectsSelect,
@@ -275,6 +301,13 @@ const supabaseMock = vi.hoisted(() => {
     quoteRequestsOrder,
     quoteRequestsQuery,
     quoteRequestsSelect,
+    serviceRequestLineItemsEqJobId,
+    serviceRequestLineItemsEqScope,
+    serviceRequestLineItemsEqServiceType,
+    serviceRequestLineItemsIn,
+    serviceRequestLineItemsOrder,
+    serviceRequestLineItemsQuery,
+    serviceRequestLineItemsSelect,
     pinnedJobsDelete,
     pinnedJobsDeleteEqFirst,
     pinnedJobsDeleteEqSecond,
@@ -481,6 +514,20 @@ describe("quotes api helpers", () => {
     supabaseMock.quoteRequestsIn.mockImplementation(() => supabaseMock.quoteRequestsQuery);
     supabaseMock.quoteRequestsOrder.mockImplementation(() => supabaseMock.quoteRequestsQuery);
     supabaseMock.quoteRequestsSelect.mockImplementation(() => supabaseMock.quoteRequestsQuery);
+    supabaseMock.serviceRequestLineItemsEqScope.mockImplementation(() => supabaseMock.serviceRequestLineItemsQuery);
+    supabaseMock.serviceRequestLineItemsEqServiceType.mockImplementation(() => ({
+      eq: supabaseMock.serviceRequestLineItemsEqScope,
+      order: supabaseMock.serviceRequestLineItemsOrder,
+    }));
+    supabaseMock.serviceRequestLineItemsEqJobId.mockImplementation(() => ({
+      order: supabaseMock.serviceRequestLineItemsOrder,
+    }));
+    supabaseMock.serviceRequestLineItemsIn.mockImplementation(() => ({
+      eq: supabaseMock.serviceRequestLineItemsEqServiceType,
+      order: supabaseMock.serviceRequestLineItemsOrder,
+    }));
+    supabaseMock.serviceRequestLineItemsOrder.mockImplementation(() => supabaseMock.serviceRequestLineItemsQuery);
+    supabaseMock.serviceRequestLineItemsSelect.mockImplementation(() => supabaseMock.serviceRequestLineItemsQuery);
     supabaseMock.authGetSession.mockResolvedValue({
       data: {
         session: {
@@ -1651,6 +1698,27 @@ describe("quotes api helpers", () => {
         ],
         error: null,
       });
+    supabaseMock.serviceRequestLineItemsOrder
+      .mockImplementationOnce(() => supabaseMock.serviceRequestLineItemsQuery)
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: "line-item-1",
+            organization_id: "org-1",
+            project_id: null,
+            job_id: "job-1",
+            service_type: "manufacturing_quote",
+            scope: "part",
+            status: "queued",
+            service_detail: {
+              origin: "phase_2_quote_request_transition",
+            },
+            created_at: "2026-03-02T09:00:00Z",
+            updated_at: "2026-03-02T10:00:00Z",
+          },
+        ],
+        error: null,
+      });
     supabaseMock.rpc.mockImplementation((fn: string) => {
       if (fn === "api_list_client_part_metadata") {
         return Promise.resolve({
@@ -1679,12 +1747,137 @@ describe("quotes api helpers", () => {
       });
     });
 
-    const [{ latestQuoteRequest }] = await fetchClientQuoteWorkspaceByJobIds(["job-1"]);
+    const [workspaceItem] = await fetchClientQuoteWorkspaceByJobIds(["job-1"]);
+    const latestQuoteRequest = workspaceItem?.latestQuoteRequest ?? null;
 
     expect(latestQuoteRequest?.id).toBe("request-b");
     expect(latestQuoteRequest?.status).toBe("queued");
+    expect(workspaceItem?.serviceRequestLineItem?.id).toBe("line-item-1");
     expect(supabaseMock.quoteRequestsOrder).toHaveBeenNthCalledWith(1, "created_at", { ascending: false });
     expect(supabaseMock.quoteRequestsOrder).toHaveBeenNthCalledWith(2, "id", { ascending: false });
+    expect(supabaseMock.serviceRequestLineItemsEqServiceType).toHaveBeenCalledWith("service_type", "manufacturing_quote");
+    expect(supabaseMock.serviceRequestLineItemsEqScope).toHaveBeenCalledWith("scope", "part");
+  });
+
+  it("keeps client lifecycle reads working when the service-request line-item table is unavailable", async () => {
+    const missingLineItemsTableError = {
+      code: "42P01",
+      message: 'relation "public.service_request_line_items" does not exist',
+      details: null,
+      hint: null,
+    };
+
+    supabaseMock.jobsIs.mockResolvedValueOnce({
+      data: [
+        {
+          id: "job-1",
+          organization_id: "org-1",
+          project_id: null,
+          selected_vendor_quote_offer_id: null,
+          created_by: "user-1",
+          title: "Bracket",
+          description: null,
+          status: "ready_to_quote",
+          source: "client_home",
+          active_pricing_policy_id: null,
+          tags: [],
+          requested_service_kinds: ["manufacturing_quote"],
+          primary_service_kind: "manufacturing_quote",
+          service_notes: null,
+          requested_quote_quantities: [10],
+          requested_by_date: null,
+          archived_at: null,
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.jobsIn
+      .mockImplementationOnce(() => supabaseMock.jobsQuery)
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: "job-1",
+            selected_vendor_quote_offer_id: null,
+            requested_service_kinds: ["manufacturing_quote"],
+            primary_service_kind: "manufacturing_quote",
+            service_notes: null,
+            requested_quote_quantities: [10],
+            requested_by_date: null,
+          },
+        ],
+        error: null,
+      });
+    supabaseMock.jobFilesOrder
+      .mockResolvedValueOnce({ data: [], error: null })
+      .mockResolvedValueOnce({ data: [], error: null });
+    supabaseMock.partsOrder
+      .mockResolvedValueOnce({ data: [], error: null })
+      .mockResolvedValueOnce({ data: [], error: null });
+    supabaseMock.projectJobsIn.mockResolvedValueOnce({
+      data: [],
+      error: null,
+    });
+    supabaseMock.quoteRequestsOrder
+      .mockImplementationOnce(() => supabaseMock.quoteRequestsQuery)
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: "request-1",
+            organization_id: "org-1",
+            job_id: "job-1",
+            requested_by: "user-1",
+            requested_vendors: ["xometry"],
+            service_request_line_item_id: null,
+            status: "queued",
+            failure_reason: null,
+            received_at: null,
+            failed_at: null,
+            canceled_at: null,
+            created_at: "2026-03-02T10:00:00Z",
+            updated_at: "2026-03-02T10:00:00Z",
+          },
+        ],
+        error: null,
+      });
+    supabaseMock.serviceRequestLineItemsOrder
+      .mockImplementationOnce(() => supabaseMock.serviceRequestLineItemsQuery)
+      .mockResolvedValueOnce({
+        data: null,
+        error: missingLineItemsTableError,
+      });
+    supabaseMock.rpc.mockImplementation((fn: string) => {
+      if (fn === "api_list_client_part_metadata") {
+        return Promise.resolve({ data: [], error: null });
+      }
+
+      if (fn === "api_list_client_quote_workspace") {
+        return Promise.resolve({
+          data: [
+            {
+              jobId: "job-1",
+              latestQuoteRun: null,
+              selectedOffer: null,
+              vendorQuotes: [],
+            },
+          ],
+          error: null,
+        });
+      }
+
+      throw new Error(`Unexpected rpc: ${fn}`);
+    });
+
+    await expect(fetchClientQuoteWorkspaceByJobIds(["job-1"])).resolves.toMatchObject([
+      {
+        latestQuoteRequest: expect.objectContaining({
+          id: "request-1",
+          status: "queued",
+        }),
+        serviceRequestLineItem: null,
+      },
+    ]);
   });
 
   it("falls back to unfiltered job reads when the archive column is missing", async () => {
@@ -2288,7 +2481,91 @@ describe("quotes api helpers", () => {
               }),
             }),
           };
+        case "quote_requests":
+          return {
+            select: () => ({
+              eq: () => ({
+                order: () =>
+                  Promise.resolve({
+                    data: [
+                      {
+                        id: "request-1",
+                        organization_id: "org-1",
+                        job_id: "job-1",
+                        requested_by: "user-1",
+                        requested_vendors: ["xometry"],
+                        service_request_line_item_id: "line-item-1",
+                        status: "queued",
+                        failure_reason: null,
+                        received_at: null,
+                        failed_at: null,
+                        canceled_at: null,
+                        created_at: "2026-03-03T00:00:00Z",
+                        updated_at: "2026-03-03T00:00:00Z",
+                      },
+                    ],
+                    error: null,
+                  }),
+              }),
+            }),
+          };
         case "quote_runs":
+          return {
+            select: () => ({
+              eq: () => ({
+                order: () =>
+                  Promise.resolve({
+                    data: [
+                      {
+                        id: "quote-run-1",
+                        quote_request_id: "request-1",
+                        job_id: "job-1",
+                        organization_id: "org-1",
+                        initiated_by: "user-1",
+                        status: "queued",
+                        requested_auto_publish: false,
+                        created_at: "2026-03-03T00:00:00Z",
+                        updated_at: "2026-03-03T00:00:00Z",
+                      },
+                    ],
+                    error: null,
+                  }),
+              }),
+            }),
+          };
+        case "service_request_line_items":
+          return {
+            select: () => ({
+              eq: () => ({
+                order: () =>
+                  Promise.resolve({
+                    data: [
+                      {
+                        id: "line-item-1",
+                        organization_id: "org-1",
+                        project_id: null,
+                        job_id: "job-1",
+                        service_type: "manufacturing_quote",
+                        scope: "part",
+                        status: "queued",
+                        service_detail: {},
+                        created_at: "2026-03-03T00:00:00Z",
+                        updated_at: "2026-03-03T00:00:00Z",
+                      },
+                    ],
+                    error: null,
+                  }),
+              }),
+            }),
+          };
+        case "vendor_quote_results":
+        case "vendor_quote_artifacts":
+        case "vendor_quote_offers":
+          return {
+            select: () => ({
+              in: () => Promise.resolve({ data: [], error: null }),
+            }),
+          };
         case "published_quote_packages":
         case "work_queue":
           return {
@@ -2339,6 +2616,29 @@ describe("quotes api helpers", () => {
       parts: [
         expect.objectContaining({
           id: "part-1",
+        }),
+      ],
+      quoteRequests: [
+        expect.objectContaining({
+          id: "request-1",
+          service_request_line_item_id: "line-item-1",
+        }),
+      ],
+      serviceRequestLineItems: [
+        expect.objectContaining({
+          id: "line-item-1",
+          service_type: "manufacturing_quote",
+        }),
+      ],
+      quoteRuns: [
+        expect.objectContaining({
+          id: "quote-run-1",
+          quoteRequest: expect.objectContaining({
+            id: "request-1",
+          }),
+          serviceRequestLineItem: expect.objectContaining({
+            id: "line-item-1",
+          }),
         }),
       ],
       drawingPreviewAssets: [],

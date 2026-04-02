@@ -165,6 +165,13 @@ Phase 1 vendor boundary:
 - existing internal and manual quote ingestion paths remain intact
 - request intent remains on `quote_requests`; execution remains on `quote_runs` and `vendor_quote_results`
 
+Bridge ownership during the service-line-item migration:
+
+- `service_request_line_items` owns manufacturing service intent, scope, and service-specific request detail for the authoritative `manufacturing_quote` line item
+- `quote_requests` remains the client-safe lifecycle record and current workspace-facing request status surface
+- `quote_runs` remains the execution record launched from a request or internal kickoff and must not absorb user-intent fields
+- `vendor_quote_results` remains vendor-lane execution output, traceable through `quote_runs.quote_request_id` and `quote_requests.service_request_line_item_id`
+
 ## Key cross-cutting concerns
 - authorization
 - provenance
