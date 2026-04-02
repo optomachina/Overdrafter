@@ -271,7 +271,7 @@
       "importPolicy": "sync",
       "parentKey": "horizon-2-parent",
       "targetProject": "Symphony",
-      "state": "Backlog",
+      "state": "Todo",
       "priority": 2,
       "estimate": 5,
       "labels": ["next", "quotes", "product-foundation", "horizon-2", "Feature", "free-tier"],
