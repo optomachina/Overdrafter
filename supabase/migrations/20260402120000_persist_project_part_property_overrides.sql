@@ -461,6 +461,84 @@ as $$
     ) as tightest_tolerance_inch;
 $$;
 
+create or replace function public.build_project_part_property_snapshot(
+  p_spec_snapshot jsonb,
+  p_defaults jsonb,
+  p_overrides jsonb,
+  p_created_at text,
+  p_updated_at timestamptz,
+  p_description text,
+  p_part_number text,
+  p_material text,
+  p_finish text,
+  p_threads text,
+  p_tightest_tolerance_inch numeric
+)
+returns jsonb
+language sql
+stable
+set search_path = public
+as $$
+  select coalesce(p_spec_snapshot, '{}'::jsonb)
+    || jsonb_build_object(
+      'description', p_description,
+      'partNumber', p_part_number,
+      'material', nullif(p_material, ''),
+      'finish', p_finish,
+      'threads', p_threads,
+      'quoteDescription', p_description,
+      'quoteFinish', p_finish,
+      'tightestToleranceInch', p_tightest_tolerance_inch,
+      'projectPartProperties',
+      jsonb_build_object(
+        'defaults', p_defaults,
+        'overrides', p_overrides,
+        'createdAt', p_created_at,
+        'updatedAt', p_updated_at::text
+      )
+    );
+$$;
+
+create or replace function public.load_editable_project_part_context(
+  p_job_id uuid
+)
+returns table (
+  job public.jobs,
+  part public.parts,
+  requirement public.approved_part_requirements,
+  extraction public.drawing_extractions
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_job public.jobs%rowtype;
+  v_part public.parts%rowtype;
+  v_requirement public.approved_part_requirements%rowtype;
+  v_extraction public.drawing_extractions%rowtype;
+begin
+  select
+    context.job,
+    context.part,
+    context.requirement,
+    context.extraction
+  into
+    v_job,
+    v_part,
+    v_requirement,
+    v_extraction
+  from public.load_editable_project_part_context(p_job_id) context;
+
+  job := v_job;
+  part := v_part;
+  requirement := v_requirement;
+  extraction := v_extraction;
+  return next;
+end;
+$$;
+
 drop function if exists public.api_update_client_part_request(
   uuid,
   text[],
@@ -720,58 +798,54 @@ begin
     end if;
   end if;
 
-  v_spec_snapshot := coalesce(v_requirement.spec_snapshot, '{}'::jsonb)
-    || jsonb_build_object(
-      'requestedServiceKinds', v_requested_service_kinds,
-      'primaryServiceKind', v_primary_service_kind,
-      'serviceNotes', nullif(trim(coalesce(p_service_notes, '')), ''),
-      'description', v_description_effective,
-      'partNumber', v_part_number_effective,
-      'revision', nullif(trim(coalesce(p_revision, '')), ''),
-      'material', nullif(v_material_effective, ''),
-      'finish', v_finish_effective,
-      'threads', v_threads_effective,
-      'quoteDescription', v_description_effective,
-      'quoteFinish', v_finish_effective,
-      'tightestToleranceInch', v_tightest_tolerance_effective,
-      'quantity', v_quantity,
-      'quoteQuantities', v_quote_quantities,
-      'requestedByDate', p_requested_by_date,
-      'process', nullif(trim(coalesce(p_process, '')), ''),
-      'notes', nullif(trim(coalesce(p_notes, '')), ''),
-      'projectPartProperties',
-        jsonb_build_object(
-          'defaults', v_property_defaults,
-          'overrides', v_property_overrides,
-          'createdAt', coalesce(v_property_created_at, v_timestamp::text),
-          'updatedAt', v_timestamp::text
-        ),
-      'shipping', coalesce(v_requirement.spec_snapshot -> 'shipping', '{}'::jsonb)
-        || jsonb_build_object(
-          'packagingNotes', v_packaging_notes,
-          'shippingNotes', v_shipping_notes
-        ),
-      'certifications', coalesce(v_requirement.spec_snapshot -> 'certifications', '{}'::jsonb)
-        || jsonb_build_object(
-          'requiredCertifications', to_jsonb(coalesce(v_required_certifications, array[]::text[])),
-          'materialCertificationRequired', v_material_cert_required,
-          'certificateOfConformanceRequired', v_coc_required,
-          'inspectionLevel', v_inspection_level,
-          'notes', v_certification_notes
-        ),
-      'sourcing', coalesce(v_requirement.spec_snapshot -> 'sourcing', '{}'::jsonb)
-        || jsonb_build_object(
-          'regionPreferenceOverride', v_region_preference,
-          'preferredSuppliers', to_jsonb(coalesce(v_preferred_suppliers, array[]::text[])),
-          'materialProvisioning', v_material_provisioning,
-          'notes', v_sourcing_notes
-        ),
-      'release', coalesce(v_requirement.spec_snapshot -> 'release', '{}'::jsonb)
-        || jsonb_build_object(
-          'releaseStatus', v_release_status,
-          'notes', v_release_notes
-        )
-    );
+  v_spec_snapshot := public.build_project_part_property_snapshot(
+    v_requirement.spec_snapshot,
+    v_property_defaults,
+    v_property_overrides,
+    coalesce(v_property_created_at, v_timestamp::text),
+    v_timestamp,
+    v_description_effective,
+    v_part_number_effective,
+    v_material_effective,
+    v_finish_effective,
+    v_threads_effective,
+    v_tightest_tolerance_effective
+  ) || jsonb_build_object(
+    'requestedServiceKinds', v_requested_service_kinds,
+    'primaryServiceKind', v_primary_service_kind,
+    'serviceNotes', nullif(trim(coalesce(p_service_notes, '')), ''),
+    'revision', nullif(trim(coalesce(p_revision, '')), ''),
+    'quantity', v_quantity,
+    'quoteQuantities', v_quote_quantities,
+    'requestedByDate', p_requested_by_date,
+    'process', nullif(trim(coalesce(p_process, '')), ''),
+    'notes', nullif(trim(coalesce(p_notes, '')), ''),
+    'shipping', coalesce(v_requirement.spec_snapshot -> 'shipping', '{}'::jsonb)
+      || jsonb_build_object(
+        'packagingNotes', v_packaging_notes,
+        'shippingNotes', v_shipping_notes
+      ),
+    'certifications', coalesce(v_requirement.spec_snapshot -> 'certifications', '{}'::jsonb)
+      || jsonb_build_object(
+        'requiredCertifications', to_jsonb(coalesce(v_required_certifications, array[]::text[])),
+        'materialCertificationRequired', v_material_cert_required,
+        'certificateOfConformanceRequired', v_coc_required,
+        'inspectionLevel', v_inspection_level,
+        'notes', v_certification_notes
+      ),
+    'sourcing', coalesce(v_requirement.spec_snapshot -> 'sourcing', '{}'::jsonb)
+      || jsonb_build_object(
+        'regionPreferenceOverride', v_region_preference,
+        'preferredSuppliers', to_jsonb(coalesce(v_preferred_suppliers, array[]::text[])),
+        'materialProvisioning', v_material_provisioning,
+        'notes', v_sourcing_notes
+      ),
+    'release', coalesce(v_requirement.spec_snapshot -> 'release', '{}'::jsonb)
+      || jsonb_build_object(
+        'releaseStatus', v_release_status,
+        'notes', v_release_notes
+      )
+  );
 
   update public.jobs
   set
@@ -913,45 +987,21 @@ declare
   v_threads_effective text;
   v_tightest_tolerance_effective numeric;
 begin
-  perform public.require_verified_auth();
-
-  select *
-  into v_job
-  from public.jobs
-  where id = p_job_id;
-
-  if v_job.id is null then
-    raise exception 'Job % not found.', p_job_id;
-  end if;
-
-  if not public.user_can_edit_job(v_job.id) then
-    raise exception 'You do not have permission to edit job %.', p_job_id;
-  end if;
-
-  select *
-  into v_part
-  from public.parts
-  where job_id = v_job.id
-  order by created_at asc
-  limit 1;
-
-  if v_part.id is null then
-    raise exception 'Job % has no part revisions yet.', p_job_id;
-  end if;
-
-  select *
-  into v_requirement
-  from public.approved_part_requirements
-  where part_id = v_part.id;
+  select
+    context.job,
+    context.part,
+    context.requirement,
+    context.extraction
+  into
+    v_job,
+    v_part,
+    v_requirement,
+    v_extraction
+  from public.load_editable_project_part_context(p_job_id) context;
 
   if v_requirement.id is null then
     return v_job.id;
   end if;
-
-  select *
-  into v_extraction
-  from public.drawing_extractions
-  where part_id = v_part.id;
 
   v_property_state := coalesce(v_requirement.spec_snapshot -> 'projectPartProperties', '{}'::jsonb);
   v_property_defaults := coalesce(v_property_state -> 'defaults', '{}'::jsonb);
@@ -990,28 +1040,19 @@ begin
     raise exception 'Material is required for manufacturing quote requests.';
   end if;
 
-  v_requirement.spec_snapshot := coalesce(v_requirement.spec_snapshot, '{}'::jsonb)
-    || jsonb_build_object(
-      'description', v_description_effective,
-      'partNumber', v_part_number_effective,
-      'material', nullif(v_material_effective, ''),
-      'finish', v_finish_effective,
-      'threads', v_threads_effective,
-      'quoteDescription', v_description_effective,
-      'quoteFinish', v_finish_effective,
-      'tightestToleranceInch', v_tightest_tolerance_effective
-    );
-
-  v_requirement.spec_snapshot := v_requirement.spec_snapshot
-    || jsonb_build_object(
-      'projectPartProperties',
-      jsonb_build_object(
-        'defaults', v_property_defaults,
-        'overrides', v_property_overrides,
-        'createdAt', nullif(trim(coalesce(v_property_state ->> 'createdAt', '')), ''),
-        'updatedAt', v_timestamp::text
-      )
-    );
+  v_requirement.spec_snapshot := public.build_project_part_property_snapshot(
+    v_requirement.spec_snapshot,
+    v_property_defaults,
+    v_property_overrides,
+    nullif(trim(coalesce(v_property_state ->> 'createdAt', '')), ''),
+    v_timestamp,
+    v_description_effective,
+    v_part_number_effective,
+    v_material_effective,
+    v_finish_effective,
+    v_threads_effective,
+    v_tightest_tolerance_effective
+  );
 
   update public.approved_part_requirements
   set

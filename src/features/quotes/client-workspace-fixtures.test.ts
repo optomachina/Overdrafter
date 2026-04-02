@@ -9,6 +9,46 @@ import {
 import { buildClientPartRequestUpdateInput } from "@/features/quotes/rfq-metadata";
 import { buildRequirementDraft } from "@/features/quotes/utils";
 
+const QUOTED_FIXTURE_PATH = "/projects/fx-project-quoted?fixture=client-quoted";
+const QUOTED_FIXTURE_JOB_ID = "fx-job-quoted-a";
+
+function activateQuotedFixtureGateway() {
+  window.history.replaceState({}, "", QUOTED_FIXTURE_PATH);
+  const gateway = getActiveClientWorkspaceGateway();
+  expect(gateway).not.toBeNull();
+  return gateway!;
+}
+
+async function fetchQuotedFixtureWorkspace() {
+  const gateway = activateQuotedFixtureGateway();
+  const [workspaceItem] = await gateway.fetchClientQuoteWorkspaceByJobIds([QUOTED_FIXTURE_JOB_ID]);
+  return {
+    gateway,
+    workspaceItem,
+  };
+}
+
+async function buildQuotedFixtureInput() {
+  const { gateway, workspaceItem } = await fetchQuotedFixtureWorkspace();
+  const part = workspaceItem?.part;
+  expect(part).toBeTruthy();
+
+  return {
+    gateway,
+    workspaceItem,
+    input: buildClientPartRequestUpdateInput(
+      QUOTED_FIXTURE_JOB_ID,
+      buildRequirementDraft(part!, {
+        requested_service_kinds: workspaceItem?.job.requested_service_kinds ?? [],
+        primary_service_kind: workspaceItem?.job.primary_service_kind ?? null,
+        service_notes: workspaceItem?.job.service_notes ?? null,
+        requested_quote_quantities: workspaceItem?.job.requested_quote_quantities ?? [],
+        requested_by_date: workspaceItem?.job.requested_by_date ?? null,
+      }),
+    ),
+  };
+}
+
 describe("client workspace fixtures", () => {
   beforeEach(() => {
     vi.stubEnv("VITE_ENABLE_FIXTURE_MODE", "1");
@@ -33,13 +73,9 @@ describe("client workspace fixtures", () => {
   });
 
   it("serves the quoted fixture workspace through the active gateway", async () => {
-    window.history.replaceState({}, "", "/projects/fx-project-quoted?fixture=client-quoted");
-
-    const gateway = getActiveClientWorkspaceGateway();
-    expect(gateway).not.toBeNull();
-
-    const jobs = await gateway!.fetchAccessibleJobs();
-    const workspace = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
+    const gateway = activateQuotedFixtureGateway();
+    const jobs = await gateway.fetchAccessibleJobs();
+    const workspace = await gateway.fetchClientQuoteWorkspaceByJobIds([QUOTED_FIXTURE_JOB_ID]);
 
     expect(jobs).toHaveLength(1);
     expect(workspace[0]?.job.title).toBe("1093-05589 rev 2");
@@ -52,34 +88,28 @@ describe("client workspace fixtures", () => {
   });
 
   it("updates the selected offer and archive state inside the fixture store", async () => {
-    window.history.replaceState({}, "", "/projects/fx-project-quoted?fixture=client-quoted");
+    const gateway = activateQuotedFixtureGateway();
 
-    const gateway = getActiveClientWorkspaceGateway();
-    expect(gateway).not.toBeNull();
-
-    await gateway!.setJobSelectedVendorQuoteOffer("fx-job-quoted-a", "fx-offer-fictiv-overseas-cost-effective");
-    const summaries = await gateway!.fetchJobPartSummariesByJobIds(["fx-job-quoted-a"]);
+    await gateway.setJobSelectedVendorQuoteOffer(QUOTED_FIXTURE_JOB_ID, "fx-offer-fictiv-overseas-cost-effective");
+    const summaries = await gateway.fetchJobPartSummariesByJobIds([QUOTED_FIXTURE_JOB_ID]);
     expect(summaries[0]?.selectedSupplier).toBe("Fictiv");
 
-    await gateway!.archiveJob("fx-job-quoted-a");
+    await gateway.archiveJob(QUOTED_FIXTURE_JOB_ID);
 
-    const jobs = await gateway!.fetchAccessibleJobs();
-    const archivedJobs = await gateway!.fetchArchivedJobs();
+    const jobs = await gateway.fetchAccessibleJobs();
+    const archivedJobs = await gateway.fetchArchivedJobs();
 
     expect(jobs).toHaveLength(0);
     expect(archivedJobs[0]?.job.id).toBe("fx-job-quoted-a");
   });
 
   it("reports missing archived jobs during bulk fixture deletes", async () => {
-    window.history.replaceState({}, "", "/projects/fx-project-quoted?fixture=client-quoted");
+    const gateway = activateQuotedFixtureGateway();
 
-    const gateway = getActiveClientWorkspaceGateway();
-    expect(gateway).not.toBeNull();
+    await gateway.archiveJob(QUOTED_FIXTURE_JOB_ID);
 
-    await gateway!.archiveJob("fx-job-quoted-a");
-
-    const result = await gateway!.deleteArchivedJobs(["fx-job-quoted-a", "fx-job-missing"]);
-    const archivedJobs = await gateway!.fetchArchivedJobs();
+    const result = await gateway.deleteArchivedJobs([QUOTED_FIXTURE_JOB_ID, "fx-job-missing"]);
+    const archivedJobs = await gateway.fetchArchivedJobs();
 
     expect(result).toEqual({
       deletedJobIds: ["fx-job-quoted-a"],
@@ -94,29 +124,11 @@ describe("client workspace fixtures", () => {
   });
 
   it("preserves project property defaults and timestamps when a save matches the defaults", async () => {
-    window.history.replaceState({}, "", "/projects/fx-project-quoted?fixture=client-quoted");
+    const { gateway, input } = await buildQuotedFixtureInput();
 
-    const gateway = getActiveClientWorkspaceGateway();
-    expect(gateway).not.toBeNull();
+    await gateway.updateClientPartRequest(input);
 
-    const [workspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
-    const part = workspaceItem?.part;
-    expect(part).toBeTruthy();
-
-    const input = buildClientPartRequestUpdateInput(
-      "fx-job-quoted-a",
-      buildRequirementDraft(part!, {
-        requested_service_kinds: workspaceItem?.job.requested_service_kinds ?? [],
-        primary_service_kind: workspaceItem?.job.primary_service_kind ?? null,
-        service_notes: workspaceItem?.job.service_notes ?? null,
-        requested_quote_quantities: workspaceItem?.job.requested_quote_quantities ?? [],
-        requested_by_date: workspaceItem?.job.requested_by_date ?? null,
-      }),
-    );
-
-    await gateway!.updateClientPartRequest(input);
-
-    const [updatedWorkspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
+    const [updatedWorkspaceItem] = await gateway.fetchClientQuoteWorkspaceByJobIds([QUOTED_FIXTURE_JOB_ID]);
     const propertyState = updatedWorkspaceItem?.part?.clientRequirement?.projectPartProperties;
 
     expect(propertyState).toMatchObject({
@@ -135,37 +147,19 @@ describe("client workspace fixtures", () => {
   });
 
   it("preserves project property defaults and timestamps when the last override is reset", async () => {
-    window.history.replaceState({}, "", "/projects/fx-project-quoted?fixture=client-quoted");
+    const { gateway, input } = await buildQuotedFixtureInput();
 
-    const gateway = getActiveClientWorkspaceGateway();
-    expect(gateway).not.toBeNull();
-
-    const [workspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
-    const part = workspaceItem?.part;
-    expect(part).toBeTruthy();
-
-    const input = buildClientPartRequestUpdateInput(
-      "fx-job-quoted-a",
-      buildRequirementDraft(part!, {
-        requested_service_kinds: workspaceItem?.job.requested_service_kinds ?? [],
-        primary_service_kind: workspaceItem?.job.primary_service_kind ?? null,
-        service_notes: workspaceItem?.job.service_notes ?? null,
-        requested_quote_quantities: workspaceItem?.job.requested_quote_quantities ?? [],
-        requested_by_date: workspaceItem?.job.requested_by_date ?? null,
-      }),
-    );
-
-    await gateway!.updateClientPartRequest({
+    await gateway.updateClientPartRequest({
       ...input,
       finish: "Reset me",
     });
 
-    await gateway!.resetClientPartPropertyOverrides({
-      jobId: "fx-job-quoted-a",
+    await gateway.resetClientPartPropertyOverrides({
+      jobId: QUOTED_FIXTURE_JOB_ID,
       fields: ["finish"],
     });
 
-    const [updatedWorkspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
+    const [updatedWorkspaceItem] = await gateway.fetchClientQuoteWorkspaceByJobIds([QUOTED_FIXTURE_JOB_ID]);
     const propertyState = updatedWorkspaceItem?.part?.clientRequirement?.projectPartProperties;
 
     expect(updatedWorkspaceItem?.part?.clientRequirement?.finish).toBe(input.finish ?? null);
@@ -180,20 +174,15 @@ describe("client workspace fixtures", () => {
   });
 
   it("seeds resettable defaults on legacy fixture rows before applying a reset", async () => {
-    window.history.replaceState({}, "", "/projects/fx-project-quoted?fixture=client-quoted");
-
-    const gateway = getActiveClientWorkspaceGateway();
-    expect(gateway).not.toBeNull();
-
-    const [workspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
+    const { gateway, workspaceItem } = await fetchQuotedFixtureWorkspace();
     const effectiveDescription = workspaceItem?.part?.approvedRequirement?.description;
 
-    await gateway!.resetClientPartPropertyOverrides({
-      jobId: "fx-job-quoted-a",
+    await gateway.resetClientPartPropertyOverrides({
+      jobId: QUOTED_FIXTURE_JOB_ID,
       fields: ["description"],
     });
 
-    const [updatedWorkspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
+    const [updatedWorkspaceItem] = await gateway.fetchClientQuoteWorkspaceByJobIds([QUOTED_FIXTURE_JOB_ID]);
     const propertyState = updatedWorkspaceItem?.part?.clientRequirement?.projectPartProperties;
 
     expect(updatedWorkspaceItem?.part?.clientRequirement?.description).toBe(effectiveDescription);
@@ -211,33 +200,15 @@ describe("client workspace fixtures", () => {
   });
 
   it("uses effective default-backed values in fixture mode when a nullable override is cleared", async () => {
-    window.history.replaceState({}, "", "/projects/fx-project-quoted?fixture=client-quoted");
+    const { gateway, input } = await buildQuotedFixtureInput();
 
-    const gateway = getActiveClientWorkspaceGateway();
-    expect(gateway).not.toBeNull();
-
-    const [workspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
-    const part = workspaceItem?.part;
-    expect(part).toBeTruthy();
-
-    const input = buildClientPartRequestUpdateInput(
-      "fx-job-quoted-a",
-      buildRequirementDraft(part!, {
-        requested_service_kinds: workspaceItem?.job.requested_service_kinds ?? [],
-        primary_service_kind: workspaceItem?.job.primary_service_kind ?? null,
-        service_notes: workspaceItem?.job.service_notes ?? null,
-        requested_quote_quantities: workspaceItem?.job.requested_quote_quantities ?? [],
-        requested_by_date: workspaceItem?.job.requested_by_date ?? null,
-      }),
-    );
-
-    await gateway!.updateClientPartRequest({
+    await gateway.updateClientPartRequest({
       ...input,
       description: null,
     });
 
-    const [updatedWorkspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
-    const summaries = await gateway!.fetchJobPartSummariesByJobIds(["fx-job-quoted-a"]);
+    const [updatedWorkspaceItem] = await gateway.fetchClientQuoteWorkspaceByJobIds([QUOTED_FIXTURE_JOB_ID]);
+    const summaries = await gateway.fetchJobPartSummariesByJobIds([QUOTED_FIXTURE_JOB_ID]);
     const propertyState = updatedWorkspaceItem?.part?.clientRequirement?.projectPartProperties;
 
     expect(updatedWorkspaceItem?.part?.clientRequirement?.description).toBe(input.description);
