@@ -627,7 +627,19 @@ describe("ClientProject", () => {
         },
       }),
     ]);
+    renderWithClient("/projects/project-1");
 
+    await waitFor(() => {
+      expect(screen.getByText("BRKT-001")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("BRKT-001"));
+    const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+    expect(within(inspector).getByText("5, 25")).toBeInTheDocument();
+    expect(within(inspector).getByText("2026-04-22")).toBeInTheDocument();
+  });
+
+  it("hides the inspector without clearing selection and reopens it when a row is selected", async () => {
     renderWithClient("/projects/project-1");
 
     await waitFor(() => {
@@ -636,9 +648,19 @@ describe("ClientProject", () => {
 
     fireEvent.click(screen.getByText("BRKT-001"));
 
-    const inspector = screen.getByRole("complementary", { name: "Project inspector" });
-    expect(within(inspector).getByText("5, 25")).toBeInTheDocument();
-    expect(within(inspector).getByText("2026-04-22")).toBeInTheDocument();
+    const selectedRow = screen.getAllByText("BRKT-001")[0]?.closest("tr");
+    expect(selectedRow).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide inspector" }));
+
+    expect(screen.queryByRole("complementary", { name: "Project inspector" })).not.toBeInTheDocument();
+    expect(selectedRow).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.click(screen.getByText("BRKT-001"));
+
+    const inspector = await screen.findByRole("complementary", { name: "Project inspector" });
+    expect(screen.getByRole("button", { name: "Hide inspector" })).toBeInTheDocument();
+    expect(within(inspector).getByRole("heading", { name: "BRKT-001" })).toBeInTheDocument();
   });
 
   it("renders numeric spec snapshot tolerances when normalized tolerance is absent", async () => {
@@ -763,6 +785,32 @@ describe("ClientProject", () => {
     expect(selectedRow).toHaveAttribute("aria-selected", "false");
     expect(within(inspector).queryByRole("heading", { name: "BRKT-001" })).not.toBeInTheDocument();
     expect(within(inspector).getByText("Properties details appear here after you select a part.")).toBeInTheDocument();
+  });
+
+  it("reveals filter controls from the toolbar affordance and applies the local project filter", async () => {
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(screen.getByRole("table")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("button", { name: "Published" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Published" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("No parts match the current project filter.")).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: "Filter: Published" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "All parts" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("BRKT-001")).toBeInTheDocument();
+    });
   });
 
   it("passes collaboration-disabled project prefetch through to the sidebar callback", async () => {
@@ -895,6 +943,13 @@ describe("ClientProject", () => {
 
     expect(screen.getByRole("columnheader", { name: "Assignee" })).toBeInTheDocument();
     expect(screen.getByText("Unassigned")).toBeInTheDocument();
+  });
+
+  it("renders real assignee initials for project rows", async () => {
+    renderWithClient("/projects/project-1");
+
+    expect(await screen.findByLabelText("Blaine Wilson assignee")).toBeInTheDocument();
+    expect(screen.getByText("BW")).toBeInTheDocument();
   });
 
   it("renders empty assignee cells while assignee lookups are pending", async () => {

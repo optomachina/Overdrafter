@@ -27,7 +27,7 @@ export function RequestSummaryBadges({
 }: RequestSummaryBadgesProps) {
   const normalizedServiceKinds = normalizeRequestedServiceKinds(requestedServiceKinds);
   const showQuoteFields = requestedServicesSupportQuoteFields(normalizedServiceKinds);
-  const needByLabel = formatRequestedByDateLabel(requestedByDate);
+  const needByLabel = showQuoteFields ? formatRequestedByDateLabel(requestedByDate) : null;
   const quoteQuantityLabel =
     showQuoteFields && requestedQuoteQuantities.length > 0
       ? formatRequestedQuoteQuantitiesLabel(requestedQuoteQuantities)
