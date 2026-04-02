@@ -164,6 +164,16 @@ The current bridge is intentionally dual-layered:
 - `quote_requests` remains the client-safe request lifecycle record and RPC contract during the transition
 - `service_request_line_items` is the authoritative service-intent unit underneath that flow for `manufacturing_quote`
 - the compatibility layer is the link plus lifecycle-status synchronization between those two records
+- queued `run_vendor_quote` work should carry both `quoteRequestId` and `serviceRequestLineItemId` in task payloads so worker retries, failures, and task logs remain traceable to the authoritative line item without changing vendor result storage
+
+### Bridge record ownership
+
+During the migration-safe coexistence period, record ownership is:
+
+- `service_request_line_items`: owns requested service intent, scope, and service-specific detail for the `manufacturing_quote` line item
+- `quote_requests`: owns the client-safe request lifecycle and latest request-visible status used by current client workspace rendering
+- `quote_runs`: owns execution instances launched from a request or internal kickoff and stays separate from user intent
+- `vendor_quote_results`: owns vendor-lane execution outcomes and remains traceable through `quote_runs.quote_request_id` plus `quote_requests.service_request_line_item_id`
 
 Migration and rollback note:
 

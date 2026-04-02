@@ -86,6 +86,11 @@ export const DEBUG_EXTRACTION_RUN_IDENTIFIERS = [
 
 export const CLIENT_ACTIVITY_IDENTIFIERS = ["api_list_client_activity_events"] as const;
 export const QUOTE_REQUEST_IDENTIFIERS = ["public.quote_requests", "quote_requests", "quote_request_status"] as const;
+export const SERVICE_REQUEST_LINE_ITEM_IDENTIFIERS = [
+  "public.service_request_line_items",
+  "service_request_line_items",
+  "service_request_line_item_id",
+] as const;
 export const CLIENT_PART_METADATA_IDENTIFIERS = ["api_list_client_part_metadata"] as const;
 export const CLIENT_QUOTE_WORKSPACE_IDENTIFIERS = ["api_list_client_quote_workspace"] as const;
 

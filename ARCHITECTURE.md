@@ -85,6 +85,7 @@ Internal review implementation boundary:
 - collaborator invitation and access
 - project-scoped visibility boundaries
 - project-level navigation that does not treat assemblies as the umbrella container
+- current project-ledger assignee bubbles derive from `project_jobs.created_by` joined to auth user profile metadata; this is the minimum safe source of truth until a dedicated part-assignee relation exists because each ledger row is still a project-job row owned by its creator
 
 ### 9. Multi-agent orchestration & CAD-native layer (new)
 
@@ -164,6 +165,13 @@ Phase 1 vendor boundary:
 - orgs with no explicit vendor config fall back to `xometry`, `fictiv`, and `protolabs`
 - existing internal and manual quote ingestion paths remain intact
 - request intent remains on `quote_requests`; execution remains on `quote_runs` and `vendor_quote_results`
+
+Bridge ownership during the service-line-item migration:
+
+- `service_request_line_items` owns manufacturing service intent, scope, and service-specific request detail for the authoritative `manufacturing_quote` line item
+- `quote_requests` remains the client-safe lifecycle record and current workspace-facing request status surface
+- `quote_runs` remains the execution record launched from a request or internal kickoff and must not absorb user-intent fields
+- `vendor_quote_results` remains vendor-lane execution output, traceable through `quote_runs.quote_request_id` and `quote_requests.service_request_line_item_id`
 
 ## Key cross-cutting concerns
 - authorization

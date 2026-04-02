@@ -89,4 +89,16 @@ describe("PartInfoPanel", () => {
 
     expectRowValue("Thread", "1/4-20 UNC-2B");
   });
+
+  it("falls back to the base quantity when the selected services are not quote-compatible", () => {
+    renderPartInfoPanel({
+      effectiveRequestDraft: {
+        requestedServiceKinds: ["manufacturing_quote", "dfm_review"],
+        requestedQuoteQuantities: [10, 25],
+        quantity: 4,
+      } as ComponentProps<typeof PartInfoPanel>["effectiveRequestDraft"],
+    });
+
+    expectRowValue("Quantity", "4");
+  });
 });

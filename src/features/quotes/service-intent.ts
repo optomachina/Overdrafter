@@ -140,8 +140,10 @@ export function isQuoteCompatibleServiceKind(serviceKind: RequestedServiceKind):
 export function requestedServicesSupportQuoteFields(
   requestedServiceKinds: readonly string[] | null | undefined,
 ): boolean {
-  return normalizeRequestedServiceKinds(requestedServiceKinds).some((serviceKind) =>
-    isQuoteCompatibleServiceKind(serviceKind),
+  const normalizedServiceKinds = normalizeRequestedServiceKinds(requestedServiceKinds);
+  return (
+    normalizedServiceKinds.length > 0 &&
+    normalizedServiceKinds.every((serviceKind) => isQuoteCompatibleServiceKind(serviceKind))
   );
 }
 

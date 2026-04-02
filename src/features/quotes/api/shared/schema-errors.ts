@@ -8,6 +8,7 @@ import {
   JOB_ARCHIVING_IDENTIFIERS,
   PROJECT_COLLABORATION_IDENTIFIERS,
   QUOTE_REQUEST_IDENTIFIERS,
+  SERVICE_REQUEST_LINE_ITEM_IDENTIFIERS,
 } from "./schema-runtime";
 
 export function isNoRowsError(error: unknown): boolean {
@@ -108,6 +109,10 @@ export function isMissingClientActivitySchemaError(error: unknown): boolean {
 
 export function isMissingQuoteRequestSchemaError(error: unknown): boolean {
   return isMissingSchemaIdentifierError(error, QUOTE_REQUEST_IDENTIFIERS);
+}
+
+export function isMissingServiceRequestLineItemSchemaError(error: unknown): boolean {
+  return isMissingSchemaIdentifierError(error, SERVICE_REQUEST_LINE_ITEM_IDENTIFIERS);
 }
 
 export function isMissingClientPartMetadataSchemaError(error: unknown): boolean {
