@@ -7,6 +7,7 @@ import type {
   ArchivedJobSummary,
   ArchivedProjectSummary,
   ClientActivityEvent,
+  ClientPartPropertyState,
   ClientPartRequirementView,
   ProjectAssigneeProfile,
   ClientPartRequestUpdateInput,
@@ -57,6 +58,172 @@ function buildFixtureQuoteDiagnostics(vendorQuotes: VendorQuoteAggregate[]): Quo
     excludedOffers: [],
     excludedReasonCounts: [],
   };
+}
+
+function ensureFixtureClientRequirement(part: PartAggregate | null | undefined): ClientPartRequirementView | null {
+  if (!part) {
+    return null;
+  }
+
+  if (part.clientRequirement) {
+    return part.clientRequirement;
+  }
+
+  const approved = part.approvedRequirement;
+  const snapshot =
+    approved?.spec_snapshot && typeof approved.spec_snapshot === "object"
+      ? (approved.spec_snapshot as Record<string, unknown>)
+      : null;
+  const snapshotPropertyState =
+    snapshot?.projectPartProperties && typeof snapshot.projectPartProperties === "object"
+      ? (snapshot.projectPartProperties as ClientPartPropertyState)
+      : null;
+  const request = {
+    description: approved?.description ?? null,
+    partNumber: approved?.part_number ?? null,
+    revision: approved?.revision ?? null,
+    quoteDescription: approved?.description ?? null,
+    material: approved?.material ?? "",
+    finish: approved?.finish ?? null,
+    quoteFinish: approved?.finish ?? null,
+    threads: typeof snapshot?.threads === "string" ? snapshot.threads : null,
+    tightestToleranceInch: approved?.tightest_tolerance_inch ?? null,
+    process: typeof snapshot?.process === "string" ? snapshot.process : null,
+    notes: typeof snapshot?.notes === "string" ? snapshot.notes : null,
+    quantity: approved?.quantity ?? part.quantity ?? 1,
+    quoteQuantities: approved?.quote_quantities ?? [approved?.quantity ?? part.quantity ?? 1],
+    requestedByDate: approved?.requested_by_date ?? null,
+    projectPartProperties: snapshotPropertyState,
+  } satisfies ClientPartRequirementView;
+
+  part.clientRequirement = request;
+  return request;
+}
+
+function resolveFixtureProjectPartValue(
+  state: ClientPartPropertyState,
+  field: keyof ClientPartPropertyState["defaults"],
+) {
+  const hasOverride = Object.prototype.hasOwnProperty.call(state.overrides, field);
+
+  if (field === "material") {
+    if (hasOverride) {
+      return (state.overrides[field] as string | null | undefined) ?? "";
+    }
+
+    return (state.defaults[field] as string | null | undefined) ?? "";
+  }
+
+  if (hasOverride) {
+    return state.overrides[field];
+  }
+
+  return state.defaults[field];
+}
+
+type FixtureResolvedProjectPartValues = {
+  description: string | null;
+  partNumber: string | null;
+  material: string;
+  finish: string | null;
+  threads: string | null;
+  tightestToleranceInch: number | null;
+};
+
+function buildFixtureDefaultPropertyState(
+  workspaceRequirement: ClientPartRequirementView | null,
+  partDetailRequirement: ClientPartRequirementView | null,
+): ClientPartPropertyState["defaults"] {
+  return {
+    description: workspaceRequirement?.description ?? partDetailRequirement?.description ?? null,
+    partNumber: workspaceRequirement?.partNumber ?? partDetailRequirement?.partNumber ?? null,
+    material: workspaceRequirement?.material ?? partDetailRequirement?.material ?? "",
+    finish: workspaceRequirement?.finish ?? partDetailRequirement?.finish ?? null,
+    tightestToleranceInch:
+      workspaceRequirement?.tightestToleranceInch ?? partDetailRequirement?.tightestToleranceInch ?? null,
+    threads: workspaceRequirement?.threads ?? partDetailRequirement?.threads ?? null,
+  };
+}
+
+function resolveFixtureProjectPartState(
+  state: ClientPartPropertyState,
+): FixtureResolvedProjectPartValues {
+  return {
+    description:
+      (resolveFixtureProjectPartValue(state, "description") as string | null | undefined) ?? null,
+    partNumber:
+      (resolveFixtureProjectPartValue(state, "partNumber") as string | null | undefined) ?? null,
+    material: ((resolveFixtureProjectPartValue(state, "material") as string | null | undefined) ?? ""),
+    finish: (resolveFixtureProjectPartValue(state, "finish") as string | null | undefined) ?? null,
+    threads: (resolveFixtureProjectPartValue(state, "threads") as string | null | undefined) ?? null,
+    tightestToleranceInch:
+      (resolveFixtureProjectPartValue(state, "tightestToleranceInch") as number | null | undefined) ?? null,
+  };
+}
+
+function syncFixtureProjectPartState(args: {
+  summary: JobPartSummary | null | undefined;
+  workspaceItem: ClientQuoteWorkspaceItem;
+  partDetail: PartDetailAggregate;
+  propertyState: ClientPartPropertyState;
+  resolved: FixtureResolvedProjectPartValues;
+  timestamp: string;
+}) {
+  const { summary, workspaceItem, partDetail, propertyState, resolved, timestamp } = args;
+  const workspaceRequirement = ensureFixtureClientRequirement(workspaceItem.part);
+
+  if (summary) {
+    summary.description = resolved.description;
+    summary.partNumber = resolved.partNumber;
+  }
+
+  workspaceItem.job.description = resolved.description;
+  workspaceItem.job.updated_at = timestamp;
+  partDetail.job.description = resolved.description;
+  partDetail.job.updated_at = timestamp;
+
+  if (workspaceRequirement) {
+    workspaceRequirement.description = resolved.description;
+    workspaceRequirement.partNumber = resolved.partNumber;
+    workspaceRequirement.material = resolved.material;
+    workspaceRequirement.finish = resolved.finish;
+    workspaceRequirement.threads = resolved.threads;
+    workspaceRequirement.tightestToleranceInch = resolved.tightestToleranceInch;
+    workspaceRequirement.projectPartProperties = propertyState;
+  }
+
+  if (workspaceItem.part?.approvedRequirement) {
+    workspaceItem.part.approvedRequirement.description = resolved.description;
+    workspaceItem.part.approvedRequirement.part_number = resolved.partNumber;
+    workspaceItem.part.approvedRequirement.material = resolved.material;
+    workspaceItem.part.approvedRequirement.finish = resolved.finish;
+    workspaceItem.part.approvedRequirement.tightest_tolerance_inch =
+      resolved.tightestToleranceInch;
+    workspaceItem.part.approvedRequirement.updated_at = timestamp;
+    workspaceItem.part.approvedRequirement.spec_snapshot = {
+      ...(workspaceItem.part.approvedRequirement.spec_snapshot as Record<string, unknown>),
+      description: resolved.description,
+      partNumber: resolved.partNumber,
+      material: resolved.material,
+      finish: resolved.finish,
+      threads: resolved.threads,
+      quoteDescription: resolved.description,
+      quoteFinish: resolved.finish,
+      tightestToleranceInch: resolved.tightestToleranceInch,
+      projectPartProperties: propertyState,
+    };
+  }
+
+  if (partDetail.part) {
+    if (workspaceRequirement) {
+      partDetail.part.clientRequirement = workspaceRequirement;
+    }
+    partDetail.part.updated_at = timestamp;
+  }
+
+  if (partDetail.part?.approvedRequirement && workspaceItem.part?.approvedRequirement) {
+    partDetail.part.approvedRequirement = workspaceItem.part.approvedRequirement;
+  }
 }
 
 export const CLIENT_WORKSPACE_FIXTURE_SCENARIOS = [
@@ -138,6 +305,10 @@ export type ClientWorkspaceGateway = {
   deleteArchivedJobs: (jobIds: string[]) => Promise<ArchivedJobDeleteResult>;
   setJobSelectedVendorQuoteOffer: (jobId: string, offerId: string | null) => Promise<string>;
   updateClientPartRequest: (input: ClientPartRequestUpdateInput) => Promise<string>;
+  resetClientPartPropertyOverrides?: (input: {
+    jobId: string;
+    fields: Array<"description" | "partNumber" | "material" | "finish" | "tightestToleranceInch" | "threads">;
+  }) => Promise<string>;
 };
 
 type FixtureState = {
@@ -1911,9 +2082,46 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       const metadata = sanitizeClientVisibleRfqLineItemExtendedMetadata(
         normalizeRfqLineItemExtendedMetadata(input),
       );
+      const timestamp = new Date().toISOString();
+      const workspaceRequirement = ensureFixtureClientRequirement(workspaceItem.part);
+      const partDetailRequirement = ensureFixtureClientRequirement(partDetail.part);
+      const previousPropertyState =
+        workspaceRequirement?.projectPartProperties ??
+        partDetailRequirement?.projectPartProperties ??
+        null;
+      const nextDefaults = {
+        ...buildFixtureDefaultPropertyState(workspaceRequirement, partDetailRequirement),
+        ...(previousPropertyState?.defaults ?? {}),
+      };
+      const nextOverrides = Object.fromEntries(
+        (
+          [
+            ["description", input.description ?? null],
+            ["partNumber", input.partNumber ?? null],
+            ["material", input.material],
+            ["finish", input.finish ?? null],
+            ["tightestToleranceInch", input.tightestToleranceInch ?? null],
+            ["threads", input.threads ?? null],
+          ] as const
+        ).filter((entry) => entry[1] !== nextDefaults[entry[0]])
+      );
+      const nextPropertyState = {
+        defaults: nextDefaults,
+        overrides: nextOverrides,
+        createdAt: previousPropertyState?.createdAt ?? timestamp,
+        updatedAt: timestamp,
+      };
+      const resolved = resolveFixtureProjectPartState(nextPropertyState);
 
-      summary.description = input.description;
-      summary.partNumber = input.partNumber;
+      syncFixtureProjectPartState({
+        summary,
+        workspaceItem,
+        partDetail,
+        propertyState: nextPropertyState,
+        resolved,
+        timestamp,
+      });
+
       summary.revision = input.revision;
       summary.requestedServiceKinds = [...input.requestedServiceKinds];
       summary.primaryServiceKind = input.primaryServiceKind;
@@ -1926,21 +2134,23 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       workspaceItem.job.service_notes = input.serviceNotes;
       workspaceItem.job.requested_quote_quantities = [...input.requestedQuoteQuantities];
       workspaceItem.job.requested_by_date = input.requestedByDate;
-      workspaceItem.job.description = input.description;
       partDetail.job.requested_service_kinds = [...input.requestedServiceKinds];
       partDetail.job.primary_service_kind = input.primaryServiceKind;
       partDetail.job.service_notes = input.serviceNotes;
       partDetail.job.requested_quote_quantities = [...input.requestedQuoteQuantities];
       partDetail.job.requested_by_date = input.requestedByDate;
-      partDetail.job.description = input.description;
+
+      if (workspaceRequirement) {
+        workspaceRequirement.revision = input.revision ?? null;
+        workspaceRequirement.process = input.process ?? null;
+        workspaceRequirement.notes = input.notes ?? null;
+        workspaceRequirement.quantity = input.quantity;
+        workspaceRequirement.quoteQuantities = [...input.requestedQuoteQuantities];
+        workspaceRequirement.requestedByDate = input.requestedByDate ?? null;
+      }
 
       if (workspaceItem.part?.approvedRequirement) {
-        workspaceItem.part.approvedRequirement.description = input.description;
-        workspaceItem.part.approvedRequirement.part_number = input.partNumber;
         workspaceItem.part.approvedRequirement.revision = input.revision;
-        workspaceItem.part.approvedRequirement.material = input.material;
-        workspaceItem.part.approvedRequirement.finish = input.finish;
-        workspaceItem.part.approvedRequirement.tightest_tolerance_inch = input.tightestToleranceInch;
         workspaceItem.part.approvedRequirement.quantity = input.quantity;
         workspaceItem.part.approvedRequirement.quote_quantities = [...input.requestedQuoteQuantities];
         workspaceItem.part.approvedRequirement.requested_by_date = input.requestedByDate;
@@ -1961,11 +2171,6 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       if (workspaceItem.part) {
         workspaceItem.part.quantity = input.quantity;
       }
-
-      if (partDetail.part?.approvedRequirement) {
-        partDetail.part.approvedRequirement = workspaceItem.part?.approvedRequirement ?? partDetail.part.approvedRequirement;
-      }
-
       if (partDetail.part) {
         partDetail.part.quantity = input.quantity;
       }
@@ -1988,6 +2193,50 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       ];
 
       return input.jobId;
+    },
+    resetClientPartPropertyOverrides: async ({ jobId, fields }) => {
+      const state = getState(scenarioId);
+      const workspaceItem = requireRecord(
+        state.workspaceByJobId[jobId],
+        `Fixture workspace item ${jobId} was not found.`,
+      );
+      const partDetail = requireRecord(
+        state.partDetailsByJobId[jobId],
+        `Fixture part detail ${jobId} was not found.`,
+      );
+      const workspaceRequirement = ensureFixtureClientRequirement(workspaceItem.part);
+      const partDetailRequirement = ensureFixtureClientRequirement(partDetail.part);
+      const propertyState = workspaceRequirement?.projectPartProperties ??
+        partDetailRequirement?.projectPartProperties ?? {
+          defaults: buildFixtureDefaultPropertyState(workspaceRequirement, partDetailRequirement),
+          overrides: {},
+          createdAt: null,
+          updatedAt: null,
+        };
+
+      const nextOverrides = { ...propertyState.overrides };
+
+      fields.forEach((field) => {
+        delete nextOverrides[field];
+      });
+
+      const nextState = {
+        ...propertyState,
+        overrides: nextOverrides,
+        updatedAt: new Date().toISOString(),
+      };
+      const timestamp = nextState.updatedAt;
+      const resolved = resolveFixtureProjectPartState(nextState);
+      syncFixtureProjectPartState({
+        summary: state.partSummariesByJobId[jobId],
+        workspaceItem,
+        partDetail,
+        propertyState: nextState,
+        resolved,
+        timestamp,
+      });
+
+      return jobId;
     },
   };
 }

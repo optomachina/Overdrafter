@@ -1253,6 +1253,7 @@ export async function updateClientPartRequest(input: ClientPartRequestUpdateInpu
     p_revision: input.revision ?? null,
     p_material: input.material,
     p_finish: input.finish ?? null,
+    p_threads: input.threads ?? null,
     p_tightest_tolerance_inch: input.tightestToleranceInch ?? null,
     p_process: input.process ?? null,
     p_notes: input.notes ?? null,
@@ -1263,6 +1264,26 @@ export async function updateClientPartRequest(input: ClientPartRequestUpdateInpu
     p_certifications: input.certifications,
     p_sourcing: input.sourcing,
     p_release: input.release,
+  });
+
+  return ensureData(data, error);
+}
+
+export async function resetClientPartPropertyOverrides(input: {
+  jobId: string;
+  fields: Array<
+    "description" | "partNumber" | "material" | "finish" | "tightestToleranceInch" | "threads"
+  >;
+}): Promise<string> {
+  const fixtureGateway = getActiveClientWorkspaceGateway();
+
+  if (fixtureGateway?.resetClientPartPropertyOverrides) {
+    return fixtureGateway.resetClientPartPropertyOverrides(input);
+  }
+
+  const { data, error } = await callRpc("api_reset_client_part_property_overrides", {
+    p_job_id: input.jobId,
+    p_fields: input.fields,
   });
 
   return ensureData(data, error);

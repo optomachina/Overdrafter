@@ -268,6 +268,7 @@ export function buildClientPartRequestUpdateInput(
     revision: requirement.revision ?? null,
     material: requirement.material,
     finish: requirement.finish ?? null,
+    threads: requirement.threads ?? null,
     tightestToleranceInch: requirement.tightestToleranceInch ?? null,
     process: requirement.process ?? null,
     notes: requirement.notes ?? null,

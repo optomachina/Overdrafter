@@ -62,6 +62,7 @@
 - Selected quote totals update immediately via local optimistic overrides, then reconcile against the persisted server value.
 - Vendor exclusions are stored in localStorage per job.
 - Editable request drafts are stored per focused line item and saved through `updateClientPartRequest(...)`.
+- Project-side part-property edits persist as resettable overrides over the underlying default metadata so the inspector can save user changes without losing the fallback source values.
 
 ## Empty States
 - Empty project filter result
