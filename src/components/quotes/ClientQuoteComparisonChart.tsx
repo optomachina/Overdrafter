@@ -157,10 +157,11 @@ function CustomTooltipContent({ active, payload }: { active?: boolean; payload?:
 }
 
 function VendorScatterShape(props: unknown) {
-  const { cx, cy, payload } = props as {
+  const { cx, cy, payload, onSelect } = props as {
     cx?: number;
     cy?: number;
     payload?: ChartPoint;
+    onSelect: (option: ClientQuoteSelectionOption) => void;
   };
 
   if (!payload || cx === undefined || cy === undefined) {
@@ -185,7 +186,11 @@ function VendorScatterShape(props: unknown) {
       stroke={strokeColor}
       strokeWidth={strokeWidth}
       className="cursor-pointer transition-all duration-150"
-      onClick={() => payload.option && !payload.disabled}
+      onClick={() => {
+        if (payload.option && !payload.disabled) {
+          onSelect(payload.option);
+        }
+      }}
     />
   );
 }
@@ -233,13 +238,6 @@ export function ClientQuoteComparisonChart({
       })),
     });
   }, [options, organizationId, partId, points]);
-
-  const handleScatterClick = (data: unknown) => {
-    const point = data as { payload?: ChartPoint } | undefined;
-    if (point?.payload?.option && !point.payload.disabled) {
-      onSelect(point.payload.option);
-    }
-  };
 
   const handleScatterMouseEnter = (data: unknown) => {
     const point = data as { payload?: ChartPoint } | undefined;
@@ -321,8 +319,12 @@ export function ClientQuoteComparisonChart({
             key={vendorKey}
             name={vendorKey}
             data={pointsByVendor.get(vendorKey) ?? []}
-            shape={<VendorScatterShape />}
-            onClick={handleScatterClick}
+            shape={(shapeProps) => (
+              <VendorScatterShape
+                {...shapeProps}
+                onSelect={onSelect}
+              />
+            )}
             onMouseEnter={handleScatterMouseEnter}
             onMouseLeave={() => onHover(null)}
           />

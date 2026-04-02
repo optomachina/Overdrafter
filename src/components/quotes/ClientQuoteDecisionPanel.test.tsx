@@ -1,12 +1,34 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
 import type { QuoteDiagnostics } from "@/features/quotes/types";
 import { ClientQuoteDecisionPanel } from "./ClientQuoteDecisionPanel";
 
 vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
-  ClientQuoteComparisonChart: () => <div>Quote Chart</div>,
+  ClientQuoteComparisonChart: ({
+    options,
+    onSelect,
+  }: {
+    options: readonly ClientQuoteSelectionOption[];
+    onSelect: (option: ClientQuoteSelectionOption) => void;
+  }) => (
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          const next = options[1] ?? options[0];
+          if (next) {
+            onSelect(next);
+          }
+        }}
+      >
+        Quote Chart Select
+      </button>
+      <div>Quote Chart</div>
+    </div>
+  ),
 }));
 
 function makeOption(overrides: Partial<ClientQuoteSelectionOption> = {}): ClientQuoteSelectionOption {
@@ -102,6 +124,44 @@ describe("ClientQuoteDecisionPanel", () => {
     fireEvent.click(screen.getByText("Proto Labs"));
 
     expect(onSelect).toHaveBeenCalledWith(second);
+  });
+
+  it("syncs panel selection state when chart selection changes", async () => {
+    const first = makeOption();
+    const second = makeOption({
+      key: "option-2",
+      offerId: "offer-2",
+      persistedOfferId: "offer-2",
+      vendorQuoteResultId: "result-2",
+      vendorLabel: "Proto Labs",
+      supplier: "Proto Labs",
+      totalPriceUsd: 160,
+      requestedQuantity: 25,
+    });
+
+    function SelectionHarness() {
+      const [selected, setSelected] = useState<ClientQuoteSelectionOption | null>(first);
+
+      return (
+        <ClientQuoteDecisionPanel
+          options={[first, second]}
+          selectedOption={selected}
+          onSelect={setSelected}
+          requestedByDate="2026-04-15"
+        />
+      );
+    }
+
+    render(<SelectionHarness />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Qty 10")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Quote Chart Select" }));
+
+    expect(screen.getByText("Qty 25")).toBeInTheDocument();
   });
 
   it("renders a stable empty state when quote data is absent", () => {
