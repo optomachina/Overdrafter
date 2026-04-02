@@ -164,6 +164,7 @@ The current bridge is intentionally dual-layered:
 - `quote_requests` remains the client-safe request lifecycle record and RPC contract during the transition
 - `service_request_line_items` is the authoritative service-intent unit underneath that flow for `manufacturing_quote`
 - the compatibility layer is the link plus lifecycle-status synchronization between those two records
+- queued `run_vendor_quote` work should carry both `quoteRequestId` and `serviceRequestLineItemId` in task payloads so worker retries, failures, and task logs remain traceable to the authoritative line item without changing vendor result storage
 
 ### Bridge record ownership
 
