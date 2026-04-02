@@ -11,6 +11,148 @@ import {
   STARTUP_AUTH_TIMEOUT_MS,
 } from "./api/shared/startup-auth";
 
+function buildClientWorkspaceJobRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "job-1",
+    organization_id: "org-1",
+    project_id: null,
+    selected_vendor_quote_offer_id: null,
+    created_by: "user-1",
+    title: "Bracket",
+    description: null,
+    status: "ready_to_quote",
+    source: "client_home",
+    active_pricing_policy_id: null,
+    tags: [],
+    requested_service_kinds: ["manufacturing_quote"],
+    primary_service_kind: "manufacturing_quote",
+    service_notes: null,
+    requested_quote_quantities: [10],
+    requested_by_date: null,
+    archived_at: null,
+    created_at: "2026-03-01T00:00:00Z",
+    updated_at: "2026-03-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function buildClientWorkspaceRequestMetadata(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "job-1",
+    selected_vendor_quote_offer_id: null,
+    requested_service_kinds: ["manufacturing_quote"],
+    primary_service_kind: "manufacturing_quote",
+    service_notes: null,
+    requested_quote_quantities: [10],
+    requested_by_date: null,
+    ...overrides,
+  };
+}
+
+function buildQuoteRequestRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "11111111-1111-4111-8111-111111111111",
+    organization_id: "org-1",
+    job_id: "job-1",
+    requested_by: "user-1",
+    requested_vendors: ["xometry"],
+    service_request_line_item_id: "line-item-1",
+    status: "queued",
+    failure_reason: null,
+    received_at: null,
+    failed_at: null,
+    canceled_at: null,
+    created_at: "2026-03-02T10:00:00Z",
+    updated_at: "2026-03-02T10:00:00Z",
+    ...overrides,
+  };
+}
+
+function buildServiceRequestLineItemRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "line-item-1",
+    organization_id: "org-1",
+    project_id: null,
+    job_id: "job-1",
+    service_type: "manufacturing_quote",
+    scope: "part",
+    status: "queued",
+    service_detail: {
+      origin: "phase_2_quote_request_transition",
+    },
+    created_at: "2026-03-02T09:00:00Z",
+    updated_at: "2026-03-02T10:00:00Z",
+    ...overrides,
+  };
+}
+
+function mockClientQuoteWorkspaceScaffolding() {
+  supabaseMock.jobsIs.mockResolvedValueOnce({
+    data: [buildClientWorkspaceJobRecord()],
+    error: null,
+  });
+  supabaseMock.jobsIn
+    .mockImplementationOnce(() => supabaseMock.jobsQuery)
+    .mockResolvedValueOnce({
+      data: [buildClientWorkspaceRequestMetadata()],
+      error: null,
+    });
+  supabaseMock.jobFilesOrder
+    .mockResolvedValueOnce({ data: [], error: null })
+    .mockResolvedValueOnce({ data: [], error: null });
+  supabaseMock.partsOrder
+    .mockResolvedValueOnce({ data: [], error: null })
+    .mockResolvedValueOnce({ data: [], error: null });
+  supabaseMock.projectJobsIn.mockResolvedValueOnce({
+    data: [],
+    error: null,
+  });
+  supabaseMock.rpc.mockImplementation((fn: string) => {
+    if (fn === "api_list_client_part_metadata") {
+      return Promise.resolve({
+        data: [],
+        error: null,
+      });
+    }
+
+    if (fn === "api_list_client_quote_workspace") {
+      return Promise.resolve({
+        data: [
+          {
+            jobId: "job-1",
+            latestQuoteRun: null,
+            selectedOffer: null,
+            vendorQuotes: [],
+          },
+        ],
+        error: null,
+      });
+    }
+
+    return Promise.resolve({
+      data: false,
+      error: null,
+    });
+  });
+}
+
+function buildQuoteRequestRpcResult(overrides: Record<string, unknown> = {}) {
+  return {
+    jobId: "job-1",
+    accepted: true,
+    created: true,
+    deduplicated: false,
+    quoteRequestId: "request-1",
+    quoteRunId: "run-1",
+    serviceRequestLineItemId: "line-item-1",
+    status: "queued",
+    reasonCode: null,
+    reason: null,
+    requestedVendors: ["xometry", "fictiv", "protolabs"],
+    ...overrides,
+  };
+}
+
 const toastMock = vi.hoisted(() => ({
   error: vi.fn(),
   success: vi.fn(),
@@ -1609,148 +1751,35 @@ describe("quotes api helpers", () => {
   });
 
   it("uses the newest quote request fallback when created_at ties by ordering on id", async () => {
-    supabaseMock.jobsIs.mockResolvedValueOnce({
-      data: [
-        {
-          id: "job-1",
-          organization_id: "org-1",
-          project_id: null,
-          selected_vendor_quote_offer_id: null,
-          created_by: "user-1",
-          title: "Bracket",
-          description: null,
-          status: "ready_to_quote",
-          source: "client_home",
-          active_pricing_policy_id: null,
-          tags: [],
-          requested_service_kinds: ["manufacturing_quote"],
-          primary_service_kind: "manufacturing_quote",
-          service_notes: null,
-          requested_quote_quantities: [10],
-          requested_by_date: null,
-          archived_at: null,
-          created_at: "2026-03-01T00:00:00Z",
-          updated_at: "2026-03-01T00:00:00Z",
-        },
-      ],
-      error: null,
-    });
-    supabaseMock.jobsIn
-      .mockImplementationOnce(() => supabaseMock.jobsQuery)
-      .mockResolvedValueOnce({
-        data: [
-          {
-            id: "job-1",
-            selected_vendor_quote_offer_id: null,
-            requested_service_kinds: ["manufacturing_quote"],
-            primary_service_kind: "manufacturing_quote",
-            service_notes: null,
-            requested_quote_quantities: [10],
-            requested_by_date: null,
-          },
-        ],
-        error: null,
-      });
-    supabaseMock.jobFilesOrder
-      .mockResolvedValueOnce({ data: [], error: null })
-      .mockResolvedValueOnce({ data: [], error: null });
-    supabaseMock.partsOrder
-      .mockResolvedValueOnce({ data: [], error: null })
-      .mockResolvedValueOnce({ data: [], error: null });
-    supabaseMock.projectJobsIn.mockResolvedValueOnce({
-      data: [],
-      error: null,
-    });
+    mockClientQuoteWorkspaceScaffolding();
     supabaseMock.quoteRequestsOrder
       .mockImplementationOnce(() => supabaseMock.quoteRequestsQuery)
       .mockResolvedValueOnce({
         data: [
-          {
-            id: "request-a",
-            organization_id: "org-1",
-            job_id: "job-1",
-            requested_by: "user-1",
-            requested_vendors: ["xometry"],
-            service_request_line_item_id: "line-item-1",
+          // Same-timestamp UUID ordering only makes the tie-break deterministic, not truly newer.
+          buildQuoteRequestRecord({
+            id: "9a6b0c6d-2d5f-4f77-9a15-222222222222",
+          }),
+          buildQuoteRequestRecord({
+            id: "2f6e3c5c-0f6a-4b74-a7fa-111111111111",
             status: "failed",
             failure_reason: "Quote collection failed before a usable vendor response was received.",
-            received_at: null,
             failed_at: "2026-03-02T10:00:00Z",
-            canceled_at: null,
-            created_at: "2026-03-02T10:00:00Z",
-            updated_at: "2026-03-02T10:00:00Z",
-          },
-          {
-            id: "request-b",
-            organization_id: "org-1",
-            job_id: "job-1",
-            requested_by: "user-1",
-            requested_vendors: ["xometry"],
-            service_request_line_item_id: "line-item-1",
-            status: "queued",
-            failure_reason: null,
-            received_at: null,
-            failed_at: null,
-            canceled_at: null,
-            created_at: "2026-03-02T10:00:00Z",
-            updated_at: "2026-03-02T10:00:00Z",
-          },
+          }),
         ],
         error: null,
       });
     supabaseMock.serviceRequestLineItemsOrder
       .mockImplementationOnce(() => supabaseMock.serviceRequestLineItemsQuery)
       .mockResolvedValueOnce({
-        data: [
-          {
-            id: "line-item-1",
-            organization_id: "org-1",
-            project_id: null,
-            job_id: "job-1",
-            service_type: "manufacturing_quote",
-            scope: "part",
-            status: "queued",
-            service_detail: {
-              origin: "phase_2_quote_request_transition",
-            },
-            created_at: "2026-03-02T09:00:00Z",
-            updated_at: "2026-03-02T10:00:00Z",
-          },
-        ],
+        data: [buildServiceRequestLineItemRecord()],
         error: null,
       });
-    supabaseMock.rpc.mockImplementation((fn: string) => {
-      if (fn === "api_list_client_part_metadata") {
-        return Promise.resolve({
-          data: [],
-          error: null,
-        });
-      }
-
-      if (fn === "api_list_client_quote_workspace") {
-        return Promise.resolve({
-          data: [
-            {
-              jobId: "job-1",
-              latestQuoteRun: null,
-              selectedOffer: null,
-              vendorQuotes: [],
-            },
-          ],
-          error: null,
-        });
-      }
-
-      return Promise.resolve({
-        data: false,
-        error: null,
-      });
-    });
 
     const [workspaceItem] = await fetchClientQuoteWorkspaceByJobIds(["job-1"]);
     const latestQuoteRequest = workspaceItem?.latestQuoteRequest ?? null;
 
-    expect(latestQuoteRequest?.id).toBe("request-b");
+    expect(latestQuoteRequest?.id).toBe("9a6b0c6d-2d5f-4f77-9a15-222222222222");
     expect(latestQuoteRequest?.status).toBe("queued");
     expect(workspaceItem?.serviceRequestLineItem?.id).toBe("line-item-1");
     expect(supabaseMock.quoteRequestsOrder).toHaveBeenNthCalledWith(1, "created_at", { ascending: false });
@@ -1767,78 +1796,11 @@ describe("quotes api helpers", () => {
       hint: null,
     };
 
-    supabaseMock.jobsIs.mockResolvedValueOnce({
-      data: [
-        {
-          id: "job-1",
-          organization_id: "org-1",
-          project_id: null,
-          selected_vendor_quote_offer_id: null,
-          created_by: "user-1",
-          title: "Bracket",
-          description: null,
-          status: "ready_to_quote",
-          source: "client_home",
-          active_pricing_policy_id: null,
-          tags: [],
-          requested_service_kinds: ["manufacturing_quote"],
-          primary_service_kind: "manufacturing_quote",
-          service_notes: null,
-          requested_quote_quantities: [10],
-          requested_by_date: null,
-          archived_at: null,
-          created_at: "2026-03-01T00:00:00Z",
-          updated_at: "2026-03-01T00:00:00Z",
-        },
-      ],
-      error: null,
-    });
-    supabaseMock.jobsIn
-      .mockImplementationOnce(() => supabaseMock.jobsQuery)
-      .mockResolvedValueOnce({
-        data: [
-          {
-            id: "job-1",
-            selected_vendor_quote_offer_id: null,
-            requested_service_kinds: ["manufacturing_quote"],
-            primary_service_kind: "manufacturing_quote",
-            service_notes: null,
-            requested_quote_quantities: [10],
-            requested_by_date: null,
-          },
-        ],
-        error: null,
-      });
-    supabaseMock.jobFilesOrder
-      .mockResolvedValueOnce({ data: [], error: null })
-      .mockResolvedValueOnce({ data: [], error: null });
-    supabaseMock.partsOrder
-      .mockResolvedValueOnce({ data: [], error: null })
-      .mockResolvedValueOnce({ data: [], error: null });
-    supabaseMock.projectJobsIn.mockResolvedValueOnce({
-      data: [],
-      error: null,
-    });
+    mockClientQuoteWorkspaceScaffolding();
     supabaseMock.quoteRequestsOrder
       .mockImplementationOnce(() => supabaseMock.quoteRequestsQuery)
       .mockResolvedValueOnce({
-        data: [
-          {
-            id: "request-1",
-            organization_id: "org-1",
-            job_id: "job-1",
-            requested_by: "user-1",
-            requested_vendors: ["xometry"],
-            service_request_line_item_id: null,
-            status: "queued",
-            failure_reason: null,
-            received_at: null,
-            failed_at: null,
-            canceled_at: null,
-            created_at: "2026-03-02T10:00:00Z",
-            updated_at: "2026-03-02T10:00:00Z",
-          },
-        ],
+        data: [buildQuoteRequestRecord({ service_request_line_item_id: null })],
         error: null,
       });
     supabaseMock.serviceRequestLineItemsOrder
@@ -1847,32 +1809,11 @@ describe("quotes api helpers", () => {
         data: null,
         error: missingLineItemsTableError,
       });
-    supabaseMock.rpc.mockImplementation((fn: string) => {
-      if (fn === "api_list_client_part_metadata") {
-        return Promise.resolve({ data: [], error: null });
-      }
-
-      if (fn === "api_list_client_quote_workspace") {
-        return Promise.resolve({
-          data: [
-            {
-              jobId: "job-1",
-              latestQuoteRun: null,
-              selectedOffer: null,
-              vendorQuotes: [],
-            },
-          ],
-          error: null,
-        });
-      }
-
-      throw new Error(`Unexpected rpc: ${fn}`);
-    });
 
     await expect(fetchClientQuoteWorkspaceByJobIds(["job-1"])).resolves.toMatchObject([
       {
         latestQuoteRequest: expect.objectContaining({
-          id: "request-1",
+          id: "11111111-1111-4111-8111-111111111111",
           status: "queued",
         }),
         serviceRequestLineItem: null,
@@ -3910,19 +3851,7 @@ describe("quotes api helpers", () => {
 
   it("requests a quote for a single job through the new RPC", async () => {
     supabaseMock.rpc.mockResolvedValue({
-      data: {
-        jobId: "job-1",
-        accepted: true,
-        created: true,
-        deduplicated: false,
-        quoteRequestId: "request-1",
-        quoteRunId: "run-1",
-        serviceRequestLineItemId: "line-item-1",
-        status: "queued",
-        reasonCode: null,
-        reason: null,
-        requestedVendors: ["xometry", "fictiv", "protolabs"],
-      },
+      data: buildQuoteRequestRpcResult(),
       error: null,
     });
 
@@ -3941,19 +3870,16 @@ describe("quotes api helpers", () => {
 
   it("accepts user-rate-limited quote request responses from the rpc", async () => {
     supabaseMock.rpc.mockResolvedValue({
-      data: {
-        jobId: "job-1",
+      data: buildQuoteRequestRpcResult({
         accepted: false,
         created: false,
-        deduplicated: false,
         quoteRequestId: null,
         quoteRunId: null,
         serviceRequestLineItemId: null,
         status: "not_requested",
         reasonCode: "rate_limited_user",
         reason: "You have reached the quote request limit for now. Try again later or contact your estimator.",
-        requestedVendors: ["xometry", "fictiv", "protolabs"],
-      },
+      }),
       error: null,
     });
 
@@ -3966,11 +3892,9 @@ describe("quotes api helpers", () => {
 
   it("accepts no-enabled-vendors blockers from the rpc", async () => {
     supabaseMock.rpc.mockResolvedValue({
-      data: {
-        jobId: "job-1",
+      data: buildQuoteRequestRpcResult({
         accepted: false,
         created: false,
-        deduplicated: false,
         quoteRequestId: null,
         quoteRunId: null,
         serviceRequestLineItemId: null,
@@ -3978,7 +3902,7 @@ describe("quotes api helpers", () => {
         reasonCode: "no_enabled_vendors",
         reason: "No enabled vendors are available for this part in its current package state.",
         requestedVendors: [],
-      },
+      }),
       error: null,
     });
 
@@ -3993,32 +3917,18 @@ describe("quotes api helpers", () => {
   it("requests quotes in bulk and normalizes the array response", async () => {
     supabaseMock.rpc.mockResolvedValue({
       data: [
-        {
-          jobId: "job-1",
-          accepted: true,
-          created: true,
-          deduplicated: false,
-          quoteRequestId: "request-1",
-          quoteRunId: "run-1",
-          serviceRequestLineItemId: "line-item-1",
-          status: "queued",
-          reasonCode: null,
-          reason: null,
-          requestedVendors: ["xometry", "fictiv", "protolabs"],
-        },
-        {
+        buildQuoteRequestRpcResult(),
+        buildQuoteRequestRpcResult({
           jobId: "job-2",
           accepted: false,
           created: false,
-          deduplicated: false,
           quoteRequestId: null,
           quoteRunId: null,
           serviceRequestLineItemId: null,
           status: "not_requested",
           reasonCode: "missing_cad",
           reason: "Upload a CAD model before requesting a quote.",
-          requestedVendors: ["xometry", "fictiv", "protolabs"],
-        },
+        }),
       ],
       error: null,
     });
@@ -4061,19 +3971,16 @@ describe("quotes api helpers", () => {
   it("accepts org cost ceiling blockers in bulk quote request responses", async () => {
     supabaseMock.rpc.mockResolvedValue({
       data: [
-        {
-          jobId: "job-1",
+        buildQuoteRequestRpcResult({
           accepted: false,
           created: false,
-          deduplicated: false,
           quoteRequestId: null,
           quoteRunId: null,
           serviceRequestLineItemId: null,
           status: "not_requested",
           reasonCode: "org_cost_ceiling_reached",
           reason: "Quote requests are temporarily paused for this workspace while current vendor quote requests are still in flight.",
-          requestedVendors: ["xometry", "fictiv", "protolabs"],
-        },
+        }),
       ],
       error: null,
     });

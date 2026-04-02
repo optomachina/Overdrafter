@@ -113,6 +113,8 @@ async function fetchLatestQuoteRequestsByJobIds(jobIds: string[]): Promise<Map<s
       .select("*")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false })
+      // Same-timestamp ties use UUID text order only to keep selection stable across reads.
+      // This is deterministic but intentionally not treated as a true recency guarantee.
       .order("id", { ascending: false });
 
     data = response.data as QuoteRequestRecord[] | null;
@@ -130,18 +132,9 @@ async function fetchLatestQuoteRequestsByJobIds(jobIds: string[]): Promise<Map<s
   }
 
   const requests = ensureData(data, error) as QuoteRequestRecord[];
-  const requestsByRecency = [...requests].sort((left, right) => {
-    const createdAtComparison = right.created_at.localeCompare(left.created_at);
-
-    if (createdAtComparison !== 0) {
-      return createdAtComparison;
-    }
-
-    return right.id.localeCompare(left.id);
-  });
   const latestByJobId = new Map<string, QuoteRequestRecord>();
 
-  requestsByRecency.forEach((request) => {
+  requests.forEach((request) => {
     if (!latestByJobId.has(request.job_id)) {
       latestByJobId.set(request.job_id, request);
     }
@@ -168,6 +161,7 @@ async function fetchManufacturingQuoteLineItemsByJobIds(
       .eq("service_type", "manufacturing_quote")
       .eq("scope", "part")
       .order("created_at", { ascending: false })
+      // Match quote-request reads: ties stay stable by UUID text order, not insertion order.
       .order("id", { ascending: false });
 
     data = response.data as ServiceRequestLineItemRecord[] | null;
