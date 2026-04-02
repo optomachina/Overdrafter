@@ -15,6 +15,10 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipProvider: ({ children }: PropsWithChildren) => <>{children}</>,
 }));
 
+vi.mock("agentation", () => ({
+  Agentation: () => null,
+}));
+
 vi.mock("@/components/debug/DiagnosticsBootstrap", () => ({
   DiagnosticsBootstrap: () => null,
 }));
