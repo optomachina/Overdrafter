@@ -21,13 +21,9 @@ function parseArgs(argv = process.argv): CliArgs {
     if (arg === "--quote-run-id" || arg === "--quoteRunId") {
       quoteRunId = args[i + 1] ?? null;
       i += 1;
-      continue;
-    }
-
-    if (arg === "--out") {
+    } else if (arg === "--out") {
       outPath = args[i + 1] ? path.resolve(args[i + 1]) : null;
       i += 1;
-      continue;
     }
   }
 
