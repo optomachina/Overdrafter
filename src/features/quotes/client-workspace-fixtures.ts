@@ -7,6 +7,7 @@ import type {
   ArchivedJobSummary,
   ArchivedProjectSummary,
   ClientActivityEvent,
+  ClientPartRequirementView,
   ProjectAssigneeProfile,
   ClientPartRequestUpdateInput,
   ClientQuoteWorkspaceItem,
@@ -20,6 +21,7 @@ import type {
   ProjectMembershipRecord,
   ProjectRecord,
   QuoteDiagnostics,
+  QuoteRequestRecord,
   QuoteRunRecord,
   PublishedQuotePackageRecord,
   VendorQuoteAggregate,
@@ -89,6 +91,14 @@ export const CLIENT_WORKSPACE_FIXTURE_SCENARIOS = [
     canonicalPath: "/projects/fx-project-published/review?fixture=client-published",
   },
 ] as const;
+
+export type ClientQuoteWorkspaceFixtureOverrides = {
+  summary?: JobPartSummary | null;
+  approvedRequirement?: PartAggregate["approvedRequirement"];
+  clientRequirement?: ClientPartRequirementView | null;
+  latestQuoteRequest?: QuoteRequestRecord | null;
+  latestQuoteRun?: QuoteRunRecord | null;
+};
 
 export type FixtureScenarioId = (typeof CLIENT_WORKSPACE_FIXTURE_SCENARIOS)[number]["id"];
 
@@ -602,6 +612,82 @@ function createVendorQuoteAggregate(input: {
       },
     ],
     artifacts: [],
+  };
+}
+
+export function createClientQuoteWorkspaceItemFixture(
+  overrides: ClientQuoteWorkspaceFixtureOverrides = {},
+): ClientQuoteWorkspaceItem {
+  const job = createJobRecord({
+    id: "job-1",
+    createdBy: "user-1",
+    title: "Bracket",
+    description: "",
+    status: "ready_to_quote",
+    requestedServiceKinds: ["manufacturing_quote"],
+    primaryServiceKind: "manufacturing_quote",
+    requestedQuoteQuantities: [10],
+    requestedByDate: "2026-04-15",
+    projectId: "project-1",
+  });
+  const { part: basePart, summary: baseSummary, drawingPreview } = createPartAggregate({
+    id: "part-1",
+    jobId: job.id,
+    stem: "bracket",
+    quantity: 10,
+    partNumber: "BRKT-001",
+    revision: "A",
+    description: "Bracket",
+    material: "6061-T6",
+    finish: "Black anodize",
+    requestedServiceKinds: ["manufacturing_quote"],
+    primaryServiceKind: "manufacturing_quote",
+    requestedQuoteQuantities: [10],
+    requestedByDate: "2026-04-15",
+    drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+  });
+  const part: PartAggregate = {
+    ...basePart,
+    drawing_file_id: null,
+    drawingFile: null,
+    extraction: null,
+    approvedRequirement:
+      overrides.approvedRequirement === undefined
+        ? basePart.approvedRequirement
+        : overrides.approvedRequirement,
+    clientRequirement: overrides.clientRequirement ?? null,
+  };
+  const summary =
+    overrides.summary === undefined
+      ? {
+          ...baseSummary,
+          description: "Bracket",
+        }
+      : overrides.summary;
+
+  if (part.approvedRequirement) {
+    part.approvedRequirement = {
+      ...part.approvedRequirement,
+      description: "Machined mounting bracket",
+      spec_snapshot: {
+        ...((part.approvedRequirement.spec_snapshot as Record<string, unknown> | null) ?? {}),
+        threads: "2x 1/4-20 UNC",
+      },
+    };
+  }
+
+  return {
+    job,
+    files: [],
+    summary,
+    part,
+    quoteDataStatus: "available",
+    quoteDataMessage: null,
+    quoteDiagnostics: buildFixtureQuoteDiagnostics(part.vendorQuotes),
+    projectIds: ["project-1"],
+    drawingPreview,
+    latestQuoteRequest: overrides.latestQuoteRequest ?? null,
+    latestQuoteRun: overrides.latestQuoteRun ?? null,
   };
 }
 

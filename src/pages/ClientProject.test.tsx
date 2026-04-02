@@ -7,14 +7,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ClientPartRequirementView,
   ClientQuoteRequestStatus,
-  ClientQuoteWorkspaceItem,
-  JobPartSummary,
-  JobRecord,
-  PartAggregate,
-  QuoteDiagnostics,
   QuoteRequestRecord,
   QuoteRunRecord,
 } from "@/features/quotes/types";
+import { createClientQuoteWorkspaceItemFixture } from "@/features/quotes/client-workspace-fixtures";
 import ClientProject from "./ClientProject";
 
 const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock } = vi.hoisted(() => ({
@@ -316,139 +312,12 @@ type InspectorQuoteStatus = Extract<
 >;
 
 type WorkspaceItemOverrides = {
-  summary?: JobPartSummary | null;
-  approvedRequirement?: PartAggregate["approvedRequirement"];
+  summary?: ReturnType<typeof createClientQuoteWorkspaceItemFixture>["summary"];
+  approvedRequirement?: ReturnType<typeof createClientQuoteWorkspaceItemFixture>["part"]["approvedRequirement"];
   clientRequirement?: ClientPartRequirementView | null;
   latestQuoteRequest?: QuoteRequestRecord | null;
   latestQuoteRun?: QuoteRunRecord | null;
 };
-
-function createJobFixture(overrides: Partial<JobRecord> = {}): JobRecord {
-  return {
-    id: "job-1",
-    organization_id: "org-1",
-    project_id: "project-1",
-    created_by: "user-1",
-    title: "Bracket",
-    description: null,
-    status: "ready_to_quote",
-    source: "client_home",
-    active_pricing_policy_id: null,
-    tags: [],
-    requested_service_kinds: ["manufacturing_quote"],
-    primary_service_kind: "manufacturing_quote",
-    service_notes: null,
-    requested_by_date: "2026-04-15",
-    requested_quote_quantities: [10],
-    archived_at: null,
-    created_at: "2026-03-01T00:00:00Z",
-    updated_at: "2026-03-01T00:00:00Z",
-    selected_vendor_quote_offer_id: null,
-    ...overrides,
-  };
-}
-
-function createQuoteDiagnosticsFixture(): QuoteDiagnostics {
-  return {
-    rawQuoteRowCount: 0,
-    rawOfferCount: 0,
-    plottableOfferCount: 0,
-    excludedOfferCount: 0,
-    excludedOffers: [],
-    excludedReasonCounts: [],
-  };
-}
-
-function createSummaryFixture(overrides: Partial<JobPartSummary> = {}): JobPartSummary {
-  return {
-    jobId: "job-1",
-    partNumber: "BRKT-001",
-    revision: "A",
-    description: "Bracket",
-    quantity: 10,
-    importedBatch: null,
-    requestedServiceKinds: ["manufacturing_quote"],
-    primaryServiceKind: "manufacturing_quote",
-    serviceNotes: null,
-    requestedQuoteQuantities: [10],
-    requestedByDate: "2026-04-15",
-    selectedSupplier: null,
-    selectedPriceUsd: null,
-    selectedLeadTimeBusinessDays: null,
-    ...overrides,
-  };
-}
-
-function createApprovedRequirementFixture(
-  overrides: Partial<NonNullable<PartAggregate["approvedRequirement"]>> = {},
-): NonNullable<PartAggregate["approvedRequirement"]> {
-  return {
-    id: "requirement-1",
-    part_id: "part-1",
-    organization_id: "org-1",
-    approved_by: "user-1",
-    description: "Machined mounting bracket",
-    part_number: "BRKT-001",
-    revision: "A",
-    material: "6061-T6",
-    finish: "Black anodize",
-    tightest_tolerance_inch: 0.005,
-    quantity: 10,
-    quote_quantities: [10],
-    requested_by_date: "2026-04-15",
-    applicable_vendors: ["xometry"],
-    spec_snapshot: {
-      threads: "2x 1/4-20 UNC",
-    },
-    approved_at: "2026-03-01T00:00:00Z",
-    created_at: "2026-03-01T00:00:00Z",
-    updated_at: "2026-03-01T00:00:00Z",
-    ...overrides,
-  };
-}
-
-function createPartAggregateFixture(overrides: {
-  approvedRequirement?: PartAggregate["approvedRequirement"];
-  clientRequirement?: ClientPartRequirementView | null;
-} = {}): PartAggregate {
-  return {
-    id: "part-1",
-    job_id: "job-1",
-    organization_id: "org-1",
-    name: "Bracket",
-    normalized_key: "bracket",
-    cad_file_id: "cad-1",
-    drawing_file_id: null,
-    quantity: 10,
-    created_at: "2026-03-01T00:00:00Z",
-    updated_at: "2026-03-01T00:00:00Z",
-    cadFile: {
-      id: "cad-1",
-      job_id: "job-1",
-      organization_id: "org-1",
-      file_kind: "cad",
-      blob_id: "blob-1",
-      storage_bucket: "job-files",
-      storage_path: "cad.step",
-      normalized_name: "cad.step",
-      original_name: "cad.step",
-      size_bytes: 123,
-      mime_type: "application/step",
-      content_sha256: "hash",
-      matched_part_key: null,
-      uploaded_by: "user-1",
-      created_at: "2026-03-01T00:00:00Z",
-    },
-    drawingFile: null,
-    extraction: null,
-    approvedRequirement:
-      overrides.approvedRequirement === undefined
-        ? createApprovedRequirementFixture()
-        : overrides.approvedRequirement,
-    clientRequirement: overrides.clientRequirement ?? null,
-    vendorQuotes: [],
-  };
-}
 
 function createQuoteRequestFixture(overrides: Partial<QuoteRequestRecord> = {}): QuoteRequestRecord {
   return {
@@ -484,25 +353,8 @@ function createQuoteRunFixture(overrides: Partial<QuoteRunRecord> = {}): QuoteRu
   };
 }
 
-function createWorkspaceItemFixture(overrides: WorkspaceItemOverrides = {}): ClientQuoteWorkspaceItem {
-  const part = createPartAggregateFixture({
-    approvedRequirement: overrides.approvedRequirement,
-    clientRequirement: overrides.clientRequirement,
-  });
-
-  return {
-    job: createJobFixture(),
-    files: [],
-    summary: overrides.summary === undefined ? createSummaryFixture() : overrides.summary,
-    part,
-    quoteDataStatus: "available",
-    quoteDataMessage: null,
-    quoteDiagnostics: createQuoteDiagnosticsFixture(),
-    projectIds: ["project-1"],
-    drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
-    latestQuoteRequest: overrides.latestQuoteRequest ?? null,
-    latestQuoteRun: overrides.latestQuoteRun ?? null,
-  };
+function createWorkspaceItemFixture(overrides: WorkspaceItemOverrides = {}) {
+  return createClientQuoteWorkspaceItemFixture(overrides);
 }
 
 function buildWorkspaceItemWithQuoteStatus(status: InspectorQuoteStatus) {
@@ -817,14 +669,19 @@ describe("ClientProject", () => {
   });
 
   it("prefers the approved finish over stale spec snapshot finish data", async () => {
+    const baselineRequirement = createWorkspaceItemFixture().part?.approvedRequirement;
+
     api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([
       createWorkspaceItemFixture({
-        approvedRequirement: createApprovedRequirementFixture({
-          finish: "Black anodize",
-          spec_snapshot: {
-            quoteFinish: "As machined",
-          },
-        }),
+        approvedRequirement: baselineRequirement
+          ? {
+              ...baselineRequirement,
+              finish: "Black anodize",
+              spec_snapshot: {
+                quoteFinish: "As machined",
+              },
+            }
+          : null,
       }),
     ]);
 
