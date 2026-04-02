@@ -23,14 +23,21 @@ export function aggregateQuoteRunStatus(statuses: VendorStatus[]): QuoteRunAggre
     (status) => status === "manual_review_pending" || status === "manual_vendor_followup",
   ).length;
   const failedVendorQuotes = statuses.filter((status) => status === "failed").length;
-  const nextQuoteRunStatus = hasPending ? "running" : hasSuccess || hasManual ? "completed" : "failed";
-  const nextJobStatus = hasPending
-    ? "quoting"
-    : hasManual
-      ? "awaiting_vendor_manual_review"
-      : hasSuccess
-        ? "internal_review"
-        : "quoting";
+  let nextQuoteRunStatus: QuoteRunAggregateStatus["nextQuoteRunStatus"] = "failed";
+  if (hasPending) {
+    nextQuoteRunStatus = "running";
+  } else if (hasSuccess || hasManual) {
+    nextQuoteRunStatus = "completed";
+  }
+
+  let nextJobStatus: QuoteRunAggregateStatus["nextJobStatus"] = "quoting";
+  if (hasPending) {
+    nextJobStatus = "quoting";
+  } else if (hasManual) {
+    nextJobStatus = "awaiting_vendor_manual_review";
+  } else if (hasSuccess) {
+    nextJobStatus = "internal_review";
+  }
 
   return {
     nextQuoteRunStatus,

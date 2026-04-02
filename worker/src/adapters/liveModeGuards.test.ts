@@ -1,11 +1,16 @@
 // @vitest-environment node
 
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { FictivAdapter } from "./fictiv";
 import { ProtolabsAdapter } from "./protolabs";
 import { SendCutSendAdapter } from "./sendcutsend";
 import { buildAdapterRegistry } from "./index";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
+
+function sortAlphabetically(values: string[]) {
+  return [...values].sort((left, right) => left.localeCompare(right));
+}
 
 function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
   return {
@@ -17,7 +22,7 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     pollIntervalMs: 5000,
     httpHost: "127.0.0.1",
     httpPort: 8080,
-    workerTempDir: "/tmp/overdrafter-worker",
+    workerTempDir: path.resolve(".tmp/overdrafter-worker"),
     artifactBucket: "quote-artifacts",
     playwrightHeadless: true,
     playwrightCaptureTrace: false,
@@ -112,7 +117,7 @@ describe("buildAdapterRegistry", () => {
       }),
     );
 
-    expect(Object.keys(registry).sort()).toEqual(["fictiv", "xometry"]);
+    expect(sortAlphabetically(Object.keys(registry))).toEqual(["fictiv", "xometry"]);
   });
 
   it("allows an empty live rollout set (no enabled live adapters)", () => {
@@ -134,7 +139,7 @@ describe("buildAdapterRegistry", () => {
       }),
     );
 
-    expect(Object.keys(registry).sort()).toEqual([
+    expect(sortAlphabetically(Object.keys(registry))).toEqual([
       "fictiv",
       "protolabs",
       "sendcutsend",

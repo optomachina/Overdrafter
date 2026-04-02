@@ -1038,18 +1038,24 @@ async function handleVendorQuoteTask(
         ? null
         : nextRetryAt(task.attempts);
     const manualReasonCode = requiresManualVendorFollowUp ? "adapter_not_implemented" : null;
+    let resultStatus: "queued" | "manual_vendor_followup" | "failed" = "failed";
+    if (requiresManualVendorFollowUp) {
+      resultStatus = "manual_vendor_followup";
+    } else if (retryAt) {
+      resultStatus = "queued";
+    }
+    let failureNote = failureMessage;
+    if (requiresManualVendorFollowUp) {
+      failureNote = `${vendor} live automation is not implemented; manual vendor follow-up is required.`;
+    } else if (retryAt) {
+      failureNote = `Transient vendor automation failure. Retry scheduled for ${retryAt}. ${failureMessage}`;
+    }
 
     await supabase
       .from("vendor_quote_results")
       .update({
-        status: requiresManualVendorFollowUp ? "manual_vendor_followup" : retryAt ? "queued" : "failed",
-        notes: [
-          requiresManualVendorFollowUp
-            ? `${vendor} live automation is not implemented; manual vendor follow-up is required.`
-            : retryAt
-            ? `Transient vendor automation failure. Retry scheduled for ${retryAt}. ${failureMessage}`
-            : failureMessage,
-        ],
+        status: resultStatus,
+        notes: [failureNote],
         raw_payload: {
           ...buildFailureRawPayload(
             vendor,
