@@ -10,8 +10,15 @@ const migrationSql = readFileSync(migrationPath, "utf8");
 
 describe("project part property overrides migration", () => {
   it("drops the legacy client part request RPC overload before recreating the threaded signature", () => {
-    expect(migrationSql).toContain("drop function if exists public.api_update_client_part_request(");
-    expect(migrationSql).toContain("p_threads text default null");
+    const dropIdx = migrationSql.indexOf(
+      "drop function if exists public.api_update_client_part_request(",
+    );
+    const recreateWithThreadsIdx = migrationSql.search(
+      /create or replace function public\.api_update_client_part_request\([\s\S]*?p_threads text default null/i,
+    );
+
+    expect(dropIdx).toBeGreaterThanOrEqual(0);
+    expect(recreateWithThreadsIdx).toBeGreaterThan(dropIdx);
   });
 
   it("returns null instead of -infinity for untouched part metadata timestamps", () => {
@@ -21,13 +28,15 @@ describe("project part property overrides migration", () => {
   });
 
   it("uses shared SQL helpers so update and reset stay aligned on seeded defaults", () => {
+    const count = (needle: string) => migrationSql.split(needle).length - 1;
+
     expect(migrationSql).toContain("create or replace function public.seed_project_part_property_defaults(");
     expect(migrationSql).toContain("create or replace function public.resolve_project_part_property_values(");
     expect(migrationSql).toContain("create or replace function public.build_project_part_property_snapshot(");
     expect(migrationSql).toContain("create or replace function public.load_editable_project_part_context(");
-    expect(migrationSql).toContain("public.seed_project_part_property_defaults(");
-    expect(migrationSql).toContain("public.resolve_project_part_property_values(");
-    expect(migrationSql).toContain("public.build_project_part_property_snapshot(");
-    expect(migrationSql).toContain("public.load_editable_project_part_context(");
+    expect(count("public.seed_project_part_property_defaults(")).toBeGreaterThan(1);
+    expect(count("public.resolve_project_part_property_values(")).toBeGreaterThan(1);
+    expect(count("public.build_project_part_property_snapshot(")).toBeGreaterThan(1);
+    expect(count("public.load_editable_project_part_context(")).toBeGreaterThan(1);
   });
 });

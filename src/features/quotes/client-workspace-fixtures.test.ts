@@ -199,7 +199,7 @@ describe("client workspace fixtures", () => {
     expect(propertyState?.updatedAt).toEqual(expect.any(String));
   });
 
-  it("uses effective default-backed values in fixture mode when a nullable override is cleared", async () => {
+  it("preserves explicit null overrides in fixture mode when a nullable field is cleared", async () => {
     const { gateway, input } = await buildQuotedFixtureInput();
 
     await gateway.updateClientPartRequest({
@@ -211,10 +211,10 @@ describe("client workspace fixtures", () => {
     const summaries = await gateway.fetchJobPartSummariesByJobIds([QUOTED_FIXTURE_JOB_ID]);
     const propertyState = updatedWorkspaceItem?.part?.clientRequirement?.projectPartProperties;
 
-    expect(updatedWorkspaceItem?.part?.clientRequirement?.description).toBe(input.description);
-    expect(updatedWorkspaceItem?.part?.approvedRequirement?.description).toBe(input.description);
-    expect(updatedWorkspaceItem?.job.description).toBe(input.description);
-    expect(summaries[0]?.description).toBe(input.description);
+    expect(updatedWorkspaceItem?.part?.clientRequirement?.description).toBeNull();
+    expect(updatedWorkspaceItem?.part?.approvedRequirement?.description).toBeNull();
+    expect(updatedWorkspaceItem?.job.description).toBeNull();
+    expect(summaries[0]?.description).toBeNull();
     expect(propertyState?.overrides).toMatchObject({
       description: null,
     });

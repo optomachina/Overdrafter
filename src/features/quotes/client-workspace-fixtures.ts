@@ -74,6 +74,10 @@ function ensureFixtureClientRequirement(part: PartAggregate | null | undefined):
     approved?.spec_snapshot && typeof approved.spec_snapshot === "object"
       ? (approved.spec_snapshot as Record<string, unknown>)
       : null;
+  const snapshotPropertyState =
+    snapshot?.projectPartProperties && typeof snapshot.projectPartProperties === "object"
+      ? (snapshot.projectPartProperties as ClientPartPropertyState)
+      : null;
   const request = {
     description: approved?.description ?? null,
     partNumber: approved?.part_number ?? null,
@@ -89,7 +93,7 @@ function ensureFixtureClientRequirement(part: PartAggregate | null | undefined):
     quantity: approved?.quantity ?? part.quantity ?? 1,
     quoteQuantities: approved?.quote_quantities ?? [approved?.quantity ?? part.quantity ?? 1],
     requestedByDate: approved?.requested_by_date ?? null,
-    projectPartProperties: null,
+    projectPartProperties: snapshotPropertyState,
   } satisfies ClientPartRequirementView;
 
   part.clientRequirement = request;
@@ -110,10 +114,8 @@ function resolveFixtureProjectPartValue(
     return (state.defaults[field] as string | null | undefined) ?? "";
   }
 
-  const overrideValue = hasOverride ? state.overrides[field] : undefined;
-
-  if (overrideValue !== null && overrideValue !== undefined) {
-    return overrideValue;
+  if (hasOverride) {
+    return state.overrides[field];
   }
 
   return state.defaults[field];
