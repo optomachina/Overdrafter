@@ -1,5 +1,13 @@
-import { useMemo } from "react";
-import { ArrowRight, Loader2, PlusSquare, Search as SearchIcon } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  ArrowRight,
+  Filter as FilterIcon,
+  Loader2,
+  PanelRightClose,
+  PanelRightOpen,
+  PlusSquare,
+  Search as SearchIcon,
+} from "lucide-react";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ProjectMembersDialog } from "@/components/chat/ProjectMembersDialog";
 import { PromptComposer } from "@/components/chat/PromptComposer";
@@ -74,6 +82,7 @@ const ClientProject = () => {
     handleRemoveProjectMember,
     handleRenameProject,
     handleRequestProjectQuotes,
+    handleToggleInspector,
     handleUnarchivePart,
     handleUnpinPart,
     handleUnpinProject,
@@ -123,6 +132,7 @@ const ClientProject = () => {
     focusedJobId,
     focusedWorkspaceItem,
   } = useClientProjectController();
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
   const notificationCenter = useWorkspaceNotifications({
     jobIds: accessibleJobs.map((job) => job.id),
@@ -223,6 +233,11 @@ const ClientProject = () => {
         },
       ),
     [quoteRequestViewModelsByJobId],
+  );
+
+  const activeFilterOption = useMemo(
+    () => clientFilterOptions.find((filter) => filter.id === activeFilter) ?? clientFilterOptions[0],
+    [activeFilter],
   );
 
   const jobSearchTextById = useMemo(
@@ -407,21 +422,56 @@ const ClientProject = () => {
           </div>
 
           <div className="rounded-lg border border-ws-border-subtle bg-ws-card p-4">
-            <div className="flex flex-wrap items-center gap-2">
-              {clientFilterOptions.map((filter) => (
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex flex-1 flex-wrap items-center gap-2">
                 <Button
-                  key={filter.id}
                   type="button"
                   variant="outline"
+                  aria-expanded={isFilterPanelOpen}
+                  aria-pressed={activeFilter !== "all"}
                   className={cn(
                     "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
-                    activeFilter === filter.id && "border-white/20 bg-white/10",
+                    (isFilterPanelOpen || activeFilter !== "all") && "border-white/20 bg-white/10",
                   )}
-                  onClick={() => setActiveFilter(filter.id)}
+                  onClick={() => setIsFilterPanelOpen((current) => !current)}
                 >
-                  {filter.label}
+                  <FilterIcon className="mr-2 h-4 w-4" />
+                  {activeFilter === "all" ? "Filter" : `Filter: ${activeFilterOption.label}`}
                 </Button>
-              ))}
+                {isFilterPanelOpen ? (
+                  clientFilterOptions.map((filter) => (
+                    <Button
+                      key={filter.id}
+                      type="button"
+                      variant="outline"
+                      className={cn(
+                        "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
+                        activeFilter === filter.id && "border-white/20 bg-white/10",
+                      )}
+                      onClick={() => setActiveFilter(filter.id)}
+                    >
+                      {filter.label}
+                    </Button>
+                  ))
+                ) : activeFilter !== "all" ? (
+                  <Badge className="border border-white/10 bg-white/6 text-white/70">
+                    {activeFilterOption.label}
+                  </Badge>
+                ) : null}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                aria-label={isInspectorOpen ? "Hide inspector" : "Show inspector"}
+                className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                onClick={handleToggleInspector}
+              >
+                {isInspectorOpen ? (
+                  <PanelRightClose className="h-4 w-4" />
+                ) : (
+                  <PanelRightOpen className="h-4 w-4" />
+                )}
+              </Button>
             </div>
           </div>
 
