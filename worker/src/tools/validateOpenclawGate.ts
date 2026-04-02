@@ -22,7 +22,13 @@ function parseArgs(argv = process.argv): CliArgs {
       quoteRunId = args[i + 1] ?? null;
       i += 1;
     } else if (arg === "--out") {
-      outPath = args[i + 1] ? path.resolve(args[i + 1]) : null;
+      const outArg = args[i + 1];
+      if (!outArg || outArg.startsWith("-")) {
+        throw new Error(
+          "Usage: npm --prefix worker run validate:openclaw-gate -- --quote-run-id <quote-run-id> [--out <output.json>]",
+        );
+      }
+      outPath = path.resolve(outArg);
       i += 1;
     }
   }

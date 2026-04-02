@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import React from "react";
-import type { PropsWithChildren, ReactElement, ReactNode } from "react";
+import { cloneElement, isValidElement } from "react";
+import type { MouseEvent, PropsWithChildren, ReactElement, ReactNode, SVGProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ClientQuoteComparisonChart } from "./ClientQuoteComparisonChart";
 import { makeClientQuoteOption } from "./test-option-factory";
@@ -16,6 +16,57 @@ vi.mock("@/features/quotes/quote-chart-diagnostics", () => ({
 }));
 
 vi.mock("recharts", () => {
+  type ShapeProps = { cx: number; cy: number; payload: unknown };
+  type ShapeRenderer =
+    | ReactNode
+    | ((props: ShapeProps) => ReactElement<SVGProps<SVGCircleElement>> | null);
+
+  function resolveShapeElement(shape: ShapeRenderer | undefined, shapeProps: ShapeProps) {
+    if (!shape) {
+      return null;
+    }
+
+    let element: ReactElement<SVGProps<SVGCircleElement>> | null = null;
+    if (typeof shape === "function") {
+      element = shape(shapeProps);
+    } else if (isValidElement(shape)) {
+      element = cloneElement(shape, shapeProps);
+    }
+
+    if (!element) {
+      return null;
+    }
+
+    return typeof element.type === "function"
+      ? (element.type as (props: SVGProps<SVGCircleElement>) => ReactElement | null)(element.props)
+      : element;
+  }
+
+  function renderPointButton(
+    point: unknown,
+    index: number,
+    renderedElement: ReactElement<SVGProps<SVGCircleElement>>,
+    onMouseEnter?: (point: { payload: unknown }) => void,
+    onMouseLeave?: () => void,
+  ) {
+    const pointKey = (point as { key?: string }).key ?? `point-${index}`;
+
+    return (
+      <button
+        key={pointKey}
+        type="button"
+        data-testid={`point-${pointKey}`}
+        onClick={() => {
+          renderedElement.props.onClick?.();
+        }}
+        onMouseEnter={() => onMouseEnter?.({ payload: point })}
+        onMouseLeave={() => onMouseLeave?.()}
+      >
+        <svg>{renderedElement}</svg>
+      </button>
+    );
+  }
+
   function ScatterChart({ children }: PropsWithChildren) {
     return <div>{children}</div>;
   }
@@ -28,9 +79,7 @@ vi.mock("recharts", () => {
     name,
   }: {
     data?: unknown[];
-    shape?:
-      | ReactNode
-      | ((props: { cx: number; cy: number; payload: unknown }) => ReactElement<React.SVGProps<SVGCircleElement>> | null);
+    shape?: ShapeRenderer;
     onMouseEnter?: (point: { payload: unknown }) => void;
     onMouseLeave?: () => void;
     name?: string;
@@ -43,43 +92,13 @@ vi.mock("recharts", () => {
             cy: 20 + index * 12,
             payload: point,
           };
-
-          let element: ReactElement<React.SVGProps<SVGCircleElement>> | null = null;
-          if (typeof shape === "function") {
-            element = shape(shapeProps);
-          } else if (React.isValidElement(shape)) {
-            element = React.cloneElement(shape, shapeProps);
-          }
-
-          if (!element) {
-            return null;
-          }
-
-          const renderedElement =
-            typeof element.type === "function"
-              ? (element.type as (props: React.SVGProps<SVGCircleElement>) => ReactElement | null)(element.props)
-              : element;
+          const renderedElement = resolveShapeElement(shape, shapeProps);
 
           if (!renderedElement) {
             return null;
           }
 
-          const pointKey = (point as { key?: string }).key ?? `point-${index}`;
-
-          return (
-            <button
-              key={pointKey}
-              type="button"
-              data-testid={`point-${pointKey}`}
-              onClick={() => {
-                renderedElement.props.onClick?.();
-              }}
-              onMouseEnter={() => onMouseEnter?.({ payload: point })}
-              onMouseLeave={() => onMouseLeave?.()}
-            >
-              <svg>{renderedElement}</svg>
-            </button>
-          );
+          return renderPointButton(point, index, renderedElement, onMouseEnter, onMouseLeave);
         })}
       </div>
     );

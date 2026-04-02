@@ -187,7 +187,7 @@ function VendorScatterShape(props: unknown) {
       strokeWidth={strokeWidth}
       className="cursor-pointer transition-all duration-150"
       onClick={() => {
-        if (payload.option && !payload.disabled) {
+        if (payload.option?.isSelectable) {
           onSelect(payload.option);
         }
       }}
