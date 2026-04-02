@@ -218,7 +218,7 @@ describe("Index client home", () => {
     expect(screen.queryByText("Restoring your workspace.")).not.toBeInTheDocument();
 
     await waitFor(() => {
-      expect(screen.getByText("Start with a part package or open an existing project.")).toBeInTheDocument();
+      expect(screen.getByText("Keep projects moving with the next highest-impact action.")).toBeInTheDocument();
     });
   });
 
