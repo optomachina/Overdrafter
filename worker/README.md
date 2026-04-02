@@ -16,7 +16,8 @@ with `npm`, and do not add alternate lockfiles unless the repo policy changes.
 ## Runtime Modes
 
 - `simulate` (default): produces deterministic extraction and vendor quote data so the full orchestration loop can be exercised without live credentials.
-- `live`: reserved for Playwright-backed vendor automation and model-assisted extraction. The interfaces are in place, but real selectors and login state still need to be filled in.
+- `live`: enables Playwright-backed vendor automation for adapters listed in `WORKER_LIVE_ADAPTERS`.
+  Adapters that are still stubs fail closed and are routed to `manual_vendor_followup` with explicit failure metadata.
 
 ## Environment
 
@@ -28,6 +29,7 @@ Required:
 Optional:
 
 - `WORKER_MODE=simulate|live`
+- `WORKER_LIVE_ADAPTERS=xometry` (comma-separated: `xometry,fictiv,protolabs,sendcutsend`)
 - `WORKER_NAME=quote-worker-1`
 - `WORKER_POLL_INTERVAL_MS=5000`
 - `WORKER_HTTP_HOST=0.0.0.0`
@@ -89,6 +91,7 @@ After that, point the worker at the saved file:
 ```bash
 export XOMETRY_STORAGE_STATE_PATH=/absolute/path/to/xometry-storage-state.json
 export WORKER_MODE=live
+export WORKER_LIVE_ADAPTERS=xometry
 ```
 
 ## Production Build
@@ -184,6 +187,7 @@ Notes:
 - The worker service should stay private. The deploy script uses `--no-allow-unauthenticated`.
 - `XOMETRY_STORAGE_STATE_JSON` is written to a temporary file on startup so Playwright can consume it as a normal `storageState` file.
 - When the Xometry session expires, refresh the local storage-state file and upload it as a new Secret Manager version.
+- If production runs with `WORKER_MODE=simulate`, the worker logs an explicit warning at startup.
 
 ## Notes
 

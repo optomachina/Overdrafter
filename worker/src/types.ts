@@ -16,6 +16,15 @@ export type VendorName =
   | "fastdms"
   | "devzmanufacturing"
   | "infraredlaboratories";
+
+export const LIVE_AUTOMATION_VENDORS = [
+  "xometry",
+  "fictiv",
+  "protolabs",
+  "sendcutsend",
+] as const;
+
+export type LiveAutomationVendorName = (typeof LIVE_AUTOMATION_VENDORS)[number];
 export type VendorStatus =
   | "queued"
   | "running"
@@ -262,7 +271,8 @@ export type VendorAutomationErrorCode =
   | "selector_failure"
   | "upload_failure"
   | "navigation_failure"
-  | "unexpected_ui_state";
+  | "unexpected_ui_state"
+  | "not_implemented";
 
 export class VendorAutomationError extends Error {
   constructor(
@@ -280,6 +290,7 @@ export type WorkerConfig = {
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
   workerMode: "simulate" | "live";
+  workerLiveAdapters: LiveAutomationVendorName[];
   workerName: string;
   pollIntervalMs: number;
   httpHost: string;

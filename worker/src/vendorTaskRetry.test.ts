@@ -45,6 +45,11 @@ describe("vendorTaskRetry", () => {
         new VendorAutomationError("unexpected ui", "unexpected_ui_state"),
       ),
     ).toBe(false);
+    expect(
+      isRetryableVendorTaskError(
+        new VendorAutomationError("not implemented", "not_implemented"),
+      ),
+    ).toBe(false);
   });
 
   it("treats structural task errors as terminal and transport failures as retryable", () => {
@@ -71,6 +76,9 @@ describe("vendorTaskRetry", () => {
     expect(
       failureCodeForError(new VendorAutomationError("captcha", "captcha")),
     ).toBe("captcha");
+    expect(
+      failureCodeForError(new VendorAutomationError("not implemented", "not_implemented")),
+    ).toBe("not_implemented");
     expect(failureCodeForError(new Error("boom"))).toBe("task_failure");
   });
 });

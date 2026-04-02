@@ -2,7 +2,7 @@ import { z } from "zod";
 import path from "node:path";
 import os from "node:os";
 import { parseEnvBooleanLike, parseEnvList } from "./env.js";
-import type { WorkerConfig } from "./types.js";
+import { LIVE_AUTOMATION_VENDORS, type LiveAutomationVendorName, type WorkerConfig } from "./types.js";
 
 const envBoolean = z.preprocess((value) => {
   if (typeof value === "boolean") {
@@ -30,6 +30,7 @@ const schema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   WORKER_MODE: z.enum(["simulate", "live"]).default("simulate"),
+  WORKER_LIVE_ADAPTERS: z.string().optional(),
   WORKER_NAME: z.string().default("quote-worker-1"),
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
   WORKER_HTTP_HOST: z.string().default("0.0.0.0"),
@@ -52,9 +53,35 @@ const schema = z.object({
   DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: envBoolean.optional(),
 });
 
+function parseWorkerLiveAdapters(rawValue: string | undefined): LiveAutomationVendorName[] {
+  const configuredAdapters =
+    rawValue === undefined
+      ? ["xometry"]
+      : [
+          ...new Set(
+            rawValue
+              .split(",")
+              .map((entry) => entry.trim().toLowerCase())
+              .filter(Boolean),
+          ),
+        ];
+
+  const liveAutomationSet = new Set<string>(LIVE_AUTOMATION_VENDORS);
+  const unsupportedAdapters = configuredAdapters.filter((entry) => !liveAutomationSet.has(entry));
+
+  if (unsupportedAdapters.length > 0) {
+    throw new Error(
+      `WORKER_LIVE_ADAPTERS includes unsupported adapters: ${unsupportedAdapters.join(", ")}. Supported values: ${LIVE_AUTOMATION_VENDORS.join(", ")}.`,
+    );
+  }
+
+  return configuredAdapters as LiveAutomationVendorName[];
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   const parsed = schema.parse(env);
   const workerTempDir = path.resolve(parsed.WORKER_TEMP_DIR);
+  const workerLiveAdapters = parseWorkerLiveAdapters(parsed.WORKER_LIVE_ADAPTERS);
   const drawingExtractionDebugAllowedModels = parseEnvList(
     parsed.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS,
     parsed.DRAWING_EXTRACTION_MODEL,
@@ -64,6 +91,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     supabaseUrl: parsed.SUPABASE_URL,
     supabaseServiceRoleKey: parsed.SUPABASE_SERVICE_ROLE_KEY,
     workerMode: parsed.WORKER_MODE,
+    workerLiveAdapters,
     workerName: parsed.WORKER_NAME,
     pollIntervalMs: parsed.WORKER_POLL_INTERVAL_MS,
     httpHost: parsed.WORKER_HTTP_HOST,
