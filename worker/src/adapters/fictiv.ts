@@ -1,8 +1,25 @@
 import { VendorAdapter } from "./base.js";
-import type { VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "../types.js";
+import {
+  VendorAutomationError,
+  type VendorQuoteAdapterInput,
+  type VendorQuoteAdapterOutput,
+} from "../types.js";
 
 export class FictivAdapter extends VendorAdapter {
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
+    if (this.config.workerMode === "live") {
+      throw new VendorAutomationError(
+        "Fictiv live automation is not implemented; manual vendor follow-up is required.",
+        "not_implemented",
+        {
+          vendor: "fictiv",
+          reason: "live_adapter_not_implemented",
+          requiresManualVendorFollowUp: true,
+          requestedQuantity: input.requestedQuantity,
+        },
+      );
+    }
+
     const requiresManualReview =
       Boolean(input.drawingFile) &&
       (input.requirement.tightest_tolerance_inch ?? 0.01) <= 0.002;
@@ -14,10 +31,7 @@ export class FictivAdapter extends VendorAdapter {
         unitPriceUsd: null,
         totalPriceUsd: null,
         leadTimeBusinessDays: null,
-        quoteUrl:
-          this.config.workerMode === "live"
-            ? "https://www.fictiv.com/"
-            : `simulated://fictiv/manual/${input.part.id}`,
+        quoteUrl: `simulated://fictiv/manual/${input.part.id}`,
         dfmIssues: [],
         notes: [
           "Attached drawing and tight tolerance triggered the Fictiv manual-review lane.",
@@ -39,10 +53,7 @@ export class FictivAdapter extends VendorAdapter {
       unitPriceUsd: Math.round((total / Math.max(1, input.requestedQuantity)) * 100) / 100,
       totalPriceUsd: total,
       leadTimeBusinessDays: 7,
-      quoteUrl:
-        this.config.workerMode === "live"
-          ? "https://www.fictiv.com/"
-          : `simulated://fictiv/${input.part.id}`,
+      quoteUrl: `simulated://fictiv/${input.part.id}`,
       dfmIssues: [],
       notes: ["Simulated Fictiv quote generated from the deterministic worker model."],
       artifacts: [],

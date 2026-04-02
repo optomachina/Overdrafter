@@ -72,6 +72,8 @@ describe("runtimeSecrets", () => {
       cookies: [],
       origins: [],
     });
+    const fileStat = await fs.stat(prepared.xometryStorageStatePath!);
+    expect(fileStat.mode & 0o777).toBe(0o600);
   });
 
   it("reports readiness issues for missing and malformed live storage state", async () => {

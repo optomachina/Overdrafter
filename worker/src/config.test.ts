@@ -14,6 +14,7 @@ describe("loadConfig", () => {
 
     expect(config).toMatchObject({
       workerMode: "simulate",
+      workerLiveAdapters: ["xometry"],
       workerName: "quote-worker-1",
       pollIntervalMs: 5000,
       httpHost: "0.0.0.0",
@@ -42,6 +43,7 @@ describe("loadConfig", () => {
       SUPABASE_URL: "https://example.supabase.co",
       SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
       WORKER_MODE: "live",
+      WORKER_LIVE_ADAPTERS: "xometry,fictiv",
       WORKER_NAME: "worker-2",
       WORKER_POLL_INTERVAL_MS: "2500",
       WORKER_HTTP_HOST: "127.0.0.1",
@@ -66,6 +68,7 @@ describe("loadConfig", () => {
 
     expect(config).toMatchObject({
       workerMode: "live",
+      workerLiveAdapters: ["xometry", "fictiv"],
       workerName: "worker-2",
       pollIntervalMs: 2500,
       httpHost: "127.0.0.1",
@@ -106,5 +109,26 @@ describe("loadConfig", () => {
         SUPABASE_SERVICE_ROLE_KEY: "",
       }),
     ).toThrow();
+  });
+
+  it("rejects unsupported WORKER_LIVE_ADAPTERS values", () => {
+    expect(() =>
+      loadConfig({
+        SUPABASE_URL: "https://example.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+        WORKER_LIVE_ADAPTERS: "xometry,unknown_vendor",
+      }),
+    ).toThrow(/WORKER_LIVE_ADAPTERS includes unsupported adapters/);
+  });
+
+  it("allows an explicit empty WORKER_LIVE_ADAPTERS rollout", () => {
+    const config = loadConfig({
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+      WORKER_MODE: "live",
+      WORKER_LIVE_ADAPTERS: "",
+    });
+
+    expect(config.workerLiveAdapters).toEqual([]);
   });
 });
