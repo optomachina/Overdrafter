@@ -319,12 +319,7 @@ export function ClientQuoteComparisonChart({
             key={vendorKey}
             name={vendorKey}
             data={pointsByVendor.get(vendorKey) ?? []}
-            shape={(shapeProps) => (
-              <VendorScatterShape
-                {...shapeProps}
-                onSelect={onSelect}
-              />
-            )}
+            shape={<VendorScatterShape onSelect={onSelect} />}
             onMouseEnter={handleScatterMouseEnter}
             onMouseLeave={() => onHover(null)}
           />

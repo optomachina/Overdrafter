@@ -1,10 +1,73 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { cloneElement, isValidElement } from "react";
-import type { MouseEvent, PropsWithChildren, ReactElement, ReactNode, SVGProps } from "react";
+import type { PropsWithChildren, ReactElement, ReactNode, SVGProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ClientQuoteComparisonChart } from "./ClientQuoteComparisonChart";
 import { makeClientQuoteOption } from "./test-option-factory";
+
+type ShapeProps = {
+  readonly cx: number;
+  readonly cy: number;
+  readonly payload: unknown;
+};
+type ShapeRenderer =
+  | ReactNode
+  | ((props: ShapeProps) => ReactElement<SVGProps<SVGCircleElement>> | null);
+
+function resolveShapeElement(shape: ShapeRenderer | undefined, shapeProps: ShapeProps) {
+  if (!shape) {
+    return null;
+  }
+
+  let element: ReactElement<SVGProps<SVGCircleElement>> | null = null;
+  if (typeof shape === "function") {
+    element = shape(shapeProps);
+  } else if (isValidElement(shape)) {
+    element = cloneElement(shape, shapeProps);
+  }
+
+  if (!element) {
+    return null;
+  }
+
+  return typeof element.type === "function"
+    ? (element.type as (props: SVGProps<SVGCircleElement>) => ReactElement | null)(element.props)
+    : element;
+}
+
+function renderPointButton(
+  point: unknown,
+  index: number,
+  renderedElement: ReactElement<SVGProps<SVGCircleElement>>,
+  onMouseEnter?: (point: { payload: unknown }) => void,
+  onMouseLeave?: () => void,
+) {
+  const pointKey = (point as { key?: string }).key ?? `point-${index}`;
+
+  return (
+    <button
+      key={pointKey}
+      type="button"
+      data-testid={`point-${pointKey}`}
+      onClick={() => {
+        renderedElement.props.onClick?.();
+      }}
+      onMouseEnter={() => onMouseEnter?.({ payload: point })}
+      onMouseLeave={() => onMouseLeave?.()}
+    >
+      <svg>{renderedElement}</svg>
+    </button>
+  );
+}
+
+function MockCartesianGrid() {
+  return null;
+}
+
+function MockLabel() {
+  return null;
+}
 
 vi.mock("@/components/ui/chart", () => ({
   ChartContainer: ({ children }: PropsWithChildren) => <div>{children}</div>,
@@ -16,57 +79,6 @@ vi.mock("@/features/quotes/quote-chart-diagnostics", () => ({
 }));
 
 vi.mock("recharts", () => {
-  type ShapeProps = { cx: number; cy: number; payload: unknown };
-  type ShapeRenderer =
-    | ReactNode
-    | ((props: ShapeProps) => ReactElement<SVGProps<SVGCircleElement>> | null);
-
-  function resolveShapeElement(shape: ShapeRenderer | undefined, shapeProps: ShapeProps) {
-    if (!shape) {
-      return null;
-    }
-
-    let element: ReactElement<SVGProps<SVGCircleElement>> | null = null;
-    if (typeof shape === "function") {
-      element = shape(shapeProps);
-    } else if (isValidElement(shape)) {
-      element = cloneElement(shape, shapeProps);
-    }
-
-    if (!element) {
-      return null;
-    }
-
-    return typeof element.type === "function"
-      ? (element.type as (props: SVGProps<SVGCircleElement>) => ReactElement | null)(element.props)
-      : element;
-  }
-
-  function renderPointButton(
-    point: unknown,
-    index: number,
-    renderedElement: ReactElement<SVGProps<SVGCircleElement>>,
-    onMouseEnter?: (point: { payload: unknown }) => void,
-    onMouseLeave?: () => void,
-  ) {
-    const pointKey = (point as { key?: string }).key ?? `point-${index}`;
-
-    return (
-      <button
-        key={pointKey}
-        type="button"
-        data-testid={`point-${pointKey}`}
-        onClick={() => {
-          renderedElement.props.onClick?.();
-        }}
-        onMouseEnter={() => onMouseEnter?.({ payload: point })}
-        onMouseLeave={() => onMouseLeave?.()}
-      >
-        <svg>{renderedElement}</svg>
-      </button>
-    );
-  }
-
   function ScatterChart({ children }: PropsWithChildren) {
     return <div>{children}</div>;
   }
@@ -77,13 +89,13 @@ vi.mock("recharts", () => {
     onMouseEnter,
     onMouseLeave,
     name,
-  }: {
-    data?: unknown[];
+  }: Readonly<{
+    data?: readonly unknown[];
     shape?: ShapeRenderer;
     onMouseEnter?: (point: { payload: unknown }) => void;
     onMouseLeave?: () => void;
     name?: string;
-  }) {
+  }>) {
     return (
       <div data-testid={`scatter-${name ?? "vendor"}`}>
         {(data ?? []).map((point, index) => {
@@ -125,8 +137,8 @@ vi.mock("recharts", () => {
   }
 
   return {
-    CartesianGrid,
-    Label,
+    CartesianGrid: MockCartesianGrid,
+    Label: MockLabel,
     ReferenceArea,
     Scatter,
     ScatterChart,
