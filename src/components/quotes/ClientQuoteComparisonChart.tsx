@@ -16,13 +16,13 @@ import { formatCurrency } from "@/features/quotes/utils";
 import { getVendorColor, buildVendorChartConfig } from "@/features/quotes/vendor-colors";
 
 type ClientQuoteComparisonChartProps = {
-  options: readonly ClientQuoteSelectionOption[];
-  selectedKey: string | null;
-  hoveredKey: string | null;
-  partId?: string | null;
-  organizationId?: string | null;
-  onSelect: (option: ClientQuoteSelectionOption) => void;
-  onHover: (key: string | null) => void;
+  readonly options: readonly ClientQuoteSelectionOption[];
+  readonly selectedKey: string | null;
+  readonly hoveredKey: string | null;
+  readonly partId?: string | null;
+  readonly organizationId?: string | null;
+  readonly onSelect: (option: ClientQuoteSelectionOption) => void;
+  readonly onHover: (key: string | null) => void;
 };
 
 type ChartPoint = {
@@ -157,10 +157,10 @@ function CustomTooltipContent({ active, payload }: { active?: boolean; payload?:
 }
 
 type VendorScatterShapeProps = {
-  cx?: number;
-  cy?: number;
-  payload?: ChartPoint;
-  onSelect: (option: ClientQuoteSelectionOption) => void;
+  readonly cx?: number;
+  readonly cy?: number;
+  readonly payload?: ChartPoint;
+  readonly onSelect: (option: ClientQuoteSelectionOption) => void;
 };
 
 function VendorScatterShape({ cx, cy, payload, onSelect }: VendorScatterShapeProps) {
