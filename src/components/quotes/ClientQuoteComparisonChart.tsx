@@ -156,13 +156,14 @@ function CustomTooltipContent({ active, payload }: { active?: boolean; payload?:
   );
 }
 
-function VendorScatterShape(props: unknown) {
-  const { cx, cy, payload, onSelect } = props as {
-    cx?: number;
-    cy?: number;
-    payload?: ChartPoint;
-    onSelect: (option: ClientQuoteSelectionOption) => void;
-  };
+type VendorScatterShapeProps = {
+  cx?: number;
+  cy?: number;
+  payload?: ChartPoint;
+  onSelect: (option: ClientQuoteSelectionOption) => void;
+};
+
+function VendorScatterShape({ cx, cy, payload, onSelect }: VendorScatterShapeProps) {
 
   if (!payload || cx === undefined || cy === undefined) {
     return null;

@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { cloneElement, isValidElement } from "react";
-import type { PropsWithChildren, ReactElement, ReactNode, SVGProps } from "react";
+import type { MouseEvent, PropsWithChildren, ReactElement, ReactNode, SVGProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ClientQuoteComparisonChart } from "./ClientQuoteComparisonChart";
 import { makeClientQuoteOption } from "./test-option-factory";
@@ -51,7 +51,7 @@ function renderPointButton(
       type="button"
       data-testid={`point-${pointKey}`}
       onClick={() => {
-        renderedElement.props.onClick?.();
+        renderedElement.props.onClick?.({} as MouseEvent<SVGCircleElement>);
       }}
       onMouseEnter={() => onMouseEnter?.({ payload: point })}
       onMouseLeave={() => onMouseLeave?.()}
@@ -114,14 +114,6 @@ vi.mock("recharts", () => {
         })}
       </div>
     );
-  }
-
-  function CartesianGrid() {
-    return null;
-  }
-
-  function Label() {
-    return null;
   }
 
   function ReferenceArea({ children }: PropsWithChildren) {
