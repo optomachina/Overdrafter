@@ -77,6 +77,14 @@ function readSpecSnapshotString(
   return typeof value === "string" ? value : null;
 }
 
+function readSpecSnapshotNumber(
+  snapshot: Record<string, unknown> | null,
+  key: string,
+) {
+  const value = snapshot?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function quoteStatusBadgeClassName(status: string | null | undefined) {
   if (status === "received") {
     return "border border-emerald-400/20 bg-emerald-500/10 text-emerald-100";
@@ -327,14 +335,16 @@ const ClientProject = () => {
       null;
     const threads =
       readSpecSnapshotString(specSnapshot, "threads") ?? readSpecSnapshotString(specSnapshot, "thread") ?? null;
+    const specSnapshotToleranceLabel = readSpecSnapshotString(specSnapshot, "tightest_tolerance");
+    const rawToleranceValue =
+      clientRequirement?.tightestToleranceInch ??
+      approvedRequirement?.tightest_tolerance_inch ??
+      readSpecSnapshotNumber(specSnapshot, "tightest_tolerance");
+    const formattedTolerance = formatToleranceLabel(rawToleranceValue);
     const tightestTolerance =
-      formatToleranceLabel(
-        clientRequirement?.tightestToleranceInch ?? approvedRequirement?.tightest_tolerance_inch ?? null,
-      ) !== "—"
-        ? formatToleranceLabel(
-            clientRequirement?.tightestToleranceInch ?? approvedRequirement?.tightest_tolerance_inch ?? null,
-          )
-        : formatPropertyValue(readSpecSnapshotString(specSnapshot, "tightest_tolerance"));
+      formattedTolerance !== "—"
+        ? formattedTolerance
+        : formatPropertyValue(specSnapshotToleranceLabel);
 
     return {
       description,
@@ -350,8 +360,22 @@ const ClientProject = () => {
       project: [
         { label: "Project", value: formatPropertyValue(projectQuery.data?.name ?? projectName ?? "Project") },
         { label: "Project parts", value: String(projectJobs.length) },
-        { label: "Quote quantities", value: formatQuoteQuantitiesLabel(summary?.requestedQuoteQuantities) },
-        { label: "Need by", value: formatPropertyValue(summary?.requestedByDate ?? approvedRequirement?.requested_by_date) },
+        {
+          label: "Quote quantities",
+          value: formatQuoteQuantitiesLabel(
+            summary?.requestedQuoteQuantities ??
+              clientRequirement?.quoteQuantities ??
+              approvedRequirement?.quote_quantities,
+          ),
+        },
+        {
+          label: "Need by",
+          value: formatPropertyValue(
+            summary?.requestedByDate ??
+              clientRequirement?.requestedByDate ??
+              approvedRequirement?.requested_by_date,
+          ),
+        },
       ],
       quoteBadge: quoteRequestViewModel
         ? {
