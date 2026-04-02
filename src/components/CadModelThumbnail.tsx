@@ -9,9 +9,16 @@ type PreviewStatus = "loading" | "ready" | "error";
 interface CadModelThumbnailProps {
   source: CadPreviewSource;
   className?: string;
+  fallbackActionLabel?: string;
+  onFallbackAction?: () => void;
 }
 
-export function CadModelThumbnail({ source, className }: CadModelThumbnailProps) {
+export function CadModelThumbnail({
+  source,
+  className,
+  fallbackActionLabel = "Download CAD file",
+  onFallbackAction,
+}: CadModelThumbnailProps) {
   const canvasHostRef = useRef<HTMLDivElement>(null);
   const previewable = useMemo(() => isStepPreviewableFile(source.fileName), [source.fileName]);
   const [status, setStatus] = useState<PreviewStatus>("loading");
@@ -180,8 +187,9 @@ export function CadModelThumbnail({ source, className }: CadModelThumbnailProps)
           return;
         }
 
+        host.replaceChildren();
         setStatus("error");
-        setErrorMessage(error instanceof Error ? error.message : "Preview failed to load.");
+        setErrorMessage(resolveCadPreviewErrorMessage(error));
       }
     })();
 
@@ -228,7 +236,12 @@ export function CadModelThumbnail({ source, className }: CadModelThumbnailProps)
       </div>
 
       {status !== "ready" ? (
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/25 text-center text-white/75">
+        <div
+          className={cn(
+            "absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/25 text-center text-white/75",
+            status === "error" ? "pointer-events-auto" : "pointer-events-none",
+          )}
+        >
           {status === "loading" ? (
             <>
               <div className="rounded-full border border-white/12 bg-black/20 p-3">
@@ -250,6 +263,15 @@ export function CadModelThumbnail({ source, className }: CadModelThumbnailProps)
                   {errorMessage ?? "This STEP file could not be rendered into a thumbnail."}
                 </p>
               </div>
+              {onFallbackAction ? (
+                <button
+                  type="button"
+                  className="rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-white/18 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black/80"
+                  onClick={onFallbackAction}
+                >
+                  {fallbackActionLabel}
+                </button>
+              ) : null}
             </>
           )}
         </div>
@@ -308,4 +330,29 @@ function disposeThreeResource(resource: unknown) {
   if (typeof disposable.dispose === "function") {
     disposable.dispose();
   }
+}
+
+function resolveCadPreviewErrorMessage(error: unknown): string {
+  const fallback = "3D preview is unavailable in this browser. Download the CAD file to continue.";
+
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  const message = error.message.toLowerCase();
+  const webGlFailureHints = [
+    "webgl",
+    "context",
+    "gpu",
+    "offscreen",
+    "canvas",
+    "unsupported",
+    "not available",
+  ];
+
+  if (webGlFailureHints.some((hint) => message.includes(hint))) {
+    return fallback;
+  }
+
+  return error.message;
 }

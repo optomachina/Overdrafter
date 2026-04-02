@@ -330,7 +330,14 @@ export function ClientCadPreviewPanel({
             </p>
           </div>
         ) : previewable && previewSource ? (
-          <CadModelThumbnail source={previewSource} className="h-[320px] w-full" />
+          <CadModelThumbnail
+            source={previewSource}
+            className="h-[320px] w-full"
+            fallbackActionLabel={`Download ${cadFile.original_name}`}
+            onFallbackAction={() => {
+              void downloadStoredFile(cadFile);
+            }}
+          />
         ) : (
           <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
             <div className="rounded-full border border-white/10 bg-white/6 p-3 text-white/70">
