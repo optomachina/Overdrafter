@@ -330,8 +330,8 @@ const ClientProject = () => {
     const material = clientRequirement?.material ?? approvedRequirement?.material ?? null;
     const finish =
       clientRequirement?.finish ??
-      readSpecSnapshotString(specSnapshot, "quoteFinish") ??
       approvedRequirement?.finish ??
+      readSpecSnapshotString(specSnapshot, "quoteFinish") ??
       null;
     const threads =
       readSpecSnapshotString(specSnapshot, "threads") ?? readSpecSnapshotString(specSnapshot, "thread") ?? null;
