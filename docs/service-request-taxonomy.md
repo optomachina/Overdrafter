@@ -1,6 +1,6 @@
 # Service Request Taxonomy
 
-Last updated: March 13, 2026
+Last updated: March 31, 2026
 
 ## Purpose
 
@@ -151,10 +151,24 @@ Use these rules for next-phase implementation work:
 The existing curated quote workflow should continue to function during the transition:
 
 - every current request maps to one implicit `manufacturing_quote` line item
+- the linked `service_request_line_items.status` mirrors the latest `quote_requests.status` for that line item, so project and part rollups can stay line-item-aware without changing the current client request UI
 - current quote summary badges remain valid when the selected work is quote-compatible
 - project-level shared request summaries should only show quote quantities and requested date when every selected line item is compatible with that summary
 
 This allows service expansion without breaking the current client project and client part workflows.
+
+## Bridge migration note
+
+The current bridge is intentionally dual-layered:
+
+- `quote_requests` remains the client-safe request lifecycle record and RPC contract during the transition
+- `service_request_line_items` is the authoritative service-intent unit underneath that flow for `manufacturing_quote`
+- the compatibility layer is the link plus lifecycle-status synchronization between those two records
+
+Migration and rollback note:
+
+- Bridge migrations should preserve existing part and project quote-request reads by continuing to treat `quote_requests` as the UI-facing source during the transition
+- If the line-item lifecycle sync needs to be rolled back, drop the status-sync trigger/helper and continue reading lifecycle state from `quote_requests`; no client-facing request RPC shape should depend on line-item-only status reads yet
 
 ## Transitional implementation note
 

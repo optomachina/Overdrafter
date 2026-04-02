@@ -15,7 +15,7 @@ export function callRpc<Name extends RpcName>(
     ? []
     : [args: Database["public"]["Functions"][Name]["Args"]]
 ): Promise<PostgrestSingleResponse<Database["public"]["Functions"][Name]["Returns"]>> {
-  return untypedSupabase.rpc(fn, args[0]) as unknown as Promise<
+  return untypedSupabase.rpc(fn, args[0] ?? {}) as unknown as Promise<
     PostgrestSingleResponse<Database["public"]["Functions"][Name]["Returns"]>
   >;
 }

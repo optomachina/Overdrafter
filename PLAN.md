@@ -86,7 +86,7 @@ CI runs lint, typecheck, tests, build, and worker verification in parallel jobs 
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 2 | clean | Phase 1 validated complete. 1 critical gap (dead-task reaper — fixed). Phase 2 scope defined. |
 | Codex Review | `/codex review` | Independent 2nd opinion | 2 | issues_found | Prior items 2/3/4 confirmed shipped. failure_reason trust boundary fixed (TODO-009). |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 3 | clean | 9 issues found. Dead-task reaper fixed. Migration timestamp fixed. Canceled state test added. |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 4 | clean | 5 issues found. Track 1 root cause corrected (prefetch gap, not stale times). Track 2 confirmed regression (OVD-124/d6ef44d). 3 critical gaps resolved (accordion auto-expand, window.print() try/catch, null price guard). E2E test moved in-scope. |
 | Design Review | `/plan-design-review` | UI/UX gaps | 1 | clean | DR-001 through DR-006 + DR-001b all shipped. 1 minor deferred item (loading skeleton, TODO-012). |
 
-**VERDICT:** PHASE 1 COMPLETE. Phase 2 foundation started. Next: regenerate Supabase types (TODO-010b), then begin multi-vendor fan-out on top of `service_request_line_items` (TODO-014).
+**VERDICT:** PHASE 1 COMPLETE. Frank-Ready Sprint reviewed and cleared. 4 parallel tracks ready to implement. Key corrections: Track 1 fix is `client-quote-workspace` prefetch in `prefetchProjectPage()`; Track 2 is a confirmed regression from OVD-124; Track 3 accordion must auto-expand on error states; Track 4 needs null price guard and `window.print()` try/catch. E2E test for full demo path is in-scope for this sprint.
