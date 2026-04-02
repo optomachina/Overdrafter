@@ -75,13 +75,6 @@ Implement the ideal multi-agent UX (see PRD.md North Star).
 - DFM heatmap, quote scatter, revision diff visualizations.
 - Protolabs and SendCutSend live automation (TODO-017 — see TODOS.md).
 
-### Phase 2 (following immediate steps)
-
-- Full cross-CAD plugin coverage.
-- PDM versioning and revision-aware agents.
-- Fulfillment coordination agents.
-- Production hardening (observability, rate-limiting, self-healing harness).
-
 All previous Phase 1/2 quote-run items are now considered scaffolding that will be progressively hidden or repurposed under the new UX.
 
 ## Completed milestones
@@ -170,7 +163,7 @@ CI runs lint, typecheck, tests, build, and worker verification in parallel jobs 
 - 12-MONTH IDEAL: Full CAD plugin coverage, NL-first interface, parallel agent swarm, live DFM
 
 **CEO Dual Voices — Consensus:**
-```
+```text
   Dimension                              Claude Subagent  Consensus
   Premises valid?                        PARTIALLY        FLAGGED
   Right problem to solve?                YES w/reorder    CONFIRMED
@@ -255,7 +248,7 @@ Same root cause: the system has multiple paths where "looks like live data" and 
 - [ ] Supabase types regenerated after RPC changes (TypeScript compile passes)
 
 **Eng Dual Voices — Consensus:**
-```
+```text
   Dimension                            Claude Subagent    Consensus
   Architecture sound?                  PARTIALLY (3 gaps)  FLAGGED
   Test coverage sufficient?            NO (36%, 14 gaps)   FLAGGED
