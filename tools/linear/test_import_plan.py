@@ -32,6 +32,19 @@ class FakeLinearCLI:
                     "title": "Horizon 2 — Expand Manufacturing Workspace Capabilities",
                 },
             },
+            "OVD-135": {
+                "id": "issue-ovd-135",
+                "identifier": "OVD-135",
+                "title": "Seed lasercut vendor records and heuristics",
+                "url": "https://linear.example/OVD-135",
+                "state": {"name": "Todo", "type": "unstarted"},
+                "project": {"id": "project-symphony", "name": "Symphony"},
+                "labels": {"nodes": []},
+                "parent": {
+                    "identifier": "OVD-23",
+                    "title": "Horizon 2 — Expand Manufacturing Workspace Capabilities",
+                },
+            },
         }
 
     def label_list(self):
@@ -93,7 +106,11 @@ class ImportPlanTest(unittest.TestCase):
         self.seed["items"] = [
             item
             for item in self.seed["items"]
-            if item["key"] in {"horizon-2-parent", "vendor-capability-profile-model"}
+            if item["key"] in {
+                "horizon-2-parent",
+                "vendor-capability-profile-model",
+                "seed-vendor-records",
+            }
         ]
         self.projects_by_name = {
             "Symphony": {"id": "project-symphony", "name": "Symphony"},
@@ -137,6 +154,41 @@ class ImportPlanTest(unittest.TestCase):
         self.assertIn("### Add vendor capability profile model", report)
         self.assertIn("- Action: `update`", report)
         self.assertIn("- Existing issue: `OVD-134`", report)
+        self.assertIn("- Parent: `OVD-23`", report)
+        self.assertIn("- State: `Todo`", report)
+
+    def test_seed_vendor_records_is_planned_as_update_for_existing_issue(self) -> None:
+        planned, _label_state = plan_items(self.seed, FakeLinearCLI(), self.args, self.projects_by_name)
+
+        entry = next(item for item in planned if item.key == "seed-vendor-records")
+
+        self.assertEqual(entry.action, "update")
+        self.assertEqual(entry.reason, "existing issue OVD-135")
+        self.assertEqual(entry.existing_issue, "OVD-135")
+        self.assertEqual(entry.project, "Symphony")
+        self.assertEqual(entry.parent, "OVD-23")
+        self.assertEqual(entry.state, "Todo")
+        self.assertEqual(
+            entry.labels,
+            ["next", "quotes", "horizon-2", "Feature", "free-tier"],
+        )
+
+    def test_seed_vendor_records_report_uses_update_action_and_parent(self) -> None:
+        planned, _label_state = plan_items(self.seed, FakeLinearCLI(), self.args, self.projects_by_name)
+
+        report = render_report(
+            self.seed,
+            planned,
+            self.projects_by_name,
+            {},
+            live=False,
+            mode="sync",
+            include_sub_backlog=False,
+        )
+
+        self.assertIn("### Seed lasercut vendor records and heuristics", report)
+        self.assertIn("- Action: `update`", report)
+        self.assertIn("- Existing issue: `OVD-135`", report)
         self.assertIn("- Parent: `OVD-23`", report)
         self.assertIn("- State: `Todo`", report)
 
