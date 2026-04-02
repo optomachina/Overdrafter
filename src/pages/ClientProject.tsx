@@ -62,10 +62,12 @@ const ClientProject = () => {
     handleArchivePart,
     handleArchiveProject,
     handleAssignPartToProject,
+    handleClearFocusedJob,
     handleCreateProjectFromSelection,
     handleDeleteArchivedParts,
     handleDissolveProject,
     handleInviteProjectMember,
+    handleOpenJobDrawer,
     handlePinPart,
     handlePinProject,
     handleRemovePartFromProject,
@@ -113,10 +115,13 @@ const ClientProject = () => {
     accessibleJobs,
     accessibleProjects,
     isAuthInitializing,
+    isInspectorOpen,
     workspaceItemsByJobId,
     projectAssigneeLookupReady,
     projectAssigneesByUserId,
     projectJobMembershipsByCompositeKey,
+    focusedJobId,
+    focusedWorkspaceItem,
   } = useClientProjectController();
 
   const notificationCenter = useWorkspaceNotifications({
@@ -420,140 +425,219 @@ const ClientProject = () => {
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-ws-border-subtle bg-ws-card">
-            {projectJobsQuery.isLoading || projectWorkspaceItemsQuery.isLoading ? (
-              <div className="flex min-h-[240px] items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-white/60" />
-              </div>
-            ) : filteredJobs.length === 0 ? (
-              <div className="px-6 py-12 text-center text-white/45">No parts match the current project filter.</div>
-            ) : (
-              <Table className="w-full min-w-[640px] text-white">
-                <TableHeader>
-                  <TableRow className="border-white/10 hover:bg-transparent">
-                    <TableHead className="h-10 px-5 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
-                      Part Number
-                    </TableHead>
-                    <TableHead className="h-10 px-4 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
-                      Description
-                    </TableHead>
-                    <TableHead className="h-10 px-2 py-2 text-center text-[11px] uppercase tracking-[0.18em] text-white/45">
-                      CAD
-                    </TableHead>
-                    <TableHead className="h-10 px-2 py-2 text-center text-[11px] uppercase tracking-[0.18em] text-white/45">
-                      DWG
-                    </TableHead>
-                    <TableHead className="h-10 px-2 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
-                      Quote
-                    </TableHead>
-                    <TableHead className="h-10 px-2 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
-                      Assignee
-                    </TableHead>
-                    <TableHead className="h-10 py-2 pl-2 pr-5 text-right text-[11px] uppercase tracking-[0.18em] text-white/45">
-                      Creation Date
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredJobs.map((job) => {
-                    const workspaceItem = workspaceItemsByJobId.get(job.id) ?? null;
-                    const summary = workspaceItem?.summary ?? summariesByJobId.get(job.id) ?? null;
-                    const presentation = getClientItemPresentation(job, summary);
-                    const quoteRequestViewModel = quoteRequestViewModelsByJobId.get(job.id) ?? null;
-                    const quoteStatusLabel = quoteRequestViewModel?.label ?? formatStatusLabel(job.status);
-                    const quoteStatusClassName =
-                      quoteRequestViewModel?.status === "received"
-                        ? "border border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
-                        : quoteRequestViewModel?.status === "queued" || quoteRequestViewModel?.status === "requesting"
-                          ? "border border-amber-400/20 bg-amber-500/10 text-amber-100"
-                          : quoteRequestViewModel?.status === "failed" || quoteRequestViewModel?.status === "canceled"
-                            ? "border border-rose-400/20 bg-rose-500/10 text-rose-100"
-                            : "border border-white/10 bg-white/6 text-white/70";
-                    const partNumber =
-                      workspaceItem?.part?.approvedRequirement?.part_number ?? presentation.partNumber ?? "—";
-                    const description =
-                      workspaceItem?.part?.approvedRequirement?.description ??
-                      presentation.description ??
-                      presentation.title;
-                    const assigneeBadge = projectAssigneeBadgesByJobId.get(job.id) ?? null;
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+            <div className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-ws-border-subtle bg-ws-card">
+              {projectJobsQuery.isLoading || projectWorkspaceItemsQuery.isLoading ? (
+                <div className="flex min-h-[240px] items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-white/60" />
+                </div>
+              ) : filteredJobs.length === 0 ? (
+                <div className="px-6 py-12 text-center text-white/45">No parts match the current project filter.</div>
+              ) : (
+                <Table className="w-full min-w-[640px] text-white">
+                  <TableHeader>
+                    <TableRow className="border-white/10 hover:bg-transparent">
+                      <TableHead className="h-10 px-5 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+                        Part Number
+                      </TableHead>
+                      <TableHead className="h-10 px-4 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+                        Description
+                      </TableHead>
+                      <TableHead className="h-10 px-2 py-2 text-center text-[11px] uppercase tracking-[0.18em] text-white/45">
+                        CAD
+                      </TableHead>
+                      <TableHead className="h-10 px-2 py-2 text-center text-[11px] uppercase tracking-[0.18em] text-white/45">
+                        DWG
+                      </TableHead>
+                      <TableHead className="h-10 px-2 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+                        Quote
+                      </TableHead>
+                      <TableHead className="h-10 px-2 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+                        Assignee
+                      </TableHead>
+                      <TableHead className="h-10 py-2 pl-2 pr-5 text-right text-[11px] uppercase tracking-[0.18em] text-white/45">
+                        Creation Date
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredJobs.map((job) => {
+                      const workspaceItem = workspaceItemsByJobId.get(job.id) ?? null;
+                      const summary = workspaceItem?.summary ?? summariesByJobId.get(job.id) ?? null;
+                      const presentation = getClientItemPresentation(job, summary);
+                      const quoteRequestViewModel = quoteRequestViewModelsByJobId.get(job.id) ?? null;
+                      const quoteStatusLabel = quoteRequestViewModel?.label ?? formatStatusLabel(job.status);
+                      const quoteStatusClassName =
+                        quoteRequestViewModel?.status === "received"
+                          ? "border border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
+                          : quoteRequestViewModel?.status === "queued" || quoteRequestViewModel?.status === "requesting"
+                            ? "border border-amber-400/20 bg-amber-500/10 text-amber-100"
+                            : quoteRequestViewModel?.status === "failed" || quoteRequestViewModel?.status === "canceled"
+                              ? "border border-rose-400/20 bg-rose-500/10 text-rose-100"
+                              : "border border-white/10 bg-white/6 text-white/70";
+                      const partNumber =
+                        workspaceItem?.part?.approvedRequirement?.part_number ?? presentation.partNumber ?? "—";
+                      const description =
+                        workspaceItem?.part?.approvedRequirement?.description ??
+                        presentation.description ??
+                        presentation.title;
+                      const assigneeBadge = projectAssigneeBadgesByJobId.get(job.id) ?? null;
+                      const isSelected = focusedJobId === job.id;
 
-                    return (
-                      <TableRow key={job.id} className="border-white/[0.04] hover:bg-white/[0.02]">
-                        <TableCell className="w-[18%] max-w-[220px] px-5 py-2.5">
-                          <p className="truncate text-[13px] font-medium text-white">{partNumber}</p>
-                        </TableCell>
-                        <TableCell className="max-w-[420px] px-4 py-2.5">
-                          <p className="truncate text-[13px] text-white/65">{description}</p>
-                        </TableCell>
-                        <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-center">
-                          <Badge
-                            className={
-                              workspaceItem?.part?.cadFile
-                                ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300"
-                                : "border border-white/10 bg-white/6 text-white/30"
-                            }
-                          >
-                            {workspaceItem?.part?.cadFile ? "Yes" : "No"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-center">
-                          <Badge
-                            className={
-                              workspaceItem?.part?.drawingFile
-                                ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300"
-                                : "border border-white/10 bg-white/6 text-white/30"
-                            }
-                          >
-                            {workspaceItem?.part?.drawingFile ? "Yes" : "No"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
-                          <Badge className={quoteStatusClassName}>{quoteStatusLabel}</Badge>
-                        </TableCell>
-                        <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
-                          {assigneeBadge ? (
-                            assigneeBadge.isUnassigned ? (
-                              <div className="flex items-center gap-2 text-[13px] text-white/45">
-                                <span
-                                  aria-hidden="true"
-                                  className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-white/10 bg-white/[0.03] text-[11px] font-semibold text-white/35"
-                                >
-                                  —
-                                </span>
-                                <span>Unassigned</span>
-                              </div>
-                            ) : (
-                              <div className="flex justify-center">
-                                <span
-                                  className={cn(
-                                    "inline-flex h-7 w-7 items-center justify-center rounded-full border text-[11px] font-semibold uppercase tracking-[0.08em] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
-                                    assigneeBadge.colorClassName,
-                                  )}
-                                  title={assigneeBadge.displayName}
-                                  aria-label={`${assigneeBadge.displayName} assignee`}
-                                >
-                                  {assigneeBadge.initials ?? "?"}
-                                </span>
-                              </div>
-                            )
-                          ) : (
-                            <span
-                              aria-hidden="true"
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-white/10 bg-white/[0.03] text-[11px] font-semibold text-white/35"
-                            >
-                              —
-                            </span>
+                      return (
+                        <TableRow
+                          key={job.id}
+                          aria-selected={isSelected}
+                          data-state={isSelected ? "selected" : "idle"}
+                          className={cn(
+                            "cursor-pointer border-white/[0.04] transition-colors",
+                            isSelected
+                              ? "bg-white/[0.08] shadow-[inset_3px_0_0_rgba(255,255,255,0.92)] hover:bg-white/[0.09]"
+                              : "hover:bg-white/[0.02]",
                           )}
-                        </TableCell>
-                        <TableCell className="w-px whitespace-nowrap py-2.5 pl-2 pr-5 text-right text-[13px] text-white/55">
-                          {formatDateLabel(job.created_at)}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            )}
+                          onClick={() => handleOpenJobDrawer(job.id)}
+                        >
+                          <TableCell className="w-[18%] max-w-[220px] px-5 py-2.5">
+                            <p className="truncate text-[13px] font-medium text-white">{partNumber}</p>
+                          </TableCell>
+                          <TableCell className="max-w-[420px] px-4 py-2.5">
+                            <p className="truncate text-[13px] text-white/65">{description}</p>
+                          </TableCell>
+                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-center">
+                            <Badge
+                              className={
+                                workspaceItem?.part?.cadFile
+                                  ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300"
+                                  : "border border-white/10 bg-white/6 text-white/30"
+                              }
+                            >
+                              {workspaceItem?.part?.cadFile ? "Yes" : "No"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-center">
+                            <Badge
+                              className={
+                                workspaceItem?.part?.drawingFile
+                                  ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300"
+                                  : "border border-white/10 bg-white/6 text-white/30"
+                              }
+                            >
+                              {workspaceItem?.part?.drawingFile ? "Yes" : "No"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
+                            <Badge className={quoteStatusClassName}>{quoteStatusLabel}</Badge>
+                          </TableCell>
+                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
+                            {assigneeBadge ? (
+                              assigneeBadge.isUnassigned ? (
+                                <div className="flex items-center gap-2 text-[13px] text-white/45">
+                                  <span
+                                    aria-hidden="true"
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-white/10 bg-white/[0.03] text-[11px] font-semibold text-white/35"
+                                  >
+                                    —
+                                  </span>
+                                  <span>Unassigned</span>
+                                </div>
+                              ) : (
+                                <div className="flex justify-center">
+                                  <span
+                                    className={cn(
+                                      "inline-flex h-7 w-7 items-center justify-center rounded-full border text-[11px] font-semibold uppercase tracking-[0.08em] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
+                                      assigneeBadge.colorClassName,
+                                    )}
+                                    title={assigneeBadge.displayName}
+                                    aria-label={`${assigneeBadge.displayName} assignee`}
+                                  >
+                                    {assigneeBadge.initials ?? "?"}
+                                  </span>
+                                </div>
+                              )
+                            ) : (
+                              <span
+                                aria-hidden="true"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-white/10 bg-white/[0.03] text-[11px] font-semibold text-white/35"
+                              >
+                                —
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="w-px whitespace-nowrap py-2.5 pl-2 pr-5 text-right text-[13px] text-white/55">
+                            {formatDateLabel(job.created_at)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+
+            {isInspectorOpen ? (
+              <aside
+                aria-label="Project inspector"
+                className="w-full shrink-0 rounded-lg border border-ws-border-subtle bg-ws-card p-4 xl:sticky xl:top-4 xl:w-[320px]"
+              >
+                <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
+                  <div className="space-y-1">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Inspector</p>
+                    {focusedJobId && focusedWorkspaceItem ? (
+                      <>
+                        <h2 className="text-lg font-semibold tracking-[-0.02em] text-white">
+                          {focusedWorkspaceItem.part?.approvedRequirement?.part_number ??
+                            focusedWorkspaceItem.summary?.partNumber ??
+                            focusedWorkspaceItem.part?.name ??
+                            focusedWorkspaceItem.job.title}
+                        </h2>
+                        <p className="text-sm text-white/55">
+                          {focusedWorkspaceItem.part?.approvedRequirement?.description ??
+                            focusedWorkspaceItem.summary?.description ??
+                            focusedWorkspaceItem.part?.name ??
+                            "Inspector shell only until OVD-81c wires real content."}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <h2 className="text-lg font-semibold tracking-[-0.02em] text-white">No part selected</h2>
+                        <p className="text-sm text-white/55">
+                          Select a row in the ledger to inspect that part without leaving the project workspace.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                  {focusedJobId ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-8 rounded-full px-3 text-white/65 hover:bg-white/6 hover:text-white"
+                      onClick={handleClearFocusedJob}
+                    >
+                      Clear
+                    </Button>
+                  ) : null}
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  {["Properties", "Project"].map((sectionTitle) => (
+                    <details
+                      key={sectionTitle}
+                      open
+                      className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]"
+                    >
+                      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-white marker:content-none">
+                        {sectionTitle}
+                      </summary>
+                      <div className="border-t border-white/10 px-4 py-3 text-sm text-white/55">
+                        {focusedJobId
+                          ? `${sectionTitle} content will be wired in OVD-81c.`
+                          : `${sectionTitle} details appear here after you select a part.`}
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              </aside>
+            ) : null}
           </div>
         </div>
       </ClientWorkspaceShell>

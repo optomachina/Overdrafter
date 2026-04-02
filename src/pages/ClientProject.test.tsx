@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -556,8 +556,13 @@ describe("ClientProject", () => {
     });
 
     expect(screen.getByText("Review every part in this project from a single dense ledger view.")).toBeInTheDocument();
-    expect(screen.queryByText("Project inspector")).not.toBeInTheDocument();
-    expect(screen.queryByText("Line item detail")).not.toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Project inspector" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "No part selected" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Select a row in the ledger to inspect that part without leaving the project workspace."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Properties")).toBeInTheDocument();
+    expect(screen.getByText("Project")).toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Part Number" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Description" })).toBeInTheDocument();
@@ -570,6 +575,45 @@ describe("ClientProject", () => {
     expect(screen.getByText("Bracket")).toBeInTheDocument();
     expect(screen.getByText("No")).toBeInTheDocument();
     expect(screen.getAllByText("BW").length).toBeGreaterThan(0);
+  });
+
+  it("selects a row and updates the docked inspector without navigating away", async () => {
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("BRKT-001")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("BRKT-001"));
+
+    const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+    const selectedRow = screen.getAllByText("BRKT-001")[0]?.closest("tr");
+    expect(selectedRow).toHaveAttribute("aria-selected", "true");
+    expect(within(inspector).getByRole("heading", { name: "BRKT-001" })).toBeInTheDocument();
+    expect(within(inspector).getByText("Bracket")).toBeInTheDocument();
+    expect(within(inspector).getByText("Properties content will be wired in OVD-81c.")).toBeInTheDocument();
+    expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-1");
+  });
+
+  it("clears the selected row on Escape and returns the inspector to the default state", async () => {
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("BRKT-001")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("BRKT-001"));
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "No part selected" })).toBeInTheDocument();
+    });
+
+    const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+    const selectedRow = screen.getAllByText("BRKT-001")[0]?.closest("tr");
+    expect(selectedRow).toHaveAttribute("aria-selected", "false");
+    expect(within(inspector).queryByRole("heading", { name: "BRKT-001" })).not.toBeInTheDocument();
+    expect(within(inspector).getByText("Properties details appear here after you select a part.")).toBeInTheDocument();
   });
 
   it("passes collaboration-disabled project prefetch through to the sidebar callback", async () => {
