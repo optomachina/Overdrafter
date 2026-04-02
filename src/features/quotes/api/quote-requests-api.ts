@@ -10,7 +10,7 @@ import type {
 import type { VendorQuoteResultRecord } from "@/features/quotes/types";
 import type { PostgrestSingleResponse } from "@supabase/supabase-js";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
-import { callRpc, insertUntyped, untypedSupabase } from "./shared/rpc";
+import { callRpc, callUntypedRpc, insertUntyped, untypedSupabase } from "./shared/rpc";
 import { ensureData } from "./shared/response";
 
 export async function setJobSelectedVendorQuoteOffer(jobId: string, offerId: string | null): Promise<string> {
@@ -93,6 +93,23 @@ export async function enqueueDebugVendorQuote(input: {
   vendor: VendorName;
   requestedQuantity: number;
 }): Promise<string> {
+  const { data, error } = await callUntypedRpc("api_enqueue_debug_vendor_quote", {
+    p_quote_run_id: input.quoteRunId,
+    p_part_id: input.partId,
+    p_vendor: input.vendor,
+    p_requested_quantity: input.requestedQuantity,
+  });
+
+  if (!error && data) {
+    const result = ensureData(data, error) as { taskId: string; created: boolean; reason: string | null };
+
+    if (!result.created && result.reason) {
+      throw new Error(result.reason);
+    }
+
+    return result.taskId;
+  }
+
   const { data: quoteResultData, error: quoteResultError } = await untypedSupabase
     .from("vendor_quote_results")
     .select("id, organization_id, status")

@@ -124,7 +124,7 @@ export async function fetchAppSessionData(): Promise<AppSessionData> {
 
   const [membershipResult, platformAdminResult] = await Promise.all([
     membershipQuery as unknown as Promise<PostgrestResponse<MembershipJoinRow>>,
-    callRpc("api_get_is_platform_admin", {}),
+    callRpc("api_get_is_platform_admin"),
   ]);
   const { data, error } = membershipResult;
   const isPlatformAdmin = platformAdminResult.data === true;
