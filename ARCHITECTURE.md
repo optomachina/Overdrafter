@@ -85,6 +85,7 @@ Internal review implementation boundary:
 - collaborator invitation and access
 - project-scoped visibility boundaries
 - project-level navigation that does not treat assemblies as the umbrella container
+- current project-ledger assignee bubbles derive from `project_jobs.created_by` joined to auth user profile metadata; this is the minimum safe source of truth until a dedicated part-assignee relation exists because each ledger row is still a project-job row owned by its creator
 
 ### 9. Multi-agent orchestration & CAD-native layer (new)
 

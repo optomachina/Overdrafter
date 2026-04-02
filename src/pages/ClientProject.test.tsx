@@ -748,6 +748,13 @@ describe("ClientProject", () => {
     expect(screen.getByText("Unassigned")).toBeInTheDocument();
   });
 
+  it("renders real assignee initials for project rows", async () => {
+    renderWithClient("/projects/project-1");
+
+    expect(await screen.findByLabelText("Blaine Wilson assignee")).toBeInTheDocument();
+    expect(screen.getByText("BW")).toBeInTheDocument();
+  });
+
   it("renders empty assignee cells while assignee lookups are pending", async () => {
     const assigneeProfiles = createDeferredPromise<
       Array<{
