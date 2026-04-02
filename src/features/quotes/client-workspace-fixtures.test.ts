@@ -179,6 +179,37 @@ describe("client workspace fixtures", () => {
     expect(propertyState?.updatedAt).toEqual(expect.any(String));
   });
 
+  it("seeds resettable defaults on legacy fixture rows before applying a reset", async () => {
+    window.history.replaceState({}, "", "/projects/fx-project-quoted?fixture=client-quoted");
+
+    const gateway = getActiveClientWorkspaceGateway();
+    expect(gateway).not.toBeNull();
+
+    const [workspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
+    const effectiveDescription = workspaceItem?.part?.approvedRequirement?.description;
+
+    await gateway!.resetClientPartPropertyOverrides({
+      jobId: "fx-job-quoted-a",
+      fields: ["description"],
+    });
+
+    const [updatedWorkspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds(["fx-job-quoted-a"]);
+    const propertyState = updatedWorkspaceItem?.part?.clientRequirement?.projectPartProperties;
+
+    expect(updatedWorkspaceItem?.part?.clientRequirement?.description).toBe(effectiveDescription);
+    expect(updatedWorkspaceItem?.part?.approvedRequirement?.spec_snapshot).toMatchObject({
+      description: effectiveDescription,
+    });
+    expect(propertyState).toMatchObject({
+      defaults: expect.objectContaining({
+        description: effectiveDescription,
+      }),
+      overrides: {},
+      createdAt: null,
+    });
+    expect(propertyState?.updatedAt).toEqual(expect.any(String));
+  });
+
   it("uses effective default-backed values in fixture mode when a nullable override is cleared", async () => {
     window.history.replaceState({}, "", "/projects/fx-project-quoted?fixture=client-quoted");
 

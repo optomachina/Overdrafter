@@ -19,4 +19,11 @@ describe("project part property overrides migration", () => {
     expect(migrationSql).toContain("nullif(");
     expect(migrationSql).toContain("'-infinity'::timestamptz");
   });
+
+  it("uses shared SQL helpers so update and reset stay aligned on seeded defaults", () => {
+    expect(migrationSql).toContain("create or replace function public.seed_project_part_property_defaults(");
+    expect(migrationSql).toContain("create or replace function public.resolve_project_part_property_values(");
+    expect(migrationSql).toContain("public.seed_project_part_property_defaults(");
+    expect(migrationSql).toContain("public.resolve_project_part_property_values(");
+  });
 });
