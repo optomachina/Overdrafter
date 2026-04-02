@@ -102,6 +102,7 @@ export type DrawingExtractionData = {
   description: string | null;
   partNumber: string | null;
   revision: string | null;
+  threads?: string[];
   workerBuildVersion?: string | null;
   extractorVersion?: string | null;
   quoteDescription?: string | null;
@@ -219,12 +220,14 @@ export type ClientPartRequirementView = {
   material: string;
   finish: string | null;
   quoteFinish?: string | null;
+  threads?: string | null;
   tightestToleranceInch: number | null;
   process: string | null;
   notes: string | null;
   quantity: number;
   quoteQuantities: number[];
   requestedByDate: string | null;
+  projectPartProperties?: ClientPartPropertyState | null;
 };
 
 export type ClientPartMetadataRecord = {
@@ -313,6 +316,7 @@ export type RfqLineItemRequestFields = {
   revision: string | null;
   material: string;
   finish: string | null;
+  threads?: string | null;
   tightestToleranceInch: number | null;
   process?: string | null;
   notes?: string | null;
@@ -368,6 +372,7 @@ export const CLIENT_PART_REQUEST_MVP_FIELDS = [
   "revision",
   "material",
   "finish",
+  "threads",
   "tightestToleranceInch",
   "process",
   "notes",
@@ -617,6 +622,8 @@ export type QuoteDataStatus = "available" | "schema_unavailable" | "invalid_for_
 
 export type QuoteRunAggregate = QuoteRunRecord & {
   vendorQuotes: VendorQuoteAggregate[];
+  quoteRequest?: QuoteRequestRecord | null;
+  serviceRequestLineItem?: ServiceRequestLineItemRecord | null;
 };
 
 export type PublishedPackageAggregate = PublishedQuotePackageRecord & {
@@ -629,6 +636,8 @@ export type JobAggregate = {
   files: JobFileRecord[];
   parts: PartAggregate[];
   quoteRuns: QuoteRunAggregate[];
+  quoteRequests?: QuoteRequestRecord[];
+  serviceRequestLineItems?: ServiceRequestLineItemRecord[];
   packages: PublishedPackageAggregate[];
   pricingPolicy: PricingPolicyRecord | null;
   workQueue: WorkQueueRecord[];
@@ -754,6 +763,7 @@ export type PartDetailAggregate = {
   drawingPreview: DrawingPreviewData;
   latestQuoteRequest: QuoteRequestRecord | null;
   latestQuoteRun: QuoteRunRecord | null;
+  serviceRequestLineItem?: ServiceRequestLineItemRecord | null;
   revisionSiblings: Array<{
     jobId: string;
     revision: string | null;
@@ -765,6 +775,25 @@ export type ClientPartRequestUpdateInput = {
   jobId: string;
 } & ClientPartRequestEditableFields &
   RfqLineItemExtendedMetadata;
+
+export const CLIENT_PART_PROPERTY_OVERRIDE_FIELDS = [
+  "description",
+  "partNumber",
+  "material",
+  "finish",
+  "tightestToleranceInch",
+  "threads",
+] as const;
+
+export type ClientPartPropertyOverrideField =
+  (typeof CLIENT_PART_PROPERTY_OVERRIDE_FIELDS)[number];
+
+export type ClientPartPropertyState = {
+  defaults: Partial<Record<ClientPartPropertyOverrideField, string | number | null>>;
+  overrides: Partial<Record<ClientPartPropertyOverrideField, string | number | null>>;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
 
 export type ClientQuoteWorkspaceItem = {
   job: JobRecord;
@@ -778,6 +807,7 @@ export type ClientQuoteWorkspaceItem = {
   drawingPreview: DrawingPreviewData;
   latestQuoteRequest: QuoteRequestRecord | null;
   latestQuoteRun: QuoteRunRecord | null;
+  serviceRequestLineItem?: ServiceRequestLineItemRecord | null;
 };
 
 export type ArchivedJobSummary = {

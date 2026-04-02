@@ -8,6 +8,12 @@ const migrationPath = path.join(
 );
 const migrationSql = readFileSync(migrationPath, "utf8");
 const normalizedSql = migrationSql.toLowerCase();
+const workspaceMigrationPath = path.join(
+  process.cwd(),
+  "supabase/migrations/20260403103000_harden_client_quote_workspace_lineage.sql",
+);
+const workspaceMigrationSql = readFileSync(workspaceMigrationPath, "utf8");
+const normalizedWorkspaceSql = workspaceMigrationSql.toLowerCase();
 
 describe("multi-vendor request quote migration", () => {
   it("adds org vendor config persistence with the default enabled-vendor fallback helper", () => {
@@ -41,5 +47,26 @@ describe("multi-vendor request quote migration", () => {
     expect(normalizedSql).toContain("insert into public.vendor_quote_results");
     expect(normalizedSql).toContain("insert into public.work_queue");
     expect(migrationSql).toContain("'serviceRequestLineItemId', v_service_request_line_item_id");
+  });
+
+  it("hardens client quote workspace lineage and preserves legacy-compatible fallbacks", () => {
+    expect(normalizedWorkspaceSql).toContain(
+      "create or replace function public.api_list_client_quote_workspace",
+    );
+    expect(normalizedWorkspaceSql).toContain(
+      "left join public.quote_requests request_row on request_row.id = run.quote_request_id",
+    );
+    expect(normalizedWorkspaceSql).toContain("request_row.status is distinct from 'canceled'");
+    expect(normalizedWorkspaceSql).toContain("manufacturing_quote_line_items");
+    expect(normalizedWorkspaceSql).toContain("line_item.service_type = 'manufacturing_quote'");
+    expect(normalizedWorkspaceSql).toContain("line_item.scope = 'part'");
+    expect(normalizedWorkspaceSql).toContain(
+      "request_service_request_line_item_id = run.canonical_service_request_line_item_id",
+    );
+    expect(normalizedWorkspaceSql).toContain("run.quote_request_id is null");
+    expect(normalizedWorkspaceSql).toContain("run.request_service_request_line_item_id is null");
+    expect(normalizedWorkspaceSql).toContain(
+      "comment on function public.build_manufacturing_quote_service_detail(uuid)",
+    );
   });
 });
