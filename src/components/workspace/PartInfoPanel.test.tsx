@@ -71,4 +71,22 @@ describe("PartInfoPanel", () => {
     expectRowValue("Part Number", "—");
     expectRowValue("Description", "—");
   });
+
+  it("shows the draft thread override before extraction-derived thread callouts", () => {
+    renderPartInfoPanel({
+      extraction: {
+        material: { normalized: null, raw: null },
+        finish: { normalized: null, raw: null },
+        tightestTolerance: { valueInch: null },
+        threads: ["M6x1"],
+      } as ComponentProps<typeof PartInfoPanel>["extraction"],
+      effectiveRequestDraft: {
+        partNumber: "BRKT-1",
+        threads: "1/4-20 UNC-2B",
+        requestedQuoteQuantities: [],
+      } as ComponentProps<typeof PartInfoPanel>["effectiveRequestDraft"],
+    });
+
+    expectRowValue("Thread", "1/4-20 UNC-2B");
+  });
 });

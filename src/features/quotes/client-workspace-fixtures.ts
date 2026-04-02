@@ -128,6 +128,10 @@ export type ClientWorkspaceGateway = {
   deleteArchivedJobs: (jobIds: string[]) => Promise<ArchivedJobDeleteResult>;
   setJobSelectedVendorQuoteOffer: (jobId: string, offerId: string | null) => Promise<string>;
   updateClientPartRequest: (input: ClientPartRequestUpdateInput) => Promise<string>;
+  resetClientPartPropertyOverrides?: (input: {
+    jobId: string;
+    fields: Array<"description" | "partNumber" | "material" | "finish" | "tightestToleranceInch" | "threads">;
+  }) => Promise<string>;
 };
 
 type FixtureState = {
@@ -1825,6 +1829,27 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       const metadata = sanitizeClientVisibleRfqLineItemExtendedMetadata(
         normalizeRfqLineItemExtendedMetadata(input),
       );
+      const timestamp = new Date().toISOString();
+      const previousPropertyState =
+        workspaceItem.part?.clientRequirement?.projectPartProperties ??
+        partDetail.part?.clientRequirement?.projectPartProperties ??
+        null;
+      const nextPropertyState = {
+        defaults: {
+          ...(previousPropertyState?.defaults ?? {}),
+        },
+        overrides: {
+          ...(previousPropertyState?.overrides ?? {}),
+          description: input.description ?? null,
+          partNumber: input.partNumber ?? null,
+          material: input.material,
+          finish: input.finish ?? null,
+          tightestToleranceInch: input.tightestToleranceInch ?? null,
+          threads: input.threads ?? null,
+        },
+        createdAt: previousPropertyState?.createdAt ?? timestamp,
+        updatedAt: timestamp,
+      };
 
       summary.description = input.description;
       summary.partNumber = input.partNumber;
@@ -1841,12 +1866,33 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       workspaceItem.job.requested_quote_quantities = [...input.requestedQuoteQuantities];
       workspaceItem.job.requested_by_date = input.requestedByDate;
       workspaceItem.job.description = input.description;
+      workspaceItem.job.updated_at = timestamp;
       partDetail.job.requested_service_kinds = [...input.requestedServiceKinds];
       partDetail.job.primary_service_kind = input.primaryServiceKind;
       partDetail.job.service_notes = input.serviceNotes;
       partDetail.job.requested_quote_quantities = [...input.requestedQuoteQuantities];
       partDetail.job.requested_by_date = input.requestedByDate;
       partDetail.job.description = input.description;
+      partDetail.job.updated_at = timestamp;
+
+      if (workspaceItem.part?.clientRequirement) {
+        workspaceItem.part.clientRequirement = {
+          ...workspaceItem.part.clientRequirement,
+          description: input.description ?? null,
+          partNumber: input.partNumber ?? null,
+          revision: input.revision ?? null,
+          material: input.material,
+          finish: input.finish ?? null,
+          threads: input.threads ?? null,
+          tightestToleranceInch: input.tightestToleranceInch ?? null,
+          process: input.process ?? null,
+          notes: input.notes ?? null,
+          quantity: input.quantity,
+          quoteQuantities: [...input.requestedQuoteQuantities],
+          requestedByDate: input.requestedByDate ?? null,
+          projectPartProperties: nextPropertyState,
+        };
+      }
 
       if (workspaceItem.part?.approvedRequirement) {
         workspaceItem.part.approvedRequirement.description = input.description;
@@ -1858,13 +1904,16 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
         workspaceItem.part.approvedRequirement.quantity = input.quantity;
         workspaceItem.part.approvedRequirement.quote_quantities = [...input.requestedQuoteQuantities];
         workspaceItem.part.approvedRequirement.requested_by_date = input.requestedByDate;
+        workspaceItem.part.approvedRequirement.updated_at = timestamp;
         workspaceItem.part.approvedRequirement.spec_snapshot = {
           ...(workspaceItem.part.approvedRequirement.spec_snapshot as Record<string, unknown>),
           requestedServiceKinds: [...input.requestedServiceKinds],
           primaryServiceKind: input.primaryServiceKind,
           serviceNotes: input.serviceNotes,
+          threads: input.threads ?? null,
           process: input.process,
           notes: input.notes,
+          projectPartProperties: nextPropertyState,
           shipping: metadata.shipping,
           certifications: metadata.certifications,
           sourcing: metadata.sourcing,
@@ -1881,7 +1930,11 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       }
 
       if (partDetail.part) {
+        if (workspaceItem.part?.clientRequirement) {
+          partDetail.part.clientRequirement = workspaceItem.part.clientRequirement;
+        }
         partDetail.part.quantity = input.quantity;
+        partDetail.part.updated_at = timestamp;
       }
 
       const existingEvents = state.clientActivityByJobId[input.jobId] ?? [];
@@ -1902,6 +1955,110 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       ];
 
       return input.jobId;
+    },
+    resetClientPartPropertyOverrides: async ({ jobId, fields }) => {
+      const state = getState(scenarioId);
+      const workspaceItem = requireRecord(
+        state.workspaceByJobId[jobId],
+        `Fixture workspace item ${jobId} was not found.`,
+      );
+      const partDetail = requireRecord(
+        state.partDetailsByJobId[jobId],
+        `Fixture part detail ${jobId} was not found.`,
+      );
+      const propertyState = workspaceItem.part?.clientRequirement?.projectPartProperties;
+
+      if (!propertyState) {
+        return jobId;
+      }
+
+      const nextOverrides = { ...propertyState.overrides };
+
+      fields.forEach((field) => {
+        delete nextOverrides[field];
+      });
+
+      const nextState = {
+        ...propertyState,
+        overrides: nextOverrides,
+        updatedAt: new Date().toISOString(),
+      };
+      const hasOverrides = Object.keys(nextOverrides).length > 0;
+      const nextProjectPartProperties = hasOverrides ? nextState : null;
+      const timestamp = nextState.updatedAt;
+
+      if (workspaceItem.part?.clientRequirement) {
+        const defaults = propertyState.defaults;
+        workspaceItem.part.clientRequirement = {
+          ...workspaceItem.part.clientRequirement,
+          description: fields.includes("description")
+            ? (defaults.description as string | null | undefined) ?? null
+            : workspaceItem.part.clientRequirement.description,
+          partNumber: fields.includes("partNumber")
+            ? (defaults.partNumber as string | null | undefined) ?? null
+            : workspaceItem.part.clientRequirement.partNumber,
+          material: fields.includes("material")
+            ? ((defaults.material as string | null | undefined) ?? "")
+            : workspaceItem.part.clientRequirement.material,
+          finish: fields.includes("finish")
+            ? (defaults.finish as string | null | undefined) ?? null
+            : workspaceItem.part.clientRequirement.finish,
+          threads: fields.includes("threads")
+            ? (defaults.threads as string | null | undefined) ?? null
+            : workspaceItem.part.clientRequirement.threads,
+          tightestToleranceInch: fields.includes("tightestToleranceInch")
+            ? ((defaults.tightestToleranceInch as number | null | undefined) ?? null)
+            : workspaceItem.part.clientRequirement.tightestToleranceInch,
+          projectPartProperties: nextProjectPartProperties,
+        };
+      }
+
+      if (partDetail.part && workspaceItem.part?.clientRequirement) {
+        partDetail.part.clientRequirement = workspaceItem.part.clientRequirement;
+        partDetail.part.updated_at = timestamp;
+      }
+
+      if (workspaceItem.part?.approvedRequirement) {
+        workspaceItem.part.approvedRequirement.description =
+          workspaceItem.part.clientRequirement?.description ?? null;
+        workspaceItem.part.approvedRequirement.part_number =
+          workspaceItem.part.clientRequirement?.partNumber ?? null;
+        workspaceItem.part.approvedRequirement.material =
+          workspaceItem.part.clientRequirement?.material ?? "";
+        workspaceItem.part.approvedRequirement.finish =
+          workspaceItem.part.clientRequirement?.finish ?? null;
+        workspaceItem.part.approvedRequirement.tightest_tolerance_inch =
+          workspaceItem.part.clientRequirement?.tightestToleranceInch ?? null;
+        workspaceItem.part.approvedRequirement.updated_at = timestamp;
+        workspaceItem.part.approvedRequirement.spec_snapshot = {
+          ...(workspaceItem.part.approvedRequirement.spec_snapshot as Record<string, unknown>),
+          description: workspaceItem.part.clientRequirement?.description ?? null,
+          partNumber: workspaceItem.part.clientRequirement?.partNumber ?? null,
+          material: workspaceItem.part.clientRequirement?.material ?? "",
+          finish: workspaceItem.part.clientRequirement?.finish ?? null,
+          threads: workspaceItem.part.clientRequirement?.threads ?? null,
+          quoteDescription: workspaceItem.part.clientRequirement?.description ?? null,
+          quoteFinish: workspaceItem.part.clientRequirement?.finish ?? null,
+          tightestToleranceInch:
+            workspaceItem.part.clientRequirement?.tightestToleranceInch ?? null,
+          ...(hasOverrides
+            ? { projectPartProperties: nextState }
+            : { projectPartProperties: undefined }),
+        };
+        if (!hasOverrides) {
+          delete (workspaceItem.part.approvedRequirement.spec_snapshot as Record<string, unknown>)
+            .projectPartProperties;
+        }
+      }
+
+      workspaceItem.job.updated_at = timestamp;
+      partDetail.job.updated_at = timestamp;
+
+      if (partDetail.part?.approvedRequirement && workspaceItem.part?.approvedRequirement) {
+        partDetail.part.approvedRequirement = workspaceItem.part.approvedRequirement;
+      }
+
+      return jobId;
     },
   };
 }

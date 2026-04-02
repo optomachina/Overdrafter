@@ -1970,6 +1970,10 @@ export type Database = {
         Args: { p_job_ids: string[] }
         Returns: Json
       }
+      api_reset_client_part_property_overrides: {
+        Args: { p_fields?: string[]; p_job_id: string }
+        Returns: string
+      }
       api_list_organization_memberships: {
         Args: { p_organization_id: string }
         Returns: Json
@@ -2068,6 +2072,7 @@ export type Database = {
           p_service_notes?: string
           p_shipping?: Json
           p_sourcing?: Json
+          p_threads?: string
           p_tightest_tolerance_inch?: number
         }
         Returns: string

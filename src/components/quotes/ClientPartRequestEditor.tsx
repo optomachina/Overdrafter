@@ -98,6 +98,16 @@ export function ClientPartRequestEditor({
             className="border-white/10 bg-black/20 text-white"
           />
         </div>
+        <div className="space-y-2 md:col-span-2">
+          <Label htmlFor="client-request-threads">Threads</Label>
+          <Textarea
+            id="client-request-threads"
+            value={draft.threads ?? ""}
+            onChange={(event) => onChange({ threads: event.target.value || null })}
+            className="min-h-[88px] border-white/10 bg-black/20 text-white"
+            placeholder="Optional thread callouts such as 1/4-20 UNC-2B."
+          />
+        </div>
         <div className="space-y-2">
           <Label htmlFor="client-request-tolerance">Tightest tolerance (in)</Label>
           <Input

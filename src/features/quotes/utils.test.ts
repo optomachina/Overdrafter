@@ -14,6 +14,7 @@ import {
   hasManualQuoteIntakeSource,
   listStaleAutoRequirementFields,
   mergeRequirementDraftState,
+  normalizeClientPartMetadata,
   normalizeDrawingExtraction,
   normalizeDrawingPreview,
   projectedClientPrice,
@@ -125,6 +126,7 @@ describe("quotes utils", () => {
       extractorVersion: null,
       quoteDescription: "Widget plate",
       quoteFinish: "Anodize",
+      threads: [],
       model: {
         fallbackUsed: false,
         name: null,
@@ -191,6 +193,87 @@ describe("quotes utils", () => {
     });
   });
 
+  it("normalizes project-side property state and thread callouts from client metadata", () => {
+    const metadata = normalizeClientPartMetadata({
+      partId: "part-1",
+      jobId: "job-1",
+      organizationId: "org-1",
+      description: "Effective bracket",
+      partNumber: "BRKT-200",
+      revision: "B",
+      material: "7075-T6",
+      finish: "Black anodize",
+      threads: "1/4-20 UNC-2B",
+      tightestToleranceInch: "0.003",
+      quantity: 12,
+      quoteQuantities: [12, 24],
+      requestedByDate: "2026-04-08",
+      projectPartProperties: {
+        defaults: {
+          description: "Bracket",
+          partNumber: "BRKT-100",
+          material: "6061-T6",
+          finish: null,
+          tightestToleranceInch: 0.005,
+          threads: null,
+        },
+        overrides: {
+          description: "Effective bracket",
+          partNumber: "BRKT-200",
+          material: "7075-T6",
+          finish: "Black anodize",
+          tightestToleranceInch: 0.003,
+          threads: "1/4-20 UNC-2B",
+        },
+        createdAt: "2026-04-02T01:00:00.000Z",
+        updatedAt: "2026-04-02T02:00:00.000Z",
+      },
+      hasCadFile: true,
+      hasDrawingFile: true,
+      lifecycle: "partial",
+      warningCount: 1,
+      warnings: ["Verify thread engagement"],
+      missingFields: [],
+      reviewFields: ["finish"],
+      pageCount: 2,
+      updatedAt: "2026-04-02T02:00:00.000Z",
+    });
+
+    expect(metadata).toMatchObject({
+      partId: "part-1",
+      jobId: "job-1",
+      organizationId: "org-1",
+      requirement: {
+        description: "Effective bracket",
+        partNumber: "BRKT-200",
+        material: "7075-T6",
+        finish: "Black anodize",
+        threads: "1/4-20 UNC-2B",
+        tightestToleranceInch: 0.003,
+        projectPartProperties: {
+          defaults: {
+            description: "Bracket",
+            partNumber: "BRKT-100",
+            material: "6061-T6",
+            finish: null,
+            tightestToleranceInch: 0.005,
+            threads: null,
+          },
+          overrides: {
+            description: "Effective bracket",
+            partNumber: "BRKT-200",
+            material: "7075-T6",
+            finish: "Black anodize",
+            tightestToleranceInch: 0.003,
+            threads: "1/4-20 UNC-2B",
+          },
+          createdAt: "2026-04-02T01:00:00.000Z",
+          updatedAt: "2026-04-02T02:00:00.000Z",
+        },
+      },
+    });
+  });
+
   it("builds requirement drafts from extraction data and excludes SendCutSend for tight tolerances", () => {
     const part = makePartAggregate({
       extraction: makeExtractionRecord({
@@ -224,6 +307,7 @@ describe("quotes utils", () => {
       revision: "B",
       material: "17-4 stainless",
       finish: "Passivate",
+      threads: null,
       tightestToleranceInch: 0.002,
       process: null,
       notes: null,

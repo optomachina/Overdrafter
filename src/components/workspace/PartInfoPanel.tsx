@@ -98,7 +98,10 @@ function buildInfoRows(input: {
     },
     {
       label: "Thread",
-      value: "—",
+      value:
+        formatTextValue(draft?.threads) ||
+        extraction?.threads?.join(", ") ||
+        "—",
     },
   ];
 }
