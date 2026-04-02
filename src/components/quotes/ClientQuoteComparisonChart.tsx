@@ -16,13 +16,13 @@ import { formatCurrency } from "@/features/quotes/utils";
 import { getVendorColor, buildVendorChartConfig } from "@/features/quotes/vendor-colors";
 
 type ClientQuoteComparisonChartProps = {
-  options: readonly ClientQuoteSelectionOption[];
-  selectedKey: string | null;
-  hoveredKey: string | null;
-  partId?: string | null;
-  organizationId?: string | null;
-  onSelect: (option: ClientQuoteSelectionOption) => void;
-  onHover: (key: string | null) => void;
+  readonly options: readonly ClientQuoteSelectionOption[];
+  readonly selectedKey: string | null;
+  readonly hoveredKey: string | null;
+  readonly partId?: string | null;
+  readonly organizationId?: string | null;
+  readonly onSelect: (option: ClientQuoteSelectionOption) => void;
+  readonly onHover: (key: string | null) => void;
 };
 
 type ChartPoint = {
@@ -156,12 +156,14 @@ function CustomTooltipContent({ active, payload }: { active?: boolean; payload?:
   );
 }
 
-function VendorScatterShape(props: unknown) {
-  const { cx, cy, payload } = props as {
-    cx?: number;
-    cy?: number;
-    payload?: ChartPoint;
-  };
+type VendorScatterShapeProps = {
+  readonly cx?: number;
+  readonly cy?: number;
+  readonly payload?: ChartPoint;
+  readonly onSelect: (option: ClientQuoteSelectionOption) => void;
+};
+
+function VendorScatterShape({ cx, cy, payload, onSelect }: VendorScatterShapeProps) {
 
   if (!payload || cx === undefined || cy === undefined) {
     return null;
@@ -185,7 +187,11 @@ function VendorScatterShape(props: unknown) {
       stroke={strokeColor}
       strokeWidth={strokeWidth}
       className="cursor-pointer transition-all duration-150"
-      onClick={() => payload.option && !payload.disabled}
+      onClick={() => {
+        if (payload.option?.isSelectable) {
+          onSelect(payload.option);
+        }
+      }}
     />
   );
 }
@@ -233,13 +239,6 @@ export function ClientQuoteComparisonChart({
       })),
     });
   }, [options, organizationId, partId, points]);
-
-  const handleScatterClick = (data: unknown) => {
-    const point = data as { payload?: ChartPoint } | undefined;
-    if (point?.payload?.option && !point.payload.disabled) {
-      onSelect(point.payload.option);
-    }
-  };
 
   const handleScatterMouseEnter = (data: unknown) => {
     const point = data as { payload?: ChartPoint } | undefined;
@@ -321,8 +320,7 @@ export function ClientQuoteComparisonChart({
             key={vendorKey}
             name={vendorKey}
             data={pointsByVendor.get(vendorKey) ?? []}
-            shape={<VendorScatterShape />}
-            onClick={handleScatterClick}
+            shape={<VendorScatterShape onSelect={onSelect} />}
             onMouseEnter={handleScatterMouseEnter}
             onMouseLeave={() => onHover(null)}
           />

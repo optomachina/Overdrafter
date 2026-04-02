@@ -88,6 +88,15 @@ function getPayloadMode(rawPayload: unknown) {
   return record.mode;
 }
 
+function getDetectedFlow(rawPayload: unknown) {
+  const record = asRecord(rawPayload);
+  if (!record || typeof record.detectedFlow !== "string") {
+    return null;
+  }
+
+  return record.detectedFlow;
+}
+
 function getSource(rawPayload: unknown) {
   const record = asRecord(rawPayload);
   if (!record || typeof record.source !== "string") {
@@ -107,13 +116,14 @@ function parseNotes(notes: unknown) {
 
 function isSyntheticOrStub(row: VendorQuoteResultRow) {
   const mode = getPayloadMode(row.raw_payload);
+  const detectedFlow = getDetectedFlow(row.raw_payload);
   const source = getSource(row.raw_payload);
   const notes = parseNotes(row.notes);
   const hasSimulatedNote = notes.some((note) => /simulated/i.test(note));
   const hasSimulatedUrl =
     typeof row.quote_url === "string" && row.quote_url.startsWith("simulated://");
 
-  if (mode === "simulate" || hasSimulatedUrl || hasSimulatedNote) {
+  if (mode === "simulate" || detectedFlow === "simulate" || hasSimulatedUrl || hasSimulatedNote) {
     return true;
   }
 
@@ -205,6 +215,13 @@ function detectConcurrentSessionRisk(rows: VendorQuoteResultRow[]) {
   };
 }
 
+/**
+ * Evaluates OpenClaw gate status from already-fetched vendor quote result rows.
+ *
+ * @param quoteRunId Quote run identifier associated with the provided rows.
+ * @param rows Vendor quote rows to classify and aggregate into gate outcomes.
+ * @returns OpenClaw gate report with vendor classifications and final decision.
+ */
 export function evaluateOpenclawGateFromRows(
   quoteRunId: string,
   rows: VendorQuoteResultRow[],
@@ -251,6 +268,14 @@ export function evaluateOpenclawGateFromRows(
   };
 }
 
+/**
+ * Loads vendor quote rows for the target vendors and evaluates OpenClaw gate status.
+ *
+ * @param supabase Supabase service client used to query vendor quote results.
+ * @param quoteRunId Quote run identifier used to filter vendor rows.
+ * @returns Resolved OpenClaw gate report for the run.
+ * @throws Propagates Supabase query errors.
+ */
 export async function evaluateOpenclawGate(
   supabase: SupabaseClient,
   quoteRunId: string,

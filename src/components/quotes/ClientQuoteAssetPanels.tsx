@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Box, Download, Expand, FileText, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { GeometryProjectionView } from "@/components/workspace/GeometryProjectionView";
 import { Button } from "@/components/ui/button";
@@ -335,7 +336,10 @@ export function ClientCadPreviewPanel({
             className="h-[320px] w-full"
             fallbackActionLabel={`Download ${cadFile.original_name}`}
             onFallbackAction={() => {
-              void downloadStoredFile(cadFile);
+              void downloadStoredFile(cadFile).catch((error) => {
+                console.error("Failed to download CAD file", error);
+                toast.error("Failed to download CAD file.");
+              });
             }}
           />
         ) : (

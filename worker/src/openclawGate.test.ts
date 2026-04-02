@@ -92,6 +92,23 @@ describe("evaluateOpenclawGateFromRows", () => {
     expect(report.hasSyntheticOrStubSignal).toBe(true);
   });
 
+  it("treats xometry detectedFlow=simulate rows as synthetic", () => {
+    const report = evaluateOpenclawGateFromRows("run-3b", [
+      makeRow({
+        id: "xometry-sim-flow",
+        vendor: "xometry",
+        raw_payload: { detectedFlow: "simulate" },
+      }),
+      makeRow({
+        id: "fictiv-real",
+        vendor: "fictiv",
+      }),
+    ]);
+
+    expect(report.decision).toBe("fail_stub_or_simulation");
+    expect(report.hasSyntheticOrStubSignal).toBe(true);
+  });
+
   it("flags concurrency risk when xometry shows blocking auth state and non-blocked progress", () => {
     const report = evaluateOpenclawGateFromRows("run-4", [
       makeRow({

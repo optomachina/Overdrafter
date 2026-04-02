@@ -13,6 +13,10 @@ interface CadModelThumbnailProps {
   readonly onFallbackAction?: () => void;
 }
 
+/**
+ * Renders an interactive CAD thumbnail for previewable STEP files and a fallback
+ * action surface when preview generation fails.
+ */
 export function CadModelThumbnail({
   source,
   className,
