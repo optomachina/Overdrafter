@@ -31,11 +31,9 @@ export function aggregateQuoteRunStatus(statuses: VendorStatus[]): QuoteRunAggre
   }
 
   let nextJobStatus: QuoteRunAggregateStatus["nextJobStatus"] = "quoting";
-  if (hasPending) {
-    nextJobStatus = "quoting";
-  } else if (hasManual) {
+  if (!hasPending && hasManual) {
     nextJobStatus = "awaiting_vendor_manual_review";
-  } else if (hasSuccess) {
+  } else if (!hasPending && hasSuccess) {
     nextJobStatus = "internal_review";
   }
 
