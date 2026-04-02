@@ -5,8 +5,7 @@ import { CadModelThumbnail } from "./CadModelThumbnail";
 import { loadCadPreview } from "@/lib/cad-preview";
 
 vi.mock("@/lib/cad-preview", () => ({
-  isStepPreviewableFile: (fileName: string) =>
-    fileName.toLowerCase().endsWith(".step") || fileName.toLowerCase().endsWith(".stp"),
+  isStepPreviewableFile: (fileName: string) => fileName.toLowerCase().endsWith(".step") || fileName.toLowerCase().endsWith(".stp"),
   loadCadPreview: vi.fn(),
 }));
 

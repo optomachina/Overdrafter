@@ -18,6 +18,7 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "verify": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.json",
     "auth:xometry": "tsx src/tools/xometryAuth.ts",
+    "validate:openclaw-gate": "tsx src/tools/validateOpenclawGate.ts",
     "cleanup:dmrifles-demo": "tsx src/tools/cleanupDmriflesDemoData.ts",
     "extract:smoke": "tsx src/tools/extractDrawingSmoke.ts",
     "import:dmrifles-quotes": "tsx src/tools/importDmriflesQuotes.ts",

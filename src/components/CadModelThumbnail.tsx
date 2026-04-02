@@ -7,10 +7,10 @@ import { cn } from "@/lib/utils";
 type PreviewStatus = "loading" | "ready" | "error";
 
 interface CadModelThumbnailProps {
-  source: CadPreviewSource;
-  className?: string;
-  fallbackActionLabel?: string;
-  onFallbackAction?: () => void;
+  readonly source: CadPreviewSource;
+  readonly className?: string;
+  readonly fallbackActionLabel?: string;
+  readonly onFallbackAction?: () => void;
 }
 
 export function CadModelThumbnail({

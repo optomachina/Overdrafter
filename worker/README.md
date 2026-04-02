@@ -192,6 +192,36 @@ Notes:
 - `sendcutsend` is modeled as a CNC manual-follow-up lane in v1.
 - The live Xometry adapter fails closed if login or captcha is encountered.
 
+## OpenClaw Task A Gate
+
+Use the OpenClaw validation gate after a live quote run to decide if Task B can proceed.
+The gate inspects persisted `vendor_quote_results` rows for `xometry` and `fictiv` and classifies each vendor as:
+
+- `real_quote`
+- `blocked`
+- `synthetic_or_stub`
+- `insufficient_evidence`
+
+Run:
+
+```bash
+cd worker
+npm run validate:openclaw-gate -- --quote-run-id <quote-run-id>
+```
+
+Optional report file:
+
+```bash
+cd worker
+npm run validate:openclaw-gate -- --quote-run-id <quote-run-id> --out /tmp/openclaw-gate-report.json
+```
+
+Exit codes:
+
+- `0`: gate pass (both target vendors have real quote evidence with persisted price + lead time)
+- `1`: gate fail (anti-detection, stub/simulation, or insufficient evidence)
+- `2`: invalid CLI input or runtime error
+
 ## Spreadsheet Quote Import
 
 Use the generic workbook importer for spreadsheets shaped like `Quotes Spreadsheet.xlsx`:
