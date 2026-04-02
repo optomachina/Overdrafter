@@ -12,7 +12,7 @@ export const CLIENT_INTAKE_DRIFT_MESSAGE =
   "This environment is missing the latest client intake schema. Apply the latest Supabase migrations, including " +
   `\`${CLIENT_INTAKE_EXPECTED_MIGRATION}\`, and refresh the PostgREST schema cache.`;
 export const CLIENT_QUOTE_WORKSPACE_EXPECTED_MIGRATION =
-  "20260319113000_add_client_quote_workspace_projection.sql";
+  "20260403103000_harden_client_quote_workspace_lineage.sql";
 export const CLIENT_QUOTE_WORKSPACE_DRIFT_MESSAGE =
   "Quote comparison data is unavailable in this environment until the latest Supabase migrations are applied, including " +
   `\`${CLIENT_QUOTE_WORKSPACE_EXPECTED_MIGRATION}\`, and the PostgREST schema cache is refreshed.`;

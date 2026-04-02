@@ -349,6 +349,8 @@ export async function fetchClientQuoteWorkspaceProjectionByJobIds(
     return new Map();
   }
 
+  // Keep this untyped for compatibility with environments lagging the latest
+  // workspace RPC migration; drift handling below maps missing-schema errors.
   const { data, error } = await callUntypedRpc("api_list_client_quote_workspace", {
     p_job_ids: jobIds,
   });
