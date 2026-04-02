@@ -617,6 +617,8 @@ export type QuoteDataStatus = "available" | "schema_unavailable" | "invalid_for_
 
 export type QuoteRunAggregate = QuoteRunRecord & {
   vendorQuotes: VendorQuoteAggregate[];
+  quoteRequest?: QuoteRequestRecord | null;
+  serviceRequestLineItem?: ServiceRequestLineItemRecord | null;
 };
 
 export type PublishedPackageAggregate = PublishedQuotePackageRecord & {
@@ -629,6 +631,8 @@ export type JobAggregate = {
   files: JobFileRecord[];
   parts: PartAggregate[];
   quoteRuns: QuoteRunAggregate[];
+  quoteRequests?: QuoteRequestRecord[];
+  serviceRequestLineItems?: ServiceRequestLineItemRecord[];
   packages: PublishedPackageAggregate[];
   pricingPolicy: PricingPolicyRecord | null;
   workQueue: WorkQueueRecord[];
@@ -754,6 +758,7 @@ export type PartDetailAggregate = {
   drawingPreview: DrawingPreviewData;
   latestQuoteRequest: QuoteRequestRecord | null;
   latestQuoteRun: QuoteRunRecord | null;
+  serviceRequestLineItem?: ServiceRequestLineItemRecord | null;
   revisionSiblings: Array<{
     jobId: string;
     revision: string | null;
@@ -778,6 +783,7 @@ export type ClientQuoteWorkspaceItem = {
   drawingPreview: DrawingPreviewData;
   latestQuoteRequest: QuoteRequestRecord | null;
   latestQuoteRun: QuoteRunRecord | null;
+  serviceRequestLineItem?: ServiceRequestLineItemRecord | null;
 };
 
 export type ArchivedJobSummary = {

@@ -78,6 +78,8 @@ function buildTaskContext(task: QueueTaskRecord) {
     partId: task.part_id,
     quoteRequestId:
       typeof task.payload.quoteRequestId === "string" ? task.payload.quoteRequestId : null,
+    serviceRequestLineItemId:
+      typeof task.payload.serviceRequestLineItemId === "string" ? task.payload.serviceRequestLineItemId : null,
     quoteRunId: task.quote_run_id,
     packageId: task.package_id,
     vendor: typeof task.payload.vendor === "string" ? task.payload.vendor : null,

@@ -13,7 +13,9 @@ import type {
   PartRecord,
   PublishedQuoteOptionRecord,
   PublishedQuotePackageRecord,
+  QuoteRequestRecord,
   QuoteRunRecord,
+  ServiceRequestLineItemRecord,
   VendorQuoteAggregate,
   VendorQuoteArtifactRecord,
   VendorQuoteOfferRecord,
@@ -45,6 +47,7 @@ import {
   isMissingDrawingPreviewSchemaError,
   isMissingFunctionError,
   isMissingJobArchivingSchemaError,
+  isMissingServiceRequestLineItemSchemaError,
 } from "./shared/schema-errors";
 import {
   CLIENT_QUOTE_WORKSPACE_DRIFT_MESSAGE,
@@ -750,13 +753,21 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
   const [
     filesResult,
     partsResult,
+    quoteRequestsResult,
     quoteRunsResult,
+    serviceRequestLineItemsResult,
     packagesResult,
     workQueueResult,
   ] = await Promise.all([
     supabase.from("job_files").select("*").eq("job_id", jobId).order("created_at", { ascending: true }),
     supabase.from("parts").select("*").eq("job_id", jobId).order("created_at", { ascending: true }),
+    supabase.from("quote_requests").select("*").eq("job_id", jobId).order("created_at", { ascending: false }),
     supabase.from("quote_runs").select("*").eq("job_id", jobId).order("created_at", { ascending: false }),
+    supabase
+      .from("service_request_line_items")
+      .select("*")
+      .eq("job_id", jobId)
+      .order("created_at", { ascending: false }),
     supabase
       .from("published_quote_packages")
       .select("*")
@@ -771,7 +782,13 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
 
   const files = ensureData(filesResult.data, filesResult.error) as JobFileRecord[];
   const parts = ensureData(partsResult.data, partsResult.error) as PartRecord[];
+  const quoteRequests = ensureData(quoteRequestsResult.data, quoteRequestsResult.error) as QuoteRequestRecord[];
   const quoteRuns = ensureData(quoteRunsResult.data, quoteRunsResult.error) as QuoteRunRecord[];
+  const serviceRequestLineItems = ensureOptionalRows(
+    serviceRequestLineItemsResult.data,
+    serviceRequestLineItemsResult.error,
+    isMissingServiceRequestLineItemSchemaError,
+  ) as ServiceRequestLineItemRecord[];
   const packages = ensureData(packagesResult.data, packagesResult.error) as PublishedQuotePackageRecord[];
   const workQueue = ensureData(workQueueResult.data, workQueueResult.error) as WorkQueueRecord[];
 
@@ -881,6 +898,8 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
   const fileMap = new Map(files.map((file) => [file.id, file]));
   const extractionMap = new Map(extractions.map((item) => [item.part_id, item]));
   const approvedMap = new Map(approvedRequirements.map((item) => [item.part_id, item]));
+  const quoteRequestById = new Map(quoteRequests.map((request) => [request.id, request]));
+  const serviceRequestLineItemById = new Map(serviceRequestLineItems.map((lineItem) => [lineItem.id, lineItem]));
   const offerMap = new Map<string, VendorQuoteOfferRecord[]>();
   const artifactMap = new Map<string, VendorQuoteArtifactRecord[]>();
 
@@ -937,10 +956,20 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
     vendorQuotes: vendorQuoteAggregates.filter((quote) => quote.part_id === part.id),
   }));
 
-  const quoteRunsWithResults: QuoteRunAggregate[] = quoteRuns.map((run) => ({
-    ...run,
-    vendorQuotes: vendorQuoteAggregates.filter((quote) => quote.quote_run_id === run.id),
-  }));
+  const quoteRunsWithResults: QuoteRunAggregate[] = quoteRuns.map((run) => {
+    const quoteRequest = run.quote_request_id ? quoteRequestById.get(run.quote_request_id) ?? null : null;
+    const serviceRequestLineItem =
+      quoteRequest?.service_request_line_item_id
+        ? serviceRequestLineItemById.get(quoteRequest.service_request_line_item_id) ?? null
+        : null;
+
+    return {
+      ...run,
+      vendorQuotes: vendorQuoteAggregates.filter((quote) => quote.quote_run_id === run.id),
+      quoteRequest,
+      serviceRequestLineItem,
+    };
+  });
 
   const packagesWithOptions = packages.map((pkg) => ({
     ...pkg,
@@ -953,6 +982,8 @@ export async function fetchJobAggregate(jobId: string): Promise<JobAggregate> {
     files,
     parts: partsWithRelations,
     quoteRuns: quoteRunsWithResults,
+    quoteRequests,
+    serviceRequestLineItems,
     packages: packagesWithOptions,
     pricingPolicy,
     workQueue,
