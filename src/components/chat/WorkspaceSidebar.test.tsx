@@ -435,15 +435,17 @@ describe("WorkspaceSidebar", () => {
     expect(screen.queryByText("Blocked")).not.toBeInTheDocument();
   });
 
-  it("shows all parts in the flat parts section, including grouped parts", () => {
-    renderSidebar();
+  it("shows standalone parts in the flat section and grouped parts under their project", () => {
+    renderSidebar({
+      activeProjectId: "project-1",
+    });
 
     expect(screen.getByRole("button", { name: /1093-00003/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /1093-00001/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /1093-00002/i })).toBeInTheDocument();
+    expect(screen.getByText(/1093-00001/i)).toBeInTheDocument();
+    expect(screen.getByText(/1093-00002/i)).toBeInTheDocument();
   });
 
-  it("shows grouped parts in the flat section when every part is nested under projects", () => {
+  it("shows the standalone empty state when every part is nested under projects", () => {
     renderSidebar({
       jobs: [
         makeJob({
@@ -468,11 +470,12 @@ describe("WorkspaceSidebar", () => {
         ],
       ]),
       resolveProjectIdsForJob: (job) => (job.id === "job-1" ? ["project-1"] : job.project_id ? [job.project_id] : []),
+      activeProjectId: "project-1",
     });
 
-    expect(screen.queryByText("No parts yet.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /1093-00001/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /1093-00002/i })).toBeInTheDocument();
+    expect(screen.getByText("No standalone parts yet.")).toBeInTheDocument();
   });
 
   it("restores expanded project state from local storage", () => {
@@ -488,7 +491,7 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getAllByText(/1093-00001/i).length).toBeGreaterThan(0);
   });
 
-  it("shows grouped parts in both expanded projects and the flat parts section", () => {
+  it("does not duplicate grouped parts in the flat parts section", () => {
     localStorage.setItem(
       "workspace-sidebar-expanded-v1:sidebar-grouped-parts",
       JSON.stringify({ "project-1": true, "project-2": true }),
@@ -498,12 +501,14 @@ describe("WorkspaceSidebar", () => {
       storageScopeKey: "sidebar-grouped-parts",
     });
 
-    expect(screen.getAllByText(/1093-00001/i)).toHaveLength(3);
-    expect(screen.getAllByText(/1093-00002/i)).toHaveLength(2);
+    expect(screen.getAllByText(/1093-00001/i)).toHaveLength(2);
+    expect(screen.getAllByText(/1093-00002/i)).toHaveLength(1);
     expect(screen.getByRole("button", { name: /1093-00003/i })).toBeInTheDocument();
   });
 
-  it("keeps grouped pinned parts visible in the parts section in pinned mode", async () => {
+  it("keeps grouped pinned parts available under their project in pinned mode", async () => {
+    localStorage.setItem("workspace-sidebar-expanded-v1:default", JSON.stringify({ "project-1": true }));
+
     renderSidebar({
       pinnedJobIds: ["job-1", "job-3"],
     });
@@ -513,14 +518,18 @@ describe("WorkspaceSidebar", () => {
     fireEvent.pointerDown(filterButton, { button: 0 });
     fireEvent.click(await screen.findByRole("menuitem", { name: /pinned/i }));
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    });
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /1093-00003/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /1093-00001/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /1093-00002/i })).not.toBeInTheDocument();
     });
   });
 
-  it("shows resolved project-membership parts in the flat section even without job.project_id", () => {
+  it("groups resolved project-membership parts even without job.project_id", () => {
     renderSidebar({
       projects: [
         {
@@ -547,9 +556,57 @@ describe("WorkspaceSidebar", () => {
         ],
       ]),
       resolveProjectIdsForJob: () => ["seed-qb00001"],
+      activeProjectId: "seed-qb00001",
     });
 
-    expect(screen.getByRole("button", { name: /1093-00010/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/1093-00010/i)).toHaveLength(1);
+    expect(screen.getByText("No standalone parts yet.")).toBeInTheDocument();
+  });
+
+  it("auto-expands the active project on load", () => {
+    renderSidebar({
+      activeProjectId: "project-1",
+    });
+
+    expect(screen.getByRole("button", { name: /1093-00002/i })).toBeInTheDocument();
+  });
+
+  it("auto-expands the active part's project on load", () => {
+    renderSidebar({
+      activeJobId: "job-2",
+    });
+
+    expect(screen.getByRole("button", { name: /1093-00002/i })).toBeInTheDocument();
+  });
+
+  it("re-expands the active project when route changes switch projects", () => {
+    const baseProps = {
+      projects,
+      jobs,
+      summariesByJobId,
+      onSelectProject: vi.fn(),
+      onSelectPart: vi.fn(),
+      resolveProjectIdsForJob: (job: JobRecord) => {
+        if (job.id === "job-1") {
+          return ["project-1", "project-2"];
+        }
+
+        return job.project_id ? [job.project_id] : [];
+      },
+    };
+
+    const { rerender } = render(<WorkspaceSidebar {...baseProps} activeProjectId="project-1" />);
+
+    expect(screen.getByRole("button", { name: /1093-00002/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^collapse project$/i }));
+    expect(screen.queryByRole("button", { name: /1093-00002/i })).not.toBeInTheDocument();
+
+    rerender(<WorkspaceSidebar {...baseProps} activeProjectId="project-2" />);
+    expect(screen.getByRole("button", { name: /1093-00001/i })).toBeInTheDocument();
+
+    rerender(<WorkspaceSidebar {...baseProps} activeProjectId="project-1" />);
+    expect(screen.getByRole("button", { name: /1093-00002/i })).toBeInTheDocument();
   });
 
   it("collapses and persists the projects and parts sections", () => {
@@ -701,7 +758,7 @@ describe("WorkspaceSidebar", () => {
       .map((element) => element.closest('[role="button"]'))
       .filter((row): row is HTMLElement => Boolean(row));
 
-    expect(selectedRows).toHaveLength(3);
+    expect(selectedRows).toHaveLength(2);
     selectedRows.forEach((row) => {
       expect(row).toHaveClass("bg-white/[0.08]");
     });
