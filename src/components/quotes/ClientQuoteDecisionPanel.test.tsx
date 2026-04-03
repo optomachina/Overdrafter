@@ -266,4 +266,68 @@ describe("ClientQuoteDecisionPanel", () => {
     expect(screen.getByText("Proto Labs")).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Vendor" })).not.toBeInTheDocument();
   });
+
+  it("filters visible vendor rows when due by removes late options", async () => {
+    const first = makeClientQuoteOption({
+      key: "option-on-time",
+      offerId: "offer-on-time",
+      persistedOfferId: "offer-on-time",
+      resolvedDeliveryDate: "2026-04-10",
+      dueDateEligible: true,
+    });
+    const second = makeClientQuoteOption({
+      key: "option-late",
+      offerId: "offer-late",
+      persistedOfferId: "offer-late",
+      vendorQuoteResultId: "result-2",
+      vendorLabel: "Proto Labs",
+      supplier: "Proto Labs",
+      resolvedDeliveryDate: "2026-04-22",
+      dueDateEligible: false,
+    });
+
+    render(
+      <ClientQuoteDecisionPanel
+        options={[first, second]}
+        selectedOption={first}
+        onSelect={vi.fn()}
+        requestedByDate="2026-04-15"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("cell", { name: "Xometry" })).toBeInTheDocument();
+    expect(screen.queryByRole("cell", { name: "Proto Labs" })).not.toBeInTheDocument();
+    expect(screen.getByText("Showing vendors that can meet 2026-04-15. 1 row is hidden.")).toBeInTheDocument();
+  });
+
+  it("shows an empty filtered state when every vendor misses the due date", async () => {
+    const lateOption = makeClientQuoteOption({
+      key: "option-late",
+      offerId: "offer-late",
+      persistedOfferId: "offer-late",
+      dueDateEligible: false,
+      resolvedDeliveryDate: "2026-04-22",
+    });
+
+    render(
+      <ClientQuoteDecisionPanel
+        options={[lateOption]}
+        selectedOption={lateOption}
+        onSelect={vi.fn()}
+        requestedByDate="2026-04-15"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("No vendors meet this due date")).toBeInTheDocument();
+    expect(screen.getByText("No visible quote rows can meet 2026-04-15. Clear DUE BY to see every vendor again.")).toBeInTheDocument();
+    expect(screen.queryByRole("cell", { name: "Xometry" })).not.toBeInTheDocument();
+  });
 });
