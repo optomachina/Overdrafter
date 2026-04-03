@@ -156,13 +156,15 @@ function CustomTooltipContent({ active, payload }: { active?: boolean; payload?:
   );
 }
 
-function VendorScatterShape(props: unknown) {
-  const { cx, cy, payload } = props as {
-    cx?: number;
-    cy?: number;
-    payload?: ChartPoint;
-  };
+type VendorScatterShapeProps = {
+  cx?: number;
+  cy?: number;
+  payload?: ChartPoint;
+  onSelect?: (option: ClientQuoteSelectionOption) => void;
+  onHover?: (key: string | null) => void;
+};
 
+function VendorScatterShape({ cx, cy, payload, onSelect, onHover }: VendorScatterShapeProps) {
   if (!payload || cx === undefined || cy === undefined) {
     return null;
   }
@@ -172,7 +174,11 @@ function VendorScatterShape(props: unknown) {
   const radius = isActive ? baseRadius + 2 : baseRadius;
   const color = getVendorColor(payload.vendorKey);
   const opacity = payload.disabled ? 0.25 : isActive ? 1 : 0.8;
-  const strokeColor = payload.selected ? "#ffffff" : isActive ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.25)";
+  const strokeColor = payload.selected
+    ? "#ffffff"
+    : isActive
+      ? "rgba(255,255,255,0.5)"
+      : "rgba(255,255,255,0.18)";
   const strokeWidth = payload.selected ? 2.5 : isActive ? 1.5 : 1;
 
   return (
@@ -185,7 +191,13 @@ function VendorScatterShape(props: unknown) {
       stroke={strokeColor}
       strokeWidth={strokeWidth}
       className="cursor-pointer transition-all duration-150"
-      onClick={() => payload.option && !payload.disabled}
+      onClick={() => {
+        if (!payload.disabled && payload.option) {
+          onSelect?.(payload.option);
+        }
+      }}
+      onMouseEnter={() => onHover?.(payload.key)}
+      onMouseLeave={() => onHover?.(null)}
     />
   );
 }
@@ -233,20 +245,6 @@ export function ClientQuoteComparisonChart({
       })),
     });
   }, [options, organizationId, partId, points]);
-
-  const handleScatterClick = (data: unknown) => {
-    const point = data as { payload?: ChartPoint } | undefined;
-    if (point?.payload?.option && !point.payload.disabled) {
-      onSelect(point.payload.option);
-    }
-  };
-
-  const handleScatterMouseEnter = (data: unknown) => {
-    const point = data as { payload?: ChartPoint } | undefined;
-    if (point?.payload) {
-      onHover(point.payload.key);
-    }
-  };
 
   return (
     <ChartContainer config={chartConfig} className="h-[420px] w-full">
@@ -321,10 +319,7 @@ export function ClientQuoteComparisonChart({
             key={vendorKey}
             name={vendorKey}
             data={pointsByVendor.get(vendorKey) ?? []}
-            shape={<VendorScatterShape />}
-            onClick={handleScatterClick}
-            onMouseEnter={handleScatterMouseEnter}
-            onMouseLeave={() => onHover(null)}
+            shape={<VendorScatterShape onSelect={onSelect} onHover={onHover} />}
           />
         ))}
       </ScatterChart>
