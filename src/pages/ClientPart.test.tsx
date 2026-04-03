@@ -1388,6 +1388,66 @@ describe("ClientPart", () => {
     });
   });
 
+  it("uses a filled accent treatment for an active favorite", async () => {
+    api.fetchSidebarPins.mockResolvedValueOnce({ projectIds: [], jobIds: ["job-1"] });
+
+    renderWithClient("/parts/job-1");
+
+    const favoriteButton = await screen.findByRole("button", { name: /unfavorite part/i });
+    expect(favoriteButton.className).toContain("bg-amber-500/16");
+    expect(favoriteButton.className).toContain("text-amber-200");
+    const icon = favoriteButton.querySelector("svg");
+    expect(icon?.className.baseVal ?? "").toContain("fill-current");
+  });
+
+  it("does not render the dead workspace breadcrumb button or request summary badges in the header", async () => {
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "BRKT-001 rev A" })).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
+    expect(screen.queryByText("Manufacturing quote")).toBeNull();
+    expect(screen.queryByText("Qty 10")).toBeNull();
+    expect(screen.queryByText("Quote qty 10")).toBeNull();
+    expect(screen.queryByText("Need by Apr 15, 2026")).toBeNull();
+  });
+
+  it("drops title-derived revision suffixes from the normalized part heading", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(
+      createPartDetail({
+        job: {
+          ...createPartDetail().job,
+          title: "1093-05589 rev 2",
+        },
+        summary: {
+          ...createPartDetail().summary,
+          partNumber: null,
+          revision: null,
+        },
+      }),
+    );
+    api.fetchAccessibleJobs.mockResolvedValueOnce([
+      {
+        ...createPartDetail().job,
+        title: "1093-05589 rev 2",
+      },
+    ]);
+    api.fetchJobPartSummariesByJobIds.mockResolvedValueOnce([
+      {
+        ...createPartDetail().summary,
+        partNumber: null,
+        revision: null,
+      },
+    ]);
+
+    renderWithClient("/parts/job-1");
+
+    expect(await screen.findByRole("heading", { name: "1093-05589" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "1093-05589 rev 2" })).toBeNull();
+  });
+
   it("clears the inline due date from the function bar", async () => {
     renderWithClient("/parts/job-1");
 

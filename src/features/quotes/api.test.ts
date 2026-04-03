@@ -570,6 +570,7 @@ import {
   resetJobArchivingSchemaAvailabilityForTests,
   isProjectCollaborationSchemaUnavailable,
   resetProjectCollaborationSchemaAvailabilityForTests,
+  updateClientPartRequest,
   unarchiveJob,
   unpinJob,
   unpinProject,
@@ -577,6 +578,7 @@ import {
   uploadManualQuoteEvidence,
 } from "./api";
 import { fetchProjectAssigneeProfiles } from "./api/projects-api";
+import type { ClientPartRequestUpdateInput } from "./types";
 
 function listSourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -615,6 +617,82 @@ function countRequestedServiceKindReads(content: string): number {
   }
 
   return count;
+}
+
+function makeClientPartRequestUpdateInput(
+  overrides: Partial<ClientPartRequestUpdateInput> = {},
+): ClientPartRequestUpdateInput {
+  return {
+    jobId: "job-1",
+    requestedServiceKinds: ["manufacturing_quote"],
+    primaryServiceKind: "manufacturing_quote",
+    serviceNotes: "Need this fast",
+    description: "Bracket",
+    partNumber: "1093-05589",
+    revision: "A",
+    material: "6061 aluminum",
+    finish: "Clear anodize",
+    threads: null,
+    tightestToleranceInch: 0.005,
+    process: "CNC milling",
+    notes: "Deburr all edges",
+    quantity: 10,
+    requestedQuoteQuantities: [10, 25],
+    requestedByDate: null,
+    shipping: {
+      requestedByDateOverride: null,
+      packagingNotes: "Boxed",
+      shippingNotes: null,
+    },
+    certifications: {
+      requiredCertifications: [],
+      materialCertificationRequired: true,
+      certificateOfConformanceRequired: null,
+      inspectionLevel: null,
+      notes: null,
+    },
+    sourcing: {
+      regionPreferenceOverride: null,
+      preferredSuppliers: ["xometry"],
+      materialProvisioning: null,
+      notes: null,
+    },
+    release: {
+      releaseStatus: null,
+      reviewDisposition: null,
+      quoteBlockedUntilRelease: null,
+      notes: null,
+    },
+    ...overrides,
+  };
+}
+
+function buildExpectedClientPartRequestRpcArgs(
+  input: ClientPartRequestUpdateInput,
+  includeThreads: boolean,
+) {
+  return {
+    p_job_id: input.jobId,
+    p_requested_service_kinds: input.requestedServiceKinds,
+    p_primary_service_kind: input.primaryServiceKind ?? null,
+    p_service_notes: input.serviceNotes ?? null,
+    p_description: input.description ?? null,
+    p_part_number: input.partNumber ?? null,
+    p_revision: input.revision ?? null,
+    p_material: input.material,
+    p_finish: input.finish ?? null,
+    ...(includeThreads ? { p_threads: input.threads ?? null } : {}),
+    p_tightest_tolerance_inch: input.tightestToleranceInch ?? null,
+    p_process: input.process ?? null,
+    p_notes: input.notes ?? null,
+    p_quantity: input.quantity,
+    p_requested_quote_quantities: input.requestedQuoteQuantities,
+    p_requested_by_date: input.requestedByDate ?? null,
+    p_shipping: input.shipping,
+    p_certifications: input.certifications,
+    p_sourcing: input.sourcing,
+    p_release: input.release,
+  };
 }
 
 describe("quotes api helpers", () => {
@@ -2925,6 +3003,53 @@ describe("quotes api helpers", () => {
       p_requested_quote_quantities: [10],
       p_requested_by_date: "2026-04-15",
     });
+  });
+
+  it("retries client part request updates without p_threads when the schema cache still exposes the legacy RPC signature", async () => {
+    const requestUpdate = makeClientPartRequestUpdateInput();
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      supabaseMock.rpc
+        .mockResolvedValueOnce({
+          data: null,
+          error: {
+            code: "PGRST202",
+            message:
+              "Could not find the function public.api_update_client_part_request(p_certifications, p_description, p_finish, p_job_id, p_material, p_notes, p_part_number, p_primary_service_kind, p_process, p_quantity, p_release, p_requested_by_date, p_requested_quote_quantities, p_requested_service_kinds, p_revision, p_service_notes, p_shipping, p_sourcing, p_threads, p_tightest_tolerance_inch) in the schema cache",
+            details: null,
+            hint: null,
+          },
+        })
+        .mockResolvedValueOnce({
+          data: "job-1",
+          error: null,
+        });
+
+      await expect(updateClientPartRequest(requestUpdate)).resolves.toBe("job-1");
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        "updateClientPartRequest: falling back to legacy RPC signature",
+        expect.objectContaining({
+          jobId: "job-1",
+          partNumber: "1093-05589",
+          requestedServiceKinds: ["manufacturing_quote"],
+          functionName: "api_update_client_part_request",
+        }),
+      );
+      expect(supabaseMock.rpc).toHaveBeenNthCalledWith(
+        1,
+        "api_update_client_part_request",
+        buildExpectedClientPartRequestRpcArgs(requestUpdate, true),
+      );
+      expect(supabaseMock.rpc).toHaveBeenNthCalledWith(
+        2,
+        "api_update_client_part_request",
+        buildExpectedClientPartRequestRpcArgs(requestUpdate, false),
+      );
+    } finally {
+      consoleWarnSpy.mockRestore();
+    }
   });
 
   it("creates upload drafts from file stems and reuses parsed request metadata for each upload group", async () => {

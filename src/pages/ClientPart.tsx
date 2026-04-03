@@ -12,7 +12,6 @@ import {
   MoveRight,
   PlusSquare,
   Search,
-  StarOff,
   Upload,
   XCircle,
 } from "lucide-react";
@@ -30,7 +29,6 @@ import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtractionStatusNotice";
 import { ClientPartHeader } from "@/components/quotes/ClientPartHeader";
 import { DrawingPreviewDialog } from "@/components/quotes/DrawingPreviewDialog";
-import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import { ClientQuoteRequestStatusCard } from "@/components/quotes/ClientWorkspacePanelContent";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import {
@@ -216,8 +214,6 @@ const ClientPart = () => {
     quoteQuantityInput,
     rankedQuoteOptions,
     removeJobMutation,
-    requestQuantities,
-    requestSummaryQuantity,
     requestSummaryRequestedByDate,
     resolveSidebarProjectIdsForJob,
     revisionOptions,
@@ -492,14 +488,6 @@ const ClientPart = () => {
                 details={
                   <div className="space-y-4">
                     <div className="flex flex-wrap items-center gap-2 text-sm text-white/55">
-                      <button
-                        type="button"
-                        className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-white/70 transition hover:bg-white/8 hover:text-white"
-                        onClick={() => navigate("/")}
-                      >
-                        Workspace
-                      </button>
-                      <span className="text-white/25">/</span>
                       {breadcrumbProject ? (
                         <>
                           <button
@@ -516,14 +504,6 @@ const ClientPart = () => {
                         {displayPartTitle}
                       </span>
                     </div>
-                    <RequestSummaryBadges
-                      requestedServiceKinds={
-                        effectiveRequestDraft?.requestedServiceKinds ?? summary?.requestedServiceKinds ?? []
-                      }
-                      quantity={requestSummaryQuantity}
-                      requestedQuoteQuantities={requestQuantities}
-                      requestedByDate={requestSummaryRequestedByDate}
-                    />
                   </div>
                 }
                 actions={
@@ -536,10 +516,14 @@ const ClientPart = () => {
                             variant="outline"
                             size="icon"
                             aria-label={isFavorite ? "Unfavorite part" : "Favorite part"}
-                            className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                            className={cn(
+                              "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
+                              isFavorite &&
+                                "border-amber-400/30 bg-amber-500/16 text-amber-200 hover:bg-amber-500/22",
+                            )}
                             onClick={() => void handleToggleCurrentPartPin()}
                           >
-                            {isFavorite ? <Star className="fill-current" /> : <StarOff />}
+                            <Star className={cn(isFavorite && "fill-current")} />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>

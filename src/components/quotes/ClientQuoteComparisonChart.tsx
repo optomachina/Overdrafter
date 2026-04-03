@@ -75,13 +75,13 @@ function computeBubbleRadius(
 function decorateChartPointVisuals(point: ChartPoint): DecoratedChartPoint {
   const isActive = point.selected || point.hovered;
   const radius = isActive ? point.r + 2 : point.r;
-  const fillOpacity = point.disabled ? 0.25 : isActive ? 1 : 0.8;
+  const fillOpacity = point.disabled ? 0.35 : isActive ? 1 : 0.8;
 
-  let stroke = "rgba(255,255,255,0.18)";
+  let stroke = "rgba(255,255,255,0.3)";
   if (point.selected) {
     stroke = "#ffffff";
   } else if (isActive) {
-    stroke = "rgba(255,255,255,0.5)";
+    stroke = "rgba(255,255,255,0.65)";
   }
 
   let strokeWidth = 1;
@@ -112,14 +112,14 @@ function buildChartData(
 
   const leadTimes = options
     .map((o) => o.leadTimeBusinessDays)
-    .filter((v): v is number => v !== null && v > 0);
+    .filter((v): v is number => v !== null && v >= 0);
   const maxLeadTime = leadTimes.length > 0 ? Math.max(...leadTimes) : 20;
   const naZoneStart = maxLeadTime + NA_ZONE_PADDING;
 
   let naIndex = 0;
   const points = options
     .map((option): ChartPoint => {
-      const hasLeadTime = option.leadTimeBusinessDays !== null && option.leadTimeBusinessDays > 0;
+      const hasLeadTime = option.leadTimeBusinessDays !== null && option.leadTimeBusinessDays >= 0;
       let xValue: number;
       let isNaZone = false;
 
@@ -201,6 +201,12 @@ function CustomTooltipContent({ active, payload }: { active?: boolean; payload?:
   );
 }
 
+/**
+ * Plot eligible and ineligible quote options across lead time and unit price.
+ *
+ * Bubble size represents total price, while hover and selection state are
+ * surfaced visually and routed back to the caller.
+ */
 export function ClientQuoteComparisonChart({
   options,
   selectedKey,
@@ -325,6 +331,7 @@ export function ClientQuoteComparisonChart({
             key={vendorKey}
             name={vendorKey}
             data={pointsByVendor.get(vendorKey) ?? []}
+            fill={getVendorColor(vendorKey)}
             onClick={(point) => {
               const payload = (point as { payload?: ChartPoint } | undefined)?.payload;
               if (payload?.option.isSelectable && !payload.disabled) {

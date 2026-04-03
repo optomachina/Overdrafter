@@ -7,7 +7,6 @@ import {
   FolderPlus,
   ListFilter,
   PenLine,
-  Pin,
   PlusSquare,
   Search,
   Shapes,
@@ -35,6 +34,9 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
+/**
+ * Project metadata required to render and organize the client workspace sidebar.
+ */
 export type WorkspaceSidebarProject = {
   id: string;
   name: string;
@@ -323,6 +325,10 @@ function FilterOption({ icon, label, selected, onSelect }: FilterOptionProps) {
   );
 }
 
+/**
+ * Render the workspace navigation for projects and parts, including pinning,
+ * organization, and lightweight management actions.
+ */
 export function WorkspaceSidebar({
   projects,
   jobs,
@@ -1029,7 +1035,7 @@ export function WorkspaceSidebar({
             </div>
             {isPinned ? (
               <div className="flex items-center gap-2">
-                <Pin className="h-3.5 w-3.5 fill-current text-white/[0.72]" />
+                <Star className="h-3.5 w-3.5 fill-current text-white/[0.72]" />
               </div>
             ) : null}
           </div>
@@ -1223,7 +1229,7 @@ export function WorkspaceSidebar({
               </div>
               {isPinned ? (
                 <div className="flex items-center gap-2">
-                  <Pin className="h-3.5 w-3.5 fill-current text-white/[0.72]" />
+                  <Star className="h-3.5 w-3.5 fill-current text-white/[0.72]" />
                 </div>
               ) : null}
             </div>

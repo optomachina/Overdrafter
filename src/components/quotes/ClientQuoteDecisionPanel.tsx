@@ -36,7 +36,7 @@ import {
   sortQuoteOptionsForPreset,
 } from "@/features/quotes/selection";
 import type { QuoteDataStatus, QuoteDiagnostics } from "@/features/quotes/types";
-import { formatCurrency, formatLeadTime } from "@/features/quotes/utils";
+import { formatCurrency } from "@/features/quotes/utils";
 import { getVendorColor } from "@/features/quotes/vendor-colors";
 import { cn } from "@/lib/utils";
 
@@ -61,6 +61,17 @@ type ClientQuoteDecisionPanelProps = {
   emptyState?: string;
   className?: string;
 };
+
+function formatEstimatedDeliveryDays(
+  leadTimeBusinessDays: number | null | undefined,
+  resolvedDeliveryDate: string | null | undefined,
+): string {
+  if (leadTimeBusinessDays || leadTimeBusinessDays === 0) {
+    return `${leadTimeBusinessDays} day${leadTimeBusinessDays === 1 ? "" : "s"}`;
+  }
+
+  return resolvedDeliveryDate ?? "Pending";
+}
 
 function getPresetModeBadgeCopy(mode: QuotePresetMode) {
   return mode === "fastest"
@@ -193,7 +204,8 @@ function SelectedOptionBanner({ option }: { option: ClientQuoteSelectionOption }
           />
           <p className="text-base font-semibold text-white">{option.vendorLabel}</p>
           <p className="text-sm text-emerald-100/85">
-            {formatCurrency(option.totalPriceUsd)} total · {option.resolvedDeliveryDate ?? formatLeadTime(option.leadTimeBusinessDays)}
+            {formatCurrency(option.totalPriceUsd)} total · {" "}
+            {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -293,7 +305,7 @@ function QuoteComparisonTable({
             <TableHead className="text-[11px] text-white/45">Lane / Sourcing</TableHead>
             <TableHead className="text-right text-[11px] text-white/45">Unit</TableHead>
             <TableHead className="text-right text-[11px] text-white/45">Total</TableHead>
-            <TableHead className="text-right text-[11px] text-white/45">Lead</TableHead>
+            <TableHead className="text-right text-[11px] text-white/45">Estimated Delivery</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -389,7 +401,7 @@ function QuoteComparisonTable({
                   ) : null}
                 </TableCell>
                 <TableCell className="py-2.5 text-right text-sm tabular-nums text-white/65">
-                  {option.resolvedDeliveryDate ?? formatLeadTime(option.leadTimeBusinessDays)}
+                  {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
                 </TableCell>
               </TableRow>
             );
@@ -497,7 +509,9 @@ function QuoteComparisonCards({
 
               <div className="shrink-0 text-right">
                 <p className="text-base font-semibold text-white">{formatCurrency(option.totalPriceUsd)}</p>
-                <p className="mt-1 text-xs text-white/55">{option.resolvedDeliveryDate ?? formatLeadTime(option.leadTimeBusinessDays)}</p>
+                <p className="mt-1 text-xs text-white/55">
+                  {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
+                </p>
                 <p className="mt-1 text-[11px] text-white/40">Unit {formatCurrency(option.unitPriceUsd)}</p>
               </div>
             </div>
@@ -677,6 +691,10 @@ function renderDecisionPanelContent({
   );
 }
 
+/**
+ * Render the client-facing quote comparison experience, including the selected
+ * vendor summary, ranking context, filters, and table/chart views.
+ */
 export function ClientQuoteDecisionPanel({
   title = "Quote intelligence",
   description = "Compare price and lead time as one decision surface, then commit the selected option from the same workspace.",

@@ -231,4 +231,46 @@ describe("ClientQuoteComparisonChart", () => {
       getVendorColor("infraredlaboratories"),
     );
   });
+
+  it("uses explicit vendor fill styling for dark backgrounds", () => {
+    zAxisSpy.mockReset();
+
+    render(
+      <ClientQuoteComparisonChart
+        options={[
+          makeClientQuoteOption({
+            key: "option-color",
+            vendorKey: "xometry",
+            vendorLabel: "Xometry",
+            supplier: "Xometry",
+          }),
+        ]}
+        selectedKey={null}
+        hoveredKey={null}
+        onSelect={vi.fn()}
+        onHover={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("point-option-color")).toHaveAttribute("data-fill", getVendorColor("xometry"));
+  });
+
+  it("plots zero-day quotes on the lead-time axis instead of the N/A lane", () => {
+    zAxisSpy.mockReset();
+
+    render(
+      <ClientQuoteComparisonChart
+        options={[makeClientQuoteOption({ key: "option-zero-day", leadTimeBusinessDays: 0 })]}
+        selectedKey={null}
+        hoveredKey={null}
+        onSelect={vi.fn()}
+        onHover={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("point-option-zero-day")).toHaveAttribute(
+      "data-fill",
+      getVendorColor("xometry"),
+    );
+  });
 });
