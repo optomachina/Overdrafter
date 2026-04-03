@@ -709,15 +709,17 @@ describe("ClientPart", () => {
     expect(screen.queryByTestId("cad-panel")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Leave a comment")).not.toBeInTheDocument();
 
-    await openWorkspaceTab("Request");
-    expect(await screen.findByTestId("part-info-panel")).toBeInTheDocument();
-
-    await openWorkspaceTab("Files");
-    expect(await screen.findByTestId("cad-panel")).toBeInTheDocument();
-    expect(screen.getByText("Attached source files")).toBeInTheDocument();
-
-    await openWorkspaceTab("Activity");
-    expect(await screen.findByLabelText("Leave a comment")).toBeInTheDocument();
+    for (const [tab, assertion] of [
+      ["Request", () => screen.findByTestId("part-info-panel")],
+      ["Files", async () => {
+        expect(await screen.findByTestId("cad-panel")).toBeInTheDocument();
+        expect(screen.getByText("Attached source files")).toBeInTheDocument();
+      }],
+      ["Activity", () => screen.findByLabelText("Leave a comment")],
+    ] as const) {
+      await openWorkspaceTab(tab);
+      await assertion();
+    }
   });
 
   it("passes part metadata into PartInfoPanel and omits the old workspace badge cluster", async () => {
