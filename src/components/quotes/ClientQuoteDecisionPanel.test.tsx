@@ -57,20 +57,43 @@ function makeDiagnostics(overrides: Partial<QuoteDiagnostics> = {}): QuoteDiagno
   };
 }
 
+function makeSecondOption() {
+  return makeClientQuoteOption({
+    key: "option-2",
+    offerId: "offer-2",
+    persistedOfferId: "offer-2",
+    vendorQuoteResultId: "result-2",
+    vendorLabel: "Proto Labs",
+    supplier: "Proto Labs",
+    totalPriceUsd: 160,
+    requestedQuantity: 25,
+  });
+}
+
+function SelectionHarness({
+  first,
+  second,
+}: {
+  first: ClientQuoteSelectionOption;
+  second: ClientQuoteSelectionOption;
+}) {
+  const [selected, setSelected] = useState<ClientQuoteSelectionOption | null>(first);
+
+  return (
+    <ClientQuoteDecisionPanel
+      options={[first, second]}
+      selectedOption={selected}
+      onSelect={setSelected}
+      requestedByDate="2026-04-15"
+    />
+  );
+}
+
 describe("ClientQuoteDecisionPanel", () => {
   it("renders quote data and selects a clicked option", async () => {
     const onSelect = vi.fn();
     const first = makeClientQuoteOption();
-    const second = makeClientQuoteOption({
-      key: "option-2",
-      offerId: "offer-2",
-      persistedOfferId: "offer-2",
-      vendorQuoteResultId: "result-2",
-      vendorLabel: "Proto Labs",
-      supplier: "Proto Labs",
-      totalPriceUsd: 160,
-      requestedQuantity: 25,
-    });
+    const second = makeSecondOption();
 
     render(
       <ClientQuoteDecisionPanel
@@ -96,31 +119,9 @@ describe("ClientQuoteDecisionPanel", () => {
 
   it("syncs panel selection state when chart selection changes", async () => {
     const first = makeClientQuoteOption();
-    const second = makeClientQuoteOption({
-      key: "option-2",
-      offerId: "offer-2",
-      persistedOfferId: "offer-2",
-      vendorQuoteResultId: "result-2",
-      vendorLabel: "Proto Labs",
-      supplier: "Proto Labs",
-      totalPriceUsd: 160,
-      requestedQuantity: 25,
-    });
+    const second = makeSecondOption();
 
-    function SelectionHarness() {
-      const [selected, setSelected] = useState<ClientQuoteSelectionOption | null>(first);
-
-      return (
-        <ClientQuoteDecisionPanel
-          options={[first, second]}
-          selectedOption={selected}
-          onSelect={setSelected}
-          requestedByDate="2026-04-15"
-        />
-      );
-    }
-
-    render(<SelectionHarness />);
+    render(<SelectionHarness first={first} second={second} />);
 
     await waitFor(() => {
       expect(screen.getByText("Quote Chart")).toBeInTheDocument();
@@ -134,31 +135,9 @@ describe("ClientQuoteDecisionPanel", () => {
 
   it("syncs chart selection state when a table row is clicked", async () => {
     const first = makeClientQuoteOption();
-    const second = makeClientQuoteOption({
-      key: "option-2",
-      offerId: "offer-2",
-      persistedOfferId: "offer-2",
-      vendorQuoteResultId: "result-2",
-      vendorLabel: "Proto Labs",
-      supplier: "Proto Labs",
-      totalPriceUsd: 160,
-      requestedQuantity: 25,
-    });
+    const second = makeSecondOption();
 
-    function SelectionHarness() {
-      const [selected, setSelected] = useState<ClientQuoteSelectionOption | null>(first);
-
-      return (
-        <ClientQuoteDecisionPanel
-          options={[first, second]}
-          selectedOption={selected}
-          onSelect={setSelected}
-          requestedByDate="2026-04-15"
-        />
-      );
-    }
-
-    render(<SelectionHarness />);
+    render(<SelectionHarness first={first} second={second} />);
 
     await waitFor(() => {
       expect(screen.getByText("Quote Chart")).toBeInTheDocument();

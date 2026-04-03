@@ -578,6 +578,7 @@ import {
   uploadManualQuoteEvidence,
 } from "./api";
 import { fetchProjectAssigneeProfiles } from "./api/projects-api";
+import type { ClientPartRequestUpdateInput } from "./types";
 
 function listSourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -616,6 +617,82 @@ function countRequestedServiceKindReads(content: string): number {
   }
 
   return count;
+}
+
+function makeClientPartRequestUpdateInput(
+  overrides: Partial<ClientPartRequestUpdateInput> = {},
+): ClientPartRequestUpdateInput {
+  return {
+    jobId: "job-1",
+    requestedServiceKinds: ["manufacturing_quote"],
+    primaryServiceKind: "manufacturing_quote",
+    serviceNotes: "Need this fast",
+    description: "Bracket",
+    partNumber: "1093-05589",
+    revision: "A",
+    material: "6061 aluminum",
+    finish: "Clear anodize",
+    threads: null,
+    tightestToleranceInch: 0.005,
+    process: "CNC milling",
+    notes: "Deburr all edges",
+    quantity: 10,
+    requestedQuoteQuantities: [10, 25],
+    requestedByDate: null,
+    shipping: {
+      requestedByDateOverride: null,
+      packagingNotes: "Boxed",
+      shippingNotes: null,
+    },
+    certifications: {
+      requiredCertifications: [],
+      materialCertificationRequired: true,
+      certificateOfConformanceRequired: null,
+      inspectionLevel: null,
+      notes: null,
+    },
+    sourcing: {
+      regionPreferenceOverride: null,
+      preferredSuppliers: ["xometry"],
+      materialProvisioning: null,
+      notes: null,
+    },
+    release: {
+      releaseStatus: null,
+      reviewDisposition: null,
+      quoteBlockedUntilRelease: null,
+      notes: null,
+    },
+    ...overrides,
+  };
+}
+
+function buildExpectedClientPartRequestRpcArgs(
+  input: ClientPartRequestUpdateInput,
+  includeThreads: boolean,
+) {
+  return {
+    p_job_id: input.jobId,
+    p_requested_service_kinds: input.requestedServiceKinds,
+    p_primary_service_kind: input.primaryServiceKind ?? null,
+    p_service_notes: input.serviceNotes ?? null,
+    p_description: input.description ?? null,
+    p_part_number: input.partNumber ?? null,
+    p_revision: input.revision ?? null,
+    p_material: input.material,
+    p_finish: input.finish ?? null,
+    ...(includeThreads ? { p_threads: input.threads ?? null } : {}),
+    p_tightest_tolerance_inch: input.tightestToleranceInch ?? null,
+    p_process: input.process ?? null,
+    p_notes: input.notes ?? null,
+    p_quantity: input.quantity,
+    p_requested_quote_quantities: input.requestedQuoteQuantities,
+    p_requested_by_date: input.requestedByDate ?? null,
+    p_shipping: input.shipping,
+    p_certifications: input.certifications,
+    p_sourcing: input.sourcing,
+    p_release: input.release,
+  };
 }
 
 describe("quotes api helpers", () => {
@@ -2929,6 +3006,8 @@ describe("quotes api helpers", () => {
   });
 
   it("retries client part request updates without p_threads when the schema cache still exposes the legacy RPC signature", async () => {
+    const requestUpdate = makeClientPartRequestUpdateInput();
+
     supabaseMock.rpc
       .mockResolvedValueOnce({
         data: null,
@@ -2945,134 +3024,18 @@ describe("quotes api helpers", () => {
         error: null,
       });
 
-    await expect(
-      updateClientPartRequest({
-        jobId: "job-1",
-        requestedServiceKinds: ["manufacturing_quote"],
-        primaryServiceKind: "manufacturing_quote",
-        serviceNotes: "Need this fast",
-        description: "Bracket",
-        partNumber: "1093-05589",
-        revision: "A",
-        material: "6061 aluminum",
-        finish: "Clear anodize",
-        threads: null,
-        tightestToleranceInch: 0.005,
-        process: "CNC milling",
-        notes: "Deburr all edges",
-        quantity: 10,
-        requestedQuoteQuantities: [10, 25],
-        requestedByDate: null,
-        shipping: {
-          requestedByDateOverride: null,
-          packagingNotes: "Boxed",
-          shippingNotes: null,
-        },
-        certifications: {
-          requiredCertifications: [],
-          materialCertificationRequired: true,
-          certificateOfConformanceRequired: null,
-          inspectionLevel: null,
-          notes: null,
-        },
-        sourcing: {
-          regionPreferenceOverride: null,
-          preferredSuppliers: ["xometry"],
-          materialProvisioning: null,
-          notes: null,
-        },
-        release: {
-          releaseStatus: null,
-          reviewDisposition: null,
-          quoteBlockedUntilRelease: null,
-          notes: null,
-        },
-      }),
-    ).resolves.toBe("job-1");
+    await expect(updateClientPartRequest(requestUpdate)).resolves.toBe("job-1");
 
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(1, "api_update_client_part_request", {
-      p_job_id: "job-1",
-      p_requested_service_kinds: ["manufacturing_quote"],
-      p_primary_service_kind: "manufacturing_quote",
-      p_service_notes: "Need this fast",
-      p_description: "Bracket",
-      p_part_number: "1093-05589",
-      p_revision: "A",
-      p_material: "6061 aluminum",
-      p_finish: "Clear anodize",
-      p_threads: null,
-      p_tightest_tolerance_inch: 0.005,
-      p_process: "CNC milling",
-      p_notes: "Deburr all edges",
-      p_quantity: 10,
-      p_requested_quote_quantities: [10, 25],
-      p_requested_by_date: null,
-      p_shipping: {
-        requestedByDateOverride: null,
-        packagingNotes: "Boxed",
-        shippingNotes: null,
-      },
-      p_certifications: {
-        requiredCertifications: [],
-        materialCertificationRequired: true,
-        certificateOfConformanceRequired: null,
-        inspectionLevel: null,
-        notes: null,
-      },
-      p_sourcing: {
-        regionPreferenceOverride: null,
-        preferredSuppliers: ["xometry"],
-        materialProvisioning: null,
-        notes: null,
-      },
-      p_release: {
-        releaseStatus: null,
-        reviewDisposition: null,
-        quoteBlockedUntilRelease: null,
-        notes: null,
-      },
-    });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_update_client_part_request", {
-      p_job_id: "job-1",
-      p_requested_service_kinds: ["manufacturing_quote"],
-      p_primary_service_kind: "manufacturing_quote",
-      p_service_notes: "Need this fast",
-      p_description: "Bracket",
-      p_part_number: "1093-05589",
-      p_revision: "A",
-      p_material: "6061 aluminum",
-      p_finish: "Clear anodize",
-      p_tightest_tolerance_inch: 0.005,
-      p_process: "CNC milling",
-      p_notes: "Deburr all edges",
-      p_quantity: 10,
-      p_requested_quote_quantities: [10, 25],
-      p_requested_by_date: null,
-      p_shipping: {
-        requestedByDateOverride: null,
-        packagingNotes: "Boxed",
-        shippingNotes: null,
-      },
-      p_certifications: {
-        requiredCertifications: [],
-        materialCertificationRequired: true,
-        certificateOfConformanceRequired: null,
-        inspectionLevel: null,
-        notes: null,
-      },
-      p_sourcing: {
-        regionPreferenceOverride: null,
-        preferredSuppliers: ["xometry"],
-        materialProvisioning: null,
-        notes: null,
-      },
-      p_release: {
-        releaseStatus: null,
-        reviewDisposition: null,
-        quoteBlockedUntilRelease: null,
-        notes: null,
-      },
-    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(
+      1,
+      "api_update_client_part_request",
+      buildExpectedClientPartRequestRpcArgs(requestUpdate, true),
+    );
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(
+      2,
+      "api_update_client_part_request",
+      buildExpectedClientPartRequestRpcArgs(requestUpdate, false),
+    );
   });
 
   it("creates upload drafts from file stems and reuses parsed request metadata for each upload group", async () => {

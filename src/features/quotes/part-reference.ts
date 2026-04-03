@@ -1,5 +1,8 @@
 import type { JobPartSummary } from "@/features/quotes/types";
 
+const FILE_REFERENCE_PATTERN = /^(\d{4}-\d{5})(?:[-_\s]?([A-Za-z0-9]+))?$/;
+const TITLE_REFERENCE_PATTERN = /^(\d{4}-\d{5})(?:\s+rev(?:ision)?\s+([A-Za-z0-9]+))?/i;
+
 export function parsePartReference(
   value: string | null | undefined,
 ): Pick<JobPartSummary, "partNumber" | "revision"> | null {
@@ -9,7 +12,7 @@ export function parsePartReference(
 
   const normalizedValue = value.trim();
 
-  const fileMatch = normalizedValue.match(/^(\d{4}-\d{5})(?:[-_\s]?([A-Za-z0-9]+))?$/);
+  const fileMatch = FILE_REFERENCE_PATTERN.exec(normalizedValue);
   if (fileMatch) {
     return {
       partNumber: fileMatch[1] ?? null,
@@ -17,7 +20,7 @@ export function parsePartReference(
     };
   }
 
-  const titleMatch = normalizedValue.match(/^(\d{4}-\d{5})(?:\s+rev(?:ision)?\s+([A-Za-z0-9]+))?/i);
+  const titleMatch = TITLE_REFERENCE_PATTERN.exec(normalizedValue);
   if (titleMatch) {
     return {
       partNumber: titleMatch[1] ?? null,
