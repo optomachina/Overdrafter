@@ -212,14 +212,17 @@ function QuoteComparisonTable({
   activePreset,
   onToggleVendorExclusion,
 }: {
-  options: readonly ClientQuoteSelectionOption[];
-  selectedOption: ClientQuoteSelectionOption | null;
-  hoveredKey: string | null;
-  onSelect: (option: ClientQuoteSelectionOption) => void;
-  onHover: (key: string | null) => void;
-  requestedByDate: string | null;
-  activePreset: QuotePreset | null;
-  onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
+  readonly options: readonly ClientQuoteSelectionOption[];
+  readonly selectedOption: ClientQuoteSelectionOption | null;
+  readonly hoveredKey: string | null;
+  readonly onSelect: (option: ClientQuoteSelectionOption) => void;
+  readonly onHover: (key: string | null) => void;
+  readonly requestedByDate: string | null;
+  readonly activePreset: QuotePreset | null;
+  readonly onToggleVendorExclusion?: (
+    vendorKey: ClientQuoteSelectionOption["vendorKey"],
+    nextExcluded: boolean,
+  ) => void;
 }) {
   return (
     <div className="rounded-2xl border border-white/8 bg-black/20 p-2">
@@ -341,14 +344,17 @@ function QuoteComparisonCards({
   activePreset,
   onToggleVendorExclusion,
 }: {
-  options: readonly ClientQuoteSelectionOption[];
-  selectedOption: ClientQuoteSelectionOption | null;
-  hoveredKey: string | null;
-  onSelect: (option: ClientQuoteSelectionOption) => void;
-  onHover: (key: string | null) => void;
-  requestedByDate: string | null;
-  activePreset: QuotePreset | null;
-  onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
+  readonly options: readonly ClientQuoteSelectionOption[];
+  readonly selectedOption: ClientQuoteSelectionOption | null;
+  readonly hoveredKey: string | null;
+  readonly onSelect: (option: ClientQuoteSelectionOption) => void;
+  readonly onHover: (key: string | null) => void;
+  readonly requestedByDate: string | null;
+  readonly activePreset: QuotePreset | null;
+  readonly onToggleVendorExclusion?: (
+    vendorKey: ClientQuoteSelectionOption["vendorKey"],
+    nextExcluded: boolean,
+  ) => void;
 }) {
   return (
     <div className="space-y-2">
@@ -452,6 +458,117 @@ function QuoteComparisonCards({
   );
 }
 
+function renderQuoteContent({
+  quoteDataStatus,
+  quoteDataMessage,
+  quoteDiagnostics,
+  emptyState,
+  options,
+  selectedOption,
+  hoveredKey,
+  partId,
+  organizationId,
+  onSelect,
+  onHover,
+  layout,
+  requestedByDate,
+  activePreset,
+  onToggleVendorExclusion,
+}: {
+  readonly quoteDataStatus: QuoteDataStatus;
+  readonly quoteDataMessage: string | null;
+  readonly quoteDiagnostics: QuoteDiagnostics | null;
+  readonly emptyState: string;
+  readonly options: readonly ClientQuoteSelectionOption[];
+  readonly selectedOption: ClientQuoteSelectionOption | null;
+  readonly hoveredKey: string | null;
+  readonly partId: string | null;
+  readonly organizationId: string | null;
+  readonly onSelect: (option: ClientQuoteSelectionOption) => void;
+  readonly onHover: (key: string | null) => void;
+  readonly layout: "full" | "compact";
+  readonly requestedByDate: string | null;
+  readonly activePreset: QuotePreset | null;
+  readonly onToggleVendorExclusion?: (
+    vendorKey: ClientQuoteSelectionOption["vendorKey"],
+    nextExcluded: boolean,
+  ) => void;
+}) {
+  if (quoteDataStatus === "schema_unavailable") {
+    return (
+      <QuoteDataStatusCard
+        icon={TriangleAlert}
+        title="Quote comparison is unavailable"
+        body={quoteDataMessage ?? "The quote workspace projection is unavailable in this environment."}
+      />
+    );
+  }
+
+  if (quoteDataStatus === "invalid_for_plotting") {
+    return (
+      <QuoteDataStatusCard
+        icon={TriangleAlert}
+        title="Quote rows were loaded but could not be plotted"
+        body={quoteDataMessage ?? "The quote rows for this part are missing required plotting fields."}
+        diagnostics={quoteDiagnostics}
+      />
+    );
+  }
+
+  if (options.length === 0) {
+    return <QuoteDataStatusCard icon={CircleOff} title="No quote options yet" body={emptyState} />;
+  }
+
+  const quoteList =
+    layout === "compact" ? (
+      <QuoteComparisonCards
+        options={options}
+        selectedOption={selectedOption}
+        hoveredKey={hoveredKey}
+        onSelect={onSelect}
+        onHover={onHover}
+        requestedByDate={requestedByDate}
+        activePreset={activePreset}
+        onToggleVendorExclusion={onToggleVendorExclusion}
+      />
+    ) : (
+      <QuoteComparisonTable
+        options={options}
+        selectedOption={selectedOption}
+        hoveredKey={hoveredKey}
+        onSelect={onSelect}
+        onHover={onHover}
+        requestedByDate={requestedByDate}
+        activePreset={activePreset}
+        onToggleVendorExclusion={onToggleVendorExclusion}
+      />
+    );
+
+  return (
+    <div className="mt-4 space-y-4">
+      <QuoteStatsBar options={options} />
+
+      {selectedOption ? <SelectedOptionBanner option={selectedOption} /> : null}
+
+      <div className="rounded-surface-lg border border-white/8 bg-black/20 p-4">
+        <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-white/5" />}>
+          <ClientQuoteComparisonChart
+            options={options}
+            selectedKey={selectedOption?.key ?? null}
+            hoveredKey={hoveredKey}
+            partId={partId}
+            organizationId={organizationId}
+            onSelect={onSelect}
+            onHover={onHover}
+          />
+        </Suspense>
+      </div>
+
+      {quoteList}
+    </div>
+  );
+}
+
 export function ClientQuoteDecisionPanel({
   title = "Quote intelligence",
   description = "Compare price and lead time as one decision surface, then commit the selected option from the same workspace.",
@@ -487,67 +604,23 @@ export function ClientQuoteDecisionPanel({
         onPresetSelect={onPresetSelect}
         vendorKeys={vendorKeys}
       />
-
-      {quoteDataStatus === "schema_unavailable" ? (
-        <QuoteDataStatusCard
-          icon={TriangleAlert}
-          title="Quote comparison is unavailable"
-          body={quoteDataMessage ?? "The quote workspace projection is unavailable in this environment."}
-        />
-      ) : quoteDataStatus === "invalid_for_plotting" ? (
-        <QuoteDataStatusCard
-          icon={TriangleAlert}
-          title="Quote rows were loaded but could not be plotted"
-          body={quoteDataMessage ?? "The quote rows for this part are missing required plotting fields."}
-          diagnostics={quoteDiagnostics}
-        />
-      ) : options.length === 0 ? (
-        <QuoteDataStatusCard icon={CircleOff} title="No quote options yet" body={emptyState} />
-      ) : (
-        <div className="mt-4 space-y-4">
-          <QuoteStatsBar options={options} />
-
-          {selectedOption ? <SelectedOptionBanner option={selectedOption} /> : null}
-
-          <div className="rounded-surface-lg border border-white/8 bg-black/20 p-4">
-            <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-white/5" />}>
-              <ClientQuoteComparisonChart
-                options={options}
-                selectedKey={selectedOption?.key ?? null}
-                hoveredKey={hoveredKey}
-                partId={partId}
-                organizationId={organizationId}
-                onSelect={onSelect}
-                onHover={setHoveredKey}
-              />
-            </Suspense>
-          </div>
-
-          {layout === "compact" ? (
-            <QuoteComparisonCards
-              options={options}
-              selectedOption={selectedOption}
-              hoveredKey={hoveredKey}
-              onSelect={onSelect}
-              onHover={setHoveredKey}
-              requestedByDate={requestedByDate}
-              activePreset={activePreset ?? null}
-              onToggleVendorExclusion={onToggleVendorExclusion}
-            />
-          ) : (
-            <QuoteComparisonTable
-              options={options}
-              selectedOption={selectedOption}
-              hoveredKey={hoveredKey}
-              onSelect={onSelect}
-              onHover={setHoveredKey}
-              requestedByDate={requestedByDate}
-              activePreset={activePreset ?? null}
-              onToggleVendorExclusion={onToggleVendorExclusion}
-            />
-          )}
-        </div>
-      )}
+      {renderQuoteContent({
+        quoteDataStatus,
+        quoteDataMessage,
+        quoteDiagnostics,
+        emptyState,
+        options,
+        selectedOption,
+        hoveredKey,
+        partId,
+        organizationId,
+        onSelect,
+        onHover: setHoveredKey,
+        layout,
+        requestedByDate,
+        activePreset,
+        onToggleVendorExclusion,
+      })}
     </section>
   );
 }
