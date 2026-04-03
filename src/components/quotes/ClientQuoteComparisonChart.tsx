@@ -29,6 +29,10 @@ type ChartPoint = {
   x: number;
   y: number;
   r: number;
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
+  fillOpacity: number;
   key: string;
   vendorKey: VendorName;
   label: string;
@@ -82,6 +86,9 @@ function buildChartData(
   let naIndex = 0;
   const points = options.map((option): ChartPoint => {
     const hasLeadTime = option.leadTimeBusinessDays !== null && option.leadTimeBusinessDays > 0;
+    const selected = selectedKey === option.key;
+    const hovered = hoveredKey === option.key;
+    const disabled = !option.eligible;
     let xValue: number;
     let isNaZone = false;
 
@@ -97,6 +104,14 @@ function buildChartData(
       x: xValue,
       y: option.unitPriceUsd,
       r: computeBubbleRadius(option.totalPriceUsd, minTotal, maxTotal),
+      fill: getVendorColor(option.vendorKey),
+      stroke: selected
+        ? "#ffffff"
+        : hovered
+          ? "rgba(255,255,255,0.65)"
+          : "rgba(255,255,255,0.3)",
+      strokeWidth: selected ? 3 : hovered ? 2 : 1,
+      fillOpacity: selected ? 1 : hovered ? 0.9 : disabled ? 0.35 : 0.8,
       key: option.key,
       vendorKey: option.vendorKey,
       label: `${option.supplier}${option.tier ? ` · ${option.tier}` : ""}`,
@@ -108,9 +123,9 @@ function buildChartData(
       leadTimeDays: option.leadTimeBusinessDays,
       process: option.process,
       material: option.material,
-      selected: selectedKey === option.key,
-      hovered: hoveredKey === option.key,
-      disabled: !option.eligible,
+      selected,
+      hovered,
+      disabled,
       isNaZone,
       option,
     };
@@ -172,13 +187,13 @@ function VendorScatterShape({ cx, cy, payload, onSelect, onHover }: VendorScatte
   const baseRadius = payload.r;
   const isActive = payload.selected || payload.hovered;
   const radius = isActive ? baseRadius + 2 : baseRadius;
-  const color = getVendorColor(payload.vendorKey);
-  const opacity = payload.disabled ? 0.25 : isActive ? 1 : 0.8;
-  let strokeColor = "rgba(255,255,255,0.18)";
+  const color = payload.fill;
+  const opacity = payload.disabled ? 0.25 : isActive ? 1 : payload.fillOpacity;
+  let strokeColor = payload.stroke;
   if (payload.selected) {
     strokeColor = "#ffffff";
   } else if (isActive) {
-    strokeColor = "rgba(255,255,255,0.5)";
+    strokeColor = "rgba(255,255,255,0.65)";
   }
   const strokeWidth = payload.selected ? 2.5 : isActive ? 1.5 : 1;
 
@@ -191,6 +206,7 @@ function VendorScatterShape({ cx, cy, payload, onSelect, onHover }: VendorScatte
       fillOpacity={opacity}
       stroke={strokeColor}
       strokeWidth={strokeWidth}
+      style={{ fill: color }}
       className="cursor-pointer transition-all duration-150"
       onClick={() => {
         if (payload.option.isSelectable && !payload.disabled) {
@@ -320,7 +336,14 @@ export function ClientQuoteComparisonChart({
             key={vendorKey}
             name={vendorKey}
             data={pointsByVendor.get(vendorKey) ?? []}
-            shape={<VendorScatterShape onSelect={onSelect} onHover={onHover} />}
+            fill={getVendorColor(vendorKey)}
+            shape={(props) => (
+              <VendorScatterShape
+                {...props}
+                onSelect={onSelect}
+                onHover={onHover}
+              />
+            )}
           />
         ))}
       </ScatterChart>

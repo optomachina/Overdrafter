@@ -1,3 +1,4 @@
+import { parsePartReference } from "@/features/quotes/part-reference";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
 
 export function matchesClientJobSearch(job: JobRecord, searchTerm: string) {
@@ -16,16 +17,7 @@ export function matchesClientJobSearch(job: JobRecord, searchTerm: string) {
 export function parsePartReferenceFromTitle(
   title: string,
 ): Pick<JobPartSummary, "partNumber" | "revision"> | null {
-  const match = title.trim().match(/^(\d{4}-\d{5})(?:\s+rev(?:ision)?\s+([A-Za-z0-9]+))?/i);
-
-  if (!match) {
-    return null;
-  }
-
-  return {
-    partNumber: match[1] ?? null,
-    revision: match[2] ?? null,
-  };
+  return parsePartReference(title);
 }
 
 export function formatPartLabel(
@@ -52,7 +44,7 @@ export function getClientItemPresentation(
 } {
   const titleReference = parsePartReferenceFromTitle(job.title);
   const partNumber = partSummary?.partNumber ?? titleReference?.partNumber ?? null;
-  const revision = partSummary?.revision ?? titleReference?.revision ?? null;
+  const revision = partSummary?.revision ?? null;
   const title = formatPartLabel(partNumber, revision, job.title);
   const description = partSummary?.description ?? job.description ?? "No description provided.";
 

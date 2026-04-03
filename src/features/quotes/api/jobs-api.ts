@@ -34,6 +34,7 @@ import type {
 } from "@/integrations/supabase/types";
 import type { PostgrestSingleResponse } from "@supabase/supabase-js";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
+import { parsePartReference } from "@/features/quotes/part-reference";
 import { normalizeRequestedQuoteQuantities } from "@/features/quotes/request-intake";
 import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
 import { normalizeClientPartMetadata } from "@/features/quotes/utils";
@@ -128,32 +129,6 @@ type CreateClientDraftRpcInput = {
   requestedQuoteQuantities?: number[];
   requestedByDate?: string | null;
 };
-
-function parsePartReference(value: string | null | undefined): Pick<JobPartSummary, "partNumber" | "revision"> | null {
-  if (!value) {
-    return null;
-  }
-
-  const normalizedValue = value.trim();
-
-  const fileMatch = normalizedValue.match(/^(\d{4}-\d{5})(?:[-_\s]?([A-Za-z0-9]+))?$/);
-  if (fileMatch) {
-    return {
-      partNumber: fileMatch[1] ?? null,
-      revision: fileMatch[2] ?? null,
-    };
-  }
-
-  const titleMatch = normalizedValue.match(/^(\d{4}-\d{5})(?:\s+rev(?:ision)?\s+([A-Za-z0-9]+))?/i);
-  if (titleMatch) {
-    return {
-      partNumber: titleMatch[1] ?? null,
-      revision: titleMatch[2] ?? null,
-    };
-  }
-
-  return null;
-}
 
 function buildJobPartSummaryFromMetadata(
   input: {
@@ -1245,7 +1220,7 @@ export async function updateClientPartRequest(input: ClientPartRequestUpdateInpu
     return fixtureGateway.updateClientPartRequest(input);
   }
 
-  const { data, error } = await callRpc("api_update_client_part_request", {
+  const currentArgs = {
     p_job_id: input.jobId,
     p_requested_service_kinds: input.requestedServiceKinds,
     p_primary_service_kind: input.primaryServiceKind ?? null,
@@ -1266,7 +1241,47 @@ export async function updateClientPartRequest(input: ClientPartRequestUpdateInpu
     p_certifications: input.certifications,
     p_sourcing: input.sourcing,
     p_release: input.release,
-  });
+  };
+  const { data, error } = await callRpc("api_update_client_part_request", currentArgs);
+
+  if (error && isMissingFunctionError(error, "api_update_client_part_request")) {
+    const legacyArgs = {
+      p_job_id: input.jobId,
+      p_requested_service_kinds: input.requestedServiceKinds,
+      p_primary_service_kind: input.primaryServiceKind ?? null,
+      p_service_notes: input.serviceNotes ?? null,
+      p_description: input.description ?? null,
+      p_part_number: input.partNumber ?? null,
+      p_revision: input.revision ?? null,
+      p_material: input.material,
+      p_finish: input.finish ?? null,
+      p_tightest_tolerance_inch: input.tightestToleranceInch ?? null,
+      p_process: input.process ?? null,
+      p_notes: input.notes ?? null,
+      p_quantity: input.quantity,
+      p_requested_quote_quantities: input.requestedQuoteQuantities,
+      p_requested_by_date: input.requestedByDate ?? null,
+      p_shipping: input.shipping,
+      p_certifications: input.certifications,
+      p_sourcing: input.sourcing,
+      p_release: input.release,
+    };
+    const legacyResponse = await callRpc("api_update_client_part_request", legacyArgs);
+
+    if (legacyResponse.error) {
+      if (isMissingClientIntakeSchemaError(legacyResponse.error)) {
+        throw toClientIntakeCompatibilityError(legacyResponse.error);
+      }
+
+      throw legacyResponse.error;
+    }
+
+    return ensureData(legacyResponse.data, legacyResponse.error);
+  }
+
+  if (isMissingClientIntakeSchemaError(error)) {
+    throw toClientIntakeCompatibilityError(error);
+  }
 
   return ensureData(data, error);
 }

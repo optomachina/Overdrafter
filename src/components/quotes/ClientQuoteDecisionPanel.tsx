@@ -55,6 +55,17 @@ type ClientQuoteDecisionPanelProps = {
   className?: string;
 };
 
+function formatEstimatedDeliveryDays(
+  leadTimeBusinessDays: number | null | undefined,
+  resolvedDeliveryDate: string | null | undefined,
+): string {
+  if (leadTimeBusinessDays || leadTimeBusinessDays === 0) {
+    return `${leadTimeBusinessDays} day${leadTimeBusinessDays === 1 ? "" : "s"}`;
+  }
+
+  return resolvedDeliveryDate ?? "Pending";
+}
+
 function QuoteDataStatusCard({
   icon: Icon,
   title,
@@ -218,7 +229,7 @@ function QuoteComparisonTable({
             <TableHead className="text-[11px] text-white/45">Lane / Sourcing</TableHead>
             <TableHead className="text-right text-[11px] text-white/45">Unit</TableHead>
             <TableHead className="text-right text-[11px] text-white/45">Total</TableHead>
-            <TableHead className="text-right text-[11px] text-white/45">Lead</TableHead>
+            <TableHead className="text-right text-[11px] text-white/45">Estimated Delivery</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -308,7 +319,7 @@ function QuoteComparisonTable({
                   ) : null}
                 </TableCell>
                 <TableCell className="py-2.5 text-right text-sm tabular-nums text-white/65">
-                  {option.resolvedDeliveryDate ?? formatLeadTime(option.leadTimeBusinessDays)}
+                  {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
                 </TableCell>
               </TableRow>
             );

@@ -22,6 +22,7 @@ import type {
   RequirementFieldResolution,
 } from "@/features/quotes/types";
 import type { ClientOptionKind, Json, VendorName } from "@/integrations/supabase/types";
+import { normalizeImportedPartNumber } from "@/features/quotes/part-reference";
 import { readRfqLineItemExtendedMetadata } from "@/features/quotes/rfq-metadata";
 import {
   formatRequestedQuoteQuantitiesInput,
@@ -728,7 +729,9 @@ export function normalizeClientPartMetadata(
     organizationId,
     requirement: {
       description: typeof payload.description === "string" ? payload.description : null,
-      partNumber: typeof payload.partNumber === "string" ? payload.partNumber : null,
+      partNumber: normalizeImportedPartNumber(
+        typeof payload.partNumber === "string" ? payload.partNumber : null,
+      ),
       revision: typeof payload.revision === "string" ? payload.revision : null,
       quoteDescription: typeof payload.quoteDescription === "string" ? payload.quoteDescription : null,
       material: typeof payload.material === "string" ? payload.material : "",

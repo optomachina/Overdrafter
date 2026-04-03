@@ -274,6 +274,24 @@ describe("quotes utils", () => {
     });
   });
 
+  it("normalizes imported part numbers without turning embedded revisions into explicit revision fields", () => {
+    const metadata = normalizeClientPartMetadata({
+      partId: "part-1",
+      jobId: "job-1",
+      organizationId: "org-1",
+      partNumber: "1093-05589 rev 2",
+      revision: null,
+      quantity: 1,
+    });
+
+    expect(metadata).toMatchObject({
+      requirement: {
+        partNumber: "1093-05589",
+        revision: null,
+      },
+    });
+  });
+
   it("builds requirement drafts from extraction data and excludes SendCutSend for tight tolerances", () => {
     const part = makePartAggregate({
       extraction: makeExtractionRecord({

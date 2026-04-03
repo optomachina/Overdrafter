@@ -5,6 +5,7 @@ import type { MouseEvent, PropsWithChildren, ReactElement, ReactNode, SVGProps }
 import { describe, expect, it, vi } from "vitest";
 import { ClientQuoteComparisonChart } from "./ClientQuoteComparisonChart";
 import { makeClientQuoteOption } from "./test-option-factory";
+import { getVendorColor } from "@/features/quotes/vendor-colors";
 
 type ShapeProps = {
   readonly cx: number;
@@ -224,5 +225,30 @@ describe("ClientQuoteComparisonChart", () => {
 
     fireEvent.mouseLeave(screen.getByTestId("point-option-hover"));
     expect(onHover).toHaveBeenLastCalledWith(null);
+  });
+
+  it("renders vendor-colored bubbles with an explicit fill style for dark backgrounds", () => {
+    const option = makeClientQuoteOption({
+      key: "option-color",
+      vendorKey: "xometry",
+      vendorLabel: "Xometry",
+      supplier: "Xometry",
+    });
+
+    render(
+      <ClientQuoteComparisonChart
+        options={[option]}
+        selectedKey={null}
+        hoveredKey={null}
+        onSelect={vi.fn()}
+        onHover={vi.fn()}
+      />,
+    );
+
+    const bubble = screen.getByTestId("point-option-color").querySelector("circle");
+
+    expect(bubble).not.toBeNull();
+    expect(bubble).toHaveAttribute("fill", getVendorColor("xometry"));
+    expect(bubble).toHaveStyle({ fill: getVendorColor("xometry") });
   });
 });

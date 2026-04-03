@@ -10,9 +10,11 @@ import { makeClientQuoteOption } from "./test-option-factory";
 vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
   ClientQuoteComparisonChart: ({
     options,
+    selectedKey,
     onSelect,
   }: {
     options: readonly ClientQuoteSelectionOption[];
+    selectedKey: string | null;
     onSelect: (option: ClientQuoteSelectionOption) => void;
   }) => (
     <div>
@@ -27,6 +29,7 @@ vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
       >
         Quote Chart Select
       </button>
+      <div data-testid="quote-chart-selected-key">{selectedKey ?? "none"}</div>
       <div>Quote Chart</div>
     </div>
   ),
@@ -127,6 +130,63 @@ describe("ClientQuoteDecisionPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Quote Chart Select" }));
 
     expect(screen.getByText("Qty 25")).toBeInTheDocument();
+  });
+
+  it("syncs chart selection state when a table row is clicked", async () => {
+    const first = makeClientQuoteOption();
+    const second = makeClientQuoteOption({
+      key: "option-2",
+      offerId: "offer-2",
+      persistedOfferId: "offer-2",
+      vendorQuoteResultId: "result-2",
+      vendorLabel: "Proto Labs",
+      supplier: "Proto Labs",
+      totalPriceUsd: 160,
+      requestedQuantity: 25,
+    });
+
+    function SelectionHarness() {
+      const [selected, setSelected] = useState<ClientQuoteSelectionOption | null>(first);
+
+      return (
+        <ClientQuoteDecisionPanel
+          options={[first, second]}
+          selectedOption={selected}
+          onSelect={setSelected}
+          requestedByDate="2026-04-15"
+        />
+      );
+    }
+
+    render(<SelectionHarness />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("quote-chart-selected-key")).toHaveTextContent(first.key);
+
+    fireEvent.click(screen.getByText("Proto Labs"));
+
+    expect(screen.getByTestId("quote-chart-selected-key")).toHaveTextContent(second.key);
+  });
+
+  it("renders estimated delivery in days in the comparison table", async () => {
+    render(
+      <ClientQuoteDecisionPanel
+        options={[makeClientQuoteOption({ leadTimeBusinessDays: 7, resolvedDeliveryDate: "2026-04-10" })]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate="2026-04-15"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("columnheader", { name: "Estimated Delivery" })).toBeInTheDocument();
+    expect(screen.getAllByText("7 days")).toHaveLength(2);
+    expect(screen.queryByText("7 business days")).not.toBeInTheDocument();
   });
 
   it("renders a stable empty state when quote data is absent", () => {

@@ -7,7 +7,6 @@ import {
   FolderPlus,
   ListFilter,
   PenLine,
-  Pin,
   PlusSquare,
   Search,
   Shapes,
@@ -1029,7 +1028,7 @@ export function WorkspaceSidebar({
             </div>
             {isPinned ? (
               <div className="flex items-center gap-2">
-                <Pin className="h-3.5 w-3.5 fill-current text-white/[0.72]" />
+                <Star className="h-3.5 w-3.5 fill-current text-white/[0.72]" />
               </div>
             ) : null}
           </div>
@@ -1223,7 +1222,7 @@ export function WorkspaceSidebar({
               </div>
               {isPinned ? (
                 <div className="flex items-center gap-2">
-                  <Pin className="h-3.5 w-3.5 fill-current text-white/[0.72]" />
+                  <Star className="h-3.5 w-3.5 fill-current text-white/[0.72]" />
                 </div>
               ) : null}
             </div>
