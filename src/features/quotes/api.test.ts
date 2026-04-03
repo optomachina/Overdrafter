@@ -3007,35 +3007,49 @@ describe("quotes api helpers", () => {
 
   it("retries client part request updates without p_threads when the schema cache still exposes the legacy RPC signature", async () => {
     const requestUpdate = makeClientPartRequestUpdateInput();
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
-    supabaseMock.rpc
-      .mockResolvedValueOnce({
-        data: null,
-        error: {
-          code: "PGRST202",
-          message:
-            "Could not find the function public.api_update_client_part_request(p_certifications, p_description, p_finish, p_job_id, p_material, p_notes, p_part_number, p_primary_service_kind, p_process, p_quantity, p_release, p_requested_by_date, p_requested_quote_quantities, p_requested_service_kinds, p_revision, p_service_notes, p_shipping, p_sourcing, p_threads, p_tightest_tolerance_inch) in the schema cache",
-          details: null,
-          hint: null,
-        },
-      })
-      .mockResolvedValueOnce({
-        data: "job-1",
-        error: null,
-      });
+    try {
+      supabaseMock.rpc
+        .mockResolvedValueOnce({
+          data: null,
+          error: {
+            code: "PGRST202",
+            message:
+              "Could not find the function public.api_update_client_part_request(p_certifications, p_description, p_finish, p_job_id, p_material, p_notes, p_part_number, p_primary_service_kind, p_process, p_quantity, p_release, p_requested_by_date, p_requested_quote_quantities, p_requested_service_kinds, p_revision, p_service_notes, p_shipping, p_sourcing, p_threads, p_tightest_tolerance_inch) in the schema cache",
+            details: null,
+            hint: null,
+          },
+        })
+        .mockResolvedValueOnce({
+          data: "job-1",
+          error: null,
+        });
 
-    await expect(updateClientPartRequest(requestUpdate)).resolves.toBe("job-1");
+      await expect(updateClientPartRequest(requestUpdate)).resolves.toBe("job-1");
 
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(
-      1,
-      "api_update_client_part_request",
-      buildExpectedClientPartRequestRpcArgs(requestUpdate, true),
-    );
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(
-      2,
-      "api_update_client_part_request",
-      buildExpectedClientPartRequestRpcArgs(requestUpdate, false),
-    );
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        "updateClientPartRequest: falling back to legacy RPC signature",
+        expect.objectContaining({
+          jobId: "job-1",
+          partNumber: "1093-05589",
+          requestedServiceKinds: ["manufacturing_quote"],
+          functionName: "api_update_client_part_request",
+        }),
+      );
+      expect(supabaseMock.rpc).toHaveBeenNthCalledWith(
+        1,
+        "api_update_client_part_request",
+        buildExpectedClientPartRequestRpcArgs(requestUpdate, true),
+      );
+      expect(supabaseMock.rpc).toHaveBeenNthCalledWith(
+        2,
+        "api_update_client_part_request",
+        buildExpectedClientPartRequestRpcArgs(requestUpdate, false),
+      );
+    } finally {
+      consoleWarnSpy.mockRestore();
+    }
   });
 
   it("creates upload drafts from file stems and reuses parsed request metadata for each upload group", async () => {

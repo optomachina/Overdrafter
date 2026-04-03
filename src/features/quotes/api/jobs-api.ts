@@ -1266,6 +1266,12 @@ export async function updateClientPartRequest(input: ClientPartRequestUpdateInpu
       p_sourcing: input.sourcing,
       p_release: input.release,
     };
+    console.warn("updateClientPartRequest: falling back to legacy RPC signature", {
+      jobId: input.jobId,
+      partNumber: input.partNumber ?? null,
+      requestedServiceKinds: input.requestedServiceKinds,
+      functionName: "api_update_client_part_request",
+    });
     const legacyResponse = await callRpc("api_update_client_part_request", legacyArgs);
 
     if (legacyResponse.error) {

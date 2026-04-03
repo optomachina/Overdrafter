@@ -113,7 +113,7 @@ function getPointPosition(
   naZoneStart: number,
   naIndex: number,
 ) {
-  const hasLeadTime = option.leadTimeBusinessDays !== null && option.leadTimeBusinessDays > 0;
+  const hasLeadTime = option.leadTimeBusinessDays !== null && option.leadTimeBusinessDays >= 0;
   if (hasLeadTime) {
     return {
       x: option.leadTimeBusinessDays,
@@ -184,7 +184,7 @@ function buildChartData(
 
   const leadTimes = options
     .map((o) => o.leadTimeBusinessDays)
-    .filter((v): v is number => v !== null && v > 0);
+    .filter((v): v is number => v !== null && v >= 0);
   const maxLeadTime = leadTimes.length > 0 ? Math.max(...leadTimes) : 20;
   const naZoneStart = maxLeadTime + NA_ZONE_PADDING;
 
@@ -260,9 +260,9 @@ function VendorScatterShape({ cx, cy, payload, onSelect, onHover }: VendorScatte
   const isActive = payload.selected || payload.hovered;
   const radius = isActive ? baseRadius + 2 : baseRadius;
   const color = payload.fill;
-  const opacity = payload.disabled ? 0.25 : isActive ? 1 : payload.fillOpacity;
-  const strokeColor = isActive ? "rgba(255,255,255,0.65)" : payload.stroke;
-  const strokeWidth = payload.selected ? 2.5 : payload.hovered ? 1.5 : 1;
+  const opacity = payload.fillOpacity;
+  const strokeColor = payload.stroke;
+  const strokeWidth = payload.strokeWidth;
 
   return (
     <circle

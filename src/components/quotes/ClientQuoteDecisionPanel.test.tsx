@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
@@ -74,8 +74,8 @@ function SelectionHarness({
   first,
   second,
 }: {
-  first: ClientQuoteSelectionOption;
-  second: ClientQuoteSelectionOption;
+  readonly first: ClientQuoteSelectionOption;
+  readonly second: ClientQuoteSelectionOption;
 }) {
   const [selected, setSelected] = useState<ClientQuoteSelectionOption | null>(first);
 
@@ -163,8 +163,11 @@ describe("ClientQuoteDecisionPanel", () => {
       expect(screen.getByText("Quote Chart")).toBeInTheDocument();
     });
 
+    const table = screen.getByRole("columnheader", { name: "Estimated Delivery" }).closest("table");
+
+    expect(table).not.toBeNull();
     expect(screen.getByRole("columnheader", { name: "Estimated Delivery" })).toBeInTheDocument();
-    expect(screen.getAllByText("7 days")).toHaveLength(2);
+    expect(within(table as HTMLTableElement).getByText("7 days")).toBeInTheDocument();
     expect(screen.queryByText("7 business days")).not.toBeInTheDocument();
   });
 

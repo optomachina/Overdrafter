@@ -251,4 +251,26 @@ describe("ClientQuoteComparisonChart", () => {
     expect(bubble).toHaveAttribute("fill", getVendorColor("xometry"));
     expect(bubble).toHaveStyle({ fill: getVendorColor("xometry") });
   });
+
+  it("plots zero-day quotes on the lead-time axis instead of the N/A lane", () => {
+    render(
+      <ClientQuoteComparisonChart
+        options={[
+          makeClientQuoteOption({
+            key: "option-zero-day",
+            leadTimeBusinessDays: 0,
+          }),
+        ]}
+        selectedKey={null}
+        hoveredKey={null}
+        onSelect={vi.fn()}
+        onHover={vi.fn()}
+      />,
+    );
+
+    const bubble = screen.getByTestId("point-option-zero-day").querySelector("circle");
+
+    expect(bubble).not.toBeNull();
+    expect(bubble).toHaveAttribute("cx", "20");
+  });
 });

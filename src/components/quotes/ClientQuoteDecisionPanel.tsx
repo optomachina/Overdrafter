@@ -29,7 +29,7 @@ import type {
 } from "@/features/quotes/selection";
 import { formatQuotePlotExclusionReason } from "@/features/quotes/selection";
 import type { QuoteDataStatus, QuoteDiagnostics } from "@/features/quotes/types";
-import { formatCurrency, formatLeadTime } from "@/features/quotes/utils";
+import { formatCurrency } from "@/features/quotes/utils";
 import { getVendorColor } from "@/features/quotes/vendor-colors";
 import { cn } from "@/lib/utils";
 
@@ -183,7 +183,8 @@ function SelectedOptionBanner({ option }: { option: ClientQuoteSelectionOption }
           />
           <p className="text-base font-semibold text-white">{option.vendorLabel}</p>
           <p className="text-sm text-emerald-100/85">
-            {formatCurrency(option.totalPriceUsd)} total · {option.resolvedDeliveryDate ?? formatLeadTime(option.leadTimeBusinessDays)}
+            {formatCurrency(option.totalPriceUsd)} total · {" "}
+            {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -417,7 +418,9 @@ function QuoteComparisonCards({
 
               <div className="shrink-0 text-right">
                 <p className="text-base font-semibold text-white">{formatCurrency(option.totalPriceUsd)}</p>
-                <p className="mt-1 text-xs text-white/55">{option.resolvedDeliveryDate ?? formatLeadTime(option.leadTimeBusinessDays)}</p>
+                <p className="mt-1 text-xs text-white/55">
+                  {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
+                </p>
                 <p className="mt-1 text-[11px] text-white/40">Unit {formatCurrency(option.unitPriceUsd)}</p>
               </div>
             </div>
