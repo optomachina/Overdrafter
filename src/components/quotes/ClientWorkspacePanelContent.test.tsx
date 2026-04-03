@@ -1,11 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { ClientQuoteRequestStatusCard } from "@/components/quotes/ClientWorkspacePanelContent";
-
-vi.mock("@/components/quotes/ClientWorkspaceStateSummary", () => ({
-  ClientWorkspaceToneBadge: ({ label }: { label: string }) => <span>{label}</span>,
-}));
 
 describe("ClientQuoteRequestStatusCard", () => {
   it("renders request status text inside a polite live region", () => {
@@ -108,5 +104,25 @@ describe("ClientQuoteRequestStatusCard", () => {
     );
 
     expect(screen.getByRole("button", { name: "Cancel request" })).toBeEnabled();
+  });
+
+  it.each([
+    ["not_requested", "Quote Not requested", ["border-white/10", "bg-white/6", "text-white/70"]],
+    ["queued", "Quote Queued", ["border-amber-400/20", "bg-amber-500/10", "text-amber-100"]],
+    ["requesting", "Quote Requesting", ["border-amber-400/20", "bg-amber-500/10", "text-amber-100"]],
+    ["received", "Quote Quoted", ["border-emerald-400/20", "bg-emerald-500/10", "text-emerald-100"]],
+    ["failed", "Quote Failed", ["border-rose-400/20", "bg-rose-500/10", "text-rose-100"]],
+    ["canceled", "Quote Canceled", ["border-rose-400/20", "bg-rose-500/10", "text-rose-100"]],
+  ] as const)("renders %s with the shared badge mapping", (status, badgeLabel, classes) => {
+    render(
+      <ClientQuoteRequestStatusCard
+        status={status}
+        tone="blocked"
+        label={badgeLabel.replace(/^Quote /, "")}
+        detail="Status detail."
+      />,
+    );
+
+    expect(screen.getByText(badgeLabel)).toHaveClass(...classes);
   });
 });
