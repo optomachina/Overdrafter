@@ -53,6 +53,8 @@ type ChartPoint = {
   option: ClientQuoteSelectionOption;
 };
 
+type DecoratedChartPoint = ChartPoint;
+
 const MIN_RADIUS = 6;
 const MAX_RADIUS = 22;
 const NA_ZONE_PADDING = 3;
@@ -68,6 +70,35 @@ function computeBubbleRadius(
   }
   const ratio = (totalPrice - minPrice) / (maxPrice - minPrice);
   return MIN_RADIUS + Math.sqrt(ratio) * (MAX_RADIUS - MIN_RADIUS);
+}
+
+function decorateChartPointVisuals(point: ChartPoint): DecoratedChartPoint {
+  const isActive = point.selected || point.hovered;
+  const radius = isActive ? point.r + 2 : point.r;
+  const fillOpacity = point.disabled ? 0.25 : isActive ? 1 : 0.8;
+
+  let stroke = "rgba(255,255,255,0.18)";
+  if (point.selected) {
+    stroke = "#ffffff";
+  } else if (isActive) {
+    stroke = "rgba(255,255,255,0.5)";
+  }
+
+  let strokeWidth = 1;
+  if (point.selected) {
+    strokeWidth = 2.5;
+  } else if (isActive) {
+    strokeWidth = 1.5;
+  }
+
+  return {
+    ...point,
+    size: Math.PI * radius * radius,
+    fill: getVendorColor(point.vendorKey),
+    fillOpacity,
+    stroke,
+    strokeWidth,
+  };
 }
 
 function buildChartData(
@@ -86,67 +117,48 @@ function buildChartData(
   const naZoneStart = maxLeadTime + NA_ZONE_PADDING;
 
   let naIndex = 0;
-  const points = options.map((option): ChartPoint => {
-    const hasLeadTime = option.leadTimeBusinessDays !== null && option.leadTimeBusinessDays > 0;
-    let xValue: number;
-    let isNaZone = false;
+  const points = options
+    .map((option): ChartPoint => {
+      const hasLeadTime = option.leadTimeBusinessDays !== null && option.leadTimeBusinessDays > 0;
+      let xValue: number;
+      let isNaZone = false;
 
-    if (hasLeadTime) {
-      xValue = option.leadTimeBusinessDays!;
-    } else {
-      isNaZone = true;
-      xValue = naZoneStart + 1 + (naIndex % 4) * 1.5 + (naIndex >= 4 ? 0.75 : 0);
-      naIndex += 1;
-    }
+      if (hasLeadTime) {
+        xValue = option.leadTimeBusinessDays!;
+      } else {
+        isNaZone = true;
+        xValue = naZoneStart + 1 + (naIndex % 4) * 1.5 + (naIndex >= 4 ? 0.75 : 0);
+        naIndex += 1;
+      }
 
-    return {
-      x: xValue,
-      y: option.unitPriceUsd,
-      r: computeBubbleRadius(option.totalPriceUsd, minTotal, maxTotal),
-      key: option.key,
-      vendorKey: option.vendorKey,
-      label: `${option.supplier}${option.tier ? ` · ${option.tier}` : ""}`,
-      supplier: option.supplier,
-      tier: option.tier,
-      sourcing: option.sourcing,
-      unitPrice: option.unitPriceUsd,
-      totalPrice: option.totalPriceUsd,
-      leadTimeDays: option.leadTimeBusinessDays,
-      process: option.process,
-      material: option.material,
-      selected: selectedKey === option.key,
-      hovered: hoveredKey === option.key,
-      disabled: !option.eligible,
-      isNaZone,
-      size: 0,
-      fill: "",
-      fillOpacity: 0,
-      stroke: "",
-      strokeWidth: 0,
-      option,
-    };
-  }).map((point) => {
-    const isActive = point.selected || point.hovered;
-    const radius = isActive ? point.r + 2 : point.r;
-    const fill = getVendorColor(point.vendorKey);
-    const fillOpacity = point.disabled ? 0.25 : isActive ? 1 : 0.8;
-    let stroke = "rgba(255,255,255,0.18)";
-    if (point.selected) {
-      stroke = "#ffffff";
-    } else if (isActive) {
-      stroke = "rgba(255,255,255,0.5)";
-    }
-    const strokeWidth = point.selected ? 2.5 : isActive ? 1.5 : 1;
-
-    return {
-      ...point,
-      size: Math.PI * radius * radius,
-      fill,
-      fillOpacity,
-      stroke,
-      strokeWidth,
-    };
-  });
+      return {
+        x: xValue,
+        y: option.unitPriceUsd,
+        r: computeBubbleRadius(option.totalPriceUsd, minTotal, maxTotal),
+        key: option.key,
+        vendorKey: option.vendorKey,
+        label: `${option.supplier}${option.tier ? ` · ${option.tier}` : ""}`,
+        supplier: option.supplier,
+        tier: option.tier,
+        sourcing: option.sourcing,
+        unitPrice: option.unitPriceUsd,
+        totalPrice: option.totalPriceUsd,
+        leadTimeDays: option.leadTimeBusinessDays,
+        process: option.process,
+        material: option.material,
+        selected: selectedKey === option.key,
+        hovered: hoveredKey === option.key,
+        disabled: !option.eligible,
+        isNaZone,
+        size: 0,
+        fill: "",
+        fillOpacity: 0,
+        stroke: "",
+        strokeWidth: 0,
+        option,
+      };
+    })
+    .map(decorateChartPointVisuals);
 
   const vendorKeys = [...new Set(options.map((o) => o.vendorKey))];
   const pointsByVendor = new Map<VendorName, ChartPoint[]>();

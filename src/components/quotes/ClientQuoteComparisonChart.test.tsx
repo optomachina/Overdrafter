@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { getVendorColor } from "@/features/quotes/vendor-colors";
 import { ClientQuoteComparisonChart } from "./ClientQuoteComparisonChart";
 import { makeClientQuoteOption } from "./test-option-factory";
 
@@ -10,6 +11,13 @@ function MockCartesianGrid() {
 }
 
 function MockLabel() {
+  return null;
+}
+
+const zAxisSpy = vi.fn();
+
+function MockZAxis(props: Readonly<Record<string, unknown>>) {
+  zAxisSpy(props);
   return null;
 }
 
@@ -83,10 +91,6 @@ vi.mock("recharts", () => {
     return <div>{children}</div>;
   }
 
-  function ZAxis() {
-    return null;
-  }
-
   return {
     CartesianGrid: MockCartesianGrid,
     Label: MockLabel,
@@ -95,12 +99,13 @@ vi.mock("recharts", () => {
     ScatterChart,
     XAxis,
     YAxis,
-    ZAxis,
+    ZAxis: MockZAxis,
   };
 });
 
 describe("ClientQuoteComparisonChart", () => {
   it("selects an option when a chart bubble is clicked", () => {
+    zAxisSpy.mockReset();
     const onSelect = vi.fn();
     const onHover = vi.fn();
     const first = makeClientQuoteOption();
@@ -132,6 +137,7 @@ describe("ClientQuoteComparisonChart", () => {
   });
 
   it("ignores chart clicks for non-selectable options", () => {
+    zAxisSpy.mockReset();
     const onSelect = vi.fn();
     const onHover = vi.fn();
 
@@ -160,6 +166,7 @@ describe("ClientQuoteComparisonChart", () => {
   });
 
   it("keeps hover synchronization callbacks", () => {
+    zAxisSpy.mockReset();
     const onSelect = vi.fn();
     const onHover = vi.fn();
 
@@ -181,6 +188,7 @@ describe("ClientQuoteComparisonChart", () => {
   });
 
   it("derives visible bubble sizing and styling from point data", () => {
+    zAxisSpy.mockReset();
     render(
       <ClientQuoteComparisonChart
         options={[
@@ -206,11 +214,21 @@ describe("ClientQuoteComparisonChart", () => {
       />,
     );
 
+    expect(zAxisSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dataKey: "size",
+        domain: [0, expect.any(Number)],
+        range: [0, expect.any(Number)],
+      }),
+    );
     expect(Number(screen.getByTestId("point-option-selected").dataset.size)).toBeGreaterThan(0);
     expect(Number(screen.getByTestId("point-option-large").dataset.size)).toBeGreaterThan(
       Number(screen.getByTestId("point-option-selected").dataset.size),
     );
     expect(screen.getByTestId("point-option-selected")).toHaveAttribute("data-stroke", "#ffffff");
-    expect(screen.getByTestId("point-option-large")).toHaveAttribute("data-fill", "#4db3a2");
+    expect(screen.getByTestId("point-option-large")).toHaveAttribute(
+      "data-fill",
+      getVendorColor("infraredlaboratories"),
+    );
   });
 });
