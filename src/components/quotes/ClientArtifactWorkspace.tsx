@@ -36,7 +36,7 @@ function WorkspaceEmptyState({
   body: string;
 }) {
   return (
-    <div className="flex min-h-[460px] items-center justify-center rounded-[24px] border border-dashed border-ws-border bg-ws-inset p-8">
+    <div className="flex min-h-[460px] items-center justify-center rounded-surface-lg border border-dashed border-ws-border bg-ws-inset p-8">
       <div className="max-w-md text-center">
         <p className="text-lg font-medium text-white">{title}</p>
         <p className="mt-2 text-sm leading-6 text-white/50">{body}</p>

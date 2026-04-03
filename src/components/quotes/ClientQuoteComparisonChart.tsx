@@ -16,13 +16,13 @@ import { formatCurrency } from "@/features/quotes/utils";
 import { getVendorColor, buildVendorChartConfig } from "@/features/quotes/vendor-colors";
 
 type ClientQuoteComparisonChartProps = {
-  options: readonly ClientQuoteSelectionOption[];
-  selectedKey: string | null;
-  hoveredKey: string | null;
-  partId?: string | null;
-  organizationId?: string | null;
-  onSelect: (option: ClientQuoteSelectionOption) => void;
-  onHover: (key: string | null) => void;
+  readonly options: readonly ClientQuoteSelectionOption[];
+  readonly selectedKey: string | null;
+  readonly hoveredKey: string | null;
+  readonly partId?: string | null;
+  readonly organizationId?: string | null;
+  readonly onSelect: (option: ClientQuoteSelectionOption) => void;
+  readonly onHover: (key: string | null) => void;
 };
 
 type ChartPoint = {
@@ -157,11 +157,11 @@ function CustomTooltipContent({ active, payload }: { active?: boolean; payload?:
 }
 
 type VendorScatterShapeProps = {
-  cx?: number;
-  cy?: number;
-  payload?: ChartPoint;
-  onSelect?: (option: ClientQuoteSelectionOption) => void;
-  onHover?: (key: string | null) => void;
+  readonly cx?: number;
+  readonly cy?: number;
+  readonly payload?: ChartPoint;
+  readonly onSelect: (option: ClientQuoteSelectionOption) => void;
+  readonly onHover: (key: string | null) => void;
 };
 
 function VendorScatterShape({ cx, cy, payload, onSelect, onHover }: VendorScatterShapeProps) {
@@ -174,11 +174,12 @@ function VendorScatterShape({ cx, cy, payload, onSelect, onHover }: VendorScatte
   const radius = isActive ? baseRadius + 2 : baseRadius;
   const color = getVendorColor(payload.vendorKey);
   const opacity = payload.disabled ? 0.25 : isActive ? 1 : 0.8;
-  const strokeColor = payload.selected
-    ? "#ffffff"
-    : isActive
-      ? "rgba(255,255,255,0.5)"
-      : "rgba(255,255,255,0.18)";
+  let strokeColor = "rgba(255,255,255,0.18)";
+  if (payload.selected) {
+    strokeColor = "#ffffff";
+  } else if (isActive) {
+    strokeColor = "rgba(255,255,255,0.5)";
+  }
   const strokeWidth = payload.selected ? 2.5 : isActive ? 1.5 : 1;
 
   return (
@@ -192,12 +193,12 @@ function VendorScatterShape({ cx, cy, payload, onSelect, onHover }: VendorScatte
       strokeWidth={strokeWidth}
       className="cursor-pointer transition-all duration-150"
       onClick={() => {
-        if (!payload.disabled && payload.option) {
-          onSelect?.(payload.option);
+        if (payload.option.isSelectable && !payload.disabled) {
+          onSelect(payload.option);
         }
       }}
-      onMouseEnter={() => onHover?.(payload.key)}
-      onMouseLeave={() => onHover?.(null)}
+      onMouseEnter={() => onHover(payload.key)}
+      onMouseLeave={() => onHover(null)}
     />
   );
 }

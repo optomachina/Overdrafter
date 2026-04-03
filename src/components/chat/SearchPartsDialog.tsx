@@ -62,9 +62,9 @@ export function SearchPartsDialog({
         placeholder="Search parts and projects"
         value={query}
         onValueChange={setQuery}
-        className="border-white/8 bg-[#1f1f1f] text-white placeholder:text-white/40"
+        className="border-white/8 bg-ws-overlay text-white placeholder:text-white/40"
       />
-      <CommandList className="max-h-[420px] bg-[#1f1f1f] text-white">
+      <CommandList className="max-h-[420px] bg-ws-overlay text-white">
         <CommandEmpty>No matching projects or parts.</CommandEmpty>
 
         <CommandGroup heading="Projects">

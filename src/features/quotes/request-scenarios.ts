@@ -1,6 +1,9 @@
 import { normalizeRequestedQuoteQuantities } from "@/features/quotes/request-intake";
 import { normalizeRfqLineItemExtendedMetadata } from "@/features/quotes/rfq-metadata";
-import { normalizeRequestedServiceIntent } from "@/features/quotes/service-intent";
+import {
+  normalizeRequestedServiceIntent,
+  requestedServicesSupportQuoteFields,
+} from "@/features/quotes/service-intent";
 import type { ApprovedPartRequirement, JobPartSummary } from "@/features/quotes/types";
 
 export type RequestedQuantityFilterValue = number | "all";
@@ -109,30 +112,61 @@ export function getSharedRequestMetadata(
 
   const normalized = summaries.map((summary) => ({
     ...normalizeRequestedServiceIntent(summary!),
-    requestedQuoteQuantities: normalizeRequestedQuoteQuantities(
-      summary!.requestedQuoteQuantities,
-      summary!.quantity,
-    ),
+    quoteCompatible: requestedServicesSupportQuoteFields(summary!.requestedServiceKinds),
+    requestedQuoteQuantities: normalizeRequestedQuoteQuantities(summary!.requestedQuoteQuantities, summary!.quantity),
     requestedByDate: summary!.requestedByDate ?? null,
   }));
 
-  const first = normalized[0];
-  const matches = normalized.every(
-    (summary) =>
-      summary.primaryServiceKind === first.primaryServiceKind &&
-      summary.serviceNotes === first.serviceNotes &&
-      summary.requestedServiceKinds.length === first.requestedServiceKinds.length &&
-      summary.requestedServiceKinds.every((serviceKind, index) => serviceKind === first.requestedServiceKinds[index]) &&
-      summary.requestedByDate === first.requestedByDate &&
-      summary.requestedQuoteQuantities.length === first.requestedQuoteQuantities.length &&
-      summary.requestedQuoteQuantities.every((quantity, index) => quantity === first.requestedQuoteQuantities[index]),
-  );
+  const requestedServiceKinds: ApprovedPartRequirement["requestedServiceKinds"] = [];
+  const seenServiceKinds = new Set<string>();
 
-  if (!matches) {
+  normalized.forEach((summary) => {
+    summary.requestedServiceKinds.forEach((serviceKind) => {
+      if (seenServiceKinds.has(serviceKind)) {
+        return;
+      }
+
+      seenServiceKinds.add(serviceKind);
+      requestedServiceKinds.push(serviceKind);
+    });
+  });
+
+  const first = normalized[0];
+  const sharedPrimaryServiceKind = normalized.every(
+    (summary) => summary.primaryServiceKind === first.primaryServiceKind,
+  )
+    ? first.primaryServiceKind
+    : requestedServiceKinds[0] ?? null;
+  const sharedServiceNotes = normalized.every((summary) => summary.serviceNotes === first.serviceNotes)
+    ? first.serviceNotes
+    : null;
+  const allQuoteCompatible = normalized.every((summary) => summary.quoteCompatible);
+  const sharedRequestedByDate =
+    allQuoteCompatible && normalized.every((summary) => summary.requestedByDate === first.requestedByDate)
+      ? first.requestedByDate
+      : null;
+  const sharedRequestedQuoteQuantities =
+    allQuoteCompatible &&
+    normalized.every(
+      (summary) =>
+        summary.requestedQuoteQuantities.length === first.requestedQuoteQuantities.length &&
+        summary.requestedQuoteQuantities.every((quantity, index) => quantity === first.requestedQuoteQuantities[index]),
+    )
+      ? first.requestedQuoteQuantities
+      : [];
+
+  const hasMeaningfulMetadata =
+    requestedServiceKinds.length > 0 || sharedRequestedQuoteQuantities.length > 0 || Boolean(sharedRequestedByDate);
+
+  if (!hasMeaningfulMetadata) {
     return null;
   }
 
-  return first.requestedServiceKinds.length > 0 || first.requestedQuoteQuantities.length > 0 || first.requestedByDate
-    ? first
-    : null;
+  return {
+    requestedServiceKinds,
+    primaryServiceKind: sharedPrimaryServiceKind,
+    serviceNotes: sharedServiceNotes,
+    requestedQuoteQuantities: sharedRequestedQuoteQuantities,
+    requestedByDate: sharedRequestedByDate,
+  };
 }

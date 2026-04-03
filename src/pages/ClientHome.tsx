@@ -13,12 +13,14 @@ import { getClientItemPresentation } from "@/features/quotes/client-presentation
 import { buildClientWorkspaceState } from "@/features/quotes/client-workspace-state";
 import { useClientHomeController } from "@/features/quotes/use-client-home-controller";
 
-const quickStartItems = [
-  { label: "Upload CAD file & Drawing for quoting", action: "upload" as const },
-  { label: "Compare price and lead time options", action: "search" as const },
-  { label: "Group related parts into a project", action: "upload" as const },
-  { label: "Share a project with a teammate", action: "search" as const },
-];
+function parseTimestamp(value: string | null | undefined): number {
+  if (!value) {
+    return 0;
+  }
+
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
 
 const ClientHome = () => {
   const {
@@ -346,10 +348,19 @@ const ClientHome = () => {
   };
 
   const renderSignedInContent = () => {
-    const recentProjects = sidebarProjects.slice(0, 4);
+    const recentProjects = [...sidebarProjects]
+      .sort(
+        (left, right) =>
+          parseTimestamp(right.updatedAt ?? right.createdAt) - parseTimestamp(left.updatedAt ?? left.createdAt),
+      )
+      .slice(0, 4);
     const recentJobs = [...accessibleJobs]
       .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at))
       .slice(0, 6);
+    const awaitingDecisionJobs = [...accessibleJobs]
+      .filter((job) => job.status === "published" && !job.selected_vendor_quote_offer_id)
+      .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
+    const awaitingDecisionCount = awaitingDecisionJobs.length;
 
     return (
       <div className="mx-auto flex w-full max-w-[1380px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
@@ -360,10 +371,10 @@ const ClientHome = () => {
               <div className="min-w-0">
                 <p className="ws-section-label">Workspace</p>
                 <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
-                  Start with a part package or open an existing project.
+                  Keep projects moving with the next highest-impact action.
                 </h1>
                 <p className="mt-2 text-sm text-white/55">
-                  Upload files to begin intake. Projects group related parts and stay at the top of the information hierarchy.
+                  Prioritize parts awaiting selection, jump into active projects, or upload new files when new work arrives.
                 </p>
               </div>
 
@@ -388,18 +399,64 @@ const ClientHome = () => {
               </div>
             </div>
 
-            <div className="flex gap-2">
-              {quickStartItems.map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={item.action === "upload" ? newJobFilePicker.openFilePicker : () => setIsSearchOpen(true)}
-                  className="flex flex-1 items-center gap-2.5 rounded-full border border-white/8 bg-black/20 px-4 py-2 text-left text-xs text-white/55 transition hover:border-white/15 hover:bg-white/6 hover:text-white/80"
-                >
-                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${item.action === "upload" ? "bg-emerald-400/40" : "bg-blue-400/40"}`} />
-                  <span>{item.label}</span>
-                </button>
-              ))}
+            <div className="grid gap-3 lg:grid-cols-2">
+              <section className="rounded-surface-lg border border-ws-border-subtle bg-black/20 p-4">
+                <p className="ws-subsection-label">
+                  {`Parts awaiting your decision (${awaitingDecisionCount})`}
+                </p>
+                <p className="mt-2 text-xs text-white/50">
+                  Published quote packages ready for client selection.
+                </p>
+                {awaitingDecisionJobs.length === 0 ? (
+                  <p className="mt-4 rounded border border-dashed border-white/10 bg-black/20 px-3 py-4 text-sm text-white/45">
+                    No published packages are waiting on your selection right now.
+                  </p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {awaitingDecisionJobs.slice(0, 3).map((job) => {
+                      const presentation = getClientItemPresentation(job, summariesByJobId.get(job.id));
+
+                      return (
+                        <button
+                          key={job.id}
+                          type="button"
+                          onClick={() => navigate(`/parts/${job.id}`)}
+                          className="block w-full rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-sm text-white/85 transition hover:border-white/20 hover:bg-white/[0.05]"
+                        >
+                          {presentation.title}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+
+              <section className="rounded-surface-lg border border-ws-border-subtle bg-black/20 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="ws-subsection-label">Recently active projects</p>
+                  <Badge className="border border-white/10 bg-white/6 text-white/70">
+                    {recentProjects.length}
+                  </Badge>
+                </div>
+                {recentProjects.length === 0 ? (
+                  <p className="mt-4 rounded border border-dashed border-white/10 bg-black/20 px-3 py-4 text-sm text-white/45">
+                    No active projects yet. Upload parts to start your first project.
+                  </p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {recentProjects.slice(0, 3).map((project) => (
+                      <button
+                        key={project.id}
+                        type="button"
+                        onClick={() => navigate(`/projects/${project.id}`)}
+                        className="block w-full rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-sm text-white/85 transition hover:border-white/20 hover:bg-white/[0.05]"
+                      >
+                        {project.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
             </div>
           </div>
         </section>
@@ -603,7 +660,10 @@ const ClientHome = () => {
           ) : null
         }
       >
-        {user && activeMembership && accessibleJobsQuery.isLoading === false && accessibleJobs.length === 0
+        {user &&
+        activeMembership &&
+        accessibleJobsQuery.isLoading === false &&
+        sidebarProjects.length === 0
           ? renderOnboardContent()
           : user
             ? renderSignedInContent()

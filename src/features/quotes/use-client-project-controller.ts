@@ -150,6 +150,7 @@ export function useClientProjectController() {
   const { user, activeMembership, signOut, isAuthInitializing } = useAppSession();
   const [activeFilter, setActiveFilter] = useState<JobFilter>("all");
   const [focusedJobId, setFocusedJobId] = useState<string | null>(null);
+  const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   const [showAddPart, setShowAddPart] = useState(false);
   const [showRename, setShowRename] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
@@ -692,6 +693,40 @@ export function useClientProjectController() {
   }, [filteredJobs, focusedJobId]);
 
   useEffect(() => {
+    if (!focusedJobId) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) {
+        return;
+      }
+
+      const target = event.target;
+
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT")
+      ) {
+        return;
+      }
+
+      setFocusedJobId(null);
+      setMobileDrawerOpen(false);
+      setIsInspectorOpen(true);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [focusedJobId]);
+
+  useEffect(() => {
     if ((projectWorkspaceItemsQuery.data ?? []).length === 0) {
       return;
     }
@@ -1000,18 +1035,19 @@ export function useClientProjectController() {
   };
 
   const handleOpenJobDrawer = (jobId: string) => {
-    if (focusedJobId === jobId) {
-      setFocusedJobId(null);
-      setMobileDrawerOpen(false);
-    } else {
-      setFocusedJobId(jobId);
-      setMobileDrawerOpen(isMobile);
-    }
+    setFocusedJobId(jobId);
+    setMobileDrawerOpen(isMobile);
+    setIsInspectorOpen(true);
   };
 
   const handleClearFocusedJob = () => {
     setFocusedJobId(null);
     setMobileDrawerOpen(false);
+    setIsInspectorOpen(true);
+  };
+
+  const handleToggleInspector = () => {
+    setIsInspectorOpen((current) => !current);
   };
 
   const handleToggleVendorExclusion = (
@@ -1366,6 +1402,7 @@ export function useClientProjectController() {
     handleRevertBulk,
     handleSaveRequest,
     handleSelectQuoteOption,
+    handleToggleInspector,
     handleToggleVendorExclusion,
     handleUnarchivePart,
     handleUnpinPart,
@@ -1426,6 +1463,7 @@ export function useClientProjectController() {
     dissolveProjectMutation,
     user,
     isAuthInitializing,
+    isInspectorOpen,
     workspaceItemsByJobId,
     accessibleProjects,
   };

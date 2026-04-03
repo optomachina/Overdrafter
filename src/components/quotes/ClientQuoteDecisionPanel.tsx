@@ -67,7 +67,7 @@ function QuoteDataStatusCard({
   diagnostics?: QuoteDiagnostics | null;
 }) {
   return (
-    <div className="mt-4 rounded-[24px] border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center">
+    <div className="mt-4 rounded-surface-lg border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center">
       <Icon className="mx-auto h-5 w-5 text-white/35" />
       <p className="mt-3 text-sm font-medium text-white/80">{title}</p>
       <p className="mt-2 text-sm text-white/55">{body}</p>
@@ -495,7 +495,7 @@ export function ClientQuoteDecisionPanel({
 
           {selectedOption ? <SelectedOptionBanner option={selectedOption} /> : null}
 
-          <div className="rounded-[24px] border border-white/8 bg-black/20 p-4">
+          <div className="rounded-surface-lg border border-white/8 bg-black/20 p-4">
             <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-white/5" />}>
               <ClientQuoteComparisonChart
                 options={options}

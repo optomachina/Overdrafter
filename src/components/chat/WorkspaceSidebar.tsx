@@ -567,7 +567,25 @@ export function WorkspaceSidebar({
     [filters.show, jobsByProjectId, pinnedPartSet, pinnedProjectSet, sortedProjects],
   );
 
-  const visibleParts = useMemo(
+  const visibleJobsByProjectId = useMemo(() => {
+    if (filters.show !== "relevant") {
+      return jobsByProjectId;
+    }
+
+    const grouped = new Map<string, JobRecord[]>();
+
+    jobsByProjectId.forEach((projectJobs, projectId) => {
+      const relevantProjectJobs = projectJobs.filter((job) => pinnedPartSet.has(job.id));
+
+      if (relevantProjectJobs.length > 0 || pinnedProjectSet.has(projectId)) {
+        grouped.set(projectId, relevantProjectJobs);
+      }
+    });
+
+    return grouped;
+  }, [filters.show, jobsByProjectId, pinnedPartSet, pinnedProjectSet]);
+
+  const visiblePartSelectionJobs = useMemo(
     () =>
       filters.show === "relevant"
         ? sortedJobs(jobs.filter((job) => pinnedPartSet.has(job.id)))
@@ -575,7 +593,18 @@ export function WorkspaceSidebar({
     [filters.show, jobs, pinnedPartSet, sortedJobs],
   );
 
-  const selectionOrderJobIds = useMemo(() => visibleParts.map((job) => job.id), [visibleParts]);
+  const visibleStandaloneParts = useMemo(
+    () =>
+      visiblePartSelectionJobs.filter(
+        (job) => getProjectIdsForJob(job).filter((projectId) => projectsById.has(projectId)).length === 0,
+      ),
+    [getProjectIdsForJob, projectsById, visiblePartSelectionJobs],
+  );
+
+  const selectionOrderJobIds = useMemo(
+    () => visiblePartSelectionJobs.map((job) => job.id),
+    [visiblePartSelectionJobs],
+  );
 
   const persistFilters = (next: SidebarFilters) => {
     setFilters(next);
@@ -637,6 +666,58 @@ export function WorkspaceSidebar({
       return filtered.length === current.length ? current : filtered;
     });
   }, [projectOrderStorageKey, projects]);
+
+  const activeProjectIds = useMemo(() => {
+    const projectIds = new Set<string>();
+
+    if (activeProjectId && projectsById.has(activeProjectId)) {
+      projectIds.add(activeProjectId);
+    }
+
+    if (activeJobId) {
+      const activeJob = jobs.find((job) => job.id === activeJobId);
+
+      if (activeJob) {
+        getProjectIdsForJob(activeJob)
+          .filter((projectId) => projectsById.has(projectId))
+          .forEach((projectId) => {
+            projectIds.add(projectId);
+          });
+      }
+    }
+
+    return [...projectIds];
+  }, [activeJobId, activeProjectId, getProjectIdsForJob, jobs, projectsById]);
+
+  useEffect(() => {
+    if (activeProjectIds.length === 0) {
+      return;
+    }
+
+    setExpandedProjects((current) => {
+      let didChange = false;
+      const next = { ...current };
+
+      activeProjectIds.forEach((projectId) => {
+        if (!next[projectId]) {
+          next[projectId] = true;
+          didChange = true;
+        }
+      });
+
+      if (!didChange) {
+        return current;
+      }
+
+      try {
+        globalThis.localStorage.setItem(expandedStorageKey, JSON.stringify(next));
+      } catch {
+        // Ignore storage failures.
+      }
+
+      return next;
+    });
+  }, [activeProjectIds, expandedStorageKey]);
 
   const isProjectExpanded = (projectId: string) => expandedProjects[projectId] ?? false;
 
@@ -1026,6 +1107,7 @@ export function WorkspaceSidebar({
     const isDragging = draggingProjectId === project.id;
     const dropPosition = projectDropTarget?.projectId === project.id ? projectDropTarget.position : null;
     const selectedQuote = formatProjectSelectedQuote(projectJobs, summariesByJobId);
+    const sortedProjectJobs = sortedJobs(projectJobs);
 
     return (
       <div key={project.id} className="space-y-1">
@@ -1146,7 +1228,7 @@ export function WorkspaceSidebar({
               ) : null}
             </div>
           </ContextMenuTrigger>
-          <ContextMenuContent className="workspace-shell w-56 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1 text-white">
+          <ContextMenuContent className="workspace-shell w-56 rounded-xl border-white/[0.08] bg-ws-raised p-1 text-white">
             <ContextMenuItem onSelect={() => onSelectProject(project.id)}>Edit project</ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
@@ -1191,7 +1273,7 @@ export function WorkspaceSidebar({
 
         {expanded ? (
           <div className="ml-[14px] space-y-1 border-l border-white/[0.08] pl-3">
-            {projectJobs.map((job) => renderPartRow(job, { contextProjectId: project.id, nestedInProject: true }))}
+            {sortedProjectJobs.map((job) => renderPartRow(job, { contextProjectId: project.id, nestedInProject: true }))}
           </div>
         ) : null}
       </div>
@@ -1199,7 +1281,7 @@ export function WorkspaceSidebar({
   };
 
   const noProjectsMessage = filters.show === "relevant" ? "No pinned projects yet." : "No projects yet.";
-  const noPartsMessage = filters.show === "relevant" ? "No pinned parts yet." : "No parts yet.";
+  const noPartsMessage = filters.show === "relevant" ? "No pinned standalone parts yet." : "No standalone parts yet.";
   const canCreateProject = Boolean(onCreateProject);
 
   const projectSectionAction = (
@@ -1231,7 +1313,7 @@ export function WorkspaceSidebar({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="workspace-shell w-64 rounded-xl border-white/[0.08] bg-[#2a2a2a] p-1.5 text-white"
+          className="workspace-shell w-64 rounded-xl border-white/[0.08] bg-ws-raised p-1.5 text-white"
         >
           <SectionTitle>Sort by</SectionTitle>
           <FilterOption
@@ -1269,7 +1351,7 @@ export function WorkspaceSidebar({
 
   return (
     <>
-      <div className="flex h-full flex-col px-2.5">
+      <nav aria-label="Workspace navigation" className="flex h-full flex-col px-2.5">
         {onCreateJob || onSearch ? (
           <div className={cn("shrink-0 space-y-2 pb-3 pt-0", SIDEBAR_COLUMN_INSET_CLASS)}>
             {onCreateJob ? (
@@ -1320,7 +1402,7 @@ export function WorkspaceSidebar({
           {expandedSections.projects ? (
             <div className="mb-5 mt-2 space-y-1">
               {visibleProjects.length > 0 ? (
-                visibleProjects.map((project) => renderProjectRow(project, jobsByProjectId.get(project.id) ?? []))
+                visibleProjects.map((project) => renderProjectRow(project, visibleJobsByProjectId.get(project.id) ?? []))
               ) : (
                 <div className="px-2 py-2 text-sm text-white/[0.42]">{noProjectsMessage}</div>
               )}
@@ -1334,15 +1416,15 @@ export function WorkspaceSidebar({
           </div>
           {expandedSections.parts ? (
             <div className="mt-2 space-y-1">
-              {visibleParts.length > 0 ? (
-                visibleParts.map((job) => renderPartRow(job))
+              {visibleStandaloneParts.length > 0 ? (
+                visibleStandaloneParts.map((job) => renderPartRow(job))
               ) : (
                 <div className="px-2 py-2 text-sm text-white/[0.42]">{noPartsMessage}</div>
               )}
             </div>
           ) : null}
         </div>
-      </div>
+      </nav>
 
       <ProjectNameDialog
         open={Boolean(projectToRename)}
@@ -1431,7 +1513,7 @@ export function WorkspaceSidebar({
           }
         }}
       >
-        <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-[#2a2a2a] text-white">
+        <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-ws-raised text-white">
           <DialogHeader>
             <DialogTitle>Archive project</DialogTitle>
             <DialogDescription className="text-white/55">
@@ -1481,7 +1563,7 @@ export function WorkspaceSidebar({
           }
         }}
       >
-        <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-[#2a2a2a] text-white">
+        <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-ws-raised text-white">
           <DialogHeader>
             <DialogTitle>Dissolve project</DialogTitle>
             <DialogDescription className="text-white/55">

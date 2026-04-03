@@ -1,6 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import postgres from "npm:postgres@3.4.7";
-import { canUserEditJobWithoutAuthContext } from "./authorization.ts";
+import { canUserDestructivelyEditJobWithoutAuthContext } from "./authorization.ts";
 import {
   ARCHIVED_DELETE_STORAGE_CLEANUP_FAILED_MESSAGE,
   ArchivedDeleteFlowError,
@@ -158,7 +158,7 @@ async function getAuthorizedJob(
     throw new HttpError(404, `Job ${jobId} not found.`);
   }
 
-  const isOrgMember = Boolean(
+  const isInternalAdmin = Boolean(
     (
       await transaction<{ allowed: boolean }[]>`
         select exists (
@@ -166,6 +166,7 @@ async function getAuthorizedJob(
           from public.organization_memberships
           where user_id = ${userId}::uuid
             and organization_id = ${job.organization_id}::uuid
+            and role = 'internal_admin'
         ) as allowed
       `
     )[0]?.allowed,
@@ -208,9 +209,9 @@ async function getAuthorizedJob(
           )[0]?.allowed,
         )
       : false;
-  const allowed = canUserEditJobWithoutAuthContext({
+  const allowed = canUserDestructivelyEditJobWithoutAuthContext({
     createdByMatchesUser: job.created_by === userId,
-    isOrgMember,
+    isInternalAdmin,
     canEditDirectProject,
     canEditProjectViaJoinTable,
   });

@@ -174,19 +174,19 @@ const ClientProjectReview = () => {
             </div>
 
             <section className="grid gap-3 md:grid-cols-4">
-              <div className="rounded-[22px] border border-white/8 bg-[#262626] px-4 py-4">
+              <div className="rounded-[22px] border border-white/8 bg-ws-card px-4 py-4">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Selected total</p>
                 <p className="mt-2 text-2xl font-semibold text-white">{formatCurrency(selectionSummary.totalPriceUsd)}</p>
               </div>
-              <div className="rounded-[22px] border border-white/8 bg-[#262626] px-4 py-4">
+              <div className="rounded-[22px] border border-white/8 bg-ws-card px-4 py-4">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Selected lines</p>
                 <p className="mt-2 text-2xl font-semibold text-white">{selectionSummary.selectedCount}</p>
               </div>
-              <div className="rounded-[22px] border border-white/8 bg-[#262626] px-4 py-4">
+              <div className="rounded-[22px] border border-white/8 bg-ws-card px-4 py-4">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Domestic</p>
                 <p className="mt-2 text-2xl font-semibold text-white">{selectionSummary.domesticCount}</p>
               </div>
-              <div className="rounded-[22px] border border-white/8 bg-[#262626] px-4 py-4">
+              <div className="rounded-[22px] border border-white/8 bg-ws-card px-4 py-4">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Foreign / unknown</p>
                 <p className="mt-2 text-2xl font-semibold text-white">
                   {selectionSummary.foreignCount + selectionSummary.unknownCount}
@@ -209,7 +209,7 @@ const ClientProjectReview = () => {
               </div>
             </section>
 
-            <section className="rounded-[26px] border border-white/8 bg-[#262626] p-6">
+            <section className="rounded-[26px] border border-white/8 bg-ws-card p-6">
               <p className="text-xs uppercase tracking-[0.18em] text-white/35">Line items</p>
               <div className="mt-4 space-y-3">
                 {selectedLineItems.map(({ item, selectedOption, workspaceState }) => {
@@ -274,7 +274,7 @@ const ClientProjectReview = () => {
             />
 
             {showHandoffSummary ? (
-              <section className="rounded-[26px] border border-white/8 bg-[#262626] p-6">
+              <section className="rounded-[26px] border border-white/8 bg-ws-card p-6">
                 <p className="text-xs uppercase tracking-[0.18em] text-white/35">Release check</p>
                 <h2 className="mt-2 text-xl font-semibold text-white">
                   {handoffSummary.ready ? "Ready for OverDrafter follow-up" : "More procurement detail is still needed"}

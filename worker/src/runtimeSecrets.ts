@@ -48,7 +48,7 @@ export async function prepareRuntimeSecrets(config: WorkerConfig): Promise<Worke
   await fs.writeFile(
     xometryStorageStatePath,
     JSON.stringify(parsedStorageState),
-    "utf8",
+    { encoding: "utf8", mode: 0o600 },
   );
 
   return {

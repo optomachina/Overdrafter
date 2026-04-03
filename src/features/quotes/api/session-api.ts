@@ -50,7 +50,7 @@ async function fetchPlatformAdminAvailability(): Promise<PlatformAdminRpcResult>
     return platformAdminRpcRequest;
   }
 
-  platformAdminRpcRequest = callRpc("api_get_is_platform_admin", {})
+  platformAdminRpcRequest = callRpc("api_get_is_platform_admin")
     .then((result) => {
       if (result.error) {
         if (isNonRetriablePlatformAdminRpcError(result.status, result.error)) {

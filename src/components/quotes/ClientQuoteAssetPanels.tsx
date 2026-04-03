@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Box, Download, Expand, FileText, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { GeometryProjectionView } from "@/components/workspace/GeometryProjectionView";
 import { Button } from "@/components/ui/button";
@@ -138,7 +139,7 @@ export function ClientDrawingPreviewPanel({
   }, [resolvedState, resolvedViewerMode, statusMessage]);
 
   return (
-    <section className={cn("rounded-[26px] border border-white/8 bg-[#262626] p-5", className)}>
+    <section className={cn("rounded-[26px] border border-white/8 bg-ws-card p-5", className)}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-white/35">Drawing</p>
@@ -254,7 +255,7 @@ export function ClientCadPreviewPanel({
   const previewable = cadFile ? isStepPreviewableFile(cadFile.original_name) : false;
 
   return (
-    <section className={cn("rounded-[26px] border border-white/8 bg-[#262626] p-5", className)}>
+    <section className={cn("rounded-[26px] border border-white/8 bg-ws-card p-5", className)}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-white/35">CAD / isometric</p>
@@ -330,7 +331,17 @@ export function ClientCadPreviewPanel({
             </p>
           </div>
         ) : previewable && previewSource ? (
-          <CadModelThumbnail source={previewSource} className="h-[320px] w-full" />
+          <CadModelThumbnail
+            source={previewSource}
+            className="h-[320px] w-full"
+            fallbackActionLabel={`Download ${cadFile.original_name}`}
+            onFallbackAction={() => {
+              void downloadStoredFile(cadFile).catch((error) => {
+                console.error("Failed to download CAD file", error);
+                toast.error("Failed to download CAD file.");
+              });
+            }}
+          />
         ) : (
           <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
             <div className="rounded-full border border-white/10 bg-white/6 p-3 text-white/70">

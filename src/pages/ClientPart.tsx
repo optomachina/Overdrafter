@@ -630,7 +630,7 @@ const ClientPart = () => {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent
                         align="end"
-                        className="w-64 border-white/10 bg-[#1f1f1f] p-2 text-white"
+                        className="w-64 border-white/10 bg-ws-overlay p-2 text-white"
                       >
                         <DropdownMenuItem
                           onSelect={(event) => {
@@ -786,7 +786,7 @@ const ClientPart = () => {
                 />
               </div>
 
-              <section className="rounded-[30px] border border-white/8 bg-[#262626] p-5 md:p-6">
+              <section className="rounded-[30px] border border-white/8 bg-ws-card p-5 md:p-6">
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div>
                     <p className="text-xs uppercase tracking-[0.18em] text-white/35">Activity</p>
@@ -797,7 +797,7 @@ const ClientPart = () => {
                   </div>
                 </div>
 
-                <div className="mt-5 rounded-[24px] border border-white/8 bg-black/20 p-4">
+                <div className="mt-5 rounded-surface-lg border border-white/8 bg-black/20 p-4">
                   <label htmlFor="activity-comment" className="text-sm font-medium text-white/78">
                     Leave a comment
                   </label>
@@ -806,7 +806,7 @@ const ClientPart = () => {
                     value={commentDraft}
                     onChange={(event) => setCommentDraft(event.target.value)}
                     placeholder="Add context, decisions, or a follow-up note."
-                    className="mt-3 min-h-28 border-white/10 bg-[#171717] text-white placeholder:text-white/30"
+                    className="mt-3 min-h-28 border-white/10 bg-ws-shell text-white placeholder:text-white/30"
                   />
                   <div className="mt-3 flex items-center justify-between gap-3">
                     <p className="text-xs text-white/40">Comments stay attached to this part in your current browser.</p>
@@ -827,7 +827,7 @@ const ClientPart = () => {
                     <ActivityLog entries={activityEntries} />
                   </TabsContent>
                   <TabsContent value="comments" className="mt-4">
-                    <div className="rounded-[24px] border border-white/8 bg-[#262626] p-5">
+                    <div className="rounded-surface-lg border border-white/8 bg-ws-card p-5">
                       {comments.length === 0 ? (
                         <p className="text-sm text-white/45">No comments yet.</p>
                       ) : (
@@ -843,7 +843,7 @@ const ClientPart = () => {
               </section>
             </>
           ) : (
-            <div className="rounded-[26px] border border-white/8 bg-[#262626] px-6 py-12 text-center text-white/45">
+            <div className="rounded-[26px] border border-white/8 bg-ws-card px-6 py-12 text-center text-white/45">
               This part could not be loaded.
             </div>
           )}
@@ -921,7 +921,7 @@ const ClientPart = () => {
       />
 
       <Dialog open={showMoveDialog} onOpenChange={setShowMoveDialog}>
-        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
+        <DialogContent className="border-white/10 bg-ws-overlay text-white">
           <DialogHeader>
             <DialogTitle>Manage project membership</DialogTitle>
             <DialogDescription className="text-white/55">
@@ -978,7 +978,7 @@ const ClientPart = () => {
       </Dialog>
 
       <Dialog open={isVersionHistoryOpen} onOpenChange={setIsVersionHistoryOpen}>
-        <DialogContent className="max-w-3xl border-white/10 bg-[#1f1f1f] text-white">
+        <DialogContent className="max-w-3xl border-white/10 bg-ws-overlay text-white">
           <DialogHeader>
             <DialogTitle>Version history</DialogTitle>
             <DialogDescription className="text-white/55">
@@ -987,8 +987,8 @@ const ClientPart = () => {
           </DialogHeader>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <ActivityLog entries={activityEntries} className="bg-[#262626]" />
-            <div className="rounded-[24px] border border-white/8 bg-[#262626] p-5">
+            <ActivityLog entries={activityEntries} className="bg-ws-card" />
+            <div className="rounded-surface-lg border border-white/8 bg-ws-card p-5">
               <p className="text-xs uppercase tracking-[0.18em] text-white/35">Comments</p>
               {comments.length === 0 ? (
                 <p className="mt-4 text-sm text-white/45">No comments yet.</p>

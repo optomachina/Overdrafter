@@ -90,7 +90,7 @@ export async function checkClientIntakeCompatibility(): Promise<"available" | "l
     throw new Error(getClientIntakeSchemaMessage());
   }
 
-  const { data, error } = await callRpc("api_get_client_intake_compatibility", {});
+  const { data, error } = await callRpc("api_get_client_intake_compatibility");
 
   if (error) {
     if (isMissingFunctionError(error, "api_get_client_intake_compatibility")) {

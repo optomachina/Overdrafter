@@ -32,6 +32,7 @@ function buildSmokeConfig(): WorkerConfig {
     supabaseUrl: "https://example.supabase.co",
     supabaseServiceRoleKey: "service-role-key",
     workerMode: "simulate",
+    workerLiveAdapters: ["xometry"],
     workerName: "drawing-smoke",
     pollIntervalMs: 1000,
     httpHost: "127.0.0.1",

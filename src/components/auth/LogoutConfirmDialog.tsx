@@ -21,7 +21,7 @@ export function LogoutConfirmDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPortal>
         <DialogOverlay className="bg-black/62 backdrop-blur-[2px]" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(calc(100vw-2rem),31.6rem)] -translate-x-1/2 -translate-y-1/2 rounded-[28px] border border-white/[0.08] bg-[#222225] px-[2.7rem] pb-[2.5rem] pt-[2.65rem] text-white shadow-[0_28px_100px_rgba(0,0,0,0.52)] outline-none">
+        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(calc(100vw-2rem),31.6rem)] -translate-x-1/2 -translate-y-1/2 rounded-[28px] border border-white/[0.08] bg-ws-overlay px-[2.7rem] pb-[2.5rem] pt-[2.65rem] text-white shadow-[0_28px_100px_rgba(0,0,0,0.52)] outline-none">
           <div className="flex flex-col items-center text-center">
             <DialogTitle className="max-w-[15.6rem] text-center text-[1.88rem] font-semibold leading-[1.14] tracking-[-0.04em] text-white">
               Are you sure you want to log out?

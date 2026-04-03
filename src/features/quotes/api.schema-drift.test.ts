@@ -837,7 +837,7 @@ describe("quotes api schema drift handling", () => {
     await expect(fetchClientQuoteWorkspaceByJobIds(["job-1"])).resolves.toEqual([
       expect.objectContaining({
         quoteDataStatus: "schema_unavailable",
-        quoteDataMessage: expect.stringContaining("20260319113000_add_client_quote_workspace_projection.sql"),
+        quoteDataMessage: expect.stringContaining("20260403103000_harden_client_quote_workspace_lineage.sql"),
         quoteDiagnostics: expect.objectContaining({
           rawQuoteRowCount: 0,
           plottableOfferCount: 0,

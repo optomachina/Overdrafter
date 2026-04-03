@@ -2,6 +2,7 @@ import type {
   ApprovedPartRequirement,
   ClientExtractionDiagnostics,
   ClientPartMetadataRecord,
+  ClientPartPropertyState,
   DebugExtractionRunRecord,
   DebugExtractionRunSummary,
   DrawingExtractionData,
@@ -137,6 +138,54 @@ function asStringArray(value: unknown): string[] {
   return asArray<unknown>(value)
     .map((item) => (typeof item === "string" ? item.trim() : ""))
     .filter((item) => item.length > 0);
+}
+
+function normalizeOptionalFiniteNumber(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "string" && value.trim().length === 0) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeClientPartPropertyState(value: unknown): ClientPartPropertyState | null {
+  const payload = asObject(value);
+
+  if (Object.keys(payload).length === 0) {
+    return null;
+  }
+
+  const normalizePropertyMap = (candidate: unknown) => {
+    const record = asObject(candidate);
+
+    return Object.fromEntries(
+      Object.entries(record)
+        .map(([key, rawValue]) => {
+          if (
+            typeof rawValue === "string" ||
+            typeof rawValue === "number" ||
+            rawValue === null
+          ) {
+            return [key, rawValue];
+          }
+
+          return null;
+        })
+        .filter((entry): entry is [string, string | number | null] => Boolean(entry)),
+    );
+  };
+
+  return {
+    defaults: normalizePropertyMap(payload.defaults),
+    overrides: normalizePropertyMap(payload.overrides),
+    createdAt: typeof payload.createdAt === "string" ? payload.createdAt : null,
+    updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : null,
+  };
 }
 
 function asFiniteNumber(value: unknown, fallback = 0): number {
@@ -432,6 +481,7 @@ export function normalizeDrawingExtraction(
     description: (payload.description ?? payload.desc ?? null) as string | null,
     partNumber: (payload.partNumber ?? payload.pn ?? null) as string | null,
     revision: (payload.revision ?? payload.rev ?? null) as string | null,
+    threads: asStringArray(payload.threads),
     workerBuildVersion: typeof payload.workerBuildVersion === "string" ? payload.workerBuildVersion : null,
     extractorVersion: extraction?.extractor_version ?? null,
     quoteDescription: (payload.quoteDescription ?? payload.description ?? payload.desc ?? null) as string | null,
@@ -684,12 +734,9 @@ export function normalizeClientPartMetadata(
       material: typeof payload.material === "string" ? payload.material : "",
       finish: typeof payload.finish === "string" ? payload.finish : null,
       quoteFinish: typeof payload.quoteFinish === "string" ? payload.quoteFinish : null,
+      threads: typeof payload.threads === "string" ? payload.threads : null,
       tightestToleranceInch:
-        typeof payload.tightestToleranceInch === "number"
-          ? payload.tightestToleranceInch
-          : Number.isFinite(Number(payload.tightestToleranceInch))
-            ? Number(payload.tightestToleranceInch)
-            : null,
+        normalizeOptionalFiniteNumber(payload.tightestToleranceInch),
       process: typeof payload.process === "string" ? payload.process : null,
       notes: typeof payload.notes === "string" ? payload.notes : null,
       quantity:
@@ -698,6 +745,7 @@ export function normalizeClientPartMetadata(
           : 1,
       quoteQuantities: normalizeRequestedQuoteQuantities(asArray<number>(payload.quoteQuantities), quantityCandidate),
       requestedByDate: typeof payload.requestedByDate === "string" ? payload.requestedByDate : null,
+      projectPartProperties: normalizeClientPartPropertyState(payload.projectPartProperties),
     },
     extraction: {
       lifecycle:
@@ -836,6 +884,13 @@ export function buildRequirementDraft(
       normalizedExtraction.material.raw ??
       (materialRequired ? "Unknown material" : ""),
     finish: finishResolution.value,
+    threads:
+      clientRequirement?.threads ??
+      readSpecSnapshotString(approved?.spec_snapshot, "threads") ??
+      (normalizedExtraction.threads && normalizedExtraction.threads.length > 0
+        ? normalizedExtraction.threads.join(", ")
+        : null) ??
+      null,
     tightestToleranceInch:
       clientRequirement?.tightestToleranceInch ??
       approved?.tightest_tolerance_inch ??

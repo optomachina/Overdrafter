@@ -63,6 +63,8 @@ import {
   nextRetryAt,
   retryCountForAttempts,
 } from "./vendorTaskRetry.js";
+import { aggregateQuoteRunStatus } from "./quoteRunStatus.js";
+import { shouldWarnSimulateModeInProduction } from "./runtimeEnvironment.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -78,6 +80,8 @@ function buildTaskContext(task: QueueTaskRecord) {
     partId: task.part_id,
     quoteRequestId:
       typeof task.payload.quoteRequestId === "string" ? task.payload.quoteRequestId : null,
+    serviceRequestLineItemId:
+      typeof task.payload.serviceRequestLineItemId === "string" ? task.payload.serviceRequestLineItemId : null,
     quoteRunId: task.quote_run_id,
     packageId: task.package_id,
     vendor: typeof task.payload.vendor === "string" ? task.payload.vendor : null,
@@ -339,28 +343,13 @@ async function syncJobStatusAfterVendorUpdate(
   }
 
   const statuses = results.map((row) => row.status);
-  const hasPending = statuses.some((status) => status === "queued" || status === "running");
-  const hasManual = statuses.some(
-    (status) => status === "manual_review_pending" || status === "manual_vendor_followup",
-  );
-  const hasSuccess = statuses.some(
-    (status) => status === "instant_quote_received" || status === "official_quote_received",
-  );
-  const successfulVendorQuotes = statuses.filter(
-    (status) => status === "instant_quote_received" || status === "official_quote_received",
-  ).length;
-  const manualReviewVendorQuotes = statuses.filter(
-    (status) => status === "manual_review_pending" || status === "manual_vendor_followup",
-  ).length;
-  const failedVendorQuotes = statuses.filter((status) => status === "failed").length;
-  const nextQuoteRunStatus = hasPending ? "running" : hasSuccess || hasManual ? "completed" : "failed";
-  const nextJobStatus = hasPending
-    ? "quoting"
-    : hasManual
-      ? "awaiting_vendor_manual_review"
-      : hasSuccess
-        ? "internal_review"
-        : "quoting";
+  const {
+    nextQuoteRunStatus,
+    nextJobStatus,
+    successfulVendorQuotes,
+    manualReviewVendorQuotes,
+    failedVendorQuotes,
+  } = aggregateQuoteRunStatus(statuses);
 
   await supabase
     .from("quote_runs")
@@ -916,20 +905,26 @@ async function handleVendorQuoteTask(
   let stageDir: string | null = null;
 
   if (!adapter) {
+    const manualReasonCode = "adapter_not_enabled";
+
     await supabase
       .from("vendor_quote_results")
       .update({
         status: "manual_vendor_followup",
         notes: [
-          `${vendor} is configured as a manual/import quote source in this environment.`,
+          config.workerMode === "live"
+            ? `${vendor} is disabled by WORKER_LIVE_ADAPTERS and requires manual vendor follow-up.`
+            : `${vendor} is configured as a manual/import quote source in this environment.`,
         ],
         raw_payload: {
           mode: config.workerMode,
           source: "manual-import-vendor",
           requiresManualVendorFollowUp: true,
+          manualFollowUpReason: manualReasonCode,
           requestedQuantity: currentResult.requested_quantity,
           retryCount,
-          failureCode: null,
+          failureCode: manualReasonCode,
+          configuredLiveAdapters: config.workerLiveAdapters,
         },
       })
       .eq("id", currentResult.id);
@@ -939,6 +934,7 @@ async function handleVendorQuoteTask(
       ...task.payload,
       vendorStatus: "manual_vendor_followup",
       manualVendor: true,
+      manualReasonCode,
     });
     return;
   }
@@ -1036,18 +1032,30 @@ async function handleVendorQuoteTask(
 
     const failureCode = failureCodeForError(error);
     const failureMessage = summarizeError(error);
+    const requiresManualVendorFollowUp = vendorError?.code === "not_implemented";
     const retryAt =
-      isRetryableVendorTaskError(error) ? nextRetryAt(task.attempts) : null;
+      requiresManualVendorFollowUp || !isRetryableVendorTaskError(error)
+        ? null
+        : nextRetryAt(task.attempts);
+    const manualReasonCode = requiresManualVendorFollowUp ? "adapter_not_implemented" : null;
+    let resultStatus: "queued" | "manual_vendor_followup" | "failed" = "failed";
+    if (requiresManualVendorFollowUp) {
+      resultStatus = "manual_vendor_followup";
+    } else if (retryAt) {
+      resultStatus = "queued";
+    }
+    let failureNote = failureMessage;
+    if (requiresManualVendorFollowUp) {
+      failureNote = `${vendor} live automation is not implemented; manual vendor follow-up is required.`;
+    } else if (retryAt) {
+      failureNote = `Transient vendor automation failure. Retry scheduled for ${retryAt}. ${failureMessage}`;
+    }
 
     await supabase
       .from("vendor_quote_results")
       .update({
-        status: retryAt ? "queued" : "failed",
-        notes: [
-          retryAt
-            ? `Transient vendor automation failure. Retry scheduled for ${retryAt}. ${failureMessage}`
-            : failureMessage,
-        ],
+        status: resultStatus,
+        notes: [failureNote],
         raw_payload: {
           ...buildFailureRawPayload(
             vendor,
@@ -1058,11 +1066,25 @@ async function handleVendorQuoteTask(
           ),
           requestedQuantity: currentResult.requested_quantity,
           retryScheduledFor: retryAt,
+          requiresManualVendorFollowUp,
+          manualFollowUpReason: manualReasonCode,
         },
       })
       .eq("id", currentResult.id);
 
     await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
+
+    if (requiresManualVendorFollowUp) {
+      await markTaskCompleted(supabase, task.id, {
+        ...task.payload,
+        vendorStatus: "manual_vendor_followup",
+        manualVendor: true,
+        manualReasonCode,
+        failureCode,
+      });
+      return;
+    }
+
     throw error;
   } finally {
     await cleanupPaths([stageDir, ...artifactDirs]);
@@ -1299,6 +1321,21 @@ async function main() {
       drawingExtractionModel: config.drawingExtractionModel,
     },
   });
+
+  if (shouldWarnSimulateModeInProduction(config)) {
+    logWorkerEvent(runtimeState, {
+      level: "warn",
+      source: "worker.configuration",
+      message:
+        "WORKER_MODE=simulate detected in production-like environment; vendor quotes will not run live automation.",
+      context: {
+        workerMode: config.workerMode,
+        nodeEnv: process.env.NODE_ENV ?? null,
+        vercelEnv: process.env.VERCEL_ENV ?? null,
+        appEnv: process.env.APP_ENV ?? null,
+      },
+    });
+  }
 
   runtimeState.status = "running";
 

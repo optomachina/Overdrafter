@@ -1,14 +1,16 @@
 export type DirectJobAuthorizationInput = {
   createdByMatchesUser: boolean;
-  isOrgMember: boolean;
+  isInternalAdmin: boolean;
   canEditDirectProject: boolean;
   canEditProjectViaJoinTable: boolean;
 };
 
-export function canUserEditJobWithoutAuthContext(input: DirectJobAuthorizationInput): boolean {
+export function canUserDestructivelyEditJobWithoutAuthContext(
+  input: DirectJobAuthorizationInput,
+): boolean {
   return (
     input.createdByMatchesUser ||
-    input.isOrgMember ||
+    input.isInternalAdmin ||
     input.canEditDirectProject ||
     input.canEditProjectViaJoinTable
   );

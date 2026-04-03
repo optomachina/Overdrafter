@@ -111,14 +111,14 @@ type ReleaseNote = {
 };
 
 const MENU_CONTENT_CLASS =
-  "workspace-shell z-[70] w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 box-border rounded-surface-lg border border-white/[0.08] bg-[#2a2a2a] p-2.5 text-white shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
+  "workspace-shell z-[70] w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 box-border rounded-surface-lg border border-white/[0.08] bg-ws-raised p-2.5 text-white shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
 const SUBMENU_CONTENT_CLASS =
-  "workspace-shell z-[71] w-[320px] rounded-surface-lg border border-white/[0.08] bg-[#2a2a2a] p-2.5 text-white shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
+  "workspace-shell z-[71] w-[320px] rounded-surface-lg border border-white/[0.08] bg-ws-raised p-2.5 text-white shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
 const MENU_ITEM_CLASS =
   "gap-3.5 rounded-surface-lg px-4 py-3 text-[15px] font-normal leading-6 text-white/[0.96] focus:bg-white/[0.08] focus:text-white";
 const MENU_ICON_CLASS = "h-[22px] w-[22px] shrink-0 text-white/[0.92]";
 const PANEL_SHEET_CLASS =
-  "workspace-shell w-[min(100vw,30rem)] border-l border-white/[0.08] bg-[#2a2a2a] p-0 text-white sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-full [&>button]:bg-white/[0.06] [&>button]:p-2 [&>button]:text-white/72 [&>button]:hover:bg-white/[0.1] [&>button]:hover:text-white";
+  "workspace-shell w-[min(100vw,30rem)] border-l border-white/[0.08] bg-ws-raised p-0 text-white sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-full [&>button]:bg-white/[0.06] [&>button]:p-2 [&>button]:text-white/72 [&>button]:hover:bg-white/[0.1] [&>button]:hover:text-white";
 const PANEL_CARD_CLASS = "rounded-surface-lg border border-white/[0.08] bg-black/20 p-4";
 const NOTIFICATION_BADGE_CLASS =
   "rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300";
@@ -1450,7 +1450,7 @@ export function WorkspaceAccountMenu({
             </ScrollArea>
 
             {activePanel === "settings" && editingSection !== null && (
-              <div className="border-t border-white/[0.08] bg-[#2a2a2a] px-6 pb-6 pt-5 shadow-[0_-8px_24px_rgba(0,0,0,0.4)]">
+              <div className="border-t border-white/[0.08] bg-ws-raised px-6 pb-6 pt-5 shadow-[0_-8px_24px_rgba(0,0,0,0.4)]">
                 <p className="mb-4 text-[15px] font-medium text-white">
                   {editingSection === "company" && "Edit Company"}
                   {editingSection === "billing" && "Edit Billing Address"}
@@ -1711,7 +1711,7 @@ export function WorkspaceAccountMenu({
           }
         }}
       >
-        <AlertDialogContent className="workspace-shell border-white/[0.08] bg-[#2a2a2a] text-white">
+        <AlertDialogContent className="workspace-shell border-white/[0.08] bg-ws-raised text-white">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {deleteConfirmation?.kind === "bulk" ? "Delete all archived parts?" : "Delete archived part?"}

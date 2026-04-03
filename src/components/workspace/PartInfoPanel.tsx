@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { FileText } from "lucide-react";
 import { ClientPartRequestEditor } from "@/components/quotes/ClientPartRequestEditor";
+import { requestedServicesSupportQuoteFields } from "@/features/quotes/service-intent";
 import type { ClientPartRequestUpdateInput, DrawingExtractionData, JobPartSummary, PartAggregate } from "@/features/quotes/types";
 
 type PartInfoPanelProps = {
@@ -51,6 +52,9 @@ function buildInfoRows(input: {
   description?: string | null;
 }): InfoRow[] {
   const { part, summary, extraction, draft, partNumber, description } = input;
+  const showQuoteFields = requestedServicesSupportQuoteFields(
+    draft?.requestedServiceKinds ?? summary?.requestedServiceKinds,
+  );
 
   return [
     {
@@ -82,7 +86,7 @@ function buildInfoRows(input: {
     {
       label: "Quantity",
       value:
-        draft?.requestedQuoteQuantities.length
+        showQuoteFields && draft?.requestedQuoteQuantities.length
           ? draft.requestedQuoteQuantities.join(" / ")
           : draft?.quantity
             ? String(draft.quantity)
@@ -98,7 +102,10 @@ function buildInfoRows(input: {
     },
     {
       label: "Thread",
-      value: "—",
+      value:
+        formatTextValue(draft?.threads) ||
+        formatTextValue(extraction?.threads?.join(", ")) ||
+        "—",
     },
   ];
 }

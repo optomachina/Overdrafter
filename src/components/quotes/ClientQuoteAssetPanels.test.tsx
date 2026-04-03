@@ -1,11 +1,27 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { ClientDrawingPreviewPanel } from "./ClientQuoteAssetPanels";
+import { ClientCadPreviewPanel, ClientDrawingPreviewPanel } from "./ClientQuoteAssetPanels";
 import type { DrawingPreviewData, JobFileRecord } from "@/features/quotes/types";
+import { downloadStoredFileBlob } from "@/lib/stored-file";
 
 vi.mock("@/components/CadModelThumbnail", () => ({
-  CadModelThumbnail: () => <div>CAD Preview</div>,
+  CadModelThumbnail: ({
+    fallbackActionLabel,
+    onFallbackAction,
+  }: {
+    fallbackActionLabel?: string;
+    onFallbackAction?: () => void;
+  }) => (
+    <div>
+      <div>CAD Preview</div>
+      {onFallbackAction ? (
+        <button type="button" onClick={onFallbackAction}>
+          {fallbackActionLabel ?? "Download CAD file"}
+        </button>
+      ) : null}
+    </div>
+  ),
 }));
 
 vi.mock("@/lib/stored-file", () => ({
@@ -116,5 +132,24 @@ describe("ClientDrawingPreviewPanel", () => {
 
     expect(screen.queryByText("PDF-1.4")).not.toBeInTheDocument();
     expect(screen.queryByText(/xref/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("ClientCadPreviewPanel", () => {
+  it("wires thumbnail fallback download action to CAD download", async () => {
+    vi.mocked(downloadStoredFileBlob).mockImplementation(() => new Promise(() => {}));
+
+    const cadFile = {
+      id: "cad-1",
+      storage_bucket: "job-files",
+      storage_path: "org/model.step",
+      original_name: "model.step",
+    } as unknown as JobFileRecord;
+
+    render(<ClientCadPreviewPanel cadFile={cadFile} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /download model\.step/i }));
+
+    expect(downloadStoredFileBlob).toHaveBeenCalledWith(cadFile);
   });
 });

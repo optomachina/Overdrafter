@@ -16,7 +16,8 @@ with `npm`, and do not add alternate lockfiles unless the repo policy changes.
 ## Runtime Modes
 
 - `simulate` (default): produces deterministic extraction and vendor quote data so the full orchestration loop can be exercised without live credentials.
-- `live`: reserved for Playwright-backed vendor automation and model-assisted extraction. The interfaces are in place, but real selectors and login state still need to be filled in.
+- `live`: enables Playwright-backed vendor automation for adapters listed in `WORKER_LIVE_ADAPTERS`.
+  Adapters that are still stubs fail closed and are routed to `manual_vendor_followup` with explicit failure metadata.
 
 ## Environment
 
@@ -28,6 +29,7 @@ Required:
 Optional:
 
 - `WORKER_MODE=simulate|live`
+- `WORKER_LIVE_ADAPTERS=xometry` (comma-separated: `xometry,fictiv,protolabs,sendcutsend`)
 - `WORKER_NAME=quote-worker-1`
 - `WORKER_POLL_INTERVAL_MS=5000`
 - `WORKER_HTTP_HOST=0.0.0.0`
@@ -89,6 +91,7 @@ After that, point the worker at the saved file:
 ```bash
 export XOMETRY_STORAGE_STATE_PATH=/absolute/path/to/xometry-storage-state.json
 export WORKER_MODE=live
+export WORKER_LIVE_ADAPTERS=xometry
 ```
 
 ## Production Build
@@ -113,6 +116,11 @@ The worker now starts a lightweight HTTP server on `PORT` and exposes:
 - `/readyz`
 
 This is required for Cloud Run services.
+
+Debug routes are intentionally not part of the deployed contract. `/debug/events`,
+`/debug/extraction/models`, `/debug/extraction/models/refresh`, and
+`/debug/extraction/preview` are available only from loopback clients while the worker
+is running in a non-live mode. When `WORKER_MODE=live`, those routes return HTTP 403.
 
 ## Cloud Run Deployment
 
@@ -161,6 +169,10 @@ The deploy script:
 - injects `XOMETRY_STORAGE_STATE_JSON` from Secret Manager
 - enables the Chromium flags that are typically needed in Cloud Run
 
+In Cloud Run, treat `/healthz` and `/readyz` as the only supported HTTP endpoints.
+The worker debug routes are disabled because the deployed service runs with
+`WORKER_MODE=live`.
+
 Recommended first-pass settings:
 
 - `min-instances=1`
@@ -175,6 +187,7 @@ Notes:
 - The worker service should stay private. The deploy script uses `--no-allow-unauthenticated`.
 - `XOMETRY_STORAGE_STATE_JSON` is written to a temporary file on startup so Playwright can consume it as a normal `storageState` file.
 - When the Xometry session expires, refresh the local storage-state file and upload it as a new Secret Manager version.
+- If production runs with `WORKER_MODE=simulate`, the worker logs an explicit warning at startup.
 
 ## Notes
 
@@ -182,6 +195,36 @@ Notes:
 - This worker intentionally lives outside the Vite app so browser automation can run in a proper long-lived process.
 - `sendcutsend` is modeled as a CNC manual-follow-up lane in v1.
 - The live Xometry adapter fails closed if login or captcha is encountered.
+
+## OpenClaw Task A Gate
+
+Use the OpenClaw validation gate after a live quote run to decide if Task B can proceed.
+The gate inspects persisted `vendor_quote_results` rows for `xometry` and `fictiv` and classifies each vendor as:
+
+- `real_quote`
+- `blocked`
+- `synthetic_or_stub`
+- `insufficient_evidence`
+
+Run:
+
+```bash
+cd worker
+npm run validate:openclaw-gate -- --quote-run-id <quote-run-id>
+```
+
+Optional report file:
+
+```bash
+cd worker
+npm run validate:openclaw-gate -- --quote-run-id <quote-run-id> --out /tmp/openclaw-gate-report.json
+```
+
+Exit codes:
+
+- `0`: gate pass (both target vendors have real quote evidence with persisted price + lead time)
+- `1`: gate fail (anti-detection, stub/simulation, or insufficient evidence)
+- `2`: invalid CLI input or runtime error
 
 ## Spreadsheet Quote Import
 
