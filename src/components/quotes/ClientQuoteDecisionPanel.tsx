@@ -194,11 +194,11 @@ function DueDateFilterNotice({
   requestedByDate,
   hiddenCount,
   selectedOption,
-}: {
+}: Readonly<{
   requestedByDate: string;
   hiddenCount: number;
   selectedOption: ClientQuoteSelectionOption | null;
-}) {
+}>) {
   const selectionMissesDeadline =
     selectedOption !== null && selectedOption.isSelectable && !selectedOption.dueDateEligible;
 
@@ -226,7 +226,7 @@ function QuoteComparisonTable({
   requestedByDate,
   activePreset,
   onToggleVendorExclusion,
-}: {
+}: Readonly<{
   options: readonly ClientQuoteSelectionOption[];
   selectedOption: ClientQuoteSelectionOption | null;
   hoveredKey: string | null;
@@ -235,7 +235,7 @@ function QuoteComparisonTable({
   requestedByDate: string | null;
   activePreset: QuotePreset | null;
   onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
-}) {
+}>) {
   return (
     <div className="rounded-2xl border border-white/8 bg-black/20 p-2">
       <Table className="text-white">
@@ -355,7 +355,7 @@ function QuoteComparisonCards({
   requestedByDate,
   activePreset,
   onToggleVendorExclusion,
-}: {
+}: Readonly<{
   options: readonly ClientQuoteSelectionOption[];
   selectedOption: ClientQuoteSelectionOption | null;
   hoveredKey: string | null;
@@ -364,7 +364,7 @@ function QuoteComparisonCards({
   requestedByDate: string | null;
   activePreset: QuotePreset | null;
   onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
-}) {
+}>) {
   return (
     <div className="space-y-2">
       {options.map((option) => {
@@ -465,6 +465,144 @@ function QuoteComparisonCards({
   );
 }
 
+type DecisionPanelContentProps = Readonly<{
+  options: readonly ClientQuoteSelectionOption[];
+  visibleOptions: readonly ClientQuoteSelectionOption[];
+  selectedOption: ClientQuoteSelectionOption | null;
+  requestedByDate: string | null;
+  quoteDataStatus: QuoteDataStatus;
+  quoteDataMessage: string | null;
+  quoteDiagnostics: QuoteDiagnostics | null;
+  emptyState: string;
+  hiddenDueDateCount: number;
+  layout: "full" | "compact";
+  hoveredKey: string | null;
+  setHoveredKey: (key: string | null) => void;
+  partId: string | null;
+  organizationId: string | null;
+  activePreset: QuotePreset | null;
+  onSelect: (option: ClientQuoteSelectionOption) => void;
+  onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
+}>;
+
+function renderDecisionPanelContent({
+  options,
+  visibleOptions,
+  selectedOption,
+  requestedByDate,
+  quoteDataStatus,
+  quoteDataMessage,
+  quoteDiagnostics,
+  emptyState,
+  hiddenDueDateCount,
+  layout,
+  hoveredKey,
+  setHoveredKey,
+  partId,
+  organizationId,
+  activePreset,
+  onSelect,
+  onToggleVendorExclusion,
+}: DecisionPanelContentProps) {
+  if (quoteDataStatus === "schema_unavailable") {
+    return (
+      <QuoteDataStatusCard
+        icon={TriangleAlert}
+        title="Quote comparison is unavailable"
+        body={quoteDataMessage ?? "The quote workspace projection is unavailable in this environment."}
+      />
+    );
+  }
+
+  if (quoteDataStatus === "invalid_for_plotting") {
+    return (
+      <QuoteDataStatusCard
+        icon={TriangleAlert}
+        title="Quote rows were loaded but could not be plotted"
+        body={quoteDataMessage ?? "The quote rows for this part are missing required plotting fields."}
+        diagnostics={quoteDiagnostics}
+      />
+    );
+  }
+
+  if (options.length === 0) {
+    return <QuoteDataStatusCard icon={CircleOff} title="No quote options yet" body={emptyState} />;
+  }
+
+  const showDueDateNotice = Boolean(requestedByDate) && hiddenDueDateCount > 0;
+  const deadlineFilteredEmpty = Boolean(requestedByDate) && options.length > 0 && visibleOptions.length === 0;
+
+  let comparisonContent: ReactNode;
+
+  if (deadlineFilteredEmpty) {
+    comparisonContent = (
+      <QuoteDataStatusCard
+        icon={CircleOff}
+        title="No vendors meet this due date"
+        body={`No visible quote rows can meet ${requestedByDate}. Clear DUE BY to see every vendor again.`}
+      />
+    );
+  } else if (layout === "compact") {
+    comparisonContent = (
+      <QuoteComparisonCards
+        options={visibleOptions}
+        selectedOption={selectedOption}
+        hoveredKey={hoveredKey}
+        onSelect={onSelect}
+        onHover={setHoveredKey}
+        requestedByDate={requestedByDate}
+        activePreset={activePreset}
+        onToggleVendorExclusion={onToggleVendorExclusion}
+      />
+    );
+  } else {
+    comparisonContent = (
+      <QuoteComparisonTable
+        options={visibleOptions}
+        selectedOption={selectedOption}
+        hoveredKey={hoveredKey}
+        onSelect={onSelect}
+        onHover={setHoveredKey}
+        requestedByDate={requestedByDate}
+        activePreset={activePreset}
+        onToggleVendorExclusion={onToggleVendorExclusion}
+      />
+    );
+  }
+
+  return (
+    <div className="mt-4 space-y-4">
+      <QuoteStatsBar options={options} />
+
+      {selectedOption ? <SelectedOptionBanner option={selectedOption} /> : null}
+
+      <div className="rounded-surface-lg border border-white/8 bg-black/20 p-4">
+        <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-white/5" />}>
+          <ClientQuoteComparisonChart
+            options={options}
+            selectedKey={selectedOption?.key ?? null}
+            hoveredKey={hoveredKey}
+            partId={partId}
+            organizationId={organizationId}
+            onSelect={onSelect}
+            onHover={setHoveredKey}
+          />
+        </Suspense>
+      </div>
+
+      {showDueDateNotice ? (
+        <DueDateFilterNotice
+          requestedByDate={requestedByDate}
+          hiddenCount={hiddenDueDateCount}
+          selectedOption={selectedOption}
+        />
+      ) : null}
+
+      {comparisonContent}
+    </div>
+  );
+}
+
 export function ClientQuoteDecisionPanel({
   title = "Quote intelligence",
   description = "Compare price and lead time as one decision surface, then commit the selected option from the same workspace.",
@@ -485,14 +623,13 @@ export function ClientQuoteDecisionPanel({
   headerActions = null,
   emptyState = "No quote options are available yet.",
   className,
-}: ClientQuoteDecisionPanelProps) {
+}: Readonly<ClientQuoteDecisionPanelProps>) {
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const vendorKeys = [...new Set(options.map((o) => o.vendorKey))];
   const filteredOptions = filterVisibleQuoteOptions(options, requestedByDate);
   const dueDateFilteringActive = Boolean(requestedByDate);
   const hiddenDueDateCount = dueDateFilteringActive ? options.length - filteredOptions.length : 0;
   const visibleOptions = dueDateFilteringActive ? filteredOptions : options;
-  const deadlineFilteredEmpty = dueDateFilteringActive && options.length > 0 && visibleOptions.length === 0;
 
   return (
     <section className={cn("rounded-[28px] border border-ws-border bg-ws-card p-5", className)}>
@@ -505,81 +642,25 @@ export function ClientQuoteDecisionPanel({
         onPresetSelect={onPresetSelect}
         vendorKeys={vendorKeys}
       />
-
-      {quoteDataStatus === "schema_unavailable" ? (
-        <QuoteDataStatusCard
-          icon={TriangleAlert}
-          title="Quote comparison is unavailable"
-          body={quoteDataMessage ?? "The quote workspace projection is unavailable in this environment."}
-        />
-      ) : quoteDataStatus === "invalid_for_plotting" ? (
-        <QuoteDataStatusCard
-          icon={TriangleAlert}
-          title="Quote rows were loaded but could not be plotted"
-          body={quoteDataMessage ?? "The quote rows for this part are missing required plotting fields."}
-          diagnostics={quoteDiagnostics}
-        />
-      ) : options.length === 0 ? (
-        <QuoteDataStatusCard icon={CircleOff} title="No quote options yet" body={emptyState} />
-      ) : (
-        <div className="mt-4 space-y-4">
-          <QuoteStatsBar options={options} />
-
-          {selectedOption ? <SelectedOptionBanner option={selectedOption} /> : null}
-
-          <div className="rounded-surface-lg border border-white/8 bg-black/20 p-4">
-            <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-white/5" />}>
-              <ClientQuoteComparisonChart
-                options={options}
-                selectedKey={selectedOption?.key ?? null}
-                hoveredKey={hoveredKey}
-                partId={partId}
-                organizationId={organizationId}
-                onSelect={onSelect}
-                onHover={setHoveredKey}
-              />
-            </Suspense>
-          </div>
-
-          {requestedByDate && hiddenDueDateCount > 0 ? (
-            <DueDateFilterNotice
-              requestedByDate={requestedByDate}
-              hiddenCount={hiddenDueDateCount}
-              selectedOption={selectedOption}
-            />
-          ) : null}
-
-          {deadlineFilteredEmpty ? (
-            <QuoteDataStatusCard
-              icon={CircleOff}
-              title="No vendors meet this due date"
-              body={`No visible quote rows can meet ${requestedByDate}. Clear DUE BY to see every vendor again.`}
-            />
-          ) : layout === "compact" ? (
-            <QuoteComparisonCards
-              options={visibleOptions}
-              selectedOption={selectedOption}
-              hoveredKey={hoveredKey}
-              onSelect={onSelect}
-              onHover={setHoveredKey}
-              requestedByDate={requestedByDate}
-              activePreset={activePreset ?? null}
-              onToggleVendorExclusion={onToggleVendorExclusion}
-            />
-          ) : (
-            <QuoteComparisonTable
-              options={visibleOptions}
-              selectedOption={selectedOption}
-              hoveredKey={hoveredKey}
-              onSelect={onSelect}
-              onHover={setHoveredKey}
-              requestedByDate={requestedByDate}
-              activePreset={activePreset ?? null}
-              onToggleVendorExclusion={onToggleVendorExclusion}
-            />
-          )}
-        </div>
-      )}
+      {renderDecisionPanelContent({
+        options,
+        visibleOptions,
+        selectedOption,
+        requestedByDate,
+        quoteDataStatus,
+        quoteDataMessage,
+        quoteDiagnostics,
+        emptyState,
+        hiddenDueDateCount,
+        layout,
+        hoveredKey,
+        setHoveredKey,
+        partId,
+        organizationId,
+        activePreset,
+        onSelect,
+        onToggleVendorExclusion,
+      })}
     </section>
   );
 }
