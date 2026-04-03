@@ -569,6 +569,34 @@ describe("ClientProject", () => {
     expect(screen.getAllByText("BW").length).toBeGreaterThan(0);
   });
 
+  it("uses the accessible project summary for the project part count when the detailed project query is empty", async () => {
+    api.fetchAccessibleProjects.mockResolvedValueOnce([
+      {
+        project: {
+          id: "project-1",
+          name: "Bracket Project",
+          organization_id: "org-1",
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-02T00:00:00Z",
+        },
+        partCount: 2,
+        inviteCount: 0,
+        currentUserRole: "owner",
+      },
+    ]);
+    api.fetchJobsByProject.mockResolvedValueOnce([]);
+
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Bracket Project" })).toBeInTheDocument();
+    });
+
+    const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+    expect(screen.getByText("Parts: 2")).toBeInTheDocument();
+    expect(inspector).toBeInTheDocument();
+  });
+
   it("selects a row and updates the docked inspector without navigating away", async () => {
     renderWithClient("/projects/project-1");
 

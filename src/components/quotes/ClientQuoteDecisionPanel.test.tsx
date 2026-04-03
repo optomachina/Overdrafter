@@ -57,6 +57,13 @@ function makeDiagnostics(overrides: Partial<QuoteDiagnostics> = {}): QuoteDiagno
   };
 }
 
+function getVendorRowNames() {
+  return screen
+    .getAllByRole("row")
+    .slice(1)
+    .map((row) => row.textContent ?? "");
+}
+
 function makeSecondOption() {
   return makeClientQuoteOption({
     key: "option-2",
@@ -166,7 +173,6 @@ describe("ClientQuoteDecisionPanel", () => {
     const table = screen.getByRole("columnheader", { name: "Estimated Delivery" }).closest("table");
 
     expect(table).not.toBeNull();
-    expect(screen.getByRole("columnheader", { name: "Estimated Delivery" })).toBeInTheDocument();
     expect(within(table as HTMLTableElement).getByText("7 days")).toBeInTheDocument();
     expect(screen.queryByText("7 business days")).not.toBeInTheDocument();
   });
@@ -299,9 +305,124 @@ describe("ClientQuoteDecisionPanel", () => {
       expect(screen.getByText("Quote Chart")).toBeInTheDocument();
     });
 
-    expect(screen.getByRole("cell", { name: "Xometry" })).toBeInTheDocument();
-    expect(screen.queryByRole("cell", { name: "Proto Labs" })).not.toBeInTheDocument();
+    expect(getVendorRowNames().some((name) => name.includes("Xometry"))).toBe(true);
+    expect(getVendorRowNames().some((name) => name.includes("Proto Labs"))).toBe(false);
     expect(screen.getByText("Showing vendors that can meet 2026-04-15. 1 row is hidden.")).toBeInTheDocument();
+  });
+
+  it("visibly reorders vendor rows and updates the indicator when preset mode changes", async () => {
+    const fastest = makeClientQuoteOption({
+      key: "option-fast",
+      offerId: "offer-fast",
+      persistedOfferId: "offer-fast",
+      vendorQuoteResultId: "result-fast",
+      vendorLabel: "Fictiv",
+      supplier: "Fictiv",
+      totalPriceUsd: 180,
+      unitPriceUsd: 18,
+      leadTimeBusinessDays: 3,
+      resolvedDeliveryDate: "2026-04-08",
+    });
+    const cheapest = makeClientQuoteOption({
+      key: "option-cheap",
+      offerId: "offer-cheap",
+      persistedOfferId: "offer-cheap",
+      vendorQuoteResultId: "result-cheap",
+      vendorLabel: "Proto Labs",
+      supplier: "Proto Labs",
+      totalPriceUsd: 90,
+      unitPriceUsd: 9,
+      leadTimeBusinessDays: 8,
+      resolvedDeliveryDate: "2026-04-16",
+    });
+
+    const { rerender } = render(
+      <ClientQuoteDecisionPanel
+        options={[fastest, cheapest]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+        activePreset="fastest"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    });
+
+    let vendorRows = getVendorRowNames();
+    expect(vendorRows[0]).toContain("Fictiv");
+    expect(vendorRows[1]).toContain("Proto Labs");
+    expect(screen.getByText("Sorting by fastest delivery")).toBeInTheDocument();
+    expect(screen.getByText("Fastest")).toBeInTheDocument();
+
+    rerender(
+      <ClientQuoteDecisionPanel
+        options={[fastest, cheapest]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+        activePreset="cheapest"
+      />,
+    );
+
+    vendorRows = getVendorRowNames();
+    expect(vendorRows[0]).toContain("Proto Labs");
+    expect(vendorRows[1]).toContain("Fictiv");
+    expect(screen.getByText("Sorting by lowest cost")).toBeInTheDocument();
+    expect(screen.getByText("Lowest Cost")).toBeInTheDocument();
+  });
+
+  it("badges the top-ranked vendor under the active ranking mode", async () => {
+    const first = makeClientQuoteOption({
+      key: "option-1",
+      vendorLabel: "Fictiv",
+      totalPriceUsd: 90,
+      unitPriceUsd: 9,
+      leadTimeBusinessDays: 4,
+      resolvedDeliveryDate: "2026-04-09",
+    });
+    const second = makeClientQuoteOption({
+      key: "option-2",
+      offerId: "offer-2",
+      persistedOfferId: "offer-2",
+      vendorQuoteResultId: "result-2",
+      vendorLabel: "Proto Labs",
+      supplier: "Proto Labs",
+      totalPriceUsd: 90,
+      unitPriceUsd: 9,
+      leadTimeBusinessDays: 4,
+      resolvedDeliveryDate: "2026-04-09",
+    });
+    const third = makeClientQuoteOption({
+      key: "option-3",
+      offerId: "offer-3",
+      persistedOfferId: "offer-3",
+      vendorQuoteResultId: "result-3",
+      vendorLabel: "Xometry",
+      supplier: "Xometry",
+      totalPriceUsd: 110,
+      unitPriceUsd: 11,
+      leadTimeBusinessDays: 6,
+      resolvedDeliveryDate: "2026-04-11",
+    });
+
+    render(
+      <ClientQuoteDecisionPanel
+        options={[third, second, first]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+        activePreset="cheapest"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    });
+
+    expect(getVendorRowNames().filter((name) => name.includes("Lowest Cost"))).toHaveLength(1);
+    expect(screen.getByText("1 leader tagged")).toBeInTheDocument();
   });
 
   it("shows an empty filtered state when every vendor misses the due date", async () => {

@@ -282,6 +282,7 @@ const ClientProject = () => {
     projectName,
     projectQuery,
     projectWorkspaceItemsQuery,
+    projectPartCount,
     resolveSidebarProjectIdsForJob,
     requestProjectQuotesMutation,
     setActiveFilter,
@@ -514,7 +515,7 @@ const ClientProject = () => {
       ],
       project: [
         { label: "Project", value: formatPropertyValue(projectQuery.data?.name ?? projectName ?? "Project") },
-        { label: "Project parts", value: String(projectJobs.length) },
+        { label: "Project parts", value: String(projectPartCount) },
         {
           label: "Quote quantities",
           value: formatQuoteQuantitiesLabel(
@@ -537,7 +538,7 @@ const ClientProject = () => {
   }, [
     focusedJobId,
     focusedWorkspaceItem,
-    projectJobs.length,
+    projectPartCount,
     projectName,
     projectQuery.data?.name,
     quoteRequestViewModelsByJobId,
@@ -646,7 +647,7 @@ const ClientProject = () => {
             </p>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <Badge className="border border-white/10 bg-white/6 text-white/70">Parts: {projectJobs.length}</Badge>
+              <Badge className="border border-white/10 bg-white/6 text-white/70">Parts: {projectPartCount}</Badge>
               {projectQuoteRequestSummary.received > 0 ? (
                 <Badge className={getQuoteRequestStatusBadgeClassName("received")}>
                   Quoted: {projectQuoteRequestSummary.received}

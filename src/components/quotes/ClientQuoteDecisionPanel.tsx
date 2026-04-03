@@ -20,12 +20,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getClientQuoteOptionStateReasons } from "@/features/quotes/client-workspace-state";
+import {
+  getClientQuoteOptionStateReasons,
+} from "@/features/quotes/client-workspace-state";
 import type {
   ClientQuoteSelectionOption,
   QuotePreset,
+  QuotePresetMode,
 } from "@/features/quotes/selection";
-import { filterVisibleQuoteOptions, formatQuotePlotExclusionReason } from "@/features/quotes/selection";
+import {
+  filterVisibleQuoteOptions,
+  formatQuotePlotExclusionReason,
+  getPresetMode,
+  getTopRankedQuoteOptionKeys,
+  sortQuoteOptionsForPreset,
+} from "@/features/quotes/selection";
 import type { QuoteDataStatus, QuoteDiagnostics } from "@/features/quotes/types";
 import { formatCurrency } from "@/features/quotes/utils";
 import { getVendorColor } from "@/features/quotes/vendor-colors";
@@ -62,6 +71,20 @@ function formatEstimatedDeliveryDays(
   }
 
   return resolvedDeliveryDate ?? "Pending";
+}
+
+function getPresetModeBadgeCopy(mode: QuotePresetMode) {
+  return mode === "fastest"
+    ? {
+        indicatorLabel: "Sorting by fastest delivery",
+        indicatorDetail: "Lead time leads. Price breaks ties.",
+        rowBadge: "Fastest",
+      }
+    : {
+        indicatorLabel: "Sorting by lowest cost",
+        indicatorDetail: "Price leads. Lead time breaks ties.",
+        rowBadge: "Lowest Cost",
+      };
 }
 
 function QuoteDataStatusCard({
@@ -132,7 +155,9 @@ function PanelHeader({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        {controls ? <div className="min-w-0 flex-1">{controls}</div> : null}
+        {controls ? (
+          <div className="min-w-0 flex-1">{controls}</div>
+        ) : null}
 
         {showLegacyPresets ? (
           <div className="flex flex-wrap items-center gap-2">
@@ -225,6 +250,29 @@ function DueDateFilterNotice({
   );
 }
 
+function RankingModeIndicator({
+  mode,
+  rankedCount,
+}: Readonly<{
+  mode: QuotePresetMode;
+  rankedCount: number;
+}>) {
+  const copy = getPresetModeBadgeCopy(mode);
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-sky-400/15 bg-sky-500/10 px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-sky-100/75">Active sort mode</p>
+        <p className="mt-1 text-sm font-medium text-sky-50">{copy.indicatorLabel}</p>
+        <p className="mt-1 text-xs text-sky-100/70">{copy.indicatorDetail}</p>
+      </div>
+      <Badge className="border border-sky-300/20 bg-black/20 text-sky-50">
+        {rankedCount} {rankedCount === 1 ? "leader" : "leaders"} tagged
+      </Badge>
+    </div>
+  );
+}
+
 function QuoteComparisonTable({
   options,
   selectedOption,
@@ -233,6 +281,7 @@ function QuoteComparisonTable({
   onHover,
   requestedByDate,
   activePreset,
+  topRankedKeys,
   onToggleVendorExclusion,
 }: Readonly<{
   options: readonly ClientQuoteSelectionOption[];
@@ -242,8 +291,11 @@ function QuoteComparisonTable({
   onHover: (key: string | null) => void;
   requestedByDate: string | null;
   activePreset: QuotePreset | null;
+  topRankedKeys: ReadonlySet<string>;
   onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
 }>) {
+  const badgeCopy = getPresetModeBadgeCopy(getPresetMode(activePreset));
+
   return (
     <div className="rounded-2xl border border-white/8 bg-black/20 p-2">
       <Table className="text-white">
@@ -260,6 +312,7 @@ function QuoteComparisonTable({
           {options.map((option) => {
             const selected = selectedOption?.key === option.key;
             const hovered = hoveredKey === option.key;
+            const showTopRankBadge = topRankedKeys.has(option.key);
             const reasons = getClientQuoteOptionStateReasons({
               option,
               requestedByDate,
@@ -293,7 +346,14 @@ function QuoteComparisonTable({
                     <div>
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-medium text-white">{option.vendorLabel}</span>
-                        {selected ? <BadgeCheck className="h-3.5 w-3.5 text-emerald-400" /> : null}
+                        {selected ? (
+                          <BadgeCheck className="h-3.5 w-3.5 text-emerald-400" />
+                        ) : null}
+                        {showTopRankBadge ? (
+                          <Badge className="h-4 border border-sky-300/20 bg-sky-500/15 px-1.5 text-[9px] text-sky-50">
+                            {badgeCopy.rowBadge}
+                          </Badge>
+                        ) : null}
                         {option.excluded ? (
                           <Badge className="h-4 border border-white/10 bg-white/6 px-1 text-[9px] text-white/50">
                             Excl
@@ -317,7 +377,9 @@ function QuoteComparisonTable({
                 </TableCell>
                 <TableCell className="py-2.5 text-xs text-white/50">
                   <p>{option.laneLabel ?? option.tier ?? "Standard"}</p>
-                  {option.sourcing ? <p className="text-[10px] text-white/35">{option.sourcing}</p> : null}
+                  {option.sourcing ? (
+                    <p className="text-[10px] text-white/35">{option.sourcing}</p>
+                  ) : null}
                 </TableCell>
                 <TableCell className="py-2.5 text-right text-sm tabular-nums text-white/75">
                   {formatCurrency(option.unitPriceUsd)}
@@ -358,6 +420,7 @@ function QuoteComparisonCards({
   onHover,
   requestedByDate,
   activePreset,
+  topRankedKeys,
   onToggleVendorExclusion,
 }: Readonly<{
   options: readonly ClientQuoteSelectionOption[];
@@ -367,13 +430,17 @@ function QuoteComparisonCards({
   onHover: (key: string | null) => void;
   requestedByDate: string | null;
   activePreset: QuotePreset | null;
+  topRankedKeys: ReadonlySet<string>;
   onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
 }>) {
+  const badgeCopy = getPresetModeBadgeCopy(getPresetMode(activePreset));
+
   return (
     <div className="space-y-2">
       {options.map((option) => {
         const selected = selectedOption?.key === option.key;
         const hovered = hoveredKey === option.key;
+        const showTopRankBadge = topRankedKeys.has(option.key);
         const reasons = getClientQuoteOptionStateReasons({
           option,
           requestedByDate,
@@ -410,6 +477,11 @@ function QuoteComparisonCards({
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-sm font-semibold text-white">{option.vendorLabel}</span>
                       {selected ? <BadgeCheck className="h-3.5 w-3.5 text-emerald-400" /> : null}
+                      {showTopRankBadge ? (
+                        <Badge className="border border-sky-300/20 bg-sky-500/15 text-sky-50">
+                          {badgeCopy.rowBadge}
+                        </Badge>
+                      ) : null}
                       {option.excluded ? (
                         <Badge className="h-4 border border-white/10 bg-white/6 px-1 text-[9px] text-white/50">
                           Excl
@@ -537,6 +609,9 @@ function renderDecisionPanelContent({
 
   const showDueDateNotice = Boolean(requestedByDate) && hiddenDueDateCount > 0;
   const deadlineFilteredEmpty = Boolean(requestedByDate) && options.length > 0 && visibleOptions.length === 0;
+  const activeRankingPreset = activePreset ?? "cheapest";
+  const rankedVisibleOptions = sortQuoteOptionsForPreset(visibleOptions, activeRankingPreset);
+  const topRankedKeys = getTopRankedQuoteOptionKeys(rankedVisibleOptions, activeRankingPreset);
 
   let comparisonContent: ReactNode;
 
@@ -551,26 +626,28 @@ function renderDecisionPanelContent({
   } else if (layout === "compact") {
     comparisonContent = (
       <QuoteComparisonCards
-        options={visibleOptions}
+        options={rankedVisibleOptions}
         selectedOption={selectedOption}
         hoveredKey={hoveredKey}
         onSelect={onSelect}
         onHover={setHoveredKey}
         requestedByDate={requestedByDate}
         activePreset={activePreset}
+        topRankedKeys={topRankedKeys}
         onToggleVendorExclusion={onToggleVendorExclusion}
       />
     );
   } else {
     comparisonContent = (
       <QuoteComparisonTable
-        options={visibleOptions}
+        options={rankedVisibleOptions}
         selectedOption={selectedOption}
         hoveredKey={hoveredKey}
         onSelect={onSelect}
         onHover={setHoveredKey}
         requestedByDate={requestedByDate}
         activePreset={activePreset}
+        topRankedKeys={topRankedKeys}
         onToggleVendorExclusion={onToggleVendorExclusion}
       />
     );
@@ -603,6 +680,11 @@ function renderDecisionPanelContent({
           selectedOption={selectedOption}
         />
       ) : null}
+
+      <RankingModeIndicator
+        mode={getPresetMode(activePreset)}
+        rankedCount={topRankedKeys.size}
+      />
 
       {comparisonContent}
     </div>

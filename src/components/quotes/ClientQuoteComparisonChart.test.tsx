@@ -1,78 +1,23 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { cloneElement, isValidElement } from "react";
-import type { MouseEvent, PropsWithChildren, ReactElement, ReactNode, SVGProps } from "react";
+import type { PropsWithChildren } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { getVendorColor } from "@/features/quotes/vendor-colors";
 import { ClientQuoteComparisonChart } from "./ClientQuoteComparisonChart";
 import { makeClientQuoteOption } from "./test-option-factory";
-import { getVendorColor } from "@/features/quotes/vendor-colors";
-
-type ShapeProps = {
-  readonly cx: number;
-  readonly cy: number;
-  readonly payload: unknown;
-};
-type ShapeRenderer =
-  | ReactNode
-  | ((props: ShapeProps) => ReactElement<SVGProps<SVGCircleElement>> | null);
-
-function resolveShapeElement(shape: ShapeRenderer | undefined, shapeProps: ShapeProps) {
-  if (!shape) {
-    return null;
-  }
-
-  let element: ReactElement<SVGProps<SVGCircleElement>> | null = null;
-  if (typeof shape === "function") {
-    element = shape(shapeProps);
-  } else if (isValidElement(shape)) {
-    element = cloneElement(shape, shapeProps);
-  }
-
-  if (!element) {
-    return null;
-  }
-
-  return typeof element.type === "function"
-    ? (element.type as (props: SVGProps<SVGCircleElement>) => ReactElement | null)(element.props)
-    : element;
-}
-
-function renderPointButton(
-  point: unknown,
-  index: number,
-  renderedElement: ReactElement<SVGProps<SVGCircleElement>>,
-  onMouseEnter?: (point: { payload: unknown }) => void,
-  onMouseLeave?: () => void,
-) {
-  const pointKey = (point as { key?: string }).key ?? `point-${index}`;
-
-  return (
-    <button
-      key={pointKey}
-      type="button"
-      data-testid={`point-${pointKey}`}
-      onClick={() => {
-        renderedElement.props.onClick?.({} as MouseEvent<SVGCircleElement>);
-      }}
-      onMouseEnter={() => {
-        renderedElement.props.onMouseEnter?.({} as MouseEvent<SVGCircleElement>);
-        onMouseEnter?.({ payload: point });
-      }}
-      onMouseLeave={() => {
-        renderedElement.props.onMouseLeave?.({} as MouseEvent<SVGCircleElement>);
-        onMouseLeave?.();
-      }}
-    >
-      <svg>{renderedElement}</svg>
-    </button>
-  );
-}
 
 function MockCartesianGrid() {
   return null;
 }
 
 function MockLabel() {
+  return null;
+}
+
+const zAxisSpy = vi.fn();
+
+function MockZAxis(props: Readonly<Record<string, unknown>>) {
+  zAxisSpy(props);
   return null;
 }
 
@@ -92,13 +37,13 @@ vi.mock("recharts", () => {
 
   function Scatter({
     data,
-    shape,
+    onClick,
     onMouseEnter,
     onMouseLeave,
     name,
   }: Readonly<{
     data?: readonly unknown[];
-    shape?: ShapeRenderer;
+    onClick?: (point: { payload: unknown }) => void;
     onMouseEnter?: (point: { payload: unknown }) => void;
     onMouseLeave?: () => void;
     name?: string;
@@ -106,18 +51,29 @@ vi.mock("recharts", () => {
     return (
       <div data-testid={`scatter-${name ?? "vendor"}`}>
         {(data ?? []).map((point, index) => {
-          const shapeProps = {
-            cx: 20 + index * 16,
-            cy: 20 + index * 12,
-            payload: point,
+          const pointData = point as {
+            key?: string;
+            size?: number;
+            fill?: string;
+            stroke?: string;
+            strokeWidth?: number;
           };
-          const renderedElement = resolveShapeElement(shape, shapeProps);
+          const pointKey = pointData.key ?? `point-${index}`;
 
-          if (!renderedElement) {
-            return null;
-          }
-
-          return renderPointButton(point, index, renderedElement, onMouseEnter, onMouseLeave);
+          return (
+            <button
+              key={pointKey}
+              type="button"
+              data-testid={`point-${pointKey}`}
+              data-size={String(pointData.size ?? "")}
+              data-fill={pointData.fill ?? ""}
+              data-stroke={pointData.stroke ?? ""}
+              data-stroke-width={String(pointData.strokeWidth ?? "")}
+              onClick={() => onClick?.({ payload: point })}
+              onMouseEnter={() => onMouseEnter?.({ payload: point })}
+              onMouseLeave={() => onMouseLeave?.()}
+            />
+          );
         })}
       </div>
     );
@@ -143,11 +99,13 @@ vi.mock("recharts", () => {
     ScatterChart,
     XAxis,
     YAxis,
+    ZAxis: MockZAxis,
   };
 });
 
 describe("ClientQuoteComparisonChart", () => {
   it("selects an option when a chart bubble is clicked", () => {
+    zAxisSpy.mockReset();
     const onSelect = vi.fn();
     const onHover = vi.fn();
     const first = makeClientQuoteOption();
@@ -179,6 +137,7 @@ describe("ClientQuoteComparisonChart", () => {
   });
 
   it("ignores chart clicks for non-selectable options", () => {
+    zAxisSpy.mockReset();
     const onSelect = vi.fn();
     const onHover = vi.fn();
 
@@ -207,6 +166,7 @@ describe("ClientQuoteComparisonChart", () => {
   });
 
   it("keeps hover synchronization callbacks", () => {
+    zAxisSpy.mockReset();
     const onSelect = vi.fn();
     const onHover = vi.fn();
 
@@ -227,38 +187,62 @@ describe("ClientQuoteComparisonChart", () => {
     expect(onHover).toHaveBeenLastCalledWith(null);
   });
 
-  it("renders vendor-colored bubbles with an explicit fill style for dark backgrounds", () => {
-    const option = makeClientQuoteOption({
-      key: "option-color",
-      vendorKey: "xometry",
-      vendorLabel: "Xometry",
-      supplier: "Xometry",
-    });
-
+  it("derives visible bubble sizing and styling from point data", () => {
+    zAxisSpy.mockReset();
     render(
       <ClientQuoteComparisonChart
-        options={[option]}
-        selectedKey={null}
+        options={[
+          makeClientQuoteOption({
+            key: "option-selected",
+            totalPriceUsd: 38,
+            vendorKey: "devzmanufacturing",
+            vendorLabel: "DEVZ Manufacturing",
+            supplier: "DEVZ Manufacturing",
+          }),
+          makeClientQuoteOption({
+            key: "option-large",
+            totalPriceUsd: 448,
+            vendorKey: "infraredlaboratories",
+            vendorLabel: "Infrared Laboratories",
+            supplier: "Infrared Laboratories",
+          }),
+        ]}
+        selectedKey="option-selected"
         hoveredKey={null}
         onSelect={vi.fn()}
         onHover={vi.fn()}
       />,
     );
 
-    const bubble = screen.getByTestId("point-option-color").querySelector("circle");
-
-    expect(bubble).not.toBeNull();
-    expect(bubble).toHaveAttribute("fill", getVendorColor("xometry"));
-    expect(bubble).toHaveStyle({ fill: getVendorColor("xometry") });
+    expect(zAxisSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dataKey: "size",
+        domain: [0, expect.any(Number)],
+        range: [0, expect.any(Number)],
+      }),
+    );
+    expect(Number(screen.getByTestId("point-option-selected").dataset.size)).toBeGreaterThan(0);
+    expect(Number(screen.getByTestId("point-option-large").dataset.size)).toBeGreaterThan(
+      Number(screen.getByTestId("point-option-selected").dataset.size),
+    );
+    expect(screen.getByTestId("point-option-selected")).toHaveAttribute("data-stroke", "#ffffff");
+    expect(screen.getByTestId("point-option-large")).toHaveAttribute(
+      "data-fill",
+      getVendorColor("infraredlaboratories"),
+    );
   });
 
-  it("plots zero-day quotes on the lead-time axis instead of the N/A lane", () => {
+  it("uses explicit vendor fill styling for dark backgrounds", () => {
+    zAxisSpy.mockReset();
+
     render(
       <ClientQuoteComparisonChart
         options={[
           makeClientQuoteOption({
-            key: "option-zero-day",
-            leadTimeBusinessDays: 0,
+            key: "option-color",
+            vendorKey: "xometry",
+            vendorLabel: "Xometry",
+            supplier: "Xometry",
           }),
         ]}
         selectedKey={null}
@@ -268,9 +252,25 @@ describe("ClientQuoteComparisonChart", () => {
       />,
     );
 
-    const bubble = screen.getByTestId("point-option-zero-day").querySelector("circle");
+    expect(screen.getByTestId("point-option-color")).toHaveAttribute("data-fill", getVendorColor("xometry"));
+  });
 
-    expect(bubble).not.toBeNull();
-    expect(bubble).toHaveAttribute("cx", "20");
+  it("plots zero-day quotes on the lead-time axis instead of the N/A lane", () => {
+    zAxisSpy.mockReset();
+
+    render(
+      <ClientQuoteComparisonChart
+        options={[makeClientQuoteOption({ key: "option-zero-day", leadTimeBusinessDays: 0 })]}
+        selectedKey={null}
+        hoveredKey={null}
+        onSelect={vi.fn()}
+        onHover={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("point-option-zero-day")).toHaveAttribute(
+      "data-fill",
+      getVendorColor("xometry"),
+    );
   });
 });
