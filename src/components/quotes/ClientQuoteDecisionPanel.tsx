@@ -27,7 +27,7 @@ import type {
   ClientQuoteSelectionOption,
   QuotePreset,
 } from "@/features/quotes/selection";
-import { formatQuotePlotExclusionReason } from "@/features/quotes/selection";
+import { filterVisibleQuoteOptions, formatQuotePlotExclusionReason } from "@/features/quotes/selection";
 import type { QuoteDataStatus, QuoteDiagnostics } from "@/features/quotes/types";
 import { formatCurrency, formatLeadTime } from "@/features/quotes/utils";
 import { getVendorColor } from "@/features/quotes/vendor-colors";
@@ -186,6 +186,33 @@ function SelectedOptionBanner({ option }: { option: ClientQuoteSelectionOption }
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+function DueDateFilterNotice({
+  requestedByDate,
+  hiddenCount,
+  selectedOption,
+}: {
+  requestedByDate: string;
+  hiddenCount: number;
+  selectedOption: ClientQuoteSelectionOption | null;
+}) {
+  const selectionMissesDeadline =
+    selectedOption !== null && selectedOption.isSelectable && !selectedOption.dueDateEligible;
+
+  return (
+    <div className="rounded-2xl border border-amber-400/15 bg-amber-500/10 px-4 py-3">
+      <p className="text-[10px] uppercase tracking-[0.18em] text-amber-100/75">Due by filter</p>
+      <p className="mt-1 text-sm text-amber-50/90">
+        Showing vendors that can meet {requestedByDate}. {hiddenCount} {hiddenCount === 1 ? "row is" : "rows are"} hidden.
+      </p>
+      {selectionMissesDeadline ? (
+        <p className="mt-1 text-xs text-amber-100/70">
+          The current selection is kept above for reference, but it misses this due date.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -461,6 +488,11 @@ export function ClientQuoteDecisionPanel({
 }: ClientQuoteDecisionPanelProps) {
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const vendorKeys = [...new Set(options.map((o) => o.vendorKey))];
+  const filteredOptions = filterVisibleQuoteOptions(options, requestedByDate);
+  const dueDateFilteringActive = Boolean(requestedByDate);
+  const hiddenDueDateCount = dueDateFilteringActive ? options.length - filteredOptions.length : 0;
+  const visibleOptions = dueDateFilteringActive ? filteredOptions : options;
+  const deadlineFilteredEmpty = dueDateFilteringActive && options.length > 0 && visibleOptions.length === 0;
 
   return (
     <section className={cn("rounded-[28px] border border-ws-border bg-ws-card p-5", className)}>
@@ -509,9 +541,23 @@ export function ClientQuoteDecisionPanel({
             </Suspense>
           </div>
 
-          {layout === "compact" ? (
+          {requestedByDate && hiddenDueDateCount > 0 ? (
+            <DueDateFilterNotice
+              requestedByDate={requestedByDate}
+              hiddenCount={hiddenDueDateCount}
+              selectedOption={selectedOption}
+            />
+          ) : null}
+
+          {deadlineFilteredEmpty ? (
+            <QuoteDataStatusCard
+              icon={CircleOff}
+              title="No vendors meet this due date"
+              body={`No visible quote rows can meet ${requestedByDate}. Clear DUE BY to see every vendor again.`}
+            />
+          ) : layout === "compact" ? (
             <QuoteComparisonCards
-              options={options}
+              options={visibleOptions}
               selectedOption={selectedOption}
               hoveredKey={hoveredKey}
               onSelect={onSelect}
@@ -522,7 +568,7 @@ export function ClientQuoteDecisionPanel({
             />
           ) : (
             <QuoteComparisonTable
-              options={options}
+              options={visibleOptions}
               selectedOption={selectedOption}
               hoveredKey={hoveredKey}
               onSelect={onSelect}
