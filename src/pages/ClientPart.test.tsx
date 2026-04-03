@@ -438,6 +438,20 @@ async function openWorkspaceTab(name: "Quote" | "Request" | "Files" | "Activity"
   fireEvent.click(tab);
 }
 
+async function findRequestButton(name: string | RegExp) {
+  await openWorkspaceTab("Request");
+  return screen.findByRole("button", { name });
+}
+
+async function findRequestQuoteButton() {
+  return findRequestButton(/request quote/i);
+}
+
+async function findActivityCommentField() {
+  await openWorkspaceTab("Activity");
+  return screen.findByLabelText("Leave a comment");
+}
+
 function createDeferredPromise<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -1025,12 +1039,12 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    await openWorkspaceTab("Request");
+    const requestQuoteButton = await findRequestQuoteButton();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /request quote/i })).toBeEnabled();
+      expect(requestQuoteButton).toBeEnabled();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /request quote/i }));
+    fireEvent.click(requestQuoteButton);
 
     await waitFor(() => {
       expect(api.requestQuote).toHaveBeenCalledWith("job-1", false);
@@ -1118,12 +1132,12 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    await openWorkspaceTab("Request");
+    const requestQuoteButton = await findRequestQuoteButton();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /request quote/i })).toBeEnabled();
+      expect(requestQuoteButton).toBeEnabled();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /request quote/i }));
+    fireEvent.click(requestQuoteButton);
 
     await waitFor(() => {
       expect(toastMock.error).toHaveBeenCalledWith(
@@ -1215,8 +1229,7 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    await openWorkspaceTab("Request");
-    const button = await screen.findByRole("button", { name: /request quote/i });
+    const button = await findRequestQuoteButton();
 
     expect(button).toBeEnabled();
 
@@ -1279,8 +1292,7 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    await openWorkspaceTab("Request");
-    fireEvent.click(await screen.findByRole("button", { name: "Cancel request" }));
+    fireEvent.click(await findRequestButton("Cancel request"));
     expect(await screen.findByText("Cancel quote request?")).toBeInTheDocument();
     expect(
       await screen.findByText(
@@ -1314,10 +1326,9 @@ describe("ClientPart", () => {
   it("adds browser-local comments in the activity section", async () => {
     renderWithClient("/parts/job-1");
 
-    await openWorkspaceTab("Activity");
-    expect(screen.getByLabelText("Leave a comment")).toBeInTheDocument();
+    const commentField = await findActivityCommentField();
 
-    fireEvent.change(screen.getByLabelText("Leave a comment"), {
+    fireEvent.change(commentField, {
       target: { value: "Need vendor follow-up before approving." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Comment" }));
@@ -1333,10 +1344,9 @@ describe("ClientPart", () => {
   it("keeps browser-local comments isolated to the active user", async () => {
     const firstRender = renderWithClient("/parts/job-1");
 
-    await openWorkspaceTab("Activity");
-    expect(screen.getByLabelText("Leave a comment")).toBeInTheDocument();
+    const commentField = await findActivityCommentField();
 
-    fireEvent.change(screen.getByLabelText("Leave a comment"), {
+    fireEvent.change(commentField, {
       target: { value: "Private follow-up for user one." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Comment" }));
@@ -1357,7 +1367,7 @@ describe("ClientPart", () => {
     firstRender.unmount();
     renderWithClient("/parts/job-1");
 
-    await openWorkspaceTab("Activity");
+    await findActivityCommentField();
     await waitFor(() => {
       expect(window.localStorage.getItem).toHaveBeenCalledWith("client-part-comments:user-2:job-1");
     });
