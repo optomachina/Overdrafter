@@ -710,17 +710,31 @@ export function sortQuoteOptionsForPreset(
   options: readonly ClientQuoteSelectionOption[],
   preset: QuotePreset,
 ): ClientQuoteSelectionOption[] {
-  const comparator =
-    preset === "fastest" || preset === "fastest_domestic" || preset === "fastest_global"
-      ? fastestComparator
-      : preset === "domestic"
-        ? domesticComparator
-        : cheapestComparator;
+  const comparator = getPresetComparator(preset);
 
   const candidates = options.filter((option) => isPresetCandidate(option, preset)).sort(comparator);
   const fallbacks = options.filter((option) => !isPresetCandidate(option, preset)).sort(defaultDisplayComparator);
 
   return [...candidates, ...fallbacks];
+}
+
+export function getTopRankedQuoteOptionKeys(
+  options: readonly ClientQuoteSelectionOption[],
+  preset: QuotePreset,
+): Set<string> {
+  const comparator = getPresetComparator(preset);
+  const candidates = options.filter((option) => isPresetCandidate(option, preset)).sort(comparator);
+  const first = candidates[0];
+
+  if (!first) {
+    return new Set();
+  }
+
+  return new Set(
+    candidates
+      .filter((option) => comparator(first, option) === 0)
+      .map((option) => option.key),
+  );
 }
 
 export function getPresetScope(preset: QuotePreset | null): QuotePresetScope {
@@ -770,6 +784,14 @@ export function pickPresetOption(
   preset: QuotePreset,
 ): ClientQuoteSelectionOption | null {
   return sortQuoteOptionsForPreset(options, preset).find((option) => isPresetCandidate(option, preset)) ?? null;
+}
+
+function getPresetComparator(preset: QuotePreset) {
+  return preset === "fastest" || preset === "fastest_domestic" || preset === "fastest_global"
+    ? fastestComparator
+    : preset === "domestic"
+      ? domesticComparator
+      : cheapestComparator;
 }
 
 export function applyBulkPresetSelection(input: {
