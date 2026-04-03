@@ -431,6 +431,14 @@ function renderWithClient(initialEntry: string) {
   };
 }
 
+async function renderClientPartOnTab(tab?: "Request" | "Files" | "Activity") {
+  const result = renderWithClient("/parts/job-1");
+  if (tab) {
+    await openWorkspaceTab(tab);
+  }
+  return result;
+}
+
 async function openWorkspaceTab(name: "Quote" | "Request" | "Files" | "Activity") {
   const [tab] = await screen.findAllByRole("tab", { name });
   fireEvent.pointerDown(tab, { button: 0, ctrlKey: false });
@@ -713,9 +721,7 @@ describe("ClientPart", () => {
   });
 
   it("passes part metadata into PartInfoPanel and omits the old workspace badge cluster", async () => {
-    renderWithClient("/parts/job-1");
-
-    await openWorkspaceTab("Request");
+    await renderClientPartOnTab("Request");
     expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
 
     expect(lastPartInfoPanelProps).toMatchObject({
@@ -837,10 +843,8 @@ describe("ClientPart", () => {
   });
 
   it("invalidates shared and part-specific queries when saving request details", async () => {
-    const { queryClient } = renderWithClient("/parts/job-1");
+    const { queryClient } = await renderClientPartOnTab("Request");
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
-
-    await openWorkspaceTab("Request");
     expect(screen.getByRole("button", { name: "Save Request" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
@@ -959,13 +963,12 @@ describe("ClientPart", () => {
       return deferredMemberships.promise;
     });
 
-    renderWithClient("/parts/job-1");
+    await renderClientPartOnTab("Request");
 
     await waitFor(() => {
       expect(screen.getByTestId("sidebar-job-job-1")).toHaveTextContent("Bracket:project-1");
     });
 
-    await openWorkspaceTab("Request");
     fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
 
     await waitFor(() => {
@@ -1460,9 +1463,7 @@ describe("ClientPart", () => {
       }),
     );
 
-    renderWithClient("/parts/job-1");
-
-    await openWorkspaceTab("Request");
+    await renderClientPartOnTab("Request");
     expect(await screen.findAllByText(/drawing extraction in progress/i)).not.toHaveLength(0);
   });
 
@@ -1499,9 +1500,7 @@ describe("ClientPart", () => {
       }),
     );
 
-    renderWithClient("/parts/job-1");
-
-    await openWorkspaceTab("Files");
+    await renderClientPartOnTab("Files");
     expect(await screen.findByTitle("bracket.pdf PDF preview")).toHaveAttribute("src", "blob:part-drawing-pdf");
     expect(storedFile.loadStoredPdfObjectUrl).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1561,9 +1560,7 @@ describe("ClientPart", () => {
       }),
     );
 
-    renderWithClient("/parts/job-1");
-
-    await openWorkspaceTab("Files");
+    await renderClientPartOnTab("Files");
     await waitFor(() => {
       expect(storedFile.loadStoredDrawingPreviewPages).toHaveBeenCalled();
       expect(lastDrawingPreviewDialogProps?.pages).toEqual([{ pageNumber: 1, url: "blob:page-1" }]);
@@ -1593,9 +1590,7 @@ describe("ClientPart", () => {
       }),
     );
 
-    renderWithClient("/parts/job-1");
-
-    await openWorkspaceTab("Request");
+    await renderClientPartOnTab("Request");
     expect(await screen.findAllByText(/drawing extraction failed/i)).not.toHaveLength(0);
     expect(await screen.findAllByText(/could not read text from the uploaded drawing pdf/i)).not.toHaveLength(0);
   });
@@ -1636,9 +1631,7 @@ describe("ClientPart", () => {
       }),
     );
 
-    renderWithClient("/parts/job-1");
-
-    await openWorkspaceTab("Request");
+    await renderClientPartOnTab("Request");
     await waitFor(() => {
       expect(screen.getByText(/partial drawing metadata found/i)).toBeInTheDocument();
       expect(screen.getByText(/missing: material, finish/i)).toBeInTheDocument();
