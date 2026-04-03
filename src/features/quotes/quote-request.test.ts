@@ -156,6 +156,24 @@ describe("buildQuoteRequestViewModel", () => {
     expect(model.action.disabled).toBe(true);
   });
 
+  it("blocks requests while the part package is still being prepared", () => {
+    const model = buildQuoteRequestViewModel({
+      job: makeJob(),
+      part: null,
+      latestQuoteRequest: null,
+      latestQuoteRun: null,
+    });
+
+    expect(model.status).toBe("not_requested");
+    expect(model.tone).toBe("blocked");
+    expect(model.blockerReasons).toContain("This part is still being prepared.");
+    expect(model.action).toEqual({
+      kind: "request",
+      label: "Request quote",
+      disabled: true,
+    });
+  });
+
   it("surfaces queued and requesting request states directly", () => {
     const queued = buildQuoteRequestViewModel({
       job: makeJob({ status: "quoting" }),
@@ -281,6 +299,30 @@ describe("buildQuoteRequestViewModel", () => {
     expect(model.action.disabled).toBe(true);
   });
 
+  it("blocks requests when quote-compatible work is missing material", () => {
+    const defaultPart = makePart();
+    const model = buildQuoteRequestViewModel({
+      job: makeJob(),
+      part: makePart({
+        approvedRequirement: {
+          ...defaultPart.approvedRequirement,
+          material: "   ",
+        },
+      }),
+      latestQuoteRequest: null,
+      latestQuoteRun: null,
+    });
+
+    expect(model.status).toBe("not_requested");
+    expect(model.tone).toBe("blocked");
+    expect(model.blockerReasons).toContain("Add material before requesting a quote.");
+    expect(model.action).toEqual({
+      kind: "request",
+      label: "Request quote",
+      disabled: true,
+    });
+  });
+
   it("surfaces the canceled state with a retry action", () => {
     const model = buildQuoteRequestViewModel({
       job: makeJob({ status: "ready_to_quote" }),
@@ -297,6 +339,7 @@ describe("buildQuoteRequestViewModel", () => {
       label: "Retry quote",
       disabled: false,
     });
+    expect(model.detail).toBe("This quote request was canceled before a response was received.");
   });
 
   it("falls back to existing quote runs when the request row does not exist yet", () => {
@@ -338,9 +381,14 @@ describe("buildQuoteRequestViewModel", () => {
       latestQuoteRun: null,
     });
 
+    expect(model.status).toBe("not_requested");
     expect(model.tone).toBe("blocked");
     expect(model.blockerReasons).toContain("Archived parts cannot request quotes.");
-    expect(model.action.disabled).toBe(true);
+    expect(model.action).toEqual({
+      kind: "request",
+      label: "Request quote",
+      disabled: true,
+    });
   });
 
   it("blocks requests when the job is closed", () => {
@@ -351,9 +399,14 @@ describe("buildQuoteRequestViewModel", () => {
       latestQuoteRun: null,
     });
 
+    expect(model.status).toBe("not_requested");
     expect(model.tone).toBe("blocked");
     expect(model.blockerReasons).toContain("This part is already closed to new quote requests.");
-    expect(model.action.disabled).toBe(true);
+    expect(model.action).toEqual({
+      kind: "request",
+      label: "Request quote",
+      disabled: true,
+    });
   });
 
   it("blocks requests when the job is client_selected", () => {
@@ -364,9 +417,14 @@ describe("buildQuoteRequestViewModel", () => {
       latestQuoteRun: null,
     });
 
+    expect(model.status).toBe("not_requested");
     expect(model.tone).toBe("blocked");
     expect(model.blockerReasons).toContain("This part is already closed to new quote requests.");
-    expect(model.action.disabled).toBe(true);
+    expect(model.action).toEqual({
+      kind: "request",
+      label: "Request quote",
+      disabled: true,
+    });
   });
 
   it("blocks requests when the job has no quote-compatible service kinds", () => {
@@ -377,11 +435,16 @@ describe("buildQuoteRequestViewModel", () => {
       latestQuoteRun: null,
     });
 
+    expect(model.status).toBe("not_requested");
     expect(model.tone).toBe("blocked");
     expect(model.blockerReasons).toContain(
       "Only manufacturing quote and sourcing-only requests can start vendor quoting.",
     );
-    expect(model.action.disabled).toBe(true);
+    expect(model.action).toEqual({
+      kind: "request",
+      label: "Request quote",
+      disabled: true,
+    });
   });
 
   it("blocks requests when the part has no approved requirement", () => {
@@ -392,11 +455,16 @@ describe("buildQuoteRequestViewModel", () => {
       latestQuoteRun: null,
     });
 
+    expect(model.status).toBe("not_requested");
     expect(model.tone).toBe("blocked");
     expect(model.blockerReasons).toContain(
       "Finish the request details so OverDrafter can create approved quote requirements.",
     );
-    expect(model.action.disabled).toBe(true);
+    expect(model.action).toEqual({
+      kind: "request",
+      label: "Request quote",
+      disabled: true,
+    });
   });
 
   it("disables retry and sets blocked tone when a failed request has active blockers", () => {
@@ -428,7 +496,12 @@ describe("buildQuoteRequestViewModel", () => {
     });
 
     expect(model.status).toBe("queued");
+    expect(model.tone).toBe("warning");
     expect(model.label).toBe("Queued");
-    expect(model.action.kind).toBe("cancel");
+    expect(model.action).toEqual({
+      kind: "cancel",
+      label: "Cancel request",
+      disabled: false,
+    });
   });
 });
