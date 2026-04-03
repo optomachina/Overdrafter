@@ -447,9 +447,25 @@ async function findRequestQuoteButton() {
   return findRequestButton(/request quote/i);
 }
 
+async function clickRequestQuoteButton() {
+  const requestQuoteButton = await findRequestQuoteButton();
+  await waitFor(() => {
+    expect(requestQuoteButton).toBeEnabled();
+  });
+  fireEvent.click(requestQuoteButton);
+}
+
 async function findActivityCommentField() {
   await openWorkspaceTab("Activity");
   return screen.findByLabelText("Leave a comment");
+}
+
+async function addActivityComment(comment: string) {
+  const commentField = await findActivityCommentField();
+  fireEvent.change(commentField, {
+    target: { value: comment },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Comment" }));
 }
 
 function createDeferredPromise<T>() {
@@ -1039,12 +1055,7 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    const requestQuoteButton = await findRequestQuoteButton();
-    await waitFor(() => {
-      expect(requestQuoteButton).toBeEnabled();
-    });
-
-    fireEvent.click(requestQuoteButton);
+    await clickRequestQuoteButton();
 
     await waitFor(() => {
       expect(api.requestQuote).toHaveBeenCalledWith("job-1", false);
@@ -1132,12 +1143,7 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    const requestQuoteButton = await findRequestQuoteButton();
-    await waitFor(() => {
-      expect(requestQuoteButton).toBeEnabled();
-    });
-
-    fireEvent.click(requestQuoteButton);
+    await clickRequestQuoteButton();
 
     await waitFor(() => {
       expect(toastMock.error).toHaveBeenCalledWith(
@@ -1326,12 +1332,7 @@ describe("ClientPart", () => {
   it("adds browser-local comments in the activity section", async () => {
     renderWithClient("/parts/job-1");
 
-    const commentField = await findActivityCommentField();
-
-    fireEvent.change(commentField, {
-      target: { value: "Need vendor follow-up before approving." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+    await addActivityComment("Need vendor follow-up before approving.");
 
     await waitFor(() => {
       expect(window.localStorage.setItem).toHaveBeenCalledWith(
@@ -1344,12 +1345,7 @@ describe("ClientPart", () => {
   it("keeps browser-local comments isolated to the active user", async () => {
     const firstRender = renderWithClient("/parts/job-1");
 
-    const commentField = await findActivityCommentField();
-
-    fireEvent.change(commentField, {
-      target: { value: "Private follow-up for user one." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+    await addActivityComment("Private follow-up for user one.");
 
     await waitFor(() => {
       expect(window.localStorage.setItem).toHaveBeenCalledWith(
