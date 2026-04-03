@@ -691,6 +691,10 @@ function renderDecisionPanelContent({
   );
 }
 
+/**
+ * Render the client-facing quote comparison experience, including the selected
+ * vendor summary, ranking context, filters, and table/chart views.
+ */
 export function ClientQuoteDecisionPanel({
   title = "Quote intelligence",
   description = "Compare price and lead time as one decision surface, then commit the selected option from the same workspace.",

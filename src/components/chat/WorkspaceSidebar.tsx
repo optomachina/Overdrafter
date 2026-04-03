@@ -34,6 +34,9 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
+/**
+ * Project metadata required to render and organize the client workspace sidebar.
+ */
 export type WorkspaceSidebarProject = {
   id: string;
   name: string;
@@ -322,6 +325,10 @@ function FilterOption({ icon, label, selected, onSelect }: FilterOptionProps) {
   );
 }
 
+/**
+ * Render the workspace navigation for projects and parts, including pinning,
+ * organization, and lightweight management actions.
+ */
 export function WorkspaceSidebar({
   projects,
   jobs,

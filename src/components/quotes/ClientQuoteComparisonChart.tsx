@@ -201,6 +201,12 @@ function CustomTooltipContent({ active, payload }: { active?: boolean; payload?:
   );
 }
 
+/**
+ * Plot eligible and ineligible quote options across lead time and unit price.
+ *
+ * Bubble size represents total price, while hover and selection state are
+ * surfaced visually and routed back to the caller.
+ */
 export function ClientQuoteComparisonChart({
   options,
   selectedKey,
