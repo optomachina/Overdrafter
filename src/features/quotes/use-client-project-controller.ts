@@ -422,6 +422,7 @@ export function useClientProjectController() {
   );
   const projectSummary =
     accessibleProjectsQuery.data?.find((project) => project.project.id === projectId) ?? null;
+  const projectPartCount = projectSummary?.partCount ?? projectJobs.length;
   const canRenameProject = ["owner", "editor"].includes(projectSummary?.currentUserRole ?? "editor");
   const canManageMembers = (projectSummary?.currentUserRole ?? "editor") === "owner";
   const canDissolveProject = canManageMembers;
@@ -1427,6 +1428,7 @@ export function useClientProjectController() {
     projectJobsQuery,
     projectJobMembershipsByCompositeKey,
     projectMembershipsQuery,
+    projectPartCount,
     projectName,
     projectQuery,
     projectSelectionSummary,

@@ -7,6 +7,7 @@ import {
   ScatterChart,
   XAxis,
   YAxis,
+  ZAxis,
 } from "recharts";
 import { ChartContainer, ChartTooltip } from "@/components/ui/chart";
 import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
@@ -44,8 +45,15 @@ type ChartPoint = {
   hovered: boolean;
   disabled: boolean;
   isNaZone: boolean;
+  size: number;
+  fill: string;
+  fillOpacity: number;
+  stroke: string;
+  strokeWidth: number;
   option: ClientQuoteSelectionOption;
 };
+
+type DecoratedChartPoint = ChartPoint;
 
 const MIN_RADIUS = 6;
 const MAX_RADIUS = 22;
@@ -64,6 +72,35 @@ function computeBubbleRadius(
   return MIN_RADIUS + Math.sqrt(ratio) * (MAX_RADIUS - MIN_RADIUS);
 }
 
+function decorateChartPointVisuals(point: ChartPoint): DecoratedChartPoint {
+  const isActive = point.selected || point.hovered;
+  const radius = isActive ? point.r + 2 : point.r;
+  const fillOpacity = point.disabled ? 0.25 : isActive ? 1 : 0.8;
+
+  let stroke = "rgba(255,255,255,0.18)";
+  if (point.selected) {
+    stroke = "#ffffff";
+  } else if (isActive) {
+    stroke = "rgba(255,255,255,0.5)";
+  }
+
+  let strokeWidth = 1;
+  if (point.selected) {
+    strokeWidth = 2.5;
+  } else if (isActive) {
+    strokeWidth = 1.5;
+  }
+
+  return {
+    ...point,
+    size: Math.PI * radius * radius,
+    fill: getVendorColor(point.vendorKey),
+    fillOpacity,
+    stroke,
+    strokeWidth,
+  };
+}
+
 function buildChartData(
   options: readonly ClientQuoteSelectionOption[],
   selectedKey: string | null,
@@ -80,41 +117,48 @@ function buildChartData(
   const naZoneStart = maxLeadTime + NA_ZONE_PADDING;
 
   let naIndex = 0;
-  const points = options.map((option): ChartPoint => {
-    const hasLeadTime = option.leadTimeBusinessDays !== null && option.leadTimeBusinessDays > 0;
-    let xValue: number;
-    let isNaZone = false;
+  const points = options
+    .map((option): ChartPoint => {
+      const hasLeadTime = option.leadTimeBusinessDays !== null && option.leadTimeBusinessDays > 0;
+      let xValue: number;
+      let isNaZone = false;
 
-    if (hasLeadTime) {
-      xValue = option.leadTimeBusinessDays!;
-    } else {
-      isNaZone = true;
-      xValue = naZoneStart + 1 + (naIndex % 4) * 1.5 + (naIndex >= 4 ? 0.75 : 0);
-      naIndex += 1;
-    }
+      if (hasLeadTime) {
+        xValue = option.leadTimeBusinessDays!;
+      } else {
+        isNaZone = true;
+        xValue = naZoneStart + 1 + (naIndex % 4) * 1.5 + (naIndex >= 4 ? 0.75 : 0);
+        naIndex += 1;
+      }
 
-    return {
-      x: xValue,
-      y: option.unitPriceUsd,
-      r: computeBubbleRadius(option.totalPriceUsd, minTotal, maxTotal),
-      key: option.key,
-      vendorKey: option.vendorKey,
-      label: `${option.supplier}${option.tier ? ` · ${option.tier}` : ""}`,
-      supplier: option.supplier,
-      tier: option.tier,
-      sourcing: option.sourcing,
-      unitPrice: option.unitPriceUsd,
-      totalPrice: option.totalPriceUsd,
-      leadTimeDays: option.leadTimeBusinessDays,
-      process: option.process,
-      material: option.material,
-      selected: selectedKey === option.key,
-      hovered: hoveredKey === option.key,
-      disabled: !option.eligible,
-      isNaZone,
-      option,
-    };
-  });
+      return {
+        x: xValue,
+        y: option.unitPriceUsd,
+        r: computeBubbleRadius(option.totalPriceUsd, minTotal, maxTotal),
+        key: option.key,
+        vendorKey: option.vendorKey,
+        label: `${option.supplier}${option.tier ? ` · ${option.tier}` : ""}`,
+        supplier: option.supplier,
+        tier: option.tier,
+        sourcing: option.sourcing,
+        unitPrice: option.unitPriceUsd,
+        totalPrice: option.totalPriceUsd,
+        leadTimeDays: option.leadTimeBusinessDays,
+        process: option.process,
+        material: option.material,
+        selected: selectedKey === option.key,
+        hovered: hoveredKey === option.key,
+        disabled: !option.eligible,
+        isNaZone,
+        size: 0,
+        fill: "",
+        fillOpacity: 0,
+        stroke: "",
+        strokeWidth: 0,
+        option,
+      };
+    })
+    .map(decorateChartPointVisuals);
 
   const vendorKeys = [...new Set(options.map((o) => o.vendorKey))];
   const pointsByVendor = new Map<VendorName, ChartPoint[]>();
@@ -126,8 +170,9 @@ function buildChartData(
 
   const hasNaZone = points.some((p) => p.isNaZone);
   const xDomainMax = hasNaZone ? naZoneStart + NA_ZONE_WIDTH : maxLeadTime + 2;
+  const maxBubbleSize = points.reduce((max, point) => Math.max(max, point.size), 0);
 
-  return { points, pointsByVendor, vendorKeys, naZoneStart, xDomainMax, hasNaZone };
+  return { points, pointsByVendor, vendorKeys, naZoneStart, xDomainMax, hasNaZone, maxBubbleSize };
 }
 
 function CustomTooltipContent({ active, payload }: { active?: boolean; payload?: Array<{ payload: ChartPoint }> }) {
@@ -156,53 +201,6 @@ function CustomTooltipContent({ active, payload }: { active?: boolean; payload?:
   );
 }
 
-type VendorScatterShapeProps = {
-  readonly cx?: number;
-  readonly cy?: number;
-  readonly payload?: ChartPoint;
-  readonly onSelect: (option: ClientQuoteSelectionOption) => void;
-  readonly onHover: (key: string | null) => void;
-};
-
-function VendorScatterShape({ cx, cy, payload, onSelect, onHover }: VendorScatterShapeProps) {
-  if (!payload || cx === undefined || cy === undefined) {
-    return null;
-  }
-
-  const baseRadius = payload.r;
-  const isActive = payload.selected || payload.hovered;
-  const radius = isActive ? baseRadius + 2 : baseRadius;
-  const color = getVendorColor(payload.vendorKey);
-  const opacity = payload.disabled ? 0.25 : isActive ? 1 : 0.8;
-  let strokeColor = "rgba(255,255,255,0.18)";
-  if (payload.selected) {
-    strokeColor = "#ffffff";
-  } else if (isActive) {
-    strokeColor = "rgba(255,255,255,0.5)";
-  }
-  const strokeWidth = payload.selected ? 2.5 : isActive ? 1.5 : 1;
-
-  return (
-    <circle
-      cx={cx}
-      cy={cy}
-      r={radius}
-      fill={color}
-      fillOpacity={opacity}
-      stroke={strokeColor}
-      strokeWidth={strokeWidth}
-      className="cursor-pointer transition-all duration-150"
-      onClick={() => {
-        if (payload.option.isSelectable && !payload.disabled) {
-          onSelect(payload.option);
-        }
-      }}
-      onMouseEnter={() => onHover(payload.key)}
-      onMouseLeave={() => onHover(null)}
-    />
-  );
-}
-
 export function ClientQuoteComparisonChart({
   options,
   selectedKey,
@@ -219,6 +217,7 @@ export function ClientQuoteComparisonChart({
     naZoneStart,
     xDomainMax,
     hasNaZone,
+    maxBubbleSize,
   } = useMemo(
     () => buildChartData(options, selectedKey, hoveredKey),
     [options, selectedKey, hoveredKey],
@@ -289,6 +288,12 @@ export function ClientQuoteComparisonChart({
             style={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }}
           />
         </YAxis>
+        <ZAxis
+          type="number"
+          dataKey="size"
+          range={[0, maxBubbleSize]}
+          domain={[0, maxBubbleSize]}
+        />
 
         {hasNaZone ? (
           <ReferenceArea
@@ -320,7 +325,19 @@ export function ClientQuoteComparisonChart({
             key={vendorKey}
             name={vendorKey}
             data={pointsByVendor.get(vendorKey) ?? []}
-            shape={<VendorScatterShape onSelect={onSelect} onHover={onHover} />}
+            onClick={(point) => {
+              const payload = (point as { payload?: ChartPoint } | undefined)?.payload;
+              if (payload?.option.isSelectable && !payload.disabled) {
+                onSelect(payload.option);
+              }
+            }}
+            onMouseEnter={(point) => {
+              const payload = (point as { payload?: ChartPoint } | undefined)?.payload;
+              if (payload) {
+                onHover(payload.key);
+              }
+            }}
+            onMouseLeave={() => onHover(null)}
           />
         ))}
       </ScatterChart>
