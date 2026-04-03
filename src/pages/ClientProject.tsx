@@ -33,6 +33,8 @@ import { useWorkspaceNotifications } from "@/features/notifications/use-workspac
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import { buildProjectAssigneeBadgeModel } from "@/features/quotes/project-assignee";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
+import { getQuoteRequestStatusBadgeClassName } from "@/features/quotes/quote-request-status-badge";
+import type { ClientQuoteRequestStatus } from "@/features/quotes/types";
 import {
   clientFilterOptions,
   useClientProjectController,
@@ -94,22 +96,6 @@ function readSpecSnapshotNumber(
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function quoteStatusBadgeClassName(status: string | null | undefined) {
-  if (status === "received") {
-    return "border border-emerald-400/20 bg-emerald-500/10 text-emerald-100";
-  }
-
-  if (status === "queued" || status === "requesting") {
-    return "border border-amber-400/20 bg-amber-500/10 text-amber-100";
-  }
-
-  if (status === "failed" || status === "canceled") {
-    return "border border-rose-400/20 bg-rose-500/10 text-rose-100";
-  }
-
-  return "border border-white/10 bg-white/6 text-white/70";
-}
-
 type ProjectInspectorItem = {
   label: string;
   value: string;
@@ -125,7 +111,7 @@ type ProjectInspectorContentProps = {
     project: ProjectInspectorItem[];
     quoteBadge: {
       label: string;
-      status: string;
+      status: ClientQuoteRequestStatus;
     } | null;
   } | null;
   onClear: () => void;
@@ -228,7 +214,7 @@ function ProjectInspectorContent({
                 {focusedInspectorModel.quoteBadge ? (
                   <div className="space-y-2">
                     <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Quote status</p>
-                    <Badge className={quoteStatusBadgeClassName(focusedInspectorModel.quoteBadge.status)}>
+                    <Badge className={getQuoteRequestStatusBadgeClassName(focusedInspectorModel.quoteBadge.status)}>
                       {focusedInspectorModel.quoteBadge.label}
                     </Badge>
                   </div>
@@ -660,17 +646,17 @@ const ClientProject = () => {
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Badge className="border border-white/10 bg-white/6 text-white/70">Parts: {projectJobs.length}</Badge>
               {projectQuoteRequestSummary.received > 0 ? (
-                <Badge className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">
+                <Badge className={getQuoteRequestStatusBadgeClassName("received")}>
                   Quoted: {projectQuoteRequestSummary.received}
                 </Badge>
               ) : null}
               {projectQuoteRequestSummary.requesting > 0 ? (
-                <Badge className="border border-amber-400/20 bg-amber-500/10 text-amber-100">
+                <Badge className={getQuoteRequestStatusBadgeClassName("requesting")}>
                   Requesting: {projectQuoteRequestSummary.requesting}
                 </Badge>
               ) : null}
               {projectQuoteRequestSummary.notRequested > 0 ? (
-                <Badge className="border border-white/10 bg-white/6 text-white/70">
+                <Badge className={getQuoteRequestStatusBadgeClassName("not_requested")}>
                   Not requested: {projectQuoteRequestSummary.notRequested}
                 </Badge>
               ) : null}
@@ -808,7 +794,9 @@ const ClientProject = () => {
                       const presentation = getClientItemPresentation(job, summary);
                       const quoteRequestViewModel = quoteRequestViewModelsByJobId.get(job.id) ?? null;
                       const quoteStatusLabel = quoteRequestViewModel?.label ?? formatStatusLabel(job.status);
-                      const quoteStatusClassName = quoteStatusBadgeClassName(quoteRequestViewModel?.status);
+                      const quoteStatusClassName = getQuoteRequestStatusBadgeClassName(
+                        quoteRequestViewModel?.status ?? "not_requested",
+                      );
                       const partNumber =
                         workspaceItem?.part?.approvedRequirement?.part_number ?? presentation.partNumber ?? "—";
                       const description =

@@ -1,7 +1,7 @@
 import { MessageSquareLock, Sparkles } from "lucide-react";
-import { ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { getQuoteRequestStatusBadgeClassName } from "@/features/quotes/quote-request-status-badge";
 import { requestedServicesSupportQuoteFields } from "@/features/quotes/service-intent";
 import type {
   ClientQuoteRequestStatus,
@@ -95,11 +95,9 @@ export function ClientQuoteRequestStatusCard({
       <div className="flex flex-col gap-3">
         <div aria-live="polite" aria-atomic="true" className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <ClientWorkspaceToneBadge
-              tone={tone === "danger" ? "blocked" : tone}
-              label={`Quote ${label}`}
-              className="tracking-normal normal-case"
-            />
+            <Badge className={cn(getQuoteRequestStatusBadgeClassName(status), "tracking-normal normal-case")}>
+              Quote {label}
+            </Badge>
             <p className="text-sm font-medium text-white">Xometry request status</p>
           </div>
           {isBusy ? (
