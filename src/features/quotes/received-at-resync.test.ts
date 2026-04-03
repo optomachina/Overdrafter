@@ -2,18 +2,27 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
+function readMigrationSqlOrFail(filePath: string): string {
+  try {
+    return readFileSync(filePath, "utf8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to read migration file ${filePath}: ${message}`);
+  }
+}
+
 const receivedAtMigrationPath = path.join(
   process.cwd(),
   "supabase/migrations/20260331000000_fix_received_at_overwrite_on_resync.sql",
 );
-const receivedAtMigrationSql = readFileSync(receivedAtMigrationPath, "utf8");
+const receivedAtMigrationSql = readMigrationSqlOrFail(receivedAtMigrationPath);
 const normalizedReceivedAtMigrationSql = receivedAtMigrationSql.toLowerCase();
 
 const apiRequestQuoteMigrationPath = path.join(
   process.cwd(),
   "supabase/migrations/20260324103000_add_org_vendor_configs_and_multi_vendor_request_quote.sql",
 );
-const apiRequestQuoteMigrationSql = readFileSync(apiRequestQuoteMigrationPath, "utf8");
+const apiRequestQuoteMigrationSql = readMigrationSqlOrFail(apiRequestQuoteMigrationPath);
 const normalizedApiRequestQuoteMigrationSql = apiRequestQuoteMigrationSql.toLowerCase();
 
 describe("received_at resync fix migration", () => {

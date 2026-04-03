@@ -6,6 +6,7 @@ import type {
   QuoteRequestRecord,
   QuoteRunRecord,
 } from "@/features/quotes/types";
+import type { QuoteRequestViewModel } from "@/features/quotes/quote-request";
 
 function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
   return {
@@ -122,6 +123,32 @@ function makeRun(overrides: Partial<QuoteRunRecord> = {}): QuoteRunRecord {
   };
 }
 
+function expectRequestAction(model: QuoteRequestViewModel, disabled: boolean) {
+  expect(model.action).toEqual({
+    kind: "request",
+    label: "Request quote",
+    disabled,
+  });
+}
+
+function expectBlockedNotRequested(
+  model: QuoteRequestViewModel,
+  blockerReason: string,
+  actionKind: QuoteRequestViewModel["action"]["kind"] = "request",
+) {
+  expect(model.status).toBe("not_requested");
+  expect(model.tone).toBe("blocked");
+  expect(model.blockerReasons).toContain(blockerReason);
+
+  if (actionKind === "request") {
+    expectRequestAction(model, true);
+    return;
+  }
+
+  expect(model.action.kind).toBe(actionKind);
+  expect(model.action.disabled).toBe(true);
+}
+
 describe("buildQuoteRequestViewModel", () => {
   it("allows new requests when the part is quote-ready", () => {
     const model = buildQuoteRequestViewModel({
@@ -164,14 +191,7 @@ describe("buildQuoteRequestViewModel", () => {
       latestQuoteRun: null,
     });
 
-    expect(model.status).toBe("not_requested");
-    expect(model.tone).toBe("blocked");
-    expect(model.blockerReasons).toContain("This part is still being prepared.");
-    expect(model.action).toEqual({
-      kind: "request",
-      label: "Request quote",
-      disabled: true,
-    });
+    expectBlockedNotRequested(model, "This part is still being prepared.");
   });
 
   it("surfaces queued and requesting request states directly", () => {
@@ -313,14 +333,7 @@ describe("buildQuoteRequestViewModel", () => {
       latestQuoteRun: null,
     });
 
-    expect(model.status).toBe("not_requested");
-    expect(model.tone).toBe("blocked");
-    expect(model.blockerReasons).toContain("Add material before requesting a quote.");
-    expect(model.action).toEqual({
-      kind: "request",
-      label: "Request quote",
-      disabled: true,
-    });
+    expectBlockedNotRequested(model, "Add material before requesting a quote.");
   });
 
   it("surfaces the canceled state with a retry action", () => {
@@ -373,98 +386,47 @@ describe("buildQuoteRequestViewModel", () => {
     });
   });
 
-  it("blocks requests when the job is archived", () => {
-    const model = buildQuoteRequestViewModel({
+  it.each([
+    {
+      name: "blocks requests when the job is archived",
       job: makeJob({ archived_at: "2026-03-20T00:00:00.000Z" }),
       part: makePart(),
-      latestQuoteRequest: null,
-      latestQuoteRun: null,
-    });
-
-    expect(model.status).toBe("not_requested");
-    expect(model.tone).toBe("blocked");
-    expect(model.blockerReasons).toContain("Archived parts cannot request quotes.");
-    expect(model.action).toEqual({
-      kind: "request",
-      label: "Request quote",
-      disabled: true,
-    });
-  });
-
-  it("blocks requests when the job is closed", () => {
-    const model = buildQuoteRequestViewModel({
+      blockerReason: "Archived parts cannot request quotes.",
+    },
+    {
+      name: "blocks requests when the job is closed",
       job: makeJob({ status: "closed" }),
       part: makePart(),
-      latestQuoteRequest: null,
-      latestQuoteRun: null,
-    });
-
-    expect(model.status).toBe("not_requested");
-    expect(model.tone).toBe("blocked");
-    expect(model.blockerReasons).toContain("This part is already closed to new quote requests.");
-    expect(model.action).toEqual({
-      kind: "request",
-      label: "Request quote",
-      disabled: true,
-    });
-  });
-
-  it("blocks requests when the job is client_selected", () => {
-    const model = buildQuoteRequestViewModel({
+      blockerReason: "This part is already closed to new quote requests.",
+    },
+    {
+      name: "blocks requests when the job is client_selected",
       job: makeJob({ status: "client_selected" }),
       part: makePart(),
-      latestQuoteRequest: null,
-      latestQuoteRun: null,
-    });
-
-    expect(model.status).toBe("not_requested");
-    expect(model.tone).toBe("blocked");
-    expect(model.blockerReasons).toContain("This part is already closed to new quote requests.");
-    expect(model.action).toEqual({
-      kind: "request",
-      label: "Request quote",
-      disabled: true,
-    });
-  });
-
-  it("blocks requests when the job has no quote-compatible service kinds", () => {
-    const model = buildQuoteRequestViewModel({
+      blockerReason: "This part is already closed to new quote requests.",
+    },
+    {
+      name: "blocks requests when the job has no quote-compatible service kinds",
       job: makeJob({ requested_service_kinds: ["design_review"] }),
       part: makePart(),
-      latestQuoteRequest: null,
-      latestQuoteRun: null,
-    });
-
-    expect(model.status).toBe("not_requested");
-    expect(model.tone).toBe("blocked");
-    expect(model.blockerReasons).toContain(
-      "Only manufacturing quote and sourcing-only requests can start vendor quoting.",
-    );
-    expect(model.action).toEqual({
-      kind: "request",
-      label: "Request quote",
-      disabled: true,
-    });
-  });
-
-  it("blocks requests when the part has no approved requirement", () => {
-    const model = buildQuoteRequestViewModel({
+      blockerReason: "Only manufacturing quote and sourcing-only requests can start vendor quoting.",
+    },
+    {
+      name: "blocks requests when the part has no approved requirement",
       job: makeJob(),
       part: makePart({ approvedRequirement: null }),
+      blockerReason:
+        "Finish the request details so OverDrafter can create approved quote requirements.",
+    },
+  ])("$name", ({ job, part, blockerReason }) => {
+    const model = buildQuoteRequestViewModel({
+      job,
+      part,
       latestQuoteRequest: null,
       latestQuoteRun: null,
     });
 
-    expect(model.status).toBe("not_requested");
-    expect(model.tone).toBe("blocked");
-    expect(model.blockerReasons).toContain(
-      "Finish the request details so OverDrafter can create approved quote requirements.",
-    );
-    expect(model.action).toEqual({
-      kind: "request",
-      label: "Request quote",
-      disabled: true,
-    });
+    expectBlockedNotRequested(model, blockerReason);
   });
 
   it("disables retry and sets blocked tone when a failed request has active blockers", () => {
