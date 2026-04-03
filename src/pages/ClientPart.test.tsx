@@ -431,6 +431,51 @@ function renderWithClient(initialEntry: string) {
   };
 }
 
+async function renderClientPartOnTab(tab?: "Request" | "Files" | "Activity") {
+  const result = renderWithClient("/parts/job-1");
+  if (tab) {
+    await openWorkspaceTab(tab);
+  }
+  return result;
+}
+
+async function openWorkspaceTab(name: "Quote" | "Request" | "Files" | "Activity") {
+  const [tab] = await screen.findAllByRole("tab", { name });
+  fireEvent.pointerDown(tab, { button: 0, ctrlKey: false });
+  fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
+  fireEvent.click(tab);
+}
+
+async function findRequestButton(name: string | RegExp) {
+  await openWorkspaceTab("Request");
+  return screen.findByRole("button", { name });
+}
+
+async function findRequestQuoteButton() {
+  return findRequestButton(/request quote/i);
+}
+
+async function clickRequestQuoteButton() {
+  const requestQuoteButton = await findRequestQuoteButton();
+  await waitFor(() => {
+    expect(requestQuoteButton).toBeEnabled();
+  });
+  fireEvent.click(requestQuoteButton);
+}
+
+async function findActivityCommentField() {
+  await openWorkspaceTab("Activity");
+  return screen.findByLabelText("Leave a comment");
+}
+
+async function addActivityComment(comment: string) {
+  const commentField = await findActivityCommentField();
+  fireEvent.change(commentField, {
+    target: { value: comment },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+}
+
 function createDeferredPromise<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -648,29 +693,38 @@ describe("ClientPart", () => {
 
     expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
     expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
+    await openWorkspaceTab("Request");
     expect(screen.getByText("Part information")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /prev rev/i })).toBeInTheDocument();
     expect(screen.queryByText("This part could not be loaded.")).not.toBeInTheDocument();
     expect(api.fetchPartDetailByJobId).toHaveBeenCalledTimes(1);
   });
 
-  it("renders part information inline after the quote section", async () => {
+  it("renders the workspace tabs and switches between quote, request, files, and activity", async () => {
     renderWithClient("/parts/job-1");
 
-    const quoteDecisionPanel = await screen.findByTestId("quote-decision-panel");
-    const partInfoPanel = await screen.findByTestId("part-info-panel");
-    const cadPanel = await screen.findByTestId("cad-panel");
+    expect(await screen.findByRole("tab", { name: "Quote" })).toBeInTheDocument();
+    expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
+    expect(screen.queryByText("Part information")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("cad-panel")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Leave a comment")).not.toBeInTheDocument();
 
-    expect(quoteDecisionPanel.compareDocumentPosition(partInfoPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(partInfoPanel.compareDocumentPosition(cadPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const [tab, assertion] of [
+      ["Request", () => screen.findByTestId("part-info-panel")],
+      ["Files", async () => {
+        expect(await screen.findByTestId("cad-panel")).toBeInTheDocument();
+        expect(screen.getByText("Attached source files")).toBeInTheDocument();
+      }],
+      ["Activity", () => screen.findByLabelText("Leave a comment")],
+    ] as const) {
+      await openWorkspaceTab(tab);
+      await assertion();
+    }
   });
 
   it("passes part metadata into PartInfoPanel and omits the old workspace badge cluster", async () => {
-    renderWithClient("/parts/job-1");
-
-    await waitFor(() => {
-      expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
-    });
+    await renderClientPartOnTab("Request");
+    expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
 
     expect(lastPartInfoPanelProps).toMatchObject({
       partNumber: "BRKT-001",
@@ -791,12 +845,9 @@ describe("ClientPart", () => {
   });
 
   it("invalidates shared and part-specific queries when saving request details", async () => {
-    const { queryClient } = renderWithClient("/parts/job-1");
+    const { queryClient } = await renderClientPartOnTab("Request");
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Save Request" })).toBeInTheDocument();
-    });
+    expect(screen.getByRole("button", { name: "Save Request" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
 
@@ -914,7 +965,7 @@ describe("ClientPart", () => {
       return deferredMemberships.promise;
     });
 
-    renderWithClient("/parts/job-1");
+    await renderClientPartOnTab("Request");
 
     await waitFor(() => {
       expect(screen.getByTestId("sidebar-job-job-1")).toHaveTextContent("Bracket:project-1");
@@ -1009,11 +1060,7 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: /request quote/i })[0]).toBeEnabled();
-    });
-
-    fireEvent.click(screen.getAllByRole("button", { name: /request quote/i })[0]!);
+    await clickRequestQuoteButton();
 
     await waitFor(() => {
       expect(api.requestQuote).toHaveBeenCalledWith("job-1", false);
@@ -1101,11 +1148,7 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: /request quote/i })[0]).toBeEnabled();
-    });
-
-    fireEvent.click(screen.getAllByRole("button", { name: /request quote/i })[0]!);
+    await clickRequestQuoteButton();
 
     await waitFor(() => {
       expect(toastMock.error).toHaveBeenCalledWith(
@@ -1197,7 +1240,7 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    const button = (await screen.findAllByRole("button", { name: /request quote/i }))[0]!;
+    const button = await findRequestQuoteButton();
 
     expect(button).toBeEnabled();
 
@@ -1260,7 +1303,7 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    fireEvent.click(await screen.findAllByRole("button", { name: "Cancel request" }).then((buttons) => buttons[0]!));
+    fireEvent.click(await findRequestButton("Cancel request"));
     expect(await screen.findByText("Cancel quote request?")).toBeInTheDocument();
     expect(
       await screen.findByText(
@@ -1294,14 +1337,7 @@ describe("ClientPart", () => {
   it("adds browser-local comments in the activity section", async () => {
     renderWithClient("/parts/job-1");
 
-    await waitFor(() => {
-      expect(screen.getByLabelText("Leave a comment")).toBeInTheDocument();
-    });
-
-    fireEvent.change(screen.getByLabelText("Leave a comment"), {
-      target: { value: "Need vendor follow-up before approving." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+    await addActivityComment("Need vendor follow-up before approving.");
 
     await waitFor(() => {
       expect(window.localStorage.setItem).toHaveBeenCalledWith(
@@ -1314,14 +1350,7 @@ describe("ClientPart", () => {
   it("keeps browser-local comments isolated to the active user", async () => {
     const firstRender = renderWithClient("/parts/job-1");
 
-    await waitFor(() => {
-      expect(screen.getByLabelText("Leave a comment")).toBeInTheDocument();
-    });
-
-    fireEvent.change(screen.getByLabelText("Leave a comment"), {
-      target: { value: "Private follow-up for user one." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+    await addActivityComment("Private follow-up for user one.");
 
     await waitFor(() => {
       expect(window.localStorage.setItem).toHaveBeenCalledWith(
@@ -1339,6 +1368,7 @@ describe("ClientPart", () => {
     firstRender.unmount();
     renderWithClient("/parts/job-1");
 
+    await findActivityCommentField();
     await waitFor(() => {
       expect(window.localStorage.getItem).toHaveBeenCalledWith("client-part-comments:user-2:job-1");
     });
@@ -1435,8 +1465,7 @@ describe("ClientPart", () => {
       }),
     );
 
-    renderWithClient("/parts/job-1");
-
+    await renderClientPartOnTab("Request");
     expect(await screen.findAllByText(/drawing extraction in progress/i)).not.toHaveLength(0);
   });
 
@@ -1473,8 +1502,7 @@ describe("ClientPart", () => {
       }),
     );
 
-    renderWithClient("/parts/job-1");
-
+    await renderClientPartOnTab("Files");
     expect(await screen.findByTitle("bracket.pdf PDF preview")).toHaveAttribute("src", "blob:part-drawing-pdf");
     expect(storedFile.loadStoredPdfObjectUrl).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1534,8 +1562,7 @@ describe("ClientPart", () => {
       }),
     );
 
-    renderWithClient("/parts/job-1");
-
+    await renderClientPartOnTab("Files");
     await waitFor(() => {
       expect(storedFile.loadStoredDrawingPreviewPages).toHaveBeenCalled();
       expect(lastDrawingPreviewDialogProps?.pages).toEqual([{ pageNumber: 1, url: "blob:page-1" }]);
@@ -1565,8 +1592,7 @@ describe("ClientPart", () => {
       }),
     );
 
-    renderWithClient("/parts/job-1");
-
+    await renderClientPartOnTab("Request");
     expect(await screen.findAllByText(/drawing extraction failed/i)).not.toHaveLength(0);
     expect(await screen.findAllByText(/could not read text from the uploaded drawing pdf/i)).not.toHaveLength(0);
   });
@@ -1607,8 +1633,7 @@ describe("ClientPart", () => {
       }),
     );
 
-    renderWithClient("/parts/job-1");
-
+    await renderClientPartOnTab("Request");
     await waitFor(() => {
       expect(screen.getByText(/partial drawing metadata found/i)).toBeInTheDocument();
       expect(screen.getByText(/missing: material, finish/i)).toBeInTheDocument();

@@ -713,134 +713,179 @@ const ClientPart = () => {
                 }
               />
 
-              <div className="flex flex-col gap-4">
-                <ClientQuoteDecisionPanel
-                  options={rankedQuoteOptions}
-                  selectedOption={
-                    rankedQuoteOptions.find((option) => option.offerId === selectedOfferId) ?? selectedQuoteOption
-                  }
-                  onSelect={(option) => handleWorkspaceOfferSelect(option.offerId)}
-                  requestedByDate={requestSummaryRequestedByDate}
-                  quoteDataStatus={quoteDataStatus}
-                  quoteDataMessage={quoteDataMessage}
-                  quoteDiagnostics={quoteDiagnostics}
-                  activePreset={activePreset}
-                  onToggleVendorExclusion={handleToggleVendorExclusion}
-                  controls={
-                    <QuoteSelectionFunctionBar
-                      scope={partPresetScope}
-                      mode={partPresetMode}
-                      requestedByDate={requestSummaryRequestedByDate}
-                      onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
-                      onModeChange={(nextMode) => applyPartPreset(nextMode, partPresetScope)}
-                      onRequestedByDateChange={(nextDate) => handleSaveRequestPatch({ requestedByDate: nextDate })}
-                      disabled={saveRequestMutation.isPending}
-                      dueDateHelpText="Applies to this part request and updates quote eligibility immediately."
-                    />
-                  }
-                />
-                <PartInfoPanel
-                  part={partDetail.part}
-                  summary={summary}
-                  extraction={extraction}
-                  effectiveRequestDraft={effectiveRequestDraft}
-                  quoteQuantityInput={quoteQuantityInput}
-                  onQuoteQuantityInputChange={setQuoteQuantityInput}
-                  onDraftChange={handleDraftChange}
-                  onSave={handleSaveRequest}
-                  onUploadRevision={attachFilesPicker.openFilePicker}
-                  isSaving={saveRequestMutation.isPending}
-                  drawingFileName={drawingFile?.original_name ?? null}
-                  partNumber={presentation.partNumber}
-                  description={presentation.description}
-                  statusContent={
-                    <>
-                      <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
-                      {quoteRequestViewModel ? (
-                        <ClientQuoteRequestStatusCard
-                          status={quoteRequestViewModel.status}
-                          tone={quoteRequestViewModel.tone}
-                          label={quoteRequestViewModel.label}
-                          detail={quoteRequestViewModel.detail}
-                          actionLabel={quoteRequestViewModel.action.label}
-                          actionDisabled={quoteRequestViewModel.action.disabled || isCancelingQuoteRequest}
-                          blockerReasons={quoteRequestViewModel.blockerReasons}
-                          isBusy={isRequestingQuote || isCancelingQuoteRequest}
-                          onAction={quoteRequestViewModel.action.kind === "none" ? null : handleQuoteRequestAction}
-                        />
-                      ) : null}
-                    </>
-                  }
-                />
-                <CadPanel cadFile={cadFile} />
-                <PdfPanel
-                  drawingFile={drawingFile}
-                  drawingPreview={drawingPreview}
-                  drawingPdfUrl={drawingPdfUrl}
-                  drawingPreviewPageUrls={drawingPreviewPageUrls}
-                  drawingViewerMode={drawingViewerMode}
-                  drawingPreviewState={drawingPreviewState}
-                  drawingPreviewStatusMessage={drawingPreviewStatusMessage}
-                  isLoading={isDrawingPreviewLoading}
-                  onOpenDialog={drawingFile ? () => setShowDrawingPreview(true) : undefined}
-                />
-              </div>
+              <Tabs defaultValue="quote" className="flex flex-col gap-4">
+                <TabsList className="h-auto flex-wrap justify-start gap-2 rounded-[22px] border border-white/8 bg-ws-card p-2">
+                  <TabsTrigger value="quote" className="rounded-full px-4 py-2">
+                    Quote
+                  </TabsTrigger>
+                  <TabsTrigger value="request" className="rounded-full px-4 py-2">
+                    Request
+                  </TabsTrigger>
+                  <TabsTrigger value="files" className="rounded-full px-4 py-2">
+                    Files
+                  </TabsTrigger>
+                  <TabsTrigger value="activity" className="rounded-full px-4 py-2">
+                    Activity
+                  </TabsTrigger>
+                </TabsList>
 
-              <section className="rounded-[30px] border border-white/8 bg-ws-card p-5 md:p-6">
-                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.18em] text-white/35">Activity</p>
-                    <h2 className="mt-2 text-xl font-semibold text-white">Comments and history</h2>
-                    <p className="mt-1 text-sm text-white/55">
-                      Leave context for collaborators and review the part activity feed.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-5 rounded-surface-lg border border-white/8 bg-black/20 p-4">
-                  <label htmlFor="activity-comment" className="text-sm font-medium text-white/78">
-                    Leave a comment
-                  </label>
-                  <Textarea
-                    id="activity-comment"
-                    value={commentDraft}
-                    onChange={(event) => setCommentDraft(event.target.value)}
-                    placeholder="Add context, decisions, or a follow-up note."
-                    className="mt-3 min-h-28 border-white/10 bg-ws-shell text-white placeholder:text-white/30"
+                <TabsContent value="quote" className="mt-0">
+                  <ClientQuoteDecisionPanel
+                    options={rankedQuoteOptions}
+                    selectedOption={
+                      rankedQuoteOptions.find((option) => option.offerId === selectedOfferId) ?? selectedQuoteOption
+                    }
+                    onSelect={(option) => handleWorkspaceOfferSelect(option.offerId)}
+                    requestedByDate={requestSummaryRequestedByDate}
+                    quoteDataStatus={quoteDataStatus}
+                    quoteDataMessage={quoteDataMessage}
+                    quoteDiagnostics={quoteDiagnostics}
+                    activePreset={activePreset}
+                    onToggleVendorExclusion={handleToggleVendorExclusion}
+                    controls={
+                      <QuoteSelectionFunctionBar
+                        scope={partPresetScope}
+                        mode={partPresetMode}
+                        requestedByDate={requestSummaryRequestedByDate}
+                        onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
+                        onModeChange={(nextMode) => applyPartPreset(nextMode, partPresetScope)}
+                        onRequestedByDateChange={(nextDate) => handleSaveRequestPatch({ requestedByDate: nextDate })}
+                        disabled={saveRequestMutation.isPending}
+                        dueDateHelpText="Applies to this part request and updates quote eligibility immediately."
+                      />
+                    }
                   />
-                  <div className="mt-3 flex items-center justify-between gap-3">
-                    <p className="text-xs text-white/40">Comments stay attached to this part in your current browser.</p>
-                    <Button type="button" onClick={handleAddComment} disabled={commentDraft.trim().length === 0}>
-                      <MessageSquare className="mr-2 h-4 w-4" />
-                      Comment
-                    </Button>
-                  </div>
-                </div>
+                </TabsContent>
 
-                <Tabs defaultValue="activity" className="mt-5">
-                  <TabsList className="h-auto flex-wrap justify-start gap-2 rounded-[16px] bg-black/20 p-1.5">
-                    <TabsTrigger value="activity">Activity</TabsTrigger>
-                    <TabsTrigger value="comments">Comments</TabsTrigger>
-                  </TabsList>
+                <TabsContent value="request" className="mt-0">
+                  <PartInfoPanel
+                    part={partDetail.part}
+                    summary={summary}
+                    extraction={extraction}
+                    effectiveRequestDraft={effectiveRequestDraft}
+                    quoteQuantityInput={quoteQuantityInput}
+                    onQuoteQuantityInputChange={setQuoteQuantityInput}
+                    onDraftChange={handleDraftChange}
+                    onSave={handleSaveRequest}
+                    onUploadRevision={attachFilesPicker.openFilePicker}
+                    isSaving={saveRequestMutation.isPending}
+                    drawingFileName={drawingFile?.original_name ?? null}
+                    partNumber={presentation.partNumber}
+                    description={presentation.description}
+                    statusContent={
+                      <>
+                        <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
+                        {quoteRequestViewModel ? (
+                          <ClientQuoteRequestStatusCard
+                            status={quoteRequestViewModel.status}
+                            tone={quoteRequestViewModel.tone}
+                            label={quoteRequestViewModel.label}
+                            detail={quoteRequestViewModel.detail}
+                            actionLabel={quoteRequestViewModel.action.label}
+                            actionDisabled={quoteRequestViewModel.action.disabled || isCancelingQuoteRequest}
+                            blockerReasons={quoteRequestViewModel.blockerReasons}
+                            isBusy={isRequestingQuote || isCancelingQuoteRequest}
+                            onAction={quoteRequestViewModel.action.kind === "none" ? null : handleQuoteRequestAction}
+                          />
+                        ) : null}
+                      </>
+                    }
+                  />
+                </TabsContent>
 
-                  <TabsContent value="activity" className="mt-4">
-                    <ActivityLog entries={activityEntries} />
-                  </TabsContent>
-                  <TabsContent value="comments" className="mt-4">
-                    <div className="rounded-surface-lg border border-white/8 bg-ws-card p-5">
-                      {comments.length === 0 ? (
-                        <p className="text-sm text-white/45">No comments yet.</p>
-                      ) : (
-                        <div className="space-y-3">
-                          {comments.map((comment) => (
-                            <CommentCard key={comment.id} comment={comment} />
-                          ))}
+                <TabsContent value="files" className="mt-0">
+                  <div className="flex flex-col gap-4">
+                    <section className="rounded-[30px] border border-white/8 bg-ws-card p-5 md:p-6">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Files</p>
+                          <h2 className="mt-2 text-xl font-semibold text-white">Attached source files</h2>
+                          <p className="mt-1 text-sm text-white/55">
+                            Review the current CAD and drawing files. Use Attach files in the header to upload a revision
+                            or add supporting artifacts.
+                          </p>
                         </div>
-                      )}
+                        <div className="grid gap-2 text-sm text-white/55 md:text-right">
+                          <p>CAD: {cadFile?.original_name ?? "Missing"}</p>
+                          <p>Drawing: {drawingFile?.original_name ?? "Missing"}</p>
+                        </div>
+                      </div>
+                    </section>
+                    <CadPanel cadFile={cadFile} />
+                    <PdfPanel
+                      drawingFile={drawingFile}
+                      drawingPreview={drawingPreview}
+                      drawingPdfUrl={drawingPdfUrl}
+                      drawingPreviewPageUrls={drawingPreviewPageUrls}
+                      drawingViewerMode={drawingViewerMode}
+                      drawingPreviewState={drawingPreviewState}
+                      drawingPreviewStatusMessage={drawingPreviewStatusMessage}
+                      isLoading={isDrawingPreviewLoading}
+                      onOpenDialog={drawingFile ? () => setShowDrawingPreview(true) : undefined}
+                    />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="activity" className="mt-0">
+                  <section className="rounded-[30px] border border-white/8 bg-ws-card p-5 md:p-6">
+                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-white/35">Activity</p>
+                        <h2 className="mt-2 text-xl font-semibold text-white">Comments and history</h2>
+                        <p className="mt-1 text-sm text-white/55">
+                          Leave context for collaborators and review the part activity feed.
+                        </p>
+                      </div>
                     </div>
-                  </TabsContent>
-                </Tabs>
-              </section>
+
+                    <div className="mt-5 rounded-surface-lg border border-white/8 bg-black/20 p-4">
+                      <label htmlFor="activity-comment" className="text-sm font-medium text-white/78">
+                        Leave a comment
+                      </label>
+                      <Textarea
+                        id="activity-comment"
+                        value={commentDraft}
+                        onChange={(event) => setCommentDraft(event.target.value)}
+                        placeholder="Add context, decisions, or a follow-up note."
+                        className="mt-3 min-h-28 border-white/10 bg-ws-shell text-white placeholder:text-white/30"
+                      />
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        <p className="text-xs text-white/40">
+                          Comments stay attached to this part in your current browser.
+                        </p>
+                        <Button type="button" onClick={handleAddComment} disabled={commentDraft.trim().length === 0}>
+                          <MessageSquare className="mr-2 h-4 w-4" />
+                          Comment
+                        </Button>
+                      </div>
+                    </div>
+
+                    <Tabs defaultValue="activity" className="mt-5">
+                      <TabsList className="h-auto flex-wrap justify-start gap-2 rounded-[16px] bg-black/20 p-1.5">
+                        <TabsTrigger value="activity">Activity</TabsTrigger>
+                        <TabsTrigger value="comments">Comments</TabsTrigger>
+                      </TabsList>
+
+                      <TabsContent value="activity" className="mt-4">
+                        <ActivityLog entries={activityEntries} />
+                      </TabsContent>
+                      <TabsContent value="comments" className="mt-4">
+                        <div className="rounded-surface-lg border border-white/8 bg-ws-card p-5">
+                          {comments.length === 0 ? (
+                            <p className="text-sm text-white/45">No comments yet.</p>
+                          ) : (
+                            <div className="space-y-3">
+                              {comments.map((comment) => (
+                                <CommentCard key={comment.id} comment={comment} />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </TabsContent>
+                    </Tabs>
+                  </section>
+                </TabsContent>
+              </Tabs>
             </>
           ) : (
             <div className="rounded-[26px] border border-white/8 bg-ws-card px-6 py-12 text-center text-white/45">
