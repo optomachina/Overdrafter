@@ -494,6 +494,13 @@ const ClientProject = () => {
         ? formattedTolerance
         : formatPropertyValue(specSnapshotToleranceLabel);
 
+    const quoteBadge = quoteRequestViewModel
+      ? {
+          label: quoteRequestViewModel.label,
+          status: quoteRequestViewModel.status,
+        }
+      : null;
+
     return {
       description,
       partNumber,
@@ -525,12 +532,7 @@ const ClientProject = () => {
           ),
         },
       ],
-      quoteBadge: quoteRequestViewModel
-        ? {
-            label: quoteRequestViewModel.label,
-            status: quoteRequestViewModel.status,
-          }
-        : null,
+      quoteBadge,
     };
   }, [
     focusedJobId,
@@ -548,6 +550,14 @@ const ClientProject = () => {
   if (!user) {
     return null;
   }
+
+  const scopedProject = projectQuery.data
+    ? {
+        id: projectId,
+        name: projectQuery.data.name,
+        partCount: projectJobs.length,
+      }
+    : null;
 
   return (
     <>
@@ -569,15 +579,7 @@ const ClientProject = () => {
             jobs={accessibleJobs}
             summariesByJobId={summariesByJobId}
             jobSearchTextById={jobSearchTextById}
-            scopedProject={
-              projectQuery.data
-                ? {
-                    id: projectId,
-                    name: projectQuery.data.name,
-                    partCount: projectJobs.length,
-                  }
-                : null
-            }
+            scopedProject={scopedProject}
             resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
             onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
             onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}

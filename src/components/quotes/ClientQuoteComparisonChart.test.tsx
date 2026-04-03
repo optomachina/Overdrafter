@@ -53,8 +53,14 @@ function renderPointButton(
       onClick={() => {
         renderedElement.props.onClick?.({} as MouseEvent<SVGCircleElement>);
       }}
-      onMouseEnter={() => onMouseEnter?.({ payload: point })}
-      onMouseLeave={() => onMouseLeave?.()}
+      onMouseEnter={() => {
+        renderedElement.props.onMouseEnter?.({} as MouseEvent<SVGCircleElement>);
+        onMouseEnter?.({ payload: point });
+      }}
+      onMouseLeave={() => {
+        renderedElement.props.onMouseLeave?.({} as MouseEvent<SVGCircleElement>);
+        onMouseLeave?.();
+      }}
     >
       <svg>{renderedElement}</svg>
     </button>

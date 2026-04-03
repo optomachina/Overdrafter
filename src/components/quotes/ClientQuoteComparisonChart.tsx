@@ -161,10 +161,10 @@ type VendorScatterShapeProps = {
   readonly cy?: number;
   readonly payload?: ChartPoint;
   readonly onSelect: (option: ClientQuoteSelectionOption) => void;
+  readonly onHover: (key: string | null) => void;
 };
 
-function VendorScatterShape({ cx, cy, payload, onSelect }: VendorScatterShapeProps) {
-
+function VendorScatterShape({ cx, cy, payload, onSelect, onHover }: VendorScatterShapeProps) {
   if (!payload || cx === undefined || cy === undefined) {
     return null;
   }
@@ -174,7 +174,12 @@ function VendorScatterShape({ cx, cy, payload, onSelect }: VendorScatterShapePro
   const radius = isActive ? baseRadius + 2 : baseRadius;
   const color = getVendorColor(payload.vendorKey);
   const opacity = payload.disabled ? 0.25 : isActive ? 1 : 0.8;
-  const strokeColor = payload.selected ? "#ffffff" : isActive ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.25)";
+  let strokeColor = "rgba(255,255,255,0.18)";
+  if (payload.selected) {
+    strokeColor = "#ffffff";
+  } else if (isActive) {
+    strokeColor = "rgba(255,255,255,0.5)";
+  }
   const strokeWidth = payload.selected ? 2.5 : isActive ? 1.5 : 1;
 
   return (
@@ -188,10 +193,12 @@ function VendorScatterShape({ cx, cy, payload, onSelect }: VendorScatterShapePro
       strokeWidth={strokeWidth}
       className="cursor-pointer transition-all duration-150"
       onClick={() => {
-        if (payload.option?.isSelectable) {
+        if (payload.option.isSelectable && !payload.disabled) {
           onSelect(payload.option);
         }
       }}
+      onMouseEnter={() => onHover(payload.key)}
+      onMouseLeave={() => onHover(null)}
     />
   );
 }
@@ -239,13 +246,6 @@ export function ClientQuoteComparisonChart({
       })),
     });
   }, [options, organizationId, partId, points]);
-
-  const handleScatterMouseEnter = (data: unknown) => {
-    const point = data as { payload?: ChartPoint } | undefined;
-    if (point?.payload) {
-      onHover(point.payload.key);
-    }
-  };
 
   return (
     <ChartContainer config={chartConfig} className="h-[420px] w-full">
@@ -320,9 +320,7 @@ export function ClientQuoteComparisonChart({
             key={vendorKey}
             name={vendorKey}
             data={pointsByVendor.get(vendorKey) ?? []}
-            shape={<VendorScatterShape onSelect={onSelect} />}
-            onMouseEnter={handleScatterMouseEnter}
-            onMouseLeave={() => onHover(null)}
+            shape={<VendorScatterShape onSelect={onSelect} onHover={onHover} />}
           />
         ))}
       </ScatterChart>
