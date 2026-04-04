@@ -587,19 +587,6 @@ const ClientPart = () => {
                         Manage projects
                       </Button>
                     ) : null}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="rounded-full border-white/10 bg-white/8 text-white hover:bg-white/12"
-                      onClick={attachFilesPicker.openFilePicker}
-                    >
-                      <Upload className="mr-2 h-4 w-4" />
-                      Attach files
-                    </Button>
-                    <Button type="button" className="rounded-full shadow-sm" onClick={() => navigate(`/parts/${jobId}/review`)}>
-                      Review order
-                      <MoveRight className="ml-2 h-4 w-4" />
-                    </Button>
                     <DropdownMenu open={isPartOptionsOpen} onOpenChange={setIsPartOptionsOpen}>
                       <DropdownMenuTrigger asChild>
                         <Button
@@ -726,6 +713,16 @@ const ClientPart = () => {
                     quoteDiagnostics={quoteDiagnostics}
                     activePreset={activePreset}
                     onToggleVendorExclusion={handleToggleVendorExclusion}
+                    headerActions={
+                      <Button
+                        type="button"
+                        className="rounded-full shadow-sm"
+                        onClick={() => navigate(`/parts/${jobId}/review`)}
+                      >
+                        Review order
+                        <MoveRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    }
                     controls={
                       <QuoteSelectionFunctionBar
                         scope={partPresetScope}
@@ -785,13 +782,24 @@ const ClientPart = () => {
                           <p className="text-xs uppercase tracking-[0.18em] text-white/35">Files</p>
                           <h2 className="mt-2 text-xl font-semibold text-white">Attached source files</h2>
                           <p className="mt-1 text-sm text-white/55">
-                            Review the current CAD and drawing files. Use Attach files in the header to upload a revision
-                            or add supporting artifacts.
+                            Review the current CAD and drawing files, then upload a revision or add supporting artifacts
+                            from this workspace.
                           </p>
                         </div>
-                        <div className="grid gap-2 text-sm text-white/55 md:text-right">
+                        <div className="flex flex-col items-start gap-3 md:items-end">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-full border-white/10 bg-white/8 text-white hover:bg-white/12"
+                            onClick={attachFilesPicker.openFilePicker}
+                          >
+                            <Upload className="mr-2 h-4 w-4" />
+                            Attach files
+                          </Button>
+                          <div className="grid gap-2 text-sm text-white/55 md:text-right">
                           <p>CAD: {cadFile?.original_name ?? "Missing"}</p>
                           <p>Drawing: {drawingFile?.original_name ?? "Missing"}</p>
+                          </div>
                         </div>
                       </div>
                     </section>
