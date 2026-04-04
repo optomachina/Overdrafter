@@ -162,6 +162,24 @@ type ParsedBody = {
   shellRefs: string[];
 };
 
+type ParsedTopology = {
+  cartesianPoints: Map<string, Vector3>;
+  parsedVertices: Map<string, ParsedVertex>;
+  parsedEdges: Map<string, ParsedEdge>;
+  parsedOrientedEdges: Map<string, ParsedOrientedEdge>;
+  parsedEdgeLoops: Map<string, string[]>;
+  parsedFaceBounds: Map<string, ParsedFaceBound>;
+  parsedFaces: Map<string, ParsedFace>;
+  parsedShells: Map<string, ParsedShell>;
+  parsedBodies: Map<string, ParsedBody>;
+};
+
+type MaterializedVertices = {
+  vertices: CanonicalVertexGeometry[];
+  vertexIdBySource: Map<string, string>;
+  vertexById: Map<string, CanonicalVertexGeometry>;
+};
+
 function splitTopLevel(value: string, delimiter = ","): string[] {
   const parts: string[] = [];
   let current = "";
@@ -348,8 +366,8 @@ function extractSection(stepContent: string, sectionName: "HEADER" | "DATA") {
   return match?.[1] ?? "";
 }
 
-function parseStepEntities(dataSection: string): StepEntity[] {
-  const entities: StepEntity[] = [];
+function tokenizeStepStatements(dataSection: string): string[] {
+  const statements: string[] = [];
   let current = "";
   let collecting = false;
   let depth = 0;
@@ -396,63 +414,218 @@ function parseStepEntities(dataSection: string): StepEntity[] {
       continue;
     }
 
-    if (character !== ";" || depth !== 0) {
-      continue;
+    if (character === ";" && depth === 0) {
+      statements.push(current.slice(0, -1).trim());
+      current = "";
+      collecting = false;
     }
-
-    const statement = current.slice(0, -1).trim();
-    current = "";
-    collecting = false;
-
-    const equalsIndex = statement.indexOf("=");
-    if (!statement.startsWith("#") || equalsIndex <= 1) {
-      continue;
-    }
-
-    const sourceEntityNumericId = Number.parseInt(
-      statement.slice(1, equalsIndex).trim(),
-      10,
-    );
-    if (!Number.isFinite(sourceEntityNumericId)) {
-      continue;
-    }
-
-    const sourceEntityId = `#${sourceEntityNumericId}`;
-    const rawValue = statement.slice(equalsIndex + 1).trim();
-
-    if (rawValue.startsWith("(")) {
-      entities.push({
-        sourceEntityId,
-        sourceEntityNumericId,
-        type: "COMPLEX_ENTITY",
-        args: null,
-        rawValue,
-      });
-      continue;
-    }
-
-    const callMatch = rawValue.match(/^([A-Z0-9_]+)\s*\(([\s\S]*)\)$/);
-    if (!callMatch) {
-      entities.push({
-        sourceEntityId,
-        sourceEntityNumericId,
-        type: "UNKNOWN",
-        args: null,
-        rawValue,
-      });
-      continue;
-    }
-
-    entities.push({
-      sourceEntityId,
-      sourceEntityNumericId,
-      type: callMatch[1]!,
-      args: callMatch[2]!,
-      rawValue,
-    });
   }
 
+  return statements;
+}
+
+function parseStepStatement(statement: string): StepEntity | null {
+  const equalsIndex = statement.indexOf("=");
+  if (!statement.startsWith("#") || equalsIndex <= 1) {
+    return null;
+  }
+
+  const sourceEntityNumericId = Number.parseInt(statement.slice(1, equalsIndex).trim(), 10);
+  if (!Number.isFinite(sourceEntityNumericId)) {
+    return null;
+  }
+
+  const sourceEntityId = `#${sourceEntityNumericId}`;
+  const rawValue = statement.slice(equalsIndex + 1).trim();
+
+  if (rawValue.startsWith("(")) {
+    return {
+      sourceEntityId,
+      sourceEntityNumericId,
+      type: "COMPLEX_ENTITY",
+      args: null,
+      rawValue,
+    };
+  }
+
+  const callMatch = /^([A-Z0-9_]+)\s*\(([\s\S]*)\)$/.exec(rawValue);
+  if (!callMatch) {
+    return {
+      sourceEntityId,
+      sourceEntityNumericId,
+      type: "UNKNOWN",
+      args: null,
+      rawValue,
+    };
+  }
+
+  return {
+    sourceEntityId,
+    sourceEntityNumericId,
+    type: callMatch[1],
+    args: callMatch[2],
+    rawValue,
+  };
+}
+
+function parseStepEntities(dataSection: string): StepEntity[] {
+  const entities = tokenizeStepStatements(dataSection)
+    .map((statement) => parseStepStatement(statement))
+    .filter((entity): entity is StepEntity => entity !== null);
+
   return entities.sort((left, right) => left.sourceEntityNumericId - right.sourceEntityNumericId);
+}
+
+function createParsedTopology(): ParsedTopology {
+  return {
+    cartesianPoints: new Map<string, Vector3>(),
+    parsedVertices: new Map<string, ParsedVertex>(),
+    parsedEdges: new Map<string, ParsedEdge>(),
+    parsedOrientedEdges: new Map<string, ParsedOrientedEdge>(),
+    parsedEdgeLoops: new Map<string, string[]>(),
+    parsedFaceBounds: new Map<string, ParsedFaceBound>(),
+    parsedFaces: new Map<string, ParsedFace>(),
+    parsedShells: new Map<string, ParsedShell>(),
+    parsedBodies: new Map<string, ParsedBody>(),
+  };
+}
+
+function parseOrientedEdgeOrientation(token: string | undefined): ParsedOrientedEdge["orientation"] {
+  const orientation = parseBooleanToken(token);
+  if (orientation === true) {
+    return "forward";
+  }
+
+  if (orientation === false) {
+    return "reversed";
+  }
+
+  return "unknown";
+}
+
+function captureTopologyEntity(entity: StepEntity, topology: ParsedTopology) {
+  const args = splitTopLevel(entity.args ?? "");
+
+  switch (entity.type) {
+    case "CARTESIAN_POINT": {
+      const numbers = parseTupleNumbers(args[1]);
+      if (numbers.length >= 3) {
+        topology.cartesianPoints.set(entity.sourceEntityId, {
+          x: numbers[0]!,
+          y: numbers[1]!,
+          z: numbers[2]!,
+        });
+      }
+      break;
+    }
+    case "VERTEX_POINT": {
+      topology.parsedVertices.set(entity.sourceEntityId, {
+        sourceEntityId: entity.sourceEntityId,
+        cartesianPointRef: parseReference(args[1]),
+      });
+      break;
+    }
+    case "EDGE_CURVE": {
+      topology.parsedEdges.set(entity.sourceEntityId, {
+        sourceEntityId: entity.sourceEntityId,
+        startVertexRef: parseReference(args[1]),
+        endVertexRef: parseReference(args[2]),
+        curveRef: parseReference(args[3]),
+      });
+      break;
+    }
+    case "ORIENTED_EDGE": {
+      topology.parsedOrientedEdges.set(entity.sourceEntityId, {
+        edgeRef: parseReference(args[3]),
+        orientation: parseOrientedEdgeOrientation(args[4]),
+      });
+      break;
+    }
+    case "EDGE_LOOP": {
+      topology.parsedEdgeLoops.set(entity.sourceEntityId, parseReferenceList(args[1]));
+      break;
+    }
+    case "FACE_BOUND":
+    case "FACE_OUTER_BOUND": {
+      topology.parsedFaceBounds.set(entity.sourceEntityId, {
+        kind: entity.type === "FACE_OUTER_BOUND" ? "outer" : "inner",
+        loopRef: parseReference(args[1]),
+      });
+      break;
+    }
+    case "ADVANCED_FACE": {
+      topology.parsedFaces.set(entity.sourceEntityId, {
+        sourceEntityId: entity.sourceEntityId,
+        boundRefs: parseReferenceList(args[1]),
+        surfaceRef: parseReference(args[2]),
+        orientation: parseBooleanToken(args[3]),
+      });
+      break;
+    }
+    case "CLOSED_SHELL":
+    case "OPEN_SHELL": {
+      topology.parsedShells.set(entity.sourceEntityId, {
+        sourceEntityId: entity.sourceEntityId,
+        closure: entity.type === "CLOSED_SHELL" ? "closed" : "open",
+        faceRefs: parseReferenceList(args[1]),
+      });
+      break;
+    }
+    case "MANIFOLD_SOLID_BREP":
+    case "FACETED_BREP": {
+      topology.parsedBodies.set(entity.sourceEntityId, {
+        sourceEntityId: entity.sourceEntityId,
+        kind: "solid",
+        shellRefs: parseReferenceList(args[1]),
+      });
+      break;
+    }
+    case "SHELL_BASED_SURFACE_MODEL": {
+      topology.parsedBodies.set(entity.sourceEntityId, {
+        sourceEntityId: entity.sourceEntityId,
+        kind: "surface",
+        shellRefs: parseReferenceList(args[1]),
+      });
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+function ensureBodiesForShells(parsedShells: Map<string, ParsedShell>, parsedBodies: Map<string, ParsedBody>) {
+  if (parsedBodies.size > 0 || parsedShells.size === 0) {
+    return;
+  }
+
+  for (const shell of [...parsedShells.values()].sort((left, right) =>
+    compareStepEntityRefs(left.sourceEntityId, right.sourceEntityId),
+  )) {
+    parsedBodies.set(shell.sourceEntityId, {
+      sourceEntityId: shell.sourceEntityId,
+      kind: shell.closure === "closed" ? "solid" : "surface",
+      shellRefs: [shell.sourceEntityId],
+    });
+  }
+}
+
+function collectParsedTopology(entities: StepEntity[]): ParsedTopology {
+  const topology = createParsedTopology();
+
+  for (const entity of entities) {
+    captureTopologyEntity(entity, topology);
+  }
+
+  ensureBodiesForShells(topology.parsedShells, topology.parsedBodies);
+  return topology;
+}
+
+function buildCanonicalIdMap(sourceEntityIds: Iterable<string>, prefix: string) {
+  return new Map(
+    [...sourceEntityIds]
+      .sort(compareStepEntityRefs)
+      .map((sourceEntityId, index) => [sourceEntityId, makeCanonicalId(prefix, index)]),
+  );
 }
 
 function parseHeaderMetadata(headerSection: string, entities: StepEntity[]): StepSourceMetadata {
@@ -482,17 +655,19 @@ function parseHeaderMetadata(headerSection: string, entities: StepEntity[]): Ste
 }
 
 function parseLengthUnit(entities: StepEntity[]) {
+  let fallbackRaw: string | null = null;
+
   for (const entity of entities) {
     const rawUpper = entity.rawValue.toUpperCase();
 
     if (rawUpper.includes("LENGTH_UNIT") && rawUpper.includes("SI_UNIT")) {
-      const siMatch = entity.rawValue.match(/SI_UNIT\((\.[A-Z]+\.)?\s*,\s*(\.[A-Z]+\.)\)/i);
+      const siMatch = /SI_UNIT\((\.[A-Z]+\.)?\s*,\s*(\.[A-Z]+\.)\)/i.exec(entity.rawValue);
       if (!siMatch) {
         continue;
       }
 
       const prefix = (siMatch[1] ?? "").toUpperCase();
-      const base = siMatch[2]!.toUpperCase();
+      const base = siMatch[2].toUpperCase();
 
       if (base === ".METRE.") {
         if (prefix === ".MILLI.") {
@@ -507,12 +682,16 @@ function parseLengthUnit(entities: StepEntity[]) {
       }
     }
 
-    const conversionMatch = entity.rawValue.match(/CONVERSION_BASED_UNIT\(\s*'([^']+)'/i);
+    if (!rawUpper.includes("LENGTH_UNIT")) {
+      continue;
+    }
+
+    const conversionMatch = /CONVERSION_BASED_UNIT\(\s*'([^']+)'/i.exec(entity.rawValue);
     if (!conversionMatch) {
       continue;
     }
 
-    const normalized = conversionMatch[1]!.trim().toLowerCase();
+    const normalized = conversionMatch[1].trim().toLowerCase();
     if (normalized === "inch" || normalized === "inches") {
       return { length: "inch" as const, raw: conversionMatch[0] };
     }
@@ -521,219 +700,86 @@ function parseLengthUnit(entities: StepEntity[]) {
       return { length: "foot" as const, raw: conversionMatch[0] };
     }
 
-    return { length: "unknown" as const, raw: conversionMatch[0] };
+    fallbackRaw = conversionMatch[0];
   }
 
-  return { length: "unknown" as const, raw: null };
+  return { length: "unknown" as const, raw: fallbackRaw };
 }
 
-export function normalizeStepToCanonicalGeometryMetadata(input: {
-  stepContent: string;
-  sourceName?: string | null;
-}): CanonicalPartGeometryMetadata {
-  const headerSection = extractSection(input.stepContent, "HEADER");
-  const dataSection = extractSection(input.stepContent, "DATA");
-  const entities = parseStepEntities(dataSection);
-
-  if (entities.length === 0) {
-    throw new Error("STEP normalization requires at least one parsed DATA entity.");
-  }
-
-  const entityById = new Map(entities.map((entity) => [entity.sourceEntityId, entity]));
-  const cartesianPoints = new Map<string, Vector3>();
-  const parsedVertices = new Map<string, ParsedVertex>();
-  const parsedEdges = new Map<string, ParsedEdge>();
-  const parsedOrientedEdges = new Map<string, ParsedOrientedEdge>();
-  const parsedEdgeLoops = new Map<string, string[]>();
-  const parsedFaceBounds = new Map<string, ParsedFaceBound>();
-  const parsedFaces = new Map<string, ParsedFace>();
-  const parsedShells = new Map<string, ParsedShell>();
-  const parsedBodies = new Map<string, ParsedBody>();
-
-  for (const entity of entities) {
-    const args = splitTopLevel(entity.args ?? "");
-
-    switch (entity.type) {
-      case "CARTESIAN_POINT": {
-        const numbers = parseTupleNumbers(args[1]);
-        if (numbers.length >= 3) {
-          cartesianPoints.set(entity.sourceEntityId, {
-            x: numbers[0]!,
-            y: numbers[1]!,
-            z: numbers[2]!,
-          });
-        }
-        break;
-      }
-      case "VERTEX_POINT": {
-        parsedVertices.set(entity.sourceEntityId, {
-          sourceEntityId: entity.sourceEntityId,
-          cartesianPointRef: parseReference(args[1]),
-        });
-        break;
-      }
-      case "EDGE_CURVE": {
-        parsedEdges.set(entity.sourceEntityId, {
-          sourceEntityId: entity.sourceEntityId,
-          startVertexRef: parseReference(args[1]),
-          endVertexRef: parseReference(args[2]),
-          curveRef: parseReference(args[3]),
-        });
-        break;
-      }
-      case "ORIENTED_EDGE": {
-        parsedOrientedEdges.set(entity.sourceEntityId, {
-          edgeRef: parseReference(args[3]),
-          orientation:
-            parseBooleanToken(args[4]) === true
-              ? "forward"
-              : parseBooleanToken(args[4]) === false
-                ? "reversed"
-                : "unknown",
-        });
-        break;
-      }
-      case "EDGE_LOOP": {
-        parsedEdgeLoops.set(entity.sourceEntityId, parseReferenceList(args[1]));
-        break;
-      }
-      case "FACE_BOUND":
-      case "FACE_OUTER_BOUND": {
-        parsedFaceBounds.set(entity.sourceEntityId, {
-          kind: entity.type === "FACE_OUTER_BOUND" ? "outer" : "inner",
-          loopRef: parseReference(args[1]),
-        });
-        break;
-      }
-      case "ADVANCED_FACE": {
-        parsedFaces.set(entity.sourceEntityId, {
-          sourceEntityId: entity.sourceEntityId,
-          boundRefs: parseReferenceList(args[1]),
-          surfaceRef: parseReference(args[2]),
-          orientation: parseBooleanToken(args[3]),
-        });
-        break;
-      }
-      case "CLOSED_SHELL":
-      case "OPEN_SHELL": {
-        parsedShells.set(entity.sourceEntityId, {
-          sourceEntityId: entity.sourceEntityId,
-          closure: entity.type === "CLOSED_SHELL" ? "closed" : "open",
-          faceRefs: parseReferenceList(args[1]),
-        });
-        break;
-      }
-      case "MANIFOLD_SOLID_BREP":
-      case "FACETED_BREP": {
-        parsedBodies.set(entity.sourceEntityId, {
-          sourceEntityId: entity.sourceEntityId,
-          kind: "solid",
-          shellRefs: parseReferenceList(args[1]),
-        });
-        break;
-      }
-      case "SHELL_BASED_SURFACE_MODEL": {
-        parsedBodies.set(entity.sourceEntityId, {
-          sourceEntityId: entity.sourceEntityId,
-          kind: "surface",
-          shellRefs: parseReferenceList(args[1]),
-        });
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  if (parsedBodies.size === 0 && parsedShells.size > 0) {
-    for (const shell of [...parsedShells.values()].sort((left, right) =>
-      compareStepEntityRefs(left.sourceEntityId, right.sourceEntityId),
-    )) {
-      parsedBodies.set(shell.sourceEntityId, {
-        sourceEntityId: shell.sourceEntityId,
-        kind: shell.closure === "closed" ? "solid" : "surface",
-        shellRefs: [shell.sourceEntityId],
-      });
-    }
-  }
-
-  const vertexIdBySource = new Map(
-    [...parsedVertices.keys()]
-      .sort(compareStepEntityRefs)
-      .map((sourceEntityId, index) => [sourceEntityId, makeCanonicalId("vertex", index)]),
-  );
-  const edgeIdBySource = new Map(
-    [...parsedEdges.keys()]
-      .sort(compareStepEntityRefs)
-      .map((sourceEntityId, index) => [sourceEntityId, makeCanonicalId("edge", index)]),
-  );
-  const faceIdBySource = new Map(
-    [...parsedFaces.keys()]
-      .sort(compareStepEntityRefs)
-      .map((sourceEntityId, index) => [sourceEntityId, makeCanonicalId("face", index)]),
-  );
-  const shellIdBySource = new Map(
-    [...parsedShells.keys()]
-      .sort(compareStepEntityRefs)
-      .map((sourceEntityId, index) => [sourceEntityId, makeCanonicalId("shell", index)]),
-  );
-  const bodyIdBySource = new Map(
-    [...parsedBodies.keys()]
-      .sort(compareStepEntityRefs)
-      .map((sourceEntityId, index) => [sourceEntityId, makeCanonicalId("body", index)]),
-  );
-
+function materializeVertices(
+  parsedVertices: Map<string, ParsedVertex>,
+  cartesianPoints: Map<string, Vector3>,
+): MaterializedVertices {
   const vertices = [...parsedVertices.values()]
     .sort((left, right) => compareStepEntityRefs(left.sourceEntityId, right.sourceEntityId))
-    .flatMap((vertex): CanonicalVertexGeometry[] => {
+    .reduce<CanonicalVertexGeometry[]>((result, vertex) => {
       const point = vertex.cartesianPointRef ? cartesianPoints.get(vertex.cartesianPointRef) : null;
-      const id = vertexIdBySource.get(vertex.sourceEntityId);
-      if (!point || !id) {
-        return [];
+      if (!point) {
+        return result;
       }
 
-      return [
-        {
-          id,
-          sourceEntityId: vertex.sourceEntityId,
-          position: point,
-        },
-      ];
-    });
+      result.push({
+        id: makeCanonicalId("vertex", result.length),
+        sourceEntityId: vertex.sourceEntityId,
+        position: point,
+      });
+      return result;
+    }, []);
+  const vertexIdBySource = new Map(vertices.map((vertex) => [vertex.sourceEntityId, vertex.id]));
   const vertexById = new Map(vertices.map((vertex) => [vertex.id, vertex]));
+  return { vertices, vertexIdBySource, vertexById };
+}
 
-  const edges = [...parsedEdges.values()]
+function materializeEdges(
+  parsedEdges: Map<string, ParsedEdge>,
+  edgeIdBySource: Map<string, string>,
+  vertexIdBySource: Map<string, string>,
+  entityById: Map<string, StepEntity>,
+): CanonicalEdgeGeometry[] {
+  return [...parsedEdges.values()]
     .sort((left, right) => compareStepEntityRefs(left.sourceEntityId, right.sourceEntityId))
-    .map(
-      (edge): CanonicalEdgeGeometry => ({
-        id: edgeIdBySource.get(edge.sourceEntityId)!,
-        sourceEntityId: edge.sourceEntityId,
-        startVertexId: edge.startVertexRef ? vertexIdBySource.get(edge.startVertexRef) ?? null : null,
-        endVertexId: edge.endVertexRef ? vertexIdBySource.get(edge.endVertexRef) ?? null : null,
-        curveType: edge.curveRef ? entityById.get(edge.curveRef)?.type ?? null : null,
-      }),
-    );
-  const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
+    .map((edge) => ({
+      id: edgeIdBySource.get(edge.sourceEntityId)!,
+      sourceEntityId: edge.sourceEntityId,
+      startVertexId: edge.startVertexRef ? vertexIdBySource.get(edge.startVertexRef) ?? null : null,
+      endVertexId: edge.endVertexRef ? vertexIdBySource.get(edge.endVertexRef) ?? null : null,
+      curveType: edge.curveRef ? entityById.get(edge.curveRef)?.type ?? null : null,
+    }));
+}
 
-  const faces = [...parsedFaces.values()]
+function collectVertexIdsFromEdges(edgeIds: string[], edgeById: Map<string, CanonicalEdgeGeometry>) {
+  return uniquePreserveOrder(
+    edgeIds.flatMap((edgeId) => {
+      const edge = edgeById.get(edgeId);
+      return [edge?.startVertexId ?? null, edge?.endVertexId ?? null].filter(
+        (value): value is string => Boolean(value),
+      );
+    }),
+  );
+}
+
+function materializeFaces(
+  parsedFaces: Map<string, ParsedFace>,
+  parsedFaceBounds: Map<string, ParsedFaceBound>,
+  parsedEdgeLoops: Map<string, string[]>,
+  parsedOrientedEdges: Map<string, ParsedOrientedEdge>,
+  faceIdBySource: Map<string, string>,
+  edgeIdBySource: Map<string, string>,
+  edgeById: Map<string, CanonicalEdgeGeometry>,
+  entityById: Map<string, StepEntity>,
+): CanonicalFaceGeometry[] {
+  return [...parsedFaces.values()]
     .sort((left, right) => compareStepEntityRefs(left.sourceEntityId, right.sourceEntityId))
-    .map((face): CanonicalFaceGeometry => {
+    .map((face) => {
       const bounds = face.boundRefs.map((boundRef): CanonicalFaceBound => {
         const bound = parsedFaceBounds.get(boundRef);
         const loopRefs = bound?.loopRef ? parsedEdgeLoops.get(bound.loopRef) ?? [] : [];
         const orientedEdges = loopRefs.flatMap((loopRef): CanonicalOrientedEdgeReference[] => {
           const orientedEdge = parsedOrientedEdges.get(loopRef);
           const edgeId = orientedEdge?.edgeRef ? edgeIdBySource.get(orientedEdge.edgeRef) : null;
-          if (!edgeId) {
-            return [];
-          }
-
-          return [
-            {
-              edgeId,
-              orientation: orientedEdge?.orientation ?? "unknown",
-            },
-          ];
+          return edgeId
+            ? [{ edgeId, orientation: orientedEdge?.orientation ?? "unknown" }]
+            : [];
         });
 
         return {
@@ -742,16 +788,7 @@ export function normalizeStepToCanonicalGeometryMetadata(input: {
           edgeIds: uniquePreserveOrder(orientedEdges.map((orientedEdge) => orientedEdge.edgeId)),
         };
       });
-
       const edgeIds = uniquePreserveOrder(bounds.flatMap((bound) => bound.edgeIds));
-      const vertexIds = uniquePreserveOrder(
-        edgeIds.flatMap((edgeId) => {
-          const edge = edgeById.get(edgeId);
-          return [edge?.startVertexId ?? null, edge?.endVertexId ?? null].filter(
-            (value): value is string => Boolean(value),
-          );
-        }),
-      );
 
       return {
         id: faceIdBySource.get(face.sourceEntityId)!,
@@ -760,46 +797,55 @@ export function normalizeStepToCanonicalGeometryMetadata(input: {
         orientation: face.orientation,
         bounds,
         edgeIds,
-        vertexIds,
+        vertexIds: collectVertexIdsFromEdges(edgeIds, edgeById),
       };
     });
-  const faceById = new Map(faces.map((face) => [face.id, face]));
+}
 
-  const shells = [...parsedShells.values()]
+function materializeShells(
+  parsedShells: Map<string, ParsedShell>,
+  shellIdBySource: Map<string, string>,
+  faceIdBySource: Map<string, string>,
+): CanonicalShellGeometry[] {
+  return [...parsedShells.values()]
     .sort((left, right) => compareStepEntityRefs(left.sourceEntityId, right.sourceEntityId))
-    .map(
-      (shell): CanonicalShellGeometry => ({
-        id: shellIdBySource.get(shell.sourceEntityId)!,
-        sourceEntityId: shell.sourceEntityId,
-        closure: shell.closure,
-        faceIds: shell.faceRefs
-          .map((faceRef) => faceIdBySource.get(faceRef) ?? null)
-          .filter((faceId): faceId is string => Boolean(faceId)),
-      }),
-    );
-  const shellById = new Map(shells.map((shell) => [shell.id, shell]));
+    .map((shell) => ({
+      id: shellIdBySource.get(shell.sourceEntityId)!,
+      sourceEntityId: shell.sourceEntityId,
+      closure: shell.closure,
+      faceIds: shell.faceRefs
+        .map((faceRef) => faceIdBySource.get(faceRef) ?? null)
+        .filter((faceId): faceId is string => Boolean(faceId)),
+    }));
+}
 
-  const bodies = [...parsedBodies.values()]
+function collectVertexPositions(
+  vertexIds: string[],
+  vertexById: Map<string, CanonicalVertexGeometry>,
+): Vector3[] {
+  return vertexIds
+    .map((vertexId) => vertexById.get(vertexId)?.position ?? null)
+    .filter((position): position is Vector3 => Boolean(position));
+}
+
+function materializeBodies(
+  parsedBodies: Map<string, ParsedBody>,
+  bodyIdBySource: Map<string, string>,
+  shellIdBySource: Map<string, string>,
+  shellById: Map<string, CanonicalShellGeometry>,
+  faceById: Map<string, CanonicalFaceGeometry>,
+  edgeById: Map<string, CanonicalEdgeGeometry>,
+  vertexById: Map<string, CanonicalVertexGeometry>,
+): CanonicalBodyGeometry[] {
+  return [...parsedBodies.values()]
     .sort((left, right) => compareStepEntityRefs(left.sourceEntityId, right.sourceEntityId))
-    .map((body): CanonicalBodyGeometry => {
+    .map((body) => {
       const shellIds = body.shellRefs
         .map((shellRef) => shellIdBySource.get(shellRef) ?? null)
         .filter((shellId): shellId is string => Boolean(shellId));
-      const faceIds = uniquePreserveOrder(
-        shellIds.flatMap((shellId) => shellById.get(shellId)?.faceIds ?? []),
-      );
+      const faceIds = uniquePreserveOrder(shellIds.flatMap((shellId) => shellById.get(shellId)?.faceIds ?? []));
       const edgeIds = uniquePreserveOrder(faceIds.flatMap((faceId) => faceById.get(faceId)?.edgeIds ?? []));
-      const vertexIds = uniquePreserveOrder(
-        edgeIds.flatMap((edgeId) => {
-          const edge = edgeById.get(edgeId);
-          return [edge?.startVertexId ?? null, edge?.endVertexId ?? null].filter(
-            (value): value is string => Boolean(value),
-          );
-        }),
-      );
-      const points = vertexIds
-        .map((vertexId) => vertexById.get(vertexId)?.position ?? null)
-        .filter((position): position is Vector3 => Boolean(position));
+      const vertexIds = collectVertexIdsFromEdges(edgeIds, edgeById);
 
       return {
         id: bodyIdBySource.get(body.sourceEntityId)!,
@@ -809,48 +855,125 @@ export function normalizeStepToCanonicalGeometryMetadata(input: {
         faceIds,
         edgeIds,
         vertexIds,
-        boundingBox: buildBoundingBox(points),
+        boundingBox: buildBoundingBox(collectVertexPositions(vertexIds, vertexById)),
       };
     });
+}
 
-  const overallBoundingBox = buildBoundingBox(
-    bodies.flatMap((body) =>
-      body.vertexIds
-        .map((vertexId) => vertexById.get(vertexId)?.position ?? null)
-        .filter((position): position is Vector3 => Boolean(position)),
-    ).length > 0
-      ? bodies.flatMap((body) =>
-          body.vertexIds
-            .map((vertexId) => vertexById.get(vertexId)?.position ?? null)
-            .filter((position): position is Vector3 => Boolean(position)),
-        )
-      : vertices.map((vertex) => vertex.position),
-  );
+function buildOverallBoundingBox(
+  bodies: CanonicalBodyGeometry[],
+  vertices: CanonicalVertexGeometry[],
+  vertexById: Map<string, CanonicalVertexGeometry>,
+) {
+  const bodyPoints = bodies.flatMap((body) => collectVertexPositions(body.vertexIds, vertexById));
+  return buildBoundingBox(bodyPoints.length > 0 ? bodyPoints : vertices.map((vertex) => vertex.position));
+}
 
-  const source = parseHeaderMetadata(headerSection, entities);
-  const units = parseLengthUnit(entities);
+function buildSummary(
+  entities: StepEntity[],
+  bodies: CanonicalBodyGeometry[],
+  shells: CanonicalShellGeometry[],
+  faces: CanonicalFaceGeometry[],
+  edges: CanonicalEdgeGeometry[],
+  vertices: CanonicalVertexGeometry[],
+) {
+  return {
+    sourceEntityCount: entities.length,
+    bodyCount: bodies.length,
+    solidBodyCount: bodies.filter((body) => body.kind === "solid").length,
+    surfaceBodyCount: bodies.filter((body) => body.kind === "surface").length,
+    shellCount: shells.length,
+    faceCount: faces.length,
+    edgeCount: edges.length,
+    vertexCount: vertices.length,
+  };
+}
 
+function buildCanonicalGeometryMetadata(args: {
+  headerSection: string;
+  entities: StepEntity[];
+  sourceName?: string | null;
+  bodies: CanonicalBodyGeometry[];
+  shells: CanonicalShellGeometry[];
+  faces: CanonicalFaceGeometry[];
+  edges: CanonicalEdgeGeometry[];
+  vertices: CanonicalVertexGeometry[];
+  vertexById: Map<string, CanonicalVertexGeometry>;
+}): CanonicalPartGeometryMetadata {
   return {
     schemaVersion: CANONICAL_PART_GEOMETRY_SCHEMA_VERSION,
     sourceFormat: "step",
-    sourceName: input.sourceName ?? null,
-    source,
-    units,
-    summary: {
-      sourceEntityCount: entities.length,
-      bodyCount: bodies.length,
-      solidBodyCount: bodies.filter((body) => body.kind === "solid").length,
-      surfaceBodyCount: bodies.filter((body) => body.kind === "surface").length,
-      shellCount: shells.length,
-      faceCount: faces.length,
-      edgeCount: edges.length,
-      vertexCount: vertices.length,
-    },
-    boundingBox: overallBoundingBox,
-    vertices,
-    edges,
-    faces,
-    shells,
-    bodies,
+    sourceName: args.sourceName ?? null,
+    source: parseHeaderMetadata(args.headerSection, args.entities),
+    units: parseLengthUnit(args.entities),
+    summary: buildSummary(args.entities, args.bodies, args.shells, args.faces, args.edges, args.vertices),
+    boundingBox: buildOverallBoundingBox(args.bodies, args.vertices, args.vertexById),
+    vertices: args.vertices,
+    edges: args.edges,
+    faces: args.faces,
+    shells: args.shells,
+    bodies: args.bodies,
   };
+}
+
+/**
+ * Normalizes STEP content into deterministic `canonical-part-geometry.v1` metadata.
+ * Throws when the STEP `DATA` section does not produce any parseable entities.
+ */
+export function normalizeStepToCanonicalGeometryMetadata(input: {
+  stepContent: string;
+  sourceName?: string | null;
+}): CanonicalPartGeometryMetadata {
+  const headerSection = extractSection(input.stepContent, "HEADER");
+  const entities = parseStepEntities(extractSection(input.stepContent, "DATA"));
+  if (entities.length === 0) {
+    throw new Error("STEP normalization requires at least one parsed DATA entity.");
+  }
+
+  const topology = collectParsedTopology(entities);
+  const entityById = new Map(entities.map((entity) => [entity.sourceEntityId, entity]));
+  const edgeIdBySource = buildCanonicalIdMap(topology.parsedEdges.keys(), "edge");
+  const faceIdBySource = buildCanonicalIdMap(topology.parsedFaces.keys(), "face");
+  const shellIdBySource = buildCanonicalIdMap(topology.parsedShells.keys(), "shell");
+  const bodyIdBySource = buildCanonicalIdMap(topology.parsedBodies.keys(), "body");
+  const { vertices, vertexIdBySource, vertexById } = materializeVertices(
+    topology.parsedVertices,
+    topology.cartesianPoints,
+  );
+  const edges = materializeEdges(topology.parsedEdges, edgeIdBySource, vertexIdBySource, entityById);
+  const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
+  const faces = materializeFaces(
+    topology.parsedFaces,
+    topology.parsedFaceBounds,
+    topology.parsedEdgeLoops,
+    topology.parsedOrientedEdges,
+    faceIdBySource,
+    edgeIdBySource,
+    edgeById,
+    entityById,
+  );
+  const faceById = new Map(faces.map((face) => [face.id, face]));
+  const shells = materializeShells(topology.parsedShells, shellIdBySource, faceIdBySource);
+  const shellById = new Map(shells.map((shell) => [shell.id, shell]));
+  const bodies = materializeBodies(
+    topology.parsedBodies,
+    bodyIdBySource,
+    shellIdBySource,
+    shellById,
+    faceById,
+    edgeById,
+    vertexById,
+  );
+
+  return buildCanonicalGeometryMetadata({
+    headerSection,
+    entities,
+    sourceName: input.sourceName,
+    bodies,
+    shells,
+    faces,
+    edges,
+    vertices,
+    vertexById,
+  });
 }

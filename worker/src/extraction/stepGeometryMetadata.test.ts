@@ -13,10 +13,81 @@ async function loadDemoBracketFixture() {
   return readFile(demoBracketFixturePath, "utf8");
 }
 
+function replaceEntityAssignment(stepContent: string, entityId: number, replacement: string) {
+  const marker = `#${entityId} = `;
+  const start = stepContent.indexOf(marker);
+  if (start < 0) {
+    return stepContent;
+  }
+
+  const end = stepContent.indexOf(";\n", start);
+  if (end < 0) {
+    return stepContent;
+  }
+
+  return `${stepContent.slice(0, start)}${replacement}${stepContent.slice(end + 2)}`;
+}
+
 function replaceVertexPoint(stepContent: string, pointEntityId: number, coordinates: string) {
   return stepContent.replace(
     new RegExp(`(#${pointEntityId}\\s*=\\s*CARTESIAN_POINT\\('',\\()([^)]*)(\\)\\);)`),
     `$1${coordinates}$3`,
+  );
+}
+
+function buildSurfaceModelFixture(stepContent: string) {
+  return replaceEntityAssignment(
+    replaceEntityAssignment(
+      stepContent,
+      15,
+      "#15 = SHELL_BASED_SURFACE_MODEL('',(#16));",
+    ),
+    16,
+    "#16 = OPEN_SHELL('',(#17,#137,#237,#284,#331,#338));",
+  )
+    .replace("Open CASCADE Shape Model", "Open Shell Model")
+    .replace(
+      /#7 = PRODUCT\('Open CASCADE STEP translator 6\.3 1',\s*'Open CASCADE STEP translator 6\.3 1'/,
+      "#7 = PRODUCT('Open Shell Model','Open Shell Model'",
+    );
+}
+
+function buildShellOnlyFixture(stepContent: string) {
+  return replaceEntityAssignment(
+    replaceEntityAssignment(
+      stepContent,
+      15,
+      "#15 = SHAPE_REPRESENTATION('',(),#345);",
+    ),
+    16,
+    "#16 = OPEN_SHELL('',(#17,#137,#237,#284,#331,#338));",
+  );
+}
+
+function insertBeforeEndsec(stepContent: string, insertion: string) {
+  return stepContent.replace("ENDSEC;", `${insertion}\nENDSEC;`);
+}
+
+function buildImperialFixture(stepContent: string, unitName: "inch" | "foot") {
+  const conversionFactor = unitName === "inch" ? "25.4" : "304.8";
+  const withUnitOverrides = replaceEntityAssignment(
+    replaceEntityAssignment(
+      stepContent,
+      346,
+      "#346 = ( NAMED_UNIT(*) PLANE_ANGLE_UNIT() CONVERSION_BASED_UNIT('degree',#349) );",
+    ),
+    347,
+    `#347 = ( LENGTH_UNIT() NAMED_UNIT(*) CONVERSION_BASED_UNIT('${unitName}',#350) );`,
+  );
+
+  return insertBeforeEndsec(
+    withUnitOverrides,
+    [
+      "#349 = PLANE_ANGLE_MEASURE_WITH_UNIT(PLANE_ANGLE_MEASURE(0.0174532925199433),#351);",
+      `#350 = LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(${conversionFactor}),#352);`,
+      "#351 = ( NAMED_UNIT(*) SI_UNIT($,.RADIAN.) PLANE_ANGLE_UNIT() );",
+      "#352 = ( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) );",
+    ].join("\n"),
   );
 }
 
@@ -127,6 +198,95 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
 
     expect(second).toEqual(first);
   });
+
+  it("normalizes OPEN_SHELL surface models as surface bodies", async () => {
+    const stepContent = buildSurfaceModelFixture(await loadDemoBracketFixture());
+
+    const result = normalizeStepToCanonicalGeometryMetadata({
+      stepContent,
+      sourceName: "open-shell.step",
+    });
+
+    expect(result.source.declaredName).toBe("Open Shell Model");
+    expect(result.source.productNames).toEqual(["Open Shell Model"]);
+    expect(result.units).toEqual({
+      length: "millimeter",
+      raw: "SI_UNIT(.MILLI.,.METRE.)",
+    });
+    expect(result.summary).toMatchObject({
+      bodyCount: 1,
+      solidBodyCount: 0,
+      surfaceBodyCount: 1,
+      shellCount: 1,
+      faceCount: 6,
+      edgeCount: 12,
+      vertexCount: 8,
+    });
+    expect(result.shells).toEqual([
+      {
+        id: "shell-001",
+        sourceEntityId: "#16",
+        closure: "open",
+        faceIds: ["face-001", "face-002", "face-003", "face-004", "face-005", "face-006"],
+      },
+    ]);
+    expect(result.bodies[0]).toMatchObject({
+      id: "body-001",
+      sourceEntityId: "#15",
+      kind: "surface",
+      shellIds: ["shell-001"],
+    });
+  });
+
+  it("synthesizes a surface body when STEP topology only includes shells", async () => {
+    const stepContent = buildShellOnlyFixture(await loadDemoBracketFixture());
+
+    const result = normalizeStepToCanonicalGeometryMetadata({
+      stepContent,
+      sourceName: "shell-only.step",
+    });
+
+    expect(result.summary).toMatchObject({
+      bodyCount: 1,
+      solidBodyCount: 0,
+      surfaceBodyCount: 1,
+      shellCount: 1,
+    });
+    expect(result.shells[0]).toMatchObject({
+      sourceEntityId: "#16",
+      closure: "open",
+    });
+    expect(result.bodies[0]).toMatchObject({
+      id: "body-001",
+      sourceEntityId: "#16",
+      kind: "surface",
+      shellIds: ["shell-001"],
+    });
+  });
+
+  it.each([
+    ["inch", "inch"],
+    ["foot", "foot"],
+  ] as const)(
+    "prefers LENGTH_UNIT conversion-based %s definitions over earlier non-length conversions",
+    async (unitName, expectedLength) => {
+      const stepContent = buildImperialFixture(await loadDemoBracketFixture(), unitName);
+
+      const result = normalizeStepToCanonicalGeometryMetadata({
+        stepContent,
+        sourceName: `${unitName}.step`,
+      });
+
+      expect(result.units.length).toBe(expectedLength);
+      expect(result.units.raw).toContain(`CONVERSION_BASED_UNIT('${unitName}'`);
+      expect(result.summary).toMatchObject({
+        bodyCount: 1,
+        solidBodyCount: 1,
+        surfaceBodyCount: 0,
+        shellCount: 1,
+      });
+    },
+  );
 
   it("normalizes translated and resized STEP geometry into the same typed surface", async () => {
     const baseFixture = await loadDemoBracketFixture();
