@@ -431,6 +431,7 @@ const ClientPart = () => {
             projects={sidebarProjects}
             jobs={accessibleJobs}
             summariesByJobId={summariesByJobId}
+            activeProjectId={breadcrumbProject?.id ?? null}
             activeJobId={jobId}
             onCreateJob={newJobFilePicker.openFilePicker}
             onCreateProject={projectCollaborationUnavailable ? undefined : newJobFilePicker.openFilePicker}
