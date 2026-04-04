@@ -595,18 +595,30 @@ async function insertSeedData(admin, users, assetFiles) {
   const pdfAsset = assetFiles["demo-bracket-drawing.pdf"];
   const quotedCadAsset = assetFiles[QUOTED_SAMPLE_ASSETS.cad.fileName];
   const quotedDrawingAsset = assetFiles[QUOTED_SAMPLE_ASSETS.drawing.fileName];
-  const quotedVendorQuoteResultRows = QUOTED_SAMPLE_LANES.map((lane, index) =>
-    createQuotedSampleQuoteResultRow({
-      id: uuid(720 + index),
+  const quotedVendorQuoteResultIdByKey = new Map();
+  const quotedVendorQuoteResultRows = [];
+
+  for (const lane of QUOTED_SAMPLE_LANES) {
+    const resultKey = `${lane.vendor}:${lane.requestedQuantity}`;
+    if (quotedVendorQuoteResultIdByKey.has(resultKey)) {
+      continue;
+    }
+
+    const quoteResultRow = createQuotedSampleQuoteResultRow({
+      id: uuid(720 + quotedVendorQuoteResultRows.length),
       quoteRunId: ids.quotedRunA,
       partId: ids.quotedPartA,
       lane,
-    }),
-  );
+    });
+
+    quotedVendorQuoteResultIdByKey.set(resultKey, quoteResultRow.id);
+    quotedVendorQuoteResultRows.push(quoteResultRow);
+  }
+
   const quotedVendorQuoteOfferRows = QUOTED_SAMPLE_LANES.map((lane, index) =>
     createQuotedSampleOfferRow({
       id: uuid(820 + index),
-      quoteResultId: quotedVendorQuoteResultRows[index].id,
+      quoteResultId: quotedVendorQuoteResultIdByKey.get(`${lane.vendor}:${lane.requestedQuantity}`),
       lane,
       sortRank: index,
     }),

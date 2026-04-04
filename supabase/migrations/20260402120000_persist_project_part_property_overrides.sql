@@ -514,7 +514,6 @@ security definer
 set search_path = public
 as $$
 declare
-  v_context record;
   v_job public.jobs%rowtype;
   v_part public.parts%rowtype;
   v_requirement public.approved_part_requirements%rowtype;
@@ -539,7 +538,7 @@ begin
   into v_part
   from public.parts
   where job_id = v_job.id
-  order by created_at asc
+  order by created_at asc, id asc
   limit 1;
 
   if v_part.id is null then
@@ -615,6 +614,7 @@ security definer
 set search_path = public
 as $$
 declare
+  v_context record;
   v_job public.jobs%rowtype;
   v_part public.parts%rowtype;
   v_requirement public.approved_part_requirements%rowtype;
@@ -707,41 +707,14 @@ declare
   v_finish_override text := nullif(trim(coalesce(p_finish, '')), '');
   v_threads_override text := nullif(trim(coalesce(p_threads, '')), '');
 begin
-  perform public.require_verified_auth();
-
   select *
-  into v_job
-  from public.jobs
-  where id = p_job_id;
+  into v_context
+  from public.load_editable_project_part_context(p_job_id);
 
-  if v_job.id is null then
-    raise exception 'Job % not found.', p_job_id;
-  end if;
-
-  if not public.user_can_edit_job(v_job.id) then
-    raise exception 'You do not have permission to edit job %.', p_job_id;
-  end if;
-
-  select *
-  into v_part
-  from public.parts
-  where job_id = v_job.id
-  order by created_at asc
-  limit 1;
-
-  if v_part.id is null then
-    raise exception 'Job % has no part revisions yet.', p_job_id;
-  end if;
-
-  select *
-  into v_requirement
-  from public.approved_part_requirements
-  where part_id = v_part.id;
-
-  select *
-  into v_extraction
-  from public.drawing_extractions
-  where part_id = v_part.id;
+  v_job := v_context.job;
+  v_part := v_context.part;
+  v_requirement := v_context.requirement;
+  v_extraction := v_context.extraction;
 
   v_property_state := coalesce(v_requirement.spec_snapshot -> 'projectPartProperties', '{}'::jsonb);
   v_property_defaults := coalesce(v_property_state -> 'defaults', '{}'::jsonb);

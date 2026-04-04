@@ -20,9 +20,10 @@ const repoRoot = path.resolve(__dirname, "..");
 function resolveLocalCredentials() {
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.API_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SERVICE_ROLE_KEY;
+  const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.ANON_KEY ?? ANON_KEY;
 
   if (supabaseUrl && serviceRoleKey) {
-    return { supabaseUrl, serviceRoleKey };
+    return { supabaseUrl, serviceRoleKey, anonKey };
   }
 
   let output;
@@ -47,18 +48,19 @@ function resolveLocalCredentials() {
 
   const url = parsed["API_URL"];
   const key = parsed["SERVICE_ROLE_KEY"];
+  const resolvedAnonKey = parsed["ANON_KEY"] ?? parsed["SUPABASE_ANON_KEY"] ?? ANON_KEY;
 
   if (!url || !key) {
     return null;
   }
 
-  return { supabaseUrl: url, serviceRoleKey: key };
+  return { supabaseUrl: url, serviceRoleKey: key, anonKey: resolvedAnonKey };
 }
 
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
 const CLIENT_EMAIL = "client.demo@overdrafter.local";
 const CLIENT_PASSWORD = [79, 118, 101, 114, 100, 114, 97, 102, 116, 101, 114, 49, 50, 51, 33]
-  .map((code) => String.fromCharCode(code))
+  .map((code) => String.fromCodePoint(code))
   .join("");
 const ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
@@ -236,8 +238,8 @@ async function countRows(admin, table, column, value) {
   return count ?? 0;
 }
 
-function createAnonClient(supabaseUrl) {
-  return createClient(supabaseUrl, ANON_KEY, {
+function createAnonClient(supabaseUrl, anonKey = ANON_KEY) {
+  return createClient(supabaseUrl, anonKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 }
@@ -250,6 +252,15 @@ async function signInWithPassword(client, email, password) {
   }
 
   return data.user.id;
+}
+
+async function requestQuote(authenticatedClient, jobId, forceRetry = false) {
+  const { data, error } = await authenticatedClient.rpc("api_request_quote", {
+    p_job_id: jobId,
+    p_force_retry: forceRetry,
+  });
+
+  return { data, error };
 }
 
 async function createForeignOrgUser(admin) {
@@ -298,6 +309,7 @@ async function createForeignOrgUser(admin) {
 
   return {
     email,
+    organizationMembershipId,
     organizationId,
     password,
     userId: userData.user.id,
@@ -327,12 +339,13 @@ describe("api_request_quote gating paths", () => {
     return;
   }
 
-  const { supabaseUrl, serviceRoleKey } = creds;
+  const { supabaseUrl, serviceRoleKey, anonKey } = creds;
 
   let admin;
   let client;
   let clientUserId;
   let testJobId;
+  let createdMembershipIds = [];
   let createdOrganizationIds = [];
   let createdUserIds = [];
 
@@ -341,7 +354,7 @@ describe("api_request_quote gating paths", () => {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    client = createAnonClient(supabaseUrl);
+    client = createAnonClient(supabaseUrl, anonKey);
     clientUserId = await signInWithPassword(client, CLIENT_EMAIL, CLIENT_PASSWORD);
   });
 
@@ -349,6 +362,14 @@ describe("api_request_quote gating paths", () => {
     if (testJobId) {
       await cleanupTestJob(admin, testJobId);
       testJobId = null;
+    }
+
+    for (const membershipId of createdMembershipIds) {
+      const { error } = await admin.from("organization_memberships").delete().eq("id", membershipId);
+
+      if (error) {
+        throw new Error(`Failed to clean up membership ${membershipId}: ${error.message}`);
+      }
     }
 
     for (const organizationId of createdOrganizationIds) {
@@ -367,18 +388,10 @@ describe("api_request_quote gating paths", () => {
       }
     }
 
+    createdMembershipIds = [];
     createdOrganizationIds = [];
     createdUserIds = [];
   });
-
-  async function requestQuote(authenticatedClient, jobId, forceRetry = false) {
-    const { data, error } = await authenticatedClient.rpc("api_request_quote", {
-      p_job_id: jobId,
-      p_force_retry: forceRetry,
-    });
-
-    return { data, error };
-  }
 
   async function buildQuoteReadyJob(jobOverrides = {}, requirementOverrides = {}) {
     const jobId = await insertTestJob(admin, clientUserId, jobOverrides);
@@ -535,10 +548,11 @@ describe("api_request_quote gating paths", () => {
     testJobId = jobId;
 
     const foreignUser = await createForeignOrgUser(admin);
+    createdMembershipIds.push(foreignUser.organizationMembershipId);
     createdOrganizationIds.push(foreignUser.organizationId);
     createdUserIds.push(foreignUser.userId);
 
-    const foreignClient = createAnonClient(supabaseUrl);
+    const foreignClient = createAnonClient(supabaseUrl, anonKey);
     await signInWithPassword(foreignClient, foreignUser.email, foreignUser.password);
 
     const { data, error } = await requestQuote(foreignClient, jobId);

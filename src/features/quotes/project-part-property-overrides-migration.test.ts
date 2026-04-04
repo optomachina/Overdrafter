@@ -12,11 +12,17 @@ const functionStart = normalizedSql.indexOf(
   "create or replace function public.load_editable_project_part_context",
 );
 const functionEnd = normalizedSql.indexOf("\n$$;", functionStart);
+if (functionStart < 0 || functionEnd < 0) {
+  throw new Error("Could not isolate public.load_editable_project_part_context from the migration SQL.");
+}
 const loadEditableProjectPartContextSql = normalizedSql.slice(functionStart, functionEnd);
 const resetFunctionStart = normalizedSql.indexOf(
   "create or replace function public.api_reset_client_part_property_overrides",
 );
 const resetFunctionEnd = normalizedSql.indexOf("\n$$;", resetFunctionStart);
+if (resetFunctionStart < 0 || resetFunctionEnd < 0) {
+  throw new Error("Could not isolate public.api_reset_client_part_property_overrides from the migration SQL.");
+}
 const resetClientPartPropertyOverridesSql = normalizedSql.slice(resetFunctionStart, resetFunctionEnd);
 
 describe("project part property overrides migration", () => {
@@ -56,6 +62,12 @@ describe("project part property overrides migration", () => {
     expect(loadEditableProjectPartContextSql).not.toContain(
       "from public.load_editable_project_part_context(p_job_id) context;",
     );
+  });
+
+  it("requires verified auth and edit permission before returning context", () => {
+    expect(loadEditableProjectPartContextSql).toContain("security definer");
+    expect(loadEditableProjectPartContextSql).toContain("perform public.require_verified_auth();");
+    expect(loadEditableProjectPartContextSql).toContain("if not public.user_can_edit_job(v_job.id) then");
   });
 
   it("returns the loaded job, part, requirement, and extraction rows via return query", () => {
