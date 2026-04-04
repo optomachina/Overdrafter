@@ -76,14 +76,20 @@ function formatEstimatedDeliveryDays(
 function getPresetModeBadgeCopy(mode: QuotePresetMode) {
   return mode === "fastest"
     ? {
-        indicatorLabel: "Sorting by fastest delivery",
-        indicatorDetail: "Lead time leads. Price breaks ties.",
-        rowBadge: "Fastest",
+        indicatorLabel: "Fast mode: fastest delivery first",
+        indicatorDetail: "Rows are sorted by lead time ascending. The fastest vendor gets the Fast pick badge.",
+        rowBadge: "Fast pick",
       }
+    : mode === "balanced"
+      ? {
+          indicatorLabel: "Balanced mode: best price-speed tradeoff",
+          indicatorDetail: "Rows surface the Pareto-optimal option first. The best tradeoff gets the Balanced pick badge.",
+          rowBadge: "Balanced pick",
+        }
     : {
-        indicatorLabel: "Sorting by lowest cost",
-        indicatorDetail: "Price leads. Lead time breaks ties.",
-        rowBadge: "Lowest Cost",
+        indicatorLabel: "Cheap mode: lowest unit price first",
+        indicatorDetail: "Rows are sorted by unit price ascending. The cheapest vendor gets the Cheap pick badge.",
+        rowBadge: "Cheap pick",
       };
 }
 
@@ -609,7 +615,7 @@ function renderDecisionPanelContent({
 
   const showDueDateNotice = Boolean(requestedByDate) && hiddenDueDateCount > 0;
   const deadlineFilteredEmpty = Boolean(requestedByDate) && options.length > 0 && visibleOptions.length === 0;
-  const activeRankingPreset = activePreset ?? "cheapest";
+  const activeRankingPreset = activePreset ?? "balanced";
   const rankedVisibleOptions = sortQuoteOptionsForPreset(visibleOptions, activeRankingPreset);
   const topRankedKeys = getTopRankedQuoteOptionKeys(rankedVisibleOptions, activeRankingPreset);
 
