@@ -19,72 +19,102 @@ type QuoteStatsModel = {
   highSpreadGuidance: string | null;
 };
 
-function computeStats(options: readonly ClientQuoteSelectionOption[]): QuoteStatsModel {
-  const eligible = options.filter((o) => o.eligible);
+function getNumericMinimum(values: readonly number[]): number | null {
+  return values.length > 0 ? Math.min(...values) : null;
+}
 
-  const unitPrices = eligible.map((o) => o.unitPriceUsd).filter(Number.isFinite);
-  const leadTimes = eligible
-    .map((o) => o.leadTimeBusinessDays)
-    .filter((v): v is number => v !== null && v > 0);
+function getNumericMaximum(values: readonly number[]): number | null {
+  return values.length > 0 ? Math.max(...values) : null;
+}
 
-  const bestPrice = unitPrices.length > 0 ? Math.min(...unitPrices) : null;
-  const bestPriceOption = bestPrice !== null
-    ? eligible.find((o) => o.unitPriceUsd === bestPrice)
-    : null;
+function formatOptionDetail(option: ClientQuoteSelectionOption | null): string {
+  return option ? `${option.supplier} ${option.tier ?? ""}`.trim() : "";
+}
 
-  const fastestLead = leadTimes.length > 0 ? Math.min(...leadTimes) : null;
-  const fastestOption = fastestLead !== null
-    ? eligible.find((o) => o.leadTimeBusinessDays === fastestLead)
-    : null;
+function getPriceSpread(unitPrices: readonly number[]): { range: string; spread: string; spreadRatio: number | null } {
+  const minTotal = getNumericMinimum(unitPrices);
+  const maxTotal = getNumericMaximum(unitPrices);
 
-  const minTotal = unitPrices.length > 0 ? Math.min(...unitPrices) : null;
-  const maxTotal = unitPrices.length > 0 ? Math.max(...unitPrices) : null;
-  const spreadRatio = minTotal !== null && maxTotal !== null && minTotal > 0
-    ? maxTotal / minTotal
-    : null;
-  const spread = spreadRatio !== null
-    ? `${spreadRatio.toFixed(1)}x spread`
-    : "";
-  const highSpreadGuidance = spreadRatio !== null && spreadRatio >= HIGH_SPREAD_THRESHOLD
-    ? "Large price variation across quotes. Compare supplier notes, lead time, and process fit before selecting. If the range still looks off, request more quotes."
-    : null;
+  if (minTotal === null || maxTotal === null) {
+    return { range: "—", spread: "", spreadRatio: null };
+  }
 
-  const suppliers = new Set(eligible.map((o) => o.supplier));
+  const range = `${formatCurrency(minTotal)}–${formatCurrency(maxTotal)}`;
+
+  if (minTotal <= 0) {
+    return { range, spread: "", spreadRatio: null };
+  }
+
+  const spreadRatio = maxTotal / minTotal;
 
   return {
-    stats: [
-      {
-        label: "Best Unit Price",
-        value: bestPrice !== null ? formatCurrency(bestPrice) : "—",
-        detail: bestPriceOption
-          ? `${bestPriceOption.supplier} ${bestPriceOption.tier ?? ""}`.trim()
-          : "",
-        color: "text-emerald-400",
-      },
-      {
-        label: "Fastest Lead",
-        value: fastestLead !== null ? `${fastestLead} days` : "—",
-        detail: fastestOption
-          ? `${fastestOption.supplier} ${fastestOption.tier ?? ""}`.trim()
-          : "",
-        color: "text-amber-400",
-      },
-      {
-        label: "Options Quoted",
-        value: String(eligible.length),
-        detail: `${suppliers.size} supplier${suppliers.size === 1 ? "" : "s"}`,
-        color: "text-blue-400",
-      },
-      {
-        label: "Price Range",
-        value: minTotal !== null && maxTotal !== null
-          ? `${formatCurrency(minTotal)}–${formatCurrency(maxTotal)}`
-          : "—",
-        detail: spread,
-        color: "text-white",
-      },
-    ],
-    highSpreadGuidance,
+    range,
+    spread: `${spreadRatio.toFixed(1)}x spread`,
+    spreadRatio,
+  };
+}
+
+function getHighSpreadGuidance(spreadRatio: number | null): string | null {
+  if (spreadRatio === null || spreadRatio < HIGH_SPREAD_THRESHOLD) {
+    return null;
+  }
+
+  return "Large price variation across quotes. Compare supplier notes, lead time, and process fit before selecting. If the range still looks off, request more quotes.";
+}
+
+function buildStats(options: readonly ClientQuoteSelectionOption[]): StatCell[] {
+  const unitPrices = options.map((o) => o.unitPriceUsd).filter(Number.isFinite);
+  const leadTimes = options
+    .map((o) => o.leadTimeBusinessDays)
+    .filter((value): value is number => value !== null && value > 0);
+
+  const bestPrice = getNumericMinimum(unitPrices);
+  const fastestLead = getNumericMinimum(leadTimes);
+  const bestPriceOption = bestPrice === null
+    ? null
+    : options.find((o) => o.unitPriceUsd === bestPrice) ?? null;
+  const fastestOption = fastestLead === null
+    ? null
+    : options.find((o) => o.leadTimeBusinessDays === fastestLead) ?? null;
+  const suppliers = new Set(options.map((o) => o.supplier));
+  const { range, spread } = getPriceSpread(unitPrices);
+
+  return [
+    {
+      label: "Best Unit Price",
+      value: bestPrice === null ? "—" : formatCurrency(bestPrice),
+      detail: formatOptionDetail(bestPriceOption),
+      color: "text-emerald-400",
+    },
+    {
+      label: "Fastest Lead",
+      value: fastestLead === null ? "—" : `${fastestLead} days`,
+      detail: formatOptionDetail(fastestOption),
+      color: "text-amber-400",
+    },
+    {
+      label: "Options Quoted",
+      value: String(options.length),
+      detail: `${suppliers.size} supplier${suppliers.size === 1 ? "" : "s"}`,
+      color: "text-blue-400",
+    },
+    {
+      label: "Price Range",
+      value: range,
+      detail: spread,
+      color: "text-white",
+    },
+  ];
+}
+
+function computeStats(options: readonly ClientQuoteSelectionOption[]): QuoteStatsModel {
+  const eligible = options.filter((o) => o.eligible);
+  const unitPrices = eligible.map((o) => o.unitPriceUsd).filter(Number.isFinite);
+  const { spreadRatio } = getPriceSpread(unitPrices);
+
+  return {
+    stats: buildStats(eligible),
+    highSpreadGuidance: getHighSpreadGuidance(spreadRatio),
   };
 }
 
