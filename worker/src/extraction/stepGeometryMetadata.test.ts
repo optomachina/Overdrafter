@@ -8,6 +8,45 @@ import { normalizeStepToCanonicalGeometryMetadata } from "./stepGeometryMetadata
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const demoBracketFixturePath = path.resolve(currentDir, "../../../public/fixtures/demo-bracket.step");
+const unitMillimeter = {
+  length: "millimeter",
+  raw: "SI_UNIT(.MILLI.,.METRE.)",
+} as const;
+const centeredBlockBounds = {
+  min: { x: -1, y: -1, z: -1 },
+  max: { x: 1, y: 1, z: 1 },
+  size: { x: 2, y: 2, z: 2 },
+} as const;
+const shellFaceIds = ["face-001", "face-002", "face-003", "face-004", "face-005", "face-006"] as const;
+const bodyEdgeIds = [
+  "edge-001",
+  "edge-002",
+  "edge-003",
+  "edge-004",
+  "edge-005",
+  "edge-006",
+  "edge-007",
+  "edge-008",
+  "edge-009",
+  "edge-010",
+  "edge-011",
+  "edge-012",
+] as const;
+const bodyVertexIds = [
+  "vertex-001",
+  "vertex-002",
+  "vertex-003",
+  "vertex-004",
+  "vertex-005",
+  "vertex-006",
+  "vertex-007",
+  "vertex-008",
+] as const;
+const shiftedBlockBounds = {
+  min: { x: 10, y: -4, z: 0 },
+  max: { x: 18, y: 4, z: 6 },
+  size: { x: 8, y: 8, z: 6 },
+} as const;
 
 async function loadDemoBracketFixture() {
   return readFile(demoBracketFixturePath, "utf8");
@@ -77,6 +116,27 @@ function insertBeforeDataEndsec(stepContent: string, insertion: string) {
   return `${stepContent.slice(0, endsecIndex)}${insertion}\n${stepContent.slice(endsecIndex)}`;
 }
 
+function buildQuotedHeaderFixture(stepContent: string, marker: "DATA" | "ENDSEC") {
+  return stepContent
+    .replace("Open CASCADE Shape Model", `Quoted ${marker}; Model`)
+    .replace(
+      /#7 = PRODUCT\('Open CASCADE STEP translator 6\.3 1',\s*'Open CASCADE STEP translator 6\.3 1'/,
+      `#7 = PRODUCT('Quoted ${marker}; Product','Quoted ${marker}; Product'`,
+    );
+}
+
+function expectSingleBodyTopology(
+  result: ReturnType<typeof normalizeStepToCanonicalGeometryMetadata>,
+  summary: Partial<(typeof result)["summary"]>,
+) {
+  expect(result.summary).toMatchObject({
+    bodyCount: 1,
+    faceCount: 6,
+    edgeCount: 12,
+    ...summary,
+  });
+}
+
 function buildImperialFixture(stepContent: string, unitName: "inch" | "foot") {
   const conversionFactor = unitName === "inch" ? "25.4" : "304.8";
   const withUnitOverrides = replaceEntityAssignment(
@@ -115,10 +175,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
     expect(result.source.declaredName).toBe("Open CASCADE Shape Model");
     expect(result.source.schemaIdentifiers).toEqual(["AUTOMOTIVE_DESIGN_CC2 { 1 2 10303 214 -1 1 5 4 }"]);
     expect(result.source.productNames).toEqual(["Open CASCADE STEP translator 6.3 1"]);
-    expect(result.units).toEqual({
-      length: "millimeter",
-      raw: "SI_UNIT(.MILLI.,.METRE.)",
-    });
+    expect(result.units).toEqual(unitMillimeter);
     expect(result.summary).toEqual({
       sourceEntityCount: 350,
       bodyCount: 1,
@@ -129,11 +186,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
       edgeCount: 12,
       vertexCount: 8,
     });
-    expect(result.boundingBox).toEqual({
-      min: { x: -1, y: -1, z: -1 },
-      max: { x: 1, y: 1, z: 1 },
-      size: { x: 2, y: 2, z: 2 },
-    });
+    expect(result.boundingBox).toEqual(centeredBlockBounds);
     expect(result.vertices).toHaveLength(8);
     expect(result.edges).toHaveLength(12);
     expect(result.faces).toHaveLength(6);
@@ -142,7 +195,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
         id: "shell-001",
         sourceEntityId: "#16",
         closure: "closed",
-        faceIds: ["face-001", "face-002", "face-003", "face-004", "face-005", "face-006"],
+        faceIds: [...shellFaceIds],
       },
     ]);
     expect(result.bodies).toEqual([
@@ -151,36 +204,10 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
         sourceEntityId: "#15",
         kind: "solid",
         shellIds: ["shell-001"],
-        faceIds: ["face-001", "face-002", "face-003", "face-004", "face-005", "face-006"],
-        edgeIds: [
-          "edge-001",
-          "edge-002",
-          "edge-003",
-          "edge-004",
-          "edge-005",
-          "edge-006",
-          "edge-007",
-          "edge-008",
-          "edge-009",
-          "edge-010",
-          "edge-011",
-          "edge-012",
-        ],
-        vertexIds: [
-          "vertex-001",
-          "vertex-002",
-          "vertex-003",
-          "vertex-004",
-          "vertex-005",
-          "vertex-006",
-          "vertex-007",
-          "vertex-008",
-        ],
-        boundingBox: {
-          min: { x: -1, y: -1, z: -1 },
-          max: { x: 1, y: 1, z: 1 },
-          size: { x: 2, y: 2, z: 2 },
-        },
+        faceIds: [...shellFaceIds],
+        edgeIds: [...bodyEdgeIds],
+        vertexIds: [...bodyVertexIds],
+        boundingBox: centeredBlockBounds,
       },
     ]);
     expect(result.faces[0]).toMatchObject({
@@ -219,17 +246,11 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
 
     expect(result.source.declaredName).toBe("Open Shell Model");
     expect(result.source.productNames).toEqual(["Open Shell Model"]);
-    expect(result.units).toEqual({
-      length: "millimeter",
-      raw: "SI_UNIT(.MILLI.,.METRE.)",
-    });
-    expect(result.summary).toMatchObject({
-      bodyCount: 1,
+    expect(result.units).toEqual(unitMillimeter);
+    expectSingleBodyTopology(result, {
       solidBodyCount: 0,
       surfaceBodyCount: 1,
       shellCount: 1,
-      faceCount: 6,
-      edgeCount: 12,
       vertexCount: 8,
     });
     expect(result.shells).toEqual([
@@ -237,7 +258,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
         id: "shell-001",
         sourceEntityId: "#16",
         closure: "open",
-        faceIds: ["face-001", "face-002", "face-003", "face-004", "face-005", "face-006"],
+        faceIds: [...shellFaceIds],
       },
     ]);
     expect(result.bodies[0]).toMatchObject({
@@ -256,8 +277,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
       sourceName: "shell-only.step",
     });
 
-    expect(result.summary).toMatchObject({
-      bodyCount: 1,
+    expectSingleBodyTopology(result, {
       solidBodyCount: 0,
       surfaceBodyCount: 1,
       shellCount: 1,
@@ -289,8 +309,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
 
       expect(result.units.length).toBe(expectedLength);
       expect(result.units.raw).toContain(`CONVERSION_BASED_UNIT('${unitName}'`);
-      expect(result.summary).toMatchObject({
-        bodyCount: 1,
+      expectSingleBodyTopology(result, {
         solidBodyCount: 1,
         surfaceBodyCount: 0,
         shellCount: 1,
@@ -299,12 +318,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
   );
 
   it("does not terminate HEADER or DATA parsing when ENDSEC appears inside quoted STEP strings", async () => {
-    const stepContent = (await loadDemoBracketFixture())
-      .replace("Open CASCADE Shape Model", "Quoted ENDSEC; Model")
-      .replace(
-        /#7 = PRODUCT\('Open CASCADE STEP translator 6\.3 1',\s*'Open CASCADE STEP translator 6\.3 1'/,
-        "#7 = PRODUCT('Quoted ENDSEC; Product','Quoted ENDSEC; Product'",
-      );
+    const stepContent = buildQuotedHeaderFixture(await loadDemoBracketFixture(), "ENDSEC");
 
     const result = normalizeStepToCanonicalGeometryMetadata({
       stepContent,
@@ -313,21 +327,13 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
 
     expect(result.source.declaredName).toBe("Quoted ENDSEC; Model");
     expect(result.source.productNames).toEqual(["Quoted ENDSEC; Product"]);
-    expect(result.summary).toMatchObject({
-      bodyCount: 1,
-      faceCount: 6,
-      edgeCount: 12,
+    expectSingleBodyTopology(result, {
       vertexCount: 8,
     });
   });
 
   it("does not start DATA parsing from quoted DATA markers inside header strings", async () => {
-    const stepContent = (await loadDemoBracketFixture())
-      .replace("Open CASCADE Shape Model", "Quoted DATA; Model")
-      .replace(
-        /#7 = PRODUCT\('Open CASCADE STEP translator 6\.3 1',\s*'Open CASCADE STEP translator 6\.3 1'/,
-        "#7 = PRODUCT('Quoted DATA; Product','Quoted DATA; Product'",
-      );
+    const stepContent = buildQuotedHeaderFixture(await loadDemoBracketFixture(), "DATA");
 
     const result = normalizeStepToCanonicalGeometryMetadata({
       stepContent,
@@ -336,10 +342,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
 
     expect(result.source.declaredName).toBe("Quoted DATA; Model");
     expect(result.source.productNames).toEqual(["Quoted DATA; Product"]);
-    expect(result.summary).toMatchObject({
-      bodyCount: 1,
-      faceCount: 6,
-      edgeCount: 12,
+    expectSingleBodyTopology(result, {
       vertexCount: 8,
     });
   });
@@ -355,8 +358,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
       sourceName: "detached-vertex.step",
     });
 
-    expect(result.summary).toMatchObject({
-      bodyCount: 1,
+    expectSingleBodyTopology(result, {
       vertexCount: 9,
     });
     expect(result.boundingBox).toEqual({
@@ -364,11 +366,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
       max: { x: 50, y: 50, z: 50 },
       size: { x: 51, y: 51, z: 51 },
     });
-    expect(result.bodies[0]?.boundingBox).toEqual({
-      min: { x: -1, y: -1, z: -1 },
-      max: { x: 1, y: 1, z: 1 },
-      size: { x: 2, y: 2, z: 2 },
-    });
+    expect(result.bodies[0]?.boundingBox).toEqual(centeredBlockBounds);
   });
 
   it("normalizes translated and resized STEP geometry into the same typed surface", async () => {
@@ -400,31 +398,11 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
 
     expect(result.source.declaredName).toBe("Shifted Block Model");
     expect(result.source.productNames).toEqual(["Shifted Block"]);
-    expect(result.summary).toMatchObject({
-      bodyCount: 1,
-      faceCount: 6,
-      edgeCount: 12,
+    expectSingleBodyTopology(result, {
       vertexCount: 8,
     });
-    expect(result.boundingBox).toEqual({
-      min: { x: 10, y: -4, z: 0 },
-      max: { x: 18, y: 4, z: 6 },
-      size: { x: 8, y: 8, z: 6 },
-    });
-    expect(result.bodies[0]?.boundingBox).toEqual({
-      min: { x: 10, y: -4, z: 0 },
-      max: { x: 18, y: 4, z: 6 },
-      size: { x: 8, y: 8, z: 6 },
-    });
-    expect(result.vertices.map((vertex) => vertex.id)).toEqual([
-      "vertex-001",
-      "vertex-002",
-      "vertex-003",
-      "vertex-004",
-      "vertex-005",
-      "vertex-006",
-      "vertex-007",
-      "vertex-008",
-    ]);
+    expect(result.boundingBox).toEqual(shiftedBlockBounds);
+    expect(result.bodies[0]?.boundingBox).toEqual(shiftedBlockBounds);
+    expect(result.vertices.map((vertex) => vertex.id)).toEqual([...bodyVertexIds]);
   });
 });
