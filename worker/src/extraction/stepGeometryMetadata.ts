@@ -200,10 +200,12 @@ function splitTopLevel(value: string, delimiter = ","): string[] {
   let current = "";
   let depth = 0;
   let inString = false;
+  let index = 0;
 
-  for (let index = 0; index < value.length; index += 1) {
+  while (index < value.length) {
     const character = value[index];
     if (character === undefined) {
+      index += 1;
       continue;
     }
 
@@ -211,18 +213,20 @@ function splitTopLevel(value: string, delimiter = ","): string[] {
       const quote = consumeStepQuote(value, index, current, inString);
       current = quote.current;
       inString = quote.inString;
-      index = quote.nextIndex;
+      index = quote.nextIndex + 1;
       continue;
     }
 
     if (!inString && character === delimiter && depth === 0) {
       parts.push(current.trim());
       current = "";
+      index += 1;
       continue;
     }
 
     depth = inString ? depth : updateStepDepth(depth, character);
     current += character;
+    index += 1;
   }
 
   if (current.trim().length > 0) {
@@ -406,23 +410,27 @@ function extractSection(stepContent: string, sectionName: "HEADER" | "DATA") {
 
   const contentStart = sectionStart + sectionName.length + 1;
   let inString = false;
+  let index = contentStart;
 
-  for (let index = contentStart; index < stepContent.length; index += 1) {
+  while (index < stepContent.length) {
     const character = stepContent[index];
     if (character === undefined) {
+      index += 1;
       continue;
     }
 
     if (character === "'") {
       const quote = consumeStepQuote(stepContent, index, "", inString);
       inString = quote.inString;
-      index = quote.nextIndex;
+      index = quote.nextIndex + 1;
       continue;
     }
 
     if (!inString && upperContent.startsWith("ENDSEC;", index)) {
       return stepContent.slice(contentStart, index);
     }
+
+    index += 1;
   }
 
   return "";
@@ -434,8 +442,9 @@ function tokenizeStepStatements(dataSection: string): string[] {
   let collecting = false;
   let depth = 0;
   let inString = false;
+  let index = 0;
 
-  for (let index = 0; index < dataSection.length; index += 1) {
+  while (index < dataSection.length) {
     if (!collecting) {
       const character = dataSection[index];
       if (character === "#") {
@@ -444,11 +453,13 @@ function tokenizeStepStatements(dataSection: string): string[] {
         depth = 0;
         inString = false;
       }
+      index += 1;
       continue;
     }
 
     const character = dataSection[index];
     if (character === undefined) {
+      index += 1;
       continue;
     }
 
@@ -456,13 +467,14 @@ function tokenizeStepStatements(dataSection: string): string[] {
       const quote = consumeStepQuote(dataSection, index, current, inString);
       current = quote.current;
       inString = quote.inString;
-      index = quote.nextIndex;
+      index = quote.nextIndex + 1;
       continue;
     }
 
     current += character;
 
     if (inString) {
+      index += 1;
       continue;
     }
 
@@ -472,6 +484,8 @@ function tokenizeStepStatements(dataSection: string): string[] {
       current = "";
       collecting = false;
     }
+
+    index += 1;
   }
 
   return statements;
