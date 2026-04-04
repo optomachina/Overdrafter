@@ -68,6 +68,22 @@ function formatQuoteQuantitiesLabel(values: number[] | null | undefined) {
   return values && values.length > 0 ? values.join(", ") : "—";
 }
 
+function formatCurrencyLabel(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "—";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatPercentageLabel(value: number) {
+  return `${Math.round(value)}%`;
+}
+
 function formatToleranceLabel(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return "—";
@@ -100,6 +116,177 @@ type ProjectInspectorItem = {
   label: string;
   value: string;
 };
+
+type ProjectSummaryPartRow = {
+  jobId: string;
+  label: string;
+  spendUsd: number;
+  sharePercent: number;
+  hasSelection: boolean;
+  isCriticalPath: boolean;
+};
+
+type ProjectSummaryModel = {
+  totalSpendUsd: number;
+  criticalPathDays: number | null;
+  criticalPathLabel: string | null;
+  quotedCount: number;
+  selectedCount: number;
+  totalCount: number;
+  unquotedCount: number;
+  pendingSelectionCount: number;
+  quotedPercent: number;
+  selectedPercent: number;
+  spendRows: ProjectSummaryPartRow[];
+  dominantSpendLabel: string | null;
+  dominantSpendPercent: number | null;
+};
+
+type ProjectSummaryPanelProps = {
+  summary: ProjectSummaryModel;
+};
+
+function ProjectSummaryPanel({ summary }: ProjectSummaryPanelProps) {
+  const statCards = [
+    {
+      label: "Total spend",
+      value: formatCurrencyLabel(summary.totalSpendUsd),
+      caption:
+        summary.selectedCount > 0
+          ? `${summary.selectedCount} selected part${summary.selectedCount === 1 ? "" : "s"}`
+          : "No selections yet",
+    },
+    {
+      label: "Critical path",
+      value: summary.criticalPathDays === null ? "—" : `${summary.criticalPathDays} bd`,
+      caption: summary.criticalPathLabel ? `Driven by ${summary.criticalPathLabel}` : "No selected lead times yet",
+    },
+    {
+      label: "Quoted",
+      value: formatPercentageLabel(summary.quotedPercent),
+      caption: `${summary.quotedCount}/${summary.totalCount} part${summary.totalCount === 1 ? "" : "s"}`,
+    },
+    {
+      label: "Selections made",
+      value: formatPercentageLabel(summary.selectedPercent),
+      caption: `${summary.selectedCount}/${summary.totalCount} part${summary.totalCount === 1 ? "" : "s"}`,
+    },
+  ];
+
+  return (
+    <section className="rounded-lg border border-ws-border-subtle bg-ws-card p-4" aria-label="Project summary">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Project summary</p>
+          <h2 className="mt-1 text-lg font-semibold tracking-[-0.02em] text-white">
+            Budget, coverage, and schedule at a glance
+          </h2>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {summary.unquotedCount > 0 ? (
+            <Badge className="border border-amber-400/25 bg-amber-500/10 text-amber-100">
+              {summary.unquotedCount} part{summary.unquotedCount === 1 ? "" : "s"} unquoted
+            </Badge>
+          ) : (
+            <Badge className="border border-emerald-400/25 bg-emerald-500/10 text-emerald-100">
+              All parts quoted
+            </Badge>
+          )}
+          {summary.pendingSelectionCount > 0 ? (
+            <Badge className="border border-white/10 bg-white/6 text-white/75">
+              {summary.pendingSelectionCount} pending selection{summary.pendingSelectionCount === 1 ? "" : "s"}
+            </Badge>
+          ) : (
+            <Badge className="border border-emerald-400/25 bg-emerald-500/10 text-emerald-100">
+              All selections made
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {statCards.map((card) => (
+          <div key={card.label} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">{card.label}</p>
+            <p className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">{card.value}</p>
+            <p className="mt-2 text-sm text-white/55">{card.caption}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(18rem,0.7fr)]">
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-white">Spend distribution</p>
+              <p className="text-sm text-white/55">Selected quote share by part.</p>
+            </div>
+            {summary.dominantSpendLabel && summary.dominantSpendPercent !== null ? (
+              <p className="text-sm text-white/60">
+                {summary.dominantSpendLabel} is {formatPercentageLabel(summary.dominantSpendPercent)} of spend
+              </p>
+            ) : null}
+          </div>
+
+          {summary.spendRows.length > 0 ? (
+            <div className="mt-4 space-y-3">
+              {summary.spendRows.map((row) => (
+                <div key={row.jobId} className="space-y-2">
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-white">{row.label}</p>
+                      <p className="text-xs text-white/45">
+                        {row.isCriticalPath ? "Critical path" : row.hasSelection ? "Selected" : "No selection"}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-medium text-white">{formatCurrencyLabel(row.spendUsd)}</p>
+                      <p className="text-xs text-white/45">{formatPercentageLabel(row.sharePercent)}</p>
+                    </div>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-white/[0.08]">
+                    <div
+                      className={cn(
+                        "h-full rounded-full",
+                        row.isCriticalPath ? "bg-amber-300" : "bg-white/80",
+                      )}
+                      style={{ width: `${Math.max(row.sharePercent, 4)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-sm text-white/50">
+              Select quote options to unlock spend distribution.
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="text-sm font-medium text-white">Summary callouts</p>
+          <div className="mt-4 space-y-3 text-sm text-white/65">
+            <p>
+              {summary.unquotedCount > 0
+                ? `${summary.unquotedCount} part${summary.unquotedCount === 1 ? " has" : "s have"} not been quoted yet.`
+                : "Every part in this project has at least one quote."}
+            </p>
+            <p>
+              {summary.pendingSelectionCount > 0
+                ? `${summary.pendingSelectionCount} quoted part${summary.pendingSelectionCount === 1 ? "" : "s"} still need a selected option.`
+                : "A selection has been made for every quoted part."}
+            </p>
+            <p>
+              {summary.criticalPathLabel && summary.criticalPathDays !== null
+                ? `${summary.criticalPathLabel} sets the schedule at ${summary.criticalPathDays} business days.`
+                : "Select at least one quote option to establish the current project critical path."}
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 type ProjectInspectorContentProps = {
   focusedJobId: string | null;
@@ -421,6 +608,76 @@ const ClientProject = () => {
       ),
     [quoteRequestViewModelsByJobId],
   );
+
+  const projectSummaryPanel = useMemo<ProjectSummaryModel>(() => {
+    const partRows = projectJobs.map((job) => {
+      const workspaceItem = workspaceItemsByJobId.get(job.id) ?? null;
+      const summary = workspaceItem?.summary ?? summariesByJobId.get(job.id) ?? null;
+      const presentation = getClientItemPresentation(job, summary);
+      const selectedSpendUsd = summary?.selectedPriceUsd ?? null;
+      const selectedLeadTimeBusinessDays = summary?.selectedLeadTimeBusinessDays ?? null;
+      const hasSelection =
+        summary?.selectedSupplier !== null &&
+        selectedSpendUsd !== null &&
+        selectedSpendUsd !== undefined;
+      const hasQuotes =
+        (workspaceItem?.part?.vendorQuotes.length ?? 0) > 0 ||
+        (quoteRequestViewModelsByJobId.get(job.id)?.status ?? "not_requested") === "received";
+
+      return {
+        jobId: job.id,
+        label: presentation.partNumber ?? presentation.title,
+        selectedSpendUsd,
+        selectedLeadTimeBusinessDays,
+        hasQuotes,
+        hasSelection,
+      };
+    });
+
+    const totalCount = partRows.length;
+    const quotedCount = partRows.filter((row) => row.hasQuotes).length;
+    const selectedRows = partRows.filter((row) => row.hasSelection && row.selectedSpendUsd !== null);
+    const selectedCount = selectedRows.length;
+    const totalSpendUsd = selectedRows.reduce((sum, row) => sum + (row.selectedSpendUsd ?? 0), 0);
+    const criticalPathRow = selectedRows.reduce<typeof selectedRows[number] | null>((current, row) => {
+      if (row.selectedLeadTimeBusinessDays === null || row.selectedLeadTimeBusinessDays === undefined) {
+        return current;
+      }
+
+      if (!current || (current.selectedLeadTimeBusinessDays ?? -1) < row.selectedLeadTimeBusinessDays) {
+        return row;
+      }
+
+      return current;
+    }, null);
+    const spendRows = selectedRows
+      .map<ProjectSummaryPartRow>((row) => ({
+        jobId: row.jobId,
+        label: row.label,
+        spendUsd: row.selectedSpendUsd ?? 0,
+        sharePercent: totalSpendUsd > 0 ? ((row.selectedSpendUsd ?? 0) / totalSpendUsd) * 100 : 0,
+        hasSelection: row.hasSelection,
+        isCriticalPath: criticalPathRow?.jobId === row.jobId,
+      }))
+      .sort((left, right) => right.spendUsd - left.spendUsd || left.label.localeCompare(right.label));
+    const dominantSpendRow = spendRows[0] ?? null;
+
+    return {
+      totalSpendUsd,
+      criticalPathDays: criticalPathRow?.selectedLeadTimeBusinessDays ?? null,
+      criticalPathLabel: criticalPathRow?.label ?? null,
+      quotedCount,
+      selectedCount,
+      totalCount,
+      unquotedCount: Math.max(totalCount - quotedCount, 0),
+      pendingSelectionCount: Math.max(quotedCount - selectedCount, 0),
+      quotedPercent: totalCount > 0 ? (quotedCount / totalCount) * 100 : 0,
+      selectedPercent: totalCount > 0 ? (selectedCount / totalCount) * 100 : 0,
+      spendRows,
+      dominantSpendLabel: dominantSpendRow?.label ?? null,
+      dominantSpendPercent: dominantSpendRow?.sharePercent ?? null,
+    };
+  }, [projectJobs, quoteRequestViewModelsByJobId, summariesByJobId, workspaceItemsByJobId]);
 
   const activeFilterOption = useMemo(
     () => clientFilterOptions.find((filter) => filter.id === activeFilter) ?? clientFilterOptions[0],
@@ -754,6 +1011,8 @@ const ClientProject = () => {
               </Button>
             </div>
           </div>
+
+          <ProjectSummaryPanel summary={projectSummaryPanel} />
 
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
             <div className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-ws-border-subtle bg-ws-card">
