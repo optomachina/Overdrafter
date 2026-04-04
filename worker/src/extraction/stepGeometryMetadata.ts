@@ -180,6 +180,21 @@ type MaterializedVertices = {
   vertexById: Map<string, CanonicalVertexGeometry>;
 };
 
+type FaceMaterializationContext = {
+  parsedFaceBounds: Map<string, ParsedFaceBound>;
+  parsedEdgeLoops: Map<string, string[]>;
+  parsedOrientedEdges: Map<string, ParsedOrientedEdge>;
+  edgeIdBySource: Map<string, string>;
+  edgeById: Map<string, CanonicalEdgeGeometry>;
+  entityById: Map<string, StepEntity>;
+};
+
+type StepQuoteParseResult = {
+  current: string;
+  inString: boolean;
+  nextIndex: number;
+};
+
 function splitTopLevel(value: string, delimiter = ","): string[] {
   const parts: string[] = [];
   let current = "";
@@ -187,33 +202,26 @@ function splitTopLevel(value: string, delimiter = ","): string[] {
   let inString = false;
 
   for (let index = 0; index < value.length; index += 1) {
-    const character = value[index]!;
-    const next = value[index + 1];
-
-    if (character === "'") {
-      current += character;
-      if (inString && next === "'") {
-        current += next;
-        index += 1;
-        continue;
-      }
-
-      inString = !inString;
+    const character = value[index];
+    if (character === undefined) {
       continue;
     }
 
-    if (!inString) {
-      if (character === "(") {
-        depth += 1;
-      } else if (character === ")") {
-        depth = Math.max(0, depth - 1);
-      } else if (character === delimiter && depth === 0) {
-        parts.push(current.trim());
-        current = "";
-        continue;
-      }
+    if (character === "'") {
+      const quote = consumeStepQuote(value, index, current, inString);
+      current = quote.current;
+      inString = quote.inString;
+      index = quote.nextIndex;
+      continue;
     }
 
+    if (!inString && character === delimiter && depth === 0) {
+      parts.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    depth = inString ? depth : updateStepDepth(depth, character);
     current += character;
   }
 
@@ -235,7 +243,7 @@ function parseQuotedString(token: string | undefined): string | null {
   }
 
   if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
-    return trimmed.slice(1, -1).replace(/''/g, "'");
+    return trimmed.slice(1, -1).replaceAll("''", "'");
   }
 
   return trimmed.length > 0 ? trimmed : null;
@@ -261,8 +269,7 @@ function parseReference(token: string | undefined): string | null {
     return null;
   }
 
-  const match = token.trim().match(/#\d+/);
-  return match ? match[0] : null;
+  return /#\d+/.exec(token.trim())?.[0] ?? null;
 }
 
 function parseReferenceList(token: string | undefined): string[] {
@@ -270,8 +277,7 @@ function parseReferenceList(token: string | undefined): string[] {
     return [];
   }
 
-  const matches = token.match(/#\d+/g);
-  return matches ? matches : [];
+  return token.match(/#\d+/g) ?? [];
 }
 
 function parseBooleanToken(token: string | undefined): boolean | null {
@@ -330,12 +336,13 @@ function uniquePreserveOrder(values: string[]): string[] {
 }
 
 function buildBoundingBox(points: Vector3[]): BoundingBox3 | null {
-  if (points.length === 0) {
+  const firstPoint = points[0];
+  if (!firstPoint) {
     return null;
   }
 
-  const min = { ...points[0]! };
-  const max = { ...points[0]! };
+  const min = { ...firstPoint };
+  const max = { ...firstPoint };
 
   for (const point of points.slice(1)) {
     min.x = Math.min(min.x, point.x);
@@ -361,6 +368,35 @@ function makeCanonicalId(prefix: string, index: number) {
   return `${prefix}-${String(index + 1).padStart(3, "0")}`;
 }
 
+function consumeStepQuote(
+  source: string,
+  index: number,
+  current: string,
+  inString: boolean,
+): StepQuoteParseResult {
+  const next = source[index + 1];
+  let nextCurrent = `${current}'`;
+
+  if (inString && next === "'") {
+    nextCurrent += next;
+    return { current: nextCurrent, inString, nextIndex: index + 1 };
+  }
+
+  return { current: nextCurrent, inString: !inString, nextIndex: index };
+}
+
+function updateStepDepth(depth: number, character: string) {
+  if (character === "(") {
+    return depth + 1;
+  }
+
+  if (character === ")") {
+    return Math.max(0, depth - 1);
+  }
+
+  return depth;
+}
+
 function extractSection(stepContent: string, sectionName: "HEADER" | "DATA") {
   const upperContent = stepContent.toUpperCase();
   const sectionStart = upperContent.indexOf(`${sectionName};`);
@@ -372,16 +408,15 @@ function extractSection(stepContent: string, sectionName: "HEADER" | "DATA") {
   let inString = false;
 
   for (let index = contentStart; index < stepContent.length; index += 1) {
-    const character = stepContent[index]!;
-    const next = stepContent[index + 1];
+    const character = stepContent[index];
+    if (character === undefined) {
+      continue;
+    }
 
     if (character === "'") {
-      if (inString && next === "'") {
-        index += 1;
-        continue;
-      }
-
-      inString = !inString;
+      const quote = consumeStepQuote(stepContent, index, "", inString);
+      inString = quote.inString;
+      index = quote.nextIndex;
       continue;
     }
 
@@ -401,10 +436,8 @@ function tokenizeStepStatements(dataSection: string): string[] {
   let inString = false;
 
   for (let index = 0; index < dataSection.length; index += 1) {
-    const character = dataSection[index]!;
-    const next = dataSection[index + 1];
-
     if (!collecting) {
+      const character = dataSection[index];
       if (character === "#") {
         collecting = true;
         current = character;
@@ -414,33 +447,26 @@ function tokenizeStepStatements(dataSection: string): string[] {
       continue;
     }
 
-    current += character;
-
-    if (character === "'") {
-      if (inString && next === "'") {
-        current += next;
-        index += 1;
-        continue;
-      }
-
-      inString = !inString;
+    const character = dataSection[index];
+    if (character === undefined) {
       continue;
     }
+
+    if (character === "'") {
+      const quote = consumeStepQuote(dataSection, index, current, inString);
+      current = quote.current;
+      inString = quote.inString;
+      index = quote.nextIndex;
+      continue;
+    }
+
+    current += character;
 
     if (inString) {
       continue;
     }
 
-    if (character === "(") {
-      depth += 1;
-      continue;
-    }
-
-    if (character === ")") {
-      depth = Math.max(0, depth - 1);
-      continue;
-    }
-
+    depth = updateStepDepth(depth, character);
     if (character === ";" && depth === 0) {
       statements.push(current.slice(0, -1).trim());
       current = "";
@@ -536,11 +562,12 @@ function captureTopologyEntity(entity: StepEntity, topology: ParsedTopology) {
   switch (entity.type) {
     case "CARTESIAN_POINT": {
       const numbers = parseTupleNumbers(args[1]);
-      if (numbers.length >= 3) {
+      const [x, y, z] = numbers;
+      if (x !== undefined && y !== undefined && z !== undefined) {
         topology.cartesianPoints.set(entity.sourceEntityId, {
-          x: numbers[0]!,
-          y: numbers[1]!,
-          z: numbers[2]!,
+          x,
+          y,
+          z,
         });
       }
       break;
@@ -656,10 +683,11 @@ function buildCanonicalIdMap(sourceEntityIds: Iterable<string>, prefix: string) 
 }
 
 function parseHeaderMetadata(headerSection: string, entities: StepEntity[]): StepSourceMetadata {
-  const fileNameMatch = headerSection.match(/FILE_NAME\(([\s\S]*?)\)\s*;/i);
-  const fileNameArgs = fileNameMatch ? splitTopLevel(fileNameMatch[1]!) : [];
-  const fileSchemaMatch = headerSection.match(/FILE_SCHEMA\(([\s\S]*?)\)\s*;/i);
-  const fileDescriptionMatch = headerSection.match(/FILE_DESCRIPTION\(([\s\S]*?)\)\s*;/i);
+  const fileNameMatch = /FILE_NAME\(([\s\S]*?)\)\s*;/i.exec(headerSection);
+  const fileNameArgs = fileNameMatch ? splitTopLevel(fileNameMatch[1]) : [];
+  const fileSchemaMatch = /FILE_SCHEMA\(([\s\S]*?)\)\s*;/i.exec(headerSection);
+  const fileDescriptionMatch = /FILE_DESCRIPTION\(([\s\S]*?)\)\s*;/i.exec(headerSection);
+  const [fileDescriptionArgs] = fileDescriptionMatch ? splitTopLevel(fileDescriptionMatch[1]) : [];
 
   const productNames = entities
     .filter((entity) => entity.type === "PRODUCT")
@@ -676,58 +704,81 @@ function parseHeaderMetadata(headerSection: string, entities: StepEntity[]): Ste
     originatingSystem: parseQuotedString(fileNameArgs[5]),
     authorization: parseQuotedString(fileNameArgs[6]),
     schemaIdentifiers: fileSchemaMatch ? parseStringList(fileSchemaMatch[1]) : [],
-    description: fileDescriptionMatch ? parseStringList(splitTopLevel(fileDescriptionMatch[1]!)[0]) : [],
+    description: fileDescriptionArgs ? parseStringList(fileDescriptionArgs) : [],
     productNames,
   };
+}
+
+function parseSiLengthUnit(entity: StepEntity) {
+  const rawUpper = entity.rawValue.toUpperCase();
+  if (!rawUpper.includes("LENGTH_UNIT") || !rawUpper.includes("SI_UNIT")) {
+    return null;
+  }
+
+  const siMatch = /SI_UNIT\((\.[A-Z]+\.)?\s*,\s*(\.[A-Z]+\.)\)/i.exec(entity.rawValue);
+  if (!siMatch) {
+    return null;
+  }
+
+  const prefix = (siMatch[1] ?? "").toUpperCase();
+  const base = siMatch[2].toUpperCase();
+  if (base !== ".METRE.") {
+    return null;
+  }
+
+  if (prefix === ".MILLI.") {
+    return { length: "millimeter" as const, raw: "SI_UNIT(.MILLI.,.METRE.)" };
+  }
+
+  if (prefix === ".CENTI.") {
+    return { length: "centimeter" as const, raw: "SI_UNIT(.CENTI.,.METRE.)" };
+  }
+
+  return { length: "meter" as const, raw: `SI_UNIT(${prefix || "$"},.METRE.)` };
+}
+
+function parseConversionLengthUnit(entity: StepEntity) {
+  const rawUpper = entity.rawValue.toUpperCase();
+  if (!rawUpper.includes("LENGTH_UNIT")) {
+    return null;
+  }
+
+  const conversionMatch = /CONVERSION_BASED_UNIT\(\s*'([^']+)'/i.exec(entity.rawValue);
+  if (!conversionMatch) {
+    return null;
+  }
+
+  const normalized = conversionMatch[1].trim().toLowerCase();
+  if (normalized === "inch" || normalized === "inches") {
+    return { length: "inch" as const, raw: conversionMatch[0] };
+  }
+
+  if (normalized === "foot" || normalized === "feet") {
+    return { length: "foot" as const, raw: conversionMatch[0] };
+  }
+
+  return { length: "unknown" as const, raw: conversionMatch[0] };
 }
 
 function parseLengthUnit(entities: StepEntity[]) {
   let fallbackRaw: string | null = null;
 
   for (const entity of entities) {
-    const rawUpper = entity.rawValue.toUpperCase();
-
-    if (rawUpper.includes("LENGTH_UNIT") && rawUpper.includes("SI_UNIT")) {
-      const siMatch = /SI_UNIT\((\.[A-Z]+\.)?\s*,\s*(\.[A-Z]+\.)\)/i.exec(entity.rawValue);
-      if (!siMatch) {
-        continue;
-      }
-
-      const prefix = (siMatch[1] ?? "").toUpperCase();
-      const base = siMatch[2].toUpperCase();
-
-      if (base === ".METRE.") {
-        if (prefix === ".MILLI.") {
-          return { length: "millimeter" as const, raw: "SI_UNIT(.MILLI.,.METRE.)" };
-        }
-
-        if (prefix === ".CENTI.") {
-          return { length: "centimeter" as const, raw: "SI_UNIT(.CENTI.,.METRE.)" };
-        }
-
-        return { length: "meter" as const, raw: `SI_UNIT(${prefix || "$"},.METRE.)` };
-      }
+    const siUnit = parseSiLengthUnit(entity);
+    if (siUnit) {
+      return siUnit;
     }
 
-    if (!rawUpper.includes("LENGTH_UNIT")) {
+    const conversionUnit = parseConversionLengthUnit(entity);
+    if (!conversionUnit) {
       continue;
     }
 
-    const conversionMatch = /CONVERSION_BASED_UNIT\(\s*'([^']+)'/i.exec(entity.rawValue);
-    if (!conversionMatch) {
-      continue;
+    if (conversionUnit.length !== "unknown") {
+      return conversionUnit;
     }
 
-    const normalized = conversionMatch[1].trim().toLowerCase();
-    if (normalized === "inch" || normalized === "inches") {
-      return { length: "inch" as const, raw: conversionMatch[0] };
-    }
-
-    if (normalized === "foot" || normalized === "feet") {
-      return { length: "foot" as const, raw: conversionMatch[0] };
-    }
-
-    fallbackRaw = conversionMatch[0];
+    fallbackRaw = conversionUnit.raw;
   }
 
   return { length: "unknown" as const, raw: fallbackRaw };
@@ -745,8 +796,9 @@ function materializeVertices(
         return result;
       }
 
+      const id = makeCanonicalId("vertex", result.length);
       result.push({
-        id: makeCanonicalId("vertex", result.length),
+        id,
         sourceEntityId: vertex.sourceEntityId,
         position: point,
       });
@@ -787,23 +839,18 @@ function collectVertexIdsFromEdges(edgeIds: string[], edgeById: Map<string, Cano
 
 function materializeFaces(
   parsedFaces: Map<string, ParsedFace>,
-  parsedFaceBounds: Map<string, ParsedFaceBound>,
-  parsedEdgeLoops: Map<string, string[]>,
-  parsedOrientedEdges: Map<string, ParsedOrientedEdge>,
   faceIdBySource: Map<string, string>,
-  edgeIdBySource: Map<string, string>,
-  edgeById: Map<string, CanonicalEdgeGeometry>,
-  entityById: Map<string, StepEntity>,
+  context: FaceMaterializationContext,
 ): CanonicalFaceGeometry[] {
   return [...parsedFaces.values()]
     .sort((left, right) => compareStepEntityRefs(left.sourceEntityId, right.sourceEntityId))
     .map((face) => {
       const bounds = face.boundRefs.map((boundRef): CanonicalFaceBound => {
-        const bound = parsedFaceBounds.get(boundRef);
-        const loopRefs = bound?.loopRef ? parsedEdgeLoops.get(bound.loopRef) ?? [] : [];
+        const bound = context.parsedFaceBounds.get(boundRef);
+        const loopRefs = bound?.loopRef ? context.parsedEdgeLoops.get(bound.loopRef) ?? [] : [];
         const orientedEdges = loopRefs.flatMap((loopRef): CanonicalOrientedEdgeReference[] => {
-          const orientedEdge = parsedOrientedEdges.get(loopRef);
-          const edgeId = orientedEdge?.edgeRef ? edgeIdBySource.get(orientedEdge.edgeRef) : null;
+          const orientedEdge = context.parsedOrientedEdges.get(loopRef);
+          const edgeId = orientedEdge?.edgeRef ? context.edgeIdBySource.get(orientedEdge.edgeRef) : null;
           return edgeId
             ? [{ edgeId, orientation: orientedEdge?.orientation ?? "unknown" }]
             : [];
@@ -820,11 +867,11 @@ function materializeFaces(
       return {
         id: faceIdBySource.get(face.sourceEntityId)!,
         sourceEntityId: face.sourceEntityId,
-        surfaceType: face.surfaceRef ? entityById.get(face.surfaceRef)?.type ?? null : null,
+        surfaceType: face.surfaceRef ? context.entityById.get(face.surfaceRef)?.type ?? null : null,
         orientation: face.orientation,
         bounds,
         edgeIds,
-        vertexIds: collectVertexIdsFromEdges(edgeIds, edgeById),
+        vertexIds: collectVertexIdsFromEdges(edgeIds, context.edgeById),
       };
     });
 }
@@ -971,13 +1018,15 @@ export function normalizeStepToCanonicalGeometryMetadata(input: {
   const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
   const faces = materializeFaces(
     topology.parsedFaces,
-    topology.parsedFaceBounds,
-    topology.parsedEdgeLoops,
-    topology.parsedOrientedEdges,
     faceIdBySource,
-    edgeIdBySource,
-    edgeById,
-    entityById,
+    {
+      parsedFaceBounds: topology.parsedFaceBounds,
+      parsedEdgeLoops: topology.parsedEdgeLoops,
+      parsedOrientedEdges: topology.parsedOrientedEdges,
+      edgeIdBySource,
+      edgeById,
+      entityById,
+    },
   );
   const faceById = new Map(faces.map((face) => [face.id, face]));
   const shells = materializeShells(topology.parsedShells, shellIdBySource, faceIdBySource);

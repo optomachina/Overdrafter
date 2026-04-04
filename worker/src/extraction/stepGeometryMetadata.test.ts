@@ -30,7 +30,7 @@ function replaceEntityAssignment(stepContent: string, entityId: number, replacem
 
 function replaceVertexPoint(stepContent: string, pointEntityId: number, coordinates: string) {
   return stepContent.replace(
-    new RegExp(`(#${pointEntityId}\\s*=\\s*CARTESIAN_POINT\\('',\\()([^)]*)(\\)\\);)`),
+    new RegExp(String.raw`(#${pointEntityId}\s*=\s*CARTESIAN_POINT\('',\()([^)]*)(\)\);)`),
     `$1${coordinates}$3`,
   );
 }
