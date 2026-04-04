@@ -311,15 +311,18 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
   ClientQuoteDecisionPanel: ({
     options,
     controls,
+    headerActions,
   }: {
     options?: Array<{ vendorLabel?: string; tier?: string | null }>;
     controls?: ReactNode;
+    headerActions?: ReactNode;
   }) => {
     lastQuoteDecisionPanelProps = { optionCount: options?.length ?? 0 };
 
     return (
       <div data-testid="quote-decision-panel">
         Quote decision panel
+        {headerActions}
         {controls}
         {options?.map((quote) => (
           <div key={`${quote.vendorLabel}-${quote.tier}`}>{[quote.vendorLabel, quote.tier].filter(Boolean).join(" · ")}</div>
@@ -705,6 +708,8 @@ describe("ClientPart", () => {
 
     expect(await screen.findByRole("tab", { name: "Quote" })).toBeInTheDocument();
     expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review order" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Attach files" })).not.toBeInTheDocument();
     expect(screen.queryByText("Part information")).not.toBeInTheDocument();
     expect(screen.queryByTestId("cad-panel")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Leave a comment")).not.toBeInTheDocument();
@@ -714,6 +719,7 @@ describe("ClientPart", () => {
       ["Files", async () => {
         expect(await screen.findByTestId("cad-panel")).toBeInTheDocument();
         expect(screen.getByText("Attached source files")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Attach files" })).toBeInTheDocument();
       }],
       ["Activity", () => screen.findByLabelText("Leave a comment")],
     ] as const) {
