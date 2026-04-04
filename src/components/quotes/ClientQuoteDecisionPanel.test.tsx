@@ -7,6 +7,14 @@ import type { QuoteDiagnostics } from "@/features/quotes/types";
 import { ClientQuoteDecisionPanel } from "./ClientQuoteDecisionPanel";
 import { makeClientQuoteOption } from "./test-option-factory";
 
+const mobileMock = vi.hoisted(() => ({
+  useIsMobile: vi.fn(() => false),
+}));
+
+vi.mock("@/hooks/use-mobile", () => ({
+  useIsMobile: mobileMock.useIsMobile,
+}));
+
 vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
   ClientQuoteComparisonChart: ({
     options,
@@ -271,6 +279,40 @@ describe("ClientQuoteDecisionPanel", () => {
     });
     expect(screen.getByText("Proto Labs")).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Vendor" })).not.toBeInTheDocument();
+  });
+
+  it("renders a mobile quote review deck with one-tap vendor selection", () => {
+    mobileMock.useIsMobile.mockReturnValue(true);
+
+    const onSelect = vi.fn();
+    const first = makeClientQuoteOption();
+    const second = makeClientQuoteOption({
+      key: "option-2",
+      offerId: "offer-2",
+      persistedOfferId: "offer-2",
+      vendorQuoteResultId: "result-2",
+      vendorLabel: "Proto Labs",
+      supplier: "Proto Labs",
+      totalPriceUsd: 160,
+      requestedQuantity: 25,
+    });
+
+    render(
+      <ClientQuoteDecisionPanel
+        options={[first, second]}
+        selectedOption={first}
+        onSelect={onSelect}
+        requestedByDate="2026-04-15"
+      />,
+    );
+
+    expect(screen.getByText("Quote review")).toBeInTheDocument();
+    expect(screen.getByLabelText("Quote review vendor cards")).toBeInTheDocument();
+    expect(screen.queryByText("Quote Chart")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Select this vendor" })[0]);
+
+    expect(onSelect).toHaveBeenCalledWith(second);
   });
 
   it("filters visible vendor rows when due by removes late options", async () => {

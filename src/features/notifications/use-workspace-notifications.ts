@@ -261,6 +261,28 @@ function getEventTimestamp(value: string) {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
+function readNotificationPayloadFields(payload: ClientActivityEvent["payload"]) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+
+  const optionCount = "optionCount" in payload && typeof payload.optionCount === "number"
+    ? payload.optionCount
+    : "quoteCount" in payload && typeof payload.quoteCount === "number"
+      ? payload.quoteCount
+      : null;
+  const jobReference = "jobReference" in payload && typeof payload.jobReference === "string"
+    ? payload.jobReference.trim()
+    : "jobNumber" in payload && typeof payload.jobNumber === "string"
+      ? payload.jobNumber.trim()
+      : null;
+
+  return {
+    optionCount,
+    jobReference: jobReference && jobReference.length > 0 ? jobReference : null,
+  };
+}
+
 function buildNotificationDetail(
   event: ClientActivityEvent,
   notificationType: WorkspaceNotificationType,
@@ -298,14 +320,27 @@ function buildNotificationDetail(
       };
     case "client.quote_package_ready":
     default:
+      {
+        const payloadFields = readNotificationPayloadFields(event.payload);
+        const optionCountLabel =
+          payloadFields?.optionCount && payloadFields.optionCount > 0
+            ? `${payloadFields.optionCount} quote${payloadFields.optionCount === 1 ? "" : "s"} ready`
+            : null;
+        const jobReferenceLabel = payloadFields?.jobReference;
+
       return {
         title: "Quote package ready",
         detail:
-          event.packageId !== null
-            ? "Curated quote options are available for review in this workspace."
-            : "A published quote package is now available for review.",
+          optionCountLabel && jobReferenceLabel
+            ? `${optionCountLabel} for ${jobReferenceLabel}. Open Quote review on your phone to choose a vendor.`
+            : optionCountLabel
+              ? `${optionCountLabel}. Open Quote review on your phone to choose a vendor.`
+              : event.packageId !== null
+                ? "Curated quote options are available for review in this workspace."
+                : "A published quote package is now available for review.",
         tone: "active",
       };
+      }
   }
 }
 
