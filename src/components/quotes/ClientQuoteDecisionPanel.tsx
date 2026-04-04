@@ -808,7 +808,7 @@ function renderDecisionPanelContent({
 
       {selectedOption ? <SelectedOptionBanner option={selectedOption} /> : null}
 
-      {!isMobile ? (
+      {!isMobile && (
         <div className="rounded-surface-lg border border-white/8 bg-black/20 p-4">
           <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-white/5" />}>
             <ClientQuoteComparisonChart
@@ -822,7 +822,7 @@ function renderDecisionPanelContent({
             />
           </Suspense>
         </div>
-      ) : null}
+      )}
 
       {showDueDateNotice ? (
         <DueDateFilterNotice
