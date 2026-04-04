@@ -578,7 +578,7 @@ describe("WorkspaceSidebar", () => {
 
     const projectRow = screen.getAllByRole("button", { name: /project one/i })[0]!;
     expect(projectRow).toHaveClass("bg-white/[0.08]");
-    expect(projectRow.querySelector(".bg-sky-300\\/85")).not.toBeNull();
+    expect(projectRow.querySelector(String.raw`.bg-sky-300\/85`)).not.toBeNull();
   });
 
   it("auto-expands the active part's project on load", () => {
