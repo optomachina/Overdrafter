@@ -125,6 +125,22 @@ function buildQuotedHeaderFixture(stepContent: string, marker: "DATA" | "ENDSEC"
     );
 }
 
+function buildQuotedHeaderMetadataFixture(stepContent: string) {
+  return stepContent
+    .replace(
+      `FILE_NAME('Open CASCADE Shape Model','2009-05-01T23:59:58',('Author'),(
+    'Open CASCADE'),'Open CASCADE STEP processor 6.3','Open CASCADE 6.3'
+  ,'Unknown');`,
+      `FILE_NAME('Header ); Model','2009-05-01T23:59:58',('Author ); One'),(
+    'Open CASCADE'),'Processor ); 6.3','System ); 6.3'
+  ,'Auth ); Unknown');`,
+    )
+    .replace(
+      "FILE_DESCRIPTION(('Open CASCADE Model'),'2;1');",
+      "FILE_DESCRIPTION(('Header ); Description'),'2;1');",
+    );
+}
+
 function expectSingleBodyTopology(
   result: ReturnType<typeof normalizeStepToCanonicalGeometryMetadata>,
   summary: Partial<(typeof result)["summary"]>,
@@ -157,6 +173,14 @@ function buildImperialFixture(stepContent: string, unitName: "inch" | "foot") {
       "#351 = ( NAMED_UNIT(*) SI_UNIT($,.RADIAN.) PLANE_ANGLE_UNIT() );",
       "#352 = ( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) );",
     ].join("\n"),
+  );
+}
+
+function buildMeterFixture(stepContent: string) {
+  return replaceEntityAssignment(
+    stepContent,
+    346,
+    "#346 = ( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT($,.METRE.) );",
   );
 }
 
@@ -347,6 +371,24 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
     });
   });
 
+  it("parses quoted FILE_* metadata when header values contain closing-paren semicolon text", async () => {
+    const stepContent = buildQuotedHeaderMetadataFixture(await loadDemoBracketFixture());
+
+    const result = normalizeStepToCanonicalGeometryMetadata({
+      stepContent,
+      sourceName: "quoted-header-metadata.step",
+    });
+
+    expect(result.source).toMatchObject({
+      declaredName: "Header ); Model",
+      authors: ["Author ); One"],
+      preprocessorVersion: "Processor ); 6.3",
+      originatingSystem: "System ); 6.3",
+      authorization: "Auth ); Unknown",
+      description: ["Header ); Description"],
+    });
+  });
+
   it("includes unattached materialized vertices in the overall bounding box", async () => {
     const stepContent = insertBeforeDataEndsec(
       await loadDemoBracketFixture(),
@@ -367,6 +409,18 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
       size: { x: 51, y: 51, z: 51 },
     });
     expect(result.bodies[0]?.boundingBox).toEqual(centeredBlockBounds);
+  });
+
+  it("recognizes SI meter units that use the standard dollar prefix token", async () => {
+    const result = normalizeStepToCanonicalGeometryMetadata({
+      stepContent: buildMeterFixture(await loadDemoBracketFixture()),
+      sourceName: "meter.step",
+    });
+
+    expect(result.units).toEqual({
+      length: "meter",
+      raw: "SI_UNIT($,.METRE.)",
+    });
   });
 
   it("normalizes translated and resized STEP geometry into the same typed surface", async () => {

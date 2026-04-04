@@ -423,6 +423,45 @@ function findStepTokenOutsideQuotes(source: string, token: string, startIndex = 
   return -1;
 }
 
+function extractStepCallArgs(source: string, callName: string) {
+  const upperSource = source.toUpperCase();
+  const token = `${callName}(`;
+  const tokenStart = findStepTokenOutsideQuotes(upperSource, token);
+  if (tokenStart < 0) {
+    return null;
+  }
+
+  let depth = 1;
+  let inString = false;
+  let index = tokenStart + token.length;
+
+  while (index < source.length) {
+    const character = source[index];
+    if (character === undefined) {
+      index += 1;
+      continue;
+    }
+
+    if (character === "'") {
+      const quote = consumeStepQuote(source, index, "", inString);
+      inString = quote.inString;
+      index += quote.advance;
+      continue;
+    }
+
+    if (!inString) {
+      depth = updateStepDepth(depth, character);
+      if (depth === 0) {
+        return source.slice(tokenStart + token.length, index);
+      }
+    }
+
+    index += 1;
+  }
+
+  return null;
+}
+
 function updateStepDepth(depth: number, character: string) {
   if (character === "(") {
     return depth + 1;
@@ -727,11 +766,9 @@ function buildCanonicalIdMap(sourceEntityIds: Iterable<string>, prefix: string) 
 }
 
 function parseHeaderMetadata(headerSection: string, entities: StepEntity[]): StepSourceMetadata {
-  const fileNameMatch = /FILE_NAME\(([\s\S]*?)\)\s*;/i.exec(headerSection);
-  const fileNameArgs = fileNameMatch ? splitTopLevel(fileNameMatch[1]) : [];
-  const fileSchemaMatch = /FILE_SCHEMA\(([\s\S]*?)\)\s*;/i.exec(headerSection);
-  const fileDescriptionMatch = /FILE_DESCRIPTION\(([\s\S]*?)\)\s*;/i.exec(headerSection);
-  const [fileDescriptionArgs] = fileDescriptionMatch ? splitTopLevel(fileDescriptionMatch[1]) : [];
+  const fileNameArgs = splitTopLevel(extractStepCallArgs(headerSection, "FILE_NAME") ?? "");
+  const fileSchemaArgs = extractStepCallArgs(headerSection, "FILE_SCHEMA");
+  const [fileDescriptionArgs] = splitTopLevel(extractStepCallArgs(headerSection, "FILE_DESCRIPTION") ?? "");
 
   const productNames = entities
     .filter((entity) => entity.type === "PRODUCT")
@@ -747,7 +784,7 @@ function parseHeaderMetadata(headerSection: string, entities: StepEntity[]): Ste
     preprocessorVersion: parseQuotedString(fileNameArgs[4]),
     originatingSystem: parseQuotedString(fileNameArgs[5]),
     authorization: parseQuotedString(fileNameArgs[6]),
-    schemaIdentifiers: fileSchemaMatch ? parseStringList(fileSchemaMatch[1]) : [],
+    schemaIdentifiers: fileSchemaArgs ? parseStringList(fileSchemaArgs) : [],
     description: fileDescriptionArgs ? parseStringList(fileDescriptionArgs) : [],
     productNames,
   };
@@ -759,7 +796,7 @@ function parseSiLengthUnit(entity: StepEntity) {
     return null;
   }
 
-  const siMatch = /SI_UNIT\((\.[A-Z]+\.)?\s*,\s*(\.[A-Z]+\.)\)/i.exec(entity.rawValue);
+  const siMatch = /SI_UNIT\((\.[A-Z]+\.|[$])?\s*,\s*(\.[A-Z]+\.)\)/i.exec(entity.rawValue);
   if (!siMatch) {
     return null;
   }
@@ -778,7 +815,7 @@ function parseSiLengthUnit(entity: StepEntity) {
     return { length: "centimeter" as const, raw: "SI_UNIT(.CENTI.,.METRE.)" };
   }
 
-  return { length: "meter" as const, raw: `SI_UNIT(${prefix || "$"},.METRE.)` };
+  return { length: "meter" as const, raw: `SI_UNIT(${prefix === "$" || prefix === "" ? "$" : prefix},.METRE.)` };
 }
 
 function parseConversionLengthUnit(entity: StepEntity) {
