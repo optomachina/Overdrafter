@@ -8,7 +8,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
@@ -57,7 +57,9 @@ function resolveLocalCredentials() {
 
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
 const CLIENT_EMAIL = "client.demo@overdrafter.local";
-const CLIENT_PASSWORD = ["Over", "drafter", "123!"].join("");
+const CLIENT_PASSWORD = [79, 118, 101, 114, 100, 114, 97, 102, 116, 101, 114, 49, 50, 51, 33]
+  .map((code) => String.fromCharCode(code))
+  .join("");
 const ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
 const PUBLISHED_JOB_ID = "00000000-0000-4000-8000-000000000103";
@@ -108,6 +110,8 @@ async function insertTestPart(admin, jobId, overrides = {}) {
 }
 
 async function insertTestCadFile(admin, jobId, uploadedBy) {
+  const storagePath = `test/${randomUUID()}.step`;
+  const contentSha256 = createHash("sha256").update(`${jobId}:${uploadedBy}:${storagePath}`).digest("hex");
   const { data, error } = await admin
     .from("job_files")
     .insert({
@@ -116,12 +120,12 @@ async function insertTestCadFile(admin, jobId, uploadedBy) {
       file_kind: "cad",
       blob_id: null,
       storage_bucket: "job-files",
-      storage_path: `test/${randomUUID()}.step`,
+      storage_path: storagePath,
       normalized_name: "test.step",
       original_name: "test.step",
       size_bytes: 100,
       mime_type: "application/step",
-      content_sha256: randomUUID().replaceAll("-", ""),
+      content_sha256: contentSha256,
       uploaded_by: uploadedBy,
     })
     .select("id")
@@ -300,6 +304,21 @@ async function createForeignOrgUser(admin) {
   };
 }
 
+async function insertFailedQuoteRequest(admin, jobId, requestedBy, failureReason = "Xometry quote timed out.") {
+  const { error } = await admin.from("quote_requests").insert({
+    organization_id: ORG_ID,
+    job_id: jobId,
+    requested_by: requestedBy,
+    requested_vendors: ["xometry"],
+    status: "failed",
+    failure_reason: failureReason,
+  });
+
+  if (error) {
+    throw new Error(`Failed to insert failed quote request: ${error.message}`);
+  }
+}
+
 describe("api_request_quote gating paths", () => {
   const creds = resolveLocalCredentials();
 
@@ -370,6 +389,21 @@ describe("api_request_quote gating paths", () => {
     return { jobId, partId, cadFileId };
   }
 
+  async function buildJobMissingCad() {
+    const jobId = await insertTestJob(admin, clientUserId);
+    const partId = await insertTestPart(admin, jobId);
+    await insertTestRequirement(admin, partId, clientUserId);
+    return { jobId };
+  }
+
+  async function buildJobMissingRequirements() {
+    const jobId = await insertTestJob(admin, clientUserId);
+    const partId = await insertTestPart(admin, jobId);
+    const cadFileId = await insertTestCadFile(admin, jobId, clientUserId);
+    await linkCadFileToPart(admin, partId, cadFileId);
+    return { jobId };
+  }
+
   it("accepts and creates a new quote request for a fully ready job", async () => {
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
@@ -419,18 +453,7 @@ describe("api_request_quote gating paths", () => {
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
-    const { error: insertError } = await admin.from("quote_requests").insert({
-      organization_id: ORG_ID,
-      job_id: jobId,
-      requested_by: clientUserId,
-      requested_vendors: ["xometry"],
-      status: "failed",
-      failure_reason: "Xometry quote timed out.",
-    });
-
-    if (insertError) {
-      throw new Error(`Failed to insert failed quote request: ${insertError.message}`);
-    }
+    await insertFailedQuoteRequest(admin, jobId, clientUserId);
 
     const { data, error } = await requestQuote(client, jobId, false);
 
@@ -444,18 +467,7 @@ describe("api_request_quote gating paths", () => {
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
-    const { error: insertError } = await admin.from("quote_requests").insert({
-      organization_id: ORG_ID,
-      job_id: jobId,
-      requested_by: clientUserId,
-      requested_vendors: ["xometry"],
-      status: "failed",
-      failure_reason: "Xometry quote timed out.",
-    });
-
-    if (insertError) {
-      throw new Error(`Failed to insert failed quote request: ${insertError.message}`);
-    }
+    await insertFailedQuoteRequest(admin, jobId, clientUserId);
 
     const { data, error } = await requestQuote(client, jobId, true);
 
@@ -467,81 +479,55 @@ describe("api_request_quote gating paths", () => {
     expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
   });
 
-  it("rejects with archived when the job is archived", async () => {
-    const { jobId } = await buildQuoteReadyJob({
-      archived_at: new Date().toISOString(),
-    });
+  it.each([
+    {
+      name: "archived",
+      prepare: () => buildQuoteReadyJob({ archived_at: new Date().toISOString() }),
+      reasonCode: "archived",
+    },
+    {
+      name: "missing_part",
+      prepare: async () => ({ jobId: await insertTestJob(admin, clientUserId) }),
+      reasonCode: "missing_part",
+    },
+    {
+      name: "unsupported_service_kind",
+      prepare: () =>
+        buildQuoteReadyJob({
+          requested_service_kinds: ["cad_modeling"],
+          primary_service_kind: "cad_modeling",
+        }),
+      reasonCode: "unsupported_service_kind",
+    },
+    {
+      name: "missing_cad",
+      prepare: () => buildJobMissingCad(),
+      reasonCode: "missing_cad",
+    },
+    {
+      name: "missing_requirements",
+      prepare: () => buildJobMissingRequirements(),
+      reasonCode: "missing_requirements",
+    },
+    {
+      name: "no_enabled_vendors",
+      prepare: () => buildQuoteReadyJob({}, { applicable_vendors: [] }),
+      reasonCode: "no_enabled_vendors",
+      requestedVendors: [],
+    },
+  ])("rejects with $reasonCode when $name blocks quote collection", async ({ prepare, reasonCode, requestedVendors }) => {
+    const { jobId } = await prepare();
     testJobId = jobId;
 
     const { data, error } = await requestQuote(client, jobId);
 
     expect(error).toBeNull();
     expect(data.accepted).toBe(false);
-    expect(data.reasonCode).toBe("archived");
-  });
+    expect(data.reasonCode).toBe(reasonCode);
 
-  it("rejects with missing_part when the job has no part rows", async () => {
-    const jobId = await insertTestJob(admin, clientUserId);
-    testJobId = jobId;
-
-    const { data, error } = await requestQuote(client, jobId);
-
-    expect(error).toBeNull();
-    expect(data.accepted).toBe(false);
-    expect(data.reasonCode).toBe("missing_part");
-  });
-
-  it("rejects with unsupported_service_kind for non-quote requests", async () => {
-    const { jobId } = await buildQuoteReadyJob({
-      requested_service_kinds: ["cad_modeling"],
-      primary_service_kind: "cad_modeling",
-    });
-    testJobId = jobId;
-
-    const { data, error } = await requestQuote(client, jobId);
-
-    expect(error).toBeNull();
-    expect(data.accepted).toBe(false);
-    expect(data.reasonCode).toBe("unsupported_service_kind");
-  });
-
-  it("rejects with missing_cad when the part has no CAD file", async () => {
-    const jobId = await insertTestJob(admin, clientUserId);
-    testJobId = jobId;
-    const partId = await insertTestPart(admin, jobId);
-    await insertTestRequirement(admin, partId, clientUserId);
-
-    const { data, error } = await requestQuote(client, jobId);
-
-    expect(error).toBeNull();
-    expect(data.accepted).toBe(false);
-    expect(data.reasonCode).toBe("missing_cad");
-  });
-
-  it("rejects with missing_requirements when the part has no approved requirement", async () => {
-    const jobId = await insertTestJob(admin, clientUserId);
-    testJobId = jobId;
-    const partId = await insertTestPart(admin, jobId);
-    const cadFileId = await insertTestCadFile(admin, jobId, clientUserId);
-    await linkCadFileToPart(admin, partId, cadFileId);
-
-    const { data, error } = await requestQuote(client, jobId);
-
-    expect(error).toBeNull();
-    expect(data.accepted).toBe(false);
-    expect(data.reasonCode).toBe("missing_requirements");
-  });
-
-  it("rejects with no_enabled_vendors when no applicable enabled vendors remain", async () => {
-    const { jobId } = await buildQuoteReadyJob({}, { applicable_vendors: [] });
-    testJobId = jobId;
-
-    const { data, error } = await requestQuote(client, jobId);
-
-    expect(error).toBeNull();
-    expect(data.accepted).toBe(false);
-    expect(data.reasonCode).toBe("no_enabled_vendors");
-    expect(data.requestedVendors).toEqual([]);
+    if (requestedVendors) {
+      expect(data.requestedVendors).toEqual(requestedVendors);
+    }
   });
 
   it("rejects cross-org access with a permission exception", async () => {

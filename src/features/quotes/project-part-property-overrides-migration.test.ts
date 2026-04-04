@@ -61,4 +61,16 @@ describe("project part property overrides migration", () => {
     expect(loadEditableProjectPartContextSql).toContain("v_requirement");
     expect(loadEditableProjectPartContextSql).toContain("v_extraction");
   });
+
+  it("loads reset-property context through a single record before unpacking rowtypes", () => {
+    expect(normalizedSql).toContain("create or replace function public.api_reset_client_part_property_overrides(");
+    expect(normalizedSql).toContain("v_context record;");
+    expect(normalizedSql).toContain("select *");
+    expect(normalizedSql).toContain("into v_context");
+    expect(normalizedSql).toContain("from public.load_editable_project_part_context(p_job_id);");
+    expect(normalizedSql).toContain("v_job := v_context.job;");
+    expect(normalizedSql).toContain("v_part := v_context.part;");
+    expect(normalizedSql).toContain("v_requirement := v_context.requirement;");
+    expect(normalizedSql).toContain("v_extraction := v_context.extraction;");
+  });
 });

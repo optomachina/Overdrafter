@@ -514,6 +514,7 @@ security definer
 set search_path = public
 as $$
 declare
+  v_context record;
   v_job public.jobs%rowtype;
   v_part public.parts%rowtype;
   v_requirement public.approved_part_requirements%rowtype;
@@ -1012,17 +1013,14 @@ declare
   v_threads_effective text;
   v_tightest_tolerance_effective numeric;
 begin
-  select
-    context.job,
-    context.part,
-    context.requirement,
-    context.extraction
-  into
-    v_job,
-    v_part,
-    v_requirement,
-    v_extraction
-  from public.load_editable_project_part_context(p_job_id) context;
+  select *
+  into v_context
+  from public.load_editable_project_part_context(p_job_id);
+
+  v_job := v_context.job;
+  v_part := v_context.part;
+  v_requirement := v_context.requirement;
+  v_extraction := v_context.extraction;
 
   if v_requirement.id is null then
     return v_job.id;
