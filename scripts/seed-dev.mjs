@@ -792,7 +792,7 @@ async function insertSeedData(admin, users, assetFiles) {
     createOfferRow(ids.offerPublishedProto, ids.quoteResultPublishedProto, "Proto Labs", "Fastest", "Domestic", 16.1, 402.5, 6),
   ]);
 
-  await upsertRows(admin, "jobs", [
+  await updateRowsById(admin, "jobs", [
     {
       id: ids.quotedJobA,
       selected_vendor_quote_offer_id: selectedQuotedOfferRow.id,
@@ -1124,6 +1124,17 @@ async function upsertRows(admin, table, rows) {
 
   if (error) {
     throw error;
+  }
+}
+
+async function updateRowsById(admin, table, rows) {
+  for (const row of rows) {
+    const { id, ...updates } = row;
+    const { error } = await admin.from(table).update(updates).eq("id", id);
+
+    if (error) {
+      throw error;
+    }
   }
 }
 
