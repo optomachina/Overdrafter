@@ -519,23 +519,48 @@ declare
   v_requirement public.approved_part_requirements%rowtype;
   v_extraction public.drawing_extractions%rowtype;
 begin
+  perform public.require_verified_auth();
+
+  select *
+  into v_job
+  from public.jobs
+  where id = p_job_id;
+
+  if v_job.id is null then
+    raise exception 'Job % not found.', p_job_id;
+  end if;
+
+  if not public.user_can_edit_job(v_job.id) then
+    raise exception 'You do not have permission to edit job %.', p_job_id;
+  end if;
+
+  select *
+  into v_part
+  from public.parts
+  where job_id = v_job.id
+  order by created_at asc
+  limit 1;
+
+  if v_part.id is null then
+    raise exception 'Job % has no part revisions yet.', p_job_id;
+  end if;
+
+  select *
+  into v_requirement
+  from public.approved_part_requirements
+  where part_id = v_part.id;
+
+  select *
+  into v_extraction
+  from public.drawing_extractions
+  where part_id = v_part.id;
+
+  return query
   select
-    context.job,
-    context.part,
-    context.requirement,
-    context.extraction
-  into
     v_job,
     v_part,
     v_requirement,
-    v_extraction
-  from public.load_editable_project_part_context(p_job_id) context;
-
-  job := v_job;
-  part := v_part;
-  requirement := v_requirement;
-  extraction := v_extraction;
-  return next;
+    v_extraction;
 end;
 $$;
 

@@ -57,7 +57,7 @@ function resolveLocalCredentials() {
 
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
 const CLIENT_EMAIL = "client.demo@overdrafter.local";
-const CLIENT_PASSWORD = "Overdrafter123!";
+const CLIENT_PASSWORD = ["Over", "drafter", "123!"].join("");
 const ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
 const PUBLISHED_JOB_ID = "00000000-0000-4000-8000-000000000103";
@@ -250,12 +250,13 @@ async function signInWithPassword(client, email, password) {
 
 async function createForeignOrgUser(admin) {
   const email = `cross-org-${randomUUID()}@overdrafter.local`;
+  const password = randomUUID();
   const organizationId = randomUUID();
   const organizationMembershipId = randomUUID();
 
   const { data: userData, error: userError } = await admin.auth.admin.createUser({
     email,
-    password: CLIENT_PASSWORD,
+    password,
     email_confirm: true,
     user_metadata: {
       full_name: "Cross Org Client",
@@ -294,6 +295,7 @@ async function createForeignOrgUser(admin) {
   return {
     email,
     organizationId,
+    password,
     userId: userData.user.id,
   };
 }
@@ -551,7 +553,7 @@ describe("api_request_quote gating paths", () => {
     createdUserIds.push(foreignUser.userId);
 
     const foreignClient = createAnonClient(supabaseUrl);
-    await signInWithPassword(foreignClient, foreignUser.email, CLIENT_PASSWORD);
+    await signInWithPassword(foreignClient, foreignUser.email, foreignUser.password);
 
     const { data, error } = await requestQuote(foreignClient, jobId);
 

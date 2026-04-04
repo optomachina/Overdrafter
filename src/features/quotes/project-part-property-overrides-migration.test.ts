@@ -7,6 +7,12 @@ const migrationPath = path.join(
   "supabase/migrations/20260402120000_persist_project_part_property_overrides.sql",
 );
 const migrationSql = readFileSync(migrationPath, "utf8");
+const normalizedSql = migrationSql.toLowerCase();
+const functionStart = normalizedSql.indexOf(
+  "create or replace function public.load_editable_project_part_context",
+);
+const functionEnd = normalizedSql.indexOf("\n$$;", functionStart);
+const loadEditableProjectPartContextSql = normalizedSql.slice(functionStart, functionEnd);
 
 describe("project part property overrides migration", () => {
   it("drops the legacy client part request RPC overload before recreating the threaded signature", () => {
@@ -38,5 +44,21 @@ describe("project part property overrides migration", () => {
     expect(count("public.resolve_project_part_property_values(")).toBeGreaterThan(1);
     expect(count("public.build_project_part_property_snapshot(")).toBeGreaterThan(1);
     expect(count("public.load_editable_project_part_context(")).toBeGreaterThan(1);
+  });
+
+  it("loads editable project part context without recursively selecting from itself", () => {
+    expect(normalizedSql).toContain("create or replace function public.load_editable_project_part_context");
+    expect(loadEditableProjectPartContextSql).not.toContain(
+      "from public.load_editable_project_part_context(p_job_id) context;",
+    );
+  });
+
+  it("returns the loaded job, part, requirement, and extraction rows via return query", () => {
+    expect(loadEditableProjectPartContextSql).toContain("return query");
+    expect(loadEditableProjectPartContextSql).toContain("select");
+    expect(loadEditableProjectPartContextSql).toContain("v_job");
+    expect(loadEditableProjectPartContextSql).toContain("v_part");
+    expect(loadEditableProjectPartContextSql).toContain("v_requirement");
+    expect(loadEditableProjectPartContextSql).toContain("v_extraction");
   });
 });
