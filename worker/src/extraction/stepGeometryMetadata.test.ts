@@ -182,6 +182,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
       edgeIds: ["edge-001", "edge-002", "edge-003", "edge-004"],
       vertexIds: ["vertex-001", "vertex-002", "vertex-003", "vertex-004"],
     });
+    expect(result.faces[0]?.bounds[0]?.kind).toBe("unknown");
   });
 
   it("returns byte-for-byte stable normalized output for identical STEP inputs", async () => {
@@ -287,6 +288,29 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
       });
     },
   );
+
+  it("does not terminate HEADER or DATA parsing when ENDSEC appears inside quoted STEP strings", async () => {
+    const stepContent = (await loadDemoBracketFixture())
+      .replace("Open CASCADE Shape Model", "Quoted ENDSEC; Model")
+      .replace(
+        /#7 = PRODUCT\('Open CASCADE STEP translator 6\.3 1',\s*'Open CASCADE STEP translator 6\.3 1'/,
+        "#7 = PRODUCT('Quoted ENDSEC; Product','Quoted ENDSEC; Product'",
+      );
+
+    const result = normalizeStepToCanonicalGeometryMetadata({
+      stepContent,
+      sourceName: "quoted-endsec.step",
+    });
+
+    expect(result.source.declaredName).toBe("Quoted ENDSEC; Model");
+    expect(result.source.productNames).toEqual(["Quoted ENDSEC; Product"]);
+    expect(result.summary).toMatchObject({
+      bodyCount: 1,
+      faceCount: 6,
+      edgeCount: 12,
+      vertexCount: 8,
+    });
+  });
 
   it("normalizes translated and resized STEP geometry into the same typed surface", async () => {
     const baseFixture = await loadDemoBracketFixture();

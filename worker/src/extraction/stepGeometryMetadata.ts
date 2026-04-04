@@ -362,8 +362,35 @@ function makeCanonicalId(prefix: string, index: number) {
 }
 
 function extractSection(stepContent: string, sectionName: "HEADER" | "DATA") {
-  const match = stepContent.match(new RegExp(`${sectionName};([\\s\\S]*?)ENDSEC;`, "i"));
-  return match?.[1] ?? "";
+  const upperContent = stepContent.toUpperCase();
+  const sectionStart = upperContent.indexOf(`${sectionName};`);
+  if (sectionStart < 0) {
+    return "";
+  }
+
+  const contentStart = sectionStart + sectionName.length + 1;
+  let inString = false;
+
+  for (let index = contentStart; index < stepContent.length; index += 1) {
+    const character = stepContent[index]!;
+    const next = stepContent[index + 1];
+
+    if (character === "'") {
+      if (inString && next === "'") {
+        index += 1;
+        continue;
+      }
+
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString && upperContent.startsWith("ENDSEC;", index)) {
+      return stepContent.slice(contentStart, index);
+    }
+  }
+
+  return "";
 }
 
 function tokenizeStepStatements(dataSection: string): string[] {
@@ -548,7 +575,7 @@ function captureTopologyEntity(entity: StepEntity, topology: ParsedTopology) {
     case "FACE_BOUND":
     case "FACE_OUTER_BOUND": {
       topology.parsedFaceBounds.set(entity.sourceEntityId, {
-        kind: entity.type === "FACE_OUTER_BOUND" ? "outer" : "inner",
+        kind: entity.type === "FACE_OUTER_BOUND" ? "outer" : "unknown",
         loopRef: parseReference(args[1]),
       });
       break;
