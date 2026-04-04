@@ -431,19 +431,17 @@ function createProjectSummaryWorkspaceItem(input: {
 }): ClientQuoteWorkspaceItem {
   const base = createWorkspaceItemFixture();
   const offerId = `${input.jobId}-offer-1`;
-  const hasSelection =
-    input.totalPriceUsd !== null &&
-    input.totalPriceUsd !== undefined &&
-    input.leadTimeBusinessDays !== null &&
-    input.leadTimeBusinessDays !== undefined;
+  const selectedPriceUsd = input.totalPriceUsd ?? null;
+  const selectedLeadTimeBusinessDays = input.leadTimeBusinessDays ?? null;
+  const hasSelection = selectedPriceUsd !== null && selectedLeadTimeBusinessDays !== null;
   const vendorQuotes = hasSelection
     ? [
         createVendorQuoteFixture({
           resultId: `${input.jobId}-result-1`,
           offerId,
           supplier: `${input.partNumber} Supplier`,
-          totalPriceUsd: input.totalPriceUsd!,
-          leadTimeBusinessDays: input.leadTimeBusinessDays!,
+          totalPriceUsd: selectedPriceUsd,
+          leadTimeBusinessDays: selectedLeadTimeBusinessDays,
         }),
       ]
     : [];
@@ -462,8 +460,8 @@ function createProjectSummaryWorkspaceItem(input: {
       partNumber: input.partNumber,
       description: input.description,
       selectedSupplier: hasSelection ? `${input.partNumber} Supplier` : null,
-      selectedPriceUsd: hasSelection ? input.totalPriceUsd! : null,
-      selectedLeadTimeBusinessDays: hasSelection ? input.leadTimeBusinessDays! : null,
+      selectedPriceUsd,
+      selectedLeadTimeBusinessDays,
     },
     part: base.part
       ? {
@@ -491,6 +489,63 @@ function createProjectSummaryWorkspaceItem(input: {
             received_at: input.quoteStatus === "received" ? "2026-03-01T02:00:00Z" : null,
           })
         : null,
+  };
+}
+
+function createProjectJobFixture(input: {
+  jobId: string;
+  title: string;
+  selectedVendorQuoteOfferId?: string | null;
+}) {
+  return {
+    id: input.jobId,
+    organization_id: "org-1",
+    project_id: "project-1",
+    created_by: "user-1",
+    title: input.title,
+    description: null,
+    status: "ready_to_quote",
+    source: "client_home",
+    active_pricing_policy_id: null,
+    tags: [],
+    requested_service_kinds: ["manufacturing_quote"],
+    primary_service_kind: "manufacturing_quote",
+    service_notes: null,
+    requested_quote_quantities: [10],
+    requested_by_date: "2026-04-15",
+    archived_at: null,
+    created_at: "2026-03-01T00:00:00Z",
+    updated_at: "2026-03-01T00:00:00Z",
+    selected_vendor_quote_offer_id: input.selectedVendorQuoteOfferId ?? null,
+  };
+}
+
+function createProjectMembershipFixture(jobId: string) {
+  return { project_id: "project-1", job_id: jobId, created_by: "user-1" };
+}
+
+function createSelectedSummaryFixture(input: {
+  jobId: string;
+  partNumber: string;
+  description: string;
+  selectedPriceUsd?: number | null;
+  selectedLeadTimeBusinessDays?: number | null;
+}) {
+  return {
+    jobId: input.jobId,
+    partNumber: input.partNumber,
+    revision: "A",
+    description: input.description,
+    requestedServiceKinds: ["manufacturing_quote"],
+    primaryServiceKind: "manufacturing_quote",
+    serviceNotes: null,
+    quantity: 10,
+    requestedQuoteQuantities: [10],
+    requestedByDate: "2026-04-15",
+    importedBatch: null,
+    selectedSupplier: input.selectedPriceUsd === null || input.selectedPriceUsd === undefined ? null : `${input.partNumber} Supplier`,
+    selectedPriceUsd: input.selectedPriceUsd ?? null,
+    selectedLeadTimeBusinessDays: input.selectedLeadTimeBusinessDays ?? null,
   };
 }
 
@@ -735,69 +790,20 @@ describe("ClientProject", () => {
 
   it("renders a project summary with spend, critical path, coverage, and spend distribution", async () => {
     const projectJobs = [
-      {
-        id: "job-1",
-        organization_id: "org-1",
-        project_id: "project-1",
-        created_by: "user-1",
+      createProjectJobFixture({
+        jobId: "job-1",
         title: "BRKT-001",
-        description: null,
-        status: "ready_to_quote",
-        source: "client_home",
-        active_pricing_policy_id: null,
-        tags: [],
-        requested_service_kinds: ["manufacturing_quote"],
-        primary_service_kind: "manufacturing_quote",
-        service_notes: null,
-        requested_quote_quantities: [10],
-        requested_by_date: "2026-04-15",
-        archived_at: null,
-        created_at: "2026-03-01T00:00:00Z",
-        updated_at: "2026-03-01T00:00:00Z",
-        selected_vendor_quote_offer_id: "job-1-offer-1",
-      },
-      {
-        id: "job-2",
-        organization_id: "org-1",
-        project_id: "project-1",
-        created_by: "user-1",
+        selectedVendorQuoteOfferId: "job-1-offer-1",
+      }),
+      createProjectJobFixture({
+        jobId: "job-2",
         title: "BRKT-002",
-        description: null,
-        status: "ready_to_quote",
-        source: "client_home",
-        active_pricing_policy_id: null,
-        tags: [],
-        requested_service_kinds: ["manufacturing_quote"],
-        primary_service_kind: "manufacturing_quote",
-        service_notes: null,
-        requested_quote_quantities: [10],
-        requested_by_date: "2026-04-15",
-        archived_at: null,
-        created_at: "2026-03-01T00:00:00Z",
-        updated_at: "2026-03-01T00:00:00Z",
-        selected_vendor_quote_offer_id: "job-2-offer-1",
-      },
-      {
-        id: "job-3",
-        organization_id: "org-1",
-        project_id: "project-1",
-        created_by: "user-1",
+        selectedVendorQuoteOfferId: "job-2-offer-1",
+      }),
+      createProjectJobFixture({
+        jobId: "job-3",
         title: "BRKT-003",
-        description: null,
-        status: "ready_to_quote",
-        source: "client_home",
-        active_pricing_policy_id: null,
-        tags: [],
-        requested_service_kinds: ["manufacturing_quote"],
-        primary_service_kind: "manufacturing_quote",
-        service_notes: null,
-        requested_quote_quantities: [10],
-        requested_by_date: "2026-04-15",
-        archived_at: null,
-        created_at: "2026-03-01T00:00:00Z",
-        updated_at: "2026-03-01T00:00:00Z",
-        selected_vendor_quote_offer_id: null,
-      },
+      }),
     ];
 
     api.fetchAccessibleProjects.mockResolvedValueOnce([
@@ -816,59 +822,30 @@ describe("ClientProject", () => {
     ]);
     api.fetchAccessibleJobs.mockResolvedValueOnce(projectJobs);
     api.fetchJobPartSummariesByJobIds.mockResolvedValueOnce([
-      {
+      createSelectedSummaryFixture({
         jobId: "job-1",
         partNumber: "BRKT-001",
-        revision: "A",
         description: "Primary bracket",
-        requestedServiceKinds: ["manufacturing_quote"],
-        primaryServiceKind: "manufacturing_quote",
-        serviceNotes: null,
-        quantity: 10,
-        requestedQuoteQuantities: [10],
-        requestedByDate: "2026-04-15",
-        importedBatch: null,
-        selectedSupplier: "BRKT-001 Supplier",
         selectedPriceUsd: 1200,
         selectedLeadTimeBusinessDays: 14,
-      },
-      {
+      }),
+      createSelectedSummaryFixture({
         jobId: "job-2",
         partNumber: "BRKT-002",
-        revision: "A",
         description: "Support arm",
-        requestedServiceKinds: ["manufacturing_quote"],
-        primaryServiceKind: "manufacturing_quote",
-        serviceNotes: null,
-        quantity: 10,
-        requestedQuoteQuantities: [10],
-        requestedByDate: "2026-04-15",
-        importedBatch: null,
-        selectedSupplier: "BRKT-002 Supplier",
         selectedPriceUsd: 800,
         selectedLeadTimeBusinessDays: 22,
-      },
-      {
+      }),
+      createSelectedSummaryFixture({
         jobId: "job-3",
         partNumber: "BRKT-003",
-        revision: "A",
         description: "Cover plate",
-        requestedServiceKinds: ["manufacturing_quote"],
-        primaryServiceKind: "manufacturing_quote",
-        serviceNotes: null,
-        quantity: 10,
-        requestedQuoteQuantities: [10],
-        requestedByDate: "2026-04-15",
-        importedBatch: null,
-        selectedSupplier: null,
-        selectedPriceUsd: null,
-        selectedLeadTimeBusinessDays: null,
-      },
+      }),
     ]);
     api.fetchProjectJobMembershipsByJobIds.mockResolvedValueOnce([
-      { project_id: "project-1", job_id: "job-1", created_by: "user-1" },
-      { project_id: "project-1", job_id: "job-2", created_by: "user-1" },
-      { project_id: "project-1", job_id: "job-3", created_by: "user-1" },
+      createProjectMembershipFixture("job-1"),
+      createProjectMembershipFixture("job-2"),
+      createProjectMembershipFixture("job-3"),
     ]);
     api.fetchJobsByProject.mockResolvedValueOnce(projectJobs);
     api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([

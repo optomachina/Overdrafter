@@ -146,15 +146,19 @@ type ProjectSummaryPanelProps = {
   summary: ProjectSummaryModel;
 };
 
-function ProjectSummaryPanel({ summary }: ProjectSummaryPanelProps) {
-  const statCards = [
+function formatPartCountLabel(count: number, suffix = "part") {
+  return `${count} ${suffix}${count === 1 ? "" : "s"}`;
+}
+
+function buildProjectSummaryStatCards(summary: ProjectSummaryModel) {
+  const selectedCountLabel = formatPartCountLabel(summary.selectedCount);
+  const totalPartLabel = formatPartCountLabel(summary.totalCount);
+
+  return [
     {
       label: "Total spend",
       value: formatCurrencyLabel(summary.totalSpendUsd),
-      caption:
-        summary.selectedCount > 0
-          ? `${summary.selectedCount} selected part${summary.selectedCount === 1 ? "" : "s"}`
-          : "No selections yet",
+      caption: summary.selectedCount > 0 ? `${selectedCountLabel} selected` : "No selections yet",
     },
     {
       label: "Critical path",
@@ -164,14 +168,71 @@ function ProjectSummaryPanel({ summary }: ProjectSummaryPanelProps) {
     {
       label: "Quoted",
       value: formatPercentageLabel(summary.quotedPercent),
-      caption: `${summary.quotedCount}/${summary.totalCount} part${summary.totalCount === 1 ? "" : "s"}`,
+      caption: `${summary.quotedCount} of ${totalPartLabel}`,
     },
     {
       label: "Selections made",
       value: formatPercentageLabel(summary.selectedPercent),
-      caption: `${summary.selectedCount}/${summary.totalCount} part${summary.totalCount === 1 ? "" : "s"}`,
+      caption: `${summary.selectedCount} of ${totalPartLabel}`,
     },
   ];
+}
+
+function buildProjectSummaryBadgeModel(summary: ProjectSummaryModel) {
+  return {
+    quoteCoverage:
+      summary.unquotedCount > 0
+        ? {
+            className: "border border-amber-400/25 bg-amber-500/10 text-amber-100",
+            label: `${formatPartCountLabel(summary.unquotedCount)} unquoted`,
+          }
+        : {
+            className: "border border-emerald-400/25 bg-emerald-500/10 text-emerald-100",
+            label: "All parts quoted",
+          },
+    selectionCoverage:
+      summary.pendingSelectionCount > 0
+        ? {
+            className: "border border-white/10 bg-white/6 text-white/75",
+            label: `${formatPartCountLabel(summary.pendingSelectionCount, "pending selection")}`,
+          }
+        : {
+            className: "border border-emerald-400/25 bg-emerald-500/10 text-emerald-100",
+            label: "All selections made",
+          },
+  };
+}
+
+function buildProjectSummaryCallouts(summary: ProjectSummaryModel) {
+  return [
+    summary.unquotedCount > 0
+      ? `${formatPartCountLabel(summary.unquotedCount)}${summary.unquotedCount === 1 ? " has" : " have"} not been quoted yet.`
+      : "Every part in this project has at least one quote.",
+    summary.pendingSelectionCount > 0
+      ? `${formatPartCountLabel(summary.pendingSelectionCount, "quoted part")}${summary.pendingSelectionCount === 1 ? " still needs" : " still need"} a selected option.`
+      : "A selection has been made for every quoted part.",
+    summary.criticalPathLabel && summary.criticalPathDays !== null
+      ? `${summary.criticalPathLabel} sets the schedule at ${summary.criticalPathDays} business days.`
+      : "Select at least one quote option to establish the current project critical path.",
+  ];
+}
+
+function renderSpendDistributionLabel(row: ProjectSummaryPartRow) {
+  if (row.isCriticalPath) {
+    return "Critical path";
+  }
+
+  if (row.hasSelection) {
+    return "Selected";
+  }
+
+  return "No selection";
+}
+
+function ProjectSummaryPanel({ summary }: Readonly<ProjectSummaryPanelProps>) {
+  const statCards = buildProjectSummaryStatCards(summary);
+  const badges = buildProjectSummaryBadgeModel(summary);
+  const callouts = buildProjectSummaryCallouts(summary);
 
   return (
     <section className="rounded-lg border border-ws-border-subtle bg-ws-card p-4" aria-label="Project summary">
@@ -183,24 +244,8 @@ function ProjectSummaryPanel({ summary }: ProjectSummaryPanelProps) {
           </h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {summary.unquotedCount > 0 ? (
-            <Badge className="border border-amber-400/25 bg-amber-500/10 text-amber-100">
-              {summary.unquotedCount} part{summary.unquotedCount === 1 ? "" : "s"} unquoted
-            </Badge>
-          ) : (
-            <Badge className="border border-emerald-400/25 bg-emerald-500/10 text-emerald-100">
-              All parts quoted
-            </Badge>
-          )}
-          {summary.pendingSelectionCount > 0 ? (
-            <Badge className="border border-white/10 bg-white/6 text-white/75">
-              {summary.pendingSelectionCount} pending selection{summary.pendingSelectionCount === 1 ? "" : "s"}
-            </Badge>
-          ) : (
-            <Badge className="border border-emerald-400/25 bg-emerald-500/10 text-emerald-100">
-              All selections made
-            </Badge>
-          )}
+          <Badge className={badges.quoteCoverage.className}>{badges.quoteCoverage.label}</Badge>
+          <Badge className={badges.selectionCoverage.className}>{badges.selectionCoverage.label}</Badge>
         </div>
       </div>
 
@@ -235,9 +280,7 @@ function ProjectSummaryPanel({ summary }: ProjectSummaryPanelProps) {
                   <div className="flex items-center justify-between gap-3 text-sm">
                     <div className="min-w-0">
                       <p className="truncate font-medium text-white">{row.label}</p>
-                      <p className="text-xs text-white/45">
-                        {row.isCriticalPath ? "Critical path" : row.hasSelection ? "Selected" : "No selection"}
-                      </p>
+                      <p className="text-xs text-white/45">{renderSpendDistributionLabel(row)}</p>
                     </div>
                     <div className="text-right">
                       <p className="font-medium text-white">{formatCurrencyLabel(row.spendUsd)}</p>
@@ -266,21 +309,9 @@ function ProjectSummaryPanel({ summary }: ProjectSummaryPanelProps) {
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
           <p className="text-sm font-medium text-white">Summary callouts</p>
           <div className="mt-4 space-y-3 text-sm text-white/65">
-            <p>
-              {summary.unquotedCount > 0
-                ? `${summary.unquotedCount} part${summary.unquotedCount === 1 ? " has" : "s have"} not been quoted yet.`
-                : "Every part in this project has at least one quote."}
-            </p>
-            <p>
-              {summary.pendingSelectionCount > 0
-                ? `${summary.pendingSelectionCount} quoted part${summary.pendingSelectionCount === 1 ? "" : "s"} still need a selected option.`
-                : "A selection has been made for every quoted part."}
-            </p>
-            <p>
-              {summary.criticalPathLabel && summary.criticalPathDays !== null
-                ? `${summary.criticalPathLabel} sets the schedule at ${summary.criticalPathDays} business days.`
-                : "Select at least one quote option to establish the current project critical path."}
-            </p>
+            {callouts.map((callout) => (
+              <p key={callout}>{callout}</p>
+            ))}
           </div>
         </div>
       </div>
