@@ -192,7 +192,7 @@ type FaceMaterializationContext = {
 type StepQuoteParseResult = {
   current: string;
   inString: boolean;
-  nextIndex: number;
+  advance: number;
 };
 
 function splitTopLevel(value: string, delimiter = ","): string[] {
@@ -213,7 +213,7 @@ function splitTopLevel(value: string, delimiter = ","): string[] {
       const quote = consumeStepQuote(value, index, current, inString);
       current = quote.current;
       inString = quote.inString;
-      index = quote.nextIndex + 1;
+      index += quote.advance;
       continue;
     }
 
@@ -383,10 +383,10 @@ function consumeStepQuote(
 
   if (inString && next === "'") {
     nextCurrent += next;
-    return { current: nextCurrent, inString, nextIndex: index + 1 };
+    return { current: nextCurrent, inString, advance: 2 };
   }
 
-  return { current: nextCurrent, inString: !inString, nextIndex: index };
+  return { current: nextCurrent, inString: !inString, advance: 1 };
 }
 
 function updateStepDepth(depth: number, character: string) {
@@ -422,7 +422,7 @@ function extractSection(stepContent: string, sectionName: "HEADER" | "DATA") {
     if (character === "'") {
       const quote = consumeStepQuote(stepContent, index, "", inString);
       inString = quote.inString;
-      index = quote.nextIndex + 1;
+      index += quote.advance;
       continue;
     }
 
@@ -467,7 +467,7 @@ function tokenizeStepStatements(dataSection: string): string[] {
       const quote = consumeStepQuote(dataSection, index, current, inString);
       current = quote.current;
       inString = quote.inString;
-      index = quote.nextIndex + 1;
+      index += quote.advance;
       continue;
     }
 
