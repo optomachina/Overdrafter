@@ -68,6 +68,15 @@ function insertBeforeEndsec(stepContent: string, insertion: string) {
   return stepContent.replace("ENDSEC;", `${insertion}\nENDSEC;`);
 }
 
+function insertBeforeDataEndsec(stepContent: string, insertion: string) {
+  const endsecIndex = stepContent.lastIndexOf("ENDSEC;");
+  if (endsecIndex < 0) {
+    return stepContent;
+  }
+
+  return `${stepContent.slice(0, endsecIndex)}${insertion}\n${stepContent.slice(endsecIndex)}`;
+}
+
 function buildImperialFixture(stepContent: string, unitName: "inch" | "foot") {
   const conversionFactor = unitName === "inch" ? "25.4" : "304.8";
   const withUnitOverrides = replaceEntityAssignment(
@@ -309,6 +318,56 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
       faceCount: 6,
       edgeCount: 12,
       vertexCount: 8,
+    });
+  });
+
+  it("does not start DATA parsing from quoted DATA markers inside header strings", async () => {
+    const stepContent = (await loadDemoBracketFixture())
+      .replace("Open CASCADE Shape Model", "Quoted DATA; Model")
+      .replace(
+        /#7 = PRODUCT\('Open CASCADE STEP translator 6\.3 1',\s*'Open CASCADE STEP translator 6\.3 1'/,
+        "#7 = PRODUCT('Quoted DATA; Product','Quoted DATA; Product'",
+      );
+
+    const result = normalizeStepToCanonicalGeometryMetadata({
+      stepContent,
+      sourceName: "quoted-data.step",
+    });
+
+    expect(result.source.declaredName).toBe("Quoted DATA; Model");
+    expect(result.source.productNames).toEqual(["Quoted DATA; Product"]);
+    expect(result.summary).toMatchObject({
+      bodyCount: 1,
+      faceCount: 6,
+      edgeCount: 12,
+      vertexCount: 8,
+    });
+  });
+
+  it("includes unattached materialized vertices in the overall bounding box", async () => {
+    const stepContent = insertBeforeDataEndsec(
+      await loadDemoBracketFixture(),
+      ["#351 = CARTESIAN_POINT('',(50.,50.,50.));", "#352 = VERTEX_POINT('',#351);"].join("\n"),
+    );
+
+    const result = normalizeStepToCanonicalGeometryMetadata({
+      stepContent,
+      sourceName: "detached-vertex.step",
+    });
+
+    expect(result.summary).toMatchObject({
+      bodyCount: 1,
+      vertexCount: 9,
+    });
+    expect(result.boundingBox).toEqual({
+      min: { x: -1, y: -1, z: -1 },
+      max: { x: 50, y: 50, z: 50 },
+      size: { x: 51, y: 51, z: 51 },
+    });
+    expect(result.bodies[0]?.boundingBox).toEqual({
+      min: { x: -1, y: -1, z: -1 },
+      max: { x: 1, y: 1, z: 1 },
+      size: { x: 2, y: 2, z: 2 },
     });
   });
 

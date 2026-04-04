@@ -195,6 +195,12 @@ type StepQuoteParseResult = {
   advance: number;
 };
 
+type TopologyEntityHandler = (
+  entity: StepEntity,
+  args: string[],
+  topology: ParsedTopology,
+) => void;
+
 function splitTopLevel(value: string, delimiter = ","): string[] {
   const parts: string[] = [];
   let current = "";
@@ -389,6 +395,34 @@ function consumeStepQuote(
   return { current: nextCurrent, inString: !inString, advance: 1 };
 }
 
+function findStepTokenOutsideQuotes(source: string, token: string, startIndex = 0) {
+  let inString = false;
+  let index = startIndex;
+
+  while (index < source.length) {
+    const character = source[index];
+    if (character === undefined) {
+      index += 1;
+      continue;
+    }
+
+    if (character === "'") {
+      const quote = consumeStepQuote(source, index, "", inString);
+      inString = quote.inString;
+      index += quote.advance;
+      continue;
+    }
+
+    if (!inString && source.startsWith(token, index)) {
+      return index;
+    }
+
+    index += 1;
+  }
+
+  return -1;
+}
+
 function updateStepDepth(depth: number, character: string) {
   if (character === "(") {
     return depth + 1;
@@ -403,36 +437,16 @@ function updateStepDepth(depth: number, character: string) {
 
 function extractSection(stepContent: string, sectionName: "HEADER" | "DATA") {
   const upperContent = stepContent.toUpperCase();
-  const sectionStart = upperContent.indexOf(`${sectionName};`);
+  const sectionStart = findStepTokenOutsideQuotes(upperContent, `${sectionName};`);
   if (sectionStart < 0) {
     return "";
   }
 
   const contentStart = sectionStart + sectionName.length + 1;
-  let inString = false;
-  let index = contentStart;
-
-  while (index < stepContent.length) {
-    const character = stepContent[index];
-    if (character === undefined) {
-      index += 1;
-      continue;
-    }
-
-    if (character === "'") {
-      const quote = consumeStepQuote(stepContent, index, "", inString);
-      inString = quote.inString;
-      index += quote.advance;
-      continue;
-    }
-
-    if (!inString && upperContent.startsWith("ENDSEC;", index)) {
-      return stepContent.slice(contentStart, index);
-    }
-
-    index += 1;
+  const sectionEnd = findStepTokenOutsideQuotes(upperContent, "ENDSEC;", contentStart);
+  if (sectionEnd >= 0) {
+    return stepContent.slice(contentStart, sectionEnd);
   }
-
   return "";
 }
 
@@ -570,95 +584,111 @@ function parseOrientedEdgeOrientation(token: string | undefined): ParsedOriented
   return "unknown";
 }
 
-function captureTopologyEntity(entity: StepEntity, topology: ParsedTopology) {
-  const args = splitTopLevel(entity.args ?? "");
-
-  switch (entity.type) {
-    case "CARTESIAN_POINT": {
-      const numbers = parseTupleNumbers(args[1]);
-      const [x, y, z] = numbers;
-      if (x !== undefined && y !== undefined && z !== undefined) {
-        topology.cartesianPoints.set(entity.sourceEntityId, {
-          x,
-          y,
-          z,
-        });
-      }
-      break;
-    }
-    case "VERTEX_POINT": {
-      topology.parsedVertices.set(entity.sourceEntityId, {
-        sourceEntityId: entity.sourceEntityId,
-        cartesianPointRef: parseReference(args[1]),
-      });
-      break;
-    }
-    case "EDGE_CURVE": {
-      topology.parsedEdges.set(entity.sourceEntityId, {
-        sourceEntityId: entity.sourceEntityId,
-        startVertexRef: parseReference(args[1]),
-        endVertexRef: parseReference(args[2]),
-        curveRef: parseReference(args[3]),
-      });
-      break;
-    }
-    case "ORIENTED_EDGE": {
-      topology.parsedOrientedEdges.set(entity.sourceEntityId, {
-        edgeRef: parseReference(args[3]),
-        orientation: parseOrientedEdgeOrientation(args[4]),
-      });
-      break;
-    }
-    case "EDGE_LOOP": {
-      topology.parsedEdgeLoops.set(entity.sourceEntityId, parseReferenceList(args[1]));
-      break;
-    }
-    case "FACE_BOUND":
-    case "FACE_OUTER_BOUND": {
-      topology.parsedFaceBounds.set(entity.sourceEntityId, {
-        kind: entity.type === "FACE_OUTER_BOUND" ? "outer" : "unknown",
-        loopRef: parseReference(args[1]),
-      });
-      break;
-    }
-    case "ADVANCED_FACE": {
-      topology.parsedFaces.set(entity.sourceEntityId, {
-        sourceEntityId: entity.sourceEntityId,
-        boundRefs: parseReferenceList(args[1]),
-        surfaceRef: parseReference(args[2]),
-        orientation: parseBooleanToken(args[3]),
-      });
-      break;
-    }
-    case "CLOSED_SHELL":
-    case "OPEN_SHELL": {
-      topology.parsedShells.set(entity.sourceEntityId, {
-        sourceEntityId: entity.sourceEntityId,
-        closure: entity.type === "CLOSED_SHELL" ? "closed" : "open",
-        faceRefs: parseReferenceList(args[1]),
-      });
-      break;
-    }
-    case "MANIFOLD_SOLID_BREP":
-    case "FACETED_BREP": {
-      topology.parsedBodies.set(entity.sourceEntityId, {
-        sourceEntityId: entity.sourceEntityId,
-        kind: "solid",
-        shellRefs: parseReferenceList(args[1]),
-      });
-      break;
-    }
-    case "SHELL_BASED_SURFACE_MODEL": {
-      topology.parsedBodies.set(entity.sourceEntityId, {
-        sourceEntityId: entity.sourceEntityId,
-        kind: "surface",
-        shellRefs: parseReferenceList(args[1]),
-      });
-      break;
-    }
-    default:
-      break;
+function handleCartesianPoint(entity: StepEntity, args: string[], topology: ParsedTopology) {
+  const numbers = parseTupleNumbers(args[1]);
+  const [x, y, z] = numbers;
+  if (x === undefined || y === undefined || z === undefined) {
+    return;
   }
+
+  topology.cartesianPoints.set(entity.sourceEntityId, { x, y, z });
+}
+
+function handleVertexPoint(entity: StepEntity, args: string[], topology: ParsedTopology) {
+  topology.parsedVertices.set(entity.sourceEntityId, {
+    sourceEntityId: entity.sourceEntityId,
+    cartesianPointRef: parseReference(args[1]),
+  });
+}
+
+function handleEdgeCurve(entity: StepEntity, args: string[], topology: ParsedTopology) {
+  topology.parsedEdges.set(entity.sourceEntityId, {
+    sourceEntityId: entity.sourceEntityId,
+    startVertexRef: parseReference(args[1]),
+    endVertexRef: parseReference(args[2]),
+    curveRef: parseReference(args[3]),
+  });
+}
+
+function handleOrientedEdge(entity: StepEntity, args: string[], topology: ParsedTopology) {
+  topology.parsedOrientedEdges.set(entity.sourceEntityId, {
+    edgeRef: parseReference(args[3]),
+    orientation: parseOrientedEdgeOrientation(args[4]),
+  });
+}
+
+function handleEdgeLoop(entity: StepEntity, args: string[], topology: ParsedTopology) {
+  topology.parsedEdgeLoops.set(entity.sourceEntityId, parseReferenceList(args[1]));
+}
+
+function handleFaceBound(entity: StepEntity, args: string[], topology: ParsedTopology) {
+  topology.parsedFaceBounds.set(entity.sourceEntityId, {
+    kind: entity.type === "FACE_OUTER_BOUND" ? "outer" : "unknown",
+    loopRef: parseReference(args[1]),
+  });
+}
+
+function handleAdvancedFace(entity: StepEntity, args: string[], topology: ParsedTopology) {
+  topology.parsedFaces.set(entity.sourceEntityId, {
+    sourceEntityId: entity.sourceEntityId,
+    boundRefs: parseReferenceList(args[1]),
+    surfaceRef: parseReference(args[2]),
+    orientation: parseBooleanToken(args[3]),
+  });
+}
+
+function handleShell(entity: StepEntity, args: string[], topology: ParsedTopology) {
+  topology.parsedShells.set(entity.sourceEntityId, {
+    sourceEntityId: entity.sourceEntityId,
+    closure: entity.type === "CLOSED_SHELL" ? "closed" : "open",
+    faceRefs: parseReferenceList(args[1]),
+  });
+}
+
+function setParsedBody(
+  entity: StepEntity,
+  args: string[],
+  topology: ParsedTopology,
+  kind: ParsedBody["kind"],
+) {
+  topology.parsedBodies.set(entity.sourceEntityId, {
+    sourceEntityId: entity.sourceEntityId,
+    kind,
+    shellRefs: parseReferenceList(args[1]),
+  });
+}
+
+function handleSolidBody(entity: StepEntity, args: string[], topology: ParsedTopology) {
+  setParsedBody(entity, args, topology, "solid");
+}
+
+function handleSurfaceBody(entity: StepEntity, args: string[], topology: ParsedTopology) {
+  setParsedBody(entity, args, topology, "surface");
+}
+
+const TOPOLOGY_ENTITY_HANDLERS: Partial<Record<StepEntity["type"], TopologyEntityHandler>> = {
+  CARTESIAN_POINT: handleCartesianPoint,
+  VERTEX_POINT: handleVertexPoint,
+  EDGE_CURVE: handleEdgeCurve,
+  ORIENTED_EDGE: handleOrientedEdge,
+  EDGE_LOOP: handleEdgeLoop,
+  FACE_BOUND: handleFaceBound,
+  FACE_OUTER_BOUND: handleFaceBound,
+  ADVANCED_FACE: handleAdvancedFace,
+  CLOSED_SHELL: handleShell,
+  OPEN_SHELL: handleShell,
+  MANIFOLD_SOLID_BREP: handleSolidBody,
+  FACETED_BREP: handleSolidBody,
+  SHELL_BASED_SURFACE_MODEL: handleSurfaceBody,
+};
+
+function captureTopologyEntity(entity: StepEntity, topology: ParsedTopology) {
+  const handler = TOPOLOGY_ENTITY_HANDLERS[entity.type];
+  if (!handler) {
+    return;
+  }
+
+  handler(entity, splitTopLevel(entity.args ?? ""), topology);
 }
 
 function ensureBodiesForShells(parsedShells: Map<string, ParsedShell>, parsedBodies: Map<string, ParsedBody>) {
@@ -954,7 +984,7 @@ function buildOverallBoundingBox(
   vertexById: Map<string, CanonicalVertexGeometry>,
 ) {
   const bodyPoints = bodies.flatMap((body) => collectVertexPositions(body.vertexIds, vertexById));
-  return buildBoundingBox(bodyPoints.length > 0 ? bodyPoints : vertices.map((vertex) => vertex.position));
+  return buildBoundingBox([...bodyPoints, ...vertices.map((vertex) => vertex.position)]);
 }
 
 function buildSummary(
