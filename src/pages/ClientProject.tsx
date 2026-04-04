@@ -144,7 +144,7 @@ function ProjectInspectorContent({
                   focusedWorkspaceItem.part?.approvedRequirement?.description ??
                   focusedWorkspaceItem.summary?.description ??
                   focusedWorkspaceItem.part?.name ??
-                  "Inspector shell only until OVD-81c wires real content."}
+                  "Quick preview for the selected part."}
               </p>
             </>
           ) : (
@@ -226,7 +226,7 @@ function ProjectInspectorContent({
                   className="w-full rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
                   onClick={onOpenPartWorkspace}
                 >
-                  Open part workspace
+                  Full workspace
                 </Button>
               </div>
             ) : (
@@ -326,6 +326,18 @@ const ClientProject = () => {
     role: activeMembership?.role,
     userId: user?.id,
   });
+
+  const navigateToPartDestination = (jobId: string) => {
+    const job = accessibleJobs.find((candidate) => candidate.id === jobId);
+    const projectIdForPart = job ? resolveSidebarProjectIdsForJob(job)[0] ?? null : null;
+
+    if (projectIdForPart) {
+      navigate(`/projects/${projectIdForPart}?part=${jobId}`);
+      return;
+    }
+
+    navigate(`/parts/${jobId}`);
+  };
 
   const quoteRequestViewModelsByJobId = useMemo(
     () =>
@@ -583,7 +595,7 @@ const ClientProject = () => {
             scopedProject={scopedProject}
             resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
             onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
-            onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+            onSelectPart={navigateToPartDestination}
           />
         }
         sidebarRailActions={[
@@ -616,7 +628,7 @@ const ClientProject = () => {
             onArchiveProject={handleArchiveProject}
             onDissolveProject={handleDissolveProject}
             onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
-            onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+            onSelectPart={navigateToPartDestination}
             onPrefetchProject={prefetchProject}
             onPrefetchPart={prefetchPart}
             resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
@@ -954,7 +966,7 @@ const ClientProject = () => {
         jobs={accessibleJobs}
         summariesByJobId={summariesByJobId}
         onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
-        onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+        onSelectPart={navigateToPartDestination}
       />
 
       <input

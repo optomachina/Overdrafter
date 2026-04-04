@@ -265,7 +265,12 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
 function buildProjectTree(initialEntry: string, queryClient: QueryClient) {
   function LocationProbe() {
     const location = useLocation();
-    return <div data-testid="location-path">{location.pathname}</div>;
+    return (
+      <>
+        <div data-testid="location-path">{location.pathname}</div>
+        <div data-testid="location-search">{location.search}</div>
+      </>
+    );
   }
 
   return (
@@ -619,7 +624,7 @@ describe("ClientProject", () => {
     expect(within(inspector).getByText("2x 1/4-20 UNC")).toBeInTheDocument();
     expect(within(inspector).getByText("Tightest tolerance")).toBeInTheDocument();
     expect(within(inspector).getByText("±0.0050 in")).toBeInTheDocument();
-    expect(within(inspector).getByRole("button", { name: "Open part workspace" })).toBeInTheDocument();
+    expect(within(inspector).getByRole("button", { name: "Full workspace" })).toBeInTheDocument();
     expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-1");
   });
 
@@ -631,7 +636,7 @@ describe("ClientProject", () => {
     });
 
     fireEvent.click(screen.getByText("BRKT-001"));
-    fireEvent.click(screen.getByRole("button", { name: "Open part workspace" }));
+    fireEvent.click(screen.getByRole("button", { name: "Full workspace" }));
 
     await waitFor(() => {
       expect(screen.getByTestId("location-path")).toHaveTextContent("/parts/job-1");
@@ -647,6 +652,21 @@ describe("ClientProject", () => {
     await waitFor(() => {
       expect(screen.getByTestId("location-path")).toHaveTextContent("/parts/job-1");
     });
+  });
+
+  it("hydrates the quick preview from the project route query param", async () => {
+    renderWithClient("/projects/project-1?part=job-1");
+
+    await waitFor(() => {
+      expect(screen.getAllByText("BRKT-001").length).toBeGreaterThan(0);
+    });
+
+    const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+    const selectedRow = screen.getAllByText("BRKT-001")[0]?.closest("tr");
+    expect(selectedRow).toHaveAttribute("aria-selected", "true");
+    expect(within(inspector).getByRole("heading", { name: "BRKT-001" })).toBeInTheDocument();
+    expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-1");
+    expect(screen.getByTestId("location-search")).toHaveTextContent("?part=job-1");
   });
 
   it("falls back to requirement metadata when the summary is missing", async () => {
@@ -821,7 +841,7 @@ describe("ClientProject", () => {
     expect(within(inspectorSheet).getAllByText("Machined mounting bracket").length).toBeGreaterThan(0);
     expect(within(inspectorSheet).getByText("Material")).toBeInTheDocument();
     expect(within(inspectorSheet).getByText("6061-T6")).toBeInTheDocument();
-    expect(within(inspectorSheet).getByRole("button", { name: "Open part workspace" })).toBeInTheDocument();
+    expect(within(inspectorSheet).getByRole("button", { name: "Full workspace" })).toBeInTheDocument();
     expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-1");
   });
 
@@ -1195,7 +1215,8 @@ describe("ClientProject", () => {
     fireEvent.click(screen.getByText("VALV-001 rev B"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("location-path")).toHaveTextContent("/parts/job-2");
+      expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-2");
+      expect(screen.getByTestId("location-search")).toHaveTextContent("?part=job-2");
     });
   });
 

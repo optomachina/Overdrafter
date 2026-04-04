@@ -246,6 +246,18 @@ const ClientPart = () => {
     role: activeMembership?.role,
     userId: user?.id,
   });
+
+  const navigateToPartDestination = (nextJobId: string) => {
+    const job = accessibleJobs.find((candidate) => candidate.id === nextJobId);
+    const projectId = job ? resolveSidebarProjectIdsForJob(job)[0] ?? null : null;
+
+    if (projectId) {
+      navigate(`/projects/${projectId}?part=${nextJobId}`);
+      return;
+    }
+
+    navigate(`/parts/${nextJobId}`);
+  };
   const storageScopeKey = user?.id ?? "anonymous";
 
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(selectedQuoteOption?.offerId ?? null);
@@ -453,7 +465,7 @@ const ClientPart = () => {
             onArchiveProject={handleArchiveProject}
             onDissolveProject={handleDissolveProject}
             onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
-            onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+            onSelectPart={navigateToPartDestination}
             onPrefetchProject={prefetchProject}
             onPrefetchPart={prefetchPart}
             resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
@@ -894,7 +906,7 @@ const ClientPart = () => {
         jobs={accessibleJobs}
         summariesByJobId={summariesByJobId}
         onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
-        onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+        onSelectPart={navigateToPartDestination}
       />
 
       <input
