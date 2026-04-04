@@ -278,14 +278,16 @@ function parseTupleNumbers(token: string | undefined): number[] {
     return [];
   }
 
-  const match = token.match(/\(([^()]*)\)/s);
-  if (!match) {
+  const start = token.indexOf("(");
+  const end = token.lastIndexOf(")");
+  if (start < 0 || end <= start) {
     return [];
   }
 
-  const numberMatches = match[1]!.match(/[-+]?(?:\d+\.\d*|\d+|\.\d+)(?:E[-+]?\d+)?/gi) ?? [];
-  return numberMatches
-    .map((entry) => Number.parseFloat(entry))
+  return token
+    .slice(start + 1, end)
+    .split(",")
+    .map((entry) => Number.parseFloat(entry.trim()))
     .filter((entry) => Number.isFinite(entry));
 }
 
@@ -402,14 +404,21 @@ function parseStepEntities(dataSection: string): StepEntity[] {
     current = "";
     collecting = false;
 
-    const match = statement.match(/^#(\d+)\s*=\s*([\s\S]+)$/);
-    if (!match) {
+    const equalsIndex = statement.indexOf("=");
+    if (!statement.startsWith("#") || equalsIndex <= 1) {
       continue;
     }
 
-    const sourceEntityNumericId = Number.parseInt(match[1]!, 10);
+    const sourceEntityNumericId = Number.parseInt(
+      statement.slice(1, equalsIndex).trim(),
+      10,
+    );
+    if (!Number.isFinite(sourceEntityNumericId)) {
+      continue;
+    }
+
     const sourceEntityId = `#${sourceEntityNumericId}`;
-    const rawValue = match[2]!.trim();
+    const rawValue = statement.slice(equalsIndex + 1).trim();
 
     if (rawValue.startsWith("(")) {
       entities.push({
