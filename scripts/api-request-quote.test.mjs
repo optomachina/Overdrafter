@@ -8,17 +8,14 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
-
-// ---------------------------------------------------------------------------
-// Credential resolution — mirrors scripts/seed-dev.mjs
-// ---------------------------------------------------------------------------
 
 function resolveLocalCredentials() {
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.API_URL;
@@ -58,21 +55,13 @@ function resolveLocalCredentials() {
   return { supabaseUrl: url, serviceRoleKey: key };
 }
 
-// ---------------------------------------------------------------------------
-// Test constants — deterministic IDs matching scripts/seed-dev.mjs
-// ---------------------------------------------------------------------------
-
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
 const CLIENT_EMAIL = "client.demo@overdrafter.local";
 const CLIENT_PASSWORD = "Overdrafter123!";
 const ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
+const PUBLISHED_JOB_ID = "00000000-0000-4000-8000-000000000103";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Insert a minimal job owned by the signed-in user via service role. */
 async function insertTestJob(admin, userId, overrides = {}) {
   const { data, error } = await admin
     .from("jobs")
@@ -97,7 +86,6 @@ async function insertTestJob(admin, userId, overrides = {}) {
   return data.id;
 }
 
-/** Insert a part row for a job. */
 async function insertTestPart(admin, jobId, overrides = {}) {
   const { data, error } = await admin
     .from("parts")
@@ -119,7 +107,6 @@ async function insertTestPart(admin, jobId, overrides = {}) {
   return data.id;
 }
 
-/** Insert a job file (CAD) row. */
 async function insertTestCadFile(admin, jobId, uploadedBy) {
   const { data, error } = await admin
     .from("job_files")
@@ -129,12 +116,12 @@ async function insertTestCadFile(admin, jobId, uploadedBy) {
       file_kind: "cad",
       blob_id: null,
       storage_bucket: "job-files",
-      storage_path: "test/test.step",
+      storage_path: `test/${randomUUID()}.step`,
       normalized_name: "test.step",
       original_name: "test.step",
       size_bytes: 100,
       mime_type: "application/step",
-      content_sha256: "deadbeef",
+      content_sha256: randomUUID().replaceAll("-", ""),
       uploaded_by: uploadedBy,
     })
     .select("id")
@@ -147,19 +134,14 @@ async function insertTestCadFile(admin, jobId, uploadedBy) {
   return data.id;
 }
 
-/** Link a CAD file to a part. */
 async function linkCadFileToPart(admin, partId, cadFileId) {
-  const { error } = await admin
-    .from("parts")
-    .update({ cad_file_id: cadFileId })
-    .eq("id", partId);
+  const { error } = await admin.from("parts").update({ cad_file_id: cadFileId }).eq("id", partId);
 
   if (error) {
     throw new Error(`linkCadFileToPart failed: ${error.message}`);
   }
 }
 
-/** Insert an approved_part_requirements row. */
 async function insertTestRequirement(admin, partId, approvedBy, overrides = {}) {
   const { data, error } = await admin
     .from("approved_part_requirements")
@@ -187,49 +169,134 @@ async function insertTestRequirement(admin, partId, approvedBy, overrides = {}) 
   return data.id;
 }
 
-/** Delete all rows created for a test job (cascade order). */
 async function cleanupTestJob(admin, jobId) {
-  // Delete in dependency order — work_queue → vendor_quote_results → quote_runs →
-  // quote_requests → approved_part_requirements → parts → job_files → jobs
   await admin.from("work_queue").delete().eq("job_id", jobId);
-  await admin.from("vendor_quote_results").delete().eq(
-    "quote_run_id",
-    admin.from("quote_runs").select("id").eq("job_id", jobId),
-  );
 
-  const { data: runs } = await admin.from("quote_runs").select("id").eq("job_id", jobId);
-  if (runs?.length) {
-    await admin
-      .from("vendor_quote_results")
-      .delete()
-      .in(
-        "quote_run_id",
-        runs.map((r) => r.id),
-      );
+  const { data: runs, error: runsError } = await admin.from("quote_runs").select("id").eq("job_id", jobId);
+
+  if (runsError) {
+    throw new Error(`cleanupTestJob could not load quote runs: ${runsError.message}`);
   }
 
-  await admin.from("quote_runs").delete().eq("job_id", jobId);
-  await admin.from("quote_requests").delete().eq("job_id", jobId);
+  if (runs?.length) {
+    const runIds = runs.map((run) => run.id);
+    const { error: deleteResultsError } = await admin.from("vendor_quote_results").delete().in("quote_run_id", runIds);
 
-  const { data: parts } = await admin.from("parts").select("id").eq("job_id", jobId);
+    if (deleteResultsError) {
+      throw new Error(`cleanupTestJob could not delete vendor quote results: ${deleteResultsError.message}`);
+    }
+  }
+
+  const { data: parts, error: partsError } = await admin.from("parts").select("id").eq("job_id", jobId);
+
+  if (partsError) {
+    throw new Error(`cleanupTestJob could not load parts: ${partsError.message}`);
+  }
+
   if (parts?.length) {
-    await admin
+    const partIds = parts.map((part) => part.id);
+    const { error: deleteRequirementsError } = await admin
       .from("approved_part_requirements")
       .delete()
-      .in(
-        "part_id",
-        parts.map((p) => p.id),
-      );
+      .in("part_id", partIds);
+
+    if (deleteRequirementsError) {
+      throw new Error(`cleanupTestJob could not delete approved requirements: ${deleteRequirementsError.message}`);
+    }
   }
 
-  await admin.from("parts").delete().eq("job_id", jobId);
-  await admin.from("job_files").delete().eq("job_id", jobId);
-  await admin.from("jobs").delete().eq("id", jobId);
+  const deletions = [
+    admin.from("quote_runs").delete().eq("job_id", jobId),
+    admin.from("quote_requests").delete().eq("job_id", jobId),
+    admin.from("parts").delete().eq("job_id", jobId),
+    admin.from("job_files").delete().eq("job_id", jobId),
+    admin.from("jobs").delete().eq("id", jobId),
+  ];
+
+  for (const deletion of deletions) {
+    const { error } = await deletion;
+
+    if (error) {
+      throw new Error(`cleanupTestJob failed: ${error.message}`);
+    }
+  }
 }
 
-// ---------------------------------------------------------------------------
-// Test suite
-// ---------------------------------------------------------------------------
+async function countRows(admin, table, column, value) {
+  const { count, error } = await admin.from(table).select("*", { count: "exact", head: true }).eq(column, value);
+
+  if (error) {
+    throw new Error(`countRows failed for ${table}.${column}: ${error.message}`);
+  }
+
+  return count ?? 0;
+}
+
+function createAnonClient(supabaseUrl) {
+  return createClient(supabaseUrl, ANON_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+async function signInWithPassword(client, email, password) {
+  const { data, error } = await client.auth.signInWithPassword({ email, password });
+
+  if (error) {
+    throw new Error(`Could not sign in as ${email}: ${error.message}`);
+  }
+
+  return data.user.id;
+}
+
+async function createForeignOrgUser(admin) {
+  const email = `cross-org-${randomUUID()}@overdrafter.local`;
+  const organizationId = randomUUID();
+  const organizationMembershipId = randomUUID();
+
+  const { data: userData, error: userError } = await admin.auth.admin.createUser({
+    email,
+    password: CLIENT_PASSWORD,
+    email_confirm: true,
+    user_metadata: {
+      full_name: "Cross Org Client",
+    },
+    app_metadata: {
+      provider: "email",
+      providers: ["email"],
+    },
+  });
+
+  if (userError || !userData.user) {
+    throw userError ?? new Error(`Unable to create ${email}.`);
+  }
+
+  const { error: organizationError } = await admin.from("organizations").insert({
+    id: organizationId,
+    name: "Cross Org Test",
+    slug: `cross-org-${organizationId.slice(0, 8)}`,
+  });
+
+  if (organizationError) {
+    throw new Error(`Unable to create foreign organization: ${organizationError.message}`);
+  }
+
+  const { error: membershipError } = await admin.from("organization_memberships").insert({
+    id: organizationMembershipId,
+    organization_id: organizationId,
+    user_id: userData.user.id,
+    role: "client",
+  });
+
+  if (membershipError) {
+    throw new Error(`Unable to create foreign membership: ${membershipError.message}`);
+  }
+
+  return {
+    email,
+    organizationId,
+    userId: userData.user.id,
+  };
+}
 
 describe("api_request_quote gating paths", () => {
   const creds = resolveLocalCredentials();
@@ -245,26 +312,16 @@ describe("api_request_quote gating paths", () => {
   let client;
   let clientUserId;
   let testJobId;
+  let createdOrganizationIds = [];
+  let createdUserIds = [];
 
   beforeAll(async () => {
     admin = createClient(supabaseUrl, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    client = createClient(supabaseUrl, ANON_KEY, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-
-    const { data, error } = await client.auth.signInWithPassword({
-      email: CLIENT_EMAIL,
-      password: CLIENT_PASSWORD,
-    });
-
-    if (error) {
-      throw new Error(`Could not sign in as test client: ${error.message}`);
-    }
-
-    clientUserId = data.user.id;
+    client = createAnonClient(supabaseUrl);
+    clientUserId = await signInWithPassword(client, CLIENT_EMAIL, CLIENT_PASSWORD);
   });
 
   afterEach(async () => {
@@ -272,11 +329,29 @@ describe("api_request_quote gating paths", () => {
       await cleanupTestJob(admin, testJobId);
       testJobId = null;
     }
+
+    for (const organizationId of createdOrganizationIds) {
+      const { error } = await admin.from("organizations").delete().eq("id", organizationId);
+
+      if (error) {
+        throw new Error(`Failed to clean up organization ${organizationId}: ${error.message}`);
+      }
+    }
+
+    for (const userId of createdUserIds) {
+      const { error } = await admin.auth.admin.deleteUser(userId);
+
+      if (error) {
+        throw error;
+      }
+    }
+
+    createdOrganizationIds = [];
+    createdUserIds = [];
   });
 
-  /** Call api_request_quote via the authenticated client session. */
-  async function requestQuote(jobId, forceRetry = false) {
-    const { data, error } = await client.rpc("api_request_quote", {
+  async function requestQuote(authenticatedClient, jobId, forceRetry = false) {
+    const { data, error } = await authenticatedClient.rpc("api_request_quote", {
       p_job_id: jobId,
       p_force_retry: forceRetry,
     });
@@ -284,13 +359,12 @@ describe("api_request_quote gating paths", () => {
     return { data, error };
   }
 
-  /** Build a fully quote-ready job: job + part + CAD + requirement. */
-  async function buildQuoteReadyJob(jobOverrides = {}) {
+  async function buildQuoteReadyJob(jobOverrides = {}, requirementOverrides = {}) {
     const jobId = await insertTestJob(admin, clientUserId, jobOverrides);
     const partId = await insertTestPart(admin, jobId);
     const cadFileId = await insertTestCadFile(admin, jobId, clientUserId);
     await linkCadFileToPart(admin, partId, cadFileId);
-    await insertTestRequirement(admin, partId, clientUserId);
+    await insertTestRequirement(admin, partId, clientUserId, requirementOverrides);
     return { jobId, partId, cadFileId };
   }
 
@@ -298,7 +372,7 @@ describe("api_request_quote gating paths", () => {
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
-    const { data, error } = await requestQuote(jobId);
+    const { data, error } = await requestQuote(client, jobId);
 
     expect(error).toBeNull();
     expect(data.accepted).toBe(true);
@@ -306,43 +380,44 @@ describe("api_request_quote gating paths", () => {
     expect(data.status).toBe("queued");
     expect(data.reasonCode).toBeNull();
     expect(data.quoteRequestId).toBeTruthy();
+    expect(data.quoteRunId).toBeTruthy();
+    expect(data.serviceRequestLineItemId).toBeTruthy();
+    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(1);
+    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
   });
 
-  it("deduplicates and returns already_in_progress when a queued request exists", async () => {
+  it("deduplicates an in-flight request without creating a second quote run", async () => {
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
-    // First call creates the request
-    await requestQuote(jobId);
+    const first = await requestQuote(client, jobId);
+    const second = await requestQuote(client, jobId);
 
-    // Second call should deduplicate
-    const { data, error } = await requestQuote(jobId);
-
-    expect(error).toBeNull();
-    expect(data.accepted).toBe(true);
-    expect(data.created).toBe(false);
-    expect(data.deduplicated).toBe(true);
-    expect(data.reasonCode).toBe("already_in_progress");
+    expect(first.error).toBeNull();
+    expect(second.error).toBeNull();
+    expect(second.data.accepted).toBe(true);
+    expect(second.data.created).toBe(false);
+    expect(second.data.deduplicated).toBe(true);
+    expect(second.data.reasonCode).toBe("already_in_progress");
+    expect(second.data.quoteRequestId).toBe(first.data.quoteRequestId);
+    expect(second.data.quoteRunId).toBe(first.data.quoteRunId);
+    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(1);
+    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
   });
 
-  it("rejects with already_received when the job is in a completed quote state", async () => {
-    // Use the pre-seeded published job which is in 'published' status
-    // (no teardown needed since we're reading, not writing)
-    const publishedJobId = "00000000-0000-4000-8000-000000000103";
-
-    const { data, error } = await requestQuote(publishedJobId);
+  it("rejects with already_received when the job already has a published quote run", async () => {
+    const { data, error } = await requestQuote(client, PUBLISHED_JOB_ID);
 
     expect(error).toBeNull();
     expect(data.accepted).toBe(false);
     expect(data.reasonCode).toBe("already_received");
   });
 
-  it("rejects with retry_required when the prior request failed and force_retry is false", async () => {
+  it("rejects with retry_required when the latest request failed and force_retry is false", async () => {
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
-    // Manually insert a failed quote request so we can test this gate
-    await admin.from("quote_requests").insert({
+    const { error: insertError } = await admin.from("quote_requests").insert({
       organization_id: ORG_ID,
       job_id: jobId,
       requested_by: clientUserId,
@@ -351,19 +426,23 @@ describe("api_request_quote gating paths", () => {
       failure_reason: "Xometry quote timed out.",
     });
 
-    const { data, error } = await requestQuote(jobId, false);
+    if (insertError) {
+      throw new Error(`Failed to insert failed quote request: ${insertError.message}`);
+    }
+
+    const { data, error } = await requestQuote(client, jobId, false);
 
     expect(error).toBeNull();
     expect(data.accepted).toBe(false);
     expect(data.reasonCode).toBe("retry_required");
+    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(1);
   });
 
-  it("accepts a retry when force_retry is true after a failed request", async () => {
+  it("creates a fresh request when force_retry is true after a failed request", async () => {
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
-    // Manually insert a failed quote request
-    await admin.from("quote_requests").insert({
+    const { error: insertError } = await admin.from("quote_requests").insert({
       organization_id: ORG_ID,
       job_id: jobId,
       requested_by: clientUserId,
@@ -372,12 +451,18 @@ describe("api_request_quote gating paths", () => {
       failure_reason: "Xometry quote timed out.",
     });
 
-    const { data, error } = await requestQuote(jobId, true);
+    if (insertError) {
+      throw new Error(`Failed to insert failed quote request: ${insertError.message}`);
+    }
+
+    const { data, error } = await requestQuote(client, jobId, true);
 
     expect(error).toBeNull();
     expect(data.accepted).toBe(true);
     expect(data.created).toBe(true);
     expect(data.status).toBe("queued");
+    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(2);
+    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
   });
 
   it("rejects with archived when the job is archived", async () => {
@@ -386,7 +471,7 @@ describe("api_request_quote gating paths", () => {
     });
     testJobId = jobId;
 
-    const { data, error } = await requestQuote(jobId);
+    const { data, error } = await requestQuote(client, jobId);
 
     expect(error).toBeNull();
     expect(data.accepted).toBe(false);
@@ -397,20 +482,34 @@ describe("api_request_quote gating paths", () => {
     const jobId = await insertTestJob(admin, clientUserId);
     testJobId = jobId;
 
-    const { data, error } = await requestQuote(jobId);
+    const { data, error } = await requestQuote(client, jobId);
 
     expect(error).toBeNull();
     expect(data.accepted).toBe(false);
     expect(data.reasonCode).toBe("missing_part");
   });
 
+  it("rejects with unsupported_service_kind for non-quote requests", async () => {
+    const { jobId } = await buildQuoteReadyJob({
+      requested_service_kinds: ["cad_modeling"],
+      primary_service_kind: "cad_modeling",
+    });
+    testJobId = jobId;
+
+    const { data, error } = await requestQuote(client, jobId);
+
+    expect(error).toBeNull();
+    expect(data.accepted).toBe(false);
+    expect(data.reasonCode).toBe("unsupported_service_kind");
+  });
+
   it("rejects with missing_cad when the part has no CAD file", async () => {
     const jobId = await insertTestJob(admin, clientUserId);
     testJobId = jobId;
-    const partId = await insertTestPart(admin, jobId); // no CAD linked
+    const partId = await insertTestPart(admin, jobId);
     await insertTestRequirement(admin, partId, clientUserId);
 
-    const { data, error } = await requestQuote(jobId);
+    const { data, error } = await requestQuote(client, jobId);
 
     expect(error).toBeNull();
     expect(data.accepted).toBe(false);
@@ -423,29 +522,42 @@ describe("api_request_quote gating paths", () => {
     const partId = await insertTestPart(admin, jobId);
     const cadFileId = await insertTestCadFile(admin, jobId, clientUserId);
     await linkCadFileToPart(admin, partId, cadFileId);
-    // No requirement inserted
 
-    const { data, error } = await requestQuote(jobId);
+    const { data, error } = await requestQuote(client, jobId);
 
     expect(error).toBeNull();
     expect(data.accepted).toBe(false);
     expect(data.reasonCode).toBe("missing_requirements");
   });
 
-  it("rejects with no_enabled_vendors when applicable_vendors is empty", async () => {
-    const jobId = await insertTestJob(admin, clientUserId);
+  it("rejects with no_enabled_vendors when no applicable enabled vendors remain", async () => {
+    const { jobId } = await buildQuoteReadyJob({}, { applicable_vendors: [] });
     testJobId = jobId;
-    const partId = await insertTestPart(admin, jobId);
-    const cadFileId = await insertTestCadFile(admin, jobId, clientUserId);
-    await linkCadFileToPart(admin, partId, cadFileId);
-    await insertTestRequirement(admin, partId, clientUserId, { applicable_vendors: [] });
 
-    const { data, error } = await requestQuote(jobId);
+    const { data, error } = await requestQuote(client, jobId);
 
     expect(error).toBeNull();
     expect(data.accepted).toBe(false);
-    // The RPC returns 'no_enabled_vendors' when applicable_vendors is empty
-    // (the multi-vendor migration replaced the earlier 'xometry_unavailable' code)
     expect(data.reasonCode).toBe("no_enabled_vendors");
+    expect(data.requestedVendors).toEqual([]);
+  });
+
+  it("rejects cross-org access with a permission exception", async () => {
+    const { jobId } = await buildQuoteReadyJob();
+    testJobId = jobId;
+
+    const foreignUser = await createForeignOrgUser(admin);
+    createdOrganizationIds.push(foreignUser.organizationId);
+    createdUserIds.push(foreignUser.userId);
+
+    const foreignClient = createAnonClient(supabaseUrl);
+    await signInWithPassword(foreignClient, foreignUser.email, CLIENT_PASSWORD);
+
+    const { data, error } = await requestQuote(foreignClient, jobId);
+
+    expect(data).toBeNull();
+    expect(error).not.toBeNull();
+    expect(error.code).toBe("P0001");
+    expect(error.message).toMatch(/do not have permission/i);
   });
 });
