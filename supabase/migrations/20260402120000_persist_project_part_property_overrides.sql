@@ -997,6 +997,7 @@ security definer
 set search_path = public
 as $$
 declare
+  v_context record;
   v_job public.jobs%rowtype;
   v_part public.parts%rowtype;
   v_requirement public.approved_part_requirements%rowtype;

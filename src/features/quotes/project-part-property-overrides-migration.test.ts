@@ -13,6 +13,11 @@ const functionStart = normalizedSql.indexOf(
 );
 const functionEnd = normalizedSql.indexOf("\n$$;", functionStart);
 const loadEditableProjectPartContextSql = normalizedSql.slice(functionStart, functionEnd);
+const resetFunctionStart = normalizedSql.indexOf(
+  "create or replace function public.api_reset_client_part_property_overrides",
+);
+const resetFunctionEnd = normalizedSql.indexOf("\n$$;", resetFunctionStart);
+const resetClientPartPropertyOverridesSql = normalizedSql.slice(resetFunctionStart, resetFunctionEnd);
 
 describe("project part property overrides migration", () => {
   it("drops the legacy client part request RPC overload before recreating the threaded signature", () => {
@@ -63,14 +68,18 @@ describe("project part property overrides migration", () => {
   });
 
   it("loads reset-property context through a single record before unpacking rowtypes", () => {
-    expect(normalizedSql).toContain("create or replace function public.api_reset_client_part_property_overrides(");
-    expect(normalizedSql).toContain("v_context record;");
-    expect(normalizedSql).toContain("select *");
-    expect(normalizedSql).toContain("into v_context");
-    expect(normalizedSql).toContain("from public.load_editable_project_part_context(p_job_id);");
-    expect(normalizedSql).toContain("v_job := v_context.job;");
-    expect(normalizedSql).toContain("v_part := v_context.part;");
-    expect(normalizedSql).toContain("v_requirement := v_context.requirement;");
-    expect(normalizedSql).toContain("v_extraction := v_context.extraction;");
+    expect(resetClientPartPropertyOverridesSql).toContain(
+      "create or replace function public.api_reset_client_part_property_overrides(",
+    );
+    expect(resetClientPartPropertyOverridesSql).toContain("v_context record;");
+    expect(resetClientPartPropertyOverridesSql).toContain("select *");
+    expect(resetClientPartPropertyOverridesSql).toContain("into v_context");
+    expect(resetClientPartPropertyOverridesSql).toContain(
+      "from public.load_editable_project_part_context(p_job_id);",
+    );
+    expect(resetClientPartPropertyOverridesSql).toContain("v_job := v_context.job;");
+    expect(resetClientPartPropertyOverridesSql).toContain("v_part := v_context.part;");
+    expect(resetClientPartPropertyOverridesSql).toContain("v_requirement := v_context.requirement;");
+    expect(resetClientPartPropertyOverridesSql).toContain("v_extraction := v_context.extraction;");
   });
 });
