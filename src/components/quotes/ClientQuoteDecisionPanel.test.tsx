@@ -281,41 +281,7 @@ describe("ClientQuoteDecisionPanel", () => {
     expect(screen.queryByRole("columnheader", { name: "Vendor" })).not.toBeInTheDocument();
   });
 
-  it("renders a mobile quote review deck with one-tap vendor selection", () => {
-    mobileMock.useIsMobile.mockReturnValue(true);
-
-    const onSelect = vi.fn();
-    const first = makeClientQuoteOption();
-    const second = makeClientQuoteOption({
-      key: "option-2",
-      offerId: "offer-2",
-      persistedOfferId: "offer-2",
-      vendorQuoteResultId: "result-2",
-      vendorLabel: "Proto Labs",
-      supplier: "Proto Labs",
-      totalPriceUsd: 160,
-      requestedQuantity: 25,
-    });
-
-    render(
-      <ClientQuoteDecisionPanel
-        options={[first, second]}
-        selectedOption={first}
-        onSelect={onSelect}
-        requestedByDate="2026-04-15"
-      />,
-    );
-
-    expect(screen.getByText("Quote review")).toBeInTheDocument();
-    expect(screen.getByLabelText("Quote review vendor cards")).toBeInTheDocument();
-    expect(screen.queryByText("Quote Chart")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getAllByRole("button", { name: "Select this vendor" })[0]);
-
-    expect(onSelect).toHaveBeenCalledWith(second);
-  });
-
-  it("filters visible vendor rows when due by removes late options", async () => {
+  it("keeps late vendor rows visible and marks them when a need by date is set", async () => {
     const first = makeClientQuoteOption({
       key: "option-on-time",
       offerId: "offer-on-time",
@@ -348,8 +314,8 @@ describe("ClientQuoteDecisionPanel", () => {
     });
 
     expect(getVendorRowNames().some((name) => name.includes("Xometry"))).toBe(true);
-    expect(getVendorRowNames().some((name) => name.includes("Proto Labs"))).toBe(false);
-    expect(screen.getByText("Showing vendors that can meet 2026-04-15. 1 row is hidden.")).toBeInTheDocument();
+    expect(getVendorRowNames().some((name) => name.includes("Proto Labs"))).toBe(true);
+    expect(screen.getByText("Misses requested date 2026-04-15")).toBeInTheDocument();
   });
 
   it("visibly reorders vendor rows and updates the indicator when preset mode changes", async () => {
@@ -467,7 +433,7 @@ describe("ClientQuoteDecisionPanel", () => {
     expect(screen.getByText("1 leader tagged")).toBeInTheDocument();
   });
 
-  it("shows an empty filtered state when every vendor misses the due date", async () => {
+  it("keeps all vendors visible when every vendor misses the need by date", async () => {
     const lateOption = makeClientQuoteOption({
       key: "option-late",
       offerId: "offer-late",
@@ -489,8 +455,8 @@ describe("ClientQuoteDecisionPanel", () => {
       expect(screen.getByText("Quote Chart")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("No vendors meet this due date")).toBeInTheDocument();
-    expect(screen.getByText("No visible quote rows can meet 2026-04-15. Clear DUE BY to see every vendor again.")).toBeInTheDocument();
-    expect(screen.queryByRole("cell", { name: "Xometry" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No vendors meet this due date")).not.toBeInTheDocument();
+    expect(screen.getByText("Misses requested date 2026-04-15")).toBeInTheDocument();
+    expect(screen.getAllByText("Xometry").length).toBeGreaterThan(0);
   });
 });

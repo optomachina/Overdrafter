@@ -623,7 +623,7 @@ describe("top-level create actions", () => {
   });
 
 
-  it("shows the current part header actions and saves a due date", async () => {
+  it("shows the current part header actions and saves a need by date", async () => {
     api.updateClientPartRequest.mockResolvedValue("job-1");
 
     renderWithClient(
@@ -638,7 +638,7 @@ describe("top-level create actions", () => {
     });
 
     expect(screen.getByRole("button", { name: "Manage projects" })).not.toBeNull();
-    fireEvent.change(screen.getByLabelText("Due by"), { target: { value: "2026-04-22" } });
+    fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
 
     await waitFor(() => {
       expect(api.updateClientPartRequest).toHaveBeenCalledWith(
