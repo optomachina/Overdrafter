@@ -123,6 +123,17 @@ To unblock sequenced North Star issues (OVD-104 onward), the canonical first-sli
 
 Implementation reference: `src/lib/north-star-domain.ts`. This module is intentionally schema-adjacent and pure so backend, worker, and UI layers can converge on the same baseline contract before pipeline and reveal-state work is layered on top.
 
+## STEP normalization contract
+
+For the STEP-only normalization slice (`OVD-142`), the worker canonical contract is:
+
+- `worker/src/extraction/stepGeometryMetadata.ts` emits `canonical-part-geometry.v1`
+- downstream pipeline stages consume canonical typed geometry metadata rather than raw STEP entity parsing
+- normalized topology identifiers are deterministic within the artifact (`body-*`, `shell-*`, `face-*`, `edge-*`, `vertex-*`)
+- the normalized surface carries source header metadata, normalized length units, topology structure, and bounding boxes needed by later extraction consumers
+
+This slice is intentionally pure and independently testable before PDF extraction or artifact persistence is layered on top.
+
 ## Request-model boundary
 
 - projects are the grouping and collaboration boundary, not the only place where service intent lives
