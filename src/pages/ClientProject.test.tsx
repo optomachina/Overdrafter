@@ -6,9 +6,11 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ClientPartRequirementView,
+  ClientQuoteWorkspaceItem,
   ClientQuoteRequestStatus,
   QuoteRequestRecord,
   QuoteRunRecord,
+  VendorQuoteAggregate,
 } from "@/features/quotes/types";
 import { createClientQuoteWorkspaceItemFixture } from "@/features/quotes/client-workspace-fixtures";
 import ClientProject from "./ClientProject";
@@ -363,6 +365,195 @@ function createWorkspaceItemFixture(overrides: WorkspaceItemOverrides = {}) {
   return createClientQuoteWorkspaceItemFixture(overrides);
 }
 
+function createVendorQuoteFixture(input: {
+  resultId: string;
+  offerId: string;
+  vendor?: VendorQuoteAggregate["vendor"];
+  supplier: string;
+  totalPriceUsd: number;
+  leadTimeBusinessDays: number;
+}): VendorQuoteAggregate {
+  return {
+    id: input.resultId,
+    quote_run_id: "run-1",
+    part_id: "part-1",
+    organization_id: "org-1",
+    vendor: input.vendor ?? "xometry",
+    requested_quantity: 10,
+    status: "instant_quote_received",
+    unit_price_usd: input.totalPriceUsd / 10,
+    total_price_usd: input.totalPriceUsd,
+    lead_time_business_days: input.leadTimeBusinessDays,
+    quote_url: `https://example.test/${input.resultId}`,
+    dfm_issues: [],
+    notes: [],
+    raw_payload: { domestic: true },
+    created_at: "2026-03-01T01:00:00Z",
+    updated_at: "2026-03-01T01:00:00Z",
+    offers: [
+      {
+        id: input.offerId,
+        vendor_quote_result_id: input.resultId,
+        organization_id: "org-1",
+        offer_key: input.offerId,
+        supplier: input.supplier,
+        lane_label: "Standard",
+        sourcing: "Domestic",
+        tier: "standard",
+        quote_ref: `${input.offerId}-ref`,
+        quote_date: "2026-03-01",
+        unit_price_usd: input.totalPriceUsd / 10,
+        total_price_usd: input.totalPriceUsd,
+        lead_time_business_days: input.leadTimeBusinessDays,
+        ship_receive_by: null,
+        due_date: null,
+        process: "CNC mill",
+        material: "6061-T6",
+        finish: "As machined",
+        tightest_tolerance: "+/-0.005",
+        tolerance_source: "fixture",
+        thread_callouts: null,
+        thread_match_notes: null,
+        notes: "Fixture lane",
+        sort_rank: 0,
+        raw_payload: { domestic: true },
+        created_at: "2026-03-01T01:00:00Z",
+        updated_at: "2026-03-01T01:00:00Z",
+      },
+    ],
+    artifacts: [],
+  };
+}
+
+function createProjectSummaryWorkspaceItem(input: {
+  jobId: string;
+  partId: string;
+  partNumber: string;
+  description: string;
+  totalPriceUsd?: number | null;
+  leadTimeBusinessDays?: number | null;
+  quoteStatus?: ClientQuoteRequestStatus;
+}): ClientQuoteWorkspaceItem {
+  const base = createWorkspaceItemFixture();
+  const offerId = `${input.jobId}-offer-1`;
+  const selectedPriceUsd = input.totalPriceUsd ?? null;
+  const selectedLeadTimeBusinessDays = input.leadTimeBusinessDays ?? null;
+  const hasSelection = selectedPriceUsd !== null && selectedLeadTimeBusinessDays !== null;
+  const vendorQuotes = hasSelection
+    ? [
+        createVendorQuoteFixture({
+          resultId: `${input.jobId}-result-1`,
+          offerId,
+          supplier: `${input.partNumber} Supplier`,
+          totalPriceUsd: selectedPriceUsd,
+          leadTimeBusinessDays: selectedLeadTimeBusinessDays,
+        }),
+      ]
+    : [];
+
+  return {
+    ...base,
+    job: {
+      ...base.job,
+      id: input.jobId,
+      title: input.partNumber,
+      selected_vendor_quote_offer_id: hasSelection ? offerId : null,
+    },
+    summary: {
+      ...base.summary,
+      jobId: input.jobId,
+      partNumber: input.partNumber,
+      description: input.description,
+      selectedSupplier: hasSelection ? `${input.partNumber} Supplier` : null,
+      selectedPriceUsd,
+      selectedLeadTimeBusinessDays,
+    },
+    part: base.part
+      ? {
+          ...base.part,
+          id: input.partId,
+          job_id: input.jobId,
+          name: input.partNumber,
+          approvedRequirement: base.part.approvedRequirement
+            ? {
+                ...base.part.approvedRequirement,
+                part_id: input.partId,
+                part_number: input.partNumber,
+                description: input.description,
+              }
+            : null,
+          vendorQuotes,
+        }
+      : null,
+    latestQuoteRequest:
+      input.quoteStatus && input.quoteStatus !== "not_requested"
+        ? createQuoteRequestFixture({
+            id: `${input.jobId}-request`,
+            job_id: input.jobId,
+            status: input.quoteStatus,
+            received_at: input.quoteStatus === "received" ? "2026-03-01T02:00:00Z" : null,
+          })
+        : null,
+  };
+}
+
+function createProjectJobFixture(input: {
+  jobId: string;
+  title: string;
+  selectedVendorQuoteOfferId?: string | null;
+}) {
+  return {
+    id: input.jobId,
+    organization_id: "org-1",
+    project_id: "project-1",
+    created_by: "user-1",
+    title: input.title,
+    description: null,
+    status: "ready_to_quote",
+    source: "client_home",
+    active_pricing_policy_id: null,
+    tags: [],
+    requested_service_kinds: ["manufacturing_quote"],
+    primary_service_kind: "manufacturing_quote",
+    service_notes: null,
+    requested_quote_quantities: [10],
+    requested_by_date: "2026-04-15",
+    archived_at: null,
+    created_at: "2026-03-01T00:00:00Z",
+    updated_at: "2026-03-01T00:00:00Z",
+    selected_vendor_quote_offer_id: input.selectedVendorQuoteOfferId ?? null,
+  };
+}
+
+function createProjectMembershipFixture(jobId: string) {
+  return { project_id: "project-1", job_id: jobId, created_by: "user-1" };
+}
+
+function createSelectedSummaryFixture(input: {
+  jobId: string;
+  partNumber: string;
+  description: string;
+  selectedPriceUsd?: number | null;
+  selectedLeadTimeBusinessDays?: number | null;
+}) {
+  return {
+    jobId: input.jobId,
+    partNumber: input.partNumber,
+    revision: "A",
+    description: input.description,
+    requestedServiceKinds: ["manufacturing_quote"],
+    primaryServiceKind: "manufacturing_quote",
+    serviceNotes: null,
+    quantity: 10,
+    requestedQuoteQuantities: [10],
+    requestedByDate: "2026-04-15",
+    importedBatch: null,
+    selectedSupplier: input.selectedPriceUsd === null || input.selectedPriceUsd === undefined ? null : `${input.partNumber} Supplier`,
+    selectedPriceUsd: input.selectedPriceUsd ?? null,
+    selectedLeadTimeBusinessDays: input.selectedLeadTimeBusinessDays ?? null,
+  };
+}
+
 function buildWorkspaceItemWithQuoteStatus(status: InspectorQuoteStatus) {
   const latestQuoteRequest = createQuoteRequestFixture({
     status,
@@ -600,6 +791,111 @@ describe("ClientProject", () => {
     const inspector = screen.getByRole("complementary", { name: "Project inspector" });
     expect(screen.getByText("Parts: 2")).toBeInTheDocument();
     expect(inspector).toBeInTheDocument();
+  });
+
+  it("renders a project summary with spend, critical path, coverage, and spend distribution", async () => {
+    const projectJobs = [
+      createProjectJobFixture({
+        jobId: "job-1",
+        title: "BRKT-001",
+        selectedVendorQuoteOfferId: "job-1-offer-1",
+      }),
+      createProjectJobFixture({
+        jobId: "job-2",
+        title: "BRKT-002",
+        selectedVendorQuoteOfferId: "job-2-offer-1",
+      }),
+      createProjectJobFixture({
+        jobId: "job-3",
+        title: "BRKT-003",
+      }),
+    ];
+
+    api.fetchAccessibleProjects.mockResolvedValueOnce([
+      {
+        project: {
+          id: "project-1",
+          name: "Bracket Project",
+          organization_id: "org-1",
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-02T00:00:00Z",
+        },
+        partCount: 3,
+        inviteCount: 0,
+        currentUserRole: "owner",
+      },
+    ]);
+    api.fetchAccessibleJobs.mockResolvedValueOnce(projectJobs);
+    api.fetchJobPartSummariesByJobIds.mockResolvedValueOnce([
+      createSelectedSummaryFixture({
+        jobId: "job-1",
+        partNumber: "BRKT-001",
+        description: "Primary bracket",
+        selectedPriceUsd: 1200,
+        selectedLeadTimeBusinessDays: 14,
+      }),
+      createSelectedSummaryFixture({
+        jobId: "job-2",
+        partNumber: "BRKT-002",
+        description: "Support arm",
+        selectedPriceUsd: 800,
+        selectedLeadTimeBusinessDays: 22,
+      }),
+      createSelectedSummaryFixture({
+        jobId: "job-3",
+        partNumber: "BRKT-003",
+        description: "Cover plate",
+      }),
+    ]);
+    api.fetchProjectJobMembershipsByJobIds.mockResolvedValueOnce([
+      createProjectMembershipFixture("job-1"),
+      createProjectMembershipFixture("job-2"),
+      createProjectMembershipFixture("job-3"),
+    ]);
+    api.fetchJobsByProject.mockResolvedValueOnce(projectJobs);
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([
+      createProjectSummaryWorkspaceItem({
+        jobId: "job-1",
+        partId: "part-1",
+        partNumber: "BRKT-001",
+        description: "Primary bracket",
+        totalPriceUsd: 1200,
+        leadTimeBusinessDays: 14,
+        quoteStatus: "received",
+      }),
+      createProjectSummaryWorkspaceItem({
+        jobId: "job-2",
+        partId: "part-2",
+        partNumber: "BRKT-002",
+        description: "Support arm",
+        totalPriceUsd: 800,
+        leadTimeBusinessDays: 22,
+        quoteStatus: "received",
+      }),
+      createProjectSummaryWorkspaceItem({
+        jobId: "job-3",
+        partId: "part-3",
+        partNumber: "BRKT-003",
+        description: "Cover plate",
+        totalPriceUsd: null,
+        leadTimeBusinessDays: null,
+        quoteStatus: "not_requested",
+      }),
+    ]);
+
+    renderWithClient("/projects/project-1");
+
+    expect(await screen.findByRole("region", { name: "Project summary" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Budget, coverage, and schedule at a glance")).toBeInTheDocument();
+      expect(screen.getByText("$2,000")).toBeInTheDocument();
+      expect(screen.getByText("22 bd")).toBeInTheDocument();
+      expect(screen.getAllByText("67%")).toHaveLength(2);
+      expect(screen.getByText("1 part unquoted")).toBeInTheDocument();
+      expect(screen.getByText("BRKT-001 is 60% of spend")).toBeInTheDocument();
+      expect(screen.getByText("BRKT-002 sets the schedule at 22 business days.")).toBeInTheDocument();
+      expect(screen.getByText("1 part has not been quoted yet.")).toBeInTheDocument();
+    });
   });
 
   it("selects a row and updates the docked inspector without navigating away", async () => {
