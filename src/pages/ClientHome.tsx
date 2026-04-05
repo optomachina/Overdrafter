@@ -67,6 +67,18 @@ const ClientHome = () => {
     userId: user?.id,
   });
 
+  const navigateToPartDestination = (jobId: string) => {
+    const job = accessibleJobs.find((candidate) => candidate.id === jobId);
+    const projectId = job ? resolveSidebarProjectIdsForJob(job)[0] ?? null : null;
+
+    if (projectId) {
+      navigate(`/projects/${projectId}?part=${jobId}`);
+      return;
+    }
+
+    navigate(`/parts/${jobId}`);
+  };
+
   if (isAuthInitializing && !user) {
     return <AuthBootstrapScreen message="Restoring your workspace." />;
   }
@@ -420,7 +432,7 @@ const ClientHome = () => {
                         <button
                           key={job.id}
                           type="button"
-                          onClick={() => navigate(`/parts/${job.id}`)}
+                          onClick={() => navigateToPartDestination(job.id)}
                           className="block w-full rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-sm text-white/85 transition hover:border-white/20 hover:bg-white/[0.05]"
                         >
                           {presentation.title}
@@ -529,7 +541,7 @@ const ClientHome = () => {
                     <button
                       key={job.id}
                       type="button"
-                      onClick={() => navigate(`/parts/${job.id}`)}
+                      onClick={() => navigateToPartDestination(job.id)}
                       className="block w-full rounded border border-ws-border-subtle border-l-2 border-l-emerald-500/30 bg-ws-card px-4 py-3.5 text-left transition hover:border-ws-border hover:border-l-emerald-500/30"
                     >
                       <div className="flex items-center justify-between gap-4">
@@ -611,7 +623,7 @@ const ClientHome = () => {
               onArchiveProject={handleArchiveProject}
               onDissolveProject={handleDissolveProject}
               onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
-              onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+              onSelectPart={navigateToPartDestination}
               onPrefetchProject={prefetchProject}
               onPrefetchPart={prefetchPart}
               resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
@@ -689,7 +701,7 @@ const ClientHome = () => {
         jobs={accessibleJobs}
         summariesByJobId={summariesByJobId}
         onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
-        onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+        onSelectPart={navigateToPartDestination}
       />
 
       <SignInDialog
