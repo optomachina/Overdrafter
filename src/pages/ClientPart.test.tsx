@@ -343,10 +343,10 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
     onRequestedByDateChange?: (next: string | null) => void;
   }) => (
     <div data-testid="quote-selection-function-bar">
-      <label htmlFor="mock-due-by">Due by</label>
+      <label htmlFor="mock-due-by">Need by date</label>
       <input
         id="mock-due-by"
-        aria-label="Due by"
+        aria-label="Need by date"
         value={requestedByDate ?? ""}
         onChange={(event) => onRequestedByDateChange?.(event.target.value || null)}
       />
@@ -1334,7 +1334,7 @@ describe("ClientPart", () => {
       expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByLabelText("Due by"), { target: { value: "2026-04-22" } });
+    fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
 
     await waitFor(() => {
       expect(api.updateClientPartRequest).toHaveBeenCalledWith(

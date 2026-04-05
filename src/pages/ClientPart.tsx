@@ -729,11 +729,17 @@ const ClientPart = () => {
                         scope={partPresetScope}
                         mode={partPresetMode}
                         requestedByDate={requestSummaryRequestedByDate}
+                        matchingOptionCount={
+                          requestSummaryRequestedByDate
+                            ? rankedQuoteOptions.filter((option) => option.dueDateEligible).length
+                            : null
+                        }
+                        totalOptionCount={rankedQuoteOptions.length}
                         onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
                         onModeChange={(nextMode) => applyPartPreset(nextMode, partPresetScope)}
                         onRequestedByDateChange={(nextDate) => handleSaveRequestPatch({ requestedByDate: nextDate })}
                         disabled={saveRequestMutation.isPending}
-                        dueDateHelpText="Applies to this part request and updates quote eligibility immediately."
+                        dueDateHelpText="Highlights which vendors can meet the requested delivery date and dims the rest immediately."
                       />
                     }
                   />

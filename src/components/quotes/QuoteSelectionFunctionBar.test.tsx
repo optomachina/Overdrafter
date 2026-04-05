@@ -13,6 +13,8 @@ describe("QuoteSelectionFunctionBar", () => {
         scope="domestic"
         mode="cheapest"
         requestedByDate="2026-04-15"
+        matchingOptionCount={2}
+        totalOptionCount={4}
         onScopeChange={onScopeChange}
         onModeChange={onModeChange}
         onRequestedByDateChange={vi.fn()}
@@ -34,13 +36,17 @@ describe("QuoteSelectionFunctionBar", () => {
         scope="global"
         mode="fastest"
         requestedByDate="2026-04-15"
+        matchingOptionCount={2}
+        totalOptionCount={4}
         onScopeChange={vi.fn()}
         onModeChange={vi.fn()}
         onRequestedByDateChange={onRequestedByDateChange}
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Due by"), { target: { value: "2026-04-22" } });
+    expect(screen.getByText("Showing 2 of 4 options that meet your deadline.")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
 
     expect(onRequestedByDateChange).toHaveBeenNthCalledWith(1, "2026-04-22");
