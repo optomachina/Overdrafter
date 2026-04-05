@@ -118,6 +118,12 @@ function computeStats(options: readonly ClientQuoteSelectionOption[]): QuoteStat
   };
 }
 
+/**
+ * Render a quote stats summary bar with spread guidance messaging.
+ * @param {QuoteStatsBarProps} options - Props containing `options`, the quote selection options
+ * used by computeStats to derive summary stats and highSpreadGuidance.
+ * @returns The JSX element rendering the stats grid and optional guidance prompt.
+ */
 export function QuoteStatsBar({ options }: QuoteStatsBarProps) {
   const { stats, highSpreadGuidance } = computeStats(options);
 
