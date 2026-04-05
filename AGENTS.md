@@ -99,6 +99,15 @@ Default behavior:
 
 ---
 
+## Code style
+
+- Do not use nested ternary expressions.
+- For multi-branch conditional logic, prefer `if / else if / else` or `switch`.
+- Keep branching explicit when returning structured objects.
+- Preserve behavior exactly during refactors; readability changes should not alter strings, types, or return shape.
+
+---
+
 ## Tooling posture
 
 Use tools by role, not by novelty.
