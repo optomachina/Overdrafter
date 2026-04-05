@@ -261,6 +261,56 @@ function getEventTimestamp(value: string) {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
+function readNotificationPayloadFields(payload: ClientActivityEvent["payload"]) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+
+  let optionCount: number | null = null;
+  if ("optionCount" in payload && typeof payload.optionCount === "number") {
+    optionCount = payload.optionCount;
+  } else if ("quoteCount" in payload && typeof payload.quoteCount === "number") {
+    optionCount = payload.quoteCount;
+  }
+
+  let jobReference: string | null = null;
+  if ("jobReference" in payload && typeof payload.jobReference === "string") {
+    jobReference = payload.jobReference.trim();
+  } else if ("jobNumber" in payload && typeof payload.jobNumber === "string") {
+    jobReference = payload.jobNumber.trim();
+  }
+
+  return {
+    optionCount,
+    jobReference: jobReference && jobReference.length > 0 ? jobReference : null,
+  };
+}
+
+function buildClientQuotePackageReadyDetail(event: ClientActivityEvent) {
+  const payloadFields = readNotificationPayloadFields(event.payload);
+  const optionCount = payloadFields?.optionCount ?? null;
+  const jobReferenceLabel = payloadFields?.jobReference ?? null;
+
+  let optionCountLabel: string | null = null;
+  if (optionCount !== null && optionCount > 0) {
+    optionCountLabel = `${optionCount} quote${optionCount === 1 ? "" : "s"} ready`;
+  }
+
+  if (optionCountLabel && jobReferenceLabel) {
+    return `${optionCountLabel} for ${jobReferenceLabel}. Open Quote review on your phone to choose a vendor.`;
+  }
+
+  if (optionCountLabel) {
+    return `${optionCountLabel}. Open Quote review on your phone to choose a vendor.`;
+  }
+
+  if (event.packageId !== null) {
+    return "Curated quote options are available for review in this workspace.";
+  }
+
+  return "A published quote package is now available for review.";
+}
+
 function buildNotificationDetail(
   event: ClientActivityEvent,
   notificationType: WorkspaceNotificationType,
@@ -300,10 +350,7 @@ function buildNotificationDetail(
     default:
       return {
         title: "Quote package ready",
-        detail:
-          event.packageId !== null
-            ? "Curated quote options are available for review in this workspace."
-            : "A published quote package is now available for review.",
+        detail: buildClientQuotePackageReadyDetail(event),
         tone: "active",
       };
   }

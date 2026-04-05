@@ -27,6 +27,32 @@ describe("buildWorkspaceNotificationItems", () => {
     ]);
   });
 
+  it("uses quote-ready payload metadata when present for mobile review copy", () => {
+    const items = buildWorkspaceNotificationItems(
+      [
+        {
+          id: "event-published",
+          jobId: "job-1",
+          packageId: "package-1",
+          eventType: "job.quote_package_published",
+          payload: {
+            optionCount: 3,
+            jobReference: "QB00001",
+          },
+          occurredAt: "2026-03-13T12:00:00.000Z",
+        },
+      ],
+      "client",
+    );
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: "client.quote_package_ready:package-1",
+        detail: "3 quotes ready for QB00001. Open Quote review on your phone to choose a vendor.",
+      }),
+    ]);
+  });
+
   it("dedupes repeated package-published events by package id", () => {
     const items = buildWorkspaceNotificationItems(
       [

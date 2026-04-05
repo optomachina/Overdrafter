@@ -7,6 +7,14 @@ import type { QuoteDiagnostics } from "@/features/quotes/types";
 import { ClientQuoteDecisionPanel } from "./ClientQuoteDecisionPanel";
 import { makeClientQuoteOption } from "./test-option-factory";
 
+const mobileMock = vi.hoisted(() => ({
+  useIsMobile: vi.fn(() => false),
+}));
+
+vi.mock("@/hooks/use-mobile", () => ({
+  useIsMobile: mobileMock.useIsMobile,
+}));
+
 vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
   ClientQuoteComparisonChart: ({
     options,

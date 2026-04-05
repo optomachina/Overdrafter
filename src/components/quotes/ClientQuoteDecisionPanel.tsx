@@ -37,6 +37,7 @@ import {
 import type { QuoteDataStatus, QuoteDiagnostics } from "@/features/quotes/types";
 import { formatCurrency } from "@/features/quotes/utils";
 import { getVendorColor } from "@/features/quotes/vendor-colors";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 type ClientQuoteDecisionPanelProps = {
@@ -519,6 +520,141 @@ function QuoteComparisonCards({
   );
 }
 
+function MobileQuoteReviewDeck({
+  options,
+  selectedOption,
+  onSelect,
+  requestedByDate,
+  activePreset,
+  topRankedKeys,
+}: Readonly<{
+  options: readonly ClientQuoteSelectionOption[];
+  selectedOption: ClientQuoteSelectionOption | null;
+  onSelect: (option: ClientQuoteSelectionOption) => void;
+  requestedByDate: string | null;
+  activePreset: QuotePreset | null;
+  topRankedKeys: ReadonlySet<string>;
+}>) {
+  const badgeCopy = getPresetModeBadgeCopy(getPresetMode(activePreset));
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Quote review</p>
+          <p className="mt-1 text-sm text-white/65">Swipe across vendors and commit your choice from the card.</p>
+        </div>
+        <Badge className="border border-white/10 bg-white/6 text-white/75">
+          {options.length} option{options.length === 1 ? "" : "s"}
+        </Badge>
+      </div>
+
+      <div
+        className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        aria-label="Quote review vendor cards"
+      >
+        {options.map((option, index) => {
+          const selected = selectedOption?.key === option.key;
+          const showTopRankBadge = topRankedKeys.has(option.key);
+          const reasons = getClientQuoteOptionStateReasons({
+            option,
+            requestedByDate,
+            preset: activePreset,
+          });
+
+          return (
+            <article
+              key={option.key}
+              className={cn(
+                "min-w-[calc(100vw-4.5rem)] snap-center rounded-[24px] border border-white/8 bg-black/20 p-4 shadow-[0_20px_60px_rgba(0,0,0,0.25)] sm:min-w-[22rem]",
+                selected && "border-emerald-400/20 bg-emerald-500/10",
+                !option.isSelectable && "opacity-70",
+              )}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Option {index + 1}</p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <span
+                      className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: getVendorColor(option.vendorKey) }}
+                    />
+                    <p className="truncate text-lg font-semibold text-white">{option.vendorLabel}</p>
+                  </div>
+                  <p className="mt-1 text-sm text-white/50">
+                    {[option.laneLabel ?? option.tier ?? "Standard", option.sourcing].filter(Boolean).join(" · ")}
+                  </p>
+                </div>
+                {showTopRankBadge ? (
+                  <Badge className="border border-sky-300/20 bg-sky-500/15 text-sky-50">
+                    {badgeCopy.rowBadge}
+                  </Badge>
+                ) : null}
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="rounded-2xl border border-white/8 bg-white/5 p-3">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Total</p>
+                  <p className="mt-1 text-xl font-semibold text-white">{formatCurrency(option.totalPriceUsd)}</p>
+                </div>
+                <div className="rounded-2xl border border-white/8 bg-white/5 p-3">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Delivery</p>
+                  <p className="mt-1 text-base font-semibold text-white">
+                    {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/8 bg-white/5 p-3">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Unit</p>
+                  <p className="mt-1 text-base font-semibold text-white">{formatCurrency(option.unitPriceUsd)}</p>
+                </div>
+                <div className="rounded-2xl border border-white/8 bg-white/5 p-3">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Quantity</p>
+                  <p className="mt-1 text-base font-semibold text-white">{option.requestedQuantity}</p>
+                </div>
+              </div>
+
+              {reasons.length > 0 ? (
+                <div className="mt-4 flex flex-wrap gap-1">
+                  {reasons.map((reason) => (
+                    <ClientWorkspaceToneBadge
+                      key={`${option.key}:${reason.id}`}
+                      tone={reason.tone}
+                      label={reason.label}
+                      className="h-5 text-[10px] tracking-normal normal-case"
+                    />
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {selected ? (
+                  <Badge className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">
+                    Selected vendor
+                  </Badge>
+                ) : null}
+                {option.expedite ? (
+                  <Badge className="border border-fuchsia-400/20 bg-fuchsia-500/10 text-fuchsia-100">
+                    Expedite
+                  </Badge>
+                ) : null}
+              </div>
+
+              <Button
+                type="button"
+                className="mt-5 h-11 w-full rounded-full"
+                disabled={!option.isSelectable || selected}
+                onClick={() => onSelect(option)}
+              >
+                {selected ? "Selected" : "Select this vendor"}
+              </Button>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 type DecisionPanelContentProps = Readonly<{
   options: readonly ClientQuoteSelectionOption[];
   selectedOption: ClientQuoteSelectionOption | null;
@@ -528,6 +664,7 @@ type DecisionPanelContentProps = Readonly<{
   quoteDiagnostics: QuoteDiagnostics | null;
   emptyState: string;
   layout: "full" | "compact";
+  isMobile: boolean;
   hoveredKey: string | null;
   setHoveredKey: (key: string | null) => void;
   partId: string | null;
@@ -546,6 +683,7 @@ function renderDecisionPanelContent({
   quoteDiagnostics,
   emptyState,
   layout,
+  isMobile,
   hoveredKey,
   setHoveredKey,
   partId,
@@ -599,6 +737,17 @@ function renderDecisionPanelContent({
         onToggleVendorExclusion={onToggleVendorExclusion}
       />
     );
+  } else if (isMobile) {
+    comparisonContent = (
+      <MobileQuoteReviewDeck
+        options={rankedOptions}
+        selectedOption={selectedOption}
+        onSelect={onSelect}
+        requestedByDate={requestedByDate}
+        activePreset={activePreset}
+        topRankedKeys={topRankedKeys}
+      />
+    );
   } else {
     comparisonContent = (
       <QuoteComparisonTable
@@ -621,19 +770,21 @@ function renderDecisionPanelContent({
 
       {selectedOption ? <SelectedOptionBanner option={selectedOption} /> : null}
 
-      <div className="rounded-surface-lg border border-white/8 bg-black/20 p-4">
-        <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-white/5" />}>
-          <ClientQuoteComparisonChart
-            options={options}
-            selectedKey={selectedOption?.key ?? null}
-            hoveredKey={hoveredKey}
-            partId={partId}
-            organizationId={organizationId}
-            onSelect={onSelect}
-            onHover={setHoveredKey}
-          />
-        </Suspense>
-      </div>
+      {!isMobile && (
+        <div className="rounded-surface-lg border border-white/8 bg-black/20 p-4">
+          <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-white/5" />}>
+            <ClientQuoteComparisonChart
+              options={options}
+              selectedKey={selectedOption?.key ?? null}
+              hoveredKey={hoveredKey}
+              partId={partId}
+              organizationId={organizationId}
+              onSelect={onSelect}
+              onHover={setHoveredKey}
+            />
+          </Suspense>
+        </div>
+      )}
 
       <RankingModeIndicator
         mode={getPresetMode(activePreset)}
@@ -670,6 +821,7 @@ export function ClientQuoteDecisionPanel({
   emptyState = "No quote options are available yet.",
   className,
 }: Readonly<ClientQuoteDecisionPanelProps>) {
+  const isMobile = useIsMobile();
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const vendorKeys = [...new Set(options.map((o) => o.vendorKey))];
 
@@ -693,6 +845,7 @@ export function ClientQuoteDecisionPanel({
         quoteDiagnostics,
         emptyState,
         layout,
+        isMobile,
         hoveredKey,
         setHoveredKey,
         partId,
