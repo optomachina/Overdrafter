@@ -1114,6 +1114,7 @@ export function WorkspaceSidebar({
     const dropPosition = projectDropTarget?.projectId === project.id ? projectDropTarget.position : null;
     const selectedQuote = formatProjectSelectedQuote(projectJobs, summariesByJobId);
     const sortedProjectJobs = sortedJobs(projectJobs);
+    const isActive = activeProjectId === project.id;
 
     return (
       <div key={project.id} className="space-y-1">
@@ -1193,16 +1194,22 @@ export function WorkspaceSidebar({
                 setProjectDropTarget(null);
               }}
               className={cn(
-                "group flex w-full items-center gap-2.5 rounded-[10px] text-left transition-colors",
+                "group relative flex w-full items-center gap-2.5 rounded-[10px] text-left transition-colors",
                 SIDEBAR_ROW_PADDING_CLASS,
                 isDragging ? "opacity-55" : "",
                 dropPosition === "before" ? "border-t border-white/70" : "",
                 dropPosition === "after" ? "border-b border-white/70" : "",
-                activeProjectId === project.id
+                isActive
                   ? "bg-white/[0.08] text-white"
                   : "text-white/[0.8] hover:bg-white/[0.06] hover:text-white",
               )}
             >
+              {isActive ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-sky-300/85"
+                />
+              ) : null}
               {projectJobs.length > 0 ? (
                 <button
                   type="button"

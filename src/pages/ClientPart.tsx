@@ -246,6 +246,18 @@ const ClientPart = () => {
     role: activeMembership?.role,
     userId: user?.id,
   });
+
+  const navigateToPartDestination = (nextJobId: string) => {
+    const job = accessibleJobs.find((candidate) => candidate.id === nextJobId);
+    const projectId = job ? resolveSidebarProjectIdsForJob(job)[0] ?? null : null;
+
+    if (projectId) {
+      navigate(`/projects/${projectId}?part=${nextJobId}`);
+      return;
+    }
+
+    navigate(`/parts/${nextJobId}`);
+  };
   const storageScopeKey = user?.id ?? "anonymous";
 
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(selectedQuoteOption?.offerId ?? null);
@@ -431,6 +443,7 @@ const ClientPart = () => {
             projects={sidebarProjects}
             jobs={accessibleJobs}
             summariesByJobId={summariesByJobId}
+            activeProjectId={breadcrumbProject?.id ?? null}
             activeJobId={jobId}
             onCreateJob={newJobFilePicker.openFilePicker}
             onCreateProject={projectCollaborationUnavailable ? undefined : newJobFilePicker.openFilePicker}
@@ -453,7 +466,7 @@ const ClientPart = () => {
             onArchiveProject={handleArchiveProject}
             onDissolveProject={handleDissolveProject}
             onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
-            onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+            onSelectPart={navigateToPartDestination}
             onPrefetchProject={prefetchProject}
             onPrefetchPart={prefetchPart}
             resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
@@ -728,11 +741,17 @@ const ClientPart = () => {
                         scope={partPresetScope}
                         mode={partPresetMode}
                         requestedByDate={requestSummaryRequestedByDate}
+                        matchingOptionCount={
+                          requestSummaryRequestedByDate
+                            ? rankedQuoteOptions.filter((option) => option.dueDateEligible).length
+                            : null
+                        }
+                        totalOptionCount={rankedQuoteOptions.length}
                         onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
                         onModeChange={(nextMode) => applyPartPreset(nextMode, partPresetScope)}
                         onRequestedByDateChange={(nextDate) => handleSaveRequestPatch({ requestedByDate: nextDate })}
                         disabled={saveRequestMutation.isPending}
-                        dueDateHelpText="Applies to this part request and updates quote eligibility immediately."
+                        dueDateHelpText="Highlights which vendors can meet the requested delivery date and dims the rest immediately."
                       />
                     }
                   />
@@ -894,7 +913,7 @@ const ClientPart = () => {
         jobs={accessibleJobs}
         summariesByJobId={summariesByJobId}
         onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
-        onSelectPart={(jobId) => navigate(`/parts/${jobId}`)}
+        onSelectPart={navigateToPartDestination}
       />
 
       <input

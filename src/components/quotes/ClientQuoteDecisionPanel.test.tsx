@@ -273,7 +273,7 @@ describe("ClientQuoteDecisionPanel", () => {
     expect(screen.queryByRole("columnheader", { name: "Vendor" })).not.toBeInTheDocument();
   });
 
-  it("filters visible vendor rows when due by removes late options", async () => {
+  it("keeps late vendor rows visible and marks them when a need by date is set", async () => {
     const first = makeClientQuoteOption({
       key: "option-on-time",
       offerId: "offer-on-time",
@@ -306,8 +306,8 @@ describe("ClientQuoteDecisionPanel", () => {
     });
 
     expect(getVendorRowNames().some((name) => name.includes("Xometry"))).toBe(true);
-    expect(getVendorRowNames().some((name) => name.includes("Proto Labs"))).toBe(false);
-    expect(screen.getByText("Showing vendors that can meet 2026-04-15. 1 row is hidden.")).toBeInTheDocument();
+    expect(getVendorRowNames().some((name) => name.includes("Proto Labs"))).toBe(true);
+    expect(screen.getByText("Misses requested date 2026-04-15")).toBeInTheDocument();
   });
 
   it("visibly reorders vendor rows and updates the indicator when preset mode changes", async () => {
@@ -450,7 +450,7 @@ describe("ClientQuoteDecisionPanel", () => {
     expect(screen.getByText("1 leader tagged")).toBeInTheDocument();
   });
 
-  it("shows an empty filtered state when every vendor misses the due date", async () => {
+  it("keeps all vendors visible when every vendor misses the need by date", async () => {
     const lateOption = makeClientQuoteOption({
       key: "option-late",
       offerId: "offer-late",
@@ -472,8 +472,8 @@ describe("ClientQuoteDecisionPanel", () => {
       expect(screen.getByText("Quote Chart")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("No vendors meet this due date")).toBeInTheDocument();
-    expect(screen.getByText("No visible quote rows can meet 2026-04-15. Clear DUE BY to see every vendor again.")).toBeInTheDocument();
-    expect(screen.queryByRole("cell", { name: "Xometry" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No vendors meet this due date")).not.toBeInTheDocument();
+    expect(screen.getByText("Misses requested date 2026-04-15")).toBeInTheDocument();
+    expect(screen.getAllByText("Xometry").length).toBeGreaterThan(0);
   });
 });

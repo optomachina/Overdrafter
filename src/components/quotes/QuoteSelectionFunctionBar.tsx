@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { QuotePresetMode, QuotePresetScope } from "@/features/quotes/selection";
 import { cn } from "@/lib/utils";
+import { Filter } from "lucide-react";
 
 type QuoteSelectionFunctionBarProps = {
   scope: QuotePresetScope;
@@ -13,6 +14,8 @@ type QuoteSelectionFunctionBarProps = {
   onRequestedByDateChange: (next: string | null) => void;
   disabled?: boolean;
   dueDateHelpText?: string;
+  matchingOptionCount?: number | null;
+  totalOptionCount?: number;
   domesticAriaLabel?: string;
   globalAriaLabel?: string;
   className?: string;
@@ -94,138 +97,155 @@ export function QuoteSelectionFunctionBar({
   onModeChange,
   onRequestedByDateChange,
   disabled = false,
-  dueDateHelpText = "Applies to this part unless a later override changes the request context.",
+  dueDateHelpText = "Filters vendor options by the requested delivery date for this part.",
+  matchingOptionCount = null,
+  totalOptionCount = 0,
   domesticAriaLabel = "Using domestic quotes",
   globalAriaLabel = "Using global quotes",
   className,
 }: QuoteSelectionFunctionBarProps) {
+  const showDeadlineChip =
+    Boolean(requestedByDate) &&
+    typeof matchingOptionCount === "number" &&
+    totalOptionCount > 0;
+
   return (
     <div className={cn("rounded-lg border border-ws-border-subtle bg-ws-card p-3", className)}>
-      <div className="flex flex-wrap items-center gap-3">
-        <TooltipProvider delayDuration={150}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={disabled}
-                className={cn(
-                  "h-8 w-8 overflow-hidden rounded-full border border-white/10 p-0 [&_svg]:h-full [&_svg]:w-full",
-                  scope === "domestic"
-                    ? "border-white/20 bg-white text-black hover:bg-white/90"
-                    : "bg-transparent text-white hover:bg-white/6",
-                )}
-                aria-label={scope === "domestic" ? domesticAriaLabel : globalAriaLabel}
-                aria-pressed={scope === "domestic"}
-                onClick={() => onScopeChange(scope === "domestic" ? "global" : "domestic")}
-              >
-                {scope === "domestic" ? (
-                  <RoundUsaFlagIcon className="h-full w-full" />
-                ) : (
-                  <RoundGlobeIcon className="h-full w-full" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              {scope === "domestic" ? "Made in the USA" : "Sourced internationally"}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
-        <div
-          className="inline-flex items-center overflow-hidden rounded-full border border-white/10 bg-black/20 p-0.5"
-          role="group"
-          aria-label="Quote preset"
-        >
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={disabled}
-            className={cn(
-              "h-7 rounded-full px-3 text-xs",
-              mode === "balanced"
-                ? "bg-white text-black hover:bg-white/90"
-                : "text-white hover:bg-white/6",
-            )}
-            aria-pressed={mode === "balanced"}
-            onClick={() => onModeChange("balanced")}
-          >
-            Balanced
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={disabled}
-            className={cn(
-              "h-7 rounded-full px-3 text-xs",
-              mode === "fastest"
-                ? "bg-white text-black hover:bg-white/90"
-                : "text-white hover:bg-white/6",
-            )}
-            aria-pressed={mode === "fastest"}
-            onClick={() => onModeChange("fastest")}
-          >
-            Fast
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={disabled}
-            className={cn(
-              "h-7 rounded-full px-3 text-xs",
-              mode === "cheapest"
-                ? "bg-white text-black hover:bg-white/90"
-                : "text-white hover:bg-white/6",
-            )}
-            aria-pressed={mode === "cheapest"}
-            onClick={() => onModeChange("cheapest")}
-          >
-            Cheap
-          </Button>
-        </div>
-
-        <div className="ml-auto flex items-center gap-2">
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
           <TooltipProvider delayDuration={150}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <label
-                  className="cursor-help text-[11px] font-medium uppercase tracking-[0.14em] text-white/45"
-                  htmlFor="quote-selection-due-by"
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={disabled}
+                  className={cn(
+                    "h-8 w-8 overflow-hidden rounded-full border border-white/10 p-0 [&_svg]:h-full [&_svg]:w-full",
+                    scope === "domestic"
+                      ? "border-white/20 bg-white text-black hover:bg-white/90"
+                      : "bg-transparent text-white hover:bg-white/6",
+                  )}
+                  aria-label={scope === "domestic" ? domesticAriaLabel : globalAriaLabel}
+                  aria-pressed={scope === "domestic"}
+                  onClick={() => onScopeChange(scope === "domestic" ? "global" : "domestic")}
                 >
-                  DUE BY:
-                </label>
+                  {scope === "domestic" ? (
+                    <RoundUsaFlagIcon className="h-full w-full" />
+                  ) : (
+                    <RoundGlobeIcon className="h-full w-full" />
+                  )}
+                </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">{dueDateHelpText}</TooltipContent>
+              <TooltipContent side="top">
+                {scope === "domestic" ? "Made in the USA" : "Sourced internationally"}
+              </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <div className="flex items-center gap-2">
-            <Input
-              id="quote-selection-due-by"
-              type="date"
-              value={requestedByDate ?? ""}
+
+          <div
+            className="inline-flex items-center overflow-hidden rounded-full border border-white/10 bg-black/20 p-0.5"
+            role="group"
+            aria-label="Quote preset"
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
               disabled={disabled}
-              onChange={(event) => onRequestedByDateChange(event.target.value || null)}
-              aria-label="Due by"
-              className="h-8 w-[7.6rem] appearance-none rounded-full border-white/10 bg-white/[0.03] px-2 text-center text-sm text-white focus-visible:ring-white/20 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-70 [&::-webkit-date-and-time-value]:text-center [&::-webkit-datetime-edit]:flex [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:items-center [&::-webkit-datetime-edit]:justify-center [&::-webkit-datetime-edit]:text-center [&::-webkit-datetime-edit-fields-wrapper]:flex [&::-webkit-datetime-edit-fields-wrapper]:w-full [&::-webkit-datetime-edit-fields-wrapper]:justify-center"
-            />
-            {requestedByDate ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
+              className={cn(
+                "h-7 rounded-full px-3 text-xs",
+                mode === "balanced"
+                  ? "bg-white text-black hover:bg-white/90"
+                  : "text-white hover:bg-white/6",
+              )}
+              aria-pressed={mode === "balanced"}
+              onClick={() => onModeChange("balanced")}
+            >
+              Balanced
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={disabled}
+              className={cn(
+                "h-7 rounded-full px-3 text-xs",
+                mode === "fastest"
+                  ? "bg-white text-black hover:bg-white/90"
+                  : "text-white hover:bg-white/6",
+              )}
+              aria-pressed={mode === "fastest"}
+              onClick={() => onModeChange("fastest")}
+            >
+              Fast
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={disabled}
+              className={cn(
+                "h-7 rounded-full px-3 text-xs",
+                mode === "cheapest"
+                  ? "bg-white text-black hover:bg-white/90"
+                  : "text-white hover:bg-white/6",
+              )}
+              aria-pressed={mode === "cheapest"}
+              onClick={() => onModeChange("cheapest")}
+            >
+              Cheap
+            </Button>
+          </div>
+
+          <div className="ml-auto flex items-center gap-2">
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <label
+                    className="inline-flex cursor-help items-center gap-1.5 text-[11px] font-medium text-white/55"
+                    htmlFor="quote-selection-due-by"
+                  >
+                    <Filter className="h-3 w-3" aria-hidden />
+                    Need by date
+                  </label>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{dueDateHelpText}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <div className="flex items-center gap-2">
+              <Input
+                id="quote-selection-due-by"
+                type="date"
+                value={requestedByDate ?? ""}
                 disabled={disabled}
-                className="h-8 rounded-full px-3 text-xs text-white/70 hover:bg-white/6 hover:text-white"
-                onClick={() => onRequestedByDateChange(null)}
-              >
-                Clear
-              </Button>
-            ) : null}
+                onChange={(event) => onRequestedByDateChange(event.target.value || null)}
+                aria-label="Need by date"
+                className="h-8 w-[7.6rem] appearance-none rounded-full border-white/10 bg-white/[0.03] px-2 text-center text-sm text-white focus-visible:ring-white/20 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-70 [&::-webkit-date-and-time-value]:text-center [&::-webkit-datetime-edit]:flex [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:items-center [&::-webkit-datetime-edit]:justify-center [&::-webkit-datetime-edit]:text-center [&::-webkit-datetime-edit-fields-wrapper]:flex [&::-webkit-datetime-edit-fields-wrapper]:w-full [&::-webkit-datetime-edit-fields-wrapper]:justify-center"
+              />
+              {requestedByDate ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={disabled}
+                  className="h-8 rounded-full px-3 text-xs text-white/70 hover:bg-white/6 hover:text-white"
+                  onClick={() => onRequestedByDateChange(null)}
+                >
+                  Clear
+                </Button>
+              ) : null}
+            </div>
           </div>
         </div>
+        {showDeadlineChip ? (
+          <div className="flex justify-end">
+            <div className="rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1 text-xs text-amber-50/90">
+              Showing {matchingOptionCount} of {totalOptionCount} options that meet your deadline.
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

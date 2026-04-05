@@ -7,6 +7,23 @@ const migrationPath = path.join(
   "supabase/migrations/20260402120000_persist_project_part_property_overrides.sql",
 );
 const migrationSql = readFileSync(migrationPath, "utf8");
+const normalizedSql = migrationSql.toLowerCase();
+const functionStart = normalizedSql.indexOf(
+  "create or replace function public.load_editable_project_part_context",
+);
+const functionEnd = normalizedSql.indexOf("\n$$;", functionStart);
+if (functionStart < 0 || functionEnd < 0) {
+  throw new Error("Could not isolate public.load_editable_project_part_context from the migration SQL.");
+}
+const loadEditableProjectPartContextSql = normalizedSql.slice(functionStart, functionEnd);
+const resetFunctionStart = normalizedSql.indexOf(
+  "create or replace function public.api_reset_client_part_property_overrides",
+);
+const resetFunctionEnd = normalizedSql.indexOf("\n$$;", resetFunctionStart);
+if (resetFunctionStart < 0 || resetFunctionEnd < 0) {
+  throw new Error("Could not isolate public.api_reset_client_part_property_overrides from the migration SQL.");
+}
+const resetClientPartPropertyOverridesSql = normalizedSql.slice(resetFunctionStart, resetFunctionEnd);
 
 describe("project part property overrides migration", () => {
   it("drops the legacy client part request RPC overload before recreating the threaded signature", () => {
@@ -38,5 +55,43 @@ describe("project part property overrides migration", () => {
     expect(count("public.resolve_project_part_property_values(")).toBeGreaterThan(1);
     expect(count("public.build_project_part_property_snapshot(")).toBeGreaterThan(1);
     expect(count("public.load_editable_project_part_context(")).toBeGreaterThan(1);
+  });
+
+  it("loads editable project part context without recursively selecting from itself", () => {
+    expect(normalizedSql).toContain("create or replace function public.load_editable_project_part_context");
+    expect(loadEditableProjectPartContextSql).not.toContain(
+      "from public.load_editable_project_part_context(p_job_id) context;",
+    );
+  });
+
+  it("requires verified auth and edit permission before returning context", () => {
+    expect(loadEditableProjectPartContextSql).toContain("security definer");
+    expect(loadEditableProjectPartContextSql).toContain("perform public.require_verified_auth();");
+    expect(loadEditableProjectPartContextSql).toContain("if not public.user_can_edit_job(v_job.id) then");
+  });
+
+  it("returns the loaded job, part, requirement, and extraction rows via return query", () => {
+    expect(loadEditableProjectPartContextSql).toContain("return query");
+    expect(loadEditableProjectPartContextSql).toContain("select");
+    expect(loadEditableProjectPartContextSql).toContain("v_job");
+    expect(loadEditableProjectPartContextSql).toContain("v_part");
+    expect(loadEditableProjectPartContextSql).toContain("v_requirement");
+    expect(loadEditableProjectPartContextSql).toContain("v_extraction");
+  });
+
+  it("loads reset-property context through a single record before unpacking rowtypes", () => {
+    expect(resetClientPartPropertyOverridesSql).toContain(
+      "create or replace function public.api_reset_client_part_property_overrides(",
+    );
+    expect(resetClientPartPropertyOverridesSql).toContain("v_context record;");
+    expect(resetClientPartPropertyOverridesSql).toContain("select *");
+    expect(resetClientPartPropertyOverridesSql).toContain("into v_context");
+    expect(resetClientPartPropertyOverridesSql).toContain(
+      "from public.load_editable_project_part_context(p_job_id);",
+    );
+    expect(resetClientPartPropertyOverridesSql).toContain("v_job := v_context.job;");
+    expect(resetClientPartPropertyOverridesSql).toContain("v_part := v_context.part;");
+    expect(resetClientPartPropertyOverridesSql).toContain("v_requirement := v_context.requirement;");
+    expect(resetClientPartPropertyOverridesSql).toContain("v_extraction := v_context.extraction;");
   });
 });

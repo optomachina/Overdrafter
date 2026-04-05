@@ -29,7 +29,6 @@ import type {
   QuotePresetMode,
 } from "@/features/quotes/selection";
 import {
-  filterVisibleQuoteOptions,
   formatQuotePlotExclusionReason,
   getPresetMode,
   getTopRankedQuoteOptionKeys,
@@ -90,7 +89,8 @@ function getPresetModeBadgeCopy(mode: QuotePresetMode) {
         indicatorLabel: "Cheap mode: lowest unit price first",
         indicatorDetail: "Rows are sorted by unit price ascending. The cheapest vendor gets the Cheap pick badge.",
         rowBadge: "Cheap pick",
-      };
+      }
+    ;
 }
 
 function QuoteDataStatusCard({
@@ -229,33 +229,6 @@ function SelectedOptionBanner({ option }: { option: ClientQuoteSelectionOption }
   );
 }
 
-function DueDateFilterNotice({
-  requestedByDate,
-  hiddenCount,
-  selectedOption,
-}: Readonly<{
-  requestedByDate: string;
-  hiddenCount: number;
-  selectedOption: ClientQuoteSelectionOption | null;
-}>) {
-  const selectionMissesDeadline =
-    selectedOption !== null && selectedOption.isSelectable && !selectedOption.dueDateEligible;
-
-  return (
-    <div className="rounded-2xl border border-amber-400/15 bg-amber-500/10 px-4 py-3">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-amber-100/75">Due by filter</p>
-      <p className="mt-1 text-sm text-amber-50/90">
-        Showing vendors that can meet {requestedByDate}. {hiddenCount} {hiddenCount === 1 ? "row is" : "rows are"} hidden.
-      </p>
-      {selectionMissesDeadline ? (
-        <p className="mt-1 text-xs text-amber-100/70">
-          The current selection is kept above for reference, but it misses this due date.
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 function RankingModeIndicator({
   mode,
   rankedCount,
@@ -318,6 +291,7 @@ function QuoteComparisonTable({
           {options.map((option) => {
             const selected = selectedOption?.key === option.key;
             const hovered = hoveredKey === option.key;
+            const missesRequestedDate = Boolean(requestedByDate) && !option.dueDateEligible;
             const showTopRankBadge = topRankedKeys.has(option.key);
             const reasons = getClientQuoteOptionStateReasons({
               option,
@@ -333,6 +307,7 @@ function QuoteComparisonTable({
                   selected && "bg-emerald-500/10 hover:bg-emerald-500/12",
                   !selected && hovered && "bg-white/[0.04]",
                   !selected && !hovered && "hover:bg-white/[0.03]",
+                  missesRequestedDate && "opacity-45",
                   !option.isSelectable && "cursor-not-allowed opacity-60",
                 )}
                 onClick={() => {
@@ -446,6 +421,7 @@ function QuoteComparisonCards({
       {options.map((option) => {
         const selected = selectedOption?.key === option.key;
         const hovered = hoveredKey === option.key;
+        const missesRequestedDate = Boolean(requestedByDate) && !option.dueDateEligible;
         const showTopRankBadge = topRankedKeys.has(option.key);
         const reasons = getClientQuoteOptionStateReasons({
           option,
@@ -462,6 +438,7 @@ function QuoteComparisonCards({
               selected && "border-emerald-400/20 bg-emerald-500/10",
               !selected && hovered && "bg-white/[0.05]",
               !selected && !hovered && option.isSelectable && "hover:bg-white/[0.03]",
+              missesRequestedDate && "opacity-55",
               !option.isSelectable && "cursor-not-allowed opacity-60",
             )}
             onClick={() => {
@@ -551,14 +528,12 @@ function QuoteComparisonCards({
 
 type DecisionPanelContentProps = Readonly<{
   options: readonly ClientQuoteSelectionOption[];
-  visibleOptions: readonly ClientQuoteSelectionOption[];
   selectedOption: ClientQuoteSelectionOption | null;
   requestedByDate: string | null;
   quoteDataStatus: QuoteDataStatus;
   quoteDataMessage: string | null;
   quoteDiagnostics: QuoteDiagnostics | null;
   emptyState: string;
-  hiddenDueDateCount: number;
   layout: "full" | "compact";
   hoveredKey: string | null;
   setHoveredKey: (key: string | null) => void;
@@ -571,14 +546,12 @@ type DecisionPanelContentProps = Readonly<{
 
 function renderDecisionPanelContent({
   options,
-  visibleOptions,
   selectedOption,
   requestedByDate,
   quoteDataStatus,
   quoteDataMessage,
   quoteDiagnostics,
   emptyState,
-  hiddenDueDateCount,
   layout,
   hoveredKey,
   setHoveredKey,
@@ -613,26 +586,16 @@ function renderDecisionPanelContent({
     return <QuoteDataStatusCard icon={CircleOff} title="No quote options yet" body={emptyState} />;
   }
 
-  const showDueDateNotice = Boolean(requestedByDate) && hiddenDueDateCount > 0;
-  const deadlineFilteredEmpty = Boolean(requestedByDate) && options.length > 0 && visibleOptions.length === 0;
   const activeRankingPreset = activePreset ?? "balanced";
-  const rankedVisibleOptions = sortQuoteOptionsForPreset(visibleOptions, activeRankingPreset);
-  const topRankedKeys = getTopRankedQuoteOptionKeys(rankedVisibleOptions, activeRankingPreset);
+  const rankedOptions = sortQuoteOptionsForPreset(options, activeRankingPreset);
+  const topRankedKeys = getTopRankedQuoteOptionKeys(rankedOptions, activeRankingPreset);
 
   let comparisonContent: ReactNode;
 
-  if (deadlineFilteredEmpty) {
-    comparisonContent = (
-      <QuoteDataStatusCard
-        icon={CircleOff}
-        title="No vendors meet this due date"
-        body={`No visible quote rows can meet ${requestedByDate}. Clear DUE BY to see every vendor again.`}
-      />
-    );
-  } else if (layout === "compact") {
+  if (layout === "compact") {
     comparisonContent = (
       <QuoteComparisonCards
-        options={rankedVisibleOptions}
+        options={rankedOptions}
         selectedOption={selectedOption}
         hoveredKey={hoveredKey}
         onSelect={onSelect}
@@ -646,7 +609,7 @@ function renderDecisionPanelContent({
   } else {
     comparisonContent = (
       <QuoteComparisonTable
-        options={rankedVisibleOptions}
+        options={rankedOptions}
         selectedOption={selectedOption}
         hoveredKey={hoveredKey}
         onSelect={onSelect}
@@ -678,14 +641,6 @@ function renderDecisionPanelContent({
           />
         </Suspense>
       </div>
-
-      {showDueDateNotice ? (
-        <DueDateFilterNotice
-          requestedByDate={requestedByDate}
-          hiddenCount={hiddenDueDateCount}
-          selectedOption={selectedOption}
-        />
-      ) : null}
 
       <RankingModeIndicator
         mode={getPresetMode(activePreset)}
@@ -724,10 +679,6 @@ export function ClientQuoteDecisionPanel({
 }: Readonly<ClientQuoteDecisionPanelProps>) {
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const vendorKeys = [...new Set(options.map((o) => o.vendorKey))];
-  const filteredOptions = filterVisibleQuoteOptions(options, requestedByDate);
-  const dueDateFilteringActive = Boolean(requestedByDate);
-  const hiddenDueDateCount = dueDateFilteringActive ? options.length - filteredOptions.length : 0;
-  const visibleOptions = dueDateFilteringActive ? filteredOptions : options;
 
   return (
     <section className={cn("rounded-[28px] border border-ws-border bg-ws-card p-5", className)}>
@@ -742,14 +693,12 @@ export function ClientQuoteDecisionPanel({
       />
       {renderDecisionPanelContent({
         options,
-        visibleOptions,
         selectedOption,
         requestedByDate,
         quoteDataStatus,
         quoteDataMessage,
         quoteDiagnostics,
         emptyState,
-        hiddenDueDateCount,
         layout,
         hoveredKey,
         setHoveredKey,

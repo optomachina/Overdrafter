@@ -106,6 +106,12 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - when preview-only debug reruns are in scope, verify that `debug_extract_part` persists to `debug_extraction_runs`, respects the model allowlist, and does not mutate canonical `drawing_extractions` or `approved_part_requirements`
 - for internal Extraction Lab UI changes, verify model selection, status polling, and side-by-side rendering of canonical extraction versus preview-only debug output
 
+### STEP normalization changes
+- add or update representative valid STEP fixture coverage for the normalized geometry contract
+- verify repeated normalization of identical STEP input returns stable output
+- verify deterministic canonical identifiers and typed topology fields instead of asserting against raw provider-specific STEP entities
+- verify normalized unit and bounding-box fields when geometry coordinates are part of the change
+
 ### Schema or migration changes
 - validate the migration path
 - run static verification

@@ -571,6 +571,16 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByRole("button", { name: /1093-00002/i })).toBeInTheDocument();
   });
 
+  it("renders an active project indicator for the current project row", () => {
+    renderSidebar({
+      activeProjectId: "project-1",
+    });
+
+    const projectRow = screen.getAllByRole("button", { name: /project one/i })[0]!;
+    expect(projectRow).toHaveClass("bg-white/[0.08]");
+    expect(projectRow.querySelector(String.raw`.bg-sky-300\/85`)).not.toBeNull();
+  });
+
   it("auto-expands the active part's project on load", () => {
     renderSidebar({
       activeJobId: "job-2",

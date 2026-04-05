@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { buildActivityLogEntries, groupClientActivityEventsByJobId } from "@/features/quotes/activity-log";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -146,6 +146,7 @@ function matchesJobFilter(status: string, filter: JobFilter) {
 export function useClientProjectController() {
   const { projectId = "" } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { user, activeMembership, signOut, isAuthInitializing } = useAppSession();
   const [activeFilter, setActiveFilter] = useState<JobFilter>("all");
@@ -171,6 +172,19 @@ export function useClientProjectController() {
   const isMobile = useIsMobile();
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+  const focusedJobSearchParam = searchParams.get("part");
+
+  const setFocusedProjectPart = (jobId: string | null) => {
+    const nextSearchParams = new URLSearchParams(searchParams);
+
+    if (jobId) {
+      nextSearchParams.set("part", jobId);
+    } else {
+      nextSearchParams.delete("part");
+    }
+
+    setSearchParams(nextSearchParams, { replace: true });
+  };
 
   useEffect(() => {
     if (!focusedJobId) {
@@ -694,6 +708,20 @@ export function useClientProjectController() {
   }, [filteredJobs, focusedJobId]);
 
   useEffect(() => {
+    if (!focusedJobSearchParam) {
+      return;
+    }
+
+    if (!projectJobs.some((job) => job.id === focusedJobSearchParam)) {
+      return;
+    }
+
+    setFocusedJobId((current) => (current === focusedJobSearchParam ? current : focusedJobSearchParam));
+    setIsInspectorOpen(true);
+    setMobileDrawerOpen(isMobile);
+  }, [focusedJobSearchParam, isMobile, projectJobs]);
+
+  useEffect(() => {
     if (!focusedJobId) {
       return;
     }
@@ -1039,12 +1067,14 @@ export function useClientProjectController() {
     setFocusedJobId(jobId);
     setMobileDrawerOpen(isMobile);
     setIsInspectorOpen(true);
+    setFocusedProjectPart(jobId);
   };
 
   const handleClearFocusedJob = () => {
     setFocusedJobId(null);
     setMobileDrawerOpen(false);
     setIsInspectorOpen(true);
+    setFocusedProjectPart(null);
   };
 
   const handleToggleInspector = () => {

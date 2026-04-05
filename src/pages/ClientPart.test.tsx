@@ -62,6 +62,7 @@ let lastAccountMenuProps: Record<string, unknown> | null = null;
 let lastDrawingPreviewDialogProps: Record<string, unknown> | null = null;
 let lastPartInfoPanelProps: Record<string, unknown> | null = null;
 let lastQuoteDecisionPanelProps: Record<string, unknown> | null = null;
+let lastSidebarProps: Record<string, unknown> | null = null;
 
 vi.mock("@/features/quotes/api", () => api);
 vi.mock("@/features/quotes/api/archive-api", () => ({
@@ -161,6 +162,7 @@ vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
 
 vi.mock("@/components/chat/WorkspaceSidebar", () => ({
   WorkspaceSidebar: (props: Record<string, unknown>) => {
+    lastSidebarProps = props;
     const jobs = Array.isArray(props.jobs)
       ? (props.jobs as Array<{ id: string; title: string }>)
       : [];
@@ -341,10 +343,10 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
     onRequestedByDateChange?: (next: string | null) => void;
   }) => (
     <div data-testid="quote-selection-function-bar">
-      <label htmlFor="mock-due-by">Due by</label>
+      <label htmlFor="mock-due-by">Need by date</label>
       <input
         id="mock-due-by"
-        aria-label="Due by"
+        aria-label="Need by date"
         value={requestedByDate ?? ""}
         onChange={(event) => onRequestedByDateChange?.(event.target.value || null)}
       />
@@ -571,6 +573,7 @@ describe("ClientPart", () => {
     lastDrawingPreviewDialogProps = null;
     lastPartInfoPanelProps = null;
     lastQuoteDecisionPanelProps = null;
+    lastSidebarProps = null;
     vi.resetAllMocks();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -1331,7 +1334,7 @@ describe("ClientPart", () => {
       expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByLabelText("Due by"), { target: { value: "2026-04-22" } });
+    fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
 
     await waitFor(() => {
       expect(api.updateClientPartRequest).toHaveBeenCalledWith(
@@ -1418,6 +1421,47 @@ describe("ClientPart", () => {
     expect(screen.queryByText("Qty 10")).toBeNull();
     expect(screen.queryByText("Quote qty 10")).toBeNull();
     expect(screen.queryByText("Need by Apr 15, 2026")).toBeNull();
+  });
+
+  it("passes the active parent project into the sidebar while viewing a part", async () => {
+    api.fetchAccessibleProjects.mockResolvedValueOnce([
+      {
+        project: {
+          id: "project-1",
+          name: "QB00001",
+          created_at: "2026-03-01T00:00:00Z",
+          updated_at: "2026-03-01T00:00:00Z",
+        },
+        partCount: 1,
+        inviteCount: 0,
+        currentUserRole: "owner",
+      },
+    ]);
+    api.fetchProjectJobMembershipsByJobIds.mockResolvedValueOnce([
+      {
+        job_id: "job-1",
+        project_id: "project-1",
+        project: {
+          id: "project-1",
+          name: "QB00001",
+          partCount: 1,
+        },
+      },
+    ]);
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(
+      createPartDetail({
+        projectIds: ["project-1"],
+      }),
+    );
+
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "QB00001" })).toBeInTheDocument();
+    });
+
+    expect(lastSidebarProps?.activeProjectId).toBe("project-1");
+    expect(lastSidebarProps?.activeJobId).toBe("job-1");
   });
 
   it("drops title-derived revision suffixes from the normalized part heading", async () => {
