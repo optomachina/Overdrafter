@@ -455,7 +455,7 @@ function createProjectSummaryWorkspaceItem(input: {
       selected_vendor_quote_offer_id: hasSelection ? offerId : null,
     },
     summary: {
-      ...base.summary!,
+      ...base.summary,
       jobId: input.jobId,
       partNumber: input.partNumber,
       description: input.description,
@@ -885,7 +885,7 @@ describe("ClientProject", () => {
       expect(screen.getByText("Budget, coverage, and schedule at a glance")).toBeInTheDocument();
       expect(screen.getByText("$2,000")).toBeInTheDocument();
       expect(screen.getByText("22 bd")).toBeInTheDocument();
-      expect(screen.getAllByText("67%").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("67%")).toHaveLength(2);
       expect(screen.getByText("1 part unquoted")).toBeInTheDocument();
       expect(screen.getByText("BRKT-001 is 60% of spend")).toBeInTheDocument();
       expect(screen.getByText("BRKT-002 sets the schedule at 22 business days.")).toBeInTheDocument();

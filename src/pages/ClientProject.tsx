@@ -144,6 +144,7 @@ type ProjectSummaryModel = {
 
 type ProjectSummaryPanelProps = {
   summary: ProjectSummaryModel;
+  isLoading: boolean;
 };
 
 function formatPartCountLabel(count: number, suffix = "part") {
@@ -178,7 +179,35 @@ function buildProjectSummaryStatCards(summary: ProjectSummaryModel) {
   ];
 }
 
-function buildProjectSummaryBadgeModel(summary: ProjectSummaryModel) {
+function buildProjectSummaryBadgeModel(summary: ProjectSummaryModel, isLoading: boolean) {
+  if (isLoading) {
+    return {
+      quoteCoverage: {
+        className: "border border-white/10 bg-white/[0.03] text-white/60",
+        label: "Loading quote coverage…",
+      },
+      selectionCoverage: {
+        className: "border border-white/10 bg-white/[0.03] text-white/60",
+        label: "Loading selections…",
+      },
+    };
+  }
+
+  const isEmpty = summary.totalCount === 0;
+
+  if (isEmpty) {
+    return {
+      quoteCoverage: {
+        className: "border border-white/10 bg-white/[0.03] text-white/60",
+        label: "No parts",
+      },
+      selectionCoverage: {
+        className: "border border-white/10 bg-white/[0.03] text-white/60",
+        label: "No selections",
+      },
+    };
+  }
+
   return {
     quoteCoverage:
       summary.unquotedCount > 0
@@ -204,13 +233,18 @@ function buildProjectSummaryBadgeModel(summary: ProjectSummaryModel) {
 }
 
 function buildProjectSummaryCallouts(summary: ProjectSummaryModel) {
-  return [
+  const quoteCallout =
     summary.unquotedCount > 0
       ? `${formatPartCountLabel(summary.unquotedCount)}${summary.unquotedCount === 1 ? " has" : " have"} not been quoted yet.`
-      : "Every part in this project has at least one quote.",
+      : "Every part in this project has at least one quote.";
+  const selectionCallout =
     summary.pendingSelectionCount > 0
       ? `${formatPartCountLabel(summary.pendingSelectionCount, "quoted part")}${summary.pendingSelectionCount === 1 ? " still needs" : " still need"} a selected option.`
-      : "A selection has been made for every quoted part.",
+      : "A selection has been made for every quoted part.";
+
+  return [
+    quoteCallout,
+    selectionCallout,
     summary.criticalPathLabel && summary.criticalPathDays !== null
       ? `${summary.criticalPathLabel} sets the schedule at ${summary.criticalPathDays} business days.`
       : "Select at least one quote option to establish the current project critical path.",
@@ -229,9 +263,83 @@ function renderSpendDistributionLabel(row: ProjectSummaryPartRow) {
   return "No selection";
 }
 
-function ProjectSummaryPanel({ summary }: Readonly<ProjectSummaryPanelProps>) {
+function ProjectSummaryStatCards({ statCards }: Readonly<{ statCards: ReturnType<typeof buildProjectSummaryStatCards> }>) {
+  return (
+    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {statCards.map((card) => (
+        <div key={card.label} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">{card.label}</p>
+          <p className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">{card.value}</p>
+          <p className="mt-2 text-sm text-white/55">{card.caption}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProjectSummarySpendDistribution({ summary }: Readonly<{ summary: ProjectSummaryModel }>) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-white">Spend distribution</p>
+          <p className="text-sm text-white/55">Selected quote share by part.</p>
+        </div>
+        {summary.dominantSpendLabel && summary.dominantSpendPercent !== null ? (
+          <p className="text-sm text-white/60">
+            {summary.dominantSpendLabel} is {formatPercentageLabel(summary.dominantSpendPercent)} of spend
+          </p>
+        ) : null}
+      </div>
+
+      {summary.spendRows.length > 0 ? (
+        <div className="mt-4 space-y-3">
+          {summary.spendRows.map((row) => (
+            <div key={row.jobId} className="space-y-2">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-white">{row.label}</p>
+                  <p className="text-xs text-white/45">{renderSpendDistributionLabel(row)}</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-medium text-white">{formatCurrencyLabel(row.spendUsd)}</p>
+                  <p className="text-xs text-white/45">{formatPercentageLabel(row.sharePercent)}</p>
+                </div>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-white/[0.08]">
+                <div
+                  className={cn("h-full rounded-full", row.isCriticalPath ? "bg-amber-300" : "bg-white/80")}
+                  style={{ width: `${Math.max(row.sharePercent, 4)}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-sm text-white/50">
+          Select quote options to unlock spend distribution.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProjectSummaryCallouts({ callouts }: Readonly<{ callouts: string[] }>) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <p className="text-sm font-medium text-white">Summary callouts</p>
+      <div className="mt-4 space-y-3 text-sm text-white/65">
+        {callouts.map((callout) => (
+          <p key={callout}>{callout}</p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProjectSummaryPanel({ summary, isLoading }: Readonly<ProjectSummaryPanelProps>) {
   const statCards = buildProjectSummaryStatCards(summary);
-  const badges = buildProjectSummaryBadgeModel(summary);
+  const badges = buildProjectSummaryBadgeModel(summary, isLoading);
   const callouts = buildProjectSummaryCallouts(summary);
 
   return (
@@ -249,71 +357,11 @@ function ProjectSummaryPanel({ summary }: Readonly<ProjectSummaryPanelProps>) {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {statCards.map((card) => (
-          <div key={card.label} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">{card.label}</p>
-            <p className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">{card.value}</p>
-            <p className="mt-2 text-sm text-white/55">{card.caption}</p>
-          </div>
-        ))}
-      </div>
+      <ProjectSummaryStatCards statCards={statCards} />
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(18rem,0.7fr)]">
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium text-white">Spend distribution</p>
-              <p className="text-sm text-white/55">Selected quote share by part.</p>
-            </div>
-            {summary.dominantSpendLabel && summary.dominantSpendPercent !== null ? (
-              <p className="text-sm text-white/60">
-                {summary.dominantSpendLabel} is {formatPercentageLabel(summary.dominantSpendPercent)} of spend
-              </p>
-            ) : null}
-          </div>
-
-          {summary.spendRows.length > 0 ? (
-            <div className="mt-4 space-y-3">
-              {summary.spendRows.map((row) => (
-                <div key={row.jobId} className="space-y-2">
-                  <div className="flex items-center justify-between gap-3 text-sm">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-white">{row.label}</p>
-                      <p className="text-xs text-white/45">{renderSpendDistributionLabel(row)}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-medium text-white">{formatCurrencyLabel(row.spendUsd)}</p>
-                      <p className="text-xs text-white/45">{formatPercentageLabel(row.sharePercent)}</p>
-                    </div>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-white/[0.08]">
-                    <div
-                      className={cn(
-                        "h-full rounded-full",
-                        row.isCriticalPath ? "bg-amber-300" : "bg-white/80",
-                      )}
-                      style={{ width: `${Math.max(row.sharePercent, 4)}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-4 rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-sm text-white/50">
-              Select quote options to unlock spend distribution.
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-          <p className="text-sm font-medium text-white">Summary callouts</p>
-          <div className="mt-4 space-y-3 text-sm text-white/65">
-            {callouts.map((callout) => (
-              <p key={callout}>{callout}</p>
-            ))}
-          </div>
-        </div>
+        <ProjectSummarySpendDistribution summary={summary} />
+        <ProjectSummaryCallouts callouts={callouts} />
       </div>
     </section>
   );
@@ -652,6 +700,7 @@ const ClientProject = () => {
         selectedSpendUsd !== null &&
         selectedSpendUsd !== undefined;
       const hasQuotes =
+        hasSelection ||
         (workspaceItem?.part?.vendorQuotes.length ?? 0) > 0 ||
         (quoteRequestViewModelsByJobId.get(job.id)?.status ?? "not_requested") === "received";
 
@@ -1043,7 +1092,10 @@ const ClientProject = () => {
             </div>
           </div>
 
-          <ProjectSummaryPanel summary={projectSummaryPanel} />
+          <ProjectSummaryPanel
+            summary={projectSummaryPanel}
+            isLoading={projectJobsQuery.isLoading || projectWorkspaceItemsQuery.isLoading}
+          />
 
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
             <div className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-ws-border-subtle bg-ws-card">
