@@ -355,7 +355,7 @@ const ClientPart = () => {
   const partPresetScope = getPresetScope(activePreset);
   const partPresetMode = getPresetMode(activePreset);
 
-  const applyPartPreset = (mode: "cheapest" | "fastest", scope: "domestic" | "global") => {
+  const applyPartPreset = (mode: "balanced" | "cheapest" | "fastest", scope: "domestic" | "global") => {
     handlePresetSelection(buildScopedPreset(mode, scope));
   };
 

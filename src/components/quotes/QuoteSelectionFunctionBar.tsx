@@ -156,6 +156,22 @@ export function QuoteSelectionFunctionBar({
               disabled={disabled}
               className={cn(
                 "h-7 rounded-full px-3 text-xs",
+                mode === "balanced"
+                  ? "bg-white text-black hover:bg-white/90"
+                  : "text-white hover:bg-white/6",
+              )}
+              aria-pressed={mode === "balanced"}
+              onClick={() => onModeChange("balanced")}
+            >
+              Balanced
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={disabled}
+              className={cn(
+                "h-7 rounded-full px-3 text-xs",
                 mode === "fastest"
                   ? "bg-white text-black hover:bg-white/90"
                   : "text-white hover:bg-white/6",

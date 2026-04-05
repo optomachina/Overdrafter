@@ -638,7 +638,8 @@ describe("selection helpers", () => {
 
   it("derives part and project preset helpers with domestic defaults", () => {
     expect(getPresetScope(null)).toBe("domestic");
-    expect(getPresetMode(null)).toBe("cheapest");
+    expect(getPresetMode(null)).toBe("balanced");
+    expect(buildScopedPreset("balanced", "global")).toBe("balanced_global");
     expect(buildScopedPreset("fastest", "global")).toBe("fastest_global");
   });
 });

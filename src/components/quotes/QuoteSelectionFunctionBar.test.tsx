@@ -22,9 +22,11 @@ describe("QuoteSelectionFunctionBar", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Using domestic quotes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Balanced" }));
     fireEvent.click(screen.getByRole("button", { name: "Fast" }));
 
     expect(onScopeChange).toHaveBeenCalledWith("global");
+    expect(onModeChange).toHaveBeenNthCalledWith(1, "balanced");
     expect(onModeChange).toHaveBeenCalledWith("fastest");
   });
 

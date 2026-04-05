@@ -76,15 +76,22 @@ function formatEstimatedDeliveryDays(
 function getPresetModeBadgeCopy(mode: QuotePresetMode) {
   return mode === "fastest"
     ? {
-        indicatorLabel: "Sorting by fastest delivery",
-        indicatorDetail: "Lead time leads. Price breaks ties.",
-        rowBadge: "Fastest",
+        indicatorLabel: "Fast mode: fastest delivery first",
+        indicatorDetail: "Rows are sorted by lead time ascending. The fastest vendor gets the Fast pick badge.",
+        rowBadge: "Fast pick",
       }
+    : mode === "balanced"
+      ? {
+          indicatorLabel: "Balanced mode: best price-speed tradeoff",
+          indicatorDetail: "Rows surface the Pareto-optimal option first. The best tradeoff gets the Balanced pick badge.",
+          rowBadge: "Balanced pick",
+        }
     : {
-        indicatorLabel: "Sorting by lowest cost",
-        indicatorDetail: "Price leads. Lead time breaks ties.",
-        rowBadge: "Lowest Cost",
-      };
+        indicatorLabel: "Cheap mode: lowest unit price first",
+        indicatorDetail: "Rows are sorted by unit price ascending. The cheapest vendor gets the Cheap pick badge.",
+        rowBadge: "Cheap pick",
+      }
+    ;
 }
 
 function QuoteDataStatusCard({
@@ -717,7 +724,7 @@ function renderDecisionPanelContent({
     return <QuoteDataStatusCard icon={CircleOff} title="No quote options yet" body={emptyState} />;
   }
 
-  const activeRankingPreset = activePreset ?? "cheapest";
+  const activeRankingPreset = activePreset ?? "balanced";
   const rankedOptions = sortQuoteOptionsForPreset(options, activeRankingPreset);
   const topRankedKeys = getTopRankedQuoteOptionKeys(rankedOptions, activeRankingPreset);
 

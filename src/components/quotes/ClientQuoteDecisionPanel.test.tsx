@@ -331,6 +331,18 @@ describe("ClientQuoteDecisionPanel", () => {
       leadTimeBusinessDays: 3,
       resolvedDeliveryDate: "2026-04-08",
     });
+    const balanced = makeClientQuoteOption({
+      key: "option-balanced",
+      offerId: "offer-balanced",
+      persistedOfferId: "offer-balanced",
+      vendorQuoteResultId: "result-balanced",
+      vendorLabel: "Xometry",
+      supplier: "Xometry",
+      totalPriceUsd: 120,
+      unitPriceUsd: 12,
+      leadTimeBusinessDays: 5,
+      resolvedDeliveryDate: "2026-04-10",
+    });
     const cheapest = makeClientQuoteOption({
       key: "option-cheap",
       offerId: "offer-cheap",
@@ -346,11 +358,11 @@ describe("ClientQuoteDecisionPanel", () => {
 
     const { rerender } = render(
       <ClientQuoteDecisionPanel
-        options={[fastest, cheapest]}
+        options={[fastest, balanced, cheapest]}
         selectedOption={null}
         onSelect={vi.fn()}
         requestedByDate={null}
-        activePreset="fastest"
+        activePreset="balanced"
       />,
     );
 
@@ -359,14 +371,28 @@ describe("ClientQuoteDecisionPanel", () => {
     });
 
     let vendorRows = getVendorRowNames();
-    expect(vendorRows[0]).toContain("Fictiv");
-    expect(vendorRows[1]).toContain("Proto Labs");
-    expect(screen.getByText("Sorting by fastest delivery")).toBeInTheDocument();
-    expect(screen.getByText("Fastest")).toBeInTheDocument();
+    expect(vendorRows[0]).toContain("Xometry");
+    expect(screen.getByText("Balanced mode: best price-speed tradeoff")).toBeInTheDocument();
+    expect(screen.getByText("Balanced pick")).toBeInTheDocument();
 
     rerender(
       <ClientQuoteDecisionPanel
-        options={[fastest, cheapest]}
+        options={[fastest, balanced, cheapest]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+        activePreset="fastest"
+      />,
+    );
+
+    vendorRows = getVendorRowNames();
+    expect(vendorRows[0]).toContain("Fictiv");
+    expect(screen.getByText("Fast mode: fastest delivery first")).toBeInTheDocument();
+    expect(screen.getByText("Fast pick")).toBeInTheDocument();
+
+    rerender(
+      <ClientQuoteDecisionPanel
+        options={[fastest, balanced, cheapest]}
         selectedOption={null}
         onSelect={vi.fn()}
         requestedByDate={null}
@@ -376,9 +402,8 @@ describe("ClientQuoteDecisionPanel", () => {
 
     vendorRows = getVendorRowNames();
     expect(vendorRows[0]).toContain("Proto Labs");
-    expect(vendorRows[1]).toContain("Fictiv");
-    expect(screen.getByText("Sorting by lowest cost")).toBeInTheDocument();
-    expect(screen.getByText("Lowest Cost")).toBeInTheDocument();
+    expect(screen.getByText("Cheap mode: lowest unit price first")).toBeInTheDocument();
+    expect(screen.getByText("Cheap pick")).toBeInTheDocument();
   });
 
   it("badges the top-ranked vendor under the active ranking mode", async () => {
@@ -429,7 +454,7 @@ describe("ClientQuoteDecisionPanel", () => {
       expect(screen.getByText("Quote Chart")).toBeInTheDocument();
     });
 
-    expect(getVendorRowNames().filter((name) => name.includes("Lowest Cost"))).toHaveLength(1);
+    expect(getVendorRowNames().filter((name) => name.includes("Cheap pick"))).toHaveLength(1);
     expect(screen.getByText("1 leader tagged")).toBeInTheDocument();
   });
 

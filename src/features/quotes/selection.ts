@@ -7,9 +7,9 @@ import type {
 } from "@/features/quotes/types";
 import { formatVendorName, getImportedVendorOffers } from "@/features/quotes/utils";
 
-export type QuotePreset = "cheapest" | "fastest" | "domestic" | "cheapest_domestic" | "fastest_domestic" | "cheapest_global" | "fastest_global";
+export type QuotePreset = "balanced" | "cheapest" | "fastest" | "domestic" | "balanced_domestic" | "balanced_global" | "cheapest_domestic" | "fastest_domestic" | "cheapest_global" | "fastest_global";
 export type QuotePresetScope = "domestic" | "global";
-export type QuotePresetMode = "cheapest" | "fastest";
+export type QuotePresetMode = "balanced" | "cheapest" | "fastest";
 
 export type DomesticStatus = "domestic" | "foreign" | "unknown";
 
@@ -472,6 +472,103 @@ function cheapestComparator(
   return left.vendorLabel.localeCompare(right.vendorLabel);
 }
 
+function getDeliverySortValue(option: ClientQuoteSelectionOption): number {
+  if (option.leadTimeBusinessDays !== null) {
+    return option.leadTimeBusinessDays;
+  }
+
+  if (option.resolvedDeliveryDate) {
+    return Date.parse(option.resolvedDeliveryDate);
+  }
+
+  return Number.POSITIVE_INFINITY;
+}
+
+function getParetoOptimalQuoteOptionKey(
+  options: readonly ClientQuoteSelectionOption[],
+): string | null {
+  const candidates = options.filter((option) => option.eligible && option.isSelectable);
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const paretoFront = candidates.filter((candidate) =>
+    !candidates.some((other) => {
+      if (other.key === candidate.key) {
+        return false;
+      }
+
+      const otherDelivery = getDeliverySortValue(other);
+      const candidateDelivery = getDeliverySortValue(candidate);
+      const noWorse =
+        other.totalPriceUsd <= candidate.totalPriceUsd && otherDelivery <= candidateDelivery;
+      const strictlyBetter =
+        other.totalPriceUsd < candidate.totalPriceUsd || otherDelivery < candidateDelivery;
+
+      return noWorse && strictlyBetter;
+    })
+  );
+
+  const sortedByPrice = [...candidates].sort(cheapestComparator);
+  const sortedBySpeed = [...candidates].sort(fastestComparator);
+  const priceRank = new Map(sortedByPrice.map((option, index) => [option.key, index]));
+  const speedRank = new Map(sortedBySpeed.map((option, index) => [option.key, index]));
+
+  const best = [...paretoFront].sort((left, right) => {
+    const leftPriceRank = priceRank.get(left.key) ?? Number.MAX_SAFE_INTEGER;
+    const rightPriceRank = priceRank.get(right.key) ?? Number.MAX_SAFE_INTEGER;
+    const leftSpeedRank = speedRank.get(left.key) ?? Number.MAX_SAFE_INTEGER;
+    const rightSpeedRank = speedRank.get(right.key) ?? Number.MAX_SAFE_INTEGER;
+    const leftWorstRank = Math.max(leftPriceRank, leftSpeedRank);
+    const rightWorstRank = Math.max(rightPriceRank, rightSpeedRank);
+
+    if (leftWorstRank !== rightWorstRank) {
+      return leftWorstRank - rightWorstRank;
+    }
+
+    const leftBalanceGap = Math.abs(leftPriceRank - leftSpeedRank);
+    const rightBalanceGap = Math.abs(rightPriceRank - rightSpeedRank);
+
+    if (leftBalanceGap !== rightBalanceGap) {
+      return leftBalanceGap - rightBalanceGap;
+    }
+
+    const leftScore = leftPriceRank + leftSpeedRank;
+    const rightScore = rightPriceRank + rightSpeedRank;
+
+    if (leftScore !== rightScore) {
+      return leftScore - rightScore;
+    }
+
+    return cheapestComparator(left, right);
+  })[0];
+
+  return best?.key ?? null;
+}
+
+function balancedComparator(
+  left: ClientQuoteSelectionOption,
+  right: ClientQuoteSelectionOption,
+  balancedKey: string | null,
+): number {
+  const leftIsBalanced = left.key === balancedKey;
+  const rightIsBalanced = right.key === balancedKey;
+
+  if (leftIsBalanced !== rightIsBalanced) {
+    return leftIsBalanced ? -1 : 1;
+  }
+
+  const leftScore = left.totalPriceUsd + getDeliverySortValue(left);
+  const rightScore = right.totalPriceUsd + getDeliverySortValue(right);
+
+  if (leftScore !== rightScore) {
+    return leftScore - rightScore;
+  }
+
+  return cheapestComparator(left, right);
+}
+
 function domesticComparator(
   left: ClientQuoteSelectionOption,
   right: ClientQuoteSelectionOption,
@@ -710,7 +807,7 @@ export function sortQuoteOptionsForPreset(
   options: readonly ClientQuoteSelectionOption[],
   preset: QuotePreset,
 ): ClientQuoteSelectionOption[] {
-  const comparator = getPresetComparator(preset);
+  const comparator = getPresetComparator(preset, options);
 
   const candidates = options.filter((option) => isPresetCandidate(option, preset)).sort(comparator);
   const fallbacks = options.filter((option) => !isPresetCandidate(option, preset)).sort(defaultDisplayComparator);
@@ -722,7 +819,15 @@ export function getTopRankedQuoteOptionKeys(
   options: readonly ClientQuoteSelectionOption[],
   preset: QuotePreset,
 ): Set<string> {
-  const comparator = getPresetComparator(preset);
+  if (preset === "balanced" || preset === "balanced_domestic" || preset === "balanced_global") {
+    const balancedKey = getParetoOptimalQuoteOptionKey(
+      options.filter((option) => isPresetCandidate(option, preset)),
+    );
+
+    return balancedKey ? new Set([balancedKey]) : new Set();
+  }
+
+  const comparator = getPresetComparator(preset, options);
   const candidates = options.filter((option) => isPresetCandidate(option, preset)).sort(comparator);
   const first = candidates[0];
 
@@ -740,9 +845,11 @@ export function getTopRankedQuoteOptionKeys(
 export function getPresetScope(preset: QuotePreset | null): QuotePresetScope {
   if (
     preset === null ||
+    preset === "balanced" ||
     preset === "cheapest" ||
     preset === "fastest" ||
     preset === "domestic" ||
+    preset === "balanced_domestic" ||
     preset === "cheapest_domestic" ||
     preset === "fastest_domestic"
   ) {
@@ -753,6 +860,10 @@ export function getPresetScope(preset: QuotePreset | null): QuotePresetScope {
 }
 
 export function getPresetMode(preset: QuotePreset | null): QuotePresetMode {
+  if (preset === null || preset === "balanced" || preset === "balanced_domestic" || preset === "balanced_global") {
+    return "balanced";
+  }
+
   if (preset === "fastest" || preset === "fastest_domestic" || preset === "fastest_global") {
     return "fastest";
   }
@@ -761,6 +872,10 @@ export function getPresetMode(preset: QuotePreset | null): QuotePresetMode {
 }
 
 export function buildScopedPreset(mode: QuotePresetMode, scope: QuotePresetScope): QuotePreset {
+  if (mode === "balanced") {
+    return scope === "domestic" ? "balanced_domestic" : "balanced_global";
+  }
+
   if (mode === "fastest") {
     return scope === "domestic" ? "fastest_domestic" : "fastest_global";
   }
@@ -786,7 +901,19 @@ export function pickPresetOption(
   return sortQuoteOptionsForPreset(options, preset).find((option) => isPresetCandidate(option, preset)) ?? null;
 }
 
-function getPresetComparator(preset: QuotePreset) {
+function getPresetComparator(
+  preset: QuotePreset,
+  options: readonly ClientQuoteSelectionOption[],
+) {
+  if (preset === "balanced" || preset === "balanced_domestic" || preset === "balanced_global") {
+    const balancedKey = getParetoOptimalQuoteOptionKey(
+      options.filter((option) => isPresetCandidate(option, preset)),
+    );
+
+    return (left: ClientQuoteSelectionOption, right: ClientQuoteSelectionOption) =>
+      balancedComparator(left, right, balancedKey);
+  }
+
   return preset === "fastest" || preset === "fastest_domestic" || preset === "fastest_global"
     ? fastestComparator
     : preset === "domestic"
