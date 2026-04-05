@@ -740,7 +740,7 @@ function renderDecisionPanelContent({
   } else if (isMobile) {
     comparisonContent = (
       <MobileQuoteReviewDeck
-        options={rankedVisibleOptions}
+        options={rankedOptions}
         selectedOption={selectedOption}
         onSelect={onSelect}
         requestedByDate={requestedByDate}
