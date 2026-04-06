@@ -46,6 +46,38 @@ export type PublishedQuoteOptionRecord = Database["public"]["Tables"]["published
 export type ClientSelectionRecord = Database["public"]["Tables"]["client_selections"]["Row"];
 export type AuditEventRecord = Database["public"]["Tables"]["audit_events"]["Row"];
 export type WorkQueueRecord = Database["public"]["Tables"]["work_queue"]["Row"];
+export type VendorCapabilityProfileRecord = {
+  vendor_name: string;
+  process_types: string[];
+  materials: string[];
+  tolerance_min_mm: number | null;
+  tolerance_max_mm: number | null;
+  max_part_size_mm: number | null;
+  min_quantity: number;
+  max_quantity: number | null;
+  geographic_region: string | null;
+  certifications: string[];
+  quality_score: number | null;
+  lead_time_reliability: number | null;
+  cost_competitiveness: number | null;
+  domestic_us: boolean;
+  updated_at: string;
+};
+
+export type VendorRoutingScoreRecord = {
+  id: string;
+  vendor_name: string;
+  quote_run_id: string;
+  organization_id: string;
+  overall_score: number;
+  price_score: number;
+  lead_time_score: number;
+  quality_score: number;
+  capability_match_score: number;
+  domestic_score: number;
+  score_breakdown: Json;
+  computed_at: string;
+};
 
 export type ClientActivityEvent = {
   id: string;
