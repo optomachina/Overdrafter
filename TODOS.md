@@ -186,7 +186,7 @@ This makes the `reapStaleTasks()` query efficient even as the table grows.
 
 ---
 
-## TODO-006: Extraction quality alert evaluation activation
+## ~~TODO-006: Extraction quality alert evaluation activation~~ ✅ DONE (local)
 
 **What:** Groundwork is shipped locally for extraction-quality thresholding:
 - `worker.extraction_completed` now carries immutable observability fields needed for calibration
@@ -214,6 +214,10 @@ Recommended evaluator behavior:
 **Effort:** S (human: ~3 hours / CC: ~10 min after baselines established) | **Priority:** P2
 
 **Depends on:** `extraction_quality_summary` view in production for at least 14 full UTC days.
+
+**Resolution:** Shipped via `20260406000000_add_extraction_quality_alerts.sql`, which adds `public.extraction_quality_alerts` (unique on `organization_id, alert_day, alert_type` for idempotent reruns) and `public.evaluate_extraction_quality_alerts(p_day)` — a `security definer` function that reads `extraction_quality_summary` for the given day and inserts one alert row per triggered metric per org, with `ON CONFLICT DO NOTHING`. Starting thresholds (`> 0.3000` fallback rate, `< 0.7000` auto-approve rate) are annotated with `-- CALIBRATE` comments. Types added to `src/integrations/supabase/types.ts`.
+
+**Verification evidence:** `npm run typecheck` passes. `npm test -- --run src/features/quotes/extraction-quality-alerts.test.ts` — 16/16 passing, covering SQL contract assertions, threshold boundary conditions, zero-extraction skip, idempotency, and multi-org isolation.
 
 ---
 

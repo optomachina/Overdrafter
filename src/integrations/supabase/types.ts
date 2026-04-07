@@ -418,6 +418,44 @@ export type Database = {
           },
         ]
       }
+      extraction_quality_alerts: {
+        Row: {
+          alert_day: string
+          alert_type: string
+          created_at: string
+          id: string
+          metric_value: number
+          organization_id: string
+          threshold_value: number
+        }
+        Insert: {
+          alert_day: string
+          alert_type: string
+          created_at?: string
+          id?: string
+          metric_value: number
+          organization_id: string
+          threshold_value: number
+        }
+        Update: {
+          alert_day?: string
+          alert_type?: string
+          created_at?: string
+          id?: string
+          metric_value?: number
+          organization_id?: string
+          threshold_value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extraction_quality_alerts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       job_files: {
         Row: {
           blob_id: string | null
@@ -2110,6 +2148,10 @@ export type Database = {
       }
       current_user_has_verified_auth: { Args: never; Returns: boolean }
       current_user_home_organization_id: { Args: never; Returns: string }
+      evaluate_extraction_quality_alerts: {
+        Args: { p_day?: string }
+        Returns: number
+      }
       get_active_pricing_policy_id: {
         Args: { p_organization_id: string }
         Returns: string
