@@ -19,10 +19,10 @@ import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
-import { CadPanel } from "@/components/workspace/CadPanel";
+import { PartProductDataBar } from "@/components/quotes/PartProductDataBar";
+import { PartViewerRow } from "@/components/quotes/PartViewerRow";
 import { QuoteSelectionFunctionBar } from "@/components/quotes/QuoteSelectionFunctionBar";
 import { PartInfoPanel } from "@/components/workspace/PartInfoPanel";
-import { PdfPanel } from "@/components/workspace/PdfPanel";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
@@ -495,7 +495,6 @@ const ClientPart = () => {
           ) : partDetail?.job && presentation ? (
             <>
               <ClientPartHeader
-                eyebrow="Issue detail"
                 title={displayPartTitle}
                 description={presentation.description}
                 details={
@@ -600,6 +599,15 @@ const ClientPart = () => {
                         Manage projects
                       </Button>
                     ) : null}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-full border-white/10 bg-white/8 text-white hover:bg-white/12"
+                      onClick={attachFilesPicker.openFilePicker}
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      Attach files
+                    </Button>
                     <DropdownMenu open={isPartOptionsOpen} onOpenChange={setIsPartOptionsOpen}>
                       <DropdownMenuTrigger asChild>
                         <Button
@@ -695,7 +703,28 @@ const ClientPart = () => {
                     </DropdownMenu>
                   </>
                 }
-              />
+              >
+                <PartProductDataBar
+                  part={partDetail.part}
+                  summary={summary}
+                  extraction={extraction}
+                  draft={effectiveRequestDraft}
+                />
+                <div className="mt-5">
+                  <PartViewerRow
+                    cadFile={cadFile}
+                    drawingFile={drawingFile}
+                    drawingPreview={drawingPreview}
+                    drawingPdfUrl={drawingPdfUrl}
+                    drawingPreviewPageUrls={drawingPreviewPageUrls}
+                    drawingViewerMode={drawingViewerMode}
+                    drawingPreviewState={drawingPreviewState}
+                    drawingPreviewStatusMessage={drawingPreviewStatusMessage}
+                    isLoading={isDrawingPreviewLoading}
+                    onOpenDialog={drawingFile ? () => setShowDrawingPreview(true) : undefined}
+                  />
+                </div>
+              </ClientPartHeader>
 
               <Tabs defaultValue="quote" className="flex flex-col gap-4">
                 <TabsList className="h-auto flex-wrap justify-start gap-2 rounded-[22px] border border-white/8 bg-ws-card p-2">
@@ -704,9 +733,6 @@ const ClientPart = () => {
                   </TabsTrigger>
                   <TabsTrigger value="request" className="rounded-full px-4 py-2">
                     Request
-                  </TabsTrigger>
-                  <TabsTrigger value="files" className="rounded-full px-4 py-2">
-                    Files
                   </TabsTrigger>
                   <TabsTrigger value="activity" className="rounded-full px-4 py-2">
                     Activity
@@ -759,9 +785,6 @@ const ClientPart = () => {
 
                 <TabsContent value="request" className="mt-0">
                   <PartInfoPanel
-                    part={partDetail.part}
-                    summary={summary}
-                    extraction={extraction}
                     effectiveRequestDraft={effectiveRequestDraft}
                     quoteQuantityInput={quoteQuantityInput}
                     onQuoteQuantityInputChange={setQuoteQuantityInput}
@@ -769,9 +792,6 @@ const ClientPart = () => {
                     onSave={handleSaveRequest}
                     onUploadRevision={attachFilesPicker.openFilePicker}
                     isSaving={saveRequestMutation.isPending}
-                    drawingFileName={drawingFile?.original_name ?? null}
-                    partNumber={presentation.partNumber}
-                    description={presentation.description}
                     statusContent={
                       <>
                         <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
@@ -791,50 +811,6 @@ const ClientPart = () => {
                       </>
                     }
                   />
-                </TabsContent>
-
-                <TabsContent value="files" className="mt-0">
-                  <div className="flex flex-col gap-4">
-                    <section className="rounded-[30px] border border-white/8 bg-ws-card p-5 md:p-6">
-                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Files</p>
-                          <h2 className="mt-2 text-xl font-semibold text-white">Attached source files</h2>
-                          <p className="mt-1 text-sm text-white/55">
-                            Review the current CAD and drawing files, then upload a revision or add supporting artifacts
-                            from this workspace.
-                          </p>
-                        </div>
-                        <div className="flex flex-col items-start gap-3 md:items-end">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="rounded-full border-white/10 bg-white/8 text-white hover:bg-white/12"
-                            onClick={attachFilesPicker.openFilePicker}
-                          >
-                            <Upload className="mr-2 h-4 w-4" />
-                            Attach files
-                          </Button>
-                          <div className="grid gap-2 text-sm text-white/55 md:text-right">
-                          <p>CAD: {cadFile?.original_name ?? "Missing"}</p>
-                          <p>Drawing: {drawingFile?.original_name ?? "Missing"}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </section>
-                    <CadPanel cadFile={cadFile} />
-                    <PdfPanel
-                      drawingFile={drawingFile}
-                      drawingPreview={drawingPreview}
-                      drawingPdfUrl={drawingPdfUrl}
-                      drawingPreviewPageUrls={drawingPreviewPageUrls}
-                      drawingViewerMode={drawingViewerMode}
-                      drawingPreviewState={drawingPreviewState}
-                      drawingPreviewStatusMessage={drawingPreviewStatusMessage}
-                      isLoading={isDrawingPreviewLoading}
-                      onOpenDialog={drawingFile ? () => setShowDrawingPreview(true) : undefined}
-                    />
-                  </div>
                 </TabsContent>
 
                 <TabsContent value="activity" className="mt-0">
