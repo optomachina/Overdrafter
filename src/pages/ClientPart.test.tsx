@@ -60,7 +60,6 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
 
 let lastAccountMenuProps: Record<string, unknown> | null = null;
 let lastDrawingPreviewDialogProps: Record<string, unknown> | null = null;
-let lastPartInfoPanelProps: Record<string, unknown> | null = null;
 let lastQuoteDecisionPanelProps: Record<string, unknown> | null = null;
 let lastSidebarProps: Record<string, unknown> | null = null;
 
@@ -361,20 +360,12 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
 
 vi.mock("@/components/workspace/PartInfoPanel", () => ({
   PartInfoPanel: ({
-    partNumber,
-    description,
     statusContent,
     onSave,
   }: {
-    partNumber?: string | null;
-    description?: string | null;
     statusContent?: ReactNode;
     onSave?: () => void;
   }) => {
-    lastPartInfoPanelProps = {
-      partNumber,
-      description,
-    };
 
     return (
       <div data-testid="part-info-panel">
@@ -388,12 +379,12 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
   },
 }));
 
-vi.mock("@/components/workspace/CadPanel", () => ({
-  CadPanel: () => <div data-testid="cad-panel">CAD panel</div>,
+vi.mock("@/components/quotes/PartProductDataBar", () => ({
+  PartProductDataBar: () => <div data-testid="part-product-data-bar">Product data</div>,
 }));
 
-vi.mock("@/components/workspace/PdfPanel", () => ({
-  PdfPanel: ({
+vi.mock("@/components/quotes/PartViewerRow", () => ({
+  PartViewerRow: ({
     drawingFile,
     drawingPdfUrl,
   }: {
@@ -401,9 +392,13 @@ vi.mock("@/components/workspace/PdfPanel", () => ({
     drawingPdfUrl?: string | null;
   }) =>
     drawingPdfUrl ? (
-      <iframe title={`${drawingFile?.original_name ?? "Drawing"} PDF preview`} src={drawingPdfUrl} />
+      <iframe
+        title={`${drawingFile?.original_name ?? "Drawing"} PDF preview`}
+        src={drawingPdfUrl}
+        data-testid="part-viewer-row"
+      />
     ) : (
-      <div>PDF panel</div>
+      <div data-testid="part-viewer-row">Viewer row</div>
     ),
 }));
 
@@ -436,7 +431,7 @@ function renderWithClient(initialEntry: string) {
   };
 }
 
-async function renderClientPartOnTab(tab?: "Request" | "Files" | "Activity") {
+async function renderClientPartOnTab(tab?: "Request" | "Activity") {
   const result = renderWithClient("/parts/job-1");
   if (tab) {
     await openWorkspaceTab(tab);
@@ -444,7 +439,7 @@ async function renderClientPartOnTab(tab?: "Request" | "Files" | "Activity") {
   return result;
 }
 
-async function openWorkspaceTab(name: "Quote" | "Request" | "Files" | "Activity") {
+async function openWorkspaceTab(name: "Quote" | "Request" | "Activity") {
   const [tab] = await screen.findAllByRole("tab", { name });
   fireEvent.pointerDown(tab, { button: 0, ctrlKey: false });
   fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
@@ -571,7 +566,6 @@ describe("ClientPart", () => {
     const localStorageState = new Map<string, string>();
     lastAccountMenuProps = null;
     lastDrawingPreviewDialogProps = null;
-    lastPartInfoPanelProps = null;
     lastQuoteDecisionPanelProps = null;
     lastSidebarProps = null;
     vi.resetAllMocks();
@@ -706,24 +700,21 @@ describe("ClientPart", () => {
     expect(api.fetchPartDetailByJobId).toHaveBeenCalledTimes(1);
   });
 
-  it("renders the workspace tabs and switches between quote, request, files, and activity", async () => {
+  it("renders the workspace tabs and switches between quote, request, and activity", async () => {
     renderWithClient("/parts/job-1");
 
     expect(await screen.findByRole("tab", { name: "Quote" })).toBeInTheDocument();
     expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review order" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Attach files" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Attach files" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Files" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("part-viewer-row")).toBeInTheDocument();
+    expect(screen.getByTestId("part-product-data-bar")).toBeInTheDocument();
     expect(screen.queryByText("Part information")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("cad-panel")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Leave a comment")).not.toBeInTheDocument();
 
     for (const [tab, assertion] of [
       ["Request", () => screen.findByTestId("part-info-panel")],
-      ["Files", async () => {
-        expect(await screen.findByTestId("cad-panel")).toBeInTheDocument();
-        expect(screen.getByText("Attached source files")).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: "Attach files" })).toBeInTheDocument();
-      }],
       ["Activity", () => screen.findByLabelText("Leave a comment")],
     ] as const) {
       await openWorkspaceTab(tab);
@@ -731,14 +722,10 @@ describe("ClientPart", () => {
     }
   });
 
-  it("passes part metadata into PartInfoPanel and omits the old workspace badge cluster", async () => {
+  it("renders PartInfoPanel in the Request tab and omits the old workspace badge cluster", async () => {
     await renderClientPartOnTab("Request");
     expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
 
-    expect(lastPartInfoPanelProps).toMatchObject({
-      partNumber: "BRKT-001",
-      description: "Bracket",
-    });
     expect(screen.queryByText("Standalone part")).not.toBeInTheDocument();
     expect(screen.queryByText("CAD missing")).not.toBeInTheDocument();
     expect(screen.queryByText("Drawing missing")).not.toBeInTheDocument();
@@ -1612,7 +1599,7 @@ describe("ClientPart", () => {
       }),
     );
 
-    await renderClientPartOnTab("Files");
+    await renderClientPartOnTab();
     expect(await screen.findByTitle("bracket.pdf PDF preview")).toHaveAttribute("src", "blob:part-drawing-pdf");
     expect(storedFile.loadStoredPdfObjectUrl).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1672,7 +1659,7 @@ describe("ClientPart", () => {
       }),
     );
 
-    await renderClientPartOnTab("Files");
+    await renderClientPartOnTab();
     await waitFor(() => {
       expect(storedFile.loadStoredDrawingPreviewPages).toHaveBeenCalled();
       expect(lastDrawingPreviewDialogProps?.pages).toEqual([{ pageNumber: 1, url: "blob:page-1" }]);
