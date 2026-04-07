@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { ClientPartPropertyOverrideField, ClientPartRequestUpdateInput } from "@/features/quotes/types";
 import { ClientPartRequestEditor } from "./ClientPartRequestEditor";
 
+type FieldDefaults = Partial<Record<ClientPartPropertyOverrideField, string | number | null>>;
+
 vi.mock("@/components/quotes/RfqLineItemMetadataFields", () => ({
   RfqLineItemMetadataFields: () => <div data-testid="rfq-metadata" />,
 }));
@@ -63,7 +65,7 @@ const noop = () => {};
 describe("ClientPartRequestEditor — reset buttons", () => {
   it("renders a reset button when onResetField is provided and draft differs from default", () => {
     const draft = makeDraft({ material: "modified material" });
-    const fieldDefaults: Partial<Record<ClientPartPropertyOverrideField, string | number | null>> = {
+    const fieldDefaults: FieldDefaults = {
       material: "6061-T6 aluminum",
     };
 
@@ -86,7 +88,7 @@ describe("ClientPartRequestEditor — reset buttons", () => {
 
   it("does not render a reset button when draft matches the default", () => {
     const draft = makeDraft({ material: "6061-T6 aluminum" });
-    const fieldDefaults: Partial<Record<ClientPartPropertyOverrideField, string | number | null>> = {
+    const fieldDefaults: FieldDefaults = {
       material: "6061-T6 aluminum",
     };
 
@@ -108,7 +110,7 @@ describe("ClientPartRequestEditor — reset buttons", () => {
 
   it("does not render a reset button when no default exists for the field", () => {
     const draft = makeDraft({ material: "some material" });
-    const fieldDefaults: Partial<Record<ClientPartPropertyOverrideField, string | number | null>> = {};
+    const fieldDefaults: FieldDefaults = {};
 
     render(
       <ClientPartRequestEditor
@@ -128,7 +130,7 @@ describe("ClientPartRequestEditor — reset buttons", () => {
 
   it("does not render reset buttons when onResetField is not provided", () => {
     const draft = makeDraft({ material: "modified material" });
-    const fieldDefaults: Partial<Record<ClientPartPropertyOverrideField, string | number | null>> = {
+    const fieldDefaults: FieldDefaults = {
       material: "6061-T6 aluminum",
     };
 
@@ -150,7 +152,7 @@ describe("ClientPartRequestEditor — reset buttons", () => {
   it("calls onResetField with the correct field name when clicked", () => {
     const onResetField = vi.fn();
     const draft = makeDraft({ material: "modified material" });
-    const fieldDefaults: Partial<Record<ClientPartPropertyOverrideField, string | number | null>> = {
+    const fieldDefaults: FieldDefaults = {
       material: "6061-T6 aluminum",
     };
 

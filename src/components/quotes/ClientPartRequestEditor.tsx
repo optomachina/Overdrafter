@@ -22,24 +22,53 @@ type ClientPartRequestEditorProps = {
   isSaving?: boolean;
   footer?: ReactNode;
   onResetField?: (field: ClientPartPropertyOverrideField) => void;
-  fieldDefaults?: Partial<Record<ClientPartPropertyOverrideField, string | number | null>>;
+  fieldDefaults?: FieldDefaults;
 };
 
 function numberFieldValue(value: number | null | undefined): string {
   return value === null || value === undefined || Number.isNaN(value) ? "" : String(value);
 }
 
+type FieldDefaults = Partial<Record<ClientPartPropertyOverrideField, string | number | null>>;
+
 function hasResetTarget(
   field: ClientPartPropertyOverrideField,
   draft: ClientPartRequestUpdateInput,
-  defaults: Partial<Record<ClientPartPropertyOverrideField, string | number | null>> | undefined,
+  defaults: FieldDefaults | undefined,
 ): boolean {
   const defaultValue = defaults?.[field];
   if (defaultValue === null || defaultValue === undefined) {
     return false;
   }
-  const draftValue = draft[field as keyof ClientPartRequestUpdateInput];
-  return String(draftValue ?? "") !== String(defaultValue);
+  const raw = draft[field as keyof ClientPartRequestUpdateInput];
+  if (typeof raw !== "string" && typeof raw !== "number" && raw !== null && raw !== undefined) {
+    return false;
+  }
+  return String(raw ?? "") !== String(defaultValue);
+}
+
+function ResetButton({
+  field,
+  defaultValue,
+  onReset,
+  position = "center",
+}: {
+  field: ClientPartPropertyOverrideField;
+  defaultValue: string | number | null | undefined;
+  onReset: (field: ClientPartPropertyOverrideField) => void;
+  position?: "center" | "top";
+}) {
+  const posClass = position === "top" ? "top-2" : "top-1/2 -translate-y-1/2";
+  return (
+    <button
+      type="button"
+      title={`Reset to extracted: ${String(defaultValue ?? "")}`}
+      className={`absolute right-2 ${posClass} text-white/30 hover:text-white/70`}
+      onClick={() => onReset(field)}
+    >
+      <RotateCcw className="h-3.5 w-3.5" />
+    </button>
+  );
 }
 
 export function ClientPartRequestEditor({
@@ -79,14 +108,7 @@ export function ClientPartRequestEditor({
               className="border-white/10 bg-black/20 text-white"
             />
             {onResetField && hasResetTarget("partNumber", draft, fieldDefaults) ? (
-              <button
-                type="button"
-                title={`Reset to extracted: ${String(fieldDefaults?.partNumber ?? "")}`}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70"
-                onClick={() => onResetField("partNumber")}
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-              </button>
+              <ResetButton field="partNumber" defaultValue={fieldDefaults?.partNumber} onReset={onResetField} />
             ) : null}
           </div>
         </div>
@@ -109,14 +131,7 @@ export function ClientPartRequestEditor({
               className="border-white/10 bg-black/20 text-white"
             />
             {onResetField && hasResetTarget("description", draft, fieldDefaults) ? (
-              <button
-                type="button"
-                title={`Reset to extracted: ${String(fieldDefaults?.description ?? "")}`}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70"
-                onClick={() => onResetField("description")}
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-              </button>
+              <ResetButton field="description" defaultValue={fieldDefaults?.description} onReset={onResetField} />
             ) : null}
           </div>
         </div>
@@ -131,14 +146,7 @@ export function ClientPartRequestEditor({
               placeholder={showQuoteFields ? "e.g. 6061-T6 aluminum" : "Optional for non-quote services"}
             />
             {onResetField && hasResetTarget("material", draft, fieldDefaults) ? (
-              <button
-                type="button"
-                title={`Reset to extracted: ${String(fieldDefaults?.material ?? "")}`}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70"
-                onClick={() => onResetField("material")}
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-              </button>
+              <ResetButton field="material" defaultValue={fieldDefaults?.material} onReset={onResetField} />
             ) : null}
           </div>
         </div>
@@ -152,14 +160,7 @@ export function ClientPartRequestEditor({
               className="border-white/10 bg-black/20 text-white"
             />
             {onResetField && hasResetTarget("finish", draft, fieldDefaults) ? (
-              <button
-                type="button"
-                title={`Reset to extracted: ${String(fieldDefaults?.finish ?? "")}`}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70"
-                onClick={() => onResetField("finish")}
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-              </button>
+              <ResetButton field="finish" defaultValue={fieldDefaults?.finish} onReset={onResetField} />
             ) : null}
           </div>
         </div>
@@ -177,14 +178,7 @@ export function ClientPartRequestEditor({
               placeholder="Optional thread callouts such as 1/4-20 UNC-2B."
             />
             {onResetField && hasResetTarget("threads", draft, fieldDefaults) ? (
-              <button
-                type="button"
-                title={`Reset to extracted: ${String(fieldDefaults?.threads ?? "")}`}
-                className="absolute right-2 top-2 text-white/30 hover:text-white/70"
-                onClick={() => onResetField("threads")}
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-              </button>
+              <ResetButton field="threads" defaultValue={fieldDefaults?.threads} onReset={onResetField} position="top" />
             ) : null}
           </div>
         </div>
@@ -205,14 +199,7 @@ export function ClientPartRequestEditor({
               inputMode="decimal"
             />
             {onResetField && hasResetTarget("tightestToleranceInch", draft, fieldDefaults) ? (
-              <button
-                type="button"
-                title={`Reset to extracted: ${String(fieldDefaults?.tightestToleranceInch ?? "")}`}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70"
-                onClick={() => onResetField("tightestToleranceInch")}
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-              </button>
+              <ResetButton field="tightestToleranceInch" defaultValue={fieldDefaults?.tightestToleranceInch} onReset={onResetField} />
             ) : null}
           </div>
         </div>
