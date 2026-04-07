@@ -4,16 +4,16 @@ import type { DrawingPreviewData, JobFileRecord } from "@/features/quotes/types"
 import type { StoredFileViewerMode } from "@/lib/file-viewer";
 
 type PartViewerRowProps = {
-  cadFile: JobFileRecord | null | undefined;
-  drawingFile: JobFileRecord | null | undefined;
-  drawingPreview: DrawingPreviewData | null | undefined;
-  drawingPdfUrl: string | null;
-  drawingPreviewPageUrls: DrawingPreviewPage[];
-  drawingViewerMode: StoredFileViewerMode;
-  drawingPreviewState: DrawingPreviewState;
-  drawingPreviewStatusMessage: string | null;
-  isLoading: boolean;
-  onOpenDialog?: (() => void) | undefined;
+  readonly cadFile: JobFileRecord | null | undefined;
+  readonly drawingFile: JobFileRecord | null | undefined;
+  readonly drawingPreview: DrawingPreviewData | null | undefined;
+  readonly drawingPdfUrl: string | null;
+  readonly drawingPreviewPageUrls: DrawingPreviewPage[];
+  readonly drawingViewerMode: StoredFileViewerMode;
+  readonly drawingPreviewState: DrawingPreviewState;
+  readonly drawingPreviewStatusMessage: string | null;
+  readonly isLoading: boolean;
+  readonly onOpenDialog?: () => void;
 };
 
 export function PartViewerRow({

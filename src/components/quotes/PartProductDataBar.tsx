@@ -3,10 +3,10 @@ import { requestedServicesSupportQuoteFields } from "@/features/quotes/service-i
 import type { ClientPartRequestUpdateInput, DrawingExtractionData, JobPartSummary, PartAggregate } from "@/features/quotes/types";
 
 type PartProductDataBarProps = {
-  part: PartAggregate | null | undefined;
-  summary: JobPartSummary | null | undefined;
-  extraction: DrawingExtractionData | null | undefined;
-  draft: ClientPartRequestUpdateInput | null;
+  readonly part: PartAggregate | null | undefined;
+  readonly summary: JobPartSummary | null | undefined;
+  readonly extraction: DrawingExtractionData | null | undefined;
+  readonly draft: ClientPartRequestUpdateInput | null;
 };
 
 type DataField = {
@@ -14,11 +14,33 @@ type DataField = {
   value: string;
 };
 
-function buildDataFields(input: PartProductDataBarProps): DataField[] {
-  const { part, summary, extraction, draft } = input;
+function resolveQuantityValue(input: PartProductDataBarProps): string {
+  const { part, summary, draft } = input;
   const showQuoteFields = requestedServicesSupportQuoteFields(
     draft?.requestedServiceKinds ?? summary?.requestedServiceKinds,
   );
+
+  if (showQuoteFields && draft?.requestedQuoteQuantities.length) {
+    return draft.requestedQuoteQuantities.join(" / ");
+  }
+
+  if (draft?.quantity) {
+    return String(draft.quantity);
+  }
+
+  if (summary?.quantity) {
+    return String(summary.quantity);
+  }
+
+  if (part?.quantity) {
+    return String(part.quantity);
+  }
+
+  return "—";
+}
+
+function buildDataFields(input: PartProductDataBarProps): DataField[] {
+  const { part, extraction, draft } = input;
 
   return [
     {
@@ -54,16 +76,7 @@ function buildDataFields(input: PartProductDataBarProps): DataField[] {
     },
     {
       label: "Quantity",
-      value:
-        showQuoteFields && draft?.requestedQuoteQuantities.length
-          ? draft.requestedQuoteQuantities.join(" / ")
-          : draft?.quantity
-            ? String(draft.quantity)
-            : summary?.quantity
-              ? String(summary.quantity)
-              : part?.quantity
-                ? String(part.quantity)
-                : "—",
+      value: resolveQuantityValue(input),
     },
     {
       label: "Thread",
