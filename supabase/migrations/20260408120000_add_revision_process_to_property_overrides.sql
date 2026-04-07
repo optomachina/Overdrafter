@@ -155,6 +155,9 @@ end;
 $$;
 
 -- Extend resolve_project_part_property_values to return revision and process.
+-- Must drop first because CREATE OR REPLACE cannot add columns to RETURNS TABLE.
+
+drop function if exists public.resolve_project_part_property_values(jsonb, jsonb);
 
 create or replace function public.resolve_project_part_property_values(
   p_defaults jsonb,
