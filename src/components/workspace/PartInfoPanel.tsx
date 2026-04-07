@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { FileText } from "lucide-react";
 import { ClientPartRequestEditor } from "@/components/quotes/ClientPartRequestEditor";
 import { requestedServicesSupportQuoteFields } from "@/features/quotes/service-intent";
-import type { ClientPartRequestUpdateInput, DrawingExtractionData, JobPartSummary, PartAggregate } from "@/features/quotes/types";
+import type { ClientPartPropertyOverrideField, ClientPartRequestUpdateInput, DrawingExtractionData, JobPartSummary, PartAggregate } from "@/features/quotes/types";
 
 type PartInfoPanelProps = {
   part: PartAggregate | null | undefined;
@@ -19,6 +19,8 @@ type PartInfoPanelProps = {
   statusContent?: ReactNode;
   partNumber?: string | null;
   description?: string | null;
+  onResetField?: (field: ClientPartPropertyOverrideField) => void;
+  fieldDefaults?: Partial<Record<ClientPartPropertyOverrideField, string | number | null>>;
 };
 
 type InfoRow = {
@@ -125,6 +127,8 @@ export function PartInfoPanel({
   statusContent = null,
   partNumber = null,
   description = null,
+  onResetField,
+  fieldDefaults,
 }: PartInfoPanelProps) {
   const rows = buildInfoRows({
     part,
@@ -165,6 +169,8 @@ export function PartInfoPanel({
               onSave={onSave}
               onUploadRevision={onUploadRevision}
               isSaving={isSaving}
+              onResetField={onResetField}
+              fieldDefaults={fieldDefaults}
             />
           ) : (
             <p className="text-sm text-white/45">Part details are still loading.</p>

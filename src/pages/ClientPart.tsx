@@ -181,6 +181,7 @@ const ClientPart = () => {
     handleRenamePart,
     handleRenameProject,
     handleRequestQuote,
+    handleResetField,
     handleSaveRequest,
     handleSaveRequestPatch,
     handleSelectQuoteOption,
@@ -772,6 +773,8 @@ const ClientPart = () => {
                     drawingFileName={drawingFile?.original_name ?? null}
                     partNumber={presentation.partNumber}
                     description={presentation.description}
+                    onResetField={handleResetField}
+                    fieldDefaults={partDetail.part?.clientRequirement?.projectPartProperties?.defaults ?? undefined}
                     statusContent={
                       <>
                         <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
