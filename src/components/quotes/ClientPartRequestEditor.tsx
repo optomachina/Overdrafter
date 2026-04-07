@@ -46,7 +46,7 @@ function hasResetTarget(
   if (typeof raw !== "string" && typeof raw !== "number" && raw !== null && raw !== undefined) {
     return false;
   }
-  return String(raw ?? "") !== String(defaultValue);
+  return String(raw !== null && raw !== undefined ? raw : "") !== String(defaultValue);
 }
 
 function ResetButton({
@@ -55,10 +55,10 @@ function ResetButton({
   onReset,
   position = "center",
 }: {
-  field: ClientPartPropertyOverrideField;
-  defaultValue: string | number | null | undefined;
-  onReset: (field: ClientPartPropertyOverrideField) => void;
-  position?: "center" | "top";
+  readonly field: ClientPartPropertyOverrideField;
+  readonly defaultValue: string | number | null | undefined;
+  readonly onReset: (field: ClientPartPropertyOverrideField) => void;
+  readonly position?: "center" | "top";
 }) {
   const posClass = position === "top" ? "top-2" : "top-1/2 -translate-y-1/2";
   return (
@@ -71,6 +71,25 @@ function ResetButton({
       <RotateCcw className="h-3.5 w-3.5" />
     </button>
   );
+}
+
+function FieldResetButton({
+  field,
+  draft,
+  fieldDefaults,
+  onResetField,
+  position,
+}: {
+  readonly field: ClientPartPropertyOverrideField;
+  readonly draft: ClientPartRequestUpdateInput;
+  readonly fieldDefaults: FieldDefaults | undefined;
+  readonly onResetField: ((field: ClientPartPropertyOverrideField) => void) | undefined;
+  readonly position?: "center" | "top";
+}) {
+  if (!onResetField || !hasResetTarget(field, draft, fieldDefaults)) {
+    return null;
+  }
+  return <ResetButton field={field} defaultValue={fieldDefaults?.[field]} onReset={onResetField} position={position} />;
 }
 
 export function ClientPartRequestEditor({
@@ -110,9 +129,7 @@ export function ClientPartRequestEditor({
               onChange={(event) => onChange({ partNumber: event.target.value || null })}
               className="border-white/10 bg-black/20 text-white"
             />
-            {onResetField && hasResetTarget("partNumber", draft, fieldDefaults) ? (
-              <ResetButton field="partNumber" defaultValue={fieldDefaults?.partNumber} onReset={onResetField} />
-            ) : null}
+            <FieldResetButton field="partNumber" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
         </div>
         <div className="space-y-2">
@@ -124,9 +141,7 @@ export function ClientPartRequestEditor({
               onChange={(event) => onChange({ revision: event.target.value || null })}
               className="border-white/10 bg-black/20 text-white"
             />
-            {onResetField && hasResetTarget("revision", draft, fieldDefaults) ? (
-              <ResetButton field="revision" defaultValue={fieldDefaults?.revision} onReset={onResetField} />
-            ) : null}
+            <FieldResetButton field="revision" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
         </div>
         <div className="space-y-2 md:col-span-2">
@@ -138,9 +153,7 @@ export function ClientPartRequestEditor({
               onChange={(event) => onChange({ description: event.target.value || null })}
               className="border-white/10 bg-black/20 text-white"
             />
-            {onResetField && hasResetTarget("description", draft, fieldDefaults) ? (
-              <ResetButton field="description" defaultValue={fieldDefaults?.description} onReset={onResetField} />
-            ) : null}
+            <FieldResetButton field="description" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
         </div>
         <div className="space-y-2">
@@ -153,9 +166,7 @@ export function ClientPartRequestEditor({
               className="border-white/10 bg-black/20 text-white"
               placeholder={showQuoteFields ? "e.g. 6061-T6 aluminum" : "Optional for non-quote services"}
             />
-            {onResetField && hasResetTarget("material", draft, fieldDefaults) ? (
-              <ResetButton field="material" defaultValue={fieldDefaults?.material} onReset={onResetField} />
-            ) : null}
+            <FieldResetButton field="material" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
         </div>
         <div className="space-y-2">
@@ -167,9 +178,7 @@ export function ClientPartRequestEditor({
               onChange={(event) => onChange({ finish: event.target.value || null })}
               className="border-white/10 bg-black/20 text-white"
             />
-            {onResetField && hasResetTarget("finish", draft, fieldDefaults) ? (
-              <ResetButton field="finish" defaultValue={fieldDefaults?.finish} onReset={onResetField} />
-            ) : null}
+            <FieldResetButton field="finish" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
         </div>
         <div className="space-y-2 md:col-span-2">
@@ -185,9 +194,7 @@ export function ClientPartRequestEditor({
               className="min-h-[88px] border-white/10 bg-black/20 text-white"
               placeholder="Optional thread callouts such as 1/4-20 UNC-2B."
             />
-            {onResetField && hasResetTarget("threads", draft, fieldDefaults) ? (
-              <ResetButton field="threads" defaultValue={fieldDefaults?.threads} onReset={onResetField} position="top" />
-            ) : null}
+            <FieldResetButton field="threads" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} position="top" />
           </div>
         </div>
         <div className="space-y-2">
@@ -206,9 +213,7 @@ export function ClientPartRequestEditor({
               className="border-white/10 bg-black/20 text-white"
               inputMode="decimal"
             />
-            {onResetField && hasResetTarget("tightestToleranceInch", draft, fieldDefaults) ? (
-              <ResetButton field="tightestToleranceInch" defaultValue={fieldDefaults?.tightestToleranceInch} onReset={onResetField} />
-            ) : null}
+            <FieldResetButton field="tightestToleranceInch" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
         </div>
         <div className="space-y-2">
@@ -220,9 +225,7 @@ export function ClientPartRequestEditor({
               onChange={(event) => onChange({ process: event.target.value || null })}
               className="border-white/10 bg-black/20 text-white"
             />
-            {onResetField && hasResetTarget("process", draft, fieldDefaults) ? (
-              <ResetButton field="process" defaultValue={fieldDefaults?.process} onReset={onResetField} />
-            ) : null}
+            <FieldResetButton field="process" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
         </div>
         {showQuoteFields ? (
