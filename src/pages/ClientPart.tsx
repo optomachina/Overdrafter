@@ -404,20 +404,23 @@ const ClientPart = () => {
     toast.success(next ? "Subscribed to updates." : "Unsubscribed from updates.");
   };
 
-  const partFieldDefaults =
-    partDetail?.part?.clientRequirement?.projectPartProperties?.defaults ??
-    (extraction
-      ? {
-          description: extraction.description,
-          partNumber: extraction.partNumber,
-          revision: extraction.revision ?? null,
-          material: extraction.material.normalized ?? extraction.material.raw,
-          finish: extraction.finish.normalized ?? extraction.finish.raw,
-          tightestToleranceInch: extraction.tightestTolerance.valueInch,
-          threads: extraction.threads?.join(", ") ?? null,
-          process: null,
-        }
-      : undefined);
+  const dbDefaults = partDetail?.part?.clientRequirement?.projectPartProperties?.defaults;
+  const extractionDefaults = extraction
+    ? {
+        description: extraction.description,
+        partNumber: extraction.partNumber,
+        revision: extraction.revision ?? null,
+        material: extraction.material.normalized ?? extraction.material.raw,
+        finish: extraction.finish.normalized ?? extraction.finish.raw,
+        tightestToleranceInch: extraction.tightestTolerance.valueInch,
+        threads: extraction.threads?.join(", ") ?? null,
+        process: null,
+      }
+    : undefined;
+
+  const partFieldDefaults = dbDefaults
+    ? { ...extractionDefaults, ...dbDefaults }
+    : extractionDefaults;
 
   return (
     <>

@@ -64,6 +64,7 @@ function ResetButton({
   return (
     <button
       type="button"
+      aria-label={`Reset to extracted: ${String(defaultValue ?? "")}`}
       title={`Reset to extracted: ${String(defaultValue ?? "")}`}
       className={`absolute right-2 ${posClass} text-white/30 hover:text-white/70`}
       onClick={() => onReset(field)}

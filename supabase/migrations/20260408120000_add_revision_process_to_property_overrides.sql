@@ -372,7 +372,7 @@ begin
     approved_by            = auth.uid(),
     description            = coalesce(v_description_effective, public.approved_part_requirements.description),
     part_number            = coalesce(v_part_number_effective, public.approved_part_requirements.part_number),
-    revision               = coalesce(v_revision_effective, public.approved_part_requirements.revision),
+    revision               = v_revision_effective,
     material               = coalesce(v_material_effective, public.approved_part_requirements.material, ''),
     finish                 = coalesce(v_finish_effective, public.approved_part_requirements.finish),
     tightest_tolerance_inch = coalesce(
