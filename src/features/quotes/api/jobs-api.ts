@@ -1295,7 +1295,7 @@ export async function updateClientPartRequest(input: ClientPartRequestUpdateInpu
 export async function resetClientPartPropertyOverrides(input: {
   jobId: string;
   fields: Array<
-    "description" | "partNumber" | "material" | "finish" | "tightestToleranceInch" | "threads"
+    "description" | "partNumber" | "revision" | "material" | "finish" | "tightestToleranceInch" | "threads" | "process"
   >;
 }): Promise<string> {
   const fixtureGateway = getActiveClientWorkspaceGateway();

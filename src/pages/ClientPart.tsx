@@ -181,6 +181,8 @@ const ClientPart = () => {
     handleRenamePart,
     handleRenameProject,
     handleRequestQuote,
+    handleResetField,
+    handleResetAllFields,
     handleSaveRequest,
     handleSaveRequestPatch,
     handleSelectQuoteOption,
@@ -401,6 +403,24 @@ const ClientPart = () => {
     writeStoredSubscribed(storageScopeKey, jobId, next);
     toast.success(next ? "Subscribed to updates." : "Unsubscribed from updates.");
   };
+
+  const dbDefaults = partDetail?.part?.clientRequirement?.projectPartProperties?.defaults;
+  const extractionDefaults = extraction
+    ? {
+        description: extraction.description,
+        partNumber: extraction.partNumber,
+        revision: extraction.revision ?? null,
+        material: extraction.material.normalized ?? extraction.material.raw,
+        finish: extraction.finish.normalized ?? extraction.finish.raw,
+        tightestToleranceInch: extraction.tightestTolerance.valueInch,
+        threads: extraction.threads?.join(", ") ?? null,
+        process: null,
+      }
+    : undefined;
+
+  const partFieldDefaults = dbDefaults
+    ? { ...extractionDefaults, ...dbDefaults }
+    : extractionDefaults;
 
   return (
     <>
@@ -792,6 +812,9 @@ const ClientPart = () => {
                     onSave={handleSaveRequest}
                     onUploadRevision={attachFilesPicker.openFilePicker}
                     isSaving={saveRequestMutation.isPending}
+                    onResetField={handleResetField}
+                    onResetAllFields={handleResetAllFields}
+                    fieldDefaults={partFieldDefaults}
                     statusContent={
                       <>
                         <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />

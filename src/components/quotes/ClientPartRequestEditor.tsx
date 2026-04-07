@@ -1,4 +1,4 @@
-import { Loader2, Upload } from "lucide-react";
+import { Loader2, RotateCcw, Upload } from "lucide-react";
 import type { ReactNode } from "react";
 import { RfqLineItemMetadataFields } from "@/components/quotes/RfqLineItemMetadataFields";
 import { RequestServiceIntentFields } from "@/components/quotes/RequestServiceIntentFields";
@@ -10,7 +10,8 @@ import {
   requestedServicesRequireMaterial,
   requestedServicesSupportQuoteFields,
 } from "@/features/quotes/service-intent";
-import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
+import type { ClientPartPropertyOverrideField, ClientPartRequestUpdateInput } from "@/features/quotes/types";
+import { CLIENT_PART_PROPERTY_OVERRIDE_FIELDS } from "@/features/quotes/types";
 
 type ClientPartRequestEditorProps = {
   draft: ClientPartRequestUpdateInput;
@@ -21,10 +22,75 @@ type ClientPartRequestEditorProps = {
   onUploadRevision: () => void;
   isSaving?: boolean;
   footer?: ReactNode;
+  onResetField?: (field: ClientPartPropertyOverrideField) => void;
+  onResetAllFields?: () => void;
+  fieldDefaults?: FieldDefaults;
 };
 
 function numberFieldValue(value: number | null | undefined): string {
   return value === null || value === undefined || Number.isNaN(value) ? "" : String(value);
+}
+
+type FieldDefaults = Partial<Record<ClientPartPropertyOverrideField, string | number | null>>;
+
+function hasResetTarget(
+  field: ClientPartPropertyOverrideField,
+  draft: ClientPartRequestUpdateInput,
+  defaults: FieldDefaults | undefined,
+): boolean {
+  const defaultValue = defaults?.[field];
+  if (defaultValue === null || defaultValue === undefined) {
+    return false;
+  }
+  const raw = draft[field as keyof ClientPartRequestUpdateInput];
+  if (typeof raw !== "string" && typeof raw !== "number" && raw !== null && raw !== undefined) {
+    return false;
+  }
+  return String(raw !== null && raw !== undefined ? raw : "") !== String(defaultValue);
+}
+
+function ResetButton({
+  field,
+  defaultValue,
+  onReset,
+  position = "center",
+}: {
+  readonly field: ClientPartPropertyOverrideField;
+  readonly defaultValue: string | number | null | undefined;
+  readonly onReset: (field: ClientPartPropertyOverrideField) => void;
+  readonly position?: "center" | "top";
+}) {
+  const posClass = position === "top" ? "top-2" : "top-1/2 -translate-y-1/2";
+  return (
+    <button
+      type="button"
+      aria-label={`Reset to extracted: ${String(defaultValue ?? "")}`}
+      title={`Reset to extracted: ${String(defaultValue ?? "")}`}
+      className={`absolute right-2 ${posClass} text-white/30 hover:text-white/70`}
+      onClick={() => onReset(field)}
+    >
+      <RotateCcw className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+function FieldResetButton({
+  field,
+  draft,
+  fieldDefaults,
+  onResetField,
+  position,
+}: {
+  readonly field: ClientPartPropertyOverrideField;
+  readonly draft: ClientPartRequestUpdateInput;
+  readonly fieldDefaults: FieldDefaults | undefined;
+  readonly onResetField: ((field: ClientPartPropertyOverrideField) => void) | undefined;
+  readonly position?: "center" | "top";
+}) {
+  if (!onResetField || !hasResetTarget(field, draft, fieldDefaults)) {
+    return null;
+  }
+  return <ResetButton field={field} defaultValue={fieldDefaults?.[field]} onReset={onResetField} position={position} />;
 }
 
 export function ClientPartRequestEditor({
@@ -36,6 +102,9 @@ export function ClientPartRequestEditor({
   onUploadRevision,
   isSaving = false,
   footer = null,
+  onResetField,
+  onResetAllFields,
+  fieldDefaults,
 }: ClientPartRequestEditorProps) {
   const showQuoteFields = requestedServicesSupportQuoteFields(draft.requestedServiceKinds);
   const materialRequired = requestedServicesRequireMaterial(draft.requestedServiceKinds);
@@ -54,87 +123,111 @@ export function ClientPartRequestEditor({
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="client-request-part-number">Part number</Label>
-          <Input
-            id="client-request-part-number"
-            value={draft.partNumber ?? ""}
-            onChange={(event) => onChange({ partNumber: event.target.value || null })}
-            className="border-white/10 bg-black/20 text-white"
-          />
+          <div className="relative">
+            <Input
+              id="client-request-part-number"
+              value={draft.partNumber ?? ""}
+              onChange={(event) => onChange({ partNumber: event.target.value || null })}
+              className="border-white/10 bg-black/20 text-white"
+            />
+            <FieldResetButton field="partNumber" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
+          </div>
         </div>
         <div className="space-y-2">
           <Label htmlFor="client-request-revision">Revision</Label>
-          <Input
-            id="client-request-revision"
-            value={draft.revision ?? ""}
-            onChange={(event) => onChange({ revision: event.target.value || null })}
-            className="border-white/10 bg-black/20 text-white"
-          />
+          <div className="relative">
+            <Input
+              id="client-request-revision"
+              value={draft.revision ?? ""}
+              onChange={(event) => onChange({ revision: event.target.value || null })}
+              className="border-white/10 bg-black/20 text-white"
+            />
+            <FieldResetButton field="revision" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
+          </div>
         </div>
         <div className="space-y-2 md:col-span-2">
           <Label htmlFor="client-request-description">Description</Label>
-          <Input
-            id="client-request-description"
-            value={draft.description ?? ""}
-            onChange={(event) => onChange({ description: event.target.value || null })}
-            className="border-white/10 bg-black/20 text-white"
-          />
+          <div className="relative">
+            <Input
+              id="client-request-description"
+              value={draft.description ?? ""}
+              onChange={(event) => onChange({ description: event.target.value || null })}
+              className="border-white/10 bg-black/20 text-white"
+            />
+            <FieldResetButton field="description" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
+          </div>
         </div>
         <div className="space-y-2">
           <Label htmlFor="client-request-material">Material</Label>
-          <Input
-            id="client-request-material"
-            value={draft.material}
-            onChange={(event) => onChange({ material: event.target.value })}
-            className="border-white/10 bg-black/20 text-white"
-            placeholder={showQuoteFields ? "e.g. 6061-T6 aluminum" : "Optional for non-quote services"}
-          />
+          <div className="relative">
+            <Input
+              id="client-request-material"
+              value={draft.material}
+              onChange={(event) => onChange({ material: event.target.value })}
+              className="border-white/10 bg-black/20 text-white"
+              placeholder={showQuoteFields ? "e.g. 6061-T6 aluminum" : "Optional for non-quote services"}
+            />
+            <FieldResetButton field="material" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
+          </div>
         </div>
         <div className="space-y-2">
           <Label htmlFor="client-request-finish">Finish</Label>
-          <Input
-            id="client-request-finish"
-            value={draft.finish ?? ""}
-            onChange={(event) => onChange({ finish: event.target.value || null })}
-            className="border-white/10 bg-black/20 text-white"
-          />
+          <div className="relative">
+            <Input
+              id="client-request-finish"
+              value={draft.finish ?? ""}
+              onChange={(event) => onChange({ finish: event.target.value || null })}
+              className="border-white/10 bg-black/20 text-white"
+            />
+            <FieldResetButton field="finish" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
+          </div>
         </div>
         <div className="space-y-2 md:col-span-2">
           <Label htmlFor="client-request-threads">Threads</Label>
-          <Textarea
-            id="client-request-threads"
-            value={draft.threads ?? ""}
-            onChange={(event) => {
-              const value = event.target.value.trim();
-              onChange({ threads: value.length > 0 ? value : null });
-            }}
-            className="min-h-[88px] border-white/10 bg-black/20 text-white"
-            placeholder="Optional thread callouts such as 1/4-20 UNC-2B."
-          />
+          <div className="relative">
+            <Textarea
+              id="client-request-threads"
+              value={draft.threads ?? ""}
+              onChange={(event) => {
+                const value = event.target.value.trim();
+                onChange({ threads: value.length > 0 ? value : null });
+              }}
+              className="min-h-[88px] border-white/10 bg-black/20 text-white"
+              placeholder="Optional thread callouts such as 1/4-20 UNC-2B."
+            />
+            <FieldResetButton field="threads" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} position="top" />
+          </div>
         </div>
         <div className="space-y-2">
           <Label htmlFor="client-request-tolerance">Tightest tolerance (in)</Label>
-          <Input
-            id="client-request-tolerance"
-            value={numberFieldValue(draft.tightestToleranceInch)}
-            onChange={(event) =>
-              onChange({
-                tightestToleranceInch: event.target.value.trim()
-                  ? Number.parseFloat(event.target.value)
-                  : null,
-              })
-            }
-            className="border-white/10 bg-black/20 text-white"
-            inputMode="decimal"
-          />
+          <div className="relative">
+            <Input
+              id="client-request-tolerance"
+              value={numberFieldValue(draft.tightestToleranceInch)}
+              onChange={(event) =>
+                onChange({
+                  tightestToleranceInch: event.target.value.trim()
+                    ? Number.parseFloat(event.target.value)
+                    : null,
+                })
+              }
+              className="border-white/10 bg-black/20 text-white"
+              inputMode="decimal"
+            />
+            <FieldResetButton field="tightestToleranceInch" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
+          </div>
         </div>
         <div className="space-y-2">
           <Label htmlFor="client-request-process">Process</Label>
-          <Input
-            id="client-request-process"
-            value={draft.process ?? ""}
-            onChange={(event) => onChange({ process: event.target.value || null })}
-            className="border-white/10 bg-black/20 text-white"
-          />
+          <div className="relative">
+            <Input
+              id="client-request-process"
+              value={draft.process ?? ""}
+              onChange={(event) => onChange({ process: event.target.value || null })}
+              className="border-white/10 bg-black/20 text-white"
+            />
+            <FieldResetButton field="process" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
+          </div>
         </div>
         {showQuoteFields ? (
           <>
@@ -219,6 +312,17 @@ export function ClientPartRequestEditor({
           <Upload className="mr-2 h-4 w-4" />
           Upload revised file
         </Button>
+        {onResetAllFields && CLIENT_PART_PROPERTY_OVERRIDE_FIELDS.some((f) => hasResetTarget(f, draft, fieldDefaults)) ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+            onClick={onResetAllFields}
+          >
+            <RotateCcw className="mr-2 h-4 w-4" />
+            Reset all to extracted
+          </Button>
+        ) : null}
         <Button
           type="button"
           className="rounded-full"

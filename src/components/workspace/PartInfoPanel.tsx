@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { ClientPartRequestEditor } from "@/components/quotes/ClientPartRequestEditor";
-import type { ClientPartRequestUpdateInput } from "@/features/quotes/types";
+import type { ClientPartPropertyOverrideField, ClientPartRequestUpdateInput } from "@/features/quotes/types";
 
 type PartInfoPanelProps = {
   effectiveRequestDraft: ClientPartRequestUpdateInput | null;
@@ -11,6 +11,9 @@ type PartInfoPanelProps = {
   onUploadRevision: () => void;
   isSaving?: boolean;
   statusContent?: ReactNode;
+  onResetField?: (field: ClientPartPropertyOverrideField) => void;
+  onResetAllFields?: () => void;
+  fieldDefaults?: Partial<Record<ClientPartPropertyOverrideField, string | number | null>>;
 };
 
 export function PartInfoPanel({
@@ -22,6 +25,9 @@ export function PartInfoPanel({
   onUploadRevision,
   isSaving = false,
   statusContent = null,
+  onResetField,
+  onResetAllFields,
+  fieldDefaults,
 }: PartInfoPanelProps) {
   return (
     <div>
@@ -39,6 +45,9 @@ export function PartInfoPanel({
               onSave={onSave}
               onUploadRevision={onUploadRevision}
               isSaving={isSaving}
+              onResetField={onResetField}
+              onResetAllFields={onResetAllFields}
+              fieldDefaults={fieldDefaults}
             />
           ) : (
             <p className="text-sm text-white/45">Part details are still loading.</p>

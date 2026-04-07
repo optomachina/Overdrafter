@@ -219,4 +219,58 @@ describe("client workspace fixtures", () => {
       description: null,
     });
   });
+
+  it("resets revision override to the seeded default", async () => {
+    const { gateway, input } = await buildQuotedFixtureInput();
+
+    await gateway.updateClientPartRequest({
+      ...input,
+      revision: "OVERRIDE",
+    });
+
+    await gateway.resetClientPartPropertyOverrides({
+      jobId: QUOTED_FIXTURE_JOB_ID,
+      fields: ["revision"],
+    });
+
+    const [updatedWorkspaceItem] = await gateway.fetchClientQuoteWorkspaceByJobIds([QUOTED_FIXTURE_JOB_ID]);
+    const propertyState = updatedWorkspaceItem?.part?.clientRequirement?.projectPartProperties;
+
+    expect(updatedWorkspaceItem?.part?.clientRequirement?.revision).toBe(input.revision ?? null);
+    expect(propertyState).toMatchObject({
+      defaults: expect.objectContaining({
+        revision: input.revision ?? null,
+      }),
+      overrides: {},
+    });
+    expect(propertyState?.createdAt).toEqual(expect.any(String));
+    expect(propertyState?.updatedAt).toEqual(expect.any(String));
+  });
+
+  it("resets process override to the seeded default", async () => {
+    const { gateway, input } = await buildQuotedFixtureInput();
+
+    await gateway.updateClientPartRequest({
+      ...input,
+      process: "OVERRIDE",
+    });
+
+    await gateway.resetClientPartPropertyOverrides({
+      jobId: QUOTED_FIXTURE_JOB_ID,
+      fields: ["process"],
+    });
+
+    const [updatedWorkspaceItem] = await gateway.fetchClientQuoteWorkspaceByJobIds([QUOTED_FIXTURE_JOB_ID]);
+    const propertyState = updatedWorkspaceItem?.part?.clientRequirement?.projectPartProperties;
+
+    expect(updatedWorkspaceItem?.part?.clientRequirement?.process).toBe(input.process ?? null);
+    expect(propertyState).toMatchObject({
+      defaults: expect.objectContaining({
+        process: input.process ?? null,
+      }),
+      overrides: {},
+    });
+    expect(propertyState?.createdAt).toEqual(expect.any(String));
+    expect(propertyState?.updatedAt).toEqual(expect.any(String));
+  });
 });

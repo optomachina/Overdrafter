@@ -36,7 +36,7 @@ import {
   fetchPartDetailByJobId,
   resolveClientPartDetailRoute,
 } from "@/features/quotes/api/workspace-access";
-import { updateClientPartRequest } from "@/features/quotes/api/jobs-api";
+import { updateClientPartRequest, resetClientPartPropertyOverrides } from "@/features/quotes/api/jobs-api";
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { buildActivityLogEntries } from "@/features/quotes/activity-log";
 import { formatPartLabel, getClientItemPresentation } from "@/features/quotes/client-presentation";
@@ -72,10 +72,12 @@ import {
 } from "@/features/quotes/selection";
 import { logQuoteFetchDiagnostics } from "@/features/quotes/quote-chart-diagnostics";
 import type {
+  ClientPartPropertyOverrideField,
   ClientPartRequestUpdateInput,
   QuoteDataStatus,
   QuoteDiagnostics,
 } from "@/features/quotes/types";
+import { CLIENT_PART_PROPERTY_OVERRIDE_FIELDS } from "@/features/quotes/types";
 import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
@@ -315,6 +317,27 @@ export function useClientPartController() {
       toast.error(error.message || "Failed to update request details.");
     },
   });
+
+  const resetFieldMutation = useMutation({
+    mutationFn: (fields: Array<ClientPartPropertyOverrideField>) =>
+      resetClientPartPropertyOverrides({ jobId: canonicalJobId, fields }),
+    onSuccess: async () => {
+      await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
+      setRequestDraft(null);
+      toast.success("Field reset to extracted value.");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to reset field.");
+    },
+  });
+
+  const handleResetField = (field: ClientPartPropertyOverrideField) => {
+    resetFieldMutation.mutate([field]);
+  };
+
+  const handleResetAllFields = () => {
+    resetFieldMutation.mutate([...CLIENT_PART_PROPERTY_OVERRIDE_FIELDS]);
+  };
 
   const renamePartMutation = useMutation({
     mutationFn: (input: ClientPartRequestUpdateInput) => updateClientPartRequest(input),
@@ -1183,6 +1206,8 @@ export function useClientPartController() {
     handleRenamePart,
     handleRenameProject,
     handleRequestQuote,
+    handleResetField,
+    handleResetAllFields,
     handleSaveRequest,
     handleSaveRequestPatch,
     handleSelectQuoteOption,
@@ -1221,6 +1246,7 @@ export function useClientPartController() {
     removeJobMutation,
     requestQuantities,
     requestQuoteMutation,
+    resetFieldMutation,
     cancelQuoteRequestMutation,
     requestSummaryQuantity,
     requestSummaryRequestedByDate,
