@@ -185,7 +185,7 @@ export function ClientDrawingPreviewPanel({
             <iframe
               src={pdfUrl}
               title={`${drawingFile?.original_name ?? "Drawing"} PDF preview`}
-              className="h-[85vh] w-full border-0 bg-white"
+              className="h-[320px] w-full border-0 bg-white"
             />
           ) : activePage ? (
             <img
