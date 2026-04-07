@@ -1,12 +1,12 @@
 -- CALIBRATE: thresholds below are starting values, not calibrated.
--- Re-run SELECT * FROM extraction_quality_summary ORDER BY day DESC LIMIT 14
--- after 14 full UTC days of production data and revise before treating alerts as P1.
+-- After 14 full UTC days of production data, review extraction_quality_summary
+-- and revise thresholds before treating alerts as P1.
 
 create table if not exists public.extraction_quality_alerts (
   id               uuid         primary key default gen_random_uuid(),
   organization_id  uuid         not null references public.organizations(id) on delete cascade,
   alert_day        date         not null,
-  alert_type       text         not null, -- 'model_fallback_rate_high' | 'auto_approve_rate_low'
+  alert_type       text         not null,
   metric_value     numeric(7,4) not null,
   threshold_value  numeric(7,4) not null,
   created_at       timestamptz  not null default timezone('utc', now()),
@@ -44,7 +44,7 @@ declare
   v_count    integer := 0;
   v_inserted integer;
 begin
-  -- model_fallback_rate > 0.3000  (CALIBRATE before treating as P1)
+  -- Alert on high model fallback rate (threshold: 0.3000, CALIBRATE after 14 days production data)
   insert into public.extraction_quality_alerts
     (organization_id, alert_day, alert_type, metric_value, threshold_value)
   select
@@ -62,7 +62,7 @@ begin
   get diagnostics v_inserted = row_count;
   v_count := v_count + v_inserted;
 
-  -- auto_approve_rate < 0.7000  (CALIBRATE before treating as P1)
+  -- Alert on low auto-approve rate (threshold: 0.7000, CALIBRATE after 14 days production data)
   insert into public.extraction_quality_alerts
     (organization_id, alert_day, alert_type, metric_value, threshold_value)
   select
