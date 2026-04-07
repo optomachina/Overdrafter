@@ -20,6 +20,7 @@ type PartInfoPanelProps = {
   partNumber?: string | null;
   description?: string | null;
   onResetField?: (field: ClientPartPropertyOverrideField) => void;
+  onResetAllFields?: () => void;
   fieldDefaults?: Partial<Record<ClientPartPropertyOverrideField, string | number | null>>;
 };
 
@@ -128,6 +129,7 @@ export function PartInfoPanel({
   partNumber = null,
   description = null,
   onResetField,
+  onResetAllFields,
   fieldDefaults,
 }: PartInfoPanelProps) {
   const rows = buildInfoRows({
@@ -170,6 +172,7 @@ export function PartInfoPanel({
               onUploadRevision={onUploadRevision}
               isSaving={isSaving}
               onResetField={onResetField}
+              onResetAllFields={onResetAllFields}
               fieldDefaults={fieldDefaults}
             />
           ) : (

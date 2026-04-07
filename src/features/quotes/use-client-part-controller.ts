@@ -77,6 +77,7 @@ import type {
   QuoteDataStatus,
   QuoteDiagnostics,
 } from "@/features/quotes/types";
+import { CLIENT_PART_PROPERTY_OVERRIDE_FIELDS } from "@/features/quotes/types";
 import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
@@ -332,6 +333,10 @@ export function useClientPartController() {
 
   const handleResetField = (field: ClientPartPropertyOverrideField) => {
     resetFieldMutation.mutate([field]);
+  };
+
+  const handleResetAllFields = () => {
+    resetFieldMutation.mutate([...CLIENT_PART_PROPERTY_OVERRIDE_FIELDS]);
   };
 
   const renamePartMutation = useMutation({
@@ -1202,6 +1207,7 @@ export function useClientPartController() {
     handleRenameProject,
     handleRequestQuote,
     handleResetField,
+    handleResetAllFields,
     handleSaveRequest,
     handleSaveRequestPatch,
     handleSelectQuoteOption,
