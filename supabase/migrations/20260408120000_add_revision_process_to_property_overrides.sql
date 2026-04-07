@@ -53,7 +53,7 @@ $$;
 create or replace function public.seed_project_part_property_defaults(
   p_requirement public.approved_part_requirements,
   p_extraction jsonb,
-  p_existing_defaults jsonb default '{}'::jsonb
+  p_defaults jsonb default '{}'::jsonb
 )
 returns jsonb
 language plpgsql
@@ -64,7 +64,7 @@ declare
   v_defaults jsonb;
 begin
   -- Seed the six existing fields using the prior migration's logic (re-invoked inline).
-  v_defaults := coalesce(p_existing_defaults, '{}'::jsonb);
+  v_defaults := coalesce(p_defaults, '{}'::jsonb);
 
   if not (v_defaults ? 'description') then
     v_defaults := v_defaults || jsonb_build_object(
