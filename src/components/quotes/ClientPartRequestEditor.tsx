@@ -11,6 +11,7 @@ import {
   requestedServicesSupportQuoteFields,
 } from "@/features/quotes/service-intent";
 import type { ClientPartPropertyOverrideField, ClientPartRequestUpdateInput } from "@/features/quotes/types";
+import { CLIENT_PART_PROPERTY_OVERRIDE_FIELDS } from "@/features/quotes/types";
 
 type ClientPartRequestEditorProps = {
   draft: ClientPartRequestUpdateInput;
@@ -22,6 +23,7 @@ type ClientPartRequestEditorProps = {
   isSaving?: boolean;
   footer?: ReactNode;
   onResetField?: (field: ClientPartPropertyOverrideField) => void;
+  onResetAllFields?: () => void;
   fieldDefaults?: FieldDefaults;
 };
 
@@ -81,6 +83,7 @@ export function ClientPartRequestEditor({
   isSaving = false,
   footer = null,
   onResetField,
+  onResetAllFields,
   fieldDefaults,
 }: ClientPartRequestEditorProps) {
   const showQuoteFields = requestedServicesSupportQuoteFields(draft.requestedServiceKinds);
@@ -114,12 +117,17 @@ export function ClientPartRequestEditor({
         </div>
         <div className="space-y-2">
           <Label htmlFor="client-request-revision">Revision</Label>
-          <Input
-            id="client-request-revision"
-            value={draft.revision ?? ""}
-            onChange={(event) => onChange({ revision: event.target.value || null })}
-            className="border-white/10 bg-black/20 text-white"
-          />
+          <div className="relative">
+            <Input
+              id="client-request-revision"
+              value={draft.revision ?? ""}
+              onChange={(event) => onChange({ revision: event.target.value || null })}
+              className="border-white/10 bg-black/20 text-white"
+            />
+            {onResetField && hasResetTarget("revision", draft, fieldDefaults) ? (
+              <ResetButton field="revision" defaultValue={fieldDefaults?.revision} onReset={onResetField} />
+            ) : null}
+          </div>
         </div>
         <div className="space-y-2 md:col-span-2">
           <Label htmlFor="client-request-description">Description</Label>
@@ -205,12 +213,17 @@ export function ClientPartRequestEditor({
         </div>
         <div className="space-y-2">
           <Label htmlFor="client-request-process">Process</Label>
-          <Input
-            id="client-request-process"
-            value={draft.process ?? ""}
-            onChange={(event) => onChange({ process: event.target.value || null })}
-            className="border-white/10 bg-black/20 text-white"
-          />
+          <div className="relative">
+            <Input
+              id="client-request-process"
+              value={draft.process ?? ""}
+              onChange={(event) => onChange({ process: event.target.value || null })}
+              className="border-white/10 bg-black/20 text-white"
+            />
+            {onResetField && hasResetTarget("process", draft, fieldDefaults) ? (
+              <ResetButton field="process" defaultValue={fieldDefaults?.process} onReset={onResetField} />
+            ) : null}
+          </div>
         </div>
         {showQuoteFields ? (
           <>
@@ -295,6 +308,17 @@ export function ClientPartRequestEditor({
           <Upload className="mr-2 h-4 w-4" />
           Upload revised file
         </Button>
+        {onResetAllFields && CLIENT_PART_PROPERTY_OVERRIDE_FIELDS.some((f) => hasResetTarget(f, draft, fieldDefaults)) ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+            onClick={onResetAllFields}
+          >
+            <RotateCcw className="mr-2 h-4 w-4" />
+            Reset all to extracted
+          </Button>
+        ) : null}
         <Button
           type="button"
           className="rounded-full"

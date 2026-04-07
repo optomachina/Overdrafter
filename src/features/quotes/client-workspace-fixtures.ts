@@ -124,10 +124,12 @@ function resolveFixtureProjectPartValue(
 type FixtureResolvedProjectPartValues = {
   description: string | null;
   partNumber: string | null;
+  revision: string | null;
   material: string;
   finish: string | null;
   threads: string | null;
   tightestToleranceInch: number | null;
+  process: string | null;
 };
 
 function buildFixtureDefaultPropertyState(
@@ -137,11 +139,13 @@ function buildFixtureDefaultPropertyState(
   return {
     description: workspaceRequirement?.description ?? partDetailRequirement?.description ?? null,
     partNumber: workspaceRequirement?.partNumber ?? partDetailRequirement?.partNumber ?? null,
+    revision: workspaceRequirement?.revision ?? partDetailRequirement?.revision ?? null,
     material: workspaceRequirement?.material ?? partDetailRequirement?.material ?? "",
     finish: workspaceRequirement?.finish ?? partDetailRequirement?.finish ?? null,
     tightestToleranceInch:
       workspaceRequirement?.tightestToleranceInch ?? partDetailRequirement?.tightestToleranceInch ?? null,
     threads: workspaceRequirement?.threads ?? partDetailRequirement?.threads ?? null,
+    process: workspaceRequirement?.process ?? partDetailRequirement?.process ?? null,
   };
 }
 
@@ -153,11 +157,15 @@ function resolveFixtureProjectPartState(
       (resolveFixtureProjectPartValue(state, "description") as string | null | undefined) ?? null,
     partNumber:
       (resolveFixtureProjectPartValue(state, "partNumber") as string | null | undefined) ?? null,
+    revision:
+      (resolveFixtureProjectPartValue(state, "revision") as string | null | undefined) ?? null,
     material: ((resolveFixtureProjectPartValue(state, "material") as string | null | undefined) ?? ""),
     finish: (resolveFixtureProjectPartValue(state, "finish") as string | null | undefined) ?? null,
     threads: (resolveFixtureProjectPartValue(state, "threads") as string | null | undefined) ?? null,
     tightestToleranceInch:
       (resolveFixtureProjectPartValue(state, "tightestToleranceInch") as number | null | undefined) ?? null,
+    process:
+      (resolveFixtureProjectPartValue(state, "process") as string | null | undefined) ?? null,
   };
 }
 
@@ -185,16 +193,19 @@ function syncFixtureProjectPartState(args: {
   if (workspaceRequirement) {
     workspaceRequirement.description = resolved.description;
     workspaceRequirement.partNumber = resolved.partNumber;
+    workspaceRequirement.revision = resolved.revision;
     workspaceRequirement.material = resolved.material;
     workspaceRequirement.finish = resolved.finish;
     workspaceRequirement.threads = resolved.threads;
     workspaceRequirement.tightestToleranceInch = resolved.tightestToleranceInch;
+    workspaceRequirement.process = resolved.process;
     workspaceRequirement.projectPartProperties = propertyState;
   }
 
   if (workspaceItem.part?.approvedRequirement) {
     workspaceItem.part.approvedRequirement.description = resolved.description;
     workspaceItem.part.approvedRequirement.part_number = resolved.partNumber;
+    workspaceItem.part.approvedRequirement.revision = resolved.revision;
     workspaceItem.part.approvedRequirement.material = resolved.material;
     workspaceItem.part.approvedRequirement.finish = resolved.finish;
     workspaceItem.part.approvedRequirement.tightest_tolerance_inch =
@@ -204,12 +215,14 @@ function syncFixtureProjectPartState(args: {
       ...(workspaceItem.part.approvedRequirement.spec_snapshot as Record<string, unknown>),
       description: resolved.description,
       partNumber: resolved.partNumber,
+      revision: resolved.revision,
       material: resolved.material,
       finish: resolved.finish,
       threads: resolved.threads,
       quoteDescription: resolved.description,
       quoteFinish: resolved.finish,
       tightestToleranceInch: resolved.tightestToleranceInch,
+      process: resolved.process,
       projectPartProperties: propertyState,
     };
   }
@@ -307,7 +320,7 @@ export type ClientWorkspaceGateway = {
   updateClientPartRequest: (input: ClientPartRequestUpdateInput) => Promise<string>;
   resetClientPartPropertyOverrides?: (input: {
     jobId: string;
-    fields: Array<"description" | "partNumber" | "material" | "finish" | "tightestToleranceInch" | "threads">;
+    fields: Array<"description" | "partNumber" | "revision" | "material" | "finish" | "tightestToleranceInch" | "threads" | "process">;
   }) => Promise<string>;
 };
 

@@ -779,10 +779,12 @@ export type ClientPartRequestUpdateInput = {
 export const CLIENT_PART_PROPERTY_OVERRIDE_FIELDS = [
   "description",
   "partNumber",
+  "revision",
   "material",
   "finish",
   "tightestToleranceInch",
   "threads",
+  "process",
 ] as const;
 
 export type ClientPartPropertyOverrideField =
