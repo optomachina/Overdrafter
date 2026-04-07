@@ -328,21 +328,19 @@ Recommended evaluator behavior:
 
 ## TODO-018: Editable spec fields on part page
 
+**Status:** ✅ **COMPLETE** (2026-04-07)
+
 **What:** Add editable fields for material, finish, and quantity to the part page (`ClientPart.tsx`). Currently these are read-only after extraction. Frank needs to correct misextracted values without going to an internal admin view.
 
-**Why:** Extraction isn't perfect. When GPT-5.4 fallback produces a wrong material or quantity, Frank has no way to fix it from the client side. The Track 3 redesign deferred editing intentionally — too much CRUD surface for a parallel sprint — but it's the natural next step after the part page layout is stable.
+**Resolution:** The `ClientPartRequestEditor` component already provides full editing for material, finish, quantity, and all other spec fields on the part page (visible in `PartInfoPanel`). Fields are fully wired to the `api_update_client_part_request` RPC and use the existing mutation + query-invalidation pattern via `use-client-part-controller.ts`. No additional work needed.
 
-**Pros:** Closes the editing gap for Frank; removes dependency on internal staff to correct bad extractions. Directly increases trust in the product.
+**Evidence:**
+- `src/components/quotes/ClientPartRequestEditor.tsx` lines 83–153: Material, Finish, and Quantity inputs
+- `src/components/workspace/PartInfoPanel.tsx` lines 158–169: Editor integrated into part page
+- `src/features/quotes/use-client-part-controller.ts` lines 308–317: Mutation already wired
+- `src/features/quotes/api/jobs-api.ts` lines 1216–1290: `updateClientPartRequest` API function
 
-**Cons:** Adds mutation surface (RPC + optimistic update + validation). The "reset to extracted" button (TODO-019) is a companion feature — ship together.
-
-**Context:** Deferred from Frank-Ready Sprint Track 3 (part page redesign). The spec display is read-only in that sprint. Editing was explicitly cut to keep Track 3 as a layout-only change. Identified as "NOT in scope" during /plan-eng-review on 2026-03-31.
-
-**Where to start:** `src/pages/ClientPart.tsx` — the spec section rendered after Track 3. `approved_part_requirements` table holds the editable fields. An `api_update_part_requirements` RPC or equivalent needs to exist or be added.
-
-**Effort:** M (human: ~1 week / CC: ~30 min) | **Priority:** P1
-
-**Depends on:** Track 3 (Frank-Ready Sprint) merged.
+**Context:** Deferred from Frank-Ready Sprint Track 3 as a layout-only change. Track 3 merged and delivered the part page redesign. Editing was added post-Track 3 and is now fully functional.
 
 ---
 
