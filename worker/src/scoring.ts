@@ -16,30 +16,21 @@ export function normalizePriceScore(
   prices: Record<string, number>,
   vendorName: string,
 ): number {
-  const vendorPrice = prices[vendorName];
-
-  if (vendorPrice === undefined || vendorPrice === null || Number.isNaN(vendorPrice)) {
+  const vendorPrice = readVendorValue(prices, vendorName);
+  if (vendorPrice === null || vendorPrice <= 0) {
     return 0;
   }
 
-  if (vendorPrice <= 0) {
+  const { count, minimum } = collectMinimum(prices, (value) => value > 0);
+  if (count === 0) {
     return 0;
   }
 
-  const allPrices = Object.values(prices).filter(
-    (p) => p !== null && p !== undefined && !Number.isNaN(p) && p > 0,
-  );
-
-  if (allPrices.length === 0) {
-    return 0;
-  }
-
-  if (allPrices.length === 1) {
+  if (count === 1) {
     return 100;
   }
 
-  const minPrice = Math.min(...allPrices);
-  const ratio = minPrice / vendorPrice;
+  const ratio = minimum / vendorPrice;
   return clamp(ratio * 100, 0, 100);
 }
 
@@ -54,34 +45,28 @@ export function normalizeLeadTimeScore(
   leadTimes: Record<string, number>,
   vendorName: string,
 ): number {
-  const vendorLeadTime = leadTimes[vendorName];
-
-  if (vendorLeadTime === undefined || vendorLeadTime === null || Number.isNaN(vendorLeadTime)) {
+  const vendorLeadTime = readVendorValue(leadTimes, vendorName);
+  if (vendorLeadTime === null || vendorLeadTime < 0) {
     return 0;
   }
 
-  const allLeadTimes = Object.values(leadTimes).filter(
-    (lt) => lt !== null && lt !== undefined && !Number.isNaN(lt) && lt >= 0,
-  );
-
-  if (allLeadTimes.length === 0) {
+  const { count, minimum } = collectMinimum(leadTimes, (value) => value >= 0);
+  if (count === 0) {
     return 0;
   }
 
-  if (allLeadTimes.length === 1) {
+  if (count === 1) {
     return 100;
   }
 
-  const minLeadTime = Math.min(...allLeadTimes);
-
-  if (minLeadTime === 0) {
+  if (minimum === 0) {
     if (vendorLeadTime === 0) {
       return 100;
     }
     return 0;
   }
 
-  const ratio = minLeadTime / vendorLeadTime;
+  const ratio = minimum / vendorLeadTime;
   return clamp(ratio * 100, 0, 100);
 }
 
@@ -106,12 +91,13 @@ export function scoreVendor(input: {
   capabilityMatchScore: number;
   domesticScore: number;
 } {
-  // Default weights
-  const priceWeight = 0.30;
-  const leadTimeWeight = 0.25;
-  const qualityWeight = 0.20;
-  const capabilityMatchWeight = 0.15;
-  const domesticWeight = 0.10;
+  const defaultWeights = {
+    pricePercent: 30,
+    leadTimePercent: 25,
+    qualityPercent: 20,
+    capabilityMatchPercent: 15,
+    domesticPercent: 10,
+  } as const;
 
   const priceScore = normalizePriceScore(input.prices, input.vendorName);
   const leadTimeScore = normalizeLeadTimeScore(input.leadTimes, input.vendorName);
@@ -123,11 +109,12 @@ export function scoreVendor(input: {
   const capabilityMatchScore = 100;
 
   const overallScore =
-    priceScore * priceWeight +
-    leadTimeScore * leadTimeWeight +
-    qualityScore * qualityWeight +
-    capabilityMatchScore * capabilityMatchWeight +
-    domesticScore * domesticWeight;
+    (priceScore * defaultWeights.pricePercent +
+      leadTimeScore * defaultWeights.leadTimePercent +
+      qualityScore * defaultWeights.qualityPercent +
+      capabilityMatchScore * defaultWeights.capabilityMatchPercent +
+      domesticScore * defaultWeights.domesticPercent) /
+    100;
 
   return {
     vendorName: input.vendorName,
@@ -177,4 +164,43 @@ function clamp(value: number, min: number, max: number): number {
   if (value < min) return min;
   if (value > max) return max;
   return value;
+}
+
+function readVendorValue(values: Record<string, number>, vendorName: string): number | null {
+  const value = values[vendorName];
+  if (isFiniteNumber(value)) {
+    return value;
+  }
+  return null;
+}
+
+function collectMinimum(
+  values: Record<string, number>,
+  include: (value: number) => boolean,
+): { count: number; minimum: number } {
+  let count = 0;
+  let minimum = Number.POSITIVE_INFINITY;
+
+  for (const value of Object.values(values)) {
+    if (!isFiniteNumber(value)) {
+      continue;
+    }
+    if (!include(value)) {
+      continue;
+    }
+
+    count += 1;
+    if (value < minimum) {
+      minimum = value;
+    }
+  }
+
+  return { count, minimum };
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  if (typeof value !== "number") {
+    return false;
+  }
+  return Number.isFinite(value);
 }
