@@ -346,9 +346,21 @@ Recommended evaluator behavior:
 
 ## TODO-019: "Reset to extracted" button on part spec fields
 
+**Status:** ✅ **COMPLETE** (2026-04-08)
+
 **What:** After editable spec fields (TODO-018) are added, provide a "reset to extracted" action per field that restores the original GPT-extracted value from `approved_part_requirements.spec_snapshot`.
 
 **Why:** Frank may edit a field incorrectly and want to go back to what was extracted. Without a reset path, the original extracted value is effectively lost once overwritten.
+
+**Resolution:** Client part request editing now supports per-field reset affordances plus a "Reset all to extracted" action. Resets are wired from `ClientPartRequestEditor` through the part-page controller to `api_reset_client_part_property_overrides`, which clears property overrides and re-resolves defaults from the requirement snapshot state.
+
+**Evidence:**
+- `src/components/quotes/ClientPartRequestEditor.tsx`: per-field reset buttons and reset-all CTA.
+- `src/pages/ClientPart.tsx`: passes reset handlers + extracted defaults into `PartInfoPanel`.
+- `src/features/quotes/use-client-part-controller.ts`: invokes `resetClientPartPropertyOverrides` and invalidates workspace queries.
+- `src/features/quotes/api/jobs-api.ts`: dedicated RPC client call to `api_reset_client_part_property_overrides`.
+- `supabase/migrations/20260402120000_persist_project_part_property_overrides.sql` and `supabase/migrations/20260408120000_add_revision_process_to_property_overrides.sql`: reset RPC implementation.
+- `src/components/quotes/ClientPartRequestEditor.test.tsx`, `src/features/quotes/client-workspace-fixtures.test.ts`, and `src/features/quotes/api.test.ts`: reset behavior coverage.
 
 **Pros:** Safety net for edits. Makes editing feel low-risk — Frank can try a correction and undo it. Provenance is already stored in `spec_snapshot`.
 
