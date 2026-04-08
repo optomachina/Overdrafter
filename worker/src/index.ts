@@ -65,6 +65,7 @@ import {
 } from "./vendorTaskRetry.js";
 import { aggregateQuoteRunStatus } from "./quoteRunStatus.js";
 import { shouldWarnSimulateModeInProduction } from "./runtimeEnvironment.js";
+import { computeAndStoreRoutingScores } from "./scoringIntegration.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -989,6 +990,28 @@ async function handleVendorQuoteTask(
 
     if (error) {
       throw error;
+    }
+
+    // Compute and store routing scores for this quote run.
+    // This is a best-effort operation — it will only succeed once all
+    // vendor quotes for the run are in a terminal state.
+    try {
+      await computeAndStoreRoutingScores(
+        supabase,
+        task.quote_run_id,
+        task.organization_id,
+      );
+    } catch (scoringError) {
+      // Non-fatal: do not fail the task if scoring fails
+      console.warn(
+        JSON.stringify({
+          service: "overdrafter-cad-worker",
+          level: "warn",
+          source: "worker.scoring",
+          message: `Routing score computation failed: ${summarizeError(scoringError)}`,
+          context: { quoteRunId: task.quote_run_id },
+        }),
+      );
     }
 
     const requestStatusAfterResult = await fetchQuoteRequestStatusForTask(supabase, task);
