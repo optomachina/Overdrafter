@@ -1,5 +1,5 @@
 import { addBusinessDays, format, isValid, parse, parseISO, startOfDay } from "date-fns";
-import type { VendorName, Json } from "@/integrations/supabase/types";
+import type { VendorName, VendorStatus, Json } from "@/integrations/supabase/types";
 import type {
   QuoteDiagnostics,
   QuotePlotExclusionReason,
@@ -19,6 +19,7 @@ export type ClientQuoteSelectionOption = {
   persistedOfferId: string | null;
   vendorKey: VendorName;
   vendorQuoteResultId: string;
+  vendorStatus?: VendorStatus;
   vendorLabel: string;
   supplier: string;
   requestedQuantity: number;
@@ -705,6 +706,7 @@ function buildOptionRecords(input: NormalizedOfferInput): QuoteOptionBuildResult
       persistedOfferId: offer.id,
       vendorKey: quote.vendor,
       vendorQuoteResultId: quote.id,
+      vendorStatus: quote.status,
       vendorLabel: vendorLabels.get(quote.vendor) ?? "Vendor",
       supplier: offer.supplier,
       requestedQuantity: offer.requestedQuantity,
