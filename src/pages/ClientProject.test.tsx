@@ -32,6 +32,7 @@ const { api, mockUseAppSession, mockUseIsMobile, prefetchProjectPage, prefetchPa
     fetchArchivedProjects: vi.fn(),
     fetchClientActivityEventsByJobIds: vi.fn(),
     fetchClientQuoteWorkspaceByJobIds: vi.fn(),
+    fetchJobVendorPreferenceContext: vi.fn(),
     fetchProjectAssigneeProfiles: vi.fn(),
     fetchJobPartSummariesByJobIds: vi.fn(),
     fetchJobsByProject: vi.fn(),
@@ -51,7 +52,9 @@ const { api, mockUseAppSession, mockUseIsMobile, prefetchProjectPage, prefetchPa
     cancelQuoteRequest: vi.fn(),
     requestExtraction: vi.fn(),
     requestQuotes: vi.fn(),
+    setJobVendorPreferences: vi.fn(),
     setJobSelectedVendorQuoteOffer: vi.fn(),
+    setProjectVendorPreferences: vi.fn(),
     unarchiveJob: vi.fn(),
     unarchiveProject: vi.fn(),
     unpinJob: vi.fn(),
@@ -107,6 +110,11 @@ vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   cancelQuoteRequest: api.cancelQuoteRequest,
   requestQuotes: api.requestQuotes,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
+}));
+vi.mock("@/features/quotes/api/vendor-preferences-api", () => ({
+  fetchJobVendorPreferenceContext: api.fetchJobVendorPreferenceContext,
+  setJobVendorPreferences: api.setJobVendorPreferences,
+  setProjectVendorPreferences: api.setProjectVendorPreferences,
 }));
 vi.mock("@/features/quotes/api/shared/schema-runtime", () => ({
   isProjectCollaborationSchemaUnavailable: api.isProjectCollaborationSchemaUnavailable,
@@ -707,6 +715,32 @@ describe("ClientProject", () => {
       },
     ]);
     api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([createWorkspaceItemFixture()]);
+    api.fetchJobVendorPreferenceContext.mockResolvedValue({
+      jobId: "job-1",
+      projectId: "project-1",
+      organizationId: "org-1",
+      availableVendors: ["xometry", "fictiv", "protolabs"],
+      projectVendorPreferences: {
+        includedVendors: [],
+        excludedVendors: [],
+        updatedAt: null,
+      },
+      jobVendorPreferences: {
+        includedVendors: [],
+        excludedVendors: [],
+        updatedAt: null,
+      },
+    });
+    api.setProjectVendorPreferences.mockResolvedValue({
+      includedVendors: ["xometry"],
+      excludedVendors: [],
+      updatedAt: "2026-04-08T19:00:00Z",
+    });
+    api.setJobVendorPreferences.mockResolvedValue({
+      includedVendors: ["xometry"],
+      excludedVendors: [],
+      updatedAt: "2026-04-08T19:00:00Z",
+    });
     api.fetchProjectMemberships.mockResolvedValue([]);
     api.fetchProjectInvites.mockResolvedValue([]);
     api.requestQuotes.mockResolvedValue([
@@ -922,6 +956,53 @@ describe("ClientProject", () => {
     expect(within(inspector).getByText("±0.0050 in")).toBeInTheDocument();
     expect(within(inspector).getByRole("button", { name: "Full workspace" })).toBeInTheDocument();
     expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-1");
+  });
+
+  it("lets users pin or exclude vendors at project and part scopes from the inspector", async () => {
+    api.fetchJobVendorPreferenceContext.mockResolvedValueOnce({
+      jobId: "job-1",
+      projectId: "project-1",
+      organizationId: "org-1",
+      availableVendors: ["xometry", "fictiv"],
+      projectVendorPreferences: {
+        includedVendors: [],
+        excludedVendors: [],
+        updatedAt: null,
+      },
+      jobVendorPreferences: {
+        includedVendors: [],
+        excludedVendors: [],
+        updatedAt: null,
+      },
+    });
+
+    renderWithClient("/projects/project-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("BRKT-001")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("BRKT-001"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Project Xometry pin" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Project Xometry pin" }));
+    fireEvent.click(screen.getByRole("button", { name: "Part Fictiv exclude" }));
+
+    await waitFor(() => {
+      expect(api.setProjectVendorPreferences).toHaveBeenCalledWith({
+        projectId: "project-1",
+        includedVendors: ["xometry"],
+        excludedVendors: [],
+      });
+      expect(api.setJobVendorPreferences).toHaveBeenCalledWith({
+        jobId: "job-1",
+        includedVendors: [],
+        excludedVendors: ["fictiv"],
+      });
+    });
   });
 
   it("navigates to the part workspace from the inspector CTA", async () => {
