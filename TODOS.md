@@ -398,9 +398,20 @@ Recommended evaluator behavior:
 
 ## TODO-021: Per-job and per-project vendor preferences
 
+**Status:** ✅ **COMPLETE** (2026-04-08)
+
 **What:** Allow Frank to pin or exclude specific vendors per job or per project. Currently `api_request_quote` fans out to all org-enabled applicable vendors. Frank may want to always use vendor X for aluminum parts or exclude vendor Y for a specific project.
 
 **Why:** Frank manages multiple RFQ batches with different vendor relationships. Blanket org-level vendor config is too coarse for his workflow once he's using the system regularly.
+
+**Resolution:** Added persisted `project_vendor_preferences` and `job_vendor_preferences` with client-safe API setters/getter, then merged those preferences into quote fan-out before `vendor_quote_results` and `work_queue` rows are created. The project inspector now exposes vendor controls for both project defaults and part-specific overrides (Default/Pin/Exclude per vendor).
+
+**Evidence:**
+- `supabase/migrations/20260408193000_add_project_and_job_vendor_preferences.sql`: new preference tables, RPC APIs, preference-aware helper overload, and updated `api_request_quote`.
+- `src/features/quotes/api/vendor-preferences-api.ts`: client API for loading and saving project/job vendor preferences.
+- `src/features/quotes/use-client-project-controller.ts`: query/mutation wiring for inspector preference controls.
+- `src/pages/ClientProject.tsx`: project inspector vendor preference UI and interactions.
+- `src/features/quotes/vendor-preferences-migration.test.ts`, `src/features/quotes/api/vendor-preferences-api.test.ts`, `src/pages/ClientProject.test.tsx`: migration/API/UI coverage for the new behavior.
 
 **Pros:** Reduces noise from irrelevant vendor quotes. Matches how Frank already manages vendor relationships manually (some vendors are better for certain materials or lead times).
 

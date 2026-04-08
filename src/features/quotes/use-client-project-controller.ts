@@ -37,6 +37,11 @@ import {
   requestQuotes,
   setJobSelectedVendorQuoteOffer,
 } from "@/features/quotes/api/quote-requests-api";
+import {
+  fetchJobVendorPreferenceContext,
+  setJobVendorPreferences,
+  setProjectVendorPreferences,
+} from "@/features/quotes/api/vendor-preferences-api";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import { createJobsFromUploadFiles, uploadFilesToJob } from "@/features/quotes/api/uploads-api";
 import {
@@ -408,6 +413,18 @@ export function useClientProjectController() {
     [filteredJobs, focusedJobId],
   );
   const focusedWorkspaceItem = focusedJob ? workspaceItemsByJobId.get(focusedJob.id) ?? null : null;
+  const focusedVendorPreferenceQuery = useQuery({
+    queryKey: ["job-vendor-preferences", focusedJobId],
+    queryFn: async () => {
+      if (!focusedJobId) {
+        throw new Error("Select a part before loading vendor preferences.");
+      }
+
+      return fetchJobVendorPreferenceContext(focusedJobId);
+    },
+    enabled: Boolean(focusedJobId),
+    ...workspaceDetailQueryOptions,
+  });
   const focusedSummary =
     focusedWorkspaceItem?.summary ?? (focusedJob ? summariesByJobId.get(focusedJob.id) ?? null : null);
   const focusedSelectedOption = focusedJob ? selectedOptionsByJobId[focusedJob.id] ?? null : null;
@@ -591,6 +608,38 @@ export function useClientProjectController() {
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to update line item.");
+    },
+  });
+  const saveProjectVendorPreferencesMutation = useMutation({
+    mutationFn: (input: { jobId: string; includedVendors: VendorName[]; excludedVendors: VendorName[] }) =>
+      setProjectVendorPreferences({
+        projectId,
+        includedVendors: input.includedVendors,
+        excludedVendors: input.excludedVendors,
+      }),
+    onSuccess: async (_result, variables) => {
+      await queryClient.invalidateQueries({
+        queryKey: ["job-vendor-preferences", variables.jobId],
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to save project vendor preferences.");
+    },
+  });
+  const saveJobVendorPreferencesMutation = useMutation({
+    mutationFn: (input: { jobId: string; includedVendors: VendorName[]; excludedVendors: VendorName[] }) =>
+      setJobVendorPreferences({
+        jobId: input.jobId,
+        includedVendors: input.includedVendors,
+        excludedVendors: input.excludedVendors,
+      }),
+    onSuccess: async (_result, variables) => {
+      await queryClient.invalidateQueries({
+        queryKey: ["job-vendor-preferences", variables.jobId],
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to save part vendor preferences.");
     },
   });
 
@@ -1366,6 +1415,22 @@ export function useClientProjectController() {
     }
   };
 
+  const handleSetProjectVendorPreferences = async (input: {
+    jobId: string;
+    includedVendors: VendorName[];
+    excludedVendors: VendorName[];
+  }) => {
+    await saveProjectVendorPreferencesMutation.mutateAsync(input);
+  };
+
+  const handleSetJobVendorPreferences = async (input: {
+    jobId: string;
+    includedVendors: VendorName[];
+    excludedVendors: VendorName[];
+  }) => {
+    await saveJobVendorPreferencesMutation.mutateAsync(input);
+  };
+
   const handleCancelQuoteRequest = async (requestId: string) => {
     if (isCancelQuoteRequestLockedRef.current || cancelQuoteRequestMutation.isPending) {
       return;
@@ -1409,6 +1474,7 @@ export function useClientProjectController() {
     focusedRequestedByDate,
     focusedSelectedOption,
     focusedSummary,
+    focusedVendorPreferences: focusedVendorPreferenceQuery.data ?? null,
     focusedWorkspaceItem,
     handleClearFocusedJob,
     handleAddPartSubmit,
@@ -1429,6 +1495,8 @@ export function useClientProjectController() {
     handleRemoveProjectMember,
     handleRenameProject,
     handleRequestProjectQuotes,
+    handleSetJobVendorPreferences,
+    handleSetProjectVendorPreferences,
     handleRequestDraftChange,
     handleRevertBulk,
     handleSaveRequest,
@@ -1440,7 +1508,10 @@ export function useClientProjectController() {
     handleUnpinProject,
     isMobile,
     isCancelingQuoteRequest: cancelQuoteRequestMutation.isPending,
+    isSavingVendorPreferences:
+      saveProjectVendorPreferencesMutation.isPending || saveJobVendorPreferencesMutation.isPending,
     isSearchOpen,
+    isVendorPreferenceLoading: focusedVendorPreferenceQuery.isLoading || focusedVendorPreferenceQuery.isFetching,
     lastBulkAction,
     mobileDrawerOpen,
     navigate,
