@@ -259,9 +259,6 @@ export function ClientCadPreviewPanel({
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-white/35">CAD / isometric</p>
-          <p className="mt-2 text-sm text-white/55">
-            Static MVP preview with room for deeper 3D controls later.
-          </p>
         </div>
         {cadFile ? (
           <Button
