@@ -400,6 +400,24 @@ type ProjectInspectorContentProps = {
 };
 
 type VendorPreferenceSelection = "default" | "pinned" | "excluded";
+type VendorPreferenceScope = "project" | "job";
+type VendorPreferenceTone = "default" | "pinned" | "excluded";
+
+type VendorPreferenceState = {
+  includedVendors: VendorName[];
+  excludedVendors: VendorName[];
+};
+
+const vendorPreferenceSelectionOptions: Array<{
+  label: string;
+  ariaSuffix: string;
+  selection: VendorPreferenceSelection;
+  tone: VendorPreferenceTone;
+}> = [
+  { label: "Default", ariaSuffix: "default", selection: "default", tone: "default" },
+  { label: "Pin", ariaSuffix: "pin", selection: "pinned", tone: "pinned" },
+  { label: "Exclude", ariaSuffix: "exclude", selection: "excluded", tone: "excluded" },
+];
 
 function resolveVendorPreferenceSelection(input: {
   vendor: VendorName;
@@ -443,6 +461,86 @@ function applyVendorPreferenceSelection(input: {
   };
 }
 
+function getPreferenceButtonClassName(isActive: boolean, tone: VendorPreferenceTone) {
+  if (!isActive) {
+    return "h-7 rounded-full border-white/10 bg-transparent px-2.5 text-[11px] text-white/55 hover:bg-white/6 hover:text-white";
+  }
+
+  if (tone === "pinned") {
+    return "h-7 rounded-full border-emerald-400/40 bg-emerald-500/20 px-2.5 text-[11px] text-emerald-200 hover:bg-emerald-500/25";
+  }
+
+  if (tone === "excluded") {
+    return "h-7 rounded-full border-rose-400/40 bg-rose-500/20 px-2.5 text-[11px] text-rose-200 hover:bg-rose-500/25";
+  }
+
+  return "h-7 rounded-full border-white/20 bg-white/10 px-2.5 text-[11px] text-white hover:bg-white/14";
+}
+
+type VendorPreferenceScopeCardProps = {
+  availableVendors: VendorName[];
+  ariaPrefix: "Project" | "Part";
+  heading: string;
+  isSavingVendorPreferences: boolean;
+  preferences: VendorPreferenceState;
+  scope: VendorPreferenceScope;
+  onUpdateVendorPreferences: (input: {
+    scope: VendorPreferenceScope;
+    vendor: VendorName;
+    selection: VendorPreferenceSelection;
+  }) => Promise<void>;
+};
+
+function VendorPreferenceScopeCard({
+  availableVendors,
+  ariaPrefix,
+  heading,
+  isSavingVendorPreferences,
+  preferences,
+  scope,
+  onUpdateVendorPreferences,
+}: VendorPreferenceScopeCardProps) {
+  return (
+    <div className="space-y-2 rounded-lg border border-white/10 bg-black/20 p-3">
+      <p className="text-[11px] uppercase tracking-[0.14em] text-white/45">{heading}</p>
+      {availableVendors.map((vendor) => {
+        const selection = resolveVendorPreferenceSelection({
+          vendor,
+          includedVendors: preferences.includedVendors,
+          excludedVendors: preferences.excludedVendors,
+        });
+
+        return (
+          <div key={`${scope}-${vendor}`} className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-medium text-white">{getVendorDisplayName(vendor)}</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {vendorPreferenceSelectionOptions.map((option) => (
+                <Button
+                  key={`${scope}-${vendor}-${option.selection}`}
+                  type="button"
+                  variant="outline"
+                  className={getPreferenceButtonClassName(selection === option.selection, option.tone)}
+                  disabled={isSavingVendorPreferences}
+                  onClick={() => {
+                    void onUpdateVendorPreferences({
+                      scope,
+                      vendor,
+                      selection: option.selection,
+                    });
+                  }}
+                  aria-label={`${ariaPrefix} ${getVendorDisplayName(vendor)} ${option.ariaSuffix}`}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ProjectInspectorContent({
   focusedJobId,
   focusedWorkspaceItem,
@@ -468,7 +566,7 @@ function ProjectInspectorContent({
   };
 
   const updateVendorPreferences = async (input: {
-    scope: "project" | "job";
+    scope: VendorPreferenceScope;
     vendor: VendorName;
     selection: VendorPreferenceSelection;
   }) => {
@@ -504,25 +602,6 @@ function ProjectInspectorContent({
       includedVendors: nextState.includedVendors,
       excludedVendors: nextState.excludedVendors,
     });
-  };
-
-  const getPreferenceButtonClassName = (
-    isActive: boolean,
-    tone: "default" | "pinned" | "excluded",
-  ) => {
-    if (!isActive) {
-      return "h-7 rounded-full border-white/10 bg-transparent px-2.5 text-[11px] text-white/55 hover:bg-white/6 hover:text-white";
-    }
-
-    if (tone === "pinned") {
-      return "h-7 rounded-full border-emerald-400/40 bg-emerald-500/20 px-2.5 text-[11px] text-emerald-200 hover:bg-emerald-500/25";
-    }
-
-    if (tone === "excluded") {
-      return "h-7 rounded-full border-rose-400/40 bg-rose-500/20 px-2.5 text-[11px] text-rose-200 hover:bg-rose-500/25";
-    }
-
-    return "h-7 rounded-full border-white/20 bg-white/10 px-2.5 text-[11px] text-white hover:bg-white/14";
   };
 
   return (
@@ -628,139 +707,24 @@ function ProjectInspectorContent({
                     <p className="text-xs text-white/45">No client quote vendors are enabled for this organization.</p>
                   ) : (
                     <div className="space-y-4">
-                      <div className="space-y-2 rounded-lg border border-white/10 bg-black/20 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-white/45">Project defaults</p>
-                        {availableVendors.map((vendor) => {
-                          const selection = resolveVendorPreferenceSelection({
-                            vendor,
-                            includedVendors: projectVendorPreferences.includedVendors,
-                            excludedVendors: projectVendorPreferences.excludedVendors,
-                          });
-
-                          return (
-                            <div key={`project-${vendor}`} className="flex flex-wrap items-center justify-between gap-2">
-                              <span className="text-xs font-medium text-white">{getVendorDisplayName(vendor)}</span>
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className={getPreferenceButtonClassName(selection === "default", "default")}
-                                  disabled={isSavingVendorPreferences}
-                                  onClick={() => {
-                                    void updateVendorPreferences({
-                                      scope: "project",
-                                      vendor,
-                                      selection: "default",
-                                    });
-                                  }}
-                                  aria-label={`Project ${getVendorDisplayName(vendor)} default`}
-                                >
-                                  Default
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className={getPreferenceButtonClassName(selection === "pinned", "pinned")}
-                                  disabled={isSavingVendorPreferences}
-                                  onClick={() => {
-                                    void updateVendorPreferences({
-                                      scope: "project",
-                                      vendor,
-                                      selection: "pinned",
-                                    });
-                                  }}
-                                  aria-label={`Project ${getVendorDisplayName(vendor)} pin`}
-                                >
-                                  Pin
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className={getPreferenceButtonClassName(selection === "excluded", "excluded")}
-                                  disabled={isSavingVendorPreferences}
-                                  onClick={() => {
-                                    void updateVendorPreferences({
-                                      scope: "project",
-                                      vendor,
-                                      selection: "excluded",
-                                    });
-                                  }}
-                                  aria-label={`Project ${getVendorDisplayName(vendor)} exclude`}
-                                >
-                                  Exclude
-                                </Button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <div className="space-y-2 rounded-lg border border-white/10 bg-black/20 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-white/45">This part override</p>
-                        {availableVendors.map((vendor) => {
-                          const selection = resolveVendorPreferenceSelection({
-                            vendor,
-                            includedVendors: jobVendorPreferences.includedVendors,
-                            excludedVendors: jobVendorPreferences.excludedVendors,
-                          });
-
-                          return (
-                            <div key={`job-${vendor}`} className="flex flex-wrap items-center justify-between gap-2">
-                              <span className="text-xs font-medium text-white">{getVendorDisplayName(vendor)}</span>
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className={getPreferenceButtonClassName(selection === "default", "default")}
-                                  disabled={isSavingVendorPreferences}
-                                  onClick={() => {
-                                    void updateVendorPreferences({
-                                      scope: "job",
-                                      vendor,
-                                      selection: "default",
-                                    });
-                                  }}
-                                  aria-label={`Part ${getVendorDisplayName(vendor)} default`}
-                                >
-                                  Default
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className={getPreferenceButtonClassName(selection === "pinned", "pinned")}
-                                  disabled={isSavingVendorPreferences}
-                                  onClick={() => {
-                                    void updateVendorPreferences({
-                                      scope: "job",
-                                      vendor,
-                                      selection: "pinned",
-                                    });
-                                  }}
-                                  aria-label={`Part ${getVendorDisplayName(vendor)} pin`}
-                                >
-                                  Pin
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className={getPreferenceButtonClassName(selection === "excluded", "excluded")}
-                                  disabled={isSavingVendorPreferences}
-                                  onClick={() => {
-                                    void updateVendorPreferences({
-                                      scope: "job",
-                                      vendor,
-                                      selection: "excluded",
-                                    });
-                                  }}
-                                  aria-label={`Part ${getVendorDisplayName(vendor)} exclude`}
-                                >
-                                  Exclude
-                                </Button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                      <VendorPreferenceScopeCard
+                        availableVendors={availableVendors}
+                        ariaPrefix="Project"
+                        heading="Project defaults"
+                        isSavingVendorPreferences={isSavingVendorPreferences}
+                        preferences={projectVendorPreferences}
+                        scope="project"
+                        onUpdateVendorPreferences={updateVendorPreferences}
+                      />
+                      <VendorPreferenceScopeCard
+                        availableVendors={availableVendors}
+                        ariaPrefix="Part"
+                        heading="This part override"
+                        isSavingVendorPreferences={isSavingVendorPreferences}
+                        preferences={jobVendorPreferences}
+                        scope="job"
+                        onUpdateVendorPreferences={updateVendorPreferences}
+                      />
                     </div>
                   )}
                 </div>
