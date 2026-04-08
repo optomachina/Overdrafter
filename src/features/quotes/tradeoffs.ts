@@ -158,54 +158,79 @@ function buildStatement(
   const isFastest = fastest === score.vendorName;
   const isTopPick = allScores[0]?.vendorName === score.vendorName;
 
+  // Both cheapest and fastest
   if (isCheapest && isFastest) {
     return `${score.vendorName} offers the best price and fastest delivery — the clear winner on both cost and speed.`;
   }
 
+  // Cheapest case
   if (isCheapest && prices) {
-    const price = prices[score.vendorName];
-    const fastestVendor = fastest;
-    const fastestLeadTime = leadTimes ? leadTimes[fastestVendor] : null;
-    let statement = `${score.vendorName} is the cheapest option`;
-    if (price !== undefined) {
-      statement += ` at ${formatCurrency(price)}`;
-    }
-    if (fastestLeadTime !== null && !isFastest) {
-      statement += `, but lead time is ${fastestLeadTime} days — slower than the fastest option (${fastestVendor}).`;
-    } else {
-      statement += ` with a strong overall score of ${Math.round(score.overallScore)}/100.`;
-    }
-    return statement;
+    return buildCheapestStatement(score, prices, fastest, leadTimes);
   }
 
+  // Fastest case
   if (isFastest && leadTimes) {
-    const leadTime = leadTimes[score.vendorName];
-    const cheapestVendor = cheapest;
-    const cheapestPrice = prices ? prices[cheapestVendor] : null;
-    let statement = `${score.vendorName} is the fastest at ${leadTime} days`;
-    if (cheapestPrice !== null && !isCheapest) {
-      const priceDiff = prices && prices[score.vendorName] && prices[cheapestVendor]
-        ? Math.round(((prices[score.vendorName] - prices[cheapestVendor]) / prices[cheapestVendor]) * 100)
-        : null;
-      if (priceDiff !== null && priceDiff > 0) {
-        statement += `, but costs ${priceDiff}% more than the cheapest option (${cheapestVendor}).`;
-      } else {
-        statement += `, with a strong overall score of ${Math.round(score.overallScore)}/100.`;
-      }
-    } else {
-      statement += ` with an overall score of ${Math.round(score.overallScore)}/100.`;
-    }
-    return statement;
+    return buildFastestStatement(score, prices, cheapest, leadTimes);
   }
 
+  // Top pick
   if (isTopPick) {
     return `${score.vendorName} provides the best balance of price and speed, with an overall score of ${Math.round(score.overallScore)}/100.`;
   }
 
+  // Top domestic option
   if (score.domesticScore >= 100 && allScores[0]?.domesticScore < 100) {
     return `${score.vendorName} is our top domestic option with an overall score of ${Math.round(score.overallScore)}/100.`;
   }
 
+  // Fallback to strengths/weaknesses
+  return buildFallbackStatement(score, strengths, weaknesses);
+}
+
+function buildCheapestStatement(
+  score: VendorScore,
+  prices: Record<string, number>,
+  fastestVendor: string,
+  leadTimes?: Record<string, number>,
+): string {
+  const price = prices[score.vendorName];
+  const fastestLeadTime = leadTimes ? leadTimes[fastestVendor] : null;
+  let statement = `${score.vendorName} is the cheapest option`;
+  if (price !== undefined) {
+    statement += ` at ${formatCurrency(price)}`;
+  }
+  if (fastestLeadTime !== null) {
+    statement += `, but lead time is ${fastestLeadTime} days — slower than the fastest option (${fastestVendor}).`;
+  } else {
+    statement += ` with a strong overall score of ${Math.round(score.overallScore)}/100.`;
+  }
+  return statement;
+}
+
+function buildFastestStatement(
+  score: VendorScore,
+  prices: Record<string, number> | undefined,
+  cheapestVendor: string,
+  leadTimes: Record<string, number>,
+): string {
+  const leadTime = leadTimes[score.vendorName];
+  const cheapestPrice = prices ? prices[cheapestVendor] : null;
+  let statement = `${score.vendorName} is the fastest at ${leadTime} days`;
+
+  if (cheapestPrice !== null) {
+    const priceDiff = prices && prices[score.vendorName] && prices[cheapestVendor]
+      ? Math.round(((prices[score.vendorName] - prices[cheapestVendor]) / prices[cheapestVendor]) * 100)
+      : null;
+    if (priceDiff !== null && priceDiff > 0) {
+      statement += `, but costs ${priceDiff}% more than the cheapest option (${cheapestVendor}).`;
+      return statement;
+    }
+  }
+  statement += ` with an overall score of ${Math.round(score.overallScore)}/100.`;
+  return statement;
+}
+
+function buildFallbackStatement(score: VendorScore, strengths: string[], weaknesses: string[]): string {
   const strengthText = strengths.length > 0 ? strengths[0] : null;
   const weaknessText = weaknesses.length > 0 ? weaknesses[0] : null;
 
