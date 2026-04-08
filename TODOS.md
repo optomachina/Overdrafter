@@ -119,7 +119,7 @@ Deferred work with context. Each item captures what, why, and where to start so 
 
 ---
 
-## TODO-014: Multi-vendor fan-out in `api_request_quote` (Phase 2 core) ✓
+## ~~TODO-014: Multi-vendor fan-out in `api_request_quote` (Phase 2 core)~~ ✅ DONE
 
 Completed on March 24, 2026.
 
@@ -306,7 +306,7 @@ Recommended evaluator behavior:
 
 ---
 
-## TODO-017: Internal-only view for extraction provenance and worker queue details
+## TODO-023: Internal-only view for extraction provenance and worker queue details
 
 **What:** After the Track 3 part page redesign moves extraction provenance badges and status cards into an accordion in the client view, add a dedicated internal view (or admin-only toggle) that surfaces this data without requiring the accordion. Target: `InternalJobPartRequirementCard` or a new `/internal/parts/:id` debug surface.
 
