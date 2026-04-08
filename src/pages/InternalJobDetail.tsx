@@ -28,6 +28,7 @@ const InternalJobDetail = () => {
     jobId,
   });
   const isDiagnosticReadOnlyView = Boolean(activeMembership?.role === "client" && queryState.allowDiagnosticReadOnly);
+  const showInternalDiagnostics = activeMembership?.role !== "client";
   const viewModel = useInternalJobDetailViewModel({
     job: queryState.job,
     latestQuoteRun: queryState.latestQuoteRun,
@@ -182,6 +183,8 @@ const InternalJobDetail = () => {
           }
           onQuoteQuantityInputCommit={viewModel.commitQuoteQuantityInput}
           updateDraft={viewModel.updateDraft}
+          workQueue={queryState.job.workQueue}
+          showInternalDiagnostics={showInternalDiagnostics}
           writeActionsDisabled={fullyWriteActionsDisabled}
         />
 

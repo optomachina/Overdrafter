@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ApprovedPartRequirement, JobAggregate } from "@/features/quotes/types";
+import type { ApprovedPartRequirement, JobAggregate, WorkQueueRecord } from "@/features/quotes/types";
 import { InternalJobPartRequirementCard } from "./InternalJobPartRequirementCard";
 
 type InternalJobRequirementsSectionProps = {
@@ -14,6 +14,8 @@ type InternalJobRequirementsSectionProps = {
     partId: string,
     updater: (current: ApprovedPartRequirement) => ApprovedPartRequirement,
   ) => void;
+  workQueue: WorkQueueRecord[];
+  showInternalDiagnostics: boolean;
   writeActionsDisabled: boolean;
 };
 
@@ -26,6 +28,8 @@ export function InternalJobRequirementsSection({
   onQuoteQuantityInputChange,
   onQuoteQuantityInputCommit,
   updateDraft,
+  workQueue,
+  showInternalDiagnostics,
   writeActionsDisabled,
 }: InternalJobRequirementsSectionProps) {
   return (
@@ -36,11 +40,14 @@ export function InternalJobRequirementsSection({
       <CardContent className="space-y-5">
         {job.parts.map((part) => {
           const draft = getDraftForPart(part);
+          const partQueueTasks = workQueue.filter((task) => task.part_id === part.id);
 
           return (
             <InternalJobPartRequirementCard
               key={part.id}
               part={part}
+              partQueueTasks={partQueueTasks}
+              showInternalDiagnostics={showInternalDiagnostics}
               draft={draft}
               quoteQuantityInput={getQuoteQuantityInput(part.id, draft)}
               cadPreviewSource={cadPreviewSources.get(part.id) ?? null}
