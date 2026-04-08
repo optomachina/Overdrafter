@@ -404,20 +404,8 @@ Recommended evaluator behavior:
 
 ---
 
-## TODO-022: Client comparison UI for vendor-level in-flight state and results
+## ~~TODO-022: Client comparison UI for vendor-level in-flight state and results~~ ✅ DONE (b27a91c, #212)
 
-**What:** After `api_request_quote` fans out to multiple vendors in parallel, show Frank the real-time status of each vendor lane — which vendors have responded, which are still pending, and what each quote looks like side-by-side before he selects one.
+**Resolution:** Shipped in `b27a91c` via vendor-level in-flight status indicators in `ClientQuoteDecisionPanel` (pending, fetching, failed, review, follow-up, stale), plus `vendorStatus` propagation from `vendor_quote_results.status` in quote selection option building.
 
-**Why:** The current UI shows a single "quote received" state. With multi-vendor fan-out, Frank needs to see "Xometry: $42 / 5 days, Fictiv: pending, Protolabs: $38 / 7 days" and choose. The `ClientQuoteDecisionPanel` exists but doesn't surface per-vendor in-flight state.
-
-**Pros:** This is the core differentiated value of Overdrafter — seeing all vendors at once. Without this view, multi-vendor fan-out is invisible to the client.
-
-**Cons:** Requires polling or subscription for real-time vendor lane updates. The `client-quote-workspace` query already polls on 5s intervals during extraction — same pattern can be extended for quote fan-out.
-
-**Context:** Listed as remaining adjacent work under TODO-014. Identified as "NOT in scope" during /plan-eng-review on 2026-03-31. Phase 2 core.
-
-**Where to start:** `src/components/quotes/ClientQuoteDecisionPanel.tsx` — add per-vendor status indicators using the `options` array (each option has a vendor and status). `use-client-project-controller.ts` — check how `projectWorkspaceItemsQuery` refetch interval works and whether vendor-lane pending state is already in the data shape.
-
-**Effort:** M (human: ~1 week / CC: ~30 min) | **Priority:** P1
-
-**Depends on:** Multi-vendor fan-out (TODO-014, shipped). Frank-Ready Sprint Track 2 merged.
+**Verification evidence:** `src/features/quotes/selection.ts` now includes `vendorStatus` in `ClientQuoteSelectionOption` and sets it from each quote row, while `src/components/quotes/ClientQuoteDecisionPanel.tsx` renders `VendorStatusBadge` in table, card, and mobile layouts.
