@@ -74,6 +74,27 @@ $$;
 
 grant execute on function public.normalize_vendor_name_array(public.vendor_name[]) to authenticated;
 
+create or replace function public.build_vendor_preferences_json(
+  p_included_vendors public.vendor_name[],
+  p_excluded_vendors public.vendor_name[],
+  p_updated_at timestamptz
+)
+returns jsonb
+language sql
+immutable
+as $$
+  select jsonb_build_object(
+    'includedVendors',
+    to_jsonb(coalesce(p_included_vendors, array[]::public.vendor_name[])),
+    'excludedVendors',
+    to_jsonb(coalesce(p_excluded_vendors, array[]::public.vendor_name[])),
+    'updatedAt',
+    p_updated_at
+  );
+$$;
+
+grant execute on function public.build_vendor_preferences_json(public.vendor_name[], public.vendor_name[], timestamptz) to authenticated;
+
 create or replace function public.get_enabled_client_quote_vendors(
   p_organization_id uuid,
   p_project_id uuid,
@@ -209,15 +230,15 @@ begin
     'projectId', v_job.project_id,
     'organizationId', v_job.organization_id,
     'availableVendors', to_jsonb(v_available_vendors),
-    'projectVendorPreferences', jsonb_build_object(
-      'includedVendors', to_jsonb(coalesce(v_project_preferences.included_vendors, v_empty_vendor_array)),
-      'excludedVendors', to_jsonb(coalesce(v_project_preferences.excluded_vendors, v_empty_vendor_array)),
-      'updatedAt', v_project_preferences.updated_at
+    'projectVendorPreferences', public.build_vendor_preferences_json(
+      coalesce(v_project_preferences.included_vendors, v_empty_vendor_array),
+      coalesce(v_project_preferences.excluded_vendors, v_empty_vendor_array),
+      v_project_preferences.updated_at
     ),
-    'jobVendorPreferences', jsonb_build_object(
-      'includedVendors', to_jsonb(coalesce(v_job_preferences.included_vendors, v_empty_vendor_array)),
-      'excludedVendors', to_jsonb(coalesce(v_job_preferences.excluded_vendors, v_empty_vendor_array)),
-      'updatedAt', v_job_preferences.updated_at
+    'jobVendorPreferences', public.build_vendor_preferences_json(
+      coalesce(v_job_preferences.included_vendors, v_empty_vendor_array),
+      coalesce(v_job_preferences.excluded_vendors, v_empty_vendor_array),
+      v_job_preferences.updated_at
     )
   );
 end;
@@ -282,12 +303,8 @@ begin
     returning updated_at into v_updated_at;
   end if;
 
-  return jsonb_build_object(
-    'projectId', p_project_id,
-    'includedVendors', to_jsonb(v_included),
-    'excludedVendors', to_jsonb(v_excluded),
-    'updatedAt', v_updated_at
-  );
+  return jsonb_build_object('projectId', p_project_id)
+    || public.build_vendor_preferences_json(v_included, v_excluded, v_updated_at);
 end;
 $$;
 
@@ -350,12 +367,8 @@ begin
     returning updated_at into v_updated_at;
   end if;
 
-  return jsonb_build_object(
-    'jobId', p_job_id,
-    'includedVendors', to_jsonb(v_included),
-    'excludedVendors', to_jsonb(v_excluded),
-    'updatedAt', v_updated_at
-  );
+  return jsonb_build_object('jobId', p_job_id)
+    || public.build_vendor_preferences_json(v_included, v_excluded, v_updated_at);
 end;
 $$;
 
