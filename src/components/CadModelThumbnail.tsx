@@ -163,7 +163,10 @@ export function CadModelThumbnail({
             return;
           }
 
-          nextRenderer.setSize(width, height, false);
+          // Keep canvas layout size pinned to the host element. With high-DPI
+          // displays, omitting style updates can cause the canvas box to exceed
+          // its container and offset model centering.
+          nextRenderer.setSize(width, height, true);
           camera.aspect = width / height;
           camera.updateProjectionMatrix();
         };
