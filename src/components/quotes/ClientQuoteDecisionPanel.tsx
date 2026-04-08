@@ -1,6 +1,15 @@
 import { lazy, Suspense, useState } from "react";
 import type { ReactNode } from "react";
-import { BadgeCheck, CircleOff, SlidersHorizontal, TriangleAlert } from "lucide-react";
+import {
+  AlertCircle,
+  BadgeCheck,
+  CircleOff,
+  Clock,
+  Loader2,
+  SlidersHorizontal,
+  TriangleAlert,
+  XCircle,
+} from "lucide-react";
 
 const ClientQuoteComparisonChart = lazy(() =>
   import("@/components/quotes/ClientQuoteComparisonChart").then((m) => ({
@@ -71,6 +80,56 @@ function formatEstimatedDeliveryDays(
   }
 
   return resolvedDeliveryDate ?? "Pending";
+}
+
+function getVendorStatusDisplay(status: string | undefined) {
+  if (!status) return null;
+
+  switch (status) {
+    case "queued":
+      return { icon: Clock, label: "Pending", color: "text-white/40", bg: "bg-white/5" };
+    case "running":
+      return { icon: Loader2, label: "Fetching...", color: "text-amber-400", bg: "bg-amber-500/10", animate: true };
+    case "instant_quote_received":
+    case "official_quote_received":
+      return null; // Normal state, no indicator needed
+    case "failed":
+      return { icon: XCircle, label: "Failed", color: "text-red-400", bg: "bg-red-500/10" };
+    case "manual_review_pending":
+      return { icon: AlertCircle, label: "Review", color: "text-amber-400", bg: "bg-amber-500/10" };
+    case "manual_vendor_followup":
+      return { icon: AlertCircle, label: "Follow-up", color: "text-orange-400", bg: "bg-orange-500/10" };
+    case "stale":
+      return { icon: Clock, label: "Stale", color: "text-white/40", bg: "bg-white/5" };
+    default:
+      return null;
+  }
+}
+
+function VendorStatusBadge({
+  status,
+  variant = "dense",
+}: Readonly<{
+  status: string | undefined;
+  variant?: "dense" | "mobile";
+}>) {
+  const statusInfo = getVendorStatusDisplay(status);
+
+  if (!statusInfo) {
+    return null;
+  }
+
+  const Icon = statusInfo.icon;
+  const badgeClassName =
+    variant === "mobile" ? "border px-2 py-1 text-xs" : "h-4 border px-1 text-[9px]";
+  const iconClassName = variant === "mobile" ? "mr-1 h-3 w-3" : "mr-0.5 h-3 w-3";
+
+  return (
+    <Badge className={cn(badgeClassName, statusInfo.bg, "border-white/10", statusInfo.color)}>
+      <Icon className={cn(iconClassName, statusInfo.animate && "animate-spin")} />
+      {statusInfo.label}
+    </Badge>
+  );
 }
 
 function getPresetModeBadgeCopy(mode: QuotePresetMode) {
@@ -341,6 +400,7 @@ function QuoteComparisonTable({
                             Excl
                           </Badge>
                         ) : null}
+                        <VendorStatusBadge status={option.vendorStatus} />
                       </div>
                       {reasons.length > 0 ? (
                         <div className="mt-0.5 flex flex-wrap gap-1">
@@ -471,6 +531,7 @@ function QuoteComparisonCards({
                           Excl
                         </Badge>
                       ) : null}
+                      <VendorStatusBadge status={option.vendorStatus} />
                     </div>
                     <p className="mt-1 text-xs text-white/45">
                       {[option.laneLabel ?? option.tier ?? "Standard", option.sourcing].filter(Boolean).join(" · ")}
@@ -597,6 +658,7 @@ function MobileQuoteReviewDeck({
                     {badgeCopy.rowBadge}
                   </Badge>
                 ) : null}
+                <VendorStatusBadge status={option.vendorStatus} variant="mobile" />
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-2">
