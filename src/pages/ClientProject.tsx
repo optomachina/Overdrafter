@@ -604,6 +604,9 @@ const ClientProject = () => {
 
     navigate(`/parts/${jobId}`);
   };
+  const navigateToPartWorkspace = (jobId: string) => {
+    navigate(`/parts/${jobId}`);
+  };
 
   const quoteRequestViewModelsByJobId = useMemo(
     () =>
@@ -965,7 +968,7 @@ const ClientProject = () => {
             onArchiveProject={handleArchiveProject}
             onDissolveProject={handleDissolveProject}
             onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
-            onSelectPart={navigateToPartDestination}
+            onSelectPart={navigateToPartWorkspace}
             onPrefetchProject={prefetchProject}
             onPrefetchPart={prefetchPart}
             resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}

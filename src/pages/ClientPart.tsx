@@ -724,13 +724,13 @@ const ClientPart = () => {
                   </>
                 }
               >
-                <PartProductDataBar
-                  part={partDetail.part}
-                  summary={summary}
-                  extraction={extraction}
-                  draft={effectiveRequestDraft}
-                />
-                <div className="mt-5">
+                <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,300px)_minmax(0,1fr)] xl:gap-6">
+                  <PartProductDataBar
+                    part={partDetail.part}
+                    summary={summary}
+                    extraction={extraction}
+                    draft={effectiveRequestDraft}
+                  />
                   <PartViewerRow
                     cadFile={cadFile}
                     drawingFile={drawingFile}
