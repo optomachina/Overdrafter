@@ -34,13 +34,17 @@ const baseProps = {
 };
 
 describe("PartViewerRow", () => {
-  it("renders both CAD and drawing sections side by side", () => {
+  it("renders CAD then drawing panels without redundant section labels", () => {
     render(<PartViewerRow {...baseProps} />);
 
-    expect(screen.getByText("CAD model")).toBeInTheDocument();
-    expect(screen.getByText("PDF drawing")).toBeInTheDocument();
-    expect(screen.getByTestId("cad-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("drawing-panel")).toBeInTheDocument();
+    expect(screen.queryByText("CAD model")).not.toBeInTheDocument();
+    expect(screen.queryByText("PDF drawing")).not.toBeInTheDocument();
+
+    const cadPanel = screen.getByTestId("cad-panel");
+    const drawingPanel = screen.getByTestId("drawing-panel");
+    expect(cadPanel).toBeInTheDocument();
+    expect(drawingPanel).toBeInTheDocument();
+    expect(cadPanel.compareDocumentPosition(drawingPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("renders a PDF iframe when a pdfUrl is provided", () => {

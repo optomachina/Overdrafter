@@ -92,7 +92,7 @@ export function PartProductDataBar({ part, summary, extraction, draft }: PartPro
   const fields = buildDataFields({ part, summary, extraction, draft });
 
   return (
-    <div className="flex flex-wrap gap-x-6 gap-y-2">
+    <div className="flex flex-col gap-2">
       {fields.map((field) => (
         <div key={field.label} className="flex items-baseline gap-1.5">
           <span className="text-[11px] text-white/40">{field.label}</span>
