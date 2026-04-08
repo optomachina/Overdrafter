@@ -106,10 +106,11 @@ security definer
 set search_path = public
 as $$
 declare
-  v_enabled_vendors public.vendor_name[] := coalesce(
+  v_baseline_vendors public.vendor_name[] := coalesce(
     public.get_enabled_client_quote_vendors(p_organization_id),
     array[]::public.vendor_name[]
   );
+  v_enabled_vendors public.vendor_name[] := array[]::public.vendor_name[];
   v_project_included public.vendor_name[] := array[]::public.vendor_name[];
   v_project_excluded public.vendor_name[] := array[]::public.vendor_name[];
   v_job_included public.vendor_name[] := array[]::public.vendor_name[];
@@ -127,20 +128,6 @@ begin
 
     v_project_included := public.normalize_vendor_name_array(v_project_included);
     v_project_excluded := public.normalize_vendor_name_array(v_project_excluded);
-
-    if cardinality(v_project_included) > 0 then
-      select coalesce(array_agg(vendor_row.vendor order by vendor_row.vendor), array[]::public.vendor_name[])
-      into v_enabled_vendors
-      from unnest(v_enabled_vendors) as vendor_row(vendor)
-      where vendor_row.vendor = any(v_project_included);
-    end if;
-
-    if cardinality(v_project_excluded) > 0 then
-      select coalesce(array_agg(vendor_row.vendor order by vendor_row.vendor), array[]::public.vendor_name[])
-      into v_enabled_vendors
-      from unnest(v_enabled_vendors) as vendor_row(vendor)
-      where vendor_row.vendor <> all(v_project_excluded);
-    end if;
   end if;
 
   if p_job_id is not null then
@@ -155,21 +142,18 @@ begin
 
     v_job_included := public.normalize_vendor_name_array(v_job_included);
     v_job_excluded := public.normalize_vendor_name_array(v_job_excluded);
-
-    if cardinality(v_job_included) > 0 then
-      select coalesce(array_agg(vendor_row.vendor order by vendor_row.vendor), array[]::public.vendor_name[])
-      into v_enabled_vendors
-      from unnest(v_enabled_vendors) as vendor_row(vendor)
-      where vendor_row.vendor = any(v_job_included);
-    end if;
-
-    if cardinality(v_job_excluded) > 0 then
-      select coalesce(array_agg(vendor_row.vendor order by vendor_row.vendor), array[]::public.vendor_name[])
-      into v_enabled_vendors
-      from unnest(v_enabled_vendors) as vendor_row(vendor)
-      where vendor_row.vendor <> all(v_job_excluded);
-    end if;
   end if;
+
+  select coalesce(array_agg(vendor_row.vendor order by vendor_row.vendor), array[]::public.vendor_name[])
+  into v_enabled_vendors
+  from unnest(v_baseline_vendors) as vendor_row(vendor)
+  where case
+    when vendor_row.vendor = any(v_job_included) then true
+    when vendor_row.vendor = any(v_job_excluded) then false
+    else
+      (cardinality(v_project_included) = 0 or vendor_row.vendor = any(v_project_included))
+      and vendor_row.vendor <> all(v_project_excluded)
+  end;
 
   return v_enabled_vendors;
 end;
@@ -177,6 +161,7 @@ $$;
 
 -- Keep the three-argument resolver internal to guarded definer RPCs.
 revoke execute on function public.get_enabled_client_quote_vendors(uuid, uuid, uuid) from authenticated;
+revoke all on function public.get_enabled_client_quote_vendors(uuid, uuid, uuid) from public;
 
 create or replace function public.api_get_job_vendor_preferences(
   p_job_id uuid
@@ -260,6 +245,8 @@ declare
   v_project public.projects%rowtype;
   v_included public.vendor_name[] := public.normalize_vendor_name_array(p_included_vendors);
   v_excluded public.vendor_name[] := public.normalize_vendor_name_array(p_excluded_vendors);
+  v_allowed_vendors public.vendor_name[] := array[]::public.vendor_name[];
+  v_disallowed_vendors public.vendor_name[] := array[]::public.vendor_name[];
   v_updated_at timestamptz := null;
 begin
   perform public.require_verified_auth();
@@ -275,6 +262,27 @@ begin
 
   if not public.user_can_edit_project(v_project.id) then
     raise exception 'You do not have permission to edit vendor preferences for project %.', p_project_id;
+  end if;
+
+  v_allowed_vendors := coalesce(
+    public.get_enabled_client_quote_vendors(v_project.organization_id),
+    array[]::public.vendor_name[]
+  );
+
+  select coalesce(array_agg(distinct vendor_row.vendor order by vendor_row.vendor), array[]::public.vendor_name[])
+  into v_disallowed_vendors
+  from (
+    select unnest(v_included) as vendor
+    union all
+    select unnest(v_excluded) as vendor
+  ) as vendor_row
+  where vendor_row.vendor <> all(v_allowed_vendors);
+
+  if cardinality(v_disallowed_vendors) > 0 then
+    raise exception
+      'Vendor preferences include unsupported vendors for project %: %.',
+      p_project_id,
+      array_to_string(v_disallowed_vendors, ', ');
   end if;
 
   select coalesce(array_agg(vendor_row.vendor order by vendor_row.vendor), array[]::public.vendor_name[])
@@ -324,6 +332,8 @@ declare
   v_job public.jobs%rowtype;
   v_included public.vendor_name[] := public.normalize_vendor_name_array(p_included_vendors);
   v_excluded public.vendor_name[] := public.normalize_vendor_name_array(p_excluded_vendors);
+  v_allowed_vendors public.vendor_name[] := array[]::public.vendor_name[];
+  v_disallowed_vendors public.vendor_name[] := array[]::public.vendor_name[];
   v_updated_at timestamptz := null;
 begin
   perform public.require_verified_auth();
@@ -339,6 +349,27 @@ begin
 
   if not public.user_can_edit_job(v_job.id) then
     raise exception 'You do not have permission to edit vendor preferences for job %.', p_job_id;
+  end if;
+
+  v_allowed_vendors := coalesce(
+    public.get_enabled_client_quote_vendors(v_job.organization_id),
+    array[]::public.vendor_name[]
+  );
+
+  select coalesce(array_agg(distinct vendor_row.vendor order by vendor_row.vendor), array[]::public.vendor_name[])
+  into v_disallowed_vendors
+  from (
+    select unnest(v_included) as vendor
+    union all
+    select unnest(v_excluded) as vendor
+  ) as vendor_row
+  where vendor_row.vendor <> all(v_allowed_vendors);
+
+  if cardinality(v_disallowed_vendors) > 0 then
+    raise exception
+      'Vendor preferences include unsupported vendors for job %: %.',
+      p_job_id,
+      array_to_string(v_disallowed_vendors, ', ');
   end if;
 
   select coalesce(array_agg(vendor_row.vendor order by vendor_row.vendor), array[]::public.vendor_name[])
