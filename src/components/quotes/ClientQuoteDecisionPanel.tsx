@@ -1,6 +1,15 @@
 import { lazy, Suspense, useState } from "react";
 import type { ReactNode } from "react";
-import { BadgeCheck, CircleOff, Clock, Loader2, SlidersHorizontal, TriangleAlert, AlertCircle, XCircle } from "lucide-react";
+import {
+  AlertCircle,
+  BadgeCheck,
+  CircleOff,
+  Clock,
+  Loader2,
+  SlidersHorizontal,
+  TriangleAlert,
+  XCircle,
+} from "lucide-react";
 
 const ClientQuoteComparisonChart = lazy(() =>
   import("@/components/quotes/ClientQuoteComparisonChart").then((m) => ({
@@ -95,6 +104,32 @@ function getVendorStatusDisplay(status: string | undefined) {
     default:
       return null;
   }
+}
+
+function VendorStatusBadge({
+  status,
+  variant = "dense",
+}: Readonly<{
+  status: string | undefined;
+  variant?: "dense" | "mobile";
+}>) {
+  const statusInfo = getVendorStatusDisplay(status);
+
+  if (!statusInfo) {
+    return null;
+  }
+
+  const Icon = statusInfo.icon;
+  const badgeClassName =
+    variant === "mobile" ? "border px-2 py-1 text-xs" : "h-4 border px-1 text-[9px]";
+  const iconClassName = variant === "mobile" ? "mr-1 h-3 w-3" : "mr-0.5 h-3 w-3";
+
+  return (
+    <Badge className={cn(badgeClassName, statusInfo.bg, "border-white/10", statusInfo.color)}>
+      <Icon className={cn(iconClassName, statusInfo.animate && "animate-spin")} />
+      {statusInfo.label}
+    </Badge>
+  );
 }
 
 function getPresetModeBadgeCopy(mode: QuotePresetMode) {
@@ -365,17 +400,7 @@ function QuoteComparisonTable({
                             Excl
                           </Badge>
                         ) : null}
-                        {(() => {
-                          const statusInfo = getVendorStatusDisplay(option.vendorStatus);
-                          if (!statusInfo) return null;
-                          const Icon = statusInfo.icon;
-                          return (
-                            <Badge className={cn("h-4 border px-1 text-[9px]", statusInfo.bg, "border-white/10", statusInfo.color)}>
-                              <Icon className={cn("mr-0.5 h-3 w-3", statusInfo.animate && "animate-spin")} />
-                              {statusInfo.label}
-                            </Badge>
-                          );
-                        })()}
+                        <VendorStatusBadge status={option.vendorStatus} />
                       </div>
                       {reasons.length > 0 ? (
                         <div className="mt-0.5 flex flex-wrap gap-1">
@@ -506,17 +531,7 @@ function QuoteComparisonCards({
                           Excl
                         </Badge>
                       ) : null}
-                      {(() => {
-                        const statusInfo = getVendorStatusDisplay(option.vendorStatus);
-                        if (!statusInfo) return null;
-                        const Icon = statusInfo.icon;
-                        return (
-                          <Badge className={cn("h-4 border px-1 text-[9px]", statusInfo.bg, "border-white/10", statusInfo.color)}>
-                            <Icon className={cn("mr-0.5 h-3 w-3", statusInfo.animate && "animate-spin")} />
-                            {statusInfo.label}
-                          </Badge>
-                        );
-                      })()}
+                      <VendorStatusBadge status={option.vendorStatus} />
                     </div>
                     <p className="mt-1 text-xs text-white/45">
                       {[option.laneLabel ?? option.tier ?? "Standard", option.sourcing].filter(Boolean).join(" · ")}
@@ -643,17 +658,7 @@ function MobileQuoteReviewDeck({
                     {badgeCopy.rowBadge}
                   </Badge>
                 ) : null}
-                {(() => {
-                  const statusInfo = getVendorStatusDisplay(option.vendorStatus);
-                  if (!statusInfo) return null;
-                  const Icon = statusInfo.icon;
-                  return (
-                    <Badge className={cn("border px-2 py-1 text-xs", statusInfo.bg, "border-white/10", statusInfo.color)}>
-                      <Icon className={cn("mr-1 h-3 w-3", statusInfo.animate && "animate-spin")} />
-                      {statusInfo.label}
-                    </Badge>
-                  );
-                })()}
+                <VendorStatusBadge status={option.vendorStatus} variant="mobile" />
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-2">
