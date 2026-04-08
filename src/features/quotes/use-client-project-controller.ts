@@ -425,6 +425,12 @@ export function useClientProjectController() {
     enabled: Boolean(focusedJobId),
     ...workspaceDetailQueryOptions,
   });
+  const focusedVendorPreferencesErrorMessage =
+    focusedVendorPreferenceQuery.error instanceof Error
+      ? focusedVendorPreferenceQuery.error.message
+      : focusedVendorPreferenceQuery.error
+        ? "Failed to load vendor preference controls."
+        : null;
   const focusedSummary =
     focusedWorkspaceItem?.summary ?? (focusedJob ? summariesByJobId.get(focusedJob.id) ?? null : null);
   const focusedSelectedOption = focusedJob ? selectedOptionsByJobId[focusedJob.id] ?? null : null;
@@ -617,9 +623,9 @@ export function useClientProjectController() {
         includedVendors: input.includedVendors,
         excludedVendors: input.excludedVendors,
       }),
-    onSuccess: async (_result, variables) => {
+    onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: ["job-vendor-preferences", variables.jobId],
+        queryKey: ["job-vendor-preferences"],
       });
     },
     onError: (error: Error) => {
@@ -1475,6 +1481,7 @@ export function useClientProjectController() {
     focusedSelectedOption,
     focusedSummary,
     focusedVendorPreferences: focusedVendorPreferenceQuery.data ?? null,
+    focusedVendorPreferencesErrorMessage,
     focusedWorkspaceItem,
     handleClearFocusedJob,
     handleAddPartSubmit,

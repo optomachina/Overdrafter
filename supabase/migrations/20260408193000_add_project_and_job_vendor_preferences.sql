@@ -1,4 +1,4 @@
--- TODO-021: Per-project and per-job vendor preferences for client quote requests.
+-- Task 021: Per-project and per-job vendor preferences for client quote requests.
 --
 -- Adds persisted vendor preference scopes and merges them into quote fan-out
 -- before vendor_quote_results and work_queue rows are created.
@@ -154,7 +154,8 @@ begin
 end;
 $$;
 
-grant execute on function public.get_enabled_client_quote_vendors(uuid, uuid, uuid) to authenticated;
+-- Keep the three-argument resolver internal to guarded definer RPCs.
+revoke execute on function public.get_enabled_client_quote_vendors(uuid, uuid, uuid) from authenticated;
 
 create or replace function public.api_get_job_vendor_preferences(
   p_job_id uuid
@@ -168,7 +169,8 @@ declare
   v_job public.jobs%rowtype;
   v_project_preferences public.project_vendor_preferences%rowtype;
   v_job_preferences public.job_vendor_preferences%rowtype;
-  v_available_vendors public.vendor_name[] := array[]::public.vendor_name[];
+  v_empty_vendor_array public.vendor_name[] := array[]::public.vendor_name[];
+  v_available_vendors public.vendor_name[] := v_empty_vendor_array;
 begin
   perform public.require_verified_auth();
 
@@ -199,7 +201,7 @@ begin
 
   v_available_vendors := coalesce(
     public.get_enabled_client_quote_vendors(v_job.organization_id),
-    array[]::public.vendor_name[]
+    v_empty_vendor_array
   );
 
   return jsonb_build_object(
@@ -208,13 +210,13 @@ begin
     'organizationId', v_job.organization_id,
     'availableVendors', to_jsonb(v_available_vendors),
     'projectVendorPreferences', jsonb_build_object(
-      'includedVendors', to_jsonb(coalesce(v_project_preferences.included_vendors, array[]::public.vendor_name[])),
-      'excludedVendors', to_jsonb(coalesce(v_project_preferences.excluded_vendors, array[]::public.vendor_name[])),
+      'includedVendors', to_jsonb(coalesce(v_project_preferences.included_vendors, v_empty_vendor_array)),
+      'excludedVendors', to_jsonb(coalesce(v_project_preferences.excluded_vendors, v_empty_vendor_array)),
       'updatedAt', v_project_preferences.updated_at
     ),
     'jobVendorPreferences', jsonb_build_object(
-      'includedVendors', to_jsonb(coalesce(v_job_preferences.included_vendors, array[]::public.vendor_name[])),
-      'excludedVendors', to_jsonb(coalesce(v_job_preferences.excluded_vendors, array[]::public.vendor_name[])),
+      'includedVendors', to_jsonb(coalesce(v_job_preferences.included_vendors, v_empty_vendor_array)),
+      'excludedVendors', to_jsonb(coalesce(v_job_preferences.excluded_vendors, v_empty_vendor_array)),
       'updatedAt', v_job_preferences.updated_at
     )
   );
@@ -237,6 +239,7 @@ declare
   v_project public.projects%rowtype;
   v_included public.vendor_name[] := public.normalize_vendor_name_array(p_included_vendors);
   v_excluded public.vendor_name[] := public.normalize_vendor_name_array(p_excluded_vendors);
+  v_updated_at timestamptz := null;
 begin
   perform public.require_verified_auth();
 
@@ -249,7 +252,7 @@ begin
     raise exception 'Project % not found.', p_project_id;
   end if;
 
-  if not public.user_can_access_project(v_project.id) then
+  if not public.user_can_edit_project(v_project.id) then
     raise exception 'You do not have permission to edit vendor preferences for project %.', p_project_id;
   end if;
 
@@ -275,13 +278,15 @@ begin
     on conflict (project_id)
     do update set
       included_vendors = excluded.included_vendors,
-      excluded_vendors = excluded.excluded_vendors;
+      excluded_vendors = excluded.excluded_vendors
+    returning updated_at into v_updated_at;
   end if;
 
   return jsonb_build_object(
     'projectId', p_project_id,
     'includedVendors', to_jsonb(v_included),
-    'excludedVendors', to_jsonb(v_excluded)
+    'excludedVendors', to_jsonb(v_excluded),
+    'updatedAt', v_updated_at
   );
 end;
 $$;
@@ -302,6 +307,7 @@ declare
   v_job public.jobs%rowtype;
   v_included public.vendor_name[] := public.normalize_vendor_name_array(p_included_vendors);
   v_excluded public.vendor_name[] := public.normalize_vendor_name_array(p_excluded_vendors);
+  v_updated_at timestamptz := null;
 begin
   perform public.require_verified_auth();
 
@@ -340,13 +346,15 @@ begin
     on conflict (job_id)
     do update set
       included_vendors = excluded.included_vendors,
-      excluded_vendors = excluded.excluded_vendors;
+      excluded_vendors = excluded.excluded_vendors
+    returning updated_at into v_updated_at;
   end if;
 
   return jsonb_build_object(
     'jobId', p_job_id,
     'includedVendors', to_jsonb(v_included),
-    'excludedVendors', to_jsonb(v_excluded)
+    'excludedVendors', to_jsonb(v_excluded),
+    'updatedAt', v_updated_at
   );
 end;
 $$;
@@ -354,6 +362,22 @@ $$;
 grant execute on function public.api_set_job_vendor_preferences(uuid, public.vendor_name[], public.vendor_name[]) to authenticated;
 
 -- Patch api_request_quote in place without duplicating the full function body.
+-- Rationale:
+-- - Uses pg_get_functiondef + replace(v_old_call, v_new_call) to keep this
+--   migration narrowly scoped to the vendor-helper callsite only.
+-- - Avoids recreating the full function body in this migration, which reduces
+--   duplication and drift risk while preserving behavior outside this call.
+--
+-- Safety checks:
+-- - position(v_new_call in v_definition) > 0 makes the patch idempotent.
+-- - v_updated_definition = v_definition raises when replacement did not occur.
+--
+-- Rollback guidance:
+-- - Restore the original function text by recreating
+--   public.api_request_quote(uuid, boolean) with the previous helper call
+--   signature (public.get_enabled_client_quote_vendors(v_job.organization_id)).
+-- - Validate pg_get_functiondef output in staging before/after rollback and
+--   across supported PostgreSQL versions.
 do $$
 declare
   v_definition text;

@@ -369,7 +369,7 @@ function ProjectSummaryPanel({ summary, isLoading }: Readonly<ProjectSummaryPane
   );
 }
 
-type ProjectInspectorContentProps = {
+type ProjectInspectorContentProps = Readonly<{
   focusedJobId: string | null;
   focusedWorkspaceItem: ReturnType<typeof useClientProjectController>["focusedWorkspaceItem"];
   focusedInspectorModel: {
@@ -383,6 +383,7 @@ type ProjectInspectorContentProps = {
     } | null;
   } | null;
   focusedVendorPreferences: ReturnType<typeof useClientProjectController>["focusedVendorPreferences"];
+  focusedVendorPreferencesErrorMessage: string | null;
   isVendorPreferenceLoading: boolean;
   isSavingVendorPreferences: boolean;
   onSetProjectVendorPreferences: (input: {
@@ -397,7 +398,7 @@ type ProjectInspectorContentProps = {
   }) => Promise<void>;
   onClear: () => void;
   onOpenPartWorkspace: () => void;
-};
+}>;
 
 type VendorPreferenceSelection = "default" | "pinned" | "excluded";
 type VendorPreferenceScope = "project" | "job";
@@ -477,7 +478,7 @@ function getPreferenceButtonClassName(isActive: boolean, tone: VendorPreferenceT
   return "h-7 rounded-full border-white/20 bg-white/10 px-2.5 text-[11px] text-white hover:bg-white/14";
 }
 
-type VendorPreferenceScopeCardProps = {
+type VendorPreferenceScopeCardProps = Readonly<{
   availableVendors: VendorName[];
   ariaPrefix: "Project" | "Part";
   heading: string;
@@ -489,7 +490,7 @@ type VendorPreferenceScopeCardProps = {
     vendor: VendorName;
     selection: VendorPreferenceSelection;
   }) => Promise<void>;
-};
+}>;
 
 function VendorPreferenceScopeCard({
   availableVendors,
@@ -541,11 +542,71 @@ function VendorPreferenceScopeCard({
   );
 }
 
+type VendorPreferencePanelProps = Readonly<{
+  availableVendors: VendorName[];
+  errorMessage: string | null;
+  isSavingVendorPreferences: boolean;
+  isVendorPreferenceLoading: boolean;
+  jobVendorPreferences: VendorPreferenceState;
+  projectVendorPreferences: VendorPreferenceState;
+  onUpdateVendorPreferences: (input: {
+    scope: VendorPreferenceScope;
+    vendor: VendorName;
+    selection: VendorPreferenceSelection;
+  }) => Promise<void>;
+}>;
+
+function VendorPreferencePanel({
+  availableVendors,
+  errorMessage,
+  isSavingVendorPreferences,
+  isVendorPreferenceLoading,
+  jobVendorPreferences,
+  projectVendorPreferences,
+  onUpdateVendorPreferences,
+}: VendorPreferencePanelProps) {
+  if (isVendorPreferenceLoading) {
+    return <p className="text-xs text-white/45">Loading vendor preference controls…</p>;
+  }
+
+  if (errorMessage) {
+    return <p className="text-xs text-rose-300/90">{errorMessage}</p>;
+  }
+
+  if (availableVendors.length === 0) {
+    return <p className="text-xs text-white/45">No client quote vendors are enabled for this organization.</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <VendorPreferenceScopeCard
+        availableVendors={availableVendors}
+        ariaPrefix="Project"
+        heading="Project defaults"
+        isSavingVendorPreferences={isSavingVendorPreferences}
+        preferences={projectVendorPreferences}
+        scope="project"
+        onUpdateVendorPreferences={onUpdateVendorPreferences}
+      />
+      <VendorPreferenceScopeCard
+        availableVendors={availableVendors}
+        ariaPrefix="Part"
+        heading="This part override"
+        isSavingVendorPreferences={isSavingVendorPreferences}
+        preferences={jobVendorPreferences}
+        scope="job"
+        onUpdateVendorPreferences={onUpdateVendorPreferences}
+      />
+    </div>
+  );
+}
+
 function ProjectInspectorContent({
   focusedJobId,
   focusedWorkspaceItem,
   focusedInspectorModel,
   focusedVendorPreferences,
+  focusedVendorPreferencesErrorMessage,
   isVendorPreferenceLoading,
   isSavingVendorPreferences,
   onSetProjectVendorPreferences,
@@ -574,34 +635,38 @@ function ProjectInspectorContent({
       return;
     }
 
-    if (input.scope === "project") {
+    try {
+      if (input.scope === "project") {
+        const nextState = applyVendorPreferenceSelection({
+          vendor: input.vendor,
+          nextSelection: input.selection,
+          includedVendors: projectVendorPreferences.includedVendors,
+          excludedVendors: projectVendorPreferences.excludedVendors,
+        });
+
+        await onSetProjectVendorPreferences({
+          jobId: focusedJobId,
+          includedVendors: nextState.includedVendors,
+          excludedVendors: nextState.excludedVendors,
+        });
+        return;
+      }
+
       const nextState = applyVendorPreferenceSelection({
         vendor: input.vendor,
         nextSelection: input.selection,
-        includedVendors: projectVendorPreferences.includedVendors,
-        excludedVendors: projectVendorPreferences.excludedVendors,
+        includedVendors: jobVendorPreferences.includedVendors,
+        excludedVendors: jobVendorPreferences.excludedVendors,
       });
 
-      await onSetProjectVendorPreferences({
+      await onSetJobVendorPreferences({
         jobId: focusedJobId,
         includedVendors: nextState.includedVendors,
         excludedVendors: nextState.excludedVendors,
       });
+    } catch {
       return;
     }
-
-    const nextState = applyVendorPreferenceSelection({
-      vendor: input.vendor,
-      nextSelection: input.selection,
-      includedVendors: jobVendorPreferences.includedVendors,
-      excludedVendors: jobVendorPreferences.excludedVendors,
-    });
-
-    await onSetJobVendorPreferences({
-      jobId: focusedJobId,
-      includedVendors: nextState.includedVendors,
-      excludedVendors: nextState.excludedVendors,
-    });
   };
 
   return (
@@ -701,32 +766,15 @@ function ProjectInspectorContent({
 
                 <div className="space-y-2">
                   <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Vendor preferences</p>
-                  {isVendorPreferenceLoading ? (
-                    <p className="text-xs text-white/45">Loading vendor preference controls…</p>
-                  ) : availableVendors.length === 0 ? (
-                    <p className="text-xs text-white/45">No client quote vendors are enabled for this organization.</p>
-                  ) : (
-                    <div className="space-y-4">
-                      <VendorPreferenceScopeCard
-                        availableVendors={availableVendors}
-                        ariaPrefix="Project"
-                        heading="Project defaults"
-                        isSavingVendorPreferences={isSavingVendorPreferences}
-                        preferences={projectVendorPreferences}
-                        scope="project"
-                        onUpdateVendorPreferences={updateVendorPreferences}
-                      />
-                      <VendorPreferenceScopeCard
-                        availableVendors={availableVendors}
-                        ariaPrefix="Part"
-                        heading="This part override"
-                        isSavingVendorPreferences={isSavingVendorPreferences}
-                        preferences={jobVendorPreferences}
-                        scope="job"
-                        onUpdateVendorPreferences={updateVendorPreferences}
-                      />
-                    </div>
-                  )}
+                  <VendorPreferencePanel
+                    availableVendors={availableVendors}
+                    errorMessage={focusedVendorPreferencesErrorMessage}
+                    isSavingVendorPreferences={isSavingVendorPreferences}
+                    isVendorPreferenceLoading={isVendorPreferenceLoading}
+                    jobVendorPreferences={jobVendorPreferences}
+                    projectVendorPreferences={projectVendorPreferences}
+                    onUpdateVendorPreferences={updateVendorPreferences}
+                  />
                 </div>
 
                 <Button
@@ -826,6 +874,7 @@ const ClientProject = () => {
     projectJobMembershipsByCompositeKey,
     focusedJobId,
     focusedVendorPreferences,
+    focusedVendorPreferencesErrorMessage,
     focusedWorkspaceItem,
     isMobile,
     isSavingVendorPreferences,
@@ -1512,6 +1561,7 @@ const ClientProject = () => {
                   focusedWorkspaceItem={focusedWorkspaceItem}
                   focusedInspectorModel={focusedInspectorModel}
                   focusedVendorPreferences={focusedVendorPreferences}
+                  focusedVendorPreferencesErrorMessage={focusedVendorPreferencesErrorMessage}
                   isVendorPreferenceLoading={isVendorPreferenceLoading}
                   isSavingVendorPreferences={isSavingVendorPreferences}
                   onSetProjectVendorPreferences={handleSetProjectVendorPreferences}
@@ -1544,6 +1594,7 @@ const ClientProject = () => {
               focusedWorkspaceItem={focusedWorkspaceItem}
               focusedInspectorModel={focusedInspectorModel}
               focusedVendorPreferences={focusedVendorPreferences}
+              focusedVendorPreferencesErrorMessage={focusedVendorPreferencesErrorMessage}
               isVendorPreferenceLoading={isVendorPreferenceLoading}
               isSavingVendorPreferences={isSavingVendorPreferences}
               onSetProjectVendorPreferences={handleSetProjectVendorPreferences}

@@ -70,6 +70,15 @@ function normalizeJobVendorPreferenceContext(value: unknown): JobVendorPreferenc
   };
 }
 
+/**
+ * Fetches the vendor-preference context for a specific job.
+ *
+ * Calls an untyped RPC payload and normalizes vendors + nested preference state.
+ *
+ * @param jobId - Job identifier whose project/job preference context should be loaded.
+ * @returns Normalized job vendor-preference context for UI/controller use.
+ * @throws When the RPC returns missing or malformed required identifiers.
+ */
 export async function fetchJobVendorPreferenceContext(
   jobId: string,
 ): Promise<JobVendorPreferenceContext> {
@@ -80,6 +89,15 @@ export async function fetchJobVendorPreferenceContext(
   return normalizeJobVendorPreferenceContext(ensureData(data, error));
 }
 
+/**
+ * Persists project-level vendor preference defaults.
+ *
+ * Calls an untyped RPC and normalizes + de-duplicates returned vendor arrays.
+ *
+ * @param input - Project identifier and the next included/excluded vendor sets.
+ * @returns Normalized project-level vendor preference state.
+ * @throws When the RPC response is malformed or missing expected data.
+ */
 export async function setProjectVendorPreferences(input: {
   projectId: string;
   includedVendors: VendorName[];
@@ -94,6 +112,15 @@ export async function setProjectVendorPreferences(input: {
   return normalizeVendorPreferenceState(ensureData(data, error));
 }
 
+/**
+ * Persists job-level vendor preference overrides.
+ *
+ * Calls an untyped RPC and normalizes + de-duplicates returned vendor arrays.
+ *
+ * @param input - Job identifier and the next included/excluded vendor sets.
+ * @returns Normalized job-level vendor preference state.
+ * @throws When the RPC response is malformed or missing expected data.
+ */
 export async function setJobVendorPreferences(input: {
   jobId: string;
   includedVendors: VendorName[];
