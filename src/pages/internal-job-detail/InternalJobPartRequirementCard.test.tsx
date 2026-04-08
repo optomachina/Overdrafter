@@ -6,6 +6,7 @@ import type {
   ApprovedPartRequirementRecord,
   DrawingExtractionRecord,
   PartAggregate,
+  WorkQueueRecord,
 } from "@/features/quotes/types";
 import { InternalJobPartRequirementCard } from "./InternalJobPartRequirementCard";
 
@@ -86,7 +87,11 @@ function makeApprovedRequirementRecord(): ApprovedPartRequirementRecord {
     quote_quantities: [10],
     requested_by_date: null,
     applicable_vendors: ["xometry"],
-    spec_snapshot: {},
+    spec_snapshot: {
+      process: "milling",
+      material: "6061-T6",
+      finish: "As machined",
+    },
     approved_at: "2026-03-15T00:00:00.000Z",
     created_at: "2026-03-15T00:00:00.000Z",
     updated_at: "2026-03-15T00:00:00.000Z",
@@ -207,6 +212,30 @@ function makePart(selectedBy: "parser" | "model" | "review"): PartAggregate {
   };
 }
 
+function makePartQueueTask(): WorkQueueRecord {
+  return {
+    id: "task-1",
+    organization_id: "org-1",
+    job_id: "job-1",
+    part_id: "part-1",
+    quote_run_id: null,
+    package_id: null,
+    task_type: "extract_part",
+    status: "queued",
+    attempts: 2,
+    payload: {
+      partId: "part-1",
+      source: "internal-diagnostics-test",
+    },
+    available_at: "2026-03-15T00:00:00.000Z",
+    locked_at: null,
+    locked_by: null,
+    last_error: "Temporary worker timeout",
+    created_at: "2026-03-15T00:00:00.000Z",
+    updated_at: "2026-03-15T00:01:00.000Z",
+  };
+}
+
 describe("InternalJobPartRequirementCard", () => {
   it("adds an AI-assisted label for model-selected extraction provenance", () => {
     render(
@@ -219,13 +248,15 @@ describe("InternalJobPartRequirementCard", () => {
         onQuoteQuantityInputChange={() => undefined}
         onQuoteQuantityInputCommit={() => undefined}
         part={makePart("model")}
+        partQueueTasks={[]}
         quoteQuantityInput="10"
+        showInternalDiagnostics
       />,
     );
 
-    const provenance = screen.getByText("AI-assisted");
+    const provenance = screen.getAllByLabelText("AI-assisted");
 
-    expect(provenance).toHaveAttribute("aria-label", "AI-assisted");
+    expect(provenance.length).toBeGreaterThan(0);
   });
 
   it("does not add the AI-assisted label for parser-selected provenance", () => {
@@ -239,11 +270,38 @@ describe("InternalJobPartRequirementCard", () => {
         onQuoteQuantityInputChange={() => undefined}
         onQuoteQuantityInputCommit={() => undefined}
         part={makePart("parser")}
+        partQueueTasks={[]}
         quoteQuantityInput="10"
+        showInternalDiagnostics
       />,
     );
 
     expect(screen.queryByLabelText("AI-assisted")).not.toBeInTheDocument();
     expect(screen.getAllByText(/source: parser/i).length).toBeGreaterThan(0);
+  });
+
+  it("shows internal diagnostics snapshot and part-scoped queue details", () => {
+    render(
+      <InternalJobPartRequirementCard
+        cadPreviewSource={null}
+        disabled={false}
+        draft={makeDraft()}
+        onDraftChange={() => undefined}
+        onDraftQuantityChange={() => undefined}
+        onQuoteQuantityInputChange={() => undefined}
+        onQuoteQuantityInputCommit={() => undefined}
+        part={makePart("model")}
+        partQueueTasks={[makePartQueueTask()]}
+        quoteQuantityInput="10"
+        showInternalDiagnostics
+      />,
+    );
+
+    expect(screen.getByText("Internal extraction diagnostics")).toBeInTheDocument();
+    expect(screen.getByText("Approved spec snapshot")).toBeInTheDocument();
+    expect(screen.getByText(/"process": "milling"/i)).toBeInTheDocument();
+    expect(screen.getByText("Part queue activity")).toBeInTheDocument();
+    expect(screen.getByText("Attempts: 2")).toBeInTheDocument();
+    expect(screen.getByText(/temporary worker timeout/i)).toBeInTheDocument();
   });
 });

@@ -8,7 +8,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { requestedServicesSupportQuoteFields } from "@/features/quotes/service-intent";
-import type { ApprovedPartRequirement, PartAggregate, RequirementFieldDisplaySource } from "@/features/quotes/types";
+import type {
+  ApprovedPartRequirement,
+  PartAggregate,
+  RequirementFieldDisplaySource,
+  WorkQueueRecord,
+} from "@/features/quotes/types";
 import { normalizeApprovedRequirementDraft } from "@/features/quotes/request-scenarios";
 import {
   formatStatusLabel,
@@ -28,7 +33,9 @@ type InternalJobPartRequirementCardProps = {
   onQuoteQuantityInputChange: (value: string) => void;
   onQuoteQuantityInputCommit: () => void;
   part: PartAggregate;
+  partQueueTasks: WorkQueueRecord[];
   quoteQuantityInput: string;
+  showInternalDiagnostics: boolean;
 };
 
 function extractionSourceLabel(selectedBy: "parser" | "model" | "review") {
@@ -65,6 +72,18 @@ function draftSourceLabel(source: RequirementFieldDisplaySource) {
   }
 }
 
+function formatQueueDate(value: string | null) {
+  if (!value) {
+    return "Not set";
+  }
+
+  return new Date(value).toLocaleString();
+}
+
+function formatJson(value: unknown) {
+  return JSON.stringify(value, null, 2);
+}
+
 export function InternalJobPartRequirementCard({
   cadPreviewSource,
   disabled,
@@ -74,7 +93,9 @@ export function InternalJobPartRequirementCard({
   onQuoteQuantityInputChange,
   onQuoteQuantityInputCommit,
   part,
+  partQueueTasks,
   quoteQuantityInput,
+  showInternalDiagnostics,
 }: InternalJobPartRequirementCardProps) {
   const extraction = normalizeDrawingExtraction(part.extraction, part.id);
   const currentDraft = draft;
@@ -106,6 +127,48 @@ export function InternalJobPartRequirementCard({
   const materialInputId = `${part.id}-material-input`;
   const finishInputId = `${part.id}-finish-input`;
   const tightestToleranceInputId = `${part.id}-tightest-tolerance-inch-input`;
+  const processSelectedBy = extraction.fieldSelections?.process ?? "parser";
+  const extractionProvenanceRows = [
+    {
+      field: "Description",
+      selectedBy: descriptionSelectedBy,
+      confidence: extraction.rawFields.description.confidence,
+      reviewNeeded: extraction.rawFields.description.reviewNeeded,
+    },
+    {
+      field: "Part number",
+      selectedBy: partNumberSelectedBy,
+      confidence: extraction.rawFields.partNumber.confidence,
+      reviewNeeded: extraction.rawFields.partNumber.reviewNeeded,
+    },
+    {
+      field: "Revision",
+      selectedBy: revisionSelectedBy,
+      confidence: extraction.rawFields.revision.confidence,
+      reviewNeeded: extraction.rawFields.revision.reviewNeeded,
+    },
+    {
+      field: "Material",
+      selectedBy: materialSelectedBy,
+      confidence: extraction.material.confidence,
+      reviewNeeded: extraction.material.reviewNeeded,
+    },
+    {
+      field: "Finish",
+      selectedBy: finishSelectedBy,
+      confidence: finishConfidence,
+      reviewNeeded: finishReviewNeeded,
+    },
+    {
+      field: "Process",
+      selectedBy: processSelectedBy,
+      confidence: null,
+      reviewNeeded: false,
+    },
+  ] as const;
+  const queueTasksToRender = partQueueTasks.slice(0, 5);
+  const hasMorePartQueueTasks = partQueueTasks.length > queueTasksToRender.length;
+  const approvedSnapshot = part.approvedRequirement?.spec_snapshot ?? null;
 
   return (
     <div className="rounded-3xl border border-white/8 bg-black/20 p-5">
@@ -492,6 +555,102 @@ export function InternalJobPartRequirementCard({
           {extraction.warnings.map((warning) => (
             <p key={warning}>{warning}</p>
           ))}
+        </div>
+      ) : null}
+
+      {showInternalDiagnostics ? (
+        <div className="mt-5 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-white">Internal extraction diagnostics</p>
+            <Badge variant="secondary" className="border border-cyan-400/20 bg-cyan-500/10 text-cyan-200">
+              Internal only
+            </Badge>
+          </div>
+          <div className="mt-3 grid gap-2 text-xs text-white/60 sm:grid-cols-2 lg:grid-cols-3">
+            <p>Extractor version: {part.extraction?.extractor_version ?? "Unknown"}</p>
+            <p>Worker build: {extraction.workerBuildVersion ?? "Unknown"}</p>
+            <p>Model fallback: {extraction.model?.fallbackUsed ? "Yes" : "No"}</p>
+            <p>Model: {extraction.model?.name ?? "Not recorded"}</p>
+            <p>Model prompt: {extraction.model?.promptVersion ?? "Not recorded"}</p>
+            <p>Review fields: {extraction.reviewFields?.length ?? 0}</p>
+          </div>
+          <div className="mt-4 overflow-hidden rounded-xl border border-white/10">
+            <table className="w-full border-collapse text-left text-xs">
+              <thead className="bg-white/5 text-white/70">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Field</th>
+                  <th className="px-3 py-2 font-medium">Source</th>
+                  <th className="px-3 py-2 font-medium">Confidence</th>
+                  <th className="px-3 py-2 font-medium">Review needed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {extractionProvenanceRows.map((row) => (
+                  <tr key={row.field} className="border-t border-white/10 text-white/75">
+                    <td className="px-3 py-2">{row.field}</td>
+                    <td className="px-3 py-2">{renderExtractionSource(row.selectedBy)}</td>
+                    <td className="px-3 py-2">
+                      {row.confidence === null ? "n/a" : `${Math.round(row.confidence * 100)}%`}
+                    </td>
+                    <td className="px-3 py-2">{row.reviewNeeded ? "Yes" : "No"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-4">
+            <p className="text-xs font-medium text-white/85">Approved spec snapshot</p>
+            {approvedSnapshot ? (
+              <pre className="mt-2 max-h-52 overflow-auto rounded-xl border border-white/10 bg-black/30 p-3 text-[11px] text-white/65">
+                {formatJson(approvedSnapshot)}
+              </pre>
+            ) : (
+              <p className="mt-2 text-xs text-white/50">No snapshot recorded on the approved requirement.</p>
+            )}
+          </div>
+          <div className="mt-4">
+            <p className="text-xs font-medium text-white/85">Part queue activity</p>
+            {queueTasksToRender.length > 0 ? (
+              <div className="mt-2 space-y-2">
+                {queueTasksToRender.map((task) => (
+                  <div key={task.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-medium text-white">{formatStatusLabel(task.task_type)}</p>
+                      <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/80">
+                        {formatStatusLabel(task.status)}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 grid gap-1 text-white/60 sm:grid-cols-2">
+                      <p>Attempts: {task.attempts}</p>
+                      <p>Created: {formatQueueDate(task.created_at)}</p>
+                      <p>Updated: {formatQueueDate(task.updated_at)}</p>
+                      <p>Available: {formatQueueDate(task.available_at)}</p>
+                      <p>Locked by: {task.locked_by ?? "Not locked"}</p>
+                      <p>Locked at: {formatQueueDate(task.locked_at)}</p>
+                    </div>
+                    {task.last_error ? (
+                      <p className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-amber-200">
+                        Last error: {task.last_error}
+                      </p>
+                    ) : null}
+                    <details className="mt-2 text-white/70">
+                      <summary className="cursor-pointer text-xs text-white/65">Queue payload</summary>
+                      <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-white/10 bg-black/35 p-2 text-[11px] text-white/60">
+                        {formatJson(task.payload)}
+                      </pre>
+                    </details>
+                  </div>
+                ))}
+                {hasMorePartQueueTasks ? (
+                  <p className="text-xs text-white/50">
+                    Showing the latest {queueTasksToRender.length} tasks for this part.
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-white/50">No worker queue tasks recorded for this part yet.</p>
+            )}
+          </div>
         </div>
       ) : null}
     </div>

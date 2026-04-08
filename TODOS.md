@@ -306,23 +306,11 @@ Recommended evaluator behavior:
 
 ---
 
-## TODO-023: Internal-only view for extraction provenance and worker queue details
+## ~~TODO-023: Internal-only view for extraction provenance and worker queue details~~ ✅ DONE (local)
 
-**What:** After the Track 3 part page redesign moves extraction provenance badges and status cards into an accordion in the client view, add a dedicated internal view (or admin-only toggle) that surfaces this data without requiring the accordion. Target: `InternalJobPartRequirementCard` or a new `/internal/parts/:id` debug surface.
+**Resolution:** Added a dedicated internal diagnostics panel to each part card on the internal job detail route. `InternalJobPartRequirementCard.tsx` now surfaces extraction provenance as a field-level table (source selector, confidence, review-needed), extractor/model metadata, and the approved requirement `spec_snapshot` JSON. It also shows part-scoped worker queue diagnostics (status, attempts, lock state, timestamps, last error, and payload) so internal staff can inspect extraction/queue state without direct DB queries. The diagnostics surface is internal-only and does not alter client-facing part UI.
 
-**Why:** Internal staff debugging a bad extraction currently need to look in the database. Extraction provenance (model fallback, confidence scores, raw extracted fields) is exactly the data needed to diagnose extraction quality issues — but it will be hidden from the default part page view after Track 3 ships. An internal surface makes extraction quality review actionable without affecting the client experience.
-
-**Pros:** Speeds up extraction quality debugging. Complements TODO-006 (extraction quality alerts) — when an alert fires, staff can use this view to investigate without a DB query.
-
-**Cons:** Scope creep relative to the Frank-Ready Sprint. TODO-006's alert evaluator is the more principled approach to proactive quality monitoring. This UI is reactive/diagnostic only.
-
-**Context:** Identified during /plan-eng-review on 2026-03-31. The Track 3 part page redesign (Frank-Ready Sprint) moves `ClientExtractionStatusNotice` and `ClientQuoteRequestStatusCard` to an accordion. The internal extraction debug data — provenance fields, model fallback indicators, raw spec snapshot — will be in the accordion on the client view. Internal users need a cleaner path to this data.
-
-**Where to start:** Check `src/pages/internal-job-detail/` for the existing internal part detail surfaces. `InternalJobPartRequirementCard.tsx` already renders some extraction provenance. Extend that or add a debug panel to the internal route.
-
-**Effort:** S (human: ~3 hours / CC: ~10 min) | **Priority:** P3
-
-**Depends on:** Track 3 (Frank-Ready Sprint) merged. TODO-006 activation is a soft dependency — more useful with alerts in place.
+**Verification evidence:** `InternalJobDetail.tsx` now passes `job.workQueue` into `InternalJobRequirementsSection`, which filters tasks by `part_id` and passes them into `InternalJobPartRequirementCard`. `InternalJobPartRequirementCard.test.tsx` includes coverage for rendering the internal diagnostics panel, approved spec snapshot content, and part queue details.
 
 ---
 
