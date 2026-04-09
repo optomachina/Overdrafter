@@ -88,7 +88,7 @@ describe("live-mode adapter guards", () => {
         makeInput({
           stagedCadFile: {
             originalName: "part.step",
-            localPath: "/tmp/part.step",
+            localPath: path.resolve(".tmp/part.step"),
             storageBucket: "job-files",
             storagePath: "cad/part.step",
           },

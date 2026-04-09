@@ -89,7 +89,7 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
     drawingFile: null,
     stagedCadFile: {
       originalName: "part.step",
-      localPath: "/tmp/part.step",
+      localPath: path.resolve(".tmp/part.step"),
       storageBucket: "job-files",
       storagePath: "cad/part.step",
     },

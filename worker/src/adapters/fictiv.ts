@@ -45,12 +45,15 @@ type FictivQuoteRawPayload = Record<string, unknown> & {
   url?: string | null;
 };
 
+const FIRST_CURRENCY_PATTERN = /\$ ?([\d,]+(?:\.\d{2})?)/;
+const LEAD_TIME_PATTERN = /\b(\d{1,4})\s+(?:business\s+)?days?\b/i;
+
 function sanitizeSegment(value: string) {
-  return value.replace(/[^a-zA-Z0-9._-]+/g, "-").toLowerCase();
+  return value.replaceAll(/[^a-zA-Z0-9._-]+/g, "-").toLowerCase();
 }
 
 function escapeRegex(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 function excerptText(text: string) {
@@ -80,15 +83,15 @@ function buildRawPayload(overrides: Partial<FictivQuoteRawPayload>): FictivQuote
 }
 
 export function parseFirstCurrency(text: string): number | null {
-  const match = text.match(/\$ ?([\d,]+(?:\.\d{2})?)/);
+  const match = FIRST_CURRENCY_PATTERN.exec(text);
   if (!match) return null;
 
-  const parsed = Number.parseFloat(match[1].replace(/,/g, ""));
+  const parsed = Number.parseFloat(match[1].replaceAll(",", ""));
   return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function parseLeadTime(text: string): number | null {
-  const match = text.match(/(\d+)\s+(?:business\s+)?days?/i);
+  const match = LEAD_TIME_PATTERN.exec(text);
   if (!match) return null;
 
   const parsed = Number.parseInt(match[1], 10);

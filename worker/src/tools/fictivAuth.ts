@@ -23,51 +23,56 @@ async function main() {
     input: process.stdin,
     output: process.stdout,
   });
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 
-  console.log("");
-  console.log("Fictiv Playwright Auth Bootstrap");
-  console.log(`Storage state output: ${outputPath}`);
-  console.log("");
-  console.log("What to do:");
-  console.log("1. A Chromium window will open.");
-  console.log("2. Log in to Fictiv manually.");
-  console.log("3. Open the quoting surface (for example /quotes or /quotes/upload) and confirm you are authenticated.");
-  console.log("4. Return here and press Enter.");
-  console.log("");
+  try {
+    console.log("");
+    console.log("Fictiv Playwright Auth Bootstrap");
+    console.log(`Storage state output: ${outputPath}`);
+    console.log("");
+    console.log("What to do:");
+    console.log("1. A Chromium window will open.");
+    console.log("2. Log in to Fictiv manually.");
+    console.log("3. Open the quoting surface (for example /quotes or /quotes/upload) and confirm you are authenticated.");
+    console.log("4. Return here and press Enter.");
+    console.log("");
 
-  await ensureParentDir(outputPath);
+    await ensureParentDir(outputPath);
 
-  const browser = await chromium.launch({
-    headless: false,
-  });
+    browser = await chromium.launch({
+      headless: false,
+    });
 
-  const context = await browser.newContext();
-  const page = await context.newPage();
+    const context = await browser.newContext();
+    const page = await context.newPage();
 
-  await page.goto("https://app.fictiv.com/login", {
-    waitUntil: "domcontentloaded",
-  });
+    await page.goto("https://app.fictiv.com/login", {
+      waitUntil: "domcontentloaded",
+    });
 
-  await rl.question("Press Enter after the session is authenticated and quote-ready...");
+    await rl.question("Press Enter after the session is authenticated and quote-ready...");
 
-  await context.storageState({
-    path: outputPath,
-  });
+    await context.storageState({
+      path: outputPath,
+    });
 
-  const url = page.url();
+    const url = page.url();
 
-  await browser.close();
-  rl.close();
-
-  console.log("");
-  console.log(`Saved Fictiv storage state to: ${outputPath}`);
-  console.log(`Last page URL: ${url}`);
-  console.log("");
-  console.log("Next step:");
-  console.log(`Export FICTIV_STORAGE_STATE_PATH="${outputPath}" before running the worker in live mode.`);
+    console.log("");
+    console.log(`Saved Fictiv storage state to: ${outputPath}`);
+    console.log(`Last page URL: ${url}`);
+    console.log("");
+    console.log("Next step:");
+    console.log(`Export FICTIV_STORAGE_STATE_PATH="${outputPath}" before running the worker in live mode.`);
+  } finally {
+    rl.close();
+    await browser?.close();
+  }
 }
 
-main().catch(async (error) => {
+try {
+  await main();
+} catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
-});
+}
