@@ -38,8 +38,7 @@ function parseRequiredVendors(rawValue: string): OpenclawGateVendor[] {
   return uniqueVendors as OpenclawGateVendor[];
 }
 
-function parseFlagValue(args: string[], index: number): { value: string; nextIndex: number } {
-  const arg = args[index];
+function parseFlagValue(arg: string, remainingArgs: string[]): string {
   const equalIndex = arg.indexOf("=");
 
   if (equalIndex >= 0) {
@@ -48,21 +47,15 @@ function parseFlagValue(args: string[], index: number): { value: string; nextInd
       throw new Error(USAGE);
     }
 
-    return {
-      value,
-      nextIndex: index,
-    };
+    return value;
   }
 
-  const value = args[index + 1];
+  const value = remainingArgs.shift();
   if (!value || value.startsWith("-")) {
     throw new Error(USAGE);
   }
 
-  return {
-    value,
-    nextIndex: index + 1,
-  };
+  return value;
 }
 
 function parseArgs(argv = process.argv): CliArgs {
@@ -71,25 +64,23 @@ function parseArgs(argv = process.argv): CliArgs {
   let outPath: string | null = null;
   let requiredVendors: OpenclawGateVendor[] = ["xometry"];
 
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
+  while (args.length > 0) {
+    const arg = args.shift();
+    if (!arg) {
+      throw new Error(USAGE);
+    }
+
     const flag = arg.split("=")[0];
     if (arg.startsWith("-") && !KNOWN_FLAGS.has(flag)) {
       throw new Error(USAGE);
     }
 
     if (flag === "--quote-run-id" || flag === "--quoteRunId") {
-      const parsed = parseFlagValue(args, i);
-      quoteRunId = parsed.value;
-      i = parsed.nextIndex;
+      quoteRunId = parseFlagValue(arg, args);
     } else if (flag === "--required-vendors") {
-      const parsed = parseFlagValue(args, i);
-      requiredVendors = parseRequiredVendors(parsed.value);
-      i = parsed.nextIndex;
+      requiredVendors = parseRequiredVendors(parseFlagValue(arg, args));
     } else if (flag === "--out") {
-      const parsed = parseFlagValue(args, i);
-      outPath = path.resolve(parsed.value);
-      i = parsed.nextIndex;
+      outPath = path.resolve(parseFlagValue(arg, args));
     } else {
       throw new Error(USAGE);
     }
