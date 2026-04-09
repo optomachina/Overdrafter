@@ -364,23 +364,42 @@ Recommended evaluator behavior:
 
 ---
 
-## TODO-020: Stripe / cart checkout after Frank's first paid session
+## TODO-020: Stripe card payment integration (pre-Frank)
 
-**What:** Replace the `ProcurementHandoffPanel` stub and PDF export CTA with a real Stripe checkout flow. Frank selects quotes, clicks "Proceed to checkout," pays via Stripe, and receives a confirmation with the selected vendors and amounts.
+**Status:** 🔄 **IN PROGRESS** — escalated to pre-Frank priority (2026-04-08)
 
-**Why:** The Frank-Ready Sprint closes the loop with a PDF export stub. That's enough for the first demo session. Once Frank has paid manually (or confirmed intent), the Stripe integration is the next revenue-enabling step.
+**What:** Add Stripe card payment to `ClientProjectReview.tsx`. Frank completes the `ProcurementHandoffPanel` (shipping/billing/PO context), then sees a payment step below it. Stripe Elements card input. Payment Intent with delayed capture: authorize at checkout, capture after Xometry order placement confirms. Stripe webhook handler with signature verification and idempotency.
 
-**Pros:** Converts a demo into a transaction. Unlocks real revenue from Frank's first session.
+**Why:** Frank has agreed to pay in full for the first order. The `ProcurementHandoffPanel` "manual follow-up" stub is not a real payment path. Stripe must ship BEFORE Frank's first real session, not after — the prior deferral was wrong.
 
-**Cons:** Stripe integration, webhook handling, and fulfillment coordination are non-trivial. Should not be rushed before Frank has validated the full loop manually.
+**Pros:** Converts the first real quote into a transaction. Real revenue. Frank sees a complete loop.
 
-**Context:** Explicitly deferred in the Frank-Ready Sprint design doc: "Cart / Stripe can be a stub for the first session." Identified as "NOT in scope" during /plan-eng-review on 2026-03-31. Pick this up only after Frank completes at least one full demo session with the PDF export path.
+**Cons:** Stripe integration, webhook handling, payment migration, and delayed capture are non-trivial. Must ship alongside live harness (Task B) — don't build Stripe before Task A passes.
 
-**Where to start:** `src/pages/ClientProjectReview.tsx` — replace or extend `ProcurementHandoffPanel`. Add Stripe Elements or Stripe Payment Links depending on complexity preference.
+**Context:** Priority escalated from "after Frank's first paid session" in /plan-eng-review on 2026-04-08. Design doc: `blainewilson-claude-gracious-ritchie-design-20260408-175506.md`. Enable Stripe Chargeback Protection ($0.25/txn) in Stripe dashboard.
 
-**Effort:** L (human: ~2 weeks / CC: ~2 hours) | **Priority:** P1 (after first paid session)
+**Implementation notes:**
+- Preserve `ProcurementHandoffPanel` — add payment step below it, don't replace it
+- New Supabase edge function: `create-payment-intent` (server-side, keeps Stripe secret key off client)
+- New Supabase edge function: `stripe-webhook` (signature verification via `stripe.webhooks.constructEvent()` required)
+- New migration: `payments` table with state machine (authorized → captured / canceled / failed), `stripe_payment_intent_id` unique constraint for idempotency
+- Session-expiry guard before capture: if Playwright session stale → cancel Payment Intent → create `manual_vendor_followup` record
+- Lazy-load `@stripe/stripe-js` via `loadStripe()` on user action (don't bundle eagerly)
+- Add Stripe test keys to CI before writing E2E tests
+- Client-side error state: if `create-payment-intent` returns 500, show "Payment setup failed. Try again or contact support."
 
-**Depends on:** Frank-Ready Sprint merged and Frank's first demo session completed.
+**Payment state machine:**
+```
+AUTHORIZED → CAPTURED (Xometry order placed)
+           → CANCELED (session stale or order failed)
+           → FAILED (Stripe error)
+```
+
+**Where to start:** `src/pages/ClientProjectReview.tsx` — add payment section below `ProcurementHandoffPanel`. Then `supabase/functions/create-payment-intent/` → `supabase/functions/stripe-webhook/` → migration.
+
+**Effort:** L (human: ~2 weeks / CC: ~2 hours) | **Priority:** P0 (pre-Frank, blocks first transaction)
+
+**Depends on:** Task A gate pass. Stripe account configured with Chargeback Protection. `XOMETRY_STORAGE_STATE_PATH` set in production.
 
 ---
 
@@ -420,3 +439,45 @@ Recommended evaluator behavior:
 **Resolution:** Shipped in `b27a91c` via vendor-level in-flight status indicators in `ClientQuoteDecisionPanel` (pending, fetching, failed, review, follow-up, stale), plus `vendorStatus` propagation from `vendor_quote_results.status` in quote selection option building.
 
 **Verification evidence:** `src/features/quotes/selection.ts` now includes `vendorStatus` in `ClientQuoteSelectionOption` and sets it from each quote row, while `src/components/quotes/ClientQuoteDecisionPanel.tsx` renders `VendorStatusBadge` in table, card, and mobile layouts.
+
+---
+
+## TODO-023: Fictiv live automation (recon + implementation)
+
+**What:** Build real Playwright automation for the Fictiv adapter (`worker/src/adapters/fictiv.ts`). The adapter currently throws `VendorAutomationError("not_implemented")` in live mode. Phase 2 Task B requires both Xometry and Fictiv live quotes to pass the openclaw gate.
+
+**Why:** `openclawGate.ts` requires `realQuoteVendorCount >= TARGET_VENDORS.length` where `TARGET_VENDORS = ["xometry", "fictiv"]`. Without Fictiv live automation, Task A gate will never pass regardless of Xometry working.
+
+**Blocking state:** Current `fictiv.ts` is a 67-line stub. Xometry adapter is 777 lines of full Playwright automation built through prior openclaw usage. Fictiv has been quoted through openclaw previously — that experience is the primary reference for mapping the automation surface.
+
+**Recon first:** Before writing the adapter, map Fictiv's quoting flow:
+- Session model (cookies, localStorage, headers)
+- Auth sequence (login flow, session storage path)
+- Quote form selectors (file upload, material/process selection, quantity)
+- Quote result extraction (price, lead time, quote URL)
+- Anti-detection patterns (rate limits, bot detection signals)
+
+**Where to start:** Run `npm --prefix worker run auth:xometry` as the model — replicate the pattern for a `xometryAuth`-equivalent tool for Fictiv. Map the Fictiv quoting UI manually in a Chromium session before writing selectors.
+
+**Effort:** M-L (human: ~1 week / CC: ~2 hours after recon) | **Priority:** P1 (required for Task A gate pass)
+
+**Depends on:** Prior openclaw Fictiv quote runs as reference. Xometry live automation complete (to establish pattern).
+
+---
+
+## TODO-024: Xometry session freshness health signal
+
+**What:** Add a proactive "session is stale" health signal to the worker, so operators can detect Xometry auth expiry before it fails a live quote run. Currently, session expiry is only caught at quote time via `login_required` error (non-retryable, task fails).
+
+**Why:** The design doc (2026-04-08) identifies session rotation as a known risk for live mode. Session expiry mid-capture-window is a payment-state risk. A proactive health signal turns a reactive failure into an operational alert.
+
+**Pros:** Operators can re-auth before a quote run starts. Reduces "payment authorized, order failed" incidents.
+**Cons:** Requires a lightweight session validation step on the health server poll interval, or a cron-style pre-flight check.
+
+**Context:** Identified during /plan-eng-review 2026-04-08. The health server (`worker/src/index.ts:1264`) already exists — this adds a session freshness field to its response.
+
+**Where to start:** `worker/src/index.ts` health server or a standalone session-check helper that loads the storage state file, checks its mtime vs. a configurable threshold (e.g., 7 days), and surfaces `xometry_session_age_days` in the `/health` response.
+
+**Effort:** S (human: ~2 hours / CC: ~10 min) | **Priority:** P2
+
+**Depends on:** Xometry live mode enabled (Task B).
