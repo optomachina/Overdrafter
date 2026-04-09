@@ -44,9 +44,27 @@ describe("evaluateOpenclawGateFromRows", () => {
     ]);
 
     expect(report.decision).toBe("pass");
+    expect(report.requiredVendors).toEqual(["xometry", "fictiv"]);
     expect(report.realQuoteVendorCount).toBe(2);
     expect(report.blockedVendorCount).toBe(0);
     expect(report.concurrentSessionRisk.detected).toBe(false);
+  });
+
+  it("passes in xometry-only mode when xometry has a real quote", () => {
+    const report = evaluateOpenclawGateFromRows(
+      "run-1b",
+      [
+        makeRow({
+          id: "xometry-real",
+          vendor: "xometry",
+        }),
+      ],
+      { requiredVendors: ["xometry"] },
+    );
+
+    expect(report.decision).toBe("pass");
+    expect(report.requiredVendors).toEqual(["xometry"]);
+    expect(report.realQuoteVendorCount).toBe(1);
   });
 
   it("fails anti-detection when two vendors are blocked by login/captcha style failures", () => {
@@ -144,5 +162,25 @@ describe("evaluateOpenclawGateFromRows", () => {
 
     expect(report.decision).toBe("fail_insufficient_data");
     expect(report.realQuoteVendorCount).toBe(1);
+  });
+
+  it("fails anti-detection in xometry-only mode when xometry is blocked", () => {
+    const report = evaluateOpenclawGateFromRows(
+      "run-6",
+      [
+        makeRow({
+          id: "xometry-blocked",
+          vendor: "xometry",
+          status: "failed",
+          total_price_usd: null,
+          lead_time_business_days: null,
+          raw_payload: { failureCode: "login_required" },
+        }),
+      ],
+      { requiredVendors: ["xometry"] },
+    );
+
+    expect(report.decision).toBe("fail_anti_detection");
+    expect(report.blockedVendorCount).toBe(1);
   });
 });
