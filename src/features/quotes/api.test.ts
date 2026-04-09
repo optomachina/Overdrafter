@@ -2398,7 +2398,7 @@ describe("quotes api helpers", () => {
     });
 
     await expect(checkClientIntakeCompatibility()).resolves.toBe("available");
-    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_get_client_intake_compatibility", {});
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_get_client_intake_compatibility", undefined);
   });
 
   it("throws a compatibility error when the probe confirms neither current nor legacy intake support", async () => {
@@ -3099,7 +3099,7 @@ describe("quotes api helpers", () => {
       authState: "authenticated",
     });
 
-    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_get_is_platform_admin", {});
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_get_is_platform_admin", undefined);
   });
 
   it("preserves memberships when platform admin lookup is unavailable", async () => {

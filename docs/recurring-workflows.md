@@ -45,7 +45,32 @@ For Symphony issue runs:
 - let the workspace hook switch to the deterministic issue branch
 - keep the diff scoped to the current Linear issue
 
-## Choose the lightest verification that still proves the change
+## Verification model
+
+Use two verification levels deliberately:
+
+- `Scoped verification`: the lightest commands that prove the touched area behaves correctly while you are iterating.
+- `CI-parity verification`: the local commands that match the required GitHub merge checks for this repo.
+
+For OverDrafter code changes, the canonical CI-parity command is:
+
+```bash
+npm run ci:local
+```
+
+This expands to the same required local sequence used by the current CI workflow in `.github/workflows/ci.yml`:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm run verify:worker
+```
+
+Use scoped verification for speed during implementation. Use CI-parity verification before calling a code change merge-ready unless a documented exception applies.
+
+## Choose the lightest scoped verification that still proves the change
 
 See `TEST_STRATEGY.md` for the policy and `docs/debugging-workflows.md` for the lane details.
 
@@ -56,10 +81,10 @@ Use these defaults:
 - UI behavior changes that need browser confirmation: use Lane B and add fixture mode or fast E2E coverage depending on whether real auth/data matters
 - auth, RLS, membership, routing, and Supabase-backed data bugs: use the production-realistic lane
 - reproducible browser regressions and smoke coverage updates: use the fast E2E lane
-- worker, async processing, quote orchestration, or cross-package changes: verify the affected package early, then use `npm run verify` before handoff
+- worker, async processing, quote orchestration, or cross-package changes: verify the affected package early, then use `npm run ci:local` before handoff
 - schema or migration changes: validate the migration path, run affected tests, and use the release-confidence lane before handoff
 
-If a nontrivial change reaches handoff without `npm run verify`, the PR and workpad must explain why a narrower command set was sufficient.
+If a nontrivial code change reaches handoff without `npm run ci:local`, the PR and workpad must explain why CI-parity verification was intentionally skipped and why the exception is safe.
 
 ## Verification evidence to reuse in PRs and workpads
 
@@ -67,6 +92,7 @@ Always record:
 
 - the exact commands run
 - whether each command passed, failed, or was intentionally skipped
+- whether each command belongs to `Scoped verification` or `CI-parity verification`
 - which debugging lane was used when browser or Supabase validation mattered
 - whether the live PR body was validated with `npm run validate:pr-body` when the helper flow was used
 - tests added or updated, or why none were practical
@@ -75,6 +101,12 @@ Always record:
 - any unrelated baseline failures separately from issue-scoped failures
 
 Useful supporting evidence includes screenshots, fixture URLs, diagnostics snapshots, and Playwright artifacts when they materially support the change.
+
+Preferred phrasing:
+
+- `Scoped verification passed; CI-parity verification not yet run.`
+- `CI-parity verification passed locally via npm run ci:local.`
+- `CI-parity verification intentionally skipped because this was a docs-only change with no runtime, build, test, or automation impact.`
 
 ## Optional PR body helper flow
 
@@ -95,11 +127,11 @@ Renderer input shape:
   "summary": ["Short change summary"],
   "problem": ["Why the PR exists"],
   "scope": ["What changed", "What did not change"],
-  "verification": {
-    "allPassed": true,
-    "usedVerify": false,
-    "usedNarrowVerification": true,
-    "hasOtherVerification": true,
+    "verification": {
+      "allPassed": true,
+      "usedVerify": false,
+      "usedNarrowVerification": true,
+      "hasOtherVerification": true,
     "commands": ["npm run test -- scripts/render-pr-body.test.mjs"],
     "results": ["Narrower verification was sufficient because no runtime code changed."],
     "baselineFailures": []
@@ -122,7 +154,7 @@ Renderer input shape:
 Before moving an issue to `Human Review`:
 
 1. Ensure the diff is coherent and scoped.
-2. Run the required verification and record the outcomes.
+2. Run the required verification and record the outcomes. For merge-ready code changes, this should normally include `npm run ci:local`.
 3. Run `./scripts/symphony-preflight.sh` again.
 4. Use the `commit` skill for the local git commit.
 5. Use the `push` skill to publish the branch and ensure the PR exists with a concrete description that matches the diff. Use a rendered `--body-file` when the helper flow is useful.

@@ -76,12 +76,13 @@ Operate with these repo rules:
 - Use the repo-local skills in `.codex/skills/`.
 - Use `push` as the publish skill. It is responsible for both pushing the branch and ensuring a PR exists.
 - Keep the diff tightly scoped to the current issue.
+- Treat `npm run ci:local` as the canonical local mirror of required GitHub merge checks.
 - Run local Codex `/review` before the branch is handed off for PR review.
 - Update docs when repo workflow or product behavior changes.
 
 State behavior:
 
-- `Todo`, `In Progress`, `Rework`: the workspace hook will switch to an issue branch before Codex starts. After that, implement the issue, run targeted verification, run local Codex `/review`, commit, use the `push` skill to publish the branch and ensure the PR exists, and keep the PR description concrete. When helpful, use the PR-body render and validate scripts as optional hygiene tooling.
+- `Todo`, `In Progress`, `Rework`: the workspace hook will switch to an issue branch before Codex starts. After that, implement the issue, run scoped verification while iterating, run `npm run ci:local` before merge-ready handoff unless a documented exception applies, run local Codex `/review`, commit, use the `push` skill to publish the branch and ensure the PR exists, and keep the PR description concrete. When helpful, use the PR-body render and validate scripts as optional hygiene tooling.
 - `Human Review`: do not implement new changes unless review feedback explicitly moves the issue back to `Rework`. Native GitHub Codex review and human review both happen in this state.
 - `Merging`: do not implement new code. Use the `land` skill to land the reviewed PR safely. If no PR exists, stop and report that the issue was moved to `Merging` too early. If required checks are failing, move the issue back to `Rework`. If the PR is merely waiting on in-flight checks, keep it in `Merging`.
 - `Done`: only after the PR is actually merged.
@@ -111,6 +112,7 @@ Branch rules:
 Handoff requirements:
 
 - Report the exact verification commands and outcomes.
+- Distinguish clearly between `Scoped verification` and `CI-parity verification`.
 - Report that local Codex `/review` was run and summarize any unresolved findings.
 - Report whether PR-body helper validation was run and its result when the helper flow was used.
 - Distinguish clearly between issue-scoped failures and unrelated baseline repo failures.

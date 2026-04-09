@@ -96,6 +96,8 @@ Default behavior:
 - Do not rely on prior chat memory when the repo should contain the instruction.
 - When behavior changes, update the docs that describe the behavior.
 - If recurring guidance is needed, update this file or the nearest override file.
+- Separate fast scoped verification from merge-readiness verification.
+- Do not claim a PR is merge-ready unless the local verification matches the required GitHub checks or a documented exception applies.
 
 ---
 
@@ -179,6 +181,11 @@ Every nontrivial task must end with a concrete handoff including:
 - docs updated or why not
 - known risks
 - follow-ups if any
+
+Verification language must be precise:
+- `Scoped verification` means the smallest command set that proves the touched area behaves as expected during implementation.
+- `CI-parity verification` means the local command set matches the required GitHub merge checks for the branch.
+- For merge-ready code changes, prefer CI-parity verification over scoped verification alone.
 
 ---
 
