@@ -132,7 +132,11 @@ function isSyntheticOrStub(row: VendorQuoteResultRow) {
     return true;
   }
 
-  if (row.vendor === "fictiv" && source === "fictiv-adapter" && row.status === "instant_quote_received") {
+  if (
+    row.vendor === "fictiv" &&
+    source === "fictiv-simulated-adapter" &&
+    row.status === "instant_quote_received"
+  ) {
     return true;
   }
 

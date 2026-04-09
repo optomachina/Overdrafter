@@ -110,6 +110,23 @@ describe("evaluateOpenclawGateFromRows", () => {
     expect(report.hasSyntheticOrStubSignal).toBe(true);
   });
 
+  it("treats fictiv live adapter payloads as real when quote evidence is complete", () => {
+    const report = evaluateOpenclawGateFromRows("run-3-live", [
+      makeRow({
+        id: "xometry-real",
+        vendor: "xometry",
+      }),
+      makeRow({
+        id: "fictiv-real-live-adapter",
+        vendor: "fictiv",
+        raw_payload: { source: "fictiv-live-adapter", mode: "live" },
+      }),
+    ]);
+
+    expect(report.decision).toBe("pass");
+    expect(report.hasSyntheticOrStubSignal).toBe(false);
+  });
+
   it("treats xometry detectedFlow=simulate rows as synthetic", () => {
     const report = evaluateOpenclawGateFromRows("run-3b", [
       makeRow({
