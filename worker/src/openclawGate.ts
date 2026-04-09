@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const TARGET_VENDORS = ["xometry", "fictiv"] as const;
+export const OPENCLAW_TARGET_VENDORS = ["xometry", "fictiv"] as const;
 const SUCCESS_STATUSES = new Set(["instant_quote_received", "official_quote_received"]);
 const BLOCKING_FAILURE_CODES = new Set([
   "login_required",
@@ -9,7 +9,7 @@ const BLOCKING_FAILURE_CODES = new Set([
   "unexpected_ui_state",
 ]);
 
-export type OpenclawGateVendor = (typeof TARGET_VENDORS)[number];
+export type OpenclawGateVendor = (typeof OPENCLAW_TARGET_VENDORS)[number];
 export type OpenclawGateVendorClassification =
   | "real_quote"
   | "blocked"
@@ -38,6 +38,7 @@ export type OpenclawGateVendorReport = {
 export type OpenclawGateReport = {
   quoteRunId: string;
   generatedAt: string;
+  requiredVendors: OpenclawGateVendor[];
   decision: OpenclawGateDecision;
   reason: string;
   vendorReports: OpenclawGateVendorReport[];
@@ -60,6 +61,10 @@ type VendorQuoteResultRow = {
   raw_payload: unknown;
   notes: unknown;
   updated_at: string;
+};
+
+export type EvaluateOpenclawGateOptions = {
+  requiredVendors?: OpenclawGateVendor[];
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -220,13 +225,18 @@ function detectConcurrentSessionRisk(rows: VendorQuoteResultRow[]) {
  *
  * @param quoteRunId Quote run identifier associated with the provided rows.
  * @param rows Vendor quote rows to classify and aggregate into gate outcomes.
+ * @param options Gate options such as required-vendor scope.
  * @returns OpenClaw gate report with vendor classifications and final decision.
  */
 export function evaluateOpenclawGateFromRows(
   quoteRunId: string,
   rows: VendorQuoteResultRow[],
+  options: EvaluateOpenclawGateOptions = {},
 ): OpenclawGateReport {
-  const vendorReports = TARGET_VENDORS.map((vendor) =>
+  const requiredVendors = options.requiredVendors?.length
+    ? Array.from(new Set(options.requiredVendors))
+    : [...OPENCLAW_TARGET_VENDORS];
+  const vendorReports = requiredVendors.map((vendor) =>
     classifyVendorRows(
       vendor,
       rows.filter((row) => row.vendor === vendor),
@@ -240,16 +250,17 @@ export function evaluateOpenclawGateFromRows(
     (report) => report.classification === "synthetic_or_stub",
   );
   const concurrentSessionRisk = detectConcurrentSessionRisk(rows);
+  const requiredVendorCount = requiredVendors.length;
 
   let decision: OpenclawGateDecision = "fail_insufficient_data";
-  let reason = "Gate did not receive enough real quote evidence for all required vendors.";
+  let reason = `Gate did not receive enough real quote evidence for required vendors (${requiredVendors.join(", ")}).`;
 
-  if (realQuoteVendorCount >= TARGET_VENDORS.length) {
+  if (realQuoteVendorCount >= requiredVendorCount) {
     decision = "pass";
-    reason = "Both target vendors persisted real quote data with price and lead time.";
-  } else if (blockedVendorCount >= 2) {
+    reason = `Required vendors (${requiredVendors.join(", ")}) persisted real quote data with price and lead time.`;
+  } else if (blockedVendorCount >= requiredVendorCount) {
     decision = "fail_anti_detection";
-    reason = "Anti-detection barriers blocked two or more target vendors.";
+    reason = `Anti-detection barriers blocked required vendors (${requiredVendors.join(", ")}).`;
   } else if (hasSyntheticOrStubSignal) {
     decision = "fail_stub_or_simulation";
     reason = "At least one target vendor produced simulated or stub quote evidence.";
@@ -258,6 +269,7 @@ export function evaluateOpenclawGateFromRows(
   return {
     quoteRunId,
     generatedAt: new Date().toISOString(),
+    requiredVendors,
     decision,
     reason,
     vendorReports,
@@ -273,24 +285,31 @@ export function evaluateOpenclawGateFromRows(
  *
  * @param supabase Supabase service client used to query vendor quote results.
  * @param quoteRunId Quote run identifier used to filter vendor rows.
+ * @param options Gate options such as required-vendor scope.
  * @returns Resolved OpenClaw gate report for the run.
  * @throws Propagates Supabase query errors.
  */
 export async function evaluateOpenclawGate(
   supabase: SupabaseClient,
   quoteRunId: string,
+  options: EvaluateOpenclawGateOptions = {},
 ): Promise<OpenclawGateReport> {
+  const requiredVendors = options.requiredVendors?.length
+    ? Array.from(new Set(options.requiredVendors))
+    : [...OPENCLAW_TARGET_VENDORS];
   const { data, error } = await supabase
     .from("vendor_quote_results")
     .select(
       "id,vendor,status,total_price_usd,lead_time_business_days,quote_url,raw_payload,notes,updated_at",
     )
     .eq("quote_run_id", quoteRunId)
-    .in("vendor", [...TARGET_VENDORS]);
+    .in("vendor", requiredVendors);
 
   if (error) {
     throw error;
   }
 
-  return evaluateOpenclawGateFromRows(quoteRunId, (data ?? []) as VendorQuoteResultRow[]);
+  return evaluateOpenclawGateFromRows(quoteRunId, (data ?? []) as VendorQuoteResultRow[], {
+    requiredVendors,
+  });
 }

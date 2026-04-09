@@ -115,14 +115,22 @@ Add this to your shell profile or `.env` in `worker/` so you don't have to repea
 ```bash
 npm --prefix worker run validate:openclaw-gate -- --quote-run-id <quote_run_id>
 # Pass: exit 0, prints { "decision": "pass" } with real price + lead time
+# Default required vendor set: xometry (Task A prerequisite mode)
 # Fail: exit 1, prints { "decision": "fail_..." } with reason
 
 # Save output to a file
 npm --prefix worker run validate:openclaw-gate -- --quote-run-id <id> --out gate-report.json
+
+# Require both vendors (Task B / full openclaw gate)
+npm --prefix worker run validate:openclaw-gate -- --quote-run-id <id> --required-vendors xometry,fictiv
 ```
 
-**Gate pass criteria:** both `xometry` and `fictiv` must return real quotes with non-null
+**Task A pass criteria (default):** `xometry` must return a real quote with non-null
 `total_price_usd` and `lead_time_business_days`, and `quote_url` must not start with `simulated://`.
+
+**Full gate pass criteria (`--required-vendors xometry,fictiv`):** both `xometry` and `fictiv`
+must return real quotes with non-null `total_price_usd` and `lead_time_business_days`, and
+`quote_url` must not start with `simulated://`.
 
 **Gate fail codes:**
 - `fail_anti_detection` — Xometry or Fictiv blocked the automation (CAPTCHA, login wall). Stop and research the vendor's partner API before rebuilding.
