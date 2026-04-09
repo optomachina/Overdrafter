@@ -12,6 +12,59 @@ type CliArgs = {
   requiredVendors: OpenclawGateVendor[];
 };
 
+const USAGE =
+  "Usage: npm --prefix worker run validate:openclaw-gate -- --quote-run-id <quote-run-id> [--required-vendors <xometry[,fictiv]>] [--out <output.json>]";
+const KNOWN_FLAGS = new Set(["--quote-run-id", "--quoteRunId", "--required-vendors", "--out"]);
+
+function parseRequiredVendors(rawValue: string): OpenclawGateVendor[] {
+  if (rawValue.length === 0 || /\s/.test(rawValue)) {
+    throw new Error(USAGE);
+  }
+
+  const rawVendors = rawValue.split(",");
+  if (rawVendors.some((vendor) => vendor.length === 0)) {
+    throw new Error(USAGE);
+  }
+
+  const uniqueVendors = Array.from(new Set(rawVendors.map((vendor) => vendor.toLowerCase())));
+  const invalidVendor = uniqueVendors.find(
+    (vendor) => !OPENCLAW_TARGET_VENDORS.includes(vendor as OpenclawGateVendor),
+  );
+
+  if (invalidVendor) {
+    throw new Error(USAGE);
+  }
+
+  return uniqueVendors as OpenclawGateVendor[];
+}
+
+function parseFlagValue(args: string[], index: number): { value: string; nextIndex: number } {
+  const arg = args[index];
+  const equalIndex = arg.indexOf("=");
+
+  if (equalIndex >= 0) {
+    const value = arg.slice(equalIndex + 1);
+    if (value.length === 0) {
+      throw new Error(USAGE);
+    }
+
+    return {
+      value,
+      nextIndex: index,
+    };
+  }
+
+  const value = args[index + 1];
+  if (!value || value.startsWith("-")) {
+    throw new Error(USAGE);
+  }
+
+  return {
+    value,
+    nextIndex: index + 1,
+  };
+}
+
 function parseArgs(argv = process.argv): CliArgs {
   const args = argv.slice(2);
   let quoteRunId: string | null = null;
@@ -20,49 +73,30 @@ function parseArgs(argv = process.argv): CliArgs {
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
-    if (arg === "--quote-run-id" || arg === "--quoteRunId") {
-      quoteRunId = args[i + 1] ?? null;
-      i += 1;
-    } else if (arg === "--required-vendors") {
-      const requiredArg = args[i + 1];
-      if (!requiredArg || requiredArg.startsWith("-")) {
-        throw new Error(
-          "Usage: npm --prefix worker run validate:openclaw-gate -- --quote-run-id <quote-run-id> [--required-vendors <xometry[,fictiv]>] [--out <output.json>]",
-        );
-      }
-      const parsedVendors = requiredArg
-        .split(",")
-        .map((vendor) => vendor.trim().toLowerCase())
-        .filter((vendor) => vendor.length > 0);
-      const uniqueVendors = Array.from(new Set(parsedVendors));
-      const invalidVendor = uniqueVendors.find(
-        (vendor) => !OPENCLAW_TARGET_VENDORS.includes(vendor as OpenclawGateVendor),
-      );
+    const flag = arg.split("=")[0];
+    if (arg.startsWith("-") && !KNOWN_FLAGS.has(flag)) {
+      throw new Error(USAGE);
+    }
 
-      if (uniqueVendors.length === 0 || invalidVendor) {
-        throw new Error(
-          "Usage: npm --prefix worker run validate:openclaw-gate -- --quote-run-id <quote-run-id> [--required-vendors <xometry[,fictiv]>] [--out <output.json>]",
-        );
-      }
-
-      requiredVendors = uniqueVendors as OpenclawGateVendor[];
-      i += 1;
-    } else if (arg === "--out") {
-      const outArg = args[i + 1];
-      if (!outArg || outArg.startsWith("-")) {
-        throw new Error(
-          "Usage: npm --prefix worker run validate:openclaw-gate -- --quote-run-id <quote-run-id> [--required-vendors <xometry[,fictiv]>] [--out <output.json>]",
-        );
-      }
-      outPath = path.resolve(outArg);
-      i += 1;
+    if (flag === "--quote-run-id" || flag === "--quoteRunId") {
+      const parsed = parseFlagValue(args, i);
+      quoteRunId = parsed.value;
+      i = parsed.nextIndex;
+    } else if (flag === "--required-vendors") {
+      const parsed = parseFlagValue(args, i);
+      requiredVendors = parseRequiredVendors(parsed.value);
+      i = parsed.nextIndex;
+    } else if (flag === "--out") {
+      const parsed = parseFlagValue(args, i);
+      outPath = path.resolve(parsed.value);
+      i = parsed.nextIndex;
+    } else {
+      throw new Error(USAGE);
     }
   }
 
   if (!quoteRunId || quoteRunId.trim().length === 0) {
-    throw new Error(
-      "Usage: npm --prefix worker run validate:openclaw-gate -- --quote-run-id <quote-run-id> [--required-vendors <xometry[,fictiv]>] [--out <output.json>]",
-    );
+    throw new Error(USAGE);
   }
 
   return {
