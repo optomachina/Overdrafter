@@ -19,7 +19,9 @@ npm --prefix worker run dev
 
 # Start the worker in live mode (real vendor calls — requires session + env vars)
 WORKER_MODE=live \
+WORKER_LIVE_ADAPTERS=xometry,fictiv \
 XOMETRY_STORAGE_STATE_PATH=/path/to/xometry-storage-state.json \
+FICTIV_STORAGE_STATE_PATH=/path/to/fictiv-storage-state.json \
 npm --prefix worker run dev
 ```
 
@@ -82,7 +84,7 @@ npm run e2e:prepare
 
 ---
 
-## Xometry Live Harness
+## Live Vendor Harness (Xometry + Fictiv)
 
 ### Step 1 — Bootstrap a Playwright session
 
@@ -95,10 +97,23 @@ npm --prefix worker run auth:xometry
 npm --prefix worker run auth:xometry -- /custom/path/xometry.json
 ```
 
-### Step 2 — Export the session path
+### Step 1b — Bootstrap Fictiv session
+
+```bash
+npm --prefix worker run auth:fictiv
+# Opens Chromium. Log in to Fictiv manually.
+# Navigate to https://app.fictiv.com/quotes (or /quotes/upload) and confirm authentication.
+# Press Enter. Session saved to worker/state/fictiv-storage-state.json by default.
+# Or pass a custom path:
+npm --prefix worker run auth:fictiv -- /custom/path/fictiv.json
+```
+
+### Step 2 — Export the session paths
 
 ```bash
 export XOMETRY_STORAGE_STATE_PATH="/Users/$(whoami)/Documents/GitHub/Overdrafter/worker/state/xometry-storage-state.json"
+export FICTIV_STORAGE_STATE_PATH="/Users/$(whoami)/Documents/GitHub/Overdrafter/worker/state/fictiv-storage-state.json"
+export WORKER_LIVE_ADAPTERS="xometry,fictiv"
 ```
 
 Add this to your shell profile or `.env` in `worker/` so you don't have to repeat it.
@@ -107,7 +122,7 @@ Add this to your shell profile or `.env` in `worker/` so you don't have to repea
 
 1. Start the worker in live mode (see above).
 2. Open the app, navigate to a part, and click **Request Quote**.
-3. The worker will pick up the task and run live Xometry automation.
+3. The worker will pick up the task and run live vendor automation for adapters in `WORKER_LIVE_ADAPTERS`.
 4. Grab the `quote_run_id` from Supabase → Table Editor → `quote_runs` → most recent row.
 
 ### Step 4 — Validate the openclaw gate
@@ -134,12 +149,12 @@ must return real quotes with non-null `total_price_usd` and `lead_time_business_
 
 **Gate fail codes:**
 - `fail_anti_detection` — Xometry or Fictiv blocked the automation (CAPTCHA, login wall). Stop and research the vendor's partner API before rebuilding.
-- `fail_stub_or_simulation` — at least one vendor returned simulated data. `WORKER_MODE` may not be `live`, or `XOMETRY_STORAGE_STATE_PATH` is not set.
+- `fail_stub_or_simulation` — at least one vendor returned simulated data. `WORKER_MODE` may not be `live`, or a required storage-state path is missing.
 - `fail_insufficient_data` — not enough quote rows found for the run ID. Check the run ID is correct and the worker completed.
 
 ### Session maintenance
 
-Sessions expire. Re-run `auth:xometry` at least weekly in production.
+Sessions expire. Re-run `auth:xometry` and `auth:fictiv` at least weekly in production.
 `login_required` errors in worker logs mean the session is stale — re-auth immediately.
 
 ---
@@ -192,6 +207,7 @@ npm --prefix worker run install:browsers
 | `WORKER_POLL_INTERVAL_MS` | no | `5000` | Task poll interval in ms |
 | `XOMETRY_STORAGE_STATE_PATH` | live mode | — | Path to Xometry Playwright session JSON |
 | `XOMETRY_STORAGE_STATE_JSON` | live mode | — | Session JSON as a string (alternative to path, for prod secrets) |
+| `FICTIV_STORAGE_STATE_PATH` | live mode | — | Path to Fictiv Playwright session JSON |
 | `OPENAI_API_KEY` | extraction | — | For drawing extraction (primary model) |
 | `ANTHROPIC_API_KEY` | extraction | — | For drawing extraction (fallback model) |
 | `OPENROUTER_API_KEY` | extraction | — | For drawing extraction (OpenRouter fallback) |
@@ -207,10 +223,11 @@ npm --prefix worker run install:browsers
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Worker logs `login_required` | Xometry session expired | Re-run `auth:xometry` |
+| Worker logs `login_required` | Xometry or Fictiv session expired | Re-run `auth:xometry` and/or `auth:fictiv` |
 | Gate returns `fail_stub_or_simulation` | `WORKER_MODE` not set to `live`, or session path missing | Check env vars |
 | Gate returns `fail_anti_detection` | Vendor portal blocked automation | Do not retry. Research vendor partner API. |
 | `XOMETRY_STORAGE_STATE_PATH is not configured` error | Env var not exported | `export XOMETRY_STORAGE_STATE_PATH=...` |
+| `FICTIV_STORAGE_STATE_PATH is not configured` error | Env var not exported | `export FICTIV_STORAGE_STATE_PATH=...` |
 | E2E tests fail with auth errors | Session fixtures stale | `npm run e2e:prepare` |
 | `db:reset` fails | Docker not running | Start Docker Desktop |
 | Typecheck fails after migration | DB types stale | `npm run db:types` |

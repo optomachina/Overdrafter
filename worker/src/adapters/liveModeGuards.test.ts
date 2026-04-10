@@ -80,12 +80,23 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
 }
 
 describe("live-mode adapter guards", () => {
-  it("throws not_implemented for Fictiv in live mode", async () => {
+  it("throws login_required for Fictiv in live mode when session state is missing", async () => {
     const adapter = new FictivAdapter("fictiv", makeConfig({ workerMode: "live" }));
 
-    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+    await expect(
+      adapter.quote(
+        makeInput({
+          stagedCadFile: {
+            originalName: "part.step",
+            localPath: path.resolve(".tmp/part.step"),
+            storageBucket: "job-files",
+            storagePath: "cad/part.step",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
       name: "VendorAutomationError",
-      code: "not_implemented",
+      code: "login_required",
     });
   });
 

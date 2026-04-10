@@ -43,8 +43,9 @@ Optional:
 - `PLAYWRIGHT_DISABLE_DEV_SHM_USAGE=true`
 - `XOMETRY_STORAGE_STATE_PATH=/absolute/path/to/xometry-storage-state.json`
 - `XOMETRY_STORAGE_STATE_JSON={"cookies":[],"origins":[]}`
+- `FICTIV_STORAGE_STATE_PATH=/absolute/path/to/fictiv-storage-state.json`
 
-## Bootstrap Xometry Login State
+## Bootstrap Live Vendor Login State
 
 Create a local env file first:
 
@@ -58,6 +59,7 @@ Fill in at least:
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `XOMETRY_STORAGE_STATE_PATH`
+- `FICTIV_STORAGE_STATE_PATH`
 
 Install the Playwright Chromium browser once:
 
@@ -86,12 +88,33 @@ The script will:
 2. Let you log in to Xometry manually.
 3. Save the authenticated Playwright `storageState` file after you press Enter.
 
+Create a Fictiv authenticated storage-state file:
+
+```bash
+cd worker
+npm run auth:fictiv
+```
+
+Or save it to an explicit path:
+
+```bash
+cd worker
+npm run auth:fictiv -- /absolute/path/to/fictiv-storage-state.json
+```
+
+The script will:
+
+1. Open a Chromium window.
+2. Let you log in to Fictiv manually.
+3. Save the authenticated Playwright `storageState` file after you press Enter.
+
 After that, point the worker at the saved file:
 
 ```bash
 export XOMETRY_STORAGE_STATE_PATH=/absolute/path/to/xometry-storage-state.json
+export FICTIV_STORAGE_STATE_PATH=/absolute/path/to/fictiv-storage-state.json
 export WORKER_MODE=live
-export WORKER_LIVE_ADAPTERS=xometry
+export WORKER_LIVE_ADAPTERS=xometry,fictiv
 ```
 
 ## Production Build
@@ -186,7 +209,7 @@ Notes:
 
 - The worker service should stay private. The deploy script uses `--no-allow-unauthenticated`.
 - `XOMETRY_STORAGE_STATE_JSON` is written to a temporary file on startup so Playwright can consume it as a normal `storageState` file.
-- When the Xometry session expires, refresh the local storage-state file and upload it as a new Secret Manager version.
+- When the Xometry or Fictiv session expires, refresh the local storage-state file and upload a new secret version.
 - If production runs with `WORKER_MODE=simulate`, the worker logs an explicit warning at startup.
 
 ## Notes
@@ -194,7 +217,7 @@ Notes:
 - The web app in the repo uses Supabase RPCs and direct table access.
 - This worker intentionally lives outside the Vite app so browser automation can run in a proper long-lived process.
 - `sendcutsend` is modeled as a CNC manual-follow-up lane in v1.
-- The live Xometry adapter fails closed if login or captcha is encountered.
+- The live Xometry and Fictiv adapters fail closed if login or captcha is encountered.
 
 ## OpenClaw Task A Gate
 
