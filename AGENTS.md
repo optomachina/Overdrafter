@@ -150,7 +150,7 @@ Required gate behavior:
 
 Status gates:
 - `In progress` is the default while implementation, validation, review response, artifact collection, or demo work remains.
-- `Blocked` is required when the agent cannot proceed safely, including High complexity without explicit override.
+- `Blocked` is the rolling comment status when the agent cannot proceed safely, including High complexity without explicit override; the Linear issue state should be `Human Review` for human decision or decomposition review.
 - `Ready for review` is allowed only when every validation checkbox is checked and PR artifacts are linked.
 - `Complete` is allowed only after explicit human confirmation.
 
@@ -161,7 +161,7 @@ Update Linear state only after the rolling comment has been updated to justify t
 
 Required transitions:
 - Move to `In Progress` when the agent begins scoped implementation or validation work.
-- Move to `Blocked` when a blocker prevents safe progress, including High complexity without explicit override.
+- Move to `Human Review` when a blocker prevents safe progress, including High complexity without explicit override; keep the rolling comment status as `Blocked`.
 - Move to `Ready for review` only after every validation checkbox is checked, PR artifacts are linked, and the rolling comment status is `Ready for review`.
 - Move to `Complete` only after explicit human confirmation; do not infer completion from a merged PR, passing checks, or an uploaded demo alone.
 - If review feedback requires code changes after `Ready for review`, move the issue back to the appropriate active state and update the rolling comment before implementing.
@@ -187,7 +187,7 @@ Required behavior:
 - Always fill out `## Complexity Report` in the rolling comment.
 - If complexity is Low, use recommendation `Proceed`.
 - If complexity is Medium, use recommendation `Proceed with caution` and ensure validation covers the expanded surface.
-- If complexity is High, leave `Complexity within allowed threshold` unchecked, set status to `Blocked`, propose decomposition into smaller tasks, and do not proceed unless explicit human override is provided.
+- If complexity is High, leave `Complexity within allowed threshold` unchecked, set the rolling comment status to `Blocked`, move the Linear issue to `Human Review`, propose decomposition into smaller tasks, and do not proceed unless explicit human override is provided.
 - If a human overrides High complexity, record the override in the rolling comment before proceeding and keep the decomposition recommendation visible.
 
 ### Decomposition policy
@@ -195,7 +195,7 @@ Required behavior:
 When scope or complexity exceeds the allowed threshold:
 - Stop implementation.
 - Propose child issues or smaller tasks with clear acceptance criteria.
-- Keep the parent Linear issue status `Blocked` until decomposition or override is accepted.
+- Keep the parent Linear issue in `Human Review` until decomposition or override is accepted, with the rolling comment status set to `Blocked`.
 - Do not silently split implementation across branches or agents.
 - Do not continue with a High-complexity implementation under a Medium label.
 
