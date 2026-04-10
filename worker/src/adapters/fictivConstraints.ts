@@ -84,27 +84,36 @@ export const FICTIV_LOCATORS = {
   ],
 } as const;
 
+const MATERIAL_TERM_MAPPINGS: ReadonlyArray<{
+  patterns: readonly string[];
+  terms: string[];
+}> = [
+  { patterns: ["6061"], terms: ["6061", "6061-T6"] },
+  { patterns: ["7075"], terms: ["7075", "7075-T6"] },
+  { patterns: ["2024"], terms: ["2024", "2024-T3"] },
+  { patterns: ["303"], terms: ["303", "303 Stainless"] },
+  { patterns: ["304"], terms: ["304", "304 Stainless"] },
+  { patterns: ["316"], terms: ["316", "316 Stainless"] },
+  { patterns: ["17-4"], terms: ["17-4", "17-4 PH"] },
+  { patterns: ["1018"], terms: ["1018", "1018 Steel"] },
+  { patterns: ["4140"], terms: ["4140", "4140 Alloy Steel"] },
+  { patterns: ["brass"], terms: ["Brass", "Brass 360"] },
+  { patterns: ["copper"], terms: ["Copper", "Copper 101"] },
+  { patterns: ["titanium", "6al-4v", "ti-6al-4v"], terms: ["Titanium Grade 5", "Ti 6Al-4V"] },
+  { patterns: ["peek"], terms: ["PEEK"] },
+  { patterns: ["nylon"], terms: ["Nylon", "Nylon 6/6"] },
+  { patterns: ["abs"], terms: ["ABS"] },
+  { patterns: ["delrin", "acetal"], terms: ["Delrin", "Acetal"] },
+];
+
 export function buildMaterialSearchTerms(material: string) {
   const source = material.toLowerCase();
 
-  if (source.includes("6061")) return ["6061", "6061-T6"];
-  if (source.includes("7075")) return ["7075", "7075-T6"];
-  if (source.includes("2024")) return ["2024", "2024-T3"];
-  if (source.includes("303")) return ["303", "303 Stainless"];
-  if (source.includes("304")) return ["304", "304 Stainless"];
-  if (source.includes("316")) return ["316", "316 Stainless"];
-  if (source.includes("17-4")) return ["17-4", "17-4 PH"];
-  if (source.includes("1018")) return ["1018", "1018 Steel"];
-  if (source.includes("4140")) return ["4140", "4140 Alloy Steel"];
-  if (source.includes("brass")) return ["Brass", "Brass 360"];
-  if (source.includes("copper")) return ["Copper", "Copper 101"];
-  if (source.includes("titanium") || source.includes("6al-4v") || source.includes("ti-6al-4v")) {
-    return ["Titanium Grade 5", "Ti 6Al-4V"];
+  for (const mapping of MATERIAL_TERM_MAPPINGS) {
+    if (mapping.patterns.some((pattern) => source.includes(pattern))) {
+      return mapping.terms;
+    }
   }
-  if (source.includes("peek")) return ["PEEK"];
-  if (source.includes("nylon")) return ["Nylon", "Nylon 6/6"];
-  if (source.includes("abs")) return ["ABS"];
-  if (source.includes("delrin") || source.includes("acetal")) return ["Delrin", "Acetal"];
 
   return null;
 }

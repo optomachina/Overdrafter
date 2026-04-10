@@ -29,6 +29,26 @@ type FictivDetectedFlow =
 
 type FictivValueSource = "selector" | "body_text" | "none";
 
+type FictivResolvedTerms = {
+  materialTerms: string[];
+  finishTerms: string[];
+};
+
+type FictivTermResolution =
+  | {
+      kind: "resolved";
+      terms: FictivResolvedTerms;
+    }
+  | {
+      kind: "manual_followup";
+      output: VendorQuoteAdapterOutput;
+    };
+
+type FictivLivePrerequisites = {
+  stagedCadFile: NonNullable<VendorQuoteAdapterInput["stagedCadFile"]>;
+  storageStatePath: string;
+};
+
 type FictivQuoteRawPayload = Record<string, unknown> & {
   automationVersion: string;
   detectedFlow: FictivDetectedFlow;
@@ -352,10 +372,11 @@ async function extractParsedValue(
   }
 
   const fallbackValue = parser(bodyText);
+  const source: FictivValueSource = fallbackValue === null ? "none" : "body_text";
 
   return {
     value: fallbackValue,
-    source: fallbackValue !== null ? ("body_text" as FictivValueSource) : ("none" as FictivValueSource),
+    source,
     selector: null,
   };
 }
@@ -536,15 +557,12 @@ export class FictivAdapter extends VendorAdapter {
     };
   }
 
-  async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
-    if (this.config.workerMode !== "live") {
-      return this.simulateQuote(input);
-    }
-
+  private resolveLiveTerms(input: VendorQuoteAdapterInput): FictivTermResolution {
     const materialTerms = buildMaterialSearchTerms(input.requirement.material);
     if (!materialTerms) {
       return {
-        ...buildManualVendorFollowupOutput(
+        kind: "manual_followup",
+        output: buildManualVendorFollowupOutput(
           input,
           this.config.workerMode,
           `Material "${input.requirement.material}" is not mapped to a supported Fictiv option.`,
@@ -560,7 +578,8 @@ export class FictivAdapter extends VendorAdapter {
     const finishTerms = buildFinishSearchTerms(input.requirement.finish);
     if (input.requirement.finish && finishTerms === null) {
       return {
-        ...buildManualVendorFollowupOutput(
+        kind: "manual_followup",
+        output: buildManualVendorFollowupOutput(
           input,
           this.config.workerMode,
           `Finish "${input.requirement.finish}" is not mapped to a supported Fictiv option.`,
@@ -573,6 +592,16 @@ export class FictivAdapter extends VendorAdapter {
       };
     }
 
+    return {
+      kind: "resolved",
+      terms: {
+        materialTerms,
+        finishTerms: finishTerms ?? [],
+      },
+    };
+  }
+
+  private ensureLivePrerequisites(input: VendorQuoteAdapterInput): FictivLivePrerequisites {
     if (!input.stagedCadFile) {
       throw new VendorAutomationError(
         "Fictiv requires a staged CAD file before quoting can start.",
@@ -595,6 +624,19 @@ export class FictivAdapter extends VendorAdapter {
       );
     }
 
+    return {
+      stagedCadFile: input.stagedCadFile,
+      storageStatePath: this.config.fictivStorageStatePath,
+    };
+  }
+
+  private async quoteLive(
+    input: VendorQuoteAdapterInput,
+    terms: FictivResolvedTerms,
+    prerequisites: FictivLivePrerequisites,
+  ): Promise<VendorQuoteAdapterOutput> {
+    const { materialTerms, finishTerms } = terms;
+
     const runDir = await createRunDir(this.config, [
       "fictiv",
       input.quoteRunId,
@@ -609,8 +651,6 @@ export class FictivAdapter extends VendorAdapter {
     let uploadSelector: string | null = null;
     let selectedMaterial: string | null = null;
     let selectedFinish: string | null = null;
-    let priceSource: FictivValueSource = "none";
-    let leadTimeSource: FictivValueSource = "none";
 
     try {
       const launchArgs: string[] = [];
@@ -629,7 +669,7 @@ export class FictivAdapter extends VendorAdapter {
       });
 
       browserContext = await browser.newContext({
-        storageState: this.config.fictivStorageStatePath,
+        storageState: prerequisites.storageStatePath,
       });
 
       browserContext.setDefaultTimeout(this.config.browserTimeoutMs);
@@ -648,7 +688,7 @@ export class FictivAdapter extends VendorAdapter {
       await appendArtifacts(artifacts, page, runDir, "landing");
 
       const uploadFiles = [
-        input.stagedCadFile.localPath,
+        prerequisites.stagedCadFile.localPath,
         input.stagedDrawingFile?.localPath,
       ].filter((value): value is string => Boolean(value));
 
@@ -691,9 +731,8 @@ export class FictivAdapter extends VendorAdapter {
       const totalPrice = priceResult.value;
       const leadTime = leadTimeResult.value;
       const manualReview = manualReviewResult.manualReview;
-
-      priceSource = priceResult.source;
-      leadTimeSource = leadTimeResult.source;
+      const priceSource = priceResult.source;
+      const leadTimeSource = leadTimeResult.source;
 
       if (manualReview) {
         detectedFlow = "manual_review";
@@ -737,14 +776,15 @@ export class FictivAdapter extends VendorAdapter {
       }
 
       const quoteUrl = await detectQuoteUrl(page);
+      const unitPriceUsd =
+        totalPrice === null
+          ? null
+          : Math.round((totalPrice / normalizedQuantity(input)) * 100) / 100;
 
       return {
         vendor: "fictiv",
         status: manualReview ? "manual_review_pending" : "instant_quote_received",
-        unitPriceUsd:
-          totalPrice !== null
-            ? Math.round((totalPrice / normalizedQuantity(input)) * 100) / 100
-            : null,
+        unitPriceUsd,
         totalPriceUsd: totalPrice,
         leadTimeBusinessDays: leadTime,
         quoteUrl,
@@ -798,5 +838,19 @@ export class FictivAdapter extends VendorAdapter {
 
       await browser?.close().catch(() => undefined);
     }
+  }
+
+  async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
+    if (this.config.workerMode !== "live") {
+      return this.simulateQuote(input);
+    }
+
+    const termResolution = this.resolveLiveTerms(input);
+    if (termResolution.kind === "manual_followup") {
+      return termResolution.output;
+    }
+
+    const prerequisites = this.ensureLivePrerequisites(input);
+    return this.quoteLive(input, termResolution.terms, prerequisites);
   }
 }
