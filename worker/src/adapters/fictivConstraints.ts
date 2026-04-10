@@ -106,6 +106,14 @@ const MATERIAL_TERM_MAPPINGS: ReadonlyArray<{
   { patterns: ["delrin", "acetal"], terms: ["Delrin", "Acetal"] },
 ];
 
+/**
+ * Map a material description to canonical Fictiv material search terms.
+ * Matching is case-insensitive and uses substring checks (for example, "6061" or "ti-6al-4v").
+ * Returns `null` when no mapping exists so callers can fail closed to manual follow-up.
+ *
+ * @param material Material text from requirements.
+ * @returns Matched search terms or `null` when unmapped.
+ */
 export function buildMaterialSearchTerms(material: string) {
   const source = material.toLowerCase();
 
@@ -118,6 +126,14 @@ export function buildMaterialSearchTerms(material: string) {
   return null;
 }
 
+/**
+ * Map a finish description to canonical Fictiv finish search terms.
+ * Returns an empty array for "as-machined"/no-finish values, mapped terms for known finishes,
+ * and `null` when the finish is present but unmapped.
+ *
+ * @param finish Finish text from requirements, or `null` when absent.
+ * @returns Search terms array, empty array for ignored/no-finish, or `null` when unmapped.
+ */
 export function buildFinishSearchTerms(finish: string | null) {
   if (!finish) return [];
 

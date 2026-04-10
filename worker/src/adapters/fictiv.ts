@@ -49,6 +49,12 @@ type FictivLivePrerequisites = {
   storageStatePath: string;
 };
 
+type FictivLiveSession = {
+  browser: Browser;
+  browserContext: BrowserContext;
+  page: Page;
+};
+
 type FictivQuoteRawPayload = Record<string, unknown> & {
   automationVersion: string;
   detectedFlow: FictivDetectedFlow;
@@ -102,6 +108,14 @@ function buildRawPayload(overrides: Partial<FictivQuoteRawPayload>): FictivQuote
   };
 }
 
+/**
+ * Parse the first dollar-denominated amount from free-form text.
+ * Commas are stripped from the captured numeric group before parsing.
+ * Returns `null` when no currency-like token is present or parsing is non-finite.
+ *
+ * @param text Source text to scan.
+ * @returns Parsed USD amount or `null`.
+ */
 export function parseFirstCurrency(text: string): number | null {
   const match = FIRST_CURRENCY_PATTERN.exec(text);
   if (!match) return null;
@@ -110,6 +124,13 @@ export function parseFirstCurrency(text: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * Parse the first lead-time value expressed in days from free-form text.
+ * Returns `null` when no matching phrase is present or parsing is non-finite.
+ *
+ * @param text Source text to scan.
+ * @returns Parsed lead-time days or `null`.
+ */
 export function parseLeadTime(text: string): number | null {
   const match = LEAD_TIME_PATTERN.exec(text);
   if (!match) return null;
@@ -122,10 +143,24 @@ function isSignalPresent(text: string, patterns: readonly RegExp[]) {
   return patterns.some((pattern) => pattern.test(text));
 }
 
+/**
+ * Determine whether text indicates Fictiv routed the part to manual review.
+ * Matches against controlled manual-review regex patterns in `FICTIV_LOCATORS`.
+ *
+ * @param text Source text from the page.
+ * @returns `true` when manual-review language is detected.
+ */
 export function isManualReviewText(text: string) {
   return isSignalPresent(text, FICTIV_LOCATORS.manualReviewSignals);
 }
 
+/**
+ * Detect blocking states that prevent automated quoting.
+ * Returns `captcha`, `login_required`, or `null` based on body text and current URL.
+ *
+ * @param input Object containing body `text` and current `url`.
+ * @returns Blocking state signal or `null` when no blocker is detected.
+ */
 export function detectBlockingStateSignal(input: { text: string; url: string }) {
   if (isSignalPresent(input.text, FICTIV_LOCATORS.captchaSignals)) {
     return "captcha";
@@ -630,6 +665,109 @@ export class FictivAdapter extends VendorAdapter {
     };
   }
 
+  private buildLaunchArgs() {
+    const launchArgs: string[] = [];
+
+    if (this.config.playwrightDisableSandbox) {
+      launchArgs.push("--no-sandbox", "--disable-setuid-sandbox");
+    }
+
+    if (this.config.playwrightDisableDevShmUsage) {
+      launchArgs.push("--disable-dev-shm-usage");
+    }
+
+    return launchArgs;
+  }
+
+  private async startLiveSession(prerequisites: FictivLivePrerequisites): Promise<FictivLiveSession> {
+    const browser = await chromium.launch({
+      headless: this.config.playwrightHeadless,
+      args: this.buildLaunchArgs(),
+    });
+
+    const browserContext = await browser.newContext({
+      storageState: prerequisites.storageStatePath,
+    });
+
+    browserContext.setDefaultTimeout(this.config.browserTimeoutMs);
+    browserContext.setDefaultNavigationTimeout(this.config.browserTimeoutMs);
+
+    if (this.config.playwrightCaptureTrace) {
+      await browserContext.tracing.start({
+        screenshots: true,
+        snapshots: true,
+      });
+    }
+
+    const page = await browserContext.newPage();
+    return { browser, browserContext, page };
+  }
+
+  private async stopTraceAndAttachArtifact(
+    browserContext: BrowserContext,
+    runDir: string,
+    artifacts: VendorArtifact[],
+  ) {
+    if (!this.config.playwrightCaptureTrace) {
+      return false;
+    }
+
+    const tracePath = path.join(runDir, "trace.zip");
+    await browserContext.tracing.stop({ path: tracePath });
+    artifacts.push({
+      kind: "trace",
+      label: "playwright-trace",
+      localPath: tracePath,
+      contentType: "application/zip",
+    });
+    return true;
+  }
+
+  private async cleanupLiveSession(
+    browserContext: BrowserContext | null,
+    browser: Browser | null,
+    runDir: string,
+    traceStopped: boolean,
+  ) {
+    if (browserContext) {
+      const maybeTracePath = path.join(runDir, "trace.zip");
+
+      if (this.config.playwrightCaptureTrace && !traceStopped) {
+        await browserContext.tracing.stop({ path: maybeTracePath }).catch(() => undefined);
+      }
+
+      await browserContext.close().catch(() => undefined);
+    }
+
+    await browser?.close().catch(() => undefined);
+  }
+
+  private rethrowLiveError(
+    error: unknown,
+    detectedFlow: FictivDetectedFlow,
+    uploadSelector: string | null,
+    selectedMaterial: string | null,
+    selectedFinish: string | null,
+    artifacts: VendorArtifact[],
+  ): never {
+    if (error instanceof VendorAutomationError) {
+      throw error;
+    }
+
+    throw new VendorAutomationError(
+      error instanceof Error ? error.message : "Unexpected Fictiv automation failure.",
+      "navigation_failure",
+      {
+        vendor: "fictiv",
+        detectedFlow,
+        uploadSelector,
+        selectedMaterial,
+        selectedFinish,
+      },
+      artifacts,
+    );
+  }
+
   private async quoteLive(
     input: VendorQuoteAdapterInput,
     terms: FictivResolvedTerms,
@@ -653,36 +791,10 @@ export class FictivAdapter extends VendorAdapter {
     let selectedFinish: string | null = null;
 
     try {
-      const launchArgs: string[] = [];
-
-      if (this.config.playwrightDisableSandbox) {
-        launchArgs.push("--no-sandbox", "--disable-setuid-sandbox");
-      }
-
-      if (this.config.playwrightDisableDevShmUsage) {
-        launchArgs.push("--disable-dev-shm-usage");
-      }
-
-      browser = await chromium.launch({
-        headless: this.config.playwrightHeadless,
-        args: launchArgs,
-      });
-
-      browserContext = await browser.newContext({
-        storageState: prerequisites.storageStatePath,
-      });
-
-      browserContext.setDefaultTimeout(this.config.browserTimeoutMs);
-      browserContext.setDefaultNavigationTimeout(this.config.browserTimeoutMs);
-
-      if (this.config.playwrightCaptureTrace) {
-        await browserContext.tracing.start({
-          screenshots: true,
-          snapshots: true,
-        });
-      }
-
-      const page = await browserContext.newPage();
+      const session = await this.startLiveSession(prerequisites);
+      browser = session.browser;
+      browserContext = session.browserContext;
+      const page = session.page;
       await navigateToQuoteSurface(page);
       await detectBlockingState(page, runDir);
       await appendArtifacts(artifacts, page, runDir, "landing");
@@ -734,11 +846,9 @@ export class FictivAdapter extends VendorAdapter {
       const priceSource = priceResult.source;
       const leadTimeSource = leadTimeResult.source;
 
-      if (manualReview) {
-        detectedFlow = "manual_review";
-      }
+      detectedFlow = manualReview ? "manual_review" : "instant_quote";
 
-      if (!totalPrice && !manualReview) {
+      if (totalPrice === null && !manualReview) {
         throw new VendorAutomationError(
           "Fictiv quote page did not expose a recognizable price after configuration.",
           "unexpected_ui_state",
@@ -757,23 +867,8 @@ export class FictivAdapter extends VendorAdapter {
         );
       }
 
-      if (!manualReview) {
-        detectedFlow = "instant_quote";
-      }
-
       await appendArtifacts(artifacts, page, runDir, "result");
-
-      if (this.config.playwrightCaptureTrace && browserContext) {
-        const tracePath = path.join(runDir, "trace.zip");
-        await browserContext.tracing.stop({ path: tracePath });
-        traceStopped = true;
-        artifacts.push({
-          kind: "trace",
-          label: "playwright-trace",
-          localPath: tracePath,
-          contentType: "application/zip",
-        });
-      }
+      traceStopped = await this.stopTraceAndAttachArtifact(browserContext, runDir, artifacts);
 
       const quoteUrl = await detectQuoteUrl(page);
       const unitPriceUsd =
@@ -809,34 +904,16 @@ export class FictivAdapter extends VendorAdapter {
         }),
       };
     } catch (error) {
-      if (error instanceof VendorAutomationError) {
-        throw error;
-      }
-
-      throw new VendorAutomationError(
-        error instanceof Error ? error.message : "Unexpected Fictiv automation failure.",
-        "navigation_failure",
-        {
-          vendor: "fictiv",
-          detectedFlow,
-          uploadSelector,
-          selectedMaterial,
-          selectedFinish,
-        },
+      this.rethrowLiveError(
+        error,
+        detectedFlow,
+        uploadSelector,
+        selectedMaterial,
+        selectedFinish,
         artifacts,
       );
     } finally {
-      if (browserContext) {
-        const maybeTracePath = path.join(runDir, "trace.zip");
-
-        if (this.config.playwrightCaptureTrace && !traceStopped) {
-          await browserContext.tracing.stop({ path: maybeTracePath }).catch(() => undefined);
-        }
-
-        await browserContext.close().catch(() => undefined);
-      }
-
-      await browser?.close().catch(() => undefined);
+      await this.cleanupLiveSession(browserContext, browser, runDir, traceStopped);
     }
   }
 
