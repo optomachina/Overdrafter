@@ -48,8 +48,15 @@ hooks:
   timeout_ms: 3600000
 
 agent:
-  max_concurrent_agents: 3
+  max_concurrent_agents: 1
+  max_turns: 3
   max_retry_backoff_ms: 300000
+  max_concurrent_agents_by_state:
+    Todo: 1
+    In Progress: 1
+    Rework: 1
+    Blocked: 1
+    Merging: 1
 
 codex:
   command: codex --config shell_environment_policy.inherit=all --model gpt-5.3-codex app-server
