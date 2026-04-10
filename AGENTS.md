@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Last updated: March 26, 2026
+Last updated: April 10, 2026
 
 ## Purpose
 
@@ -50,6 +50,180 @@ Minimum fingerprints of the correct repo root:
 - root contains `worker/` and `supabase/`
 
 If those fingerprints do not match, stop and fix workspace selection before changing code.
+
+---
+
+## Agent operating contract
+
+This section is the canonical repo-level behavioral contract for Codex, Claude Code, Symphony, and any other coding agent working in OverDrafter.
+Tool-specific files such as `CLAUDE.md` and `WORKFLOW.md` are adapters only. They may explain how a tool starts, branches, or publishes, but they must not duplicate or weaken this policy.
+
+### Plan source of truth
+
+The agent's internal plan state is the execution source of truth.
+Linear is a projection layer used for human visibility, coordination, and durable issue history.
+
+Required behavior:
+- Keep the internal plan current before changing code, validation state, issue state, or handoff state.
+- Mirror every meaningful plan change into the single rolling Linear progress comment.
+- Do not treat older Linear comments, stale issue descriptions, or tool workpads as more current than the agent plan unless the human explicitly redirects the work.
+- If the plan and Linear comment diverge, update the Linear comment to match the plan before continuing.
+
+### Linear rolling progress comment
+
+For every Linear-backed task, the agent must maintain exactly one rolling Linear progress comment and edit that comment in place.
+
+Rules:
+- Create one progress comment if none exists.
+- Reuse and edit the existing progress comment if it exists.
+- Do not create duplicate progress comments for status updates, validation updates, PR links, demo links, or blockers.
+- Every meaningful step updates the rolling comment.
+- Checkboxes may only be checked when actually verified.
+- Validation items must remain checkboxes, never prose bullets.
+- All validation items must be checked before status can become `Ready for review`.
+- `Complete` is only allowed after explicit human confirmation.
+
+The comment must use this exact structure:
+
+```markdown
+## Plan
+- [ ] Step
+  - [ ] Substep
+
+## Acceptance Criteria
+- [ ] Criterion
+
+## Validation
+- [ ] Build passes
+- [ ] Tests pass
+- [ ] Lint/typecheck clean
+- [ ] Sonar clean (no new issues)
+- [ ] CodeRabbit threads resolved
+- [ ] All PR review comments resolved (Codex/Claude/others)
+- [ ] Complexity classified
+- [ ] Complexity within allowed threshold
+- [ ] Demo recorded and uploaded
+
+## Artifacts
+- PR: <link or pending>
+- Demo: <link or pending>
+
+## Complexity Report
+- Level: Low | Medium | High
+- Drivers:
+  - <reason>
+  - <reason>
+- Recommendation:
+  - Proceed
+  - Proceed with caution
+  - Split into child issues
+  - Override required
+
+## Status
+In progress | Blocked | Ready for review | Complete
+```
+
+### Acceptance criteria handling
+
+Before implementation starts:
+- Restate the issue ID when available.
+- Extract acceptance criteria from Linear and repo source-of-truth docs.
+- If acceptance criteria are missing or ambiguous, derive a minimal proposed set from the task and mark the ambiguity in the rolling comment.
+- Keep acceptance criteria as checkboxes in the rolling comment.
+- Check an acceptance criterion only after the implementation and relevant verification demonstrate it is satisfied.
+
+### Validation gates
+
+Validation state belongs in the `## Validation` checklist in the rolling Linear comment.
+Do not replace validation checkboxes with prose status summaries.
+
+Required gate behavior:
+- `Build passes` may be checked only after the relevant build command passes.
+- `Tests pass` may be checked only after the relevant test command passes or the task is explicitly validated as docs-only/non-code and the reason is recorded outside the checklist.
+- `Lint/typecheck clean` may be checked only after lint and typecheck pass for the affected scope.
+- `Sonar clean (no new issues)` may be checked only after Sonar or an equivalent project-approved quality gate reports no new issue-caused findings.
+- `CodeRabbit threads resolved` may be checked only after CodeRabbit review threads are resolved or confirmed absent.
+- `All PR review comments resolved (Codex/Claude/others)` may be checked only after PR review feedback from Codex, Claude, humans, and other reviewers is resolved or confirmed absent.
+- `Complexity classified` may be checked only after the Complexity Report is filled out.
+- `Complexity within allowed threshold` may be checked only when complexity is Low or Medium, or when a human explicitly approves a High-complexity override.
+- `Demo recorded and uploaded` may be checked only after the demo link is available in Artifacts and posted as a PR comment.
+
+Status gates:
+- `In progress` is the default while implementation, validation, review response, artifact collection, or demo work remains.
+- `Blocked` is required when the agent cannot proceed safely, including High complexity without explicit override.
+- `Ready for review` is allowed only when every validation checkbox is checked and PR artifacts are linked.
+- `Complete` is allowed only after explicit human confirmation.
+
+### Linear status transitions
+
+Linear issue state is a human-facing projection of the agent plan and rolling comment status.
+Update Linear state only after the rolling comment has been updated to justify the transition.
+
+Required transitions:
+- Move to `In Progress` when the agent begins scoped implementation or validation work.
+- Move to `Blocked` when a blocker prevents safe progress, including High complexity without explicit override.
+- Move to `Ready for review` only after every validation checkbox is checked, PR artifacts are linked, and the rolling comment status is `Ready for review`.
+- Move to `Complete` only after explicit human confirmation; do not infer completion from a merged PR, passing checks, or an uploaded demo alone.
+- If review feedback requires code changes after `Ready for review`, move the issue back to the appropriate active state and update the rolling comment before implementing.
+
+### Complexity policy
+
+Every task must include a completed Complexity Report.
+Classify complexity using:
+- files changed
+- net new lines
+- layers touched
+- new dependencies
+- schema/API/contract changes
+- cross-cutting architectural impact
+- regression surface expansion
+
+Levels:
+- Low: localized change with small diff, no new dependency, no schema/API/contract change, and narrow regression surface.
+- Medium: multiple files or layers, moderate diff, meaningful behavior change, or broader regression surface that remains testable in one issue.
+- High: large or cross-cutting diff, new dependency, schema/API/contract change, architectural impact, or regression surface too broad for one safe issue.
+
+Required behavior:
+- Always fill out `## Complexity Report` in the rolling comment.
+- If complexity is Low, use recommendation `Proceed`.
+- If complexity is Medium, use recommendation `Proceed with caution` and ensure validation covers the expanded surface.
+- If complexity is High, leave `Complexity within allowed threshold` unchecked, set status to `Blocked`, propose decomposition into smaller tasks, and do not proceed unless explicit human override is provided.
+- If a human overrides High complexity, record the override in the rolling comment before proceeding and keep the decomposition recommendation visible.
+
+### Decomposition policy
+
+When scope or complexity exceeds the allowed threshold:
+- Stop implementation.
+- Propose child issues or smaller tasks with clear acceptance criteria.
+- Keep the parent Linear issue status `Blocked` until decomposition or override is accepted.
+- Do not silently split implementation across branches or agents.
+- Do not continue with a High-complexity implementation under a Medium label.
+
+### Demo policy
+
+A demo is required before `Ready for review` for implementation tasks unless a human explicitly waives it for docs-only or non-demonstrable changes.
+
+Required behavior:
+- Record the demo only after all other validation items pass.
+- Upload the demo to Loom or an equivalent shareable video host.
+- Put the demo link in `## Artifacts`.
+- Append the demo link as a PR comment for confirmation review.
+- Check `Demo recorded and uploaded` only after the artifact link and PR comment both exist.
+
+### Artifact tracking
+
+Track artifacts in the rolling Linear comment:
+- PR link, or `pending` until the PR exists.
+- Demo link, or `pending` until the demo is uploaded.
+- Keep artifact links current when PRs are recreated, retitled, or replaced.
+
+### Tool adapter policy
+
+`AGENTS.md` is the single behavioral spec.
+Tool-specific files must stay thin:
+- `CLAUDE.md` tells Claude Code to follow `AGENTS.md` and may include only Claude-specific startup or invocation notes.
+- `WORKFLOW.md` tells Symphony how to bootstrap and run, but behavioral rules must reference this file rather than duplicating policy blocks.
+- If a tool adapter needs new durable behavior, update `AGENTS.md` first and then add only a short pointer in the adapter.
 
 ---
 
@@ -506,7 +680,7 @@ If no override exists, follow this root file.
 
 ## Solo Linear workflow addendum
 
-- Treat Linear as the system of record for issue ID, acceptance criteria, status, and priority
+- Treat Linear as the system of record for issue identity, external status visibility, and human-facing progress; treat the agent plan state as the execution source of truth and mirror it into the single rolling Linear comment
 - Restate acceptance criteria before implementation starts
 - Prefer the smallest safe change that satisfies the issue
 - Do not invent APIs, routes, database fields, or contracts without checking code first
