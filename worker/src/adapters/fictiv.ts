@@ -55,6 +55,22 @@ type FictivLiveSession = {
   page: Page;
 };
 
+type FictivLiveSelection = {
+  uploadSelector: string | null;
+  selectedMaterial: string | null;
+  selectedFinish: string | null;
+};
+
+type FictivParsedQuote = {
+  bodyText: string;
+  totalPrice: number | null;
+  leadTime: number | null;
+  manualReview: boolean;
+  manualReviewSelector: string | null;
+  priceSource: FictivValueSource;
+  leadTimeSource: FictivValueSource;
+};
+
 type FictivQuoteRawPayload = Record<string, unknown> & {
   automationVersion: string;
   detectedFlow: FictivDetectedFlow;
@@ -703,6 +719,100 @@ export class FictivAdapter extends VendorAdapter {
     return { browser, browserContext, page };
   }
 
+  private async uploadAndConfigureQuote(
+    page: Page,
+    input: VendorQuoteAdapterInput,
+    runDir: string,
+    artifacts: VendorArtifact[],
+    materialTerms: string[],
+    finishTerms: string[],
+    prerequisites: FictivLivePrerequisites,
+  ): Promise<FictivLiveSelection> {
+    await navigateToQuoteSurface(page);
+    await detectBlockingState(page, runDir);
+    await appendArtifacts(artifacts, page, runDir, "landing");
+
+    const uploadFiles = [
+      prerequisites.stagedCadFile.localPath,
+      input.stagedDrawingFile?.localPath,
+    ].filter((value): value is string => Boolean(value));
+
+    const uploadResult = await setFilesOnUpload(page, uploadFiles);
+
+    await waitForQuoteSignals(page, this.config.browserTimeoutMs);
+    await detectBlockingState(page, runDir);
+    await appendArtifacts(artifacts, page, runDir, "uploaded");
+
+    await setQuantity(page, normalizedQuantity(input));
+    const selectionResult = await trySetMaterialAndFinish(page, materialTerms, finishTerms);
+
+    await page.waitForLoadState("networkidle").catch(() => undefined);
+    await detectBlockingState(page, runDir);
+    await appendArtifacts(artifacts, page, runDir, "configured");
+
+    return {
+      uploadSelector: uploadResult.selector,
+      selectedMaterial: selectionResult.selectedMaterial,
+      selectedFinish: selectionResult.selectedFinish,
+    };
+  }
+
+  private async extractQuoteData(page: Page): Promise<FictivParsedQuote> {
+    const bodyText = await readBodyText(page);
+    const priceResult = await extractParsedValue(
+      page,
+      FICTIV_LOCATORS.priceText,
+      parseFirstCurrency,
+      bodyText,
+    );
+    const leadTimeResult = await extractParsedValue(
+      page,
+      FICTIV_LOCATORS.leadTimeText,
+      parseLeadTime,
+      bodyText,
+    );
+    const manualReviewResult = await detectManualReview(page, bodyText);
+
+    return {
+      bodyText,
+      totalPrice: priceResult.value,
+      leadTime: leadTimeResult.value,
+      manualReview: manualReviewResult.manualReview,
+      manualReviewSelector: manualReviewResult.selector,
+      priceSource: priceResult.source,
+      leadTimeSource: leadTimeResult.source,
+    };
+  }
+
+  private async ensurePriceIsPresent(
+    totalPrice: number | null,
+    manualReview: boolean,
+    page: Page,
+    runDir: string,
+    detectedFlow: FictivDetectedFlow,
+    selection: FictivLiveSelection,
+    parsed: FictivParsedQuote,
+  ) {
+    if (totalPrice === null && !manualReview) {
+      throw new VendorAutomationError(
+        "Fictiv quote page did not expose a recognizable price after configuration.",
+        "unexpected_ui_state",
+        {
+          vendor: "fictiv",
+          uploadSelector: selection.uploadSelector,
+          selectedMaterial: selection.selectedMaterial,
+          selectedFinish: selection.selectedFinish,
+          priceSource: parsed.priceSource,
+          leadTimeSource: parsed.leadTimeSource,
+          manualReviewSelector: parsed.manualReviewSelector,
+          url: page.url(),
+          detectedFlow,
+        },
+        await capturePageArtifacts(page, runDir, "missing-price"),
+      );
+    }
+  }
+
   private async stopTraceAndAttachArtifact(
     browserContext: BrowserContext,
     runDir: string,
@@ -795,77 +905,30 @@ export class FictivAdapter extends VendorAdapter {
       browser = session.browser;
       browserContext = session.browserContext;
       const page = session.page;
-      await navigateToQuoteSurface(page);
-      await detectBlockingState(page, runDir);
-      await appendArtifacts(artifacts, page, runDir, "landing");
-
-      const uploadFiles = [
-        prerequisites.stagedCadFile.localPath,
-        input.stagedDrawingFile?.localPath,
-      ].filter((value): value is string => Boolean(value));
-
-      const uploadResult = await setFilesOnUpload(page, uploadFiles);
-      uploadSelector = uploadResult.selector;
-
-      await waitForQuoteSignals(page, this.config.browserTimeoutMs);
-      await detectBlockingState(page, runDir);
-      detectedFlow = "upload_complete";
-      await appendArtifacts(artifacts, page, runDir, "uploaded");
-
-      await setQuantity(page, normalizedQuantity(input));
-      const selectionResult = await trySetMaterialAndFinish(
+      const selection = await this.uploadAndConfigureQuote(
         page,
+        input,
+        runDir,
+        artifacts,
         materialTerms,
-        finishTerms ?? [],
+        finishTerms,
+        prerequisites,
       );
-      selectedMaterial = selectionResult.selectedMaterial;
-      selectedFinish = selectionResult.selectedFinish;
-
-      await page.waitForLoadState("networkidle").catch(() => undefined);
-      await detectBlockingState(page, runDir);
+      uploadSelector = selection.uploadSelector;
+      selectedMaterial = selection.selectedMaterial;
+      selectedFinish = selection.selectedFinish;
       detectedFlow = "configuration_complete";
-      await appendArtifacts(artifacts, page, runDir, "configured");
 
-      const bodyText = await readBodyText(page);
-      const priceResult = await extractParsedValue(
-        page,
-        FICTIV_LOCATORS.priceText,
-        parseFirstCurrency,
-        bodyText,
-      );
-      const leadTimeResult = await extractParsedValue(
-        page,
-        FICTIV_LOCATORS.leadTimeText,
-        parseLeadTime,
-        bodyText,
-      );
-      const manualReviewResult = await detectManualReview(page, bodyText);
-      const totalPrice = priceResult.value;
-      const leadTime = leadTimeResult.value;
-      const manualReview = manualReviewResult.manualReview;
-      const priceSource = priceResult.source;
-      const leadTimeSource = leadTimeResult.source;
+      const parsed = await this.extractQuoteData(page);
+      const totalPrice = parsed.totalPrice;
+      const leadTime = parsed.leadTime;
+      const manualReview = parsed.manualReview;
+      const priceSource = parsed.priceSource;
+      const leadTimeSource = parsed.leadTimeSource;
+      const bodyText = parsed.bodyText;
 
       detectedFlow = manualReview ? "manual_review" : "instant_quote";
-
-      if (totalPrice === null && !manualReview) {
-        throw new VendorAutomationError(
-          "Fictiv quote page did not expose a recognizable price after configuration.",
-          "unexpected_ui_state",
-          {
-            vendor: "fictiv",
-            uploadSelector,
-            selectedMaterial,
-            selectedFinish,
-            priceSource,
-            leadTimeSource,
-            manualReviewSelector: manualReviewResult.selector,
-            url: page.url(),
-            detectedFlow,
-          },
-          await capturePageArtifacts(page, runDir, "missing-price"),
-        );
-      }
+      await this.ensurePriceIsPresent(totalPrice, manualReview, page, runDir, detectedFlow, selection, parsed);
 
       await appendArtifacts(artifacts, page, runDir, "result");
       traceStopped = await this.stopTraceAndAttachArtifact(browserContext, runDir, artifacts);
