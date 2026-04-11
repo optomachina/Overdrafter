@@ -43,3 +43,4 @@ skills/
 skills-lock.json
 .playwright-cli/
 output/playwright/
+/.stoneforge/.worktrees/
