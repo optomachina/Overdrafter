@@ -423,6 +423,7 @@ describe("FictivAdapter", () => {
       selectedMaterial: "6061",
       selectedFinish: "Type II",
       selectedEndUse: "Prototype",
+      selectedEndUseSource: "selector",
       openedConfigurationDrawer: true,
       resultClassification: "instant_quote",
       priceSource: "selector",
@@ -532,7 +533,8 @@ describe("FictivAdapter", () => {
     expect(result.totalPriceUsd).toBe(88);
     expect(result.rawPayload).toMatchObject({
       selectedProcess: "CNC",
-      selectedEndUse: null,
+      selectedEndUse: "Prototype",
+      selectedEndUseSource: "assumed_default",
       uploadSelector: FICTIV_LOCATORS.uploadInputs[0],
       resultClassification: "instant_quote",
     });

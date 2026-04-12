@@ -35,6 +35,7 @@ type FictivResultClassification =
   | "capability_limited";
 
 type FictivValueSource = "selector" | "body_text" | "none";
+type FictivEndUseSource = "selector" | "assumed_default";
 
 type FictivResolvedTerms = {
   materialTerms: string[];
@@ -66,6 +67,7 @@ type FictivLiveSelection = {
   uploadSelector: string | null;
   selectedProcess: string | null;
   selectedEndUse: string | null;
+  selectedEndUseSource: FictivEndUseSource;
   quantitySelector: string | null;
   openedConfigurationDrawer: boolean;
   selectedMaterial: string | null;
@@ -105,6 +107,7 @@ type FictivQuoteRawPayload = Record<string, unknown> & {
   selectedFinish?: string | null;
   selectedProcess?: string | null;
   selectedEndUse?: string | null;
+  selectedEndUseSource?: FictivEndUseSource | null;
   quantitySelector?: string | null;
   openedConfigurationDrawer?: boolean;
   priceSource?: FictivValueSource | null;
@@ -147,6 +150,7 @@ function buildRawPayload(overrides: Partial<FictivQuoteRawPayload>): FictivQuote
     selectedMaterial: null,
     selectedFinish: null,
     selectedEndUse: null,
+    selectedEndUseSource: null,
     quantitySelector: null,
     openedConfigurationDrawer: false,
     priceSource: "none",
@@ -694,12 +698,18 @@ async function trySelectCncProcess(page: Page) {
 async function trySetEndUsePrototype(page: Page) {
   const existingSelection = await firstWorkingText(page, FICTIV_LOCATORS.endUseButtons);
   if (existingSelection && /prototype/i.test(existingSelection.text)) {
-    return "Prototype";
+    return {
+      selectedEndUse: "Prototype",
+      selectedEndUseSource: "selector" as FictivEndUseSource,
+    };
   }
 
   const endUseButtonSelector = await findButtonAndOpen(page, FICTIV_LOCATORS.endUseButtons);
   if (!endUseButtonSelector) {
-    return null;
+    return {
+      selectedEndUse: "Prototype",
+      selectedEndUseSource: "assumed_default" as FictivEndUseSource,
+    };
   }
 
   const selectedEndUse = await chooseOptionByTerms(
@@ -708,7 +718,17 @@ async function trySetEndUsePrototype(page: Page) {
     FICTIV_LOCATORS.endUseOptions,
   );
 
-  return selectedEndUse ?? null;
+  if (selectedEndUse) {
+    return {
+      selectedEndUse,
+      selectedEndUseSource: "selector" as FictivEndUseSource,
+    };
+  }
+
+  return {
+    selectedEndUse: "Prototype",
+    selectedEndUseSource: "assumed_default" as FictivEndUseSource,
+  };
 }
 
 async function openConfigurationDrawerIfPresent(page: Page) {
@@ -959,7 +979,7 @@ export class FictivAdapter extends VendorAdapter {
     const selectedProcess = (await trySelectCncProcess(page)) ?? selectedProcessBeforeUpload;
     const quantitySelector = await setQuantity(page, normalizedQuantity(input));
     const selectionResult = await trySetMaterialAndFinish(page, materialTerms, finishTerms);
-    const selectedEndUse = await trySetEndUsePrototype(page);
+    const endUseSelection = await trySetEndUsePrototype(page);
 
     await page.waitForLoadState("networkidle").catch(() => undefined);
     await detectBlockingState(page, runDir);
@@ -973,7 +993,8 @@ export class FictivAdapter extends VendorAdapter {
     return {
       uploadSelector: uploadResult.selector,
       selectedProcess,
-      selectedEndUse,
+      selectedEndUse: endUseSelection.selectedEndUse,
+      selectedEndUseSource: endUseSelection.selectedEndUseSource,
       quantitySelector,
       openedConfigurationDrawer,
       selectedMaterial: selectionResult.selectedMaterial,
@@ -1107,6 +1128,7 @@ export class FictivAdapter extends VendorAdapter {
     selectedMaterial: string | null,
     selectedFinish: string | null,
     selectedEndUse: string | null,
+    selectedEndUseSource: FictivEndUseSource | null,
     artifacts: VendorArtifact[],
   ): never {
     if (error instanceof VendorAutomationError) {
@@ -1124,6 +1146,7 @@ export class FictivAdapter extends VendorAdapter {
         selectedMaterial,
         selectedFinish,
         selectedEndUse,
+        selectedEndUseSource,
       },
       artifacts,
     );
@@ -1164,6 +1187,7 @@ export class FictivAdapter extends VendorAdapter {
     let selectedMaterial: string | null = null;
     let selectedFinish: string | null = null;
     let selectedEndUse: string | null = null;
+    let selectedEndUseSource: FictivEndUseSource | null = null;
 
     try {
       const session = await this.startLiveSession(prerequisites);
@@ -1182,6 +1206,7 @@ export class FictivAdapter extends VendorAdapter {
       uploadSelector = selection.uploadSelector;
       selectedProcess = selection.selectedProcess;
       selectedEndUse = selection.selectedEndUse;
+      selectedEndUseSource = selection.selectedEndUseSource;
       selectedMaterial = selection.selectedMaterial;
       selectedFinish = selection.selectedFinish;
       detectedFlow = "configuration_complete";
@@ -1248,6 +1273,7 @@ export class FictivAdapter extends VendorAdapter {
           selectedMaterial,
           selectedFinish,
           selectedEndUse,
+          selectedEndUseSource,
           quantitySelector: selection.quantitySelector,
           openedConfigurationDrawer: selection.openedConfigurationDrawer,
           priceSource,
@@ -1279,6 +1305,7 @@ export class FictivAdapter extends VendorAdapter {
         selectedMaterial,
         selectedFinish,
         selectedEndUse,
+        selectedEndUseSource,
         artifacts,
       );
     } finally {
