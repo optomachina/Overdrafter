@@ -639,4 +639,36 @@ describe("FictivAdapter", () => {
     expect(result.notes[0]).toMatch(/capability limitations/i);
     expect(result.artifacts.length).toBeGreaterThan(0);
   });
+
+  it("maps generic manual review states to manual_review classification", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "RFQ required for this part.",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+      },
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    expect(result.status).toBe("manual_review_pending");
+    expect(result.rawPayload).toMatchObject({
+      detectedFlow: "manual_review",
+      resultClassification: "manual_review",
+    });
+    expect(result.notes.length).toBeGreaterThan(0);
+    expect(result.artifacts.length).toBeGreaterThan(0);
+  });
 });
