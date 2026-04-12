@@ -968,11 +968,7 @@ export class FictivAdapter extends VendorAdapter {
     await appendArtifacts(artifacts, page, runDir, "uploaded");
     await detectBlockingState(page, runDir);
 
-    await waitForTerminalQuoteOutcome(
-      page,
-      Math.max(10_000, Math.floor(this.config.browserTimeoutMs / 2)),
-      runDir,
-    );
+    await waitForTerminalQuoteOutcome(page, this.config.browserTimeoutMs, runDir);
     await appendArtifacts(artifacts, page, runDir, "analysis-complete");
 
     const openedConfigurationDrawer = await openConfigurationDrawerIfPresent(page);
