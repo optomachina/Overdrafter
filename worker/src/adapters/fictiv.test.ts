@@ -129,6 +129,7 @@ type FakePageOptions = {
   selectorBehaviors?: Record<string, LocatorBehavior>;
   optionTexts?: string[];
   redirectUrl?: string;
+  onWaitForTimeout?: (waitCount: number) => void;
 };
 
 function makeLocator(behavior: LocatorBehavior = {}) {
@@ -184,6 +185,7 @@ function createFakePage(options: FakePageOptions) {
       ? [...options.bodyTextSequence]
       : [options.bodyText ?? ""];
   let bodyTextIndex = 0;
+  let waitCount = 0;
   const visitedUrls: string[] = [];
 
   const currentBodyText = () => bodyTextSequence[Math.min(bodyTextIndex, bodyTextSequence.length - 1)];
@@ -226,6 +228,8 @@ function createFakePage(options: FakePageOptions) {
       return undefined;
     },
     async waitForTimeout() {
+      waitCount += 1;
+      options.onWaitForTimeout?.(waitCount);
       if (bodyTextIndex < bodyTextSequence.length - 1) {
         bodyTextIndex += 1;
       }
@@ -465,6 +469,73 @@ describe("FictivAdapter", () => {
       resultClassification: "configuration_required",
     });
     expect(result.notes[0]).toMatch(/requires additional configuration/i);
+  });
+
+  it("waits for delayed process-picker render before attempting upload", async () => {
+    const workerTempDir = await makeTempDir();
+    let processPickerVisible = false;
+    let cncSelected = false;
+    const page = createFakePage({
+      bodyTextSequence: [
+        "Upload your parts",
+        "Upload your parts",
+        "Select process to continue",
+        "Uploading your parts",
+        "Analyzing your geometry",
+        "Active quotes Total price $88.00 Lead time 4 business days",
+      ],
+      onWaitForTimeout(waitCount) {
+        if (waitCount >= 2) {
+          processPickerVisible = true;
+        }
+      },
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.processButtons[0]]: {
+          count: () => (processPickerVisible ? 1 : 0),
+          text: () => (cncSelected ? "CNC" : "Process"),
+          click: vi.fn(() => {
+            cncSelected = true;
+          }),
+        },
+        [FICTIV_LOCATORS.uploadInputs[0]]: {
+          count: () => (cncSelected ? 1 : 0),
+          setInputFiles: vi.fn(),
+        },
+        [FICTIV_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: "$88.00",
+        },
+        [FICTIV_LOCATORS.leadTimeText[0]]: {
+          count: 1,
+          text: "4 business days",
+        },
+        [FICTIV_LOCATORS.quoteLinkAnchors[0]]: {
+          count: 1,
+          href: "/quotes/upload-race-safe",
+        },
+      },
+      optionTexts: ["CNC"],
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    expect(result.status).toBe("instant_quote_received");
+    expect(result.totalPriceUsd).toBe(88);
+    expect(result.rawPayload).toMatchObject({
+      selectedProcess: "CNC",
+      uploadSelector: FICTIV_LOCATORS.uploadInputs[0],
+      resultClassification: "instant_quote",
+    });
+    expect(page.visitedUrls[0]).toBe(FICTIV_URLS.upload);
   });
 
   it("maps account capability limitations to manual_review_pending with explicit classification", async () => {

@@ -372,6 +372,8 @@ async function readBodyText(page: Page) {
 async function waitForUploadSurfaceReady(page: Page, timeoutMs: number) {
   const attemptedSelectors: string[] = [];
   const deadline = Date.now() + timeoutMs;
+  let sawUploadSurfaceSignal = false;
+  let lastBodyText = "";
 
   while (Date.now() < deadline) {
     for (const selector of [...FICTIV_LOCATORS.uploadInputs, ...FICTIV_LOCATORS.processButtons]) {
@@ -391,8 +393,9 @@ async function waitForUploadSurfaceReady(page: Page, timeoutMs: number) {
     }
 
     const bodyText = await readBodyText(page);
+    lastBodyText = bodyText;
     if (isSignalPresent(bodyText, FICTIV_LOCATORS.uploadSurfaceSignals)) {
-      return;
+      sawUploadSurfaceSignal = true;
     }
 
     await page.waitForTimeout(500);
@@ -406,6 +409,8 @@ async function waitForUploadSurfaceReady(page: Page, timeoutMs: number) {
       failedSelector: FICTIV_LOCATORS.uploadInputs[0],
       attemptedSelectors,
       nearbyAttributes: [...FICTIV_LOCATORS.uploadInputs, ...FICTIV_LOCATORS.processButtons],
+      sawUploadSurfaceSignal,
+      bodyExcerpt: excerptText(lastBodyText),
       url: page.url(),
     },
   );
