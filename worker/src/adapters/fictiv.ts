@@ -369,13 +369,15 @@ async function readBodyText(page: Page) {
   return page.locator("body").innerText().catch(() => "");
 }
 
-async function waitForUploadSurfaceReady(page: Page, timeoutMs: number) {
+async function waitForUploadSurfaceReady(page: Page, timeoutMs: number, runDir: string) {
   const attemptedSelectors: string[] = [];
   const deadline = Date.now() + timeoutMs;
   let sawUploadSurfaceSignal = false;
   let lastBodyText = "";
 
   while (Date.now() < deadline) {
+    await detectBlockingState(page, runDir);
+
     for (const selector of [...FICTIV_LOCATORS.uploadInputs, ...FICTIV_LOCATORS.processButtons]) {
       if (!attemptedSelectors.includes(selector)) {
         attemptedSelectors.push(selector);
@@ -392,7 +394,7 @@ async function waitForUploadSurfaceReady(page: Page, timeoutMs: number) {
       }
     }
 
-    const bodyText = await readBodyText(page);
+    const bodyText = await detectBlockingState(page, runDir);
     lastBodyText = bodyText;
     if (isSignalPresent(bodyText, FICTIV_LOCATORS.uploadSurfaceSignals)) {
       sawUploadSurfaceSignal = true;
@@ -433,12 +435,12 @@ function portalStateSignalFor(state: Exclude<FictivPortalState, "unknown">, body
   }
 }
 
-async function waitForTerminalQuoteOutcome(page: Page, timeoutMs: number) {
+async function waitForTerminalQuoteOutcome(page: Page, timeoutMs: number, runDir: string) {
   const deadline = Date.now() + timeoutMs;
   let lastBodyText = "";
 
   while (Date.now() < deadline) {
-    const bodyText = await readBodyText(page);
+    const bodyText = await detectBlockingState(page, runDir);
     lastBodyText = bodyText;
 
     const state = classifyPortalState(bodyText);
@@ -932,7 +934,7 @@ export class FictivAdapter extends VendorAdapter {
     await navigateToQuoteSurface(page);
     await detectBlockingState(page, runDir);
     await appendArtifacts(artifacts, page, runDir, "landing");
-    await waitForUploadSurfaceReady(page, this.config.browserTimeoutMs);
+    await waitForUploadSurfaceReady(page, this.config.browserTimeoutMs, runDir);
 
     const selectedProcessBeforeUpload = await trySelectCncProcess(page);
     await detectBlockingState(page, runDir);
@@ -949,6 +951,7 @@ export class FictivAdapter extends VendorAdapter {
     await waitForTerminalQuoteOutcome(
       page,
       Math.max(10_000, Math.floor(this.config.browserTimeoutMs / 2)),
+      runDir,
     );
     await appendArtifacts(artifacts, page, runDir, "analysis-complete");
 
@@ -956,12 +959,16 @@ export class FictivAdapter extends VendorAdapter {
     const selectedProcess = (await trySelectCncProcess(page)) ?? selectedProcessBeforeUpload;
     const quantitySelector = await setQuantity(page, normalizedQuantity(input));
     const selectionResult = await trySetMaterialAndFinish(page, materialTerms, finishTerms);
-    const selectedEndUse = (await trySetEndUsePrototype(page)) ?? "Prototype";
+    const selectedEndUse = await trySetEndUsePrototype(page);
 
     await page.waitForLoadState("networkidle").catch(() => undefined);
     await detectBlockingState(page, runDir);
     await appendArtifacts(artifacts, page, runDir, "configured");
-    const terminalOutcome = await waitForTerminalQuoteOutcome(page, this.config.browserTimeoutMs);
+    const terminalOutcome = await waitForTerminalQuoteOutcome(
+      page,
+      this.config.browserTimeoutMs,
+      runDir,
+    );
 
     return {
       uploadSelector: uploadResult.selector,
@@ -1207,17 +1214,18 @@ export class FictivAdapter extends VendorAdapter {
           ? null
           : Math.round((totalPrice / normalizedQuantity(input)) * 100) / 100;
       const status = isInstantQuote ? "instant_quote_received" : "manual_review_pending";
-      const notes = (
-        resultClassification === "manual_review"
-          ? ["Fictiv flagged the part for manual review after upload and configuration."]
-          : resultClassification === "configuration_required"
-            ? ["Fictiv requires additional configuration before an instant quote can be generated."]
-            : resultClassification === "capability_limited"
-              ? [
-                  "Fictiv account capability limitations prevented an instant CNC quote; manual review is required.",
-                ]
-              : ["Live Fictiv quote captured via Playwright."]
-      ) as string[];
+      let notes: string[];
+      if (resultClassification === "manual_review") {
+        notes = ["Fictiv flagged the part for manual review after upload and configuration."];
+      } else if (resultClassification === "configuration_required") {
+        notes = ["Fictiv requires additional configuration before an instant quote can be generated."];
+      } else if (resultClassification === "capability_limited") {
+        notes = [
+          "Fictiv account capability limitations prevented an instant CNC quote; manual review is required.",
+        ];
+      } else {
+        notes = ["Live Fictiv quote captured via Playwright."];
+      }
 
       if (portalStateSignal && !isInstantQuote) {
         notes.push(`Portal signal: ${portalStateSignal}`);

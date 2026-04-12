@@ -532,6 +532,7 @@ describe("FictivAdapter", () => {
     expect(result.totalPriceUsd).toBe(88);
     expect(result.rawPayload).toMatchObject({
       selectedProcess: "CNC",
+      selectedEndUse: null,
       uploadSelector: FICTIV_LOCATORS.uploadInputs[0],
       resultClassification: "instant_quote",
     });
