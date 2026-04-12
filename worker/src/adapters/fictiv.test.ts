@@ -476,6 +476,10 @@ describe("FictivAdapter", () => {
     const workerTempDir = await makeTempDir();
     let processPickerVisible = false;
     let cncSelected = false;
+    const interactionLog: string[] = [];
+    const uploadSpy = vi.fn(() => {
+      interactionLog.push(`set-upload-files:${cncSelected ? "cnc" : "no-cnc"}`);
+    });
     const page = createFakePage({
       bodyTextSequence: [
         "Upload your parts",
@@ -495,12 +499,13 @@ describe("FictivAdapter", () => {
           count: () => (processPickerVisible ? 1 : 0),
           text: () => (cncSelected ? "CNC" : "Process"),
           click: vi.fn(() => {
+            interactionLog.push("select-cnc");
             cncSelected = true;
           }),
         },
         [FICTIV_LOCATORS.uploadInputs[0]]: {
-          count: () => (cncSelected ? 1 : 0),
-          setInputFiles: vi.fn(),
+          count: 1,
+          setInputFiles: uploadSpy,
         },
         [FICTIV_LOCATORS.priceText[0]]: {
           count: 1,
@@ -539,6 +544,68 @@ describe("FictivAdapter", () => {
       resultClassification: "instant_quote",
     });
     expect(page.visitedUrls[0]).toBe(FICTIV_URLS.upload);
+    expect(uploadSpy).toHaveBeenCalledTimes(1);
+    const uploadStepIndex = interactionLog.findIndex((entry) => entry.startsWith("set-upload-files:"));
+    expect(uploadStepIndex).toBeGreaterThan(-1);
+    expect(interactionLog.indexOf("select-cnc")).toBeLessThan(uploadStepIndex);
+    expect(interactionLog[uploadStepIndex]).toBe("set-upload-files:cnc");
+  });
+
+  it("continues quote flow when optional configuration and end-use controls throw", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Active quotes Total price $88.00 Lead time 4 business days",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.processButtons[0]]: {
+          count: 1,
+          text: "Process",
+          click: vi.fn(),
+        },
+        [FICTIV_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [FICTIV_LOCATORS.configurationDrawerButtons[0]]: {
+          count: 1,
+          click: vi.fn(() => {
+            throw new Error("drawer unavailable");
+          }),
+        },
+        [FICTIV_LOCATORS.endUseButtons[0]]: {
+          count: 1,
+          click: vi.fn(() => {
+            throw new Error("end-use unavailable");
+          }),
+        },
+        [FICTIV_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: "$88.00",
+        },
+        [FICTIV_LOCATORS.leadTimeText[0]]: {
+          count: 1,
+          text: "4 business days",
+        },
+      },
+      optionTexts: ["CNC"],
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    expect(result.status).toBe("instant_quote_received");
+    expect(result.rawPayload).toMatchObject({
+      selectedEndUse: "Prototype",
+      selectedEndUseSource: "assumed_default",
+      openedConfigurationDrawer: false,
+    });
   });
 
   it("maps account capability limitations to manual_review_pending with explicit classification", async () => {

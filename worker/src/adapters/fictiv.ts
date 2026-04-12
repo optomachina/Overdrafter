@@ -696,6 +696,11 @@ async function trySelectCncProcess(page: Page) {
 }
 
 async function trySetEndUsePrototype(page: Page) {
+  const assumedDefaultSelection = {
+    selectedEndUse: "Prototype",
+    selectedEndUseSource: "assumed_default" as FictivEndUseSource,
+  };
+
   const existingSelection = await firstWorkingText(page, FICTIV_LOCATORS.endUseButtons);
   if (existingSelection && /prototype/i.test(existingSelection.text)) {
     return {
@@ -704,19 +709,27 @@ async function trySetEndUsePrototype(page: Page) {
     };
   }
 
-  const endUseButtonSelector = await findButtonAndOpen(page, FICTIV_LOCATORS.endUseButtons);
-  if (!endUseButtonSelector) {
-    return {
-      selectedEndUse: "Prototype",
-      selectedEndUseSource: "assumed_default" as FictivEndUseSource,
-    };
+  let endUseButtonSelector: string | null = null;
+  try {
+    endUseButtonSelector = await findButtonAndOpen(page, FICTIV_LOCATORS.endUseButtons);
+  } catch {
+    return assumedDefaultSelection;
   }
 
-  const selectedEndUse = await chooseOptionByTerms(
-    page,
-    ["Prototype"],
-    FICTIV_LOCATORS.endUseOptions,
-  );
+  if (!endUseButtonSelector) {
+    return assumedDefaultSelection;
+  }
+
+  let selectedEndUse: string | null = null;
+  try {
+    selectedEndUse = await chooseOptionByTerms(
+      page,
+      ["Prototype"],
+      FICTIV_LOCATORS.endUseOptions,
+    );
+  } catch {
+    return assumedDefaultSelection;
+  }
 
   if (selectedEndUse) {
     return {
@@ -725,20 +738,60 @@ async function trySetEndUsePrototype(page: Page) {
     };
   }
 
-  return {
-    selectedEndUse: "Prototype",
-    selectedEndUseSource: "assumed_default" as FictivEndUseSource,
-  };
+  return assumedDefaultSelection;
 }
 
 async function openConfigurationDrawerIfPresent(page: Page) {
-  const selector = await findButtonAndOpen(page, FICTIV_LOCATORS.configurationDrawerButtons);
+  let selector: string | null = null;
+  try {
+    selector = await findButtonAndOpen(page, FICTIV_LOCATORS.configurationDrawerButtons);
+  } catch {
+    return false;
+  }
+
   if (!selector) {
     return false;
   }
 
   await page.waitForTimeout(200).catch(() => undefined);
   return true;
+}
+
+async function waitForCncSelectionBeforeUpload(page: Page, timeoutMs: number, runDir: string) {
+  const deadline = Date.now() + timeoutMs;
+  let lastBodyText = "";
+
+  while (Date.now() < deadline) {
+    lastBodyText = await detectBlockingState(page, runDir);
+    const portalState = classifyPortalState(lastBodyText);
+    if (
+      portalState === "quote_ready" ||
+      portalState === "manual_review" ||
+      portalState === "configuration_required" ||
+      portalState === "capability_limited"
+    ) {
+      return null;
+    }
+
+    const selectedProcess = await trySelectCncProcess(page);
+    if (selectedProcess) {
+      return selectedProcess;
+    }
+
+    await detectBlockingState(page, runDir);
+    await page.waitForTimeout(500);
+  }
+
+  throw new VendorAutomationError(
+    "Fictiv process selection did not complete before upload.",
+    "unexpected_ui_state",
+    {
+      vendor: "fictiv",
+      url: page.url(),
+      expectedProcess: "CNC",
+      bodyExcerpt: excerptText(lastBodyText),
+    },
+  );
 }
 
 async function detectQuoteUrl(page: Page) {
@@ -956,7 +1009,11 @@ export class FictivAdapter extends VendorAdapter {
     await appendArtifacts(artifacts, page, runDir, "landing");
     await waitForUploadSurfaceReady(page, this.config.browserTimeoutMs, runDir);
 
-    const selectedProcessBeforeUpload = await trySelectCncProcess(page);
+    const selectedProcessBeforeUpload = await waitForCncSelectionBeforeUpload(
+      page,
+      this.config.browserTimeoutMs,
+      runDir,
+    );
     await detectBlockingState(page, runDir);
 
     const uploadFiles = [
@@ -964,12 +1021,16 @@ export class FictivAdapter extends VendorAdapter {
       input.stagedDrawingFile?.localPath,
     ].filter((value): value is string => Boolean(value));
 
-    const uploadResult = await setFilesOnUpload(page, uploadFiles);
-    await appendArtifacts(artifacts, page, runDir, "uploaded");
-    await detectBlockingState(page, runDir);
+    let uploadSelector: string | null = null;
+    if (selectedProcessBeforeUpload) {
+      const uploadResult = await setFilesOnUpload(page, uploadFiles);
+      uploadSelector = uploadResult.selector;
+      await appendArtifacts(artifacts, page, runDir, "uploaded");
+      await detectBlockingState(page, runDir);
 
-    await waitForTerminalQuoteOutcome(page, this.config.browserTimeoutMs, runDir);
-    await appendArtifacts(artifacts, page, runDir, "analysis-complete");
+      await waitForTerminalQuoteOutcome(page, this.config.browserTimeoutMs, runDir);
+      await appendArtifacts(artifacts, page, runDir, "analysis-complete");
+    }
 
     const openedConfigurationDrawer = await openConfigurationDrawerIfPresent(page);
     const selectedProcess = (await trySelectCncProcess(page)) ?? selectedProcessBeforeUpload;
@@ -987,7 +1048,7 @@ export class FictivAdapter extends VendorAdapter {
     );
 
     return {
-      uploadSelector: uploadResult.selector,
+      uploadSelector,
       selectedProcess,
       selectedEndUse: endUseSelection.selectedEndUse,
       selectedEndUseSource: endUseSelection.selectedEndUseSource,
