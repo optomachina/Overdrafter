@@ -208,6 +208,7 @@ npm --prefix worker run install:browsers
 | `XOMETRY_STORAGE_STATE_PATH` | live mode | — | Path to Xometry Playwright session JSON |
 | `XOMETRY_STORAGE_STATE_JSON` | live mode | — | Session JSON as a string (alternative to path, for prod secrets) |
 | `FICTIV_STORAGE_STATE_PATH` | live mode | — | Path to Fictiv Playwright session JSON |
+| `FICTIV_STORAGE_STATE_JSON` | live mode | — | Session JSON as a string (alternative to path, for prod secrets) |
 | `OPENAI_API_KEY` | extraction | — | For drawing extraction (primary model) |
 | `ANTHROPIC_API_KEY` | extraction | — | For drawing extraction (fallback model) |
 | `OPENROUTER_API_KEY` | extraction | — | For drawing extraction (OpenRouter fallback) |
@@ -231,3 +232,16 @@ npm --prefix worker run install:browsers
 | E2E tests fail with auth errors | Session fixtures stale | `npm run e2e:prepare` |
 | `db:reset` fails | Docker not running | Start Docker Desktop |
 | Typecheck fails after migration | DB types stale | `npm run db:types` |
+
+### Production rollout notes
+
+- Keep CI and staging on explicit `WORKER_MODE=simulate`.
+- Set production worker env to `WORKER_MODE=live`.
+- Set `WORKER_LIVE_ADAPTERS=xometry,fictiv`.
+- Enable Fictiv live credentials and rollout after OVD-185 is complete.
+- Provide vendor sessions via either mounted file paths or inline secret JSON:
+  - `XOMETRY_STORAGE_STATE_PATH` or `XOMETRY_STORAGE_STATE_JSON`
+  - `FICTIV_STORAGE_STATE_PATH` or `FICTIV_STORAGE_STATE_JSON`
+- Confirm startup logs include `Starting worker in live mode`.
+- Within 10 minutes of deploy, run one real quote and confirm quote URLs are not `simulated://`.
+- Refresh vendor sessions at least weekly with `auth:xometry` and `auth:fictiv`.

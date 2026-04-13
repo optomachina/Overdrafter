@@ -45,6 +45,7 @@ const schema = z.object({
   XOMETRY_STORAGE_STATE_PATH: z.string().optional(),
   XOMETRY_STORAGE_STATE_JSON: z.string().optional(),
   FICTIV_STORAGE_STATE_PATH: z.string().optional(),
+  FICTIV_STORAGE_STATE_JSON: z.string().optional(),
   OPENAI_API_KEY: z.string().min(1).optional(),
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
   OPENROUTER_API_KEY: z.string().min(1).optional(),
@@ -111,6 +112,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     fictivStorageStatePath: parsed.FICTIV_STORAGE_STATE_PATH
       ? path.resolve(parsed.FICTIV_STORAGE_STATE_PATH)
       : null,
+    fictivStorageStateJson: parsed.FICTIV_STORAGE_STATE_JSON ?? null,
     openAiApiKey: parsed.OPENAI_API_KEY ?? null,
     anthropicApiKey: parsed.ANTHROPIC_API_KEY ?? null,
     openRouterApiKey: parsed.OPENROUTER_API_KEY ?? null,

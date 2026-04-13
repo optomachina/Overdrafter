@@ -1334,7 +1334,10 @@ async function main() {
   logWorkerEvent(runtimeState, {
     level: "info",
     source: "worker.startup",
-    message: `Starting worker ${config.workerName} in ${config.workerMode} mode.`,
+    message:
+      config.workerMode === "live"
+        ? "Starting worker in live mode."
+        : `Starting worker ${config.workerName} in ${config.workerMode} mode.`,
     context: {
       workerName: config.workerName,
       workerMode: config.workerMode,

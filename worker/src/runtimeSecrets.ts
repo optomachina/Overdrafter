@@ -32,29 +32,53 @@ function hasStorageStateShape(value: unknown) {
 }
 
 export async function prepareRuntimeSecrets(config: WorkerConfig): Promise<WorkerConfig> {
-  if (config.xometryStorageStatePath || !config.xometryStorageStateJson) {
-    return config;
+  let preparedConfig = config;
+
+  if (!preparedConfig.xometryStorageStatePath && preparedConfig.xometryStorageStateJson) {
+    const parsedStorageState = parseStorageStateJson(
+      preparedConfig.xometryStorageStateJson,
+      "XOMETRY_STORAGE_STATE_JSON",
+    );
+
+    const secretsDir = path.join(preparedConfig.workerTempDir, "runtime-secrets");
+    await fs.mkdir(secretsDir, { recursive: true });
+
+    const xometryStorageStatePath = path.join(secretsDir, "xometry-storage-state.json");
+    await fs.writeFile(
+      xometryStorageStatePath,
+      JSON.stringify(parsedStorageState),
+      { encoding: "utf8", mode: 0o600 },
+    );
+
+    preparedConfig = {
+      ...preparedConfig,
+      xometryStorageStatePath,
+    };
   }
 
-  const parsedStorageState = parseStorageStateJson(
-    config.xometryStorageStateJson,
-    "XOMETRY_STORAGE_STATE_JSON",
-  );
+  if (!preparedConfig.fictivStorageStatePath && preparedConfig.fictivStorageStateJson) {
+    const parsedStorageState = parseStorageStateJson(
+      preparedConfig.fictivStorageStateJson,
+      "FICTIV_STORAGE_STATE_JSON",
+    );
 
-  const secretsDir = path.join(config.workerTempDir, "runtime-secrets");
-  await fs.mkdir(secretsDir, { recursive: true });
+    const secretsDir = path.join(preparedConfig.workerTempDir, "runtime-secrets");
+    await fs.mkdir(secretsDir, { recursive: true });
 
-  const xometryStorageStatePath = path.join(secretsDir, "xometry-storage-state.json");
-  await fs.writeFile(
-    xometryStorageStatePath,
-    JSON.stringify(parsedStorageState),
-    { encoding: "utf8", mode: 0o600 },
-  );
+    const fictivStorageStatePath = path.join(secretsDir, "fictiv-storage-state.json");
+    await fs.writeFile(
+      fictivStorageStatePath,
+      JSON.stringify(parsedStorageState),
+      { encoding: "utf8", mode: 0o600 },
+    );
 
-  return {
-    ...config,
-    xometryStorageStatePath,
-  };
+    preparedConfig = {
+      ...preparedConfig,
+      fictivStorageStatePath,
+    };
+  }
+
+  return preparedConfig;
 }
 
 export async function validateXometryReadiness(config: WorkerConfig): Promise<string[]> {
@@ -101,6 +125,50 @@ export async function validateXometryReadiness(config: WorkerConfig): Promise<st
   return issues;
 }
 
+export async function validateFictivReadiness(config: WorkerConfig): Promise<string[]> {
+  if (config.workerMode !== "live") {
+    return [];
+  }
+
+  const issues: string[] = [];
+
+  if (!config.fictivStorageStatePath) {
+    issues.push(
+      "Live mode requires FICTIV_STORAGE_STATE_PATH or FICTIV_STORAGE_STATE_JSON.",
+    );
+    return issues;
+  }
+
+  let storageStateRaw: string;
+
+  try {
+    storageStateRaw = await fs.readFile(config.fictivStorageStatePath, "utf8");
+  } catch {
+    issues.push(`Fictiv storage state file was not found at ${config.fictivStorageStatePath}.`);
+    return issues;
+  }
+
+  let parsedStorageState: unknown;
+
+  try {
+    parsedStorageState = parseStorageStateJson(
+      storageStateRaw,
+      `Fictiv storage state file at ${config.fictivStorageStatePath}`,
+    );
+  } catch (error) {
+    issues.push(error instanceof Error ? error.message : String(error));
+    return issues;
+  }
+
+  if (!hasStorageStateShape(parsedStorageState)) {
+    issues.push(
+      `Fictiv storage state file at ${config.fictivStorageStatePath} must include cookies and origins arrays.`,
+    );
+  }
+
+  return issues;
+}
+
 export async function validateDrawingExtractionReadiness(config: WorkerConfig): Promise<string[]> {
   const issues: string[] = [];
 
@@ -126,10 +194,11 @@ export async function validateDrawingExtractionReadiness(config: WorkerConfig): 
 }
 
 export async function validateWorkerReadiness(config: WorkerConfig): Promise<string[]> {
-  const [xometryIssues, extractionIssues] = await Promise.all([
+  const [xometryIssues, fictivIssues, extractionIssues] = await Promise.all([
     validateXometryReadiness(config),
+    validateFictivReadiness(config),
     validateDrawingExtractionReadiness(config),
   ]);
 
-  return [...xometryIssues, ...extractionIssues];
+  return [...xometryIssues, ...fictivIssues, ...extractionIssues];
 }

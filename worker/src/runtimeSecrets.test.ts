@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   prepareRuntimeSecrets,
   validateDrawingExtractionReadiness,
+  validateFictivReadiness,
   validateWorkerReadiness,
   validateXometryReadiness,
 } from "./runtimeSecrets";
@@ -32,6 +33,8 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     playwrightDisableDevShmUsage: true,
     xometryStorageStatePath: null,
     xometryStorageStateJson: null,
+    fictivStorageStatePath: null,
+    fictivStorageStateJson: null,
     openAiApiKey: null,
     anthropicApiKey: null,
     openRouterApiKey: null,
@@ -75,6 +78,32 @@ describe("runtimeSecrets", () => {
     const storageStatePath = prepared.xometryStorageStatePath;
     if (!storageStatePath) {
       throw new Error("Expected runtime secrets preparation to produce a storage-state path.");
+    }
+    const fileStat = await fs.stat(storageStatePath);
+    expect(fileStat.mode & 0o777).toBe(0o600);
+  });
+
+  it("writes Fictiv storage-state JSON to a runtime file", async () => {
+    const workerTempDir = await makeTempDir();
+    const prepared = await prepareRuntimeSecrets(
+      makeConfig({
+        workerTempDir,
+        fictivStorageStateJson: JSON.stringify({ cookies: [], origins: [] }),
+      }),
+    );
+
+    expect(prepared.fictivStorageStatePath).toBe(
+      path.join(workerTempDir, "runtime-secrets", "fictiv-storage-state.json"),
+    );
+    expect(
+      JSON.parse(await fs.readFile(prepared.fictivStorageStatePath!, "utf8")),
+    ).toEqual({
+      cookies: [],
+      origins: [],
+    });
+    const storageStatePath = prepared.fictivStorageStatePath;
+    if (!storageStatePath) {
+      throw new Error("Expected runtime secrets preparation to produce a Fictiv storage-state path.");
     }
     const fileStat = await fs.stat(storageStatePath);
     expect(fileStat.mode & 0o777).toBe(0o600);
@@ -129,6 +158,55 @@ describe("runtimeSecrets", () => {
     ).toEqual([]);
   });
 
+  it("reports readiness issues for missing and malformed Fictiv live storage state", async () => {
+    const workerTempDir = await makeTempDir();
+    const missingPath = path.join(workerTempDir, "missing-fictiv.json");
+
+    expect(
+      await validateFictivReadiness(
+        makeConfig({
+          workerTempDir,
+          fictivStorageStatePath: missingPath,
+        }),
+      ),
+    ).toEqual([
+      `Fictiv storage state file was not found at ${missingPath}.`,
+    ]);
+
+    const malformedPath = path.join(workerTempDir, "bad-fictiv.json");
+    await fs.writeFile(malformedPath, JSON.stringify({ cookies: [] }), "utf8");
+
+    expect(
+      await validateFictivReadiness(
+        makeConfig({
+          workerTempDir,
+          fictivStorageStatePath: malformedPath,
+        }),
+      ),
+    ).toEqual([
+      `Fictiv storage state file at ${malformedPath} must include cookies and origins arrays.`,
+    ]);
+  });
+
+  it("returns no Fictiv readiness issues for valid live storage state", async () => {
+    const workerTempDir = await makeTempDir();
+    const storageStatePath = path.join(workerTempDir, "fictiv.json");
+    await fs.writeFile(
+      storageStatePath,
+      JSON.stringify({ cookies: [], origins: [] }),
+      "utf8",
+    );
+
+    expect(
+      await validateFictivReadiness(
+        makeConfig({
+          workerTempDir,
+          fictivStorageStatePath: storageStatePath,
+        }),
+      ),
+    ).toEqual([]);
+  });
+
   it("reports model fallback readiness issues when enabled without a key", async () => {
     expect(
       await validateDrawingExtractionReadiness(
@@ -162,12 +240,14 @@ describe("runtimeSecrets", () => {
       await validateWorkerReadiness(
         makeConfig({
           xometryStorageStatePath: missingPath,
+          fictivStorageStatePath: missingPath,
           drawingExtractionEnableModelFallback: true,
           openAiApiKey: null,
         }),
       ),
     ).toEqual([
       `Xometry storage state file was not found at ${missingPath}.`,
+      `Fictiv storage state file was not found at ${missingPath}.`,
       "Drawing extraction model fallback is enabled but OPENAI_API_KEY is missing. Fallback requests will stay disabled.",
     ]);
   });

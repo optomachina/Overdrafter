@@ -666,7 +666,7 @@ export class FictivAdapter extends VendorAdapter {
 
     if (!this.config.fictivStorageStatePath) {
       throw new VendorAutomationError(
-        "FICTIV_STORAGE_STATE_PATH is not configured for live automation.",
+        "FICTIV_STORAGE_STATE_PATH or FICTIV_STORAGE_STATE_JSON is not configured for live automation.",
         "login_required",
         {
           vendor: "fictiv",

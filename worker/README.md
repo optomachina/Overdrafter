@@ -29,7 +29,7 @@ Required:
 Optional:
 
 - `WORKER_MODE=simulate|live`
-- `WORKER_LIVE_ADAPTERS=xometry` (comma-separated: `xometry,fictiv,protolabs,sendcutsend`)
+- `WORKER_LIVE_ADAPTERS=xometry` (production rollout target: `xometry,fictiv`)
 - `WORKER_NAME=quote-worker-1`
 - `WORKER_POLL_INTERVAL_MS=5000`
 - `WORKER_HTTP_HOST=0.0.0.0`
@@ -44,6 +44,7 @@ Optional:
 - `XOMETRY_STORAGE_STATE_PATH=/absolute/path/to/xometry-storage-state.json`
 - `XOMETRY_STORAGE_STATE_JSON={"cookies":[],"origins":[]}`
 - `FICTIV_STORAGE_STATE_PATH=/absolute/path/to/fictiv-storage-state.json`
+- `FICTIV_STORAGE_STATE_JSON={"cookies":[],"origins":[]}`
 
 ## Bootstrap Live Vendor Login State
 
@@ -60,6 +61,9 @@ Fill in at least:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `XOMETRY_STORAGE_STATE_PATH`
 - `FICTIV_STORAGE_STATE_PATH`
+
+For production secret managers, prefer `XOMETRY_STORAGE_STATE_JSON` and `FICTIV_STORAGE_STATE_JSON`
+when mounting a stable file path is awkward.
 
 Install the Playwright Chromium browser once:
 
@@ -116,6 +120,10 @@ export FICTIV_STORAGE_STATE_PATH=/absolute/path/to/fictiv-storage-state.json
 export WORKER_MODE=live
 export WORKER_LIVE_ADAPTERS=xometry,fictiv
 ```
+
+Enable Fictiv live rollout in production after OVD-185 is complete.
+
+Re-auth both vendor sessions at least weekly with `npm run auth:xometry` and `npm run auth:fictiv`.
 
 ## Production Build
 
