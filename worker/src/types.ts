@@ -304,7 +304,8 @@ export type WorkerConfig = {
   playwrightDisableDevShmUsage: boolean;
   xometryStorageStatePath: string | null;
   xometryStorageStateJson: string | null;
-  fictivStorageStatePath?: string | null;
+  fictivStorageStatePath: string | null;
+  fictivStorageStateJson: string | null;
   openAiApiKey: string | null;
   anthropicApiKey: string | null;
   openRouterApiKey: string | null;
