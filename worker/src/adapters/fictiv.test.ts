@@ -113,9 +113,9 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
 }
 
 type LocatorBehavior = {
-  count?: number;
-  text?: string;
-  href?: string | null;
+  count?: number | (() => number);
+  text?: string | (() => string);
+  href?: string | null | (() => string | null);
   setInputFiles?: (files: string[]) => Promise<void> | void;
   click?: () => Promise<void> | void;
   fill?: (value: string) => Promise<void> | void;
@@ -123,27 +123,32 @@ type LocatorBehavior = {
 };
 
 type FakePageOptions = {
-  bodyText: string;
+  bodyText?: string;
+  bodyTextSequence?: string[];
   url?: string;
   selectorBehaviors?: Record<string, LocatorBehavior>;
   optionTexts?: string[];
   redirectUrl?: string;
+  onWaitForTimeout?: (waitCount: number) => void;
 };
 
 function makeLocator(behavior: LocatorBehavior = {}) {
+  const resolve = <T>(value: T | (() => T) | undefined, fallback: T) =>
+    typeof value === "function" ? (value as () => T)() : (value ?? fallback);
+
   return {
     first() {
       return this;
     },
     async count() {
-      return behavior.count ?? 0;
+      return resolve(behavior.count, 0);
     },
     async innerText() {
-      return behavior.text ?? "";
+      return resolve(behavior.text, "");
     },
     async getAttribute(name: string) {
       if (name === "href") {
-        return behavior.href ?? null;
+        return resolve(behavior.href, null);
       }
       return null;
     },
@@ -164,7 +169,7 @@ function makeLocator(behavior: LocatorBehavior = {}) {
         return makeLocator(behavior);
       }
 
-      const text = behavior.text ?? "";
+      const text = resolve(behavior.text, "");
       return options.hasText.test(text)
         ? makeLocator(behavior)
         : makeLocator({ count: 0, text: "" });
@@ -175,19 +180,29 @@ function makeLocator(behavior: LocatorBehavior = {}) {
 function createFakePage(options: FakePageOptions) {
   const selectorBehaviors = options.selectorBehaviors ?? {};
   let currentUrl = options.url ?? FICTIV_URLS.quotes;
+  const bodyTextSequence =
+    options.bodyTextSequence && options.bodyTextSequence.length > 0
+      ? [...options.bodyTextSequence]
+      : [options.bodyText ?? ""];
+  let bodyTextIndex = 0;
+  let waitCount = 0;
+  const visitedUrls: string[] = [];
+
+  const currentBodyText = () => bodyTextSequence[Math.min(bodyTextIndex, bodyTextSequence.length - 1)];
 
   return {
+    visitedUrls,
     async screenshot(input: { path: string }) {
       await fs.writeFile(input.path, "");
     },
     async content() {
-      return `<html><body>${options.bodyText}</body></html>`;
+      return `<html><body>${currentBodyText()}</body></html>`;
     },
     locator(selector: string) {
       if (selector === "body") {
         return makeLocator({
           count: 1,
-          text: options.bodyText,
+          text: () => currentBodyText(),
         });
       }
 
@@ -213,9 +228,15 @@ function createFakePage(options: FakePageOptions) {
       return undefined;
     },
     async waitForTimeout() {
+      waitCount += 1;
+      options.onWaitForTimeout?.(waitCount);
+      if (bodyTextIndex < bodyTextSequence.length - 1) {
+        bodyTextIndex += 1;
+      }
       return undefined;
     },
     async goto(url: string) {
+      visitedUrls.push(url);
       currentUrl = options.redirectUrl ?? url;
     },
     url() {
@@ -314,14 +335,42 @@ describe("FictivAdapter", () => {
     });
   });
 
-  it("captures a live instant quote with stable raw payload fields", async () => {
+  it("captures a live instant quote after CNC/process setup and upload-analysis progression", async () => {
     const workerTempDir = await makeTempDir();
+    const interactionLog: string[] = [];
+    let cncSelected = false;
     const page = createFakePage({
-      bodyText: "Active quotes Total price $120.00 Lead time 5 business days",
+      bodyTextSequence: [
+        "Select process to continue",
+        "Uploading your parts. Active quotes",
+        "Analyzing your geometry",
+        "Active quotes Total price $120.00 Lead time 5 business days",
+      ],
       selectorBehaviors: {
         [FICTIV_LOCATORS.uploadInputs[1]]: {
+          count: () => (cncSelected ? 1 : 0),
+          setInputFiles: vi.fn(() => {
+            interactionLog.push("set-upload-files");
+          }),
+        },
+        [FICTIV_LOCATORS.processButtons[0]]: {
           count: 1,
-          setInputFiles: vi.fn(),
+          text: () => (cncSelected ? "CNC" : "Process"),
+          click: vi.fn(() => {
+            cncSelected = true;
+            interactionLog.push("open-process");
+          }),
+        },
+        [FICTIV_LOCATORS.configurationDrawerButtons[0]]: {
+          count: 1,
+          click: vi.fn(() => {
+            interactionLog.push("open-configuration");
+          }),
+        },
+        [FICTIV_LOCATORS.endUseButtons[0]]: {
+          count: 1,
+          text: "End use",
+          click: vi.fn(),
         },
         [FICTIV_LOCATORS.quantityInputs[0]]: {
           count: 1,
@@ -349,7 +398,7 @@ describe("FictivAdapter", () => {
           href: "/quotes/abc123",
         },
       },
-      optionTexts: ["6061", "Type II"],
+      optionTexts: ["CNC", "6061", "Type II", "Prototype"],
     });
     launchMock.mockResolvedValue(createFakeBrowser(page));
 
@@ -370,12 +419,256 @@ describe("FictivAdapter", () => {
     expect(result.rawPayload).toMatchObject({
       detectedFlow: "instant_quote",
       uploadSelector: FICTIV_LOCATORS.uploadInputs[1],
+      selectedProcess: "CNC",
       selectedMaterial: "6061",
       selectedFinish: "Type II",
+      selectedEndUse: "Prototype",
+      selectedEndUseSource: "selector",
+      openedConfigurationDrawer: true,
+      resultClassification: "instant_quote",
       priceSource: "selector",
       leadTimeSource: "selector",
       source: "fictiv-live-adapter",
     });
+    expect(page.visitedUrls[0]).toBe(FICTIV_URLS.upload);
+    expect(interactionLog.indexOf("open-process")).toBeGreaterThanOrEqual(0);
+    expect(interactionLog.indexOf("open-process")).toBeLessThan(interactionLog.indexOf("set-upload-files"));
+    expect(result.artifacts.length).toBeGreaterThan(0);
+  });
+
+  it("returns manual_review_pending with configuration_required classification when configuration is incomplete", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Complete configuration to continue. Select material to price this part.",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [FICTIV_LOCATORS.configurationDrawerButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+      },
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    expect(result.status).toBe("manual_review_pending");
+    expect(result.totalPriceUsd).toBeNull();
+    expect(result.rawPayload).toMatchObject({
+      detectedFlow: "configuration_required",
+      resultClassification: "configuration_required",
+    });
+    expect(result.notes[0]).toMatch(/requires additional configuration/i);
+  });
+
+  it("waits for delayed process-picker render before attempting upload", async () => {
+    const workerTempDir = await makeTempDir();
+    let processPickerVisible = false;
+    let cncSelected = false;
+    const interactionLog: string[] = [];
+    const uploadSpy = vi.fn(() => {
+      interactionLog.push(`set-upload-files:${cncSelected ? "cnc" : "no-cnc"}`);
+    });
+    const page = createFakePage({
+      bodyTextSequence: [
+        "Upload your parts",
+        "Upload your parts",
+        "Select process to continue",
+        "Uploading your parts",
+        "Analyzing your geometry",
+        "Active quotes Total price $88.00 Lead time 4 business days",
+      ],
+      onWaitForTimeout(waitCount) {
+        if (waitCount >= 2) {
+          processPickerVisible = true;
+        }
+      },
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.processButtons[0]]: {
+          count: () => (processPickerVisible ? 1 : 0),
+          text: () => (cncSelected ? "CNC" : "Process"),
+          click: vi.fn(() => {
+            interactionLog.push("select-cnc");
+            cncSelected = true;
+          }),
+        },
+        [FICTIV_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: uploadSpy,
+        },
+        [FICTIV_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: "$88.00",
+        },
+        [FICTIV_LOCATORS.leadTimeText[0]]: {
+          count: 1,
+          text: "4 business days",
+        },
+        [FICTIV_LOCATORS.quoteLinkAnchors[0]]: {
+          count: 1,
+          href: "/quotes/upload-race-safe",
+        },
+      },
+      optionTexts: ["CNC"],
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    expect(result.status).toBe("instant_quote_received");
+    expect(result.totalPriceUsd).toBe(88);
+    expect(result.rawPayload).toMatchObject({
+      selectedProcess: "CNC",
+      selectedEndUse: "Prototype",
+      selectedEndUseSource: "assumed_default",
+      uploadSelector: FICTIV_LOCATORS.uploadInputs[0],
+      resultClassification: "instant_quote",
+    });
+    expect(page.visitedUrls[0]).toBe(FICTIV_URLS.upload);
+    expect(uploadSpy).toHaveBeenCalledTimes(1);
+    const uploadStepIndex = interactionLog.findIndex((entry) => entry.startsWith("set-upload-files:"));
+    expect(uploadStepIndex).toBeGreaterThan(-1);
+    expect(interactionLog.indexOf("select-cnc")).toBeLessThan(uploadStepIndex);
+    expect(interactionLog[uploadStepIndex]).toBe("set-upload-files:cnc");
+  });
+
+  it("continues quote flow when optional configuration and end-use controls throw", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Active quotes Total price $88.00 Lead time 4 business days",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.processButtons[0]]: {
+          count: 1,
+          text: "Process",
+          click: vi.fn(),
+        },
+        [FICTIV_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [FICTIV_LOCATORS.configurationDrawerButtons[0]]: {
+          count: 1,
+          click: vi.fn(() => {
+            throw new Error("drawer unavailable");
+          }),
+        },
+        [FICTIV_LOCATORS.endUseButtons[0]]: {
+          count: 1,
+          click: vi.fn(() => {
+            throw new Error("end-use unavailable");
+          }),
+        },
+        [FICTIV_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: "$88.00",
+        },
+        [FICTIV_LOCATORS.leadTimeText[0]]: {
+          count: 1,
+          text: "4 business days",
+        },
+      },
+      optionTexts: ["CNC"],
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    expect(result.status).toBe("instant_quote_received");
+    expect(result.rawPayload).toMatchObject({
+      selectedEndUse: "Prototype",
+      selectedEndUseSource: "assumed_default",
+      openedConfigurationDrawer: false,
+    });
+  });
+
+  it("maps account capability limitations to manual_review_pending with explicit classification", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "CNC machining is not available for your account. Contact your account manager.",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+      },
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    expect(result.status).toBe("manual_review_pending");
+    expect(result.rawPayload).toMatchObject({
+      detectedFlow: "manual_review",
+      resultClassification: "capability_limited",
+    });
+    expect(result.notes[0]).toMatch(/capability limitations/i);
+    expect(result.artifacts.length).toBeGreaterThan(0);
+  });
+
+  it("maps generic manual review states to manual_review classification", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "RFQ required for this part.",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+      },
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    expect(result.status).toBe("manual_review_pending");
+    expect(result.rawPayload).toMatchObject({
+      detectedFlow: "manual_review",
+      resultClassification: "manual_review",
+    });
+    expect(result.notes.length).toBeGreaterThan(0);
     expect(result.artifacts.length).toBeGreaterThan(0);
   });
 });

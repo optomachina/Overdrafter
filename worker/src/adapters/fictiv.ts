@@ -23,11 +23,19 @@ type FictivDetectedFlow =
   | "quote_home"
   | "upload_complete"
   | "configuration_complete"
+  | "configuration_required"
   | "instant_quote"
   | "manual_review"
   | "manual_vendor_followup";
 
+type FictivResultClassification =
+  | "instant_quote"
+  | "manual_review"
+  | "configuration_required"
+  | "capability_limited";
+
 type FictivValueSource = "selector" | "body_text" | "none";
+type FictivEndUseSource = "selector" | "assumed_default";
 
 type FictivResolvedTerms = {
   materialTerms: string[];
@@ -57,8 +65,28 @@ type FictivLiveSession = {
 
 type FictivLiveSelection = {
   uploadSelector: string | null;
+  selectedProcess: string | null;
+  selectedEndUse: string | null;
+  selectedEndUseSource: FictivEndUseSource;
+  quantitySelector: string | null;
+  openedConfigurationDrawer: boolean;
   selectedMaterial: string | null;
   selectedFinish: string | null;
+  terminalOutcome: FictivTerminalOutcome;
+};
+
+type FictivPortalState =
+  | "in_progress"
+  | "quote_ready"
+  | "manual_review"
+  | "configuration_required"
+  | "capability_limited"
+  | "unknown";
+
+type FictivTerminalOutcome = {
+  state: Exclude<FictivPortalState, "in_progress" | "unknown">;
+  bodyText: string;
+  matchedSignal: string | null;
 };
 
 type FictivParsedQuote = {
@@ -77,8 +105,15 @@ type FictivQuoteRawPayload = Record<string, unknown> & {
   uploadSelector?: string | null;
   selectedMaterial?: string | null;
   selectedFinish?: string | null;
+  selectedProcess?: string | null;
+  selectedEndUse?: string | null;
+  selectedEndUseSource?: FictivEndUseSource | null;
+  quantitySelector?: string | null;
+  openedConfigurationDrawer?: boolean;
   priceSource?: FictivValueSource | null;
   leadTimeSource?: FictivValueSource | null;
+  resultClassification?: FictivResultClassification;
+  portalStateSignal?: string | null;
   bodyExcerpt?: string;
   artifactStoragePaths?: string[];
   requestedQuantity?: number;
@@ -111,10 +146,17 @@ function buildRawPayload(overrides: Partial<FictivQuoteRawPayload>): FictivQuote
     automationVersion: FICTIV_AUTOMATION_VERSION,
     detectedFlow: "quote_home",
     uploadSelector: null,
+    selectedProcess: null,
     selectedMaterial: null,
     selectedFinish: null,
+    selectedEndUse: null,
+    selectedEndUseSource: null,
+    quantitySelector: null,
+    openedConfigurationDrawer: false,
     priceSource: "none",
     leadTimeSource: "none",
+    resultClassification: undefined,
+    portalStateSignal: null,
     bodyExcerpt: "",
     artifactStoragePaths: [],
     retryCount: 0,
@@ -157,6 +199,40 @@ export function parseLeadTime(text: string): number | null {
 
 function isSignalPresent(text: string, patterns: readonly RegExp[]) {
   return patterns.some((pattern) => pattern.test(text));
+}
+
+function firstSignalMatch(text: string, patterns: readonly RegExp[]) {
+  for (const pattern of patterns) {
+    if (pattern.test(text)) {
+      return pattern.source;
+    }
+  }
+
+  return null;
+}
+
+function classifyPortalState(bodyText: string): FictivPortalState {
+  if (isSignalPresent(bodyText, FICTIV_LOCATORS.capabilityLimitSignals)) {
+    return "capability_limited";
+  }
+
+  if (isManualReviewText(bodyText)) {
+    return "manual_review";
+  }
+
+  if (isSignalPresent(bodyText, FICTIV_LOCATORS.configurationRequiredSignals)) {
+    return "configuration_required";
+  }
+
+  if (isSignalPresent(bodyText, FICTIV_LOCATORS.inProgressSignals)) {
+    return "in_progress";
+  }
+
+  if (isSignalPresent(bodyText, FICTIV_LOCATORS.quoteReadySignals)) {
+    return "quote_ready";
+  }
+
+  return "unknown";
 }
 
 /**
@@ -297,25 +373,109 @@ async function readBodyText(page: Page) {
   return page.locator("body").innerText().catch(() => "");
 }
 
-async function waitForQuoteSignals(page: Page, timeoutMs: number) {
-  await page.waitForFunction(
-    (patterns) =>
-      [...patterns.readyPatterns, ...patterns.reviewPatterns].some((pattern) =>
-        new RegExp(pattern, "i").test(document.body.innerText),
-      ),
+async function waitForUploadSurfaceReady(page: Page, timeoutMs: number, runDir: string) {
+  const attemptedSelectors: string[] = [];
+  const deadline = Date.now() + timeoutMs;
+  let sawUploadSurfaceSignal = false;
+  let lastBodyText = "";
+
+  while (Date.now() < deadline) {
+    await detectBlockingState(page, runDir);
+
+    for (const selector of [...FICTIV_LOCATORS.uploadInputs, ...FICTIV_LOCATORS.processButtons]) {
+      if (!attemptedSelectors.includes(selector)) {
+        attemptedSelectors.push(selector);
+      }
+
+      const count = await page
+        .locator(selector)
+        .first()
+        .count()
+        .catch(() => 0);
+
+      if (count > 0) {
+        return;
+      }
+    }
+
+    const bodyText = await detectBlockingState(page, runDir);
+    lastBodyText = bodyText;
+    if (isSignalPresent(bodyText, FICTIV_LOCATORS.uploadSurfaceSignals)) {
+      sawUploadSurfaceSignal = true;
+    }
+
+    await page.waitForTimeout(500);
+  }
+
+  throw new VendorAutomationError(
+    "Fictiv upload surface did not finish rendering.",
+    "selector_failure",
     {
-      readyPatterns: FICTIV_LOCATORS.quoteReadySignals.map((pattern) => pattern.source),
-      reviewPatterns: FICTIV_LOCATORS.manualReviewSignals.map((pattern) => pattern.source),
+      vendor: "fictiv",
+      failedSelector: FICTIV_LOCATORS.uploadInputs[0],
+      attemptedSelectors,
+      nearbyAttributes: [...FICTIV_LOCATORS.uploadInputs, ...FICTIV_LOCATORS.processButtons],
+      sawUploadSurfaceSignal,
+      bodyExcerpt: excerptText(lastBodyText),
+      url: page.url(),
     },
+  );
+}
+
+function portalStateSignalFor(state: Exclude<FictivPortalState, "unknown">, bodyText: string) {
+  switch (state) {
+    case "in_progress":
+      return firstSignalMatch(bodyText, FICTIV_LOCATORS.inProgressSignals);
+    case "manual_review":
+      return firstSignalMatch(bodyText, FICTIV_LOCATORS.manualReviewSignals);
+    case "configuration_required":
+      return firstSignalMatch(bodyText, FICTIV_LOCATORS.configurationRequiredSignals);
+    case "capability_limited":
+      return firstSignalMatch(bodyText, FICTIV_LOCATORS.capabilityLimitSignals);
+    case "quote_ready":
+      return firstSignalMatch(bodyText, FICTIV_LOCATORS.quoteReadySignals);
+    default:
+      return null;
+  }
+}
+
+async function waitForTerminalQuoteOutcome(page: Page, timeoutMs: number, runDir: string) {
+  const deadline = Date.now() + timeoutMs;
+  let lastBodyText = "";
+
+  while (Date.now() < deadline) {
+    const bodyText = await detectBlockingState(page, runDir);
+    lastBodyText = bodyText;
+
+    const state = classifyPortalState(bodyText);
+    if (state === "in_progress" || state === "unknown") {
+      await page.waitForTimeout(500);
+      continue;
+    }
+
+    return {
+      state,
+      bodyText,
+      matchedSignal: portalStateSignalFor(state, bodyText),
+    } satisfies FictivTerminalOutcome;
+  }
+
+  throw new VendorAutomationError(
+    "Fictiv quote did not reach a terminal state after upload.",
+    "unexpected_ui_state",
     {
-      timeout: timeoutMs,
+      vendor: "fictiv",
+      url: page.url(),
+      bodyExcerpt: excerptText(lastBodyText),
+      inProgressSignals: FICTIV_LOCATORS.inProgressSignals.map((signal) => signal.source),
     },
+    [],
   );
 }
 
 async function setFilesOnUpload(page: Page, files: string[]) {
   const attemptedSelectors: string[] = [];
-  const deadline = Date.now() + 20_000;
+  const deadline = Date.now() + 30_000;
 
   while (Date.now() < deadline) {
     for (const selector of FICTIV_LOCATORS.uploadInputs) {
@@ -516,6 +676,122 @@ async function trySetMaterialAndFinish(
     selectedMaterial,
     selectedFinish,
   };
+}
+
+async function trySelectCncProcess(page: Page) {
+  const processTerms = ["CNC", "CNC Machining", "Machining"];
+
+  const existingSelection = await firstWorkingText(page, FICTIV_LOCATORS.processButtons);
+  if (existingSelection && processTerms.some((term) => new RegExp(escapeRegex(term), "i").test(existingSelection.text))) {
+    return "CNC";
+  }
+
+  const processButtonSelector = await findButtonAndOpen(page, FICTIV_LOCATORS.processButtons);
+  if (!processButtonSelector) {
+    return null;
+  }
+
+  const selectedProcess = await chooseOptionByTerms(page, processTerms, FICTIV_LOCATORS.processOptions);
+  return selectedProcess ?? null;
+}
+
+async function trySetEndUsePrototype(page: Page) {
+  const assumedDefaultSelection = {
+    selectedEndUse: "Prototype",
+    selectedEndUseSource: "assumed_default" as FictivEndUseSource,
+  };
+
+  const existingSelection = await firstWorkingText(page, FICTIV_LOCATORS.endUseButtons);
+  if (existingSelection && /prototype/i.test(existingSelection.text)) {
+    return {
+      selectedEndUse: "Prototype",
+      selectedEndUseSource: "selector" as FictivEndUseSource,
+    };
+  }
+
+  let endUseButtonSelector: string | null = null;
+  try {
+    endUseButtonSelector = await findButtonAndOpen(page, FICTIV_LOCATORS.endUseButtons);
+  } catch {
+    return assumedDefaultSelection;
+  }
+
+  if (!endUseButtonSelector) {
+    return assumedDefaultSelection;
+  }
+
+  let selectedEndUse: string | null = null;
+  try {
+    selectedEndUse = await chooseOptionByTerms(
+      page,
+      ["Prototype"],
+      FICTIV_LOCATORS.endUseOptions,
+    );
+  } catch {
+    return assumedDefaultSelection;
+  }
+
+  if (selectedEndUse) {
+    return {
+      selectedEndUse,
+      selectedEndUseSource: "selector" as FictivEndUseSource,
+    };
+  }
+
+  return assumedDefaultSelection;
+}
+
+async function openConfigurationDrawerIfPresent(page: Page) {
+  let selector: string | null = null;
+  try {
+    selector = await findButtonAndOpen(page, FICTIV_LOCATORS.configurationDrawerButtons);
+  } catch {
+    return false;
+  }
+
+  if (!selector) {
+    return false;
+  }
+
+  await page.waitForTimeout(200).catch(() => undefined);
+  return true;
+}
+
+async function waitForCncSelectionBeforeUpload(page: Page, timeoutMs: number, runDir: string) {
+  const deadline = Date.now() + timeoutMs;
+  let lastBodyText = "";
+
+  while (Date.now() < deadline) {
+    lastBodyText = await detectBlockingState(page, runDir);
+    const portalState = classifyPortalState(lastBodyText);
+    if (
+      portalState === "quote_ready" ||
+      portalState === "manual_review" ||
+      portalState === "configuration_required" ||
+      portalState === "capability_limited"
+    ) {
+      return null;
+    }
+
+    const selectedProcess = await trySelectCncProcess(page);
+    if (selectedProcess) {
+      return selectedProcess;
+    }
+
+    await detectBlockingState(page, runDir);
+    await page.waitForTimeout(500);
+  }
+
+  throw new VendorAutomationError(
+    "Fictiv process selection did not complete before upload.",
+    "unexpected_ui_state",
+    {
+      vendor: "fictiv",
+      url: page.url(),
+      expectedProcess: "CNC",
+      bodyExcerpt: excerptText(lastBodyText),
+    },
+  );
 }
 
 async function detectQuoteUrl(page: Page) {
@@ -731,29 +1007,56 @@ export class FictivAdapter extends VendorAdapter {
     await navigateToQuoteSurface(page);
     await detectBlockingState(page, runDir);
     await appendArtifacts(artifacts, page, runDir, "landing");
+    await waitForUploadSurfaceReady(page, this.config.browserTimeoutMs, runDir);
+
+    const selectedProcessBeforeUpload = await waitForCncSelectionBeforeUpload(
+      page,
+      this.config.browserTimeoutMs,
+      runDir,
+    );
+    await detectBlockingState(page, runDir);
 
     const uploadFiles = [
       prerequisites.stagedCadFile.localPath,
       input.stagedDrawingFile?.localPath,
     ].filter((value): value is string => Boolean(value));
 
-    const uploadResult = await setFilesOnUpload(page, uploadFiles);
+    let uploadSelector: string | null = null;
+    if (selectedProcessBeforeUpload) {
+      const uploadResult = await setFilesOnUpload(page, uploadFiles);
+      uploadSelector = uploadResult.selector;
+      await appendArtifacts(artifacts, page, runDir, "uploaded");
+      await detectBlockingState(page, runDir);
 
-    await waitForQuoteSignals(page, this.config.browserTimeoutMs);
-    await detectBlockingState(page, runDir);
-    await appendArtifacts(artifacts, page, runDir, "uploaded");
+      await waitForTerminalQuoteOutcome(page, this.config.browserTimeoutMs, runDir);
+      await appendArtifacts(artifacts, page, runDir, "analysis-complete");
+    }
 
-    await setQuantity(page, normalizedQuantity(input));
+    const openedConfigurationDrawer = await openConfigurationDrawerIfPresent(page);
+    const selectedProcess = (await trySelectCncProcess(page)) ?? selectedProcessBeforeUpload;
+    const quantitySelector = await setQuantity(page, normalizedQuantity(input));
     const selectionResult = await trySetMaterialAndFinish(page, materialTerms, finishTerms);
+    const endUseSelection = await trySetEndUsePrototype(page);
 
     await page.waitForLoadState("networkidle").catch(() => undefined);
     await detectBlockingState(page, runDir);
     await appendArtifacts(artifacts, page, runDir, "configured");
+    const terminalOutcome = await waitForTerminalQuoteOutcome(
+      page,
+      this.config.browserTimeoutMs,
+      runDir,
+    );
 
     return {
-      uploadSelector: uploadResult.selector,
+      uploadSelector,
+      selectedProcess,
+      selectedEndUse: endUseSelection.selectedEndUse,
+      selectedEndUseSource: endUseSelection.selectedEndUseSource,
+      quantitySelector,
+      openedConfigurationDrawer,
       selectedMaterial: selectionResult.selectedMaterial,
       selectedFinish: selectionResult.selectedFinish,
+      terminalOutcome,
     };
   }
 
@@ -784,33 +1087,55 @@ export class FictivAdapter extends VendorAdapter {
     };
   }
 
-  private async ensurePriceIsPresent(
+  private resolveResultClassification(
+    outcome: FictivTerminalOutcome,
+    parsed: FictivParsedQuote,
+  ): FictivResultClassification {
+    if (outcome.state === "capability_limited") {
+      return "capability_limited";
+    }
+
+    if (outcome.state === "configuration_required") {
+      return "configuration_required";
+    }
+
+    if (outcome.state === "manual_review" || parsed.manualReview) {
+      return "manual_review";
+    }
+
+    return "instant_quote";
+  }
+
+  private async ensureInstantQuoteHasPrice(
     totalPrice: number | null,
-    manualReview: boolean,
     page: Page,
     runDir: string,
-    detectedFlow: FictivDetectedFlow,
     selection: FictivLiveSelection,
     parsed: FictivParsedQuote,
   ) {
-    if (totalPrice === null && !manualReview) {
-      throw new VendorAutomationError(
-        "Fictiv quote page did not expose a recognizable price after configuration.",
-        "unexpected_ui_state",
-        {
-          vendor: "fictiv",
-          uploadSelector: selection.uploadSelector,
-          selectedMaterial: selection.selectedMaterial,
-          selectedFinish: selection.selectedFinish,
-          priceSource: parsed.priceSource,
-          leadTimeSource: parsed.leadTimeSource,
-          manualReviewSelector: parsed.manualReviewSelector,
-          url: page.url(),
-          detectedFlow,
-        },
-        await capturePageArtifacts(page, runDir, "missing-price"),
-      );
+    if (totalPrice !== null) {
+      return;
     }
+
+    throw new VendorAutomationError(
+      "Fictiv quote page did not expose a recognizable price after configuration.",
+      "unexpected_ui_state",
+      {
+        vendor: "fictiv",
+        uploadSelector: selection.uploadSelector,
+        selectedProcess: selection.selectedProcess,
+        selectedMaterial: selection.selectedMaterial,
+        selectedFinish: selection.selectedFinish,
+        selectedEndUse: selection.selectedEndUse,
+        quantitySelector: selection.quantitySelector,
+        priceSource: parsed.priceSource,
+        leadTimeSource: parsed.leadTimeSource,
+        manualReviewSelector: parsed.manualReviewSelector,
+        url: page.url(),
+        detectedFlow: "instant_quote",
+      },
+      await capturePageArtifacts(page, runDir, "missing-price"),
+    );
   }
 
   private async stopTraceAndAttachArtifact(
@@ -856,8 +1181,11 @@ export class FictivAdapter extends VendorAdapter {
     error: unknown,
     detectedFlow: FictivDetectedFlow,
     uploadSelector: string | null,
+    selectedProcess: string | null,
     selectedMaterial: string | null,
     selectedFinish: string | null,
+    selectedEndUse: string | null,
+    selectedEndUseSource: FictivEndUseSource | null,
     artifacts: VendorArtifact[],
   ): never {
     if (error instanceof VendorAutomationError) {
@@ -871,10 +1199,25 @@ export class FictivAdapter extends VendorAdapter {
         vendor: "fictiv",
         detectedFlow,
         uploadSelector,
+        selectedProcess,
         selectedMaterial,
         selectedFinish,
+        selectedEndUse,
+        selectedEndUseSource,
       },
       artifacts,
+    );
+  }
+
+  private mergeVendorErrorArtifacts(
+    error: VendorAutomationError,
+    artifacts: VendorArtifact[],
+  ): VendorAutomationError {
+    return new VendorAutomationError(
+      error.message,
+      error.code,
+      error.payload,
+      [...artifacts, ...error.artifacts],
     );
   }
 
@@ -897,8 +1240,11 @@ export class FictivAdapter extends VendorAdapter {
     let traceStopped = false;
     let detectedFlow: FictivDetectedFlow = "quote_home";
     let uploadSelector: string | null = null;
+    let selectedProcess: string | null = null;
     let selectedMaterial: string | null = null;
     let selectedFinish: string | null = null;
+    let selectedEndUse: string | null = null;
+    let selectedEndUseSource: FictivEndUseSource | null = null;
 
     try {
       const session = await this.startLiveSession(prerequisites);
@@ -915,6 +1261,9 @@ export class FictivAdapter extends VendorAdapter {
         prerequisites,
       );
       uploadSelector = selection.uploadSelector;
+      selectedProcess = selection.selectedProcess;
+      selectedEndUse = selection.selectedEndUse;
+      selectedEndUseSource = selection.selectedEndUseSource;
       selectedMaterial = selection.selectedMaterial;
       selectedFinish = selection.selectedFinish;
       detectedFlow = "configuration_complete";
@@ -922,44 +1271,72 @@ export class FictivAdapter extends VendorAdapter {
       const parsed = await this.extractQuoteData(page);
       const totalPrice = parsed.totalPrice;
       const leadTime = parsed.leadTime;
-      const manualReview = parsed.manualReview;
       const priceSource = parsed.priceSource;
       const leadTimeSource = parsed.leadTimeSource;
       const bodyText = parsed.bodyText;
+      const portalStateSignal = selection.terminalOutcome.matchedSignal;
+      const resultClassification = this.resolveResultClassification(selection.terminalOutcome, parsed);
 
-      detectedFlow = manualReview ? "manual_review" : "instant_quote";
-      await this.ensurePriceIsPresent(totalPrice, manualReview, page, runDir, detectedFlow, selection, parsed);
+      if (resultClassification === "instant_quote") {
+        detectedFlow = "instant_quote";
+        await this.ensureInstantQuoteHasPrice(totalPrice, page, runDir, selection, parsed);
+      } else if (resultClassification === "configuration_required") {
+        detectedFlow = "configuration_required";
+      } else {
+        detectedFlow = "manual_review";
+      }
 
+      const isInstantQuote = resultClassification === "instant_quote";
       await appendArtifacts(artifacts, page, runDir, "result");
       traceStopped = await this.stopTraceAndAttachArtifact(browserContext, runDir, artifacts);
 
       const quoteUrl = await detectQuoteUrl(page);
       const unitPriceUsd =
-        totalPrice === null
+        !isInstantQuote || totalPrice === null
           ? null
           : Math.round((totalPrice / normalizedQuantity(input)) * 100) / 100;
+      const status = isInstantQuote ? "instant_quote_received" : "manual_review_pending";
+      let notes: string[];
+      if (resultClassification === "manual_review") {
+        notes = ["Fictiv flagged the part for manual review after upload and configuration."];
+      } else if (resultClassification === "configuration_required") {
+        notes = ["Fictiv requires additional configuration before an instant quote can be generated."];
+      } else if (resultClassification === "capability_limited") {
+        notes = [
+          "Fictiv account capability limitations prevented an instant CNC quote; manual review is required.",
+        ];
+      } else {
+        notes = ["Live Fictiv quote captured via Playwright."];
+      }
+
+      if (portalStateSignal && !isInstantQuote) {
+        notes.push(`Portal signal: ${portalStateSignal}`);
+      }
 
       return {
         vendor: "fictiv",
-        status: manualReview ? "manual_review_pending" : "instant_quote_received",
+        status,
         unitPriceUsd,
-        totalPriceUsd: totalPrice,
-        leadTimeBusinessDays: leadTime,
+        totalPriceUsd: isInstantQuote ? totalPrice : null,
+        leadTimeBusinessDays: isInstantQuote ? leadTime : null,
         quoteUrl,
         dfmIssues: [],
-        notes: [
-          manualReview
-            ? "Fictiv flagged the part for manual review after upload and configuration."
-            : "Live Fictiv quote captured via Playwright.",
-        ],
+        notes,
         artifacts,
         rawPayload: buildRawPayload({
           detectedFlow,
           uploadSelector,
+          selectedProcess,
           selectedMaterial,
           selectedFinish,
+          selectedEndUse,
+          selectedEndUseSource,
+          quantitySelector: selection.quantitySelector,
+          openedConfigurationDrawer: selection.openedConfigurationDrawer,
           priceSource,
           leadTimeSource,
+          resultClassification,
+          portalStateSignal,
           bodyExcerpt: excerptText(bodyText),
           requestedQuantity: input.requestedQuantity,
           url: quoteUrl,
@@ -967,12 +1344,25 @@ export class FictivAdapter extends VendorAdapter {
         }),
       };
     } catch (error) {
+      if (browserContext && this.config.playwrightCaptureTrace && !traceStopped) {
+        traceStopped = await this.stopTraceAndAttachArtifact(browserContext, runDir, artifacts).catch(
+          () => false,
+        );
+      }
+
+      if (error instanceof VendorAutomationError) {
+        throw this.mergeVendorErrorArtifacts(error, artifacts);
+      }
+
       this.rethrowLiveError(
         error,
         detectedFlow,
         uploadSelector,
+        selectedProcess,
         selectedMaterial,
         selectedFinish,
+        selectedEndUse,
+        selectedEndUseSource,
         artifacts,
       );
     } finally {

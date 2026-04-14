@@ -33,7 +33,7 @@ async function main() {
     console.log("What to do:");
     console.log("1. A Chromium window will open.");
     console.log("2. Log in to Fictiv manually.");
-    console.log("3. Open the quoting surface (for example /quotes or /quotes/upload) and confirm you are authenticated.");
+    console.log("3. Open the quoting surface (for example /quotes or /pages/quotes/upload) and confirm you are authenticated.");
     console.log("4. Return here and press Enter.");
     console.log("");
 
