@@ -36,6 +36,18 @@ describe("error-message", () => {
     expect(getUserFacingErrorMessage(error, "fallback")).toBe("fallback");
   });
 
+  it("falls back for opaque storage sentinel payloads", () => {
+    expect(
+      getUserFacingErrorMessage(
+        {
+          __isStorageError: true,
+          name: "StorageUnknownError",
+        },
+        "fallback",
+      ),
+    ).toBe("fallback");
+  });
+
   it("wraps raw objects as real errors while preserving metadata", () => {
     const error = toUserFacingError(
       {

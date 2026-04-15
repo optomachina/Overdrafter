@@ -97,6 +97,7 @@ describe("sonner error toast defaults", () => {
 
     emitObjectError({ message: "Storage denied" });
     emitObjectError({});
+    emitObjectError({ __isStorageError: true, name: "StorageUnknownError" });
     emitObjectError(Object.assign(new Error("{}"), { name: "StorageUnknownError", originalError: {} }));
 
     expect(sonnerMock.errorImpl).toHaveBeenNthCalledWith(
@@ -119,6 +120,15 @@ describe("sonner error toast defaults", () => {
     );
     expect(sonnerMock.errorImpl).toHaveBeenNthCalledWith(
       3,
+      "Error toast triggered.",
+      expect.objectContaining({
+        action: expect.objectContaining({
+          label: expect.any(Object),
+        }),
+      }),
+    );
+    expect(sonnerMock.errorImpl).toHaveBeenNthCalledWith(
+      4,
       "Error toast triggered.",
       expect.objectContaining({
         action: expect.objectContaining({

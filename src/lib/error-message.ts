@@ -81,6 +81,16 @@ function safeJsonStringify(value: unknown): string | null {
   }
 }
 
+function hasOnlyOpaqueStorageMarkers(value: Record<string, unknown>): boolean {
+  const keys = Object.keys(value);
+
+  if (keys.length === 0) {
+    return false;
+  }
+
+  return keys.every((key) => key === "name" || key === "__isStorageError");
+}
+
 function getRecordErrorMessage(
   error: Record<string, unknown>,
   seen: Set<unknown>,
@@ -125,6 +135,10 @@ function getRecordErrorMessage(
   }
 
   if (compactedKeys.length === 1 && compactedKeys[0] === "name") {
+    return null;
+  }
+
+  if (hasOnlyOpaqueStorageMarkers(compacted)) {
     return null;
   }
 
