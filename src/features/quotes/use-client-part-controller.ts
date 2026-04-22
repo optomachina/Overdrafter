@@ -265,7 +265,7 @@ export function useClientPartController() {
     return (accessibleProjectsQuery.data ?? []).filter(
       (project) => project.project.organization_id === partDetail.job.organization_id,
     );
-  }, [accessibleProjects, partDetail?.job]);
+  }, [accessibleProjectsQuery.data, partDetail?.job]);
 
   const assignJobMutation = useMutation({
     mutationFn: (projectId: string) => assignJobToProject({ jobId: canonicalJobId, projectId }),
