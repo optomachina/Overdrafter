@@ -5,6 +5,7 @@ import { Loader2, MoveLeft, MoveRight } from "lucide-react";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { ProcurementHandoffPanel } from "@/components/quotes/ProcurementHandoffPanel";
+import { StripePaymentPanel } from "@/components/quotes/StripePaymentPanel";
 import { ClientWorkspaceStateSummary, ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { RequestSummaryBadges } from "@/components/quotes/RequestSummaryBadges";
 import { Badge } from "@/components/ui/badge";
@@ -99,6 +100,10 @@ const ClientProjectReview = () => {
     [selectedLineItems],
   );
   const handoffSummary = useMemo(() => summarizeProcurementHandoff(handoffState), [handoffState]);
+
+  // Payment step is visible once all handoff fields are filled in
+  const handoffComplete = handoffSummary.ready;
+  const amountLabel = formatCurrency(selectionSummary.totalPriceUsd);
 
   if (isAuthInitializing) {
     return <AuthBootstrapScreen message="Restoring your review session." />;
@@ -280,7 +285,7 @@ const ClientProjectReview = () => {
                   {handoffSummary.ready ? "Ready for OverDrafter follow-up" : "More procurement detail is still needed"}
                 </h2>
                 <p className="mt-3 text-sm text-white/70">
-                  This route prepares a project-level procurement handoff only. Payment collection and order placement remain outside the app.
+                  Complete shipping, billing, and contact details to unlock the payment step below.
                 </p>
                 {handoffSummary.missingFields.length > 0 ? (
                   <p className="mt-4 text-sm text-amber-100">
@@ -288,10 +293,17 @@ const ClientProjectReview = () => {
                   </p>
                 ) : (
                   <p className="mt-4 text-sm text-emerald-100">
-                    Shipping, billing, and contact details are ready for manual project release coordination.
+                    Shipping, billing, and contact details are ready. Proceed to payment below.
                   </p>
                 )}
               </section>
+            ) : null}
+
+            {handoffComplete ? (
+              <StripePaymentPanel
+                projectId={projectId}
+                amountLabel={amountLabel}
+              />
             ) : null}
           </>
         )}
