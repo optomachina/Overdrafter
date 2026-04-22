@@ -81,6 +81,22 @@ function safeJsonStringify(value: unknown): string | null {
   }
 }
 
+/**
+ * `hasOnlyOpaqueStorageMarkers` detects records that contain only opaque storage error markers.
+ * The input is expected to be a record that may include optional metadata, but it is considered
+ * opaque/suppressed only when its keys are limited to `"name"` and `"__isStorageError"`.
+ * Returns `true` when the record should be treated as an opaque/suppressed storage error.
+ */
+function hasOnlyOpaqueStorageMarkers(value: Record<string, unknown>): boolean {
+  const keys = Object.keys(value);
+
+  if (keys.length === 0) {
+    return false;
+  }
+
+  return keys.every((key) => key === "name" || key === "__isStorageError");
+}
+
 function getRecordErrorMessage(
   error: Record<string, unknown>,
   seen: Set<unknown>,
@@ -125,6 +141,10 @@ function getRecordErrorMessage(
   }
 
   if (compactedKeys.length === 1 && compactedKeys[0] === "name") {
+    return null;
+  }
+
+  if (hasOnlyOpaqueStorageMarkers(compacted)) {
     return null;
   }
 
