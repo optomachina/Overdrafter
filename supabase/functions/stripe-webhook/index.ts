@@ -30,6 +30,23 @@ const serviceClient = createClient(supabaseUrl, supabaseServiceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// payments.order_id is a UUID FK; malformed metadata (or metadata from
+// intents created before validation tightened) must not break webhook writes.
+function projectIdToOrderId(paymentIntent: Stripe.PaymentIntent): string | null {
+  const value = paymentIntent.metadata?.projectId;
+  if (typeof value !== "string" || !UUID_RE.test(value)) {
+    if (value) {
+      console.warn(
+        `stripe-webhook: ignoring non-UUID projectId "${value}" for intent ${paymentIntent.id}`,
+      );
+    }
+    return null;
+  }
+  return value;
+}
+
 Deno.serve(async (request) => {
   if (request.method !== "POST") {
     return json(405, { error: "Method not allowed." });
@@ -102,7 +119,7 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
       stripe_payment_intent_id: stripePaymentIntentId,
       amount_cents: paymentIntent.amount,
       status: "captured",
-      order_id: paymentIntent.metadata?.projectId ?? null,
+      order_id: projectIdToOrderId(paymentIntent),
       authorized_at: new Date(paymentIntent.created * 1000).toISOString(),
       captured_at: new Date().toISOString(),
     });
@@ -125,26 +142,53 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
 async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
   const stripePaymentIntentId = paymentIntent.id;
 
-  const { data: existing } = await serviceClient
+  const { data: existing, error: lookupError } = await serviceClient
     .from("payments")
-    .select("id")
+    .select("id, status")
     .eq("stripe_payment_intent_id", stripePaymentIntentId)
     .maybeSingle();
 
+  if (lookupError) {
+    throw new Error(`payments lookup failed: ${lookupError.message}`);
+  }
+
   if (existing) {
-    await serviceClient
+    // Guard against out-of-order webhook delivery downgrading an already
+    // captured payment back to "failed".
+    if (existing.status === "captured") {
+      console.log(
+        `stripe-webhook: ignoring failed event for already-captured intent ${stripePaymentIntentId}`,
+      );
+      return;
+    }
+
+    const { error: updateError } = await serviceClient
       .from("payments")
       .update({ status: "failed", failed_at: new Date().toISOString() })
       .eq("stripe_payment_intent_id", stripePaymentIntentId);
+
+    if (updateError) {
+      throw new Error(`payments update to failed failed: ${updateError.message}`);
+    }
   } else {
-    await serviceClient.from("payments").insert({
+    const { error: insertError } = await serviceClient.from("payments").insert({
       stripe_payment_intent_id: stripePaymentIntentId,
       amount_cents: paymentIntent.amount,
       status: "failed",
-      order_id: paymentIntent.metadata?.projectId ?? null,
+      order_id: projectIdToOrderId(paymentIntent),
       authorized_at: new Date(paymentIntent.created * 1000).toISOString(),
       failed_at: new Date().toISOString(),
     });
+
+    if (insertError) {
+      if (insertError.code === "23505") {
+        console.log(
+          `stripe-webhook: concurrent insert for ${stripePaymentIntentId}, already handled`,
+        );
+        return;
+      }
+      throw new Error(`payments insert failed: ${insertError.message}`);
+    }
   }
 
   console.log(`stripe-webhook: payment failed for ${stripePaymentIntentId}`);

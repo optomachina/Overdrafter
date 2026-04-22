@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { loadStripe } from "@stripe/stripe-js";
+import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import {
   Elements,
   CardElement,
@@ -22,7 +22,7 @@ export function StripePaymentPanel({
   projectId,
   amountLabel,
 }: StripePaymentPanelProps) {
-  const [stripePromise] = useState(() => loadStripe(STRIPE_PUBLISHABLE_KEY));
+  const [stripePromise, setStripePromise] = useState<Promise<Stripe | null> | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [isSettingUp, setIsSettingUp] = useState(false);
@@ -41,6 +41,10 @@ export function StripePaymentPanel({
         return;
       }
 
+      // Defer Stripe.js loading until the user actually initiates payment
+      // (avoids pulling third-party JS for users who never reach this step).
+      setStripePromise((current) => current ?? loadStripe(STRIPE_PUBLISHABLE_KEY));
+
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-payment-intent`,
         {
@@ -50,7 +54,6 @@ export function StripePaymentPanel({
             Authorization: `Bearer ${accessToken}`,
             apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
           },
-          credentials: "include",
           body: JSON.stringify({ projectId }),
         },
       );
@@ -94,9 +97,13 @@ export function StripePaymentPanel({
         Authorize a card payment of <span className="text-white">{amountLabel}</span>. Your card will not be charged until OverDrafter confirms the Xometry order.
       </p>
 
-      {clientSecret ? (
+      {clientSecret && stripePromise ? (
         <Elements stripe={stripePromise} options={{ clientSecret }}>
-          <CardForm amountLabel={amountLabel} onSuccess={() => setPaid(true)} />
+          <CardForm
+            clientSecret={clientSecret}
+            amountLabel={amountLabel}
+            onSuccess={() => setPaid(true)}
+          />
         </Elements>
       ) : (
         <div className="mt-6">
@@ -127,11 +134,12 @@ export function StripePaymentPanel({
 }
 
 type CardFormProps = Readonly<{
+  clientSecret: string;
   amountLabel: string;
   onSuccess: () => void;
 }>;
 
-function CardForm({ amountLabel, onSuccess }: CardFormProps) {
+function CardForm({ clientSecret, amountLabel, onSuccess }: CardFormProps) {
   const stripe = useStripe();
   const elements = useElements();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -155,7 +163,7 @@ function CardForm({ amountLabel, onSuccess }: CardFormProps) {
       return;
     }
 
-    const { error, paymentIntent } = await stripe.confirmCardPayment(undefined as unknown as string, {
+    const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
       payment_method: { card: cardElement },
     });
 

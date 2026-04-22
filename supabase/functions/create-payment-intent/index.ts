@@ -88,28 +88,34 @@ async function verifyProjectAccess(
   return { ok: true };
 }
 
-function sumOfferCents(rows: OfferRow[]): { totalCents: number; missingSelection: boolean } {
+function sumOfferCents(rows: OfferRow[]): { totalCents: number; hasUnpricedJob: boolean } {
   let totalCents = 0;
-  let missingSelection = false;
+  let hasUnpricedJob = false;
 
   for (const row of rows) {
     const job = row.jobs;
     const priceUsd = job?.vendor_quote_offers?.total_price_usd;
+    const numeric =
+      priceUsd == null ? NaN : typeof priceUsd === "string" ? Number(priceUsd) : priceUsd;
 
-    if (priceUsd == null) {
-      if (job?.selected_vendor_quote_offer_id == null) {
-        missingSelection = true;
-      }
+    // Any job without a selected offer, or whose selected offer has a
+    // missing / non-finite / non-positive price, invalidates the charge.
+    // Silently skipping would let multi-job projects authorize a partial
+    // amount instead of the true total.
+    if (
+      !job ||
+      job.selected_vendor_quote_offer_id == null ||
+      !Number.isFinite(numeric) ||
+      numeric <= 0
+    ) {
+      hasUnpricedJob = true;
       continue;
     }
 
-    const numeric = typeof priceUsd === "string" ? Number(priceUsd) : priceUsd;
-    if (Number.isFinite(numeric)) {
-      totalCents += Math.round(numeric * 100);
-    }
+    totalCents += Math.round(numeric * 100);
   }
 
-  return { totalCents, missingSelection };
+  return { totalCents, hasUnpricedJob };
 }
 
 async function resolveAuthoritativePriceCents(
@@ -129,9 +135,9 @@ async function resolveAuthoritativePriceCents(
   }
 
   const rows = (data ?? []) as unknown as OfferRow[];
-  const { totalCents, missingSelection } = sumOfferCents(rows);
+  const { totalCents, hasUnpricedJob } = sumOfferCents(rows);
 
-  if (missingSelection || totalCents <= 0) {
+  if (hasUnpricedJob || totalCents <= 0) {
     return {
       ok: false,
       status: 400,
@@ -211,16 +217,23 @@ Deno.serve(async (request) => {
   }
 
   try {
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: priceResult.totalCents,
-      currency: "usd",
-      // Delayed capture: authorize now, capture after Xometry order placement
-      capture_method: "manual",
-      metadata: {
-        projectId,
-        userId: user.id,
+    // Stable idempotency key keyed on (project, user, amount) so retries,
+    // duplicate clicks, or remounts reuse the same PaymentIntent instead of
+    // authorizing the card multiple times.
+    const idempotencyKey = `create-payment-intent:${projectId}:${user.id}:${priceResult.totalCents}`;
+    const paymentIntent = await stripe.paymentIntents.create(
+      {
+        amount: priceResult.totalCents,
+        currency: "usd",
+        // Delayed capture: authorize now, capture after Xometry order placement
+        capture_method: "manual",
+        metadata: {
+          projectId,
+          userId: user.id,
+        },
       },
-    });
+      { idempotencyKey },
+    );
 
     return json(200, { clientSecret: paymentIntent.client_secret });
   } catch (error) {
