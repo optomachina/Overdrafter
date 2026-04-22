@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FolderKanban, Shapes, X } from "lucide-react";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -66,13 +66,16 @@ export function WorkspaceInlineSearch({
   const normalizedQuery = query.trim().toLowerCase();
   const activeScopedProject = scopedProject && scopedProject.id === scopedProjectId ? scopedProject : null;
   const hasScopeChip = Boolean(activeScopedProject);
-  const getProjectIdsForJob = (job: JobRecord) => {
-    if (resolveProjectIdsForJob) {
-      return resolveProjectIdsForJob(job);
-    }
+  const getProjectIdsForJob = useCallback(
+    (job: JobRecord) => {
+      if (resolveProjectIdsForJob) {
+        return resolveProjectIdsForJob(job);
+      }
 
-    return job.project_id ? [job.project_id] : [];
-  };
+      return job.project_id ? [job.project_id] : [];
+    },
+    [resolveProjectIdsForJob],
+  );
   const filteredProjects = useMemo(
     () =>
       projects
@@ -102,7 +105,7 @@ export function WorkspaceInlineSearch({
             .includes(normalizedQuery);
         })
         .slice(0, RESULT_LIMIT),
-    [jobSearchTextById, jobs, normalizedQuery, resolveProjectIdsForJob, scopedProjectId, summariesByJobId],
+    [getProjectIdsForJob, jobSearchTextById, jobs, normalizedQuery, scopedProjectId, summariesByJobId],
   );
   const hasQuery = normalizedQuery.length > 0;
   const hasResults = filteredProjects.length > 0 || filteredJobs.length > 0;

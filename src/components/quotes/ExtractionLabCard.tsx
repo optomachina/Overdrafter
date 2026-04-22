@@ -310,7 +310,10 @@ export function ExtractionLabCard({
     },
   });
 
-  const catalogModels = modelCatalogQuery.data?.models ?? [];
+  const catalogModels = useMemo(
+    () => modelCatalogQuery.data?.models ?? [],
+    [modelCatalogQuery.data?.models],
+  );
   const previewModelOptions = useMemo(
     () => catalogModels.filter((model) => model.previewRunnable),
     [catalogModels],

@@ -27,3 +27,10 @@ Key routing rules:
 - Architecture review → invoke plan-eng-review
 - Save progress, checkpoint, resume → invoke checkpoint
 - Code quality, health check → invoke health
+
+## Health Stack
+
+- typecheck: npm run typecheck
+- typecheck-worker: npm --prefix worker run typecheck
+- lint: npm run lint
+- test: npm test
