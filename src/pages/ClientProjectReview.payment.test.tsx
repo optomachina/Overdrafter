@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import React, { type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { StripePaymentPanel } from "@/components/quotes/StripePaymentPanel";
 
