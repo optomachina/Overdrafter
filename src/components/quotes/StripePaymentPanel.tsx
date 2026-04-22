@@ -13,10 +13,10 @@ import { cn } from "@/lib/utils";
 
 const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string;
 
-type StripePaymentPanelProps = {
+type StripePaymentPanelProps = Readonly<{
   projectId: string;
   amountLabel: string;
-};
+}>;
 
 export function StripePaymentPanel({
   projectId,
@@ -94,7 +94,11 @@ export function StripePaymentPanel({
         Authorize a card payment of <span className="text-white">{amountLabel}</span>. Your card will not be charged until OverDrafter confirms the Xometry order.
       </p>
 
-      {!clientSecret ? (
+      {clientSecret ? (
+        <Elements stripe={stripePromise} options={{ clientSecret }}>
+          <CardForm amountLabel={amountLabel} onSuccess={() => setPaid(true)} />
+        </Elements>
+      ) : (
         <div className="mt-6">
           {setupError ? (
             <div className="mb-4 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
@@ -117,19 +121,15 @@ export function StripePaymentPanel({
             )}
           </Button>
         </div>
-      ) : (
-        <Elements stripe={stripePromise} options={{ clientSecret }}>
-          <CardForm amountLabel={amountLabel} onSuccess={() => setPaid(true)} />
-        </Elements>
       )}
     </section>
   );
 }
 
-type CardFormProps = {
+type CardFormProps = Readonly<{
   amountLabel: string;
   onSuccess: () => void;
-};
+}>;
 
 function CardForm({ amountLabel, onSuccess }: CardFormProps) {
   const stripe = useStripe();

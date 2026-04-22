@@ -107,16 +107,10 @@ describe("StripePaymentPanel", () => {
     expect(screen.getByText(/\$2,500\.00/)).toBeInTheDocument();
   });
 
-  it("shows confirmation section after successful payment", () => {
-    // Render with paid state by simulating onSuccess callback path
-    // We test the confirmation UI by directly testing the success state
-    // (full Stripe card flow requires E2E / Playwright)
-    const { rerender } = render(<StripePaymentPanel {...defaultProps} />);
-
-    // Verify initial state
+  it("does not show the confirmation section before payment", () => {
+    // Full paid-state flow is covered by E2E with Stripe test mode; here we
+    // only assert the pre-payment initial state.
+    render(<StripePaymentPanel {...defaultProps} />);
     expect(screen.queryByText(/payment confirmed/i)).not.toBeInTheDocument();
-
-    // The paid confirmation screen is tested in E2E with Stripe test mode
-    void rerender;
   });
 });
