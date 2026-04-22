@@ -88,6 +88,13 @@ async function verifyProjectAccess(
   return { ok: true };
 }
 
+function toFiniteNumber(value: number | string | null | undefined): number {
+  if (value == null) {
+    return Number.NaN;
+  }
+  return typeof value === "string" ? Number(value) : value;
+}
+
 function sumOfferCents(rows: OfferRow[]): { totalCents: number; hasUnpricedJob: boolean } {
   let totalCents = 0;
   let hasUnpricedJob = false;
@@ -95,16 +102,14 @@ function sumOfferCents(rows: OfferRow[]): { totalCents: number; hasUnpricedJob: 
   for (const row of rows) {
     const job = row.jobs;
     const priceUsd = job?.vendor_quote_offers?.total_price_usd;
-    const numeric =
-      priceUsd == null ? NaN : typeof priceUsd === "string" ? Number(priceUsd) : priceUsd;
+    const numeric = toFiniteNumber(priceUsd);
 
     // Any job without a selected offer, or whose selected offer has a
     // missing / non-finite / non-positive price, invalidates the charge.
     // Silently skipping would let multi-job projects authorize a partial
     // amount instead of the true total.
     if (
-      !job ||
-      job.selected_vendor_quote_offer_id == null ||
+      job?.selected_vendor_quote_offer_id == null ||
       !Number.isFinite(numeric) ||
       numeric <= 0
     ) {
