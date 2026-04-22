@@ -17,13 +17,13 @@ Deno.test("POST without Authorization returns 401", async () => {
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ projectId: "test", amountCents: 5000 }),
+    body: JSON.stringify({ projectId: "test" }),
   });
 
   assertEquals(response.status, 401);
 });
 
-Deno.test("POST with invalid amountCents returns 400", async () => {
+Deno.test("POST without projectId returns 400", async () => {
   const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/create-payment-intent`;
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const testToken = Deno.env.get("SUPABASE_TEST_AUTH_TOKEN");
@@ -40,7 +40,7 @@ Deno.test("POST with invalid amountCents returns 400", async () => {
       Authorization: `Bearer ${testToken}`,
       apikey: anonKey,
     },
-    body: JSON.stringify({ projectId: "test", amountCents: 10 }), // below $0.50 minimum
+    body: JSON.stringify({}),
   });
 
   assertEquals(response.status, 400);

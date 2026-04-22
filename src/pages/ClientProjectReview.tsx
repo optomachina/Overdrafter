@@ -103,7 +103,6 @@ const ClientProjectReview = () => {
 
   // Payment step is visible once all handoff fields are filled in
   const handoffComplete = handoffSummary.ready;
-  const amountCents = Math.round(selectionSummary.totalPriceUsd * 100);
   const amountLabel = formatCurrency(selectionSummary.totalPriceUsd);
 
   if (isAuthInitializing) {
@@ -303,7 +302,6 @@ const ClientProjectReview = () => {
             {handoffComplete ? (
               <StripePaymentPanel
                 projectId={projectId}
-                amountCents={amountCents}
                 amountLabel={amountLabel}
               />
             ) : null}

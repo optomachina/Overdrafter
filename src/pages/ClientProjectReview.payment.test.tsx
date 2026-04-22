@@ -17,9 +17,20 @@ vi.mock("@stripe/react-stripe-js", () => ({
   useElements: () => null,
 }));
 
+// Mock supabase client: the panel now reads the user's session access token
+// instead of trusting the anon key, so tests need a stubbed session.
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: {
+    auth: {
+      getSession: vi.fn(() =>
+        Promise.resolve({ data: { session: { access_token: "test-access-token" } } }),
+      ),
+    },
+  },
+}));
+
 const defaultProps = {
   projectId: "proj-123",
-  amountCents: 250000,
   amountLabel: "$2,500.00",
 };
 

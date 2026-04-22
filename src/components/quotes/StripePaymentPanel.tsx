@@ -8,19 +8,18 @@ import {
 } from "@stripe/react-stripe-js";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
 const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string;
 
 type StripePaymentPanelProps = {
   projectId: string;
-  amountCents: number;
   amountLabel: string;
 };
 
 export function StripePaymentPanel({
   projectId,
-  amountCents,
   amountLabel,
 }: StripePaymentPanelProps) {
   const [stripePromise] = useState(() => loadStripe(STRIPE_PUBLISHABLE_KEY));
@@ -34,16 +33,25 @@ export function StripePaymentPanel({
     setSetupError(null);
 
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+
+      if (!accessToken) {
+        setSetupError("Your session has expired. Please sign in again.");
+        return;
+      }
+
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-payment-intent`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            Authorization: `Bearer ${accessToken}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
           },
           credentials: "include",
-          body: JSON.stringify({ projectId, amountCents }),
+          body: JSON.stringify({ projectId }),
         },
       );
 
@@ -60,7 +68,7 @@ export function StripePaymentPanel({
     } finally {
       setIsSettingUp(false);
     }
-  }, [projectId, amountCents]);
+  }, [projectId]);
 
   if (paid) {
     return (
