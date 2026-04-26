@@ -35,6 +35,8 @@ Important specialized planning docs include:
 
 - `docs/service-request-taxonomy.md` for service-type modeling and line-item boundaries
 - `docs/assembly-workspace-foundation.md` for project-scoped assembly workspace planning and backlog placement
+- `docs/DESIGN.md` for the canonical design system (typography, color, layout, anti-slop rules) — read before any UI or visual decision
+
 ## Symphony Automation
 
 OverDrafter includes a repo-local Symphony workflow contract in `WORKFLOW.md`, repo-local skills in
