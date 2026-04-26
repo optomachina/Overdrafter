@@ -40,6 +40,13 @@ Key routing rules:
 - Save progress, checkpoint, resume → invoke gstack `checkpoint`
 - Code quality, health check → invoke gstack `health`
 
+## Design System
+
+Read `docs/DESIGN.md` before any visual or UI decision.
+All font choices, colors, spacing, layout patterns, and aesthetic direction are defined there.
+Do not deviate without explicit user approval and a logged Decisions row in `docs/DESIGN.md`.
+In QA and review modes, flag any code that doesn't match `docs/DESIGN.md`.
+
 ## Health Stack
 
 - typecheck: npm run typecheck
