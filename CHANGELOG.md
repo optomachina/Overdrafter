@@ -13,7 +13,7 @@ All notable changes to OverDrafter are documented here. The format is based on [
 - **Sortable quote tables** — caret indicators on PRICE / LEAD / QUALITY / TOTAL columns; active sort filled in oxidized-red.
 - **Vendor multi-quote stacking** — vendors with multiple quote variants (e.g. Xometry's 5+ quotes) collapse to a parent row with `(N quotes)` annotation; selection happens at the sub-row level.
 - **Editable specs interaction (3 states)** — default (no indicators) → editing (focus ring + keyboard hint) → has-pending-edits (deeper-surface tint + italic value text + REVERT TO DEFAULTS link). Explicitly rejects red dots, bold values, and per-row WAS: annotations as too loud.
-- **Units policy** — imperial-only throughout MVP; metric swap deferred to roadmap (chip `METRIC SWAP`).
+- **Units toggle** — `METRIC / IMPERIAL` pill at the bottom of editable-specs panels (Part Info, Project Info); default `IMPERIAL`, per-panel scope (not global).
 - **Bulk filter strip** (Project workspace) — `CHEAPEST / FASTEST / BY DUE DATE` chips + `[X] US ORIGIN ONLY` checkbox for one-click bulk vendor selection.
 - **4-step status timeline** — RFQ Sent → Quotes Received → Quote Selection → Parts Ordered. Confirm Order is the action surface, not a discrete state.
 - **Order Confirmation page** — full-page checkout (not modal): Order Summary, Line Items, Costs, Ship To, Payment Method, Terms. Single primary CTA `PLACE ORDER` is the only filled-color button on the page.
