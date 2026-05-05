@@ -86,11 +86,31 @@ export async function validateXometryReadiness(config: WorkerConfig): Promise<st
     return [];
   }
 
+  if (!config.workerLiveAdapters.includes("xometry")) {
+    return [];
+  }
+
   const issues: string[] = [];
+
+  if (config.xometryUserDataDir) {
+    try {
+      const stat = await fs.stat(config.xometryUserDataDir);
+      if (!stat.isDirectory()) {
+        issues.push(
+          `XOMETRY_USER_DATA_DIR at ${config.xometryUserDataDir} is not a directory.`,
+        );
+      }
+    } catch {
+      issues.push(
+        `XOMETRY_USER_DATA_DIR was not found at ${config.xometryUserDataDir}. Run \`npm --prefix worker run auth:xometry\` to bootstrap the persistent profile.`,
+      );
+    }
+    return issues;
+  }
 
   if (!config.xometryStorageStatePath) {
     issues.push(
-      "Live mode requires XOMETRY_STORAGE_STATE_PATH or XOMETRY_STORAGE_STATE_JSON.",
+      "Live mode requires XOMETRY_USER_DATA_DIR (recommended) or XOMETRY_STORAGE_STATE_PATH / XOMETRY_STORAGE_STATE_JSON.",
     );
     return issues;
   }
@@ -127,6 +147,10 @@ export async function validateXometryReadiness(config: WorkerConfig): Promise<st
 
 export async function validateFictivReadiness(config: WorkerConfig): Promise<string[]> {
   if (config.workerMode !== "live") {
+    return [];
+  }
+
+  if (!config.workerLiveAdapters.includes("fictiv")) {
     return [];
   }
 

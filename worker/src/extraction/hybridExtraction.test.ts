@@ -50,6 +50,8 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     playwrightDisableDevShmUsage: true,
     xometryStorageStatePath: null,
     xometryStorageStateJson: null,
+    xometryUserDataDir: null,
+    xometryBrowserChannel: null,
     openAiApiKey: "test-openai-key",
     drawingExtractionModel: "gpt-5.4",
     drawingExtractionEnableModelFallback: true,

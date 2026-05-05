@@ -5,13 +5,15 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { launchMock } = vi.hoisted(() => ({
+const { launchMock, launchPersistentContextMock } = vi.hoisted(() => ({
   launchMock: vi.fn(),
+  launchPersistentContextMock: vi.fn(),
 }));
 
-vi.mock("playwright", () => ({
+vi.mock("patchright", () => ({
   chromium: {
     launch: launchMock,
+    launchPersistentContext: launchPersistentContextMock,
   },
 }));
 
@@ -45,6 +47,8 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     playwrightDisableDevShmUsage: true,
     xometryStorageStatePath: path.join(os.tmpdir(), "xometry-storage-state.json"),
     xometryStorageStateJson: null,
+    xometryUserDataDir: null,
+    xometryBrowserChannel: null,
     ...overrides,
   };
 }
@@ -234,6 +238,7 @@ async function makeTempDir() {
 
 beforeEach(() => {
   launchMock.mockReset();
+  launchPersistentContextMock.mockReset();
 });
 
 afterEach(async () => {

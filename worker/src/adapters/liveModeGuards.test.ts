@@ -31,6 +31,8 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     playwrightDisableDevShmUsage: true,
     xometryStorageStatePath: null,
     xometryStorageStateJson: null,
+    xometryUserDataDir: null,
+    xometryBrowserChannel: null,
     openAiApiKey: null,
     anthropicApiKey: null,
     openRouterApiKey: null,

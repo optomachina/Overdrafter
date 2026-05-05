@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page } from "patchright";
 import { createRunDir, uniqueName } from "../files.js";
 import {
   VendorAutomationError,
@@ -87,6 +87,10 @@ export function detectBlockingStateSignal(input: { text: string; url: string }) 
 
   if (input.url.includes("/login") || isSignalPresent(input.text, XOMETRY_LOCATORS.loginSignals)) {
     return "login_required";
+  }
+
+  if (isSignalPresent(input.text, XOMETRY_LOCATORS.genericErrorSignals)) {
+    return "anti_detection_block";
   }
 
   return null;
@@ -203,10 +207,14 @@ async function readBodyText(page: Page) {
 
 async function waitForQuoteSignals(page: Page, timeoutMs: number) {
   await page.waitForFunction(
-    (patterns) =>
-      [...patterns.readyPatterns, ...patterns.reviewPatterns].some((pattern) =>
-        new RegExp(pattern, "i").test(document.body.innerText),
-      ),
+    (patterns) => {
+      const body = document.body;
+      if (!body) return false;
+      const text = body.innerText ?? "";
+      return [...patterns.readyPatterns, ...patterns.reviewPatterns].some((pattern) =>
+        new RegExp(pattern, "i").test(text),
+      );
+    },
     {
       readyPatterns: XOMETRY_LOCATORS.quoteReadySignals.map((pattern) => pattern.source),
       reviewPatterns: XOMETRY_LOCATORS.manualReviewSignals.map((pattern) => pattern.source),
@@ -399,6 +407,20 @@ async function detectBlockingState(page: Page, runDir: string) {
     );
   }
 
+  if (signal === "anti_detection_block") {
+    const artifacts = await capturePageArtifacts(page, runDir, "anti-detection-block");
+    throw new VendorAutomationError(
+      "Xometry surfaced a generic error banner consistent with anti-detection blocking.",
+      "anti_detection_block",
+      {
+        vendor: "xometry",
+        url: page.url(),
+        bodyExcerpt: excerptText(bodyText),
+      },
+      artifacts,
+    );
+  }
+
   return bodyText;
 }
 
@@ -562,14 +584,31 @@ export class XometryAdapter extends VendorAdapter {
         launchArgs.push("--disable-dev-shm-usage");
       }
 
-      browser = await chromium.launch({
-        headless: this.config.playwrightHeadless,
-        args: launchArgs,
-      });
+      if (this.config.xometryUserDataDir) {
+        await fs.mkdir(this.config.xometryUserDataDir, { recursive: true });
+        const persistentLaunchOptions: Record<string, unknown> = {
+          headless: this.config.playwrightHeadless,
+          args: launchArgs,
+        };
 
-      browserContext = await browser.newContext({
-        storageState: this.config.xometryStorageStatePath,
-      });
+        if (this.config.xometryBrowserChannel) {
+          persistentLaunchOptions.channel = this.config.xometryBrowserChannel;
+        }
+
+        browserContext = await chromium.launchPersistentContext(
+          this.config.xometryUserDataDir,
+          persistentLaunchOptions,
+        );
+      } else {
+        browser = await chromium.launch({
+          headless: this.config.playwrightHeadless,
+          args: launchArgs,
+        });
+
+        browserContext = await browser.newContext({
+          storageState: this.config.xometryStorageStatePath,
+        });
+      }
 
       browserContext.setDefaultTimeout(this.config.browserTimeoutMs);
       browserContext.setDefaultNavigationTimeout(this.config.browserTimeoutMs);
@@ -582,7 +621,8 @@ export class XometryAdapter extends VendorAdapter {
       }
 
       const page = await browserContext.newPage();
-      await page.goto(XOMETRY_URLS.quoteHome, { waitUntil: "domcontentloaded" });
+      await page.goto(XOMETRY_URLS.quoteHome, { waitUntil: "load" });
+      await page.waitForLoadState("networkidle").catch(() => undefined);
       await detectBlockingState(page, runDir);
       await appendArtifacts(artifacts, page, runDir, "landing");
 

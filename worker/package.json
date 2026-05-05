@@ -34,6 +34,7 @@
     "fast-xml-parser": "^5.2.5",
     "node-stream-zip": "^1.15.0",
     "openai": "^4.104.0",
+    "patchright": "^1.59.4",
     "playwright": "^1.52.0",
     "zod": "^3.25.76"
   },

@@ -37,6 +37,8 @@ function makeConfig(): WorkerConfig {
     playwrightDisableDevShmUsage: true,
     xometryStorageStatePath: null,
     xometryStorageStateJson: null,
+    xometryUserDataDir: null,
+    xometryBrowserChannel: null,
     fictivStorageStatePath: requiredEnv("FICTIV_STORAGE_STATE_PATH"),
     openAiApiKey: null,
     anthropicApiKey: null,

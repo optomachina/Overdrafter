@@ -46,6 +46,8 @@ function buildSmokeConfig(): WorkerConfig {
     playwrightDisableDevShmUsage: true,
     xometryStorageStatePath: null,
     xometryStorageStateJson: null,
+    xometryUserDataDir: null,
+    xometryBrowserChannel: null,
     fictivStorageStatePath: null,
     fictivStorageStateJson: null,
     openAiApiKey,

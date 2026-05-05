@@ -7,6 +7,7 @@ const BLOCKING_FAILURE_CODES = new Set([
   "captcha",
   "selector_failure",
   "unexpected_ui_state",
+  "anti_detection_block",
 ]);
 
 export type OpenclawGateVendor = (typeof OPENCLAW_TARGET_VENDORS)[number];

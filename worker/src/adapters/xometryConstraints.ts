@@ -6,6 +6,12 @@ export const XOMETRY_URLS = {
 export const XOMETRY_LOCATORS = {
   loginSignals: [/sign in/i, /log in/i, /continue with/i],
   captchaSignals: [/captcha/i, /verify you are human/i, /recaptcha/i],
+  genericErrorSignals: [
+    /there was an error[, ]+please try again/i,
+    /something went wrong[, ]+please try again/i,
+    /access denied/i,
+    /request blocked/i,
+  ],
   manualReviewSignals: [
     /manual review/i,
     /requires review/i,
