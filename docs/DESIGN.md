@@ -266,7 +266,7 @@ Reject any UI work that includes:
 | 2026-04-25 | Bone background `#F2EFE8`, oxidized-red accent `#C2410C` | Rejects both category convergence traps (cheerful SaaS blue and defense-tech black). Daylight rigor reads as an actual precision shop. |
 | 2026-04-25 | Filename is the largest type on the workspace | Aligns with `PRD.md` §175–179 artifact-first principle. The user's part number is the subject of the product, not the brand. |
 | 2026-05-05 | MVP locked via `/design-shotgun` (9 rounds, 30 mockups, 3 stakeholders) | Drafting-paper aesthetic survives stakeholder review. Locked surfaces: Part Workspace, Project Workspace (with assemblies + flat-parts modes), Editable Specs interaction, Order Confirmation. See `## MVP locked patterns` below. |
-| 2026-05-05 | Default to **imperial**, metric on roadmap | Engineer/PM stakeholders converged: imperial-first for the US market, metric swap as a per-user preference deferred to roadmap. Eliminates a metric/imperial toggle from chrome; values are imperial throughout MVP. |
+| 2026-05-05 | Default to **imperial**, metric on roadmap | Engineer/PM stakeholders converged: imperial-first for the US market, metric swap as a per-user preference deferred to roadmap. MVP is imperial-only with no toggle anywhere (chrome, info panels, or editable-specs panels). Roadmap chip `METRIC SWAP` tracks the future per-user preference. |
 | 2026-05-05 | Theme toggle = **single sun/moon icon**, not labeled pill | Round-5 had a `BONE / DARK` pill; round-6 simplified to one click-to-swap icon. Cleaner, follows ChatGPT/Linear/Notion convention. |
 | 2026-05-05 | Selection indicator = **vendor wordmark in oxidized-red text**, never row-level vertical bars | Round-6 feedback rejected the vertical red bars between part rows and vendor cells — too visually noisy. The selection signal is the wordmark color alone. |
 | 2026-05-05 | Override indicator = **deeper-surface tint + italic value**, NOT bold, NOT colored dots | Researched against Figma / Linear / GitHub PR diff / Material. Red dots were too loud. Bold was too loud. Italic + tint is the quietest signal that still says "this is different." The `REVERT TO DEFAULTS` link in panel header carries the bulk-restore affordance; per-row WAS: annotations dropped as redundant. |
@@ -297,7 +297,7 @@ Both left and right rails on every workspace surface (Part, Project, Order Confi
 
 ### Left rail composition
 
-```
+```text
 HEADER
   OVERDRAFTER (logo, heavy condensed sans, --accent)
   MFG CO-PILOT (mono uppercase, --muted, 10px)
@@ -336,9 +336,9 @@ Field-level overrides on metadata panels (Part Info, Project Info). Three states
 
 The override indicator deliberately rejects: red dots (too loud), bold value text (too loud), per-row WAS: annotations (clutter). The combination of `--surface-2` tint + italic is the quietest signal that still communicates "this is different."
 
-### Units toggle
+### Units
 
-Lives at the bottom of any editable-specs panel (Part Info, Project Info) as a `METRIC / IMPERIAL` pill (radius 4 max). Default is IMPERIAL (active in `--accent`). Per-user preference; not in the global chrome.
+Imperial throughout MVP. No metric/imperial toggle in chrome, in info panels, or in editable-specs panels. Roadmap chip `METRIC SWAP` tracks the deferred per-user preference.
 
 ### Bulk filter strip (Project workspace)
 
@@ -366,7 +366,7 @@ The Order Confirmation page renders this timeline vertically in its right rail w
 
 Full page, not modal. Layout:
 
-```
+```text
 [← BACK TO PROJECT]
 PROJECTS / SUSPENSION-RIG-2024 / ORDER CONFIRMATION
 ORDER CONFIRMATION                                    (heavy condensed sans 48px)
