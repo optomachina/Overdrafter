@@ -25,6 +25,8 @@ const workerConfig: WorkerConfig = {
   playwrightDisableDevShmUsage: true,
   xometryStorageStatePath: null,
   xometryStorageStateJson: null,
+  xometryUserDataDir: null,
+  xometryBrowserChannel: null,
 };
 
 class TestVendorAdapter extends VendorAdapter {

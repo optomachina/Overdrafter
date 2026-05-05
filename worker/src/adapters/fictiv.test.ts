@@ -51,6 +51,8 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     playwrightDisableDevShmUsage: true,
     xometryStorageStatePath: null,
     xometryStorageStateJson: null,
+    xometryUserDataDir: null,
+    xometryBrowserChannel: null,
     fictivStorageStatePath: path.join(os.tmpdir(), "fictiv-storage-state.json"),
     openAiApiKey: null,
     anthropicApiKey: null,

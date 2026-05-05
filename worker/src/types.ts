@@ -272,6 +272,7 @@ export type VendorAutomationErrorCode =
   | "upload_failure"
   | "navigation_failure"
   | "unexpected_ui_state"
+  | "anti_detection_block"
   | "not_implemented";
 
 export class VendorAutomationError extends Error {
@@ -304,6 +305,8 @@ export type WorkerConfig = {
   playwrightDisableDevShmUsage: boolean;
   xometryStorageStatePath: string | null;
   xometryStorageStateJson: string | null;
+  xometryUserDataDir: string | null;
+  xometryBrowserChannel: string | null;
   fictivStorageStatePath: string | null;
   fictivStorageStateJson: string | null;
   openAiApiKey: string | null;
