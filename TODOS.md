@@ -481,3 +481,37 @@ AUTHORIZED → CAPTURED (Xometry order placed)
 **Effort:** S (human: ~2 hours / CC: ~10 min) | **Priority:** P2
 
 **Depends on:** Xometry live mode enabled (Task B).
+
+---
+
+## TODO-025: Refresh landing-page "What you'll see" section once app shape stabilizes
+
+**What:** Replace the current Section 4 mockup on the public marketing landing (`src/pages/Landing.tsx`, when shipped) with an accurate representation of the live OverDrafter part workspace. Current placeholder is `variant-R3-v2.png` — an AI-generated mockup of an engineering drawing + part workspace UI side-by-side. Founder feedback (2026-05-05): "Section 4 looks really bad, completely detached from what we're building. Maybe good enough for now and we can update as we finalize app shape and refresh it."
+
+**Why:** The "What you'll see" section is meant to build trust by showing real product, but the AI mockup doesn't match the actual app shape and reads as fabricated. The truth contract for the landing page (saved to memory: `feedback_marketing_no_fabrication`) requires showing real surfaces or omitting. Current placeholder violates that in spirit, but is acceptable until the live app's part workspace is stable enough to screenshot.
+
+**Where to start:**
+- Wait for the live `ClientPart` / part workspace UI to migrate fully to `docs/DESIGN.md` (bone, hairline, Lab Mono, Suisse Condensed, oxidized red).
+- Once the live surface looks like DESIGN.md intends, replace the mockup with one of:
+  - **A)** Real screenshots from a seeded dev environment (most truthful)
+  - **B)** A fresh Codex-generated mockup that matches the now-stable live UI
+  - **C)** A lightweight inline React render using the actual app components in a "preview mode"
+- Update `src/pages/Landing.tsx` to swap the image (or component) in Section 4.
+- Update `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/approved.json` (`approved_variants.what_youll_see`) to record the new asset.
+
+**Acceptance criteria:**
+- The "What you'll see" section uses real or accurate-to-live product surfaces, not a fabricated AI mockup.
+- The section visually matches the rest of the bone-mode body (hairline rules, Lab Mono labels, oxidized-red accent, no gradients/shadows/blue).
+- The section ties to a real signed-in user surface — clicking through (post-auth) lands on the same UI shown in the section.
+
+**Effort:** S–M (human: ~1 day / CC: ~30 min once app shape is locked) | **Priority:** P2 (ship landing now with placeholder, refresh later)
+
+**Depends on:**
+- Live OverDrafter part workspace UI fully migrated to `docs/DESIGN.md`.
+- `Landing.tsx` shipped with the current R3-v2 placeholder (see `.context/landing-page-plan.md`).
+
+**Reference artifacts:**
+- Plan: `.context/landing-page-plan.md`
+- Approved record: `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/approved.json`
+- Current placeholder: `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/variant-R3-v2.png`
+- Full-page preview: `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/full-page-preview.html`
