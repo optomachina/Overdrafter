@@ -265,6 +265,134 @@ Reject any UI work that includes:
 | 2026-04-25 | Display = Suisse Int'l Condensed (default) + GT America Mono (alternate) | Both sanctioned. Codex argued for Suisse Condensed (mechanical pressure, brand presence); subagent argued for GT America Mono (part number as protagonist). Default is Suisse; mono allowed where artifact-as-protagonist needs to dominate. |
 | 2026-04-25 | Bone background `#F2EFE8`, oxidized-red accent `#C2410C` | Rejects both category convergence traps (cheerful SaaS blue and defense-tech black). Daylight rigor reads as an actual precision shop. |
 | 2026-04-25 | Filename is the largest type on the workspace | Aligns with `PRD.md` §175–179 artifact-first principle. The user's part number is the subject of the product, not the brand. |
+| 2026-05-05 | MVP locked via `/design-shotgun` (9 rounds, 30 mockups, 3 stakeholders) | Drafting-paper aesthetic survives stakeholder review. Locked surfaces: Part Workspace, Project Workspace (with assemblies + flat-parts modes), Editable Specs interaction, Order Confirmation. See `## MVP locked patterns` below. |
+| 2026-05-05 | Default to **imperial**, with per-panel `METRIC / IMPERIAL` toggle on editable-specs panels | Engineer/PM stakeholders converged: imperial-first for the US market. The chrome-level metric/imperial toggle (round-5 design) is removed — too noisy at the page-level. Replaced with a per-panel toggle pill at the bottom of any editable-specs panel (Part Info, Project Info), defaulting to IMPERIAL. Lets users see their parts in either system on the panels where it matters, without cluttering the global chrome. |
+| 2026-05-05 | Theme toggle = **single sun/moon icon**, not labeled pill | Round-5 had a `BONE / DARK` pill; round-6 simplified to one click-to-swap icon. Cleaner, follows ChatGPT/Linear/Notion convention. |
+| 2026-05-05 | Selection indicator = **vendor wordmark in oxidized-red text**, never row-level vertical bars | Round-6 feedback rejected the vertical red bars between part rows and vendor cells — too visually noisy. The selection signal is the wordmark color alone. |
+| 2026-05-05 | Override indicator = **deeper-surface tint + italic value**, NOT bold, NOT colored dots | Researched against Figma / Linear / GitHub PR diff / Material. Red dots were too loud. Bold was too loud. Italic + tint is the quietest signal that still says "this is different." The `REVERT TO DEFAULTS` link in panel header carries the bulk-restore affordance; per-row WAS: annotations dropped as redundant. |
+| 2026-05-05 | Edit affordance = **hover-only** (no static pencil icons) | Per-row pencil icons were rejected as visually cluttered. Edit reveals on row hover via subtle deeper-surface tint + small mono `EDIT` label in oxidized-red at the right edge. |
+| 2026-05-05 | Quote table = **Vendor / Price / Lead / Quality / Origin** ONLY (drop Certs, Margin, Capabilities, Process) | Stakeholders converged: buyers care about price, lead, quality, and origin. Margins are internal-only. Certs and capabilities clutter the buying decision; route them to a roadmap drill-down. |
+| 2026-05-05 | Quote table headers are **sortable**, active sort caret in oxidized-red | Click the column header to sort ascending/descending. Active sort shows a filled oxidized-red caret; inactive columns show outlined hairline carets in graphite muted. |
+| 2026-05-05 | Vendors **stack multiple quotes** under a single provider header | Xometry alone offers 5+ quotes (varying lead, expedite, region). The table must scale to dozens of quotes via expand/collapse per vendor. Each sub-row is independently selectable; selection signal carries to the sub-row only. |
+| 2026-05-05 | Both rails are **collapsible sliders**, not fixed columns | Drag handles on inner edges (vertical hairline strip + 6 dot pattern + chevron). Tested in round 1 ("Decision Ledger Forward") and round 2 ("Collapsed Rails"); locked in round 8. |
+| 2026-05-05 | Left rail has **OverDrafter logo (top) + NEW + SEARCH (below) + user account footer (bottom)** | Logo is the heavy condensed sans wordmark in oxidized-red with `MFG CO-PILOT` tagline beneath. NEW (with `+` icon) and SEARCH (magnifying glass) sit in a row below the logo. User footer is ChatGPT-style: 32px circular avatar with initials, name, org tagline, popup chevron. |
+| 2026-05-05 | Breadcrumbs live **above the filename hero in the center column**, not in the top command strip | Top strip stays slim (32px) carrying only SHARE + theme toggle. Breadcrumb context belongs to the artifact, not the page chrome. |
+| 2026-05-05 | Project view ships in **two modes: assemblies + flat-parts** | Some projects are assemblies of related parts; some are unrelated batch-prototyping bags. Both modes share the same chrome — assemblies show grouped headers + qty/assy multipliers; flat shows `NO ASSEMBLIES — N INDEPENDENT PARTS` and per-row iso thumbnails. |
+| 2026-05-05 | Project view has **bulk-action filter chips** (Cheapest / Fastest / By Due Date) + **`[X] US Origin Only` checkbox** | One-click bulk-select across all parts in a project. Origin filter as a hard filter, not a soft sort. |
+| 2026-05-05 | Project totals use **`EST. LEAD`**, not `WEIGHTED LEAD`; **`TARIFFS*`** with asterisk footnote replaces `CERT FEES` | "Weighted" was confusing; "estimated" is honest. Tariffs are roadmap auto-calc; the asterisk + footnote conditions stakeholder expectations. |
+| 2026-05-05 | Status timeline ships as **4 steps**: RFQ Sent → Quotes Received → Quote Selection → Parts Ordered (Confirm Order is the action surface, not a discrete state) | "Approval gate" was redundant. Confirm Order is the action surface where the user reviews and commits, not a separate state to track. |
+| 2026-05-05 | **Order Confirmation page** is the surface that bridges Quote Selection → Parts Ordered | Full page (not modal). High-value B2B orders ($5k–$50k+) need a dense scannable canvas, not a popup. Sections: Order Summary / Line Items / Costs / Ship To / Payment Method / Terms. Single primary CTA `PLACE ORDER ($24,820)` in oxidized-red filled. Right rail shows vertical status timeline with `CONFIRM ORDER` as the current step. |
+| 2026-05-05 | Files extension `.STEP` shown **only on the Part Workspace**, dropped in Project / Assembly contexts | The file IS the artifact in Part Workspace (`BRACKET-A07.STEP` is the hero). In Project/Assembly contexts the extension is noise — show `BRACKET-A07` not `BRACKET-A07.STEP`. |
+| 2026-05-05 | Roadmap items rendered as **muted mono uppercase chips** in info-panel footers | DFM Flags, Ask OverDrafter, Tariff Auto-Calc, Hover Part > Highlight in Assembly, Multi-page PDF Nav, etc. Visible-but-parked: signals "we know this is needed, not in MVP." |
+
+---
+
+## MVP locked patterns
+
+The following patterns are the locked outcomes of the 2026-05-05 design-shotgun MVP exploration. They sit on top of the visual thesis, palette, typography, spacing, and layout sections above and refine specific interactions.
+
+### Slider rails
+
+Both left and right rails on every workspace surface (Part, Project, Order Confirmation) are collapsible. The handle is a vertical hairline strip on the rail's inner edge containing 6 small dots stacked in 3 pairs and a thin chevron pointing toward the rail. Collapsed rails reduce to a 32px gutter showing only the handle. Body content reflows to fill the freed space.
+
+### Left rail composition
+
+```text
+HEADER
+  OVERDRAFTER (logo, heavy condensed sans, --accent)
+  MFG CO-PILOT (mono uppercase, --muted, 10px)
+  [+ NEW]  [⌕ SEARCH]    (compact button row, hairline border, mono uppercase 11px)
+  ─── hairline ───
+BODY
+  PROJECT / PARTS LIST
+  (per row: 40px iso wireframe thumbnail · mono filename · price · lead, active row 3px --accent left border)
+FOOTER
+  (●) BLAINE WILSON  ⌃        (32px circular avatar with mono initials, name in body, org tagline in mono uppercase --muted, popup chevron)
+```
+
+The user-account footer mirrors ChatGPT / Linear / Notion patterns. Click anywhere on the footer to open a popup with Options / Archive / Log Out.
+
+### Sortable quote tables
+
+Every vendor / quote table on every surface has sortable column headers. Caret indicators sit immediately to the right of the column label:
+
+- Inactive sort: outlined hairline caret in `--muted`
+- Active sort ascending: filled `--accent` caret pointing up
+- Active sort descending: filled `--accent` caret pointing down
+
+Sortable columns: PRICE, LEAD, QUALITY, TOTAL. Non-sortable columns (VENDOR, ORIGIN) show no caret.
+
+### Vendor multi-quote stacking
+
+A single vendor (e.g. Xometry) commonly returns 5+ quote variants (different lead, expedite tier, region). The vendor table renders these as a parent row with the vendor wordmark and a `(N quotes)` annotation, expandable to reveal per-quote sub-rows. Selection happens at the sub-row level; the sub-row carries the `--accent` wordmark color, never the parent. Collapsed parent rows show the currently-selected sub-quote's price/lead/quality inline.
+
+### Editable specs
+
+Field-level overrides on metadata panels (Part Info, Project Info). Three states:
+
+1. **Default** — plain mono values, right-aligned. No edit indicators visible. Hover reveals a subtle deeper-surface row tint and a mono uppercase `EDIT` label in `--accent` at the right edge.
+2. **Editing** — clicked field renders as a hairline-bordered input cell with a thin `--accent` focus ring. Hint below the field: `ESC to cancel · ENTER to apply` in `--muted`. Panel header shows `EDITED N FIELDS` chip in `--muted`.
+3. **Has pending edits** — overridden value renders with deeper-surface (`--surface-2`) background tint on the value cell AND italic value text. The panel header shows a `REVERT TO DEFAULTS` link right-aligned in `--accent` mono uppercase. No per-row WAS: annotation; the link carries the bulk-restore affordance.
+
+The override indicator deliberately rejects: red dots (too loud), bold value text (too loud), per-row WAS: annotations (clutter). The combination of `--surface-2` tint + italic is the quietest signal that still communicates "this is different."
+
+### Units toggle
+
+A `METRIC / IMPERIAL` pill (radius 4 max) lives at the bottom of every editable-specs panel (Part Info, Project Info). Default is `IMPERIAL`, active in `--accent`. The toggle is per-panel, not global — switching units on the Part Info panel does not switch the Project Info panel, by design (each panel reflects the artifact it describes).
+
+The chrome-level metric/imperial toggle (round-5 design) was deliberately removed. It cluttered the global command strip and forced a single units choice across the whole product. The per-panel pill keeps the affordance close to where users actually read dimensions, without polluting the chrome.
+
+### Bulk filter strip (Project workspace)
+
+A horizontal hairline-bordered row above the assembly hierarchy or flat-parts table containing:
+
+- `ORDER QTY` field (label above carries the unit context: `(assemblies)` or `(per part)`; value shown alone, no `× N` duplication)
+- `PROJECT DUE DATE` field
+- Filter chips: `CHEAPEST` / `FASTEST` / `BY DUE DATE` — clicking a chip auto-selects the corresponding quote across all parts in the project
+- `[X] US ORIGIN ONLY` checkbox with a small US flag icon
+
+### Status timeline
+
+Four steps, horizontal, mono uppercase labels, hairline connectors:
+
+`RFQ SENT` → `QUOTES RECEIVED` → `QUOTE SELECTION` → `PARTS ORDERED`
+
+Step indicators:
+- Completed: filled `--accent` dot
+- Current: `--accent` ring (outline)
+- Pending: hairline ring in `--hairline`
+
+The Order Confirmation page renders this timeline vertically in its right rail with `CONFIRM ORDER` inserted as the current step between `QUOTE SELECTION` and `PARTS ORDERED`.
+
+### Order Confirmation surface
+
+Full page, not modal. Layout:
+
+```text
+[← BACK TO PROJECT]
+PROJECTS / SUSPENSION-RIG-2024 / ORDER CONFIRMATION
+ORDER CONFIRMATION                                    (heavy condensed sans 48px)
+
+ORDER SUMMARY    LINE ITEMS    COSTS    SHIP TO    PAYMENT METHOD    TERMS
+
+[SAVE AS DRAFT]  [PLACE ORDER ($24,820)]   ← only filled-color button on the page
+                                               --accent fill, white mono uppercase text
+```
+
+Right rail = vertical status timeline. The PLACE ORDER button is the **only** button on any OverDrafter page that uses a filled `--accent` background; everywhere else, primary actions are mono uppercase text in `--accent` with hairline outline.
+
+### Project workspace modes
+
+The Project Workspace renders gracefully in two modes:
+
+- **With assemblies** — grouped table with assembly headers (small iso wireframe thumbnails), parts indented under each, `QTY/ASSY × ORDER QTY = TOTAL` columns
+- **Flat parts** — no assembly grouping, parts listed flat with their own iso thumbnails and a small mono uppercase header `NO ASSEMBLIES — N INDEPENDENT PARTS`
+
+The mode is data-driven (`assemblies > 0` switches to grouped view). Promotion from flat to grouped is a roadmap chip: `GROUP INTO ASSEMBLY`.
+
+### Roadmap chips
+
+Visible-but-parked features render as small mono uppercase chips in the right info-panel footer (or on the Order Confirmation page's right rail). Chips have hairline borders, no fill, no interaction. Examples: `DFM FLAGS`, `ASK OVERDRAFTER`, `TARIFF AUTO-CALC`, `HOVER PART > HIGHLIGHT IN ASSEMBLY`, `MULTI-PAGE PDF NAV`, `EXPORT QUOTE`, `METRIC SWAP`, `BOM EXPORT`. The chip pattern signals: "we know this is needed, not in MVP."
 
 ---
 
