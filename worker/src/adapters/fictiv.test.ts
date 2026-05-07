@@ -53,6 +53,7 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     xometryStorageStateJson: null,
     xometryUserDataDir: null,
     xometryBrowserChannel: null,
+    xometryProfileLockWaitMs: 0,
     fictivStorageStatePath: path.join(os.tmpdir(), "fictiv-storage-state.json"),
     openAiApiKey: null,
     anthropicApiKey: null,

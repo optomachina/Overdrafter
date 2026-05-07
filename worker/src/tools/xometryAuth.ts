@@ -4,6 +4,7 @@ import path from "node:path";
 import process from "node:process";
 import readline from "node:readline/promises";
 import { chromium } from "patchright";
+import { acquireXometryProfileLock } from "../adapters/persistentProfileLock.js";
 
 function resolveStorageStatePath() {
   const cliArg = process.argv[2];
@@ -34,6 +35,7 @@ async function ensureDir(dirPath: string) {
 async function bootstrapPersistent(userDataDir: string) {
   const channel = resolveChannel();
   await ensureDir(userDataDir);
+  await acquireXometryProfileLock(userDataDir, { vendor: "xometry-auth" });
 
   const rl = readline.createInterface({
     input: process.stdin,

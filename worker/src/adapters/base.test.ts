@@ -27,6 +27,7 @@ const workerConfig: WorkerConfig = {
   xometryStorageStateJson: null,
   xometryUserDataDir: null,
   xometryBrowserChannel: null,
+  xometryProfileLockWaitMs: 0,
 };
 
 class TestVendorAdapter extends VendorAdapter {

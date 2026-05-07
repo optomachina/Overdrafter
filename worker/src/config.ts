@@ -46,6 +46,7 @@ const schema = z.object({
   XOMETRY_STORAGE_STATE_JSON: z.string().optional(),
   XOMETRY_USER_DATA_DIR: z.string().optional(),
   XOMETRY_BROWSER_CHANNEL: z.string().optional(),
+  XOMETRY_PROFILE_LOCK_WAIT_MS: z.coerce.number().int().nonnegative().default(30000),
   FICTIV_STORAGE_STATE_PATH: z.string().optional(),
   FICTIV_STORAGE_STATE_JSON: z.string().optional(),
   OPENAI_API_KEY: z.string().min(1).optional(),
@@ -115,6 +116,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       ? path.resolve(parsed.XOMETRY_USER_DATA_DIR)
       : null,
     xometryBrowserChannel: parsed.XOMETRY_BROWSER_CHANNEL ?? null,
+    xometryProfileLockWaitMs: parsed.XOMETRY_PROFILE_LOCK_WAIT_MS,
     fictivStorageStatePath: parsed.FICTIV_STORAGE_STATE_PATH
       ? path.resolve(parsed.FICTIV_STORAGE_STATE_PATH)
       : null,

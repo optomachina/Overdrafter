@@ -273,6 +273,7 @@ export type VendorAutomationErrorCode =
   | "navigation_failure"
   | "unexpected_ui_state"
   | "anti_detection_block"
+  | "profile_in_use"
   | "not_implemented";
 
 export class VendorAutomationError extends Error {
@@ -307,6 +308,7 @@ export type WorkerConfig = {
   xometryStorageStateJson: string | null;
   xometryUserDataDir: string | null;
   xometryBrowserChannel: string | null;
+  xometryProfileLockWaitMs: number;
   fictivStorageStatePath: string | null;
   fictivStorageStateJson: string | null;
   openAiApiKey: string | null;

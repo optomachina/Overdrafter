@@ -39,6 +39,7 @@ function makeConfig(): WorkerConfig {
     xometryStorageStateJson: null,
     xometryUserDataDir: null,
     xometryBrowserChannel: null,
+    xometryProfileLockWaitMs: 0,
     fictivStorageStatePath: requiredEnv("FICTIV_STORAGE_STATE_PATH"),
     openAiApiKey: null,
     anthropicApiKey: null,
