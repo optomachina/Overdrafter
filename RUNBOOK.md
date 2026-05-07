@@ -233,15 +233,50 @@ npm --prefix worker run install:browsers
 | `db:reset` fails | Docker not running | Start Docker Desktop |
 | Typecheck fails after migration | DB types stale | `npm run db:types` |
 
-### Production rollout notes
+---
 
-- Keep CI and staging on explicit `WORKER_MODE=simulate`.
-- Set production worker env to `WORKER_MODE=live`.
-- Set `WORKER_LIVE_ADAPTERS=xometry,fictiv`.
-- Enable Fictiv live credentials and rollout after OVD-185 is complete.
-- Provide vendor sessions via either mounted file paths or inline secret JSON:
-  - `XOMETRY_STORAGE_STATE_PATH` or `XOMETRY_STORAGE_STATE_JSON`
-  - `FICTIV_STORAGE_STATE_PATH` or `FICTIV_STORAGE_STATE_JSON`
-- Confirm startup logs include `Starting worker in live mode`.
-- Within 10 minutes of deploy, run one real quote and confirm quote URLs are not `simulated://`.
-- Refresh vendor sessions at least weekly with `auth:xometry` and `auth:fictiv`.
+## Running the live worker (current state — local only)
+
+The worker is **not hosted in production**. The web app runs on Vercel and the database
+runs on Supabase, but the Playwright-based worker requires a long-lived process with a
+persistent Chrome user-data-dir on disk — neither of those platforms can host it.
+Until a hosted worker is set up (tracked in OVD-202), the live worker runs from a
+developer's machine when a real quote is needed (demos, OVD-190 first transactions,
+gate validation runs).
+
+### Demo / first-transaction procedure
+
+Before the demo or transaction, on the laptop that will run the worker:
+
+```bash
+# 1. Confirm the Xometry session is fresh (re-auth if older than ~7 days)
+npm --prefix worker run auth:xometry
+
+# 2. Export env (or put in worker/.env)
+export WORKER_MODE=live
+export WORKER_LIVE_ADAPTERS=xometry            # fictiv when its live run is validated
+export XOMETRY_USER_DATA_DIR="$PWD/worker/state/xometry-user-data"
+export XOMETRY_STORAGE_STATE_PATH="$PWD/worker/state/xometry-storage-state.json"
+
+# 3. Start the worker
+npm --prefix worker run dev
+
+# 4. Confirm this line appears in the logs:
+#    Starting worker in live mode.
+```
+
+The worker will then poll for tasks and run real Xometry automation when the app
+triggers a quote. Stop the worker (`Ctrl-C`) when the demo is done. The Chrome
+user-data-dir persists between runs, so subsequent starts don't need a fresh login.
+
+### Why not a hosted worker yet
+
+Hosting requires a long-lived container with persistent disk (Fly Machines, Railway,
+small VPS — ~$5–10/month). Doing it now is premature: there's no continuous customer
+load, the Xometry session lives on a local Chrome profile that would have to be
+re-bootstrapped on the host, and the cost-of-being-wrong is tiny. Defer until
+unattended customer use starts (post-OVD-190).
+
+When that time comes, see OVD-202 for the platform decision and rollout checklist
+(env var matrix, session refresh cadence, deploy gating, the
+`Starting worker in live mode.` smoke check).
