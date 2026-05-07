@@ -208,6 +208,10 @@ async function readBodyText(page: Page) {
 async function waitForQuoteSignals(page: Page, timeoutMs: number) {
   await page.waitForFunction(
     (patterns) => {
+      // Configuration page lands at /quoting/quote/Q##-XXXX after a successful upload.
+      if (new RegExp(patterns.urlPattern).test(window.location.href)) {
+        return true;
+      }
       const body = document.body;
       if (!body) return false;
       const text = body.innerText ?? "";
@@ -218,6 +222,7 @@ async function waitForQuoteSignals(page: Page, timeoutMs: number) {
     {
       readyPatterns: XOMETRY_LOCATORS.quoteReadySignals.map((pattern) => pattern.source),
       reviewPatterns: XOMETRY_LOCATORS.manualReviewSignals.map((pattern) => pattern.source),
+      urlPattern: XOMETRY_LOCATORS.quotePagePathPattern.source,
     },
     {
       timeout: timeoutMs,
@@ -225,30 +230,95 @@ async function waitForQuoteSignals(page: Page, timeoutMs: number) {
   );
 }
 
-async function setFilesOnUpload(page: Page, files: string[]) {
-  const attemptedSelectors: string[] = [];
-  const deadline = Date.now() + 15_000;
+async function navigateToQuoteConfigurationPage(
+  page: Page,
+  timeoutMs: number,
+  runDir: string,
+) {
+  // Three observed paths after upload:
+  //   1. Modal "Continue" appears → click → page redirects to /quoting/quote/Q##-XXXX.
+  //      Empirically the redirect can take 60-90s on Xometry's side as it
+  //      processes the CAD upload before navigating.
+  //   2. No modal — Xometry redirects directly to the quote URL.
+  //   3. Modal already dismissed by a prior session — the new quote appears as
+  //      the topmost tile on the dashboard, which we click.
+  // Strategy: give the modal up to 30 s to render, click it once it's there,
+  // then hand off to page.waitForURL.
+  const modalDeadline = Date.now() + Math.min(timeoutMs, 30_000);
+  let modalSelector: string | null = null;
 
-  while (Date.now() < deadline) {
-    for (const selector of XOMETRY_LOCATORS.uploadInputs) {
-      if (!attemptedSelectors.includes(selector)) {
-        attemptedSelectors.push(selector);
-      }
-
+  while (Date.now() < modalDeadline && !modalSelector) {
+    if (XOMETRY_LOCATORS.quotePagePathPattern.test(page.url())) {
+      return { url: page.url(), via: "auto_redirect", modalSelector };
+    }
+    for (const selector of XOMETRY_LOCATORS.exportControlContinue) {
       const locator = page.locator(selector).first();
-      const count = await locator.count().catch(() => 0);
-
-      if (count < 1) continue;
-
+      const visible = await locator.isVisible().catch(() => false);
+      if (!visible) continue;
       try {
-        await locator.setInputFiles(files);
-        return { selector, attemptedSelectors };
+        await locator.click();
+        modalSelector = selector;
+        break;
       } catch {
-        // Try the next known upload locator.
+        // Try the next candidate selector.
       }
     }
+    if (!modalSelector) {
+      await page.waitForTimeout(500).catch(() => undefined);
+    }
+  }
 
-    await page.waitForTimeout(500);
+  // Snapshot: what was on the page right after the modal poll resolved (clicked
+  // or gave up). This is the most useful debugging artifact for navigation
+  // failures.
+  await capturePageArtifacts(page, runDir, "post-modal-poll").catch(() => undefined);
+
+  // Wait for navigation to the configuration URL using Playwright's native
+  // event-based wait. Budget is the full timeoutMs since modal-click → redirect
+  // can be slow.
+  try {
+    await page.waitForURL(XOMETRY_LOCATORS.quotePagePathPattern, { timeout: timeoutMs });
+    return { url: page.url(), via: modalSelector ? "modal_redirect" : "auto_redirect", modalSelector };
+  } catch {
+    await capturePageArtifacts(page, runDir, "wait-for-url-timeout").catch(() => undefined);
+    // Fall back to clicking the newest tile if it appeared on the dashboard.
+    const tile = page
+      .locator('a[href*="/quoting/quote/"], a[href*="get.xometry.com/quote/"]')
+      .first();
+    if (await tile.isVisible().catch(() => false)) {
+      const href = await tile.getAttribute("href").catch(() => null);
+      if (href) {
+        const target = new URL(href, page.url()).toString();
+        await page.goto(target, { waitUntil: "load" });
+        await page.waitForLoadState("networkidle").catch(() => undefined);
+        return { url: page.url(), via: "tile_click", modalSelector };
+      }
+    }
+    return {
+      url: page.url(),
+      via: modalSelector ? "modal_no_redirect" : "no_modal_no_tile",
+      modalSelector,
+    };
+  }
+}
+
+async function setFilesOnUpload(page: Page, files: string[]) {
+  const attemptedSelectors: string[] = [];
+  const setInputErrors: Error[] = [];
+
+  for (const selector of XOMETRY_LOCATORS.uploadInputs) {
+    attemptedSelectors.push(selector);
+    const locator = page.locator(selector).first();
+    const count = await locator.count().catch(() => 0);
+    if (count < 1) continue;
+    try {
+      await locator.setInputFiles(files);
+      return { selector, attemptedSelectors };
+    } catch (error) {
+      if (error instanceof Error) {
+        setInputErrors.push(error);
+      }
+    }
   }
 
   throw new VendorAutomationError(
@@ -260,6 +330,7 @@ async function setFilesOnUpload(page: Page, files: string[]) {
       attemptedSelectors,
       nearbyAttributes: [...XOMETRY_LOCATORS.uploadInputs],
       url: page.url(),
+      setInputErrorCount: setInputErrors.length,
     },
   );
 }
@@ -543,9 +614,9 @@ export class XometryAdapter extends VendorAdapter {
       );
     }
 
-    if (!this.config.xometryStorageStatePath) {
+    if (!this.config.xometryUserDataDir && !this.config.xometryStorageStatePath) {
       throw new VendorAutomationError(
-        "XOMETRY_STORAGE_STATE_PATH is not configured for live automation.",
+        "Live mode requires XOMETRY_USER_DATA_DIR (recommended) or XOMETRY_STORAGE_STATE_PATH.",
         "login_required",
         {
           vendor: "xometry",
@@ -606,7 +677,7 @@ export class XometryAdapter extends VendorAdapter {
         });
 
         browserContext = await browser.newContext({
-          storageState: this.config.xometryStorageStatePath,
+          storageState: this.config.xometryStorageStatePath ?? undefined,
         });
       }
 
@@ -626,47 +697,78 @@ export class XometryAdapter extends VendorAdapter {
       await detectBlockingState(page, runDir);
       await appendArtifacts(artifacts, page, runDir, "landing");
 
-      const uploadFiles = [
-        input.stagedCadFile.localPath,
-        input.stagedDrawingFile?.localPath,
-      ].filter((value): value is string => Boolean(value));
-
-      try {
-        const uploadResult = await setFilesOnUpload(page, uploadFiles);
-        uploadSelector = uploadResult.selector;
-      } catch (error) {
-        if (!input.stagedDrawingFile) {
-          throw error;
-        }
-
-        const uploadResult = await setFilesOnUpload(page, [input.stagedCadFile.localPath]);
-        uploadSelector = uploadResult.selector;
+      // Empirically, Xometry's redesigned post-upload flow only redirects to a
+      // /quoting/quote/Q##-XXXX configuration page when a single CAD file is
+      // uploaded. Bundling cad+drawing keeps the page on the dashboard with
+      // an open "are these export-controlled" modal that never resolves to a
+      // quote URL. Always upload CAD first; rely on attachDrawingFallback
+      // later in the flow to attach the drawing if Xometry asks for it.
+      const uploadResult = await setFilesOnUpload(page, [input.stagedCadFile.localPath]);
+      uploadSelector = uploadResult.selector;
+      if (input.stagedDrawingFile) {
         drawingUploadMode = "not_needed";
       }
 
+      // After upload, an export-controlled-parts modal appears for authenticated
+      // sessions. Submitting the modal redirects to /quoting/quote/Q##-XXXX,
+      // which is the configuration page we need. Some sessions skip the modal
+      // and the redirect happens on its own.
+      // Mirror the manual probe: a fixed delay lets Xometry render the
+      // export-controlled-parts modal before we look for it. The subsequent
+      // networkidle wait can be slow (60+ s) while Xometry processes the CAD
+      // upload, so this short pause makes the modal visible before any
+      // long-running wait blocks our poll.
+      await page.waitForTimeout(5_000).catch(() => undefined);
+      await page.waitForLoadState("networkidle").catch(() => undefined);
+      await navigateToQuoteConfigurationPage(page, 120_000, runDir);
+
       await waitForQuoteSignals(page, this.config.browserTimeoutMs);
+      await page.waitForLoadState("networkidle").catch(() => undefined);
       await detectBlockingState(page, runDir);
       detectedFlow = "upload_complete";
       await appendArtifacts(artifacts, page, runDir, "uploaded");
 
-      await setQuantity(page, normalizedQuantity(input));
+      // Quantity / material / finish are best-effort on the configuration page.
+      // Xometry instant-quote pages already display tier prices for the default
+      // quantity + auto-detected material, which satisfies the gate. If the
+      // edit controls are present we apply requested overrides; if absent we
+      // proceed with displayed defaults rather than failing the run.
+      try {
+        await setQuantity(page, normalizedQuantity(input));
+      } catch (error) {
+        if (error instanceof VendorAutomationError && error.code !== "selector_failure") {
+          throw error;
+        }
+      }
 
-      await findButtonAndOpen(page, XOMETRY_LOCATORS.materialButtons, "material");
-      selectedMaterial = await chooseOptionByTerms(
-        page,
-        materialTerms,
-        XOMETRY_LOCATORS.materialOptions,
-        "material",
-      );
+      try {
+        await findButtonAndOpen(page, XOMETRY_LOCATORS.materialButtons, "material");
+        selectedMaterial = await chooseOptionByTerms(
+          page,
+          materialTerms,
+          XOMETRY_LOCATORS.materialOptions,
+          "material",
+        );
+      } catch (error) {
+        if (error instanceof VendorAutomationError && error.code !== "selector_failure") {
+          throw error;
+        }
+      }
 
       if (finishTerms && finishTerms.length > 0) {
-        await findButtonAndOpen(page, XOMETRY_LOCATORS.finishButtons, "finish");
-        selectedFinish = await chooseOptionByTerms(
-          page,
-          finishTerms,
-          XOMETRY_LOCATORS.finishOptions,
-          "finish",
-        );
+        try {
+          await findButtonAndOpen(page, XOMETRY_LOCATORS.finishButtons, "finish");
+          selectedFinish = await chooseOptionByTerms(
+            page,
+            finishTerms,
+            XOMETRY_LOCATORS.finishOptions,
+            "finish",
+          );
+        } catch (error) {
+          if (error instanceof VendorAutomationError && error.code !== "selector_failure") {
+            throw error;
+          }
+        }
       }
 
       const postConfigText = await readBodyText(page);

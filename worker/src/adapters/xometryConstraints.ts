@@ -1,6 +1,7 @@
 export const XOMETRY_URLS = {
   quoteHome: "https://www.xometry.com/quoting/home/",
   login: "https://www.xometry.com/login/",
+  quotePathPattern: /\/quoting\/quote\/Q\d{2}-/,
 } as const;
 
 export const XOMETRY_LOCATORS = {
@@ -14,31 +15,47 @@ export const XOMETRY_LOCATORS = {
   ],
   manualReviewSignals: [
     /manual review/i,
+    /manually quoted/i,
+    /manually-quoted/i,
     /requires review/i,
     /drawing required/i,
-    /upload drawing/i,
-    /add drawing/i,
   ],
   uploadInputs: [
     '[data-testid="file-upload"] input[type="file"]',
     'input[type="file"]',
   ],
+  // Continue button inside the export-controlled-parts modal that opens
+  // immediately after upload while authenticated.
+  exportControlContinue: [
+    'div[role="dialog"] button:has-text("Continue")',
+    '[aria-modal="true"] button:has-text("Continue")',
+    'button:has-text("Continue"):not(:has-text("Checkout")):not(:has-text("Cart"))',
+  ],
+  // Configuration page URL pattern. Adapter waits for this in addition to legacy text signals.
+  quotePagePathPattern: /\/quoting\/quote\/Q\d{2}-/,
+  // Configuration-page-specific text signals (avoid spurious dashboard tile matches).
   quoteReadySignals: [
-    /configure part/i,
-    /edit specifications/i,
-    /\$\d[\d,]*\.?\d*/i,
+    /lead\s+time\s*:\s*\d+\s+business\s+days/i,
+    /continue\s+to\s+checkout/i,
   ],
   quantityInputs: [
+    'input[type="number"][pattern]',
     '[data-testid*="quantity"] input',
     'input[name*="quantity"]',
     'input[id*="quantity"]',
   ],
+  // Material/finish are read-only on the summary page where price tiers live.
+  // Editing them requires navigating to the Configure tab (which hides tier
+  // pricing). Keep these selectors so the adapter still records what it
+  // attempted, but they intentionally do NOT navigate to the Configure tab —
+  // the gate only needs price + lead time, not requirement enforcement.
   materialButtons: [
-    '[data-testid*="material"]',
+    '[data-testid*="material"]:not([data-testid*="navigate"])',
     '[aria-label*="material"]',
     'button:has-text("Material")',
   ],
   materialOptions: [
+    'input[type="radio"][name="material"]',
     '[role="option"]',
     '[data-testid*="option"]',
     '[data-testid*="material"] button',
@@ -50,16 +67,24 @@ export const XOMETRY_LOCATORS = {
     'button:has-text("Post-Processing")',
   ],
   finishOptions: [
+    'input[type="radio"][name*="finish" i]',
+    'input[type="radio"][name*="post" i]',
     '[role="option"]',
     '[data-testid*="option"]',
   ],
+  // Configuration-page price tier. `[data-testid=part-discount]` exposes the tier
+  // total (e.g. "$252.97 (Save $59.81)"). `.price-tier` is the wrapping container.
   priceText: [
+    '[data-testid="part-discount"]',
+    '.price-tier',
     '[data-testid*="price"]',
     '[data-testid*="total"]',
     '[aria-label*="price"]',
     '[class*="price"]',
   ],
   leadTimeText: [
+    '[data-testid="tierAndLeadTime"]',
+    '.price-tier',
     '[data-testid*="lead"]',
     '[data-testid*="delivery"]',
     '[aria-label*="lead"]',

@@ -127,6 +127,9 @@ function makeLocator(behavior: LocatorBehavior = {}) {
     async count() {
       return behavior.count ?? 0;
     },
+    async isVisible() {
+      return (behavior.count ?? 0) > 0;
+    },
     async innerText() {
       return behavior.text ?? "";
     },
@@ -151,6 +154,9 @@ function makeLocator(behavior: LocatorBehavior = {}) {
       return options.hasText.test(text)
         ? makeLocator(behavior)
         : makeLocator({ count: 0, text: "" });
+    },
+    locator() {
+      return makeLocator({ count: 0 });
     },
   };
 }
@@ -193,6 +199,12 @@ function createFakePage(options: FakePageOptions) {
       return undefined;
     },
     async waitForLoadState() {
+      return undefined;
+    },
+    async waitForTimeout() {
+      return undefined;
+    },
+    async waitForURL() {
       return undefined;
     },
     async goto(url: string) {
@@ -299,6 +311,7 @@ describe("XometryAdapter", () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({
       bodyText: "Configure part Total price $120.00 Lead time 5 business days",
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001",
       selectorBehaviors: {
         [XOMETRY_LOCATORS.uploadInputs[1]]: {
           count: 1,
@@ -348,7 +361,7 @@ describe("XometryAdapter", () => {
       selectedFinish: "Type II",
       priceSource: "selector",
       leadTimeSource: "selector",
-      url: XOMETRY_URLS.quoteHome,
+      url: "https://www.xometry.com/quoting/quote/Q00-TEST-0001",
     });
     expect(result.artifacts).toHaveLength(8);
   });
@@ -363,6 +376,7 @@ describe("XometryAdapter", () => {
     const fallbackUploadMock = vi.fn();
     const page = createFakePage({
       bodyText: "Manual review required. Drawing required for this quote.",
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002",
       selectorBehaviors: {
         [XOMETRY_LOCATORS.uploadInputs[1]]: {
           count: 1,
@@ -423,7 +437,7 @@ describe("XometryAdapter", () => {
       }),
     );
 
-    expect(uploadFilesMock).toHaveBeenCalledTimes(2);
+    expect(uploadFilesMock).toHaveBeenCalledTimes(1);
     expect(fallbackUploadMock).toHaveBeenCalledTimes(1);
     expect(result.status).toBe("manual_review_pending");
     expect(result.rawPayload).toMatchObject({
@@ -463,16 +477,11 @@ describe("XometryAdapter", () => {
     }
   });
 
-  it("raises selector failures when a required control is missing", async () => {
+  it("raises selector failures when the upload input is missing", async () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({
       bodyText: "Configure part Total price $120.00 5 business days",
-      selectorBehaviors: {
-        [XOMETRY_LOCATORS.uploadInputs[1]]: {
-          count: 1,
-          setInputFiles: vi.fn(),
-        },
-      },
+      selectorBehaviors: {},
     });
     launchMock.mockResolvedValue(createFakeBrowser(page));
 
@@ -485,8 +494,8 @@ describe("XometryAdapter", () => {
       name: "VendorAutomationError",
       code: "selector_failure",
       payload: {
-        failedSelector: XOMETRY_LOCATORS.quantityInputs[0],
-        attemptedSelectors: XOMETRY_LOCATORS.quantityInputs,
+        failedSelector: XOMETRY_LOCATORS.uploadInputs[0],
+        attemptedSelectors: XOMETRY_LOCATORS.uploadInputs,
       },
     });
   });
