@@ -12,6 +12,7 @@ import {
   type XometryValueSource,
 } from "../types.js";
 import { VendorAdapter } from "./base.js";
+import { acquireXometryProfileLock } from "./persistentProfileLock.js";
 import {
   buildFinishSearchTerms,
   buildMaterialSearchTerms,
@@ -586,6 +587,10 @@ export class XometryAdapter extends VendorAdapter {
 
       if (this.config.xometryUserDataDir) {
         await fs.mkdir(this.config.xometryUserDataDir, { recursive: true });
+        await acquireXometryProfileLock(this.config.xometryUserDataDir, {
+          waitMs: this.config.xometryProfileLockWaitMs,
+          vendor: "xometry",
+        });
         const persistentLaunchOptions: Record<string, unknown> = {
           headless: this.config.playwrightHeadless,
           args: launchArgs,

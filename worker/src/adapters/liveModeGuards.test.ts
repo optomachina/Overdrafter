@@ -33,6 +33,7 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     xometryStorageStateJson: null,
     xometryUserDataDir: null,
     xometryBrowserChannel: null,
+    xometryProfileLockWaitMs: 0,
     openAiApiKey: null,
     anthropicApiKey: null,
     openRouterApiKey: null,

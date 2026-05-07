@@ -48,6 +48,7 @@ function buildSmokeConfig(): WorkerConfig {
     xometryStorageStateJson: null,
     xometryUserDataDir: null,
     xometryBrowserChannel: null,
+    xometryProfileLockWaitMs: 0,
     fictivStorageStatePath: null,
     fictivStorageStateJson: null,
     openAiApiKey,
