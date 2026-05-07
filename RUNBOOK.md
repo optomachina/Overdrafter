@@ -205,8 +205,11 @@ npm --prefix worker run install:browsers
 | `WORKER_LIVE_ADAPTERS` | no | `xometry` | Comma-separated list of live-enabled vendors (e.g. `xometry,fictiv`) |
 | `WORKER_NAME` | no | `quote-worker-1` | Worker identity for logging |
 | `WORKER_POLL_INTERVAL_MS` | no | `5000` | Task poll interval in ms |
-| `XOMETRY_STORAGE_STATE_PATH` | live mode | — | Path to Xometry Playwright session JSON |
-| `XOMETRY_STORAGE_STATE_JSON` | live mode | — | Session JSON as a string (alternative to path, for prod secrets) |
+| `XOMETRY_STORAGE_STATE_PATH` | live mode (storage-state path) | — | Path to Xometry Playwright session JSON. Required when `XOMETRY_USER_DATA_DIR` is not set. |
+| `XOMETRY_STORAGE_STATE_JSON` | live mode (storage-state path) | — | Session JSON as a string (alternative to path, for prod secrets) |
+| `XOMETRY_USER_DATA_DIR` | live mode (persistent profile path) | — | Path to the persistent Chromium user-data-dir (e.g. `$PWD/worker/state/xometry-user-data`). When set, the adapter uses Patchright's persistent context instead of `XOMETRY_STORAGE_STATE_*`. Created on first launch; preserves cookies, local storage, and the Chrome profile across runs. Must be writable by the worker process. |
+| `XOMETRY_BROWSER_CHANNEL` | no | — | Optional Chrome channel for the Xometry persistent context (e.g. `chrome`, `chrome-canary`). Leave unset to use the bundled Patchright Chromium. |
+| `XOMETRY_PROFILE_LOCK_WAIT_MS` | no | `30000` | How long to wait for a stale `SingletonLock` in the Xometry user-data-dir to clear before failing with `profile_in_use` (see PR #229). |
 | `FICTIV_STORAGE_STATE_PATH` | live mode | — | Path to Fictiv Playwright session JSON |
 | `FICTIV_STORAGE_STATE_JSON` | live mode | — | Session JSON as a string (alternative to path, for prod secrets) |
 | `OPENAI_API_KEY` | extraction | — | For drawing extraction (primary model) |
