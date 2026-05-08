@@ -481,3 +481,83 @@ AUTHORIZED → CAPTURED (Xometry order placed)
 **Effort:** S (human: ~2 hours / CC: ~10 min) | **Priority:** P2
 
 **Depends on:** Xometry live mode enabled (Task B).
+
+---
+
+## TODO-026: Landing-page redesign — revisit when ready to do it right
+
+**What:** The full public marketing landing redesign (`optomachina/landing-redesign` branch, R4-v2 hero + B1/B2/B3/B4 body + footer, all approved via /design-shotgun rounds 1-6 on 2026-05-05) was reviewed by friends/peers on 2026-05-08 and the feedback was negative. Park the work. Don't ship `Landing.tsx`. Don't merge `optomachina/landing-redesign`. The current landing at `overdrafter.com` stays as-is. TODO-025 (Section 4 placeholder refresh) is subsumed by this — no point fixing one section when the whole page is paused.
+
+**Why:** Multiple reviewers said the page didn't land. We didn't capture detailed structured feedback at the time, so we don't know whether the problem was the visual system, the copy, the sections, the structure, or all of it. Shipping a landing page that nobody likes is worse than shipping nothing — first impressions are unrecoverable, and the dark-hero-to-bone-body seam is a pretty big bet to make on cold reception. Better to revisit when (a) we have a clearer truth-contract about what to say, (b) the live app has more shape so a real "what you'll see" section is possible, and (c) we have someone with design taste reviewing.
+
+**Where to start when picking this up:**
+- Read this TODO, `.context/landing-page-plan.md`, and `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/approved.json` for the full design history (12+ AI variants generated, 5 rounds of refinement, ~6 approved variant PNGs).
+- Capture *what specifically* people didn't like. Without that, regenerating variants is a coin flip. Specific complaints we have so far: (a) the hand-rolled HTML translation of approved mockups looked cheap (free font analogs, simplified SVG line-art), (b) the PNG-embed version was visually closer to the mockups but the mockups themselves didn't resonate. Get more detail before re-running /design-shotgun.
+- Decide whether to (a) start over from /design-consultation with new constraints, (b) iterate on the existing approved variants once we know what specifically failed, or (c) hire an actual human designer.
+- If picking up the /design-html output as a base: see `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/finalized.html` (PNG-embed v2). Local preview pinned via python http.server when needed; previously deployed at `optomachina.github.io/overdrafter-landing-preview` (clean up that repo if not already gone — see Cleanup below).
+
+**What we have on disk (don't lose):**
+- `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/` — all 12+ variants, approved.json, feedback rounds 1-6, finalized.html (PNG-embed comp), finalized.json
+- `.context/landing-page-plan.md` — full page outline with locked decisions D1-D5 (color mode, CTA flow, mockup choice, FAQ, footer)
+- `docs/DESIGN.md` — design system stays valid for the rest of the app even if landing is paused
+- Branch `optomachina/landing-redesign` — currently has only docs commits (TODOs, DESIGN.md). No `Landing.tsx`, no `Index.tsx` route changes. Safe to leave parked or delete.
+
+**Cleanup that may still be needed:**
+- Public preview repo: `https://github.com/optomachina/overdrafter-landing-preview` (GitHub Pages: `https://optomachina.github.io/overdrafter-landing-preview/`). Confirm whether to delete this — see chat history 2026-05-08 for the deploy.
+- Local python http.server on `127.0.0.1:56774` from `/design-html` session — kill if still running.
+
+**Acceptance criteria for un-burying this TODO:**
+- Specific, written feedback exists about what should change (visual, copy, structure, all of the above).
+- Either a designer is involved or there's a clear hypothesis worth testing.
+- The live app's part workspace is stable enough to screenshot for a real Section 4.
+
+**Effort:** L (human: ~1-2 weeks / CC: ~1-2 days once direction is clear) | **Priority:** P3 (deferred indefinitely)
+
+**Depends on:**
+- Detailed feedback captured.
+- Live app shape stabilized enough to support a truthful "what you'll see" section.
+- Optionally: human designer in the loop.
+
+**Reference artifacts:**
+- `.context/landing-page-plan.md`
+- `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/approved.json`
+- `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/finalized.html`
+- `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/finalized.json`
+- All 12+ variant PNGs in the same directory
+- Memory: `feedback_marketing_no_fabrication` (truth contract for marketing surfaces)
+
+---
+
+## ~~TODO-025: Refresh landing-page "What you'll see" section once app shape stabilizes~~ ⏸️ SUPERSEDED BY TODO-026 (2026-05-08)
+
+**Status:** Subsumed by TODO-026 (whole landing redesign paused after negative peer review). Re-evaluate Section 4 only when un-burying TODO-026.
+
+**What:** Replace the current Section 4 mockup on the public marketing landing (`src/pages/Landing.tsx`, when shipped) with an accurate representation of the live OverDrafter part workspace. Current placeholder is `variant-R3-v2.png` — an AI-generated mockup of an engineering drawing + part workspace UI side-by-side. Founder feedback (2026-05-05): "Section 4 looks really bad, completely detached from what we're building. Maybe good enough for now and we can update as we finalize app shape and refresh it."
+
+**Why:** The "What you'll see" section is meant to build trust by showing real product, but the AI mockup doesn't match the actual app shape and reads as fabricated. The truth contract for the landing page (saved to memory: `feedback_marketing_no_fabrication`) requires showing real surfaces or omitting. Current placeholder violates that in spirit, but is acceptable until the live app's part workspace is stable enough to screenshot.
+
+**Where to start:**
+- Wait for the live `ClientPart` / part workspace UI to migrate fully to `docs/DESIGN.md` (bone, hairline, Lab Mono, Suisse Condensed, oxidized red).
+- Once the live surface looks like DESIGN.md intends, replace the mockup with one of:
+  - **A)** Real screenshots from a seeded dev environment (most truthful)
+  - **B)** A fresh Codex-generated mockup that matches the now-stable live UI
+  - **C)** A lightweight inline React render using the actual app components in a "preview mode"
+- Update `src/pages/Landing.tsx` to swap the image (or component) in Section 4.
+- Update `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/approved.json` (`approved_variants.what_youll_see`) to record the new asset.
+
+**Acceptance criteria:**
+- The "What you'll see" section uses real or accurate-to-live product surfaces, not a fabricated AI mockup.
+- The section visually matches the rest of the bone-mode body (hairline rules, Lab Mono labels, oxidized-red accent, no gradients/shadows/blue).
+- The section ties to a real signed-in user surface — clicking through (post-auth) lands on the same UI shown in the section.
+
+**Effort:** S–M (human: ~1 day / CC: ~30 min once app shape is locked) | **Priority:** P2 (ship landing now with placeholder, refresh later)
+
+**Depends on:**
+- Live OverDrafter part workspace UI fully migrated to `docs/DESIGN.md`.
+- `Landing.tsx` shipped with the current R3-v2 placeholder (see `.context/landing-page-plan.md`).
+
+**Reference artifacts:**
+- Plan: `.context/landing-page-plan.md`
+- Approved record: `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/approved.json`
+- Current placeholder: `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/variant-R3-v2.png`
+- Full-page preview: `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/full-page-preview.html`
