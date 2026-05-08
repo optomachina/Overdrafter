@@ -1,6 +1,52 @@
+import fs from "node:fs/promises";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import path from "node:path";
 import type { QueueTaskType, WorkerConfig } from "./types.js";
+
+const MILLIS_PER_DAY = 1000 * 60 * 60 * 24;
+
+type XometrySessionFreshnessConfig = Pick<
+  WorkerConfig,
+  "xometryStorageStatePath" | "xometryUserDataDir"
+>;
+
+async function safeMtimeMs(targetPath: string): Promise<number | null> {
+  try {
+    const stat = await fs.stat(targetPath);
+    return stat.mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+export async function getXometrySessionAgeDays(
+  config: XometrySessionFreshnessConfig,
+  now: number = Date.now(),
+): Promise<number | null> {
+  if (config.xometryStorageStatePath) {
+    const mtimeMs = await safeMtimeMs(config.xometryStorageStatePath);
+    if (mtimeMs === null) {
+      return null;
+    }
+    return Math.max(0, (now - mtimeMs) / MILLIS_PER_DAY);
+  }
+
+  if (config.xometryUserDataDir) {
+    const cookiesPath = path.join(config.xometryUserDataDir, "Default", "Cookies");
+    const cookiesMtime = await safeMtimeMs(cookiesPath);
+    if (cookiesMtime !== null) {
+      return Math.max(0, (now - cookiesMtime) / MILLIS_PER_DAY);
+    }
+    const dirMtime = await safeMtimeMs(config.xometryUserDataDir);
+    if (dirMtime === null) {
+      return null;
+    }
+    return Math.max(0, (now - dirMtime) / MILLIS_PER_DAY);
+  }
+
+  return null;
+}
 
 type RuntimeStatus = "starting" | "running" | "shutting_down";
 type RuntimeEventLevel = "info" | "warn" | "error";
@@ -276,7 +322,12 @@ function writeDebugRouteDenied(
   });
 }
 
-function getSnapshot(config: WorkerConfig, state: WorkerRuntimeState) {
+type HealthExtras = {
+  xometrySessionAgeDays: number | null;
+  fictivSessionAgeDays: number | null;
+};
+
+function getSnapshot(config: WorkerConfig, state: WorkerRuntimeState, extras: HealthExtras) {
   const ready = state.status === "running" && state.readinessIssues.length === 0;
 
   return {
@@ -302,6 +353,16 @@ function getSnapshot(config: WorkerConfig, state: WorkerRuntimeState) {
     lastErrorEvent: state.lastErrorEvent,
     eventCounts: state.eventCounts,
     recentEvents: state.recentEvents.slice(0, 10),
+    xometry_session_age_days: extras.xometrySessionAgeDays,
+    fictiv_session_age_days: extras.fictivSessionAgeDays,
+  };
+}
+
+async function buildHealthExtras(config: WorkerConfig): Promise<HealthExtras> {
+  const xometrySessionAgeDays = await getXometrySessionAgeDays(config);
+  return {
+    xometrySessionAgeDays,
+    fictivSessionAgeDays: null,
   };
 }
 
@@ -313,14 +374,16 @@ export async function startHealthServer(
   const server = http.createServer(async (request, response) => {
     const url = request.url ?? "/";
 
-    if (url === "/" || url === "/healthz") {
-      writeJson(response, 200, getSnapshot(config, state));
+    if (url === "/" || url === "/healthz" || url === "/health") {
+      const extras = await buildHealthExtras(config);
+      writeJson(response, 200, getSnapshot(config, state, extras));
       return;
     }
 
     if (url === "/readyz") {
       const statusCode = state.status === "running" && state.readinessIssues.length === 0 ? 200 : 503;
-      writeJson(response, statusCode, getSnapshot(config, state));
+      const extras = await buildHealthExtras(config);
+      writeJson(response, statusCode, getSnapshot(config, state, extras));
       return;
     }
 
