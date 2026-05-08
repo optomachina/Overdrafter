@@ -309,6 +309,7 @@ export type WorkerConfig = {
   xometryUserDataDir: string | null;
   xometryBrowserChannel: string | null;
   xometryProfileLockWaitMs: number;
+  xometrySessionFreshnessWarnDays: number;
   fictivStorageStatePath: string | null;
   fictivStorageStateJson: string | null;
   openAiApiKey: string | null;

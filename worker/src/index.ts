@@ -38,6 +38,7 @@ import {
 } from "./queue.js";
 import {
   createWorkerRuntimeState,
+  getXometrySessionAgeDays,
   recordRuntimeEvent,
   startHealthServer,
   type WorkerRuntimeState,
@@ -1347,6 +1348,23 @@ async function main() {
       drawingExtractionModel: config.drawingExtractionModel,
     },
   });
+
+  const xometrySessionAgeDays = await getXometrySessionAgeDays(config);
+  if (
+    xometrySessionAgeDays !== null &&
+    xometrySessionAgeDays > config.xometrySessionFreshnessWarnDays
+  ) {
+    const ageDaysRounded = Math.floor(xometrySessionAgeDays);
+    logWorkerEvent(runtimeState, {
+      level: "warn",
+      source: "worker.session_freshness",
+      message: `Xometry session is ${ageDaysRounded} days old — consider re-authenticating.`,
+      context: {
+        xometrySessionAgeDays,
+        thresholdDays: config.xometrySessionFreshnessWarnDays,
+      },
+    });
+  }
 
   if (shouldWarnSimulateModeInProduction(config)) {
     logWorkerEvent(runtimeState, {

@@ -1,6 +1,9 @@
 // @vitest-environment node
 
 import { afterEach, describe, expect, it } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { createWorkerRuntimeState, recordRuntimeEvent, startHealthServer } from "./httpServer";
 import type { WorkerConfig } from "./types";
 
@@ -25,6 +28,7 @@ const workerConfig: WorkerConfig = {
   xometryUserDataDir: null,
   xometryBrowserChannel: null,
   xometryProfileLockWaitMs: 0,
+  xometrySessionFreshnessWarnDays: 7,
   openAiApiKey: null,
   anthropicApiKey: null,
   openRouterApiKey: null,
@@ -218,6 +222,115 @@ describe("startHealthServer", () => {
         "Xometry storage state file was not found at /tmp/missing.json.",
       ],
       status: "running",
+    });
+  });
+
+  describe("xometry session freshness", () => {
+    const tempDirs: string[] = [];
+
+    afterEach(async () => {
+      await Promise.all(
+        tempDirs.splice(0).map((dir) =>
+          fs.rm(dir, { recursive: true, force: true }),
+        ),
+      );
+    });
+
+    async function makeTempDir(prefix: string) {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+      tempDirs.push(dir);
+      return dir;
+    }
+
+    it("returns null session ages when neither storage state nor user data dir is configured", async () => {
+      const runtimeState = createWorkerRuntimeState();
+      runtimeState.status = "running";
+
+      const server = await startHealthServer(workerConfig, runtimeState);
+      servers.push(server);
+
+      const response = await fetch(`${server.url}/health`);
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload).toMatchObject({
+        xometry_session_age_days: null,
+        fictiv_session_age_days: null,
+      });
+    });
+
+    it("computes session age from a known mtime when XOMETRY_STORAGE_STATE_PATH is set", async () => {
+      const dir = await makeTempDir("ovd-195-storage-");
+      const storagePath = path.join(dir, "xometry-storage-state.json");
+      await fs.writeFile(storagePath, "{}", "utf8");
+
+      const fourDaysAgo = Date.now() - 4 * 24 * 60 * 60 * 1000;
+      await fs.utimes(storagePath, fourDaysAgo / 1000, fourDaysAgo / 1000);
+
+      const runtimeState = createWorkerRuntimeState();
+      runtimeState.status = "running";
+
+      const server = await startHealthServer(
+        { ...workerConfig, xometryStorageStatePath: storagePath },
+        runtimeState,
+      );
+      servers.push(server);
+
+      const response = await fetch(`${server.url}/health`);
+      const payload = (await response.json()) as { xometry_session_age_days: number };
+
+      expect(response.status).toBe(200);
+      expect(payload.xometry_session_age_days).toBeGreaterThanOrEqual(3.99);
+      expect(payload.xometry_session_age_days).toBeLessThan(4.01);
+    });
+
+    it("returns null without crashing when the configured storage state path is missing", async () => {
+      const dir = await makeTempDir("ovd-195-missing-");
+      const missingPath = path.join(dir, "does-not-exist.json");
+
+      const runtimeState = createWorkerRuntimeState();
+      runtimeState.status = "running";
+
+      const server = await startHealthServer(
+        { ...workerConfig, xometryStorageStatePath: missingPath },
+        runtimeState,
+      );
+      servers.push(server);
+
+      const response = await fetch(`${server.url}/health`);
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload).toMatchObject({
+        xometry_session_age_days: null,
+        fictiv_session_age_days: null,
+      });
+    });
+
+    it("falls back to the persistent profile cookies file when XOMETRY_USER_DATA_DIR is set", async () => {
+      const dir = await makeTempDir("ovd-195-profile-");
+      const cookiesPath = path.join(dir, "Default", "Cookies");
+      await fs.mkdir(path.dirname(cookiesPath), { recursive: true });
+      await fs.writeFile(cookiesPath, "", "utf8");
+
+      const twoDaysAgo = Date.now() - 2 * 24 * 60 * 60 * 1000;
+      await fs.utimes(cookiesPath, twoDaysAgo / 1000, twoDaysAgo / 1000);
+
+      const runtimeState = createWorkerRuntimeState();
+      runtimeState.status = "running";
+
+      const server = await startHealthServer(
+        { ...workerConfig, xometryUserDataDir: dir },
+        runtimeState,
+      );
+      servers.push(server);
+
+      const response = await fetch(`${server.url}/health`);
+      const payload = (await response.json()) as { xometry_session_age_days: number };
+
+      expect(response.status).toBe(200);
+      expect(payload.xometry_session_age_days).toBeGreaterThanOrEqual(1.99);
+      expect(payload.xometry_session_age_days).toBeLessThan(2.01);
     });
   });
 });
