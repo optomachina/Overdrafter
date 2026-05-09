@@ -48,6 +48,20 @@ describe("error-message", () => {
     ).toBe("fallback");
   });
 
+  it("falls back when an Error message is the JSON-serialized opaque storage marker", () => {
+    const error = Object.assign(new Error('{"__isStorageError":true,"name":"StorageUnknownError"}'), {
+      name: "StorageUnknownError",
+    });
+
+    expect(getUserFacingErrorMessage(error, "fallback")).toBe("fallback");
+  });
+
+  it("falls back when a raw string error is the JSON-serialized opaque storage marker", () => {
+    expect(
+      getUserFacingErrorMessage('{"__isStorageError":true,"name":"StorageUnknownError"}', "fallback"),
+    ).toBe("fallback");
+  });
+
   it("wraps raw objects as real errors while preserving metadata", () => {
     const error = toUserFacingError(
       {

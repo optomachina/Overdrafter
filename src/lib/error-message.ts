@@ -27,7 +27,24 @@ function normalizeMessageCandidate(value: unknown): string | null {
     return null;
   }
 
+  if (isOpaqueSerializedRecord(trimmed)) {
+    return null;
+  }
+
   return trimmed;
+}
+
+function isOpaqueSerializedRecord(value: string): boolean {
+  if (value.length < 2 || value[0] !== "{" || value[value.length - 1] !== "}") {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return isRecord(parsed) && hasOnlyOpaqueStorageMarkers(parsed);
+  } catch {
+    return false;
+  }
 }
 
 function compactRecord(value: Record<string, unknown>, seen: Set<unknown>): Record<string, unknown> {
