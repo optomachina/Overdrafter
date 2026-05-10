@@ -561,3 +561,81 @@ AUTHORIZED → CAPTURED (Xometry order placed)
 - Approved record: `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/approved.json`
 - Current placeholder: `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/variant-R3-v2.png`
 - Full-page preview: `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/full-page-preview.html`
+
+---
+
+## TODO-027: Implement Part Workspace v5 + Project Workspace v5 from locked DESIGN.md
+
+**Status:** 📋 SCOPED, NOT STARTED (2026-05-10)
+
+**What:** Build the approved dashboard mockups (variant O = Part Workspace v5, variant P = Project Workspace v5, variant EDIT = Editable Specs Detail v3, variant R = Order Confirmation) against the live `src/pages/ClientPart.tsx` (1065 LOC), `src/pages/ClientProject.tsx` (1727 LOC), and `src/components/workspace/ClientWorkspaceShell.tsx`. The design language is locked in `docs/DESIGN.md` and PR #227 — patterns have been specified but never implemented in code.
+
+**Why:** Nine rounds of `/design-shotgun` review with three stakeholders converged on a single dashboard direction on 2026-05-01. The DR-00x token cleanup pass shipped the surface tokens (`--ws-surface-shell`, radius scale, `h-svh`, emerald instead of OpenAI green), but the actual layout, typography hero, filter strip, vendor-stacked rows, editable-specs interaction states, and 4-step status timeline were never built. We are shipping a 2025-era dashboard while telling stakeholders the redesign is "locked." First-time-user impression today does not match the locked spec.
+
+**Locked patterns to implement** (full spec in `docs/DESIGN.md` and PR #227 body):
+
+*Shell (both surfaces):*
+- Collapsible left + right rails on every workspace surface
+- Left-rail composition: logo + tagline → NEW + SEARCH buttons → parts list → user-account footer (ChatGPT-style)
+- Right-rail: PART INFO / PROJECT INFO panel + ROADMAP chips at footer (muted mono uppercase)
+- Theme toggle is a single sun/moon icon, not a labeled pill
+
+*Part Workspace (variant O):*
+- Filename hero at 44–48px (Suisse Int'l Condensed or GT America Mono) — largest type on the page
+- Breadcrumbs above the filename hero (center column only)
+- Drawing preview + STEP viewer side-by-side
+- Quote comparison scatter chart (lead time × price, vendor-colored dots)
+- Quote table columns: Vendor / Price / Lead / Quality / Origin only — sortable carets on PRICE / LEAD / QUALITY / TOTAL
+- `.STEP` extensions visible only on this surface
+- Selection indicator = vendor wordmark in oxidized-red text (never row-level vertical bars)
+
+*Project Workspace (variant P):*
+- Filename hero (project name), assemblies-grouped parts table with qty/assy multipliers
+- Bulk filter strip: `CHEAPEST` / `FASTEST` / `BY DUE DATE` + `[X] US ORIGIN ONLY`
+- Vendor multi-quote stacking (vendors with 5+ variants collapse to expandable parent rows)
+- 4-step status timeline: RFQ Sent → Quotes Received → Quote Selection → Parts Ordered
+- Project totals: `EST. LEAD` and `TARIFFS*` (not Weighted Lead, not Cert Fees)
+- Flat-parts mode fallback: `NO ASSEMBLIES — N INDEPENDENT PARTS`
+
+*Editable Specs (variant EDIT):*
+- Three states: default → editing → has-pending-edits with `--surface-2` tint + italic value (rejects red dots and bold as too loud)
+- Hover-only edit affordance (no static pencil icons)
+- Units toggle (`METRIC / IMPERIAL`) inside editable-specs panels, default imperial
+
+*Order Confirmation (variant R):*
+- Full-page checkout (not modal)
+- `PLACE ORDER` is the only filled-color CTA in the entire system
+
+**Pre-work / dependencies:**
+- License + self-host **Suisse Int'l Condensed** and **Söhne Buch** — currently using free analogs (Space Mono, IBM Plex Sans) which "preserve shape but should not ship" per `docs/DESIGN.md` §Loading. Lab Mono is already free via Fontshare.
+- Verify TODO-018, TODO-019, TODO-022 (editable specs, reset-to-extracted, vendor in-flight badges) integrate cleanly into the new editable-specs interaction model — they shipped against the old layout.
+
+**Suggested PR sequence:**
+1. **PR-A** — Font loading + typography scale wiring in `tailwind.config.ts` and `index.css`. No layout changes. Verify Lab Mono tabular-nums and the 11px–48px scale renders correctly.
+2. **PR-B** — New `ClientWorkspaceShell` with collapsible left + right rails, new left-rail composition. Both Part and Project routes consume it. Old shell deleted in the same PR.
+3. **PR-C** — Part Workspace v5: filename hero, breadcrumbs, drawing+STEP viewer pairing, scatter chart, sortable quote table with the locked column set. Map current `ClientQuoteDecisionPanel` + `ClientQuoteComparisonChart` onto the new layout.
+4. **PR-D** — Project Workspace v5: filter strip, assemblies-grouped table, vendor stacking, 4-step timeline, project totals with `EST. LEAD` / `TARIFFS*`, flat-parts fallback.
+5. **PR-E** — Editable Specs Detail v3: three-state interaction on `ClientPartRequestEditor`, units toggle, hover-only edit affordance.
+6. **PR-F** — Order Confirmation full-page route replacing the current `ProcurementHandoffPanel` checkout flow. Coordinates with TODO-020 (Stripe).
+
+**Where to start:** `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/` — open `design-board.html` and the four approved variant PNGs. Then read `docs/DESIGN.md` end-to-end. Then PR-A.
+
+**Anti-scope:** This TODO is **dashboards only**. The landing page is parked under TODO-026 and stays parked.
+
+**Effort:** XL (human: ~4–6 weeks / CC: ~3–5 days across 6 PRs) | **Priority:** P1 (locked design, current dashboard contradicts stakeholder agreement)
+
+**Depends on:**
+- Suisse Int'l Condensed + Söhne Buch licensing decision (or explicit "ship free analogs" override)
+- Coordination with TODO-020 (Stripe) for PR-F Order Confirmation
+- TODO-022 already shipped — vendor-status badges merge cleanly into new table
+
+**Reference artifacts:**
+- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/variant-O.png` — Part Workspace v5
+- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/variant-P.png` — Project Workspace v5
+- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/variant-EDIT.png` — Editable Specs Detail v3
+- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/variant-R.png` — Order Confirmation
+- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/design-board.html` — comparison board (7.5 MB)
+- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/approved.json` — round 9 lock record
+- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425-r{1..8}/` — 8 archive rounds, 30 mockups
+- `docs/DESIGN.md` — locked spec
+- PR #227 — design lock-in commit (decisions list, accent rules, scale)
