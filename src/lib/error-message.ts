@@ -35,7 +35,7 @@ function normalizeMessageCandidate(value: unknown): string | null {
 }
 
 function isOpaqueSerializedRecord(value: string): boolean {
-  if (value.length < 2 || value[0] !== "{" || value[value.length - 1] !== "}") {
+  if (!value.startsWith("{") || !value.endsWith("}")) {
     return false;
   }
 
