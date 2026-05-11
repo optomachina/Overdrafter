@@ -19,6 +19,8 @@
     "verify": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.json",
     "auth:xometry": "tsx src/tools/xometryAuth.ts",
     "auth:fictiv": "tsx src/tools/fictivAuth.ts",
+    "sweep:fictiv-quantity": "tsx src/tools/fictivQuantitySweep.ts",
+    "sweep:xometry-quantity": "tsx src/tools/xometryQuantitySweep.ts",
     "validate:openclaw-gate": "tsx src/tools/validateOpenclawGate.ts",
     "cleanup:dmrifles-demo": "tsx src/tools/cleanupDmriflesDemoData.ts",
     "extract:smoke": "tsx src/tools/extractDrawingSmoke.ts",

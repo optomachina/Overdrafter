@@ -10,10 +10,11 @@ export const FICTIV_LOCATORS = {
   captchaSignals: [/captcha/i, /verify you are human/i, /cloudflare/i],
   manualReviewSignals: [
     /manual review/i,
-    /request quote/i,
+    /request(?:ed)?\s+for\s+quote/i,
     /rfq required/i,
     /pending review/i,
     /requires review/i,
+    /quote will be reviewed/i,
   ],
   capabilityLimitSignals: [
     /not available for your account/i,
@@ -67,7 +68,32 @@ export const FICTIV_LOCATORS = {
     '[data-test-target*="option"]',
     '[data-test-target*="process"] [role="button"]',
   ],
+  processRadioCards: [
+    '.ant-radio-wrapper',
+  ],
+  selectedProcessRadios: [
+    '.ant-radio-wrapper-checked',
+  ],
+  leadTimeOptionTargets: [
+    { region: "domestic", tier: "fastest", selector: '[data-test-target="quote-level-lead-time-domesticFastest"]' },
+    { region: "domestic", tier: "standard", selector: '[data-test-target="quote-level-lead-time-domesticStandard"]' },
+    { region: "domestic", tier: "cost_effective", selector: '[data-test-target="quote-level-lead-time-domesticCostEffective"]' },
+    { region: "overseas", tier: "fastest", selector: '[data-test-target="quote-level-lead-time-overseasFastest"]' },
+    { region: "overseas", tier: "standard", selector: '[data-test-target="quote-level-lead-time-overseasStandard"]' },
+    { region: "overseas", tier: "cost_effective", selector: '[data-test-target="quote-level-lead-time-overseasCostEffective"]' },
+  ] as const,
+  modalCloseButtons: [
+    '.ant-modal-close',
+    'button.ant-modal-close',
+  ],
+  autoConfigModalContinue: [
+    '.guide-auto-config-loading-modal-auto-config-loading-modal-continue',
+  ],
+  autoConfigModalHideCheckbox: [
+    '.guide-auto-config-loading-modal-auto-config-loading-modal-hide-checkbox',
+  ],
   endUseButtons: [
+    '[data-test-target="quote-classification-selection-import-classification-radio-button-prototype"]',
     '[data-test-target*="end-use"]',
     '[data-test-target*="end_use"]',
     '[aria-label*="end use" i]',
@@ -75,6 +101,7 @@ export const FICTIV_LOCATORS = {
     'button:has-text("End use")',
   ],
   endUseOptions: [
+    '[data-test-target="quote-classification-selection-import-classification-radio-button-prototype"]',
     '[role="option"]',
     '[data-test-target*="option"]',
     '[data-test-target*="end-use"] [role="button"]',
@@ -89,12 +116,8 @@ export const FICTIV_LOCATORS = {
     'button:has-text("Edit")',
   ],
   quoteReadySignals: [
-    /active quotes/i,
-    /total price/i,
-    /unit price/i,
-    /\$\d[\d,]*\.?\d*/i,
-    /lead time/i,
-    /business days?/i,
+    /\$\d[\d,]*\.\d{2}/,
+    /\d+\s+production\s+days/i,
   ],
   quantityInputs: [
     '[data-test-target*="quantity"] input',
@@ -124,6 +147,8 @@ export const FICTIV_LOCATORS = {
     '[data-test-target*="option"]',
   ],
   priceText: [
+    '[data-test-target="quote-level-lead-time-price-selected"]',
+    '[data-test-target="quote-level-lead-time-selected-option"]',
     '[data-test-target*="price"]',
     '[data-test-target*="cost"]',
     '[aria-label*="price" i]',
@@ -131,6 +156,8 @@ export const FICTIV_LOCATORS = {
     '[class*="cost"]',
   ],
   leadTimeText: [
+    '[data-test-target="quote-level-lead-time-selected-option"]',
+    '[data-test-target="quote-summary-est-delivery-value"]',
     '[data-test-target*="lead"]',
     '[data-test-target*="delivery"]',
     '[aria-label*="lead" i]',

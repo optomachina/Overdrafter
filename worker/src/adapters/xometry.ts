@@ -206,6 +206,26 @@ async function readBodyText(page: Page) {
   return page.locator("body").innerText().catch(() => "");
 }
 
+async function escapeDashboardIfNeeded(page: Page, timeoutMs: number) {
+  const bodyText = await readBodyText(page);
+  const isDashboard = XOMETRY_LOCATORS.dashboardSignals.some((pattern) => pattern.test(bodyText));
+  if (!isDashboard) {
+    return false;
+  }
+
+  for (const selector of XOMETRY_LOCATORS.startNewQuoteButtons) {
+    const button = page.locator(selector).first();
+    if ((await button.count().catch(() => 0)) === 0) continue;
+    if (!(await button.isVisible().catch(() => false))) continue;
+
+    await button.click({ timeout: 5000 }).catch(() => undefined);
+    await page.waitForLoadState("networkidle", { timeout: timeoutMs }).catch(() => undefined);
+    return true;
+  }
+
+  return false;
+}
+
 async function waitForQuoteSignals(page: Page, timeoutMs: number) {
   await page.waitForFunction(
     (patterns) => {
@@ -226,9 +246,34 @@ async function waitForQuoteSignals(page: Page, timeoutMs: number) {
   );
 }
 
+async function setFilesViaChooser(page: Page, files: string[]) {
+  for (const selector of XOMETRY_LOCATORS.uploadTriggers) {
+    const trigger = page.locator(selector).first();
+    if ((await trigger.count().catch(() => 0)) === 0) continue;
+    if (!(await trigger.isVisible().catch(() => false))) continue;
+
+    try {
+      const [fileChooser] = await Promise.all([
+        page.waitForEvent("filechooser", { timeout: 5000 }),
+        trigger.click({ timeout: 5000 }),
+      ]);
+      await fileChooser.setFiles(files);
+      return selector;
+    } catch {
+      // Try the next trigger.
+    }
+  }
+  return null;
+}
+
 async function setFilesOnUpload(page: Page, files: string[]) {
   const attemptedSelectors: string[] = [];
   const deadline = Date.now() + 15_000;
+
+  const chooserSelector = await setFilesViaChooser(page, files);
+  if (chooserSelector) {
+    return { selector: `filechooser:${chooserSelector}`, attemptedSelectors: [chooserSelector] };
+  }
 
   while (Date.now() < deadline) {
     for (const selector of XOMETRY_LOCATORS.uploadInputs) {
@@ -630,6 +675,10 @@ export class XometryAdapter extends VendorAdapter {
       await page.waitForLoadState("networkidle").catch(() => undefined);
       await detectBlockingState(page, runDir);
       await appendArtifacts(artifacts, page, runDir, "landing");
+      const escapedDashboard = await escapeDashboardIfNeeded(page, this.config.browserTimeoutMs);
+      if (escapedDashboard) {
+        await appendArtifacts(artifacts, page, runDir, "post-dashboard");
+      }
 
       const uploadFiles = [
         input.stagedCadFile.localPath,

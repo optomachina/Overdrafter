@@ -23,10 +23,30 @@ export const XOMETRY_LOCATORS = {
     '[data-testid="file-upload"] input[type="file"]',
     'input[type="file"]',
   ],
+  uploadTriggers: [
+    'text=/^Choose File$/i',
+    'text=/^Drag and Drop or Choose File$/i',
+    'label:has-text("Choose File")',
+    'button:has-text("Choose File")',
+    'button:has-text("Start a New Instant Quote")',
+    '.xl--dropover-closed',
+  ],
+  startNewQuoteButtons: [
+    'button:has-text("Start a New Instant Quote")',
+    'button:has-text("Start a new Instant Quote")',
+    'button:has-text("Start An Instant Quote")',
+    'button:has-text("Start a New")',
+  ],
+  dashboardSignals: [
+    /welcome back/i,
+    /recent quotes/i,
+    /pick up where you left off/i,
+  ],
   quoteReadySignals: [
     /configure part/i,
     /edit specifications/i,
-    /\$\d[\d,]*\.?\d*/i,
+    /part configuration/i,
+    /process[:\s]+cnc/i,
   ],
   quantityInputs: [
     '[data-testid*="quantity"] input',
