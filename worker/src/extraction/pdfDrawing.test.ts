@@ -2,9 +2,10 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockExecFileAsync, mockAccess, mockRename } = vi.hoisted(() => ({
+const { mockExecFileAsync, mockAccess, mockMkdtemp, mockRename } = vi.hoisted(() => ({
   mockExecFileAsync: vi.fn(),
   mockAccess: vi.fn(),
+  mockMkdtemp: vi.fn(),
   mockRename: vi.fn(),
 }));
 
@@ -15,6 +16,7 @@ vi.mock("node:util", () => ({
 vi.mock("node:fs/promises", () => ({
   default: {
     access: mockAccess,
+    mkdtemp: mockMkdtemp,
     rename: mockRename,
   },
 }));
@@ -52,8 +54,10 @@ describe("pdfDrawing", () => {
   beforeEach(() => {
     mockExecFileAsync.mockReset();
     mockAccess.mockReset();
+    mockMkdtemp.mockReset();
     mockRename.mockReset();
     mockAccess.mockResolvedValue(undefined);
+    mockMkdtemp.mockResolvedValue("/tmp/overdrafter-pdf-ocr-test");
     mockRename.mockResolvedValue(undefined);
   });
 
@@ -81,6 +85,52 @@ describe("pdfDrawing", () => {
       2,
       "pdftotext",
       ["-layout", "-enc", "UTF-8", "-f", "1", "-l", "1", "/tmp/example.pdf", "-"],
+      expect.any(Object),
+    );
+  });
+
+  it("falls back to OCR text when poppler text extraction is unavailable", async () => {
+    mockExecFileAsync
+      .mockRejectedValueOnce(new Error("pdfinfo missing"))
+      .mockRejectedValueOnce(new Error("pdftoppm missing"))
+      .mockResolvedValueOnce({ stdout: "" })
+      .mockResolvedValueOnce({
+        stdout: [
+          "ROUND, CARBON FIBER END ATTACHMENTS",
+          "BONDED",
+          "MATERIAL rinsH ANODIZE, BLACK, MIL-A-8625F, TYPE II -",
+          "6061 Alloy CLASS 2 1093-05589 02",
+          "THREE PLACE DECIMAL +.005",
+        ].join("\n"),
+      });
+
+    await expect(extractPdfText("/tmp/1093-05589-02.pdf")).resolves.toEqual({
+      pageCount: 1,
+      pages: [
+        {
+          page: 1,
+          text: [
+            "ROUND, CARBON FIBER END ATTACHMENTS",
+            "BONDED",
+            "MATERIAL rinsH ANODIZE, BLACK, MIL-A-8625F, TYPE II -",
+            "6061 Alloy CLASS 2 1093-05589 02",
+            "THREE PLACE DECIMAL +.005",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(mockMkdtemp).toHaveBeenCalledWith(expect.stringContaining("overdrafter-pdf-ocr-"));
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
+      3,
+      "qlmanage",
+      ["-t", "-s", "3000", "-o", "/tmp/overdrafter-pdf-ocr-test", "/tmp/1093-05589-02.pdf"],
+      expect.any(Object),
+    );
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
+      4,
+      "tesseract",
+      ["/tmp/overdrafter-pdf-ocr-test/drawing-page-1.png", "stdout", "--psm", "4"],
       expect.any(Object),
     );
   });
@@ -188,5 +238,37 @@ describe("pdfDrawing", () => {
     expect(result.finish.value).not.toBe("TIM 11/18/2013");
     expect(result.description.value).not.toBe("87654321");
     expect(result.debugCandidates.partNumber[0]?.reasons).not.toContain("rejected_spec_string");
+  });
+
+  it("rescues title-block fields and tolerance from OCR text when layout anchors are noisy", () => {
+    const result = inferDrawingSignalsFromPdf({
+      baseName: "1093-05589-02",
+      pdfText: {
+        pageCount: 1,
+        pages: [
+          {
+            page: 1,
+            text: [
+              "ROUND, CARBON FIBER END ATTACHMENTS",
+              "BONDED",
+              "MATERIAL rinsH ANODIZE, BLACK, MIL-A-8625F, TYPE II -",
+              "6061 Alloy CLASS 2 1093-05589 02",
+              "THREE PLACE DECIMAL +.005",
+            ].join("\n"),
+          },
+        ],
+      },
+    });
+
+    expect(result.partNumber.value).toBe("1093-05589");
+    expect(result.revision.value).toBe("02");
+    expect(result.description.value).toBe("ROUND, CARBON FIBER END ATTACHMENTS BONDED");
+    expect(result.material.value).toBe("6061 Alloy");
+    expect(result.finish.value).toBe("ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2");
+    expect(result.tightestTolerance).toBe("±0.005");
+    expect(result.threads).toEqual([]);
+    expect(result.quoteDescription).toBe("BONDED, CARBON FIBER END ATTACHMENT");
+    expect(result.quoteFinish).toBe("Black Anodize, Type II");
+    expect(result.reviewFields).toEqual([]);
   });
 });

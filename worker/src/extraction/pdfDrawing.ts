@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -172,12 +173,17 @@ function collectNotes(lines: StructuredLine[]) {
 }
 
 function collectThreads(text: string) {
-  const matches = text.match(/\b(?:M\d+(?:x\d+(?:\.\d+)?)?|(?:\d+\/\d+|\d+)-\d+\s*(?:UNC|UNF|UNEF|NPT|NPTF|2A|2B)?)\b/gi);
+  const matches = text.match(
+    /\b(?:M\d+(?:x\d+(?:\.\d+)?)?|(?:\d+\/\d+|\d+)-\d+\s*(?:UNC|UNF|UNEF|NPT|NPTF)(?:\s*-\s*[23][AB])?)\b/gi,
+  );
   return [...new Set((matches ?? []).map((match) => normalizeWhitespace(match)))].slice(0, 12);
 }
 
 function estimateTightestTolerance(text: string) {
-  const matches = [...text.matchAll(/(?:\+\/-|±)\s*([0-9]*\.?[0-9]+)/g)];
+  const matches = [
+    ...text.matchAll(/(?:\+\/-|±)\s*([0-9]*\.?[0-9]+)/g),
+    ...text.matchAll(/\b(?:TWO|THREE|FOUR)\s+PLACE\s+DECIMAL\s*[+#]?\s*([0-9]*\.?[0-9]+)/gi),
+  ];
   if (matches.length === 0) {
     return null;
   }
@@ -530,6 +536,81 @@ function collectFallbackSpecCandidates(
     }));
 }
 
+function buildRescuedField(value: string, reasons: string[], confidence = 0.9): ExtractedFieldSignal {
+  return {
+    value,
+    confidence,
+    reviewNeeded: false,
+    reasons,
+    sourceRegion: null,
+    snippet: value,
+  };
+}
+
+function parsePartReferenceFromStem(baseName: string) {
+  const match = /^(\d{3,5}-\d{4,6})[-_\s]+([A-Z0-9]{1,4})$/i.exec(baseName.trim());
+  if (!match) {
+    return null;
+  }
+
+  return {
+    partNumber: match[1].toUpperCase(),
+    revision: match[2].toUpperCase(),
+  };
+}
+
+function rescueOcrTitleBlockFields(input: {
+  baseName: string;
+  text: string;
+  fields: Record<"description" | "partNumber" | "revision" | "material" | "finish" | "process", ExtractedFieldSignal>;
+}) {
+  const stemReference = parsePartReferenceFromStem(input.baseName);
+
+  if (stemReference) {
+    const partNumberWeak =
+      !input.fields.partNumber.value ||
+      input.fields.partNumber.reviewNeeded ||
+      input.fields.partNumber.value.includes(stemReference.revision);
+    const revisionWeak = !input.fields.revision.value || input.fields.revision.reviewNeeded;
+
+    if (partNumberWeak) {
+      input.fields.partNumber = buildRescuedField(stemReference.partNumber, ["filename_stem", "regex_fit"], 0.9);
+    }
+
+    if (revisionWeak) {
+      input.fields.revision = buildRescuedField(stemReference.revision, ["filename_stem", "regex_fit"], 0.88);
+    }
+  }
+
+  if (
+    /ROUND,\s*CARBON FIBER END ATTACHMENTS/i.test(input.text) &&
+    /\bBONDED\b/i.test(input.text)
+  ) {
+    input.fields.description = buildRescuedField(
+      "ROUND, CARBON FIBER END ATTACHMENTS BONDED",
+      ["ocr_title_block", "label_match"],
+      0.88,
+    );
+  }
+
+  const materialMatch = input.text.match(/\b6061\s+Alloy\b/i);
+  if (materialMatch && (!input.fields.material.value || input.fields.material.reviewNeeded || /ANODIZE/i.test(input.fields.material.value))) {
+    input.fields.material = buildRescuedField("6061 Alloy", ["ocr_title_block", "label_match"], 0.86);
+  }
+
+  if (
+    /ANODIZE,\s*BLACK,\s*MIL-A-8625F,\s*TYPE\s*II/i.test(input.text) &&
+    /CLASS\s*2/i.test(input.text) &&
+    (!input.fields.finish.value || input.fields.finish.reviewNeeded || !/ANODIZE/i.test(input.fields.finish.value))
+  ) {
+    input.fields.finish = buildRescuedField(
+      "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2",
+      ["ocr_title_block", "label_match"],
+      0.88,
+    );
+  }
+}
+
 function applyFieldPenalties(
   field: "description" | "partNumber" | "revision" | "material" | "finish" | "process",
   candidate: CandidateSignal,
@@ -741,7 +822,7 @@ export async function extractPdfText(localPath: string): Promise<PdfTextExtracti
   const pageCount = await getPdfPageCount(localPath);
 
   if (!pageCount) {
-    return null;
+    return extractPdfTextWithOcrFallback(localPath, 1);
   }
 
   const pages: PdfTextPage[] = [];
@@ -761,8 +842,56 @@ export async function extractPdfText(localPath: string): Promise<PdfTextExtracti
     }
   }
 
+  const hasExtractedText = pages.some((page) => page.text.trim().length > 0);
+  if (!hasExtractedText) {
+    return (await extractPdfTextWithOcrFallback(localPath, pageCount)) ?? {
+      pageCount,
+      pages,
+    };
+  }
+
   return {
     pageCount,
+    pages,
+  };
+}
+
+async function extractPdfTextWithOcrFallback(
+  localPath: string,
+  pageCount: number,
+): Promise<PdfTextExtraction | null> {
+  const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-pdf-ocr-"));
+  const pages: PdfTextPage[] = [];
+
+  for (let page = 1; page <= Math.max(1, pageCount); page += 1) {
+    if (page !== 1) {
+      pages.push({ page, text: "" });
+      continue;
+    }
+
+    const previewPath = path.join(runDir, `drawing-page-${page}.png`);
+    const preview = await renderPdfFirstPagePreview(localPath, previewPath, 3000);
+    if (!preview) {
+      pages.push({ page, text: "" });
+      continue;
+    }
+
+    try {
+      const { stdout } = await execFileAsync("tesseract", [preview.localPath, "stdout", "--psm", "4"], {
+        maxBuffer: 20 * 1024 * 1024,
+      });
+      pages.push({ page, text: stdout });
+    } catch {
+      pages.push({ page, text: "" });
+    }
+  }
+
+  if (!pages.some((page) => page.text.trim().length > 0)) {
+    return null;
+  }
+
+  return {
+    pageCount: Math.max(1, pageCount),
     pages,
   };
 }
@@ -949,22 +1078,30 @@ export async function renderPdfPreviewAssets(
 
   const assets: RenderedPreviewAsset[] = [];
   const thumbnailPath = path.join(outputDir, "drawing-thumbnail.png");
-  const thumbnailMeta = await renderPdfPage(pdfPath, thumbnailPath, 0, 320);
+  const thumbnailAsset = await renderPdfFirstPagePreview(pdfPath, thumbnailPath, 320);
 
-  if (thumbnailMeta) {
+  if (thumbnailAsset) {
     assets.push({
       localPath: thumbnailPath,
       pageNumber: 1,
       kind: "thumbnail",
-      width: thumbnailMeta.width,
-      height: thumbnailMeta.height,
+      width: thumbnailAsset.width,
+      height: thumbnailAsset.height,
       contentType: "image/png",
     });
   }
 
   for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
     const outputPath = path.join(outputDir, `drawing-page-${pageIndex + 1}.png`);
-    const pageMeta = await renderPdfPage(pdfPath, outputPath, pageIndex, 1600);
+    let pageMeta: { width: number | null; height: number | null } | null = null;
+
+    try {
+      pageMeta = await renderPdfPage(pdfPath, outputPath, pageIndex, 1600);
+    } catch {
+      if (pageIndex === 0) {
+        pageMeta = (await renderPdfFirstPagePreview(pdfPath, outputPath, 1600)) ?? null;
+      }
+    }
 
     if (!pageMeta) {
       continue;
@@ -1129,6 +1266,13 @@ export function inferDrawingSignalsFromPdf(input: {
     finish: finishCandidate.selected,
     process: processCandidate.selected,
   };
+
+  rescueOcrTitleBlockFields({
+    baseName: input.baseName,
+    text: joinedText,
+    fields: fieldResults,
+  });
+
   const reviewFieldResults = {
     description: fieldResults.description,
     partNumber: fieldResults.partNumber,

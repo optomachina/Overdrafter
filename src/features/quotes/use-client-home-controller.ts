@@ -112,6 +112,7 @@ export function useClientHomeController() {
   const [membershipResolutionErrorMessage, setMembershipResolutionErrorMessage] = useState<string | null>(null);
   const [membershipResolutionAttempt, setMembershipResolutionAttempt] = useState(0);
   const membershipRecoveryKeyRef = useRef<string | null>(null);
+  const bootstrapAccountKeyRef = useRef<string | null>(null);
   const authIntent = searchParams.get("auth");
   const focusComposerIntent = searchParams.get("focusComposer");
   const authDialogMode: "sign-in" | "sign-up" | "forgot-password" =
@@ -354,6 +355,12 @@ export function useClientHomeController() {
       return;
     }
 
+    const bootstrapKey = `${user?.id ?? "anonymous"}:${defaultAccountName}`;
+    if (bootstrapAccountKeyRef.current === bootstrapKey) {
+      return;
+    }
+
+    bootstrapAccountKeyRef.current = bootstrapKey;
     bootstrapAccountMutation.mutate(defaultAccountName);
   }, [
     bootstrapAccountMutation,

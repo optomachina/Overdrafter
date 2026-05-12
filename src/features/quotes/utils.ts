@@ -855,6 +855,7 @@ export function buildRequirementDraft(
       null,
   });
   const process = readSpecSnapshotString(approved?.spec_snapshot, "process");
+  const processDefault = serviceIntent.primaryServiceKind === "manufacturing_quote" ? "CNC Machining" : null;
   const notes = readSpecSnapshotString(approved?.spec_snapshot, "notes");
   const metadata = readRfqLineItemExtendedMetadata(approved?.spec_snapshot);
   const materialRequired = requestedServicesRequireMaterial(serviceIntent.requestedServiceKinds);
@@ -898,7 +899,7 @@ export function buildRequirementDraft(
       clientRequirement?.tightestToleranceInch ??
       approved?.tightest_tolerance_inch ??
       normalizedExtraction.tightestTolerance.valueInch,
-    process: clientRequirement?.process ?? process,
+    process: clientRequirement?.process ?? process ?? processDefault,
     notes: clientRequirement?.notes ?? notes,
     quantity,
     quoteQuantities,

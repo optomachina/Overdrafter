@@ -8,11 +8,13 @@ The database has `vendor_quote_results.status` with values: `queued`, `running`,
 
 ## Current State
 
-- `ClientQuoteSelectionOption` (in `src/features/quotes/selection.ts`) has no `status` field
-- UI only shows options with complete quote data
-- Polling checks extraction lifecycle, not quote fan-out status
+TODO-022 is complete. The implementation shipped in `b27a91c` / PR #212 and is summarized in `TODOS.md`.
 
-## Implementation Plan
+- `ClientQuoteSelectionOption` includes vendor status.
+- `ClientQuoteDecisionPanel` renders vendor-level pending, fetching, failed, review, follow-up, and stale states.
+- Quote selection option building propagates `vendor_quote_results.status`.
+
+## Historical Implementation Plan
 
 ### 1. Add vendor status to ClientQuoteSelectionOption
 **File:** `src/features/quotes/selection.ts`

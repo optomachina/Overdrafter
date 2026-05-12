@@ -140,19 +140,19 @@ Remaining adjacent work:
 
 **What:** Implement real Playwright automation for Protolabs and SendCutSend adapters (currently simulation-only). These are instant-quote providers that have more tractable APIs than Xometry.
 
-**Why:** Phase 2 Task B ships Xometry + Fictiv live automation. Protolabs and SendCutSend are deferred because they are instant-quote providers that may have programmatic APIs or simpler automation surfaces. Phase 2 multi-vendor live value is proven with Xometry + Fictiv first.
+**Why:** Xometry and Fictiv are the current live-adapter focus. Protolabs and SendCutSend are deferred because they are instant-quote providers that may have programmatic APIs or simpler automation surfaces. Phase 2 multi-vendor live value is proven with Xometry + Fictiv first.
 
-**Blocking state:** Current adapter behavior (pre-Task-B) differs by adapter:
-- **Protolabs** (`worker/src/adapters/protolabs.ts`): returns `status: "official_quote_received"` with **simulated non-null prices** (`unitPriceUsd`/`totalPriceUsd`) in `WORKER_MODE=live`. No `VendorAutomationError` guard exists — fake prices are indistinguishable from real quotes in the DB.
-- **SendCutSend** (`worker/src/adapters/sendcutsend.ts`): returns `status: "manual_vendor_followup"` with null prices, but no `"not_implemented"` reason code.
+**Current state:** The live-mode fake-price risk has been closed for the deferred adapters:
+- **Protolabs** (`worker/src/adapters/protolabs.ts`): throws `VendorAutomationError("not_implemented")` in live mode so it routes to manual vendor follow-up instead of returning simulated prices.
+- **SendCutSend** (`worker/src/adapters/sendcutsend.ts`): throws `VendorAutomationError("not_implemented")` in live mode so the reason code is explicit.
 
-Task B must add a `VendorAutomationError("not_implemented")` guard to both adapters so they route to `manual_vendor_followup` in live mode instead of returning simulated data.
+This TODO is now about implementing real Protolabs and SendCutSend automation or API-backed quoting, not about fail-closed guards.
 
 **Where to start:** `worker/src/adapters/protolabs.ts` and `worker/src/adapters/sendcutsend.ts` — investigate whether instant-quote API endpoints exist before building Playwright automation. SendCutSend has a known instant-quote API.
 
 **Effort:** M each (human: ~1 week / CC: ~1 day) | **Priority:** P2
 
-**Depends on:** Task B (live harness + adapter guard pattern established)
+**Depends on:** Stable Xometry/Fictiv live quote path and a decision to expand vendor coverage beyond the MVP.
 
 ---
 
@@ -364,19 +364,19 @@ Recommended evaluator behavior:
 
 ---
 
-## TODO-020: Stripe card payment integration (pre-Frank)
+## TODO-020: Stripe card payment integration
 
-**Status:** 🔄 **IN PROGRESS** — escalated to pre-Frank priority (2026-04-08)
+**Status:** ⏸ **DEFERRED** — no longer blocks the no-Stripe live-quote MVP (2026-05-12)
 
-**What:** Add Stripe card payment to `ClientProjectReview.tsx`. Frank completes the `ProcurementHandoffPanel` (shipping/billing/PO context), then sees a payment step below it. Stripe Elements card input. Payment Intent with delayed capture: authorize at checkout, capture after Xometry order placement confirms. Stripe webhook handler with signature verification and idempotency.
+**What:** Eventually add Stripe card payment to `ClientProjectReview.tsx`. A customer completes the `ProcurementHandoffPanel` (shipping/billing/PO context), then sees a payment step below it. Stripe Elements card input. Payment Intent with delayed capture: authorize at checkout, capture after vendor order placement confirms. Stripe webhook handler with signature verification and idempotency.
 
-**Why:** Frank has agreed to pay in full for the first order. The `ProcurementHandoffPanel` "manual follow-up" stub is not a real payment path. Stripe must ship BEFORE Frank's first real session, not after — the prior deferral was wrong.
+**Why:** Payment is required for a later fully transactional loop, but the current MVP goal is narrower: allow `dmrifles@gmail.com` to upload parts and request/receive quotes. The app should not collect card payment or place orders in this phase.
 
 **Pros:** Converts the first real quote into a transaction. Real revenue. Frank sees a complete loop.
 
-**Cons:** Stripe integration, webhook handling, payment migration, and delayed capture are non-trivial. Must ship alongside live harness (Task B) — don't build Stripe before Task A passes.
+**Cons:** Stripe integration, webhook handling, payment migration, and delayed capture are non-trivial. It should not be mixed into the live-quote MVP while the vendor automation path is still being hardened.
 
-**Context:** Priority escalated from "after Frank's first paid session" in /plan-eng-review on 2026-04-08. Design doc: `blainewilson-claude-gracious-ritchie-design-20260408-175506.md`. Enable Stripe Chargeback Protection ($0.25/txn) in Stripe dashboard.
+**Context:** Priority was escalated on 2026-04-08, but the May 12, 2026 product direction explicitly defers billing and payments. Keep this ticket as future transactional scope, not a blocker for first live quote usage.
 
 **Implementation notes:**
 - Preserve `ProcurementHandoffPanel` — add payment step below it, don't replace it
@@ -397,9 +397,9 @@ AUTHORIZED → CAPTURED (Xometry order placed)
 
 **Where to start:** `src/pages/ClientProjectReview.tsx` — add payment section below `ProcurementHandoffPanel`. Then `supabase/functions/create-payment-intent/` → `supabase/functions/stripe-webhook/` → migration.
 
-**Effort:** L (human: ~2 weeks / CC: ~2 hours) | **Priority:** P0 (pre-Frank, blocks first transaction)
+**Effort:** L (human: ~2 weeks / CC: ~2 hours) | **Priority:** P2 (post-live-quote MVP)
 
-**Depends on:** Task A gate pass. Stripe account configured with Chargeback Protection. `XOMETRY_STORAGE_STATE_PATH` set in production.
+**Depends on:** Stable live quote path, product decision to resume payments, Stripe account configured with Chargeback Protection.
 
 ---
 
@@ -442,200 +442,58 @@ AUTHORIZED → CAPTURED (Xometry order placed)
 
 ---
 
-## TODO-023: Fictiv live automation (recon + implementation)
+## ~~TODO-023: Fictiv live automation (recon + implementation)~~ ✅ DONE / HARDENING REMAINS (#235)
 
-**What:** Build real Playwright automation for the Fictiv adapter (`worker/src/adapters/fictiv.ts`). The adapter currently throws `VendorAutomationError("not_implemented")` in live mode. Phase 2 Task B requires both Xometry and Fictiv live quotes to pass the openclaw gate.
+**Status:** ✅ **COMPLETE for MVP live-adapter capability** (2026-05-12)
 
-**Why:** `openclawGate.ts` requires `realQuoteVendorCount >= TARGET_VENDORS.length` where `TARGET_VENDORS = ["xometry", "fictiv"]`. Without Fictiv live automation, Task A gate will never pass regardless of Xometry working.
+**Resolution:** PR #235 repaired the Fictiv live adapter against the current Fictiv portal UI and validated real portal usage. The old note saying `worker/src/adapters/fictiv.ts` was a 67-line stub is stale.
 
-**Blocking state:** Current `fictiv.ts` is a 67-line stub. Xometry adapter is 777 lines of full Playwright automation built through prior openclaw usage. Fictiv has been quoted through openclaw previously — that experience is the primary reference for mapping the automation surface.
+**Evidence:**
+- PR #235: `fix(worker): repair Fictiv live adapter + add quantity sweep tools`
+- `worker/src/adapters/fictiv.ts`: repaired live portal flow
+- `worker/src/tools/fictivQuantitySweep.ts`: quantity sweep tooling
+- Validation reported in PR #235: live Fictiv test returned `instant_quote_received` with real price + lead time; wide/dense sweeps captured structured price/lead-time options.
 
-**Recon first:** Before writing the adapter, map Fictiv's quoting flow:
-- Session model (cookies, localStorage, headers)
-- Auth sequence (login flow, session storage path)
-- Quote form selectors (file upload, material/process selection, quantity)
-- Quote result extraction (price, lead time, quote URL)
-- Anti-detection patterns (rate limits, bot detection signals)
-
-**Where to start:** Run `npm --prefix worker run auth:xometry` as the model — replicate the pattern for a `xometryAuth`-equivalent tool for Fictiv. Map the Fictiv quoting UI manually in a Chromium session before writing selectors.
-
-**Effort:** M-L (human: ~1 week / CC: ~2 hours after recon) | **Priority:** P1 (required for Task A gate pass)
-
-**Depends on:** Prior openclaw Fictiv quote runs as reference. Xometry live automation complete (to establish pattern).
+**Remaining hardening:**
+- Keep Fictiv behind `WORKER_LIVE_ADAPTERS` until the Xometry app-triggered path is verified.
+- Add operational session freshness parity for Fictiv if it becomes part of unattended demos.
+- Treat portal drift and modal handling as ongoing adapter maintenance, not initial implementation.
 
 ---
 
-## TODO-024: Xometry session freshness health signal
+## ~~TODO-024: Xometry session freshness health signal~~ ✅ DONE (#231)
 
-**What:** Add a proactive "session is stale" health signal to the worker, so operators can detect Xometry auth expiry before it fails a live quote run. Currently, session expiry is only caught at quote time via `login_required` error (non-retryable, task fails).
+**Status:** ✅ **COMPLETE** (2026-05-08)
 
-**Why:** The design doc (2026-04-08) identifies session rotation as a known risk for live mode. Session expiry mid-capture-window is a payment-state risk. A proactive health signal turns a reactive failure into an operational alert.
+**Resolution:** PR #231 added `xometry_session_age_days` to worker `/health`, `/healthz`, `/readyz`, and root health responses. It also added `XOMETRY_SESSION_FRESHNESS_WARN_DAYS` with a default 7-day warning threshold and startup warning behavior.
 
-**Pros:** Operators can re-auth before a quote run starts. Reduces "payment authorized, order failed" incidents.
-**Cons:** Requires a lightweight session validation step on the health server poll interval, or a cron-style pre-flight check.
+**Evidence:**
+- `worker/src/httpServer.ts`: session-age field and resilient age computation
+- `worker/src/httpServer.test.ts`: session freshness coverage
+- `worker/src/config.ts`: `XOMETRY_SESSION_FRESHNESS_WARN_DAYS`
+- PR #231 verification reported worker verify, targeted health tests, and root tests.
 
-**Context:** Identified during /plan-eng-review 2026-04-08. The health server (`worker/src/index.ts:1264`) already exists — this adds a session freshness field to its response.
-
-**Where to start:** `worker/src/index.ts` health server or a standalone session-check helper that loads the storage state file, checks its mtime vs. a configurable threshold (e.g., 7 days), and surfaces `xometry_session_age_days` in the `/health` response.
-
-**Effort:** S (human: ~2 hours / CC: ~10 min) | **Priority:** P2
-
-**Depends on:** Xometry live mode enabled (Task B).
+**Remaining related work:** A consecutive `xometry_auth_failure` circuit-breaker is still separate hardening. Session age is now observable; automatic auth refresh is not implemented.
 
 ---
 
-## TODO-026: Landing-page redesign — revisit when ready to do it right
+## TODO-025: Xometry Camoufox operational hardening
 
-**What:** The full public marketing landing redesign (`optomachina/landing-redesign` branch, R4-v2 hero + B1/B2/B3/B4 body + footer, all approved via /design-shotgun rounds 1-6 on 2026-05-05) was reviewed by friends/peers on 2026-05-08 and the feedback was negative. Park the work. Don't ship `Landing.tsx`. Don't merge `optomachina/landing-redesign`. The current landing at `overdrafter.com` stays as-is. TODO-025 (Section 4 placeholder refresh) is subsumed by this — no point fixing one section when the whole page is paused.
+**What:** Harden the Xometry Camoufox path that PR #236 proved viable. The architecture now works: Camoufox plus a persistent Firefox profile reached the Xometry configurator and extracted real pricing. The remaining work is operational reliability.
 
-**Why:** Multiple reviewers said the page didn't land. We didn't capture detailed structured feedback at the time, so we don't know whether the problem was the visual system, the copy, the sections, the structure, or all of it. Shipping a landing page that nobody likes is worse than shipping nothing — first impressions are unrecoverable, and the dark-hero-to-bone-body seam is a pretty big bet to make on cold reception. Better to revisit when (a) we have a clearer truth-contract about what to say, (b) the live app has more shape so a real "what you'll see" section is possible, and (c) we have someone with design taste reviewing.
+**Why:** PR #236 validated a real Xometry quote, but repeated sweeps degraded after roughly 10 quote attempts in one session. The likely causes are Cloudflare rate limiting, accumulated in-flight quotes, profile/cookie rotation, or Xometry resume-quote prompts. A controlled `dmrifles@gmail.com` test can proceed with one-shot runs, but unattended usage needs these cases handled.
 
-**Where to start when picking this up:**
-- Read this TODO, `.context/landing-page-plan.md`, and `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/approved.json` for the full design history (12+ AI variants generated, 5 rounds of refinement, ~6 approved variant PNGs).
-- Capture *what specifically* people didn't like. Without that, regenerating variants is a coin flip. Specific complaints we have so far: (a) the hand-rolled HTML translation of approved mockups looked cheap (free font analogs, simplified SVG line-art), (b) the PNG-embed version was visually closer to the mockups but the mockups themselves didn't resonate. Get more detail before re-running /design-shotgun.
-- Decide whether to (a) start over from /design-consultation with new constraints, (b) iterate on the existing approved variants once we know what specifically failed, or (c) hire an actual human designer.
-- If picking up the /design-html output as a base: see `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/finalized.html` (PNG-embed v2). Local preview pinned via python http.server when needed; previously deployed at `optomachina.github.io/overdrafter-landing-preview` (clean up that repo if not already gone — see Cleanup below).
+**Scope:**
+- Detect and surface rate-limit or Cloudflare degradation separately from ordinary selector failures.
+- Handle "resume in-flight quote" prompts or clean up in-flight quotes before a new sweep/run.
+- Define a safe request throttle for live Xometry runs.
+- Replace `XOMETRY_PART_IS_ITAR` env-only behavior with a per-part requirement field before ITAR parts are supported.
+- Decide whether periodic `__cf_bm` refresh or scheduled re-bootstrap is required.
 
-**What we have on disk (don't lose):**
-- `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/` — all 12+ variants, approved.json, feedback rounds 1-6, finalized.html (PNG-embed comp), finalized.json
-- `.context/landing-page-plan.md` — full page outline with locked decisions D1-D5 (color mode, CTA flow, mockup choice, FAQ, footer)
-- `docs/DESIGN.md` — design system stays valid for the rest of the app even if landing is paused
-- Branch `optomachina/landing-redesign` — currently has only docs commits (TODOs, DESIGN.md). No `Landing.tsx`, no `Index.tsx` route changes. Safe to leave parked or delete.
+**Context:** Created from PR #236 follow-up notes. PR #236 added `XOMETRY_BROWSER_ENGINE=camoufox`, persistent `XOMETRY_USER_DATA_DIR` support, ITAR popup handling, rename-parts popup handling, best-effort material/finish matching, and structured Xometry price extraction. It validated qty=1 at `$194.13` / 8 business days for `1093-05589-02.STEP`.
 
-**Cleanup that may still be needed:**
-- Public preview repo: `https://github.com/optomachina/overdrafter-landing-preview` (GitHub Pages: `https://optomachina.github.io/overdrafter-landing-preview/`). Confirm whether to delete this — see chat history 2026-05-08 for the deploy.
-- Local python http.server on `127.0.0.1:56774` from `/design-html` session — kill if still running.
+**Where to start:** `worker/src/adapters/xometry.ts`, `worker/src/tools/xometryQuantitySweep.ts`, and Xometry run artifacts from PR #236. Reproduce degradation with `XOMETRY_BROWSER_ENGINE=camoufox` and a persistent `XOMETRY_USER_DATA_DIR`, then add narrowly scoped detection and recovery.
 
-**Acceptance criteria for un-burying this TODO:**
-- Specific, written feedback exists about what should change (visual, copy, structure, all of the above).
-- Either a designer is involved or there's a clear hypothesis worth testing.
-- The live app's part workspace is stable enough to screenshot for a real Section 4.
+**Effort:** M | **Priority:** P1 after the first app-triggered live quote pass
 
-**Effort:** L (human: ~1-2 weeks / CC: ~1-2 days once direction is clear) | **Priority:** P3 (deferred indefinitely)
-
-**Depends on:**
-- Detailed feedback captured.
-- Live app shape stabilized enough to support a truthful "what you'll see" section.
-- Optionally: human designer in the loop.
-
-**Reference artifacts:**
-- `.context/landing-page-plan.md`
-- `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/approved.json`
-- `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/finalized.html`
-- `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/finalized.json`
-- All 12+ variant PNGs in the same directory
-- Memory: `feedback_marketing_no_fabrication` (truth contract for marketing surfaces)
-
----
-
-## ~~TODO-025: Refresh landing-page "What you'll see" section once app shape stabilizes~~ ⏸️ SUPERSEDED BY TODO-026 (2026-05-08)
-
-**Status:** Subsumed by TODO-026 (whole landing redesign paused after negative peer review). Re-evaluate Section 4 only when un-burying TODO-026.
-
-**What:** Replace the current Section 4 mockup on the public marketing landing (`src/pages/Landing.tsx`, when shipped) with an accurate representation of the live OverDrafter part workspace. Current placeholder is `variant-R3-v2.png` — an AI-generated mockup of an engineering drawing + part workspace UI side-by-side. Founder feedback (2026-05-05): "Section 4 looks really bad, completely detached from what we're building. Maybe good enough for now and we can update as we finalize app shape and refresh it."
-
-**Why:** The "What you'll see" section is meant to build trust by showing real product, but the AI mockup doesn't match the actual app shape and reads as fabricated. The truth contract for the landing page (saved to memory: `feedback_marketing_no_fabrication`) requires showing real surfaces or omitting. Current placeholder violates that in spirit, but is acceptable until the live app's part workspace is stable enough to screenshot.
-
-**Where to start:**
-- Wait for the live `ClientPart` / part workspace UI to migrate fully to `docs/DESIGN.md` (bone, hairline, Lab Mono, Suisse Condensed, oxidized red).
-- Once the live surface looks like DESIGN.md intends, replace the mockup with one of:
-  - **A)** Real screenshots from a seeded dev environment (most truthful)
-  - **B)** A fresh Codex-generated mockup that matches the now-stable live UI
-  - **C)** A lightweight inline React render using the actual app components in a "preview mode"
-- Update `src/pages/Landing.tsx` to swap the image (or component) in Section 4.
-- Update `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/approved.json` (`approved_variants.what_youll_see`) to record the new asset.
-
-**Acceptance criteria:**
-- The "What you'll see" section uses real or accurate-to-live product surfaces, not a fabricated AI mockup.
-- The section visually matches the rest of the bone-mode body (hairline rules, Lab Mono labels, oxidized-red accent, no gradients/shadows/blue).
-- The section ties to a real signed-in user surface — clicking through (post-auth) lands on the same UI shown in the section.
-
-**Effort:** S–M (human: ~1 day / CC: ~30 min once app shape is locked) | **Priority:** P2 (ship landing now with placeholder, refresh later)
-
-**Depends on:**
-- Live OverDrafter part workspace UI fully migrated to `docs/DESIGN.md`.
-- `Landing.tsx` shipped with the current R3-v2 placeholder (see `.context/landing-page-plan.md`).
-
-**Reference artifacts:**
-- Plan: `.context/landing-page-plan.md`
-- Approved record: `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/approved.json`
-- Current placeholder: `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/variant-R3-v2.png`
-- Full-page preview: `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/full-page-preview.html`
-
----
-
-## TODO-027: Implement Part Workspace v5 + Project Workspace v5 from locked DESIGN.md
-
-**Status:** 📋 SCOPED, NOT STARTED (2026-05-10)
-
-**What:** Build the approved dashboard mockups (variant O = Part Workspace v5, variant P = Project Workspace v5, variant EDIT = Editable Specs Detail v3, variant R = Order Confirmation) against the live `src/pages/ClientPart.tsx` (1065 LOC), `src/pages/ClientProject.tsx` (1727 LOC), and `src/components/workspace/ClientWorkspaceShell.tsx`. The design language is locked in `docs/DESIGN.md` and PR #227 — patterns have been specified but never implemented in code.
-
-**Why:** Nine rounds of `/design-shotgun` review with three stakeholders converged on a single dashboard direction on 2026-05-01. The DR-00x token cleanup pass shipped the surface tokens (`--ws-surface-shell`, radius scale, `h-svh`, emerald instead of OpenAI green), but the actual layout, typography hero, filter strip, vendor-stacked rows, editable-specs interaction states, and 4-step status timeline were never built. We are shipping a 2025-era dashboard while telling stakeholders the redesign is "locked." First-time-user impression today does not match the locked spec.
-
-**Locked patterns to implement** (full spec in `docs/DESIGN.md` and PR #227 body):
-
-*Shell (both surfaces):*
-- Collapsible left + right rails on every workspace surface
-- Left-rail composition: logo + tagline → NEW + SEARCH buttons → parts list → user-account footer (ChatGPT-style)
-- Right-rail: PART INFO / PROJECT INFO panel + ROADMAP chips at footer (muted mono uppercase)
-- Theme toggle is a single sun/moon icon, not a labeled pill
-
-*Part Workspace (variant O):*
-- Filename hero at 44–48px (Suisse Int'l Condensed or GT America Mono) — largest type on the page
-- Breadcrumbs above the filename hero (center column only)
-- Drawing preview + STEP viewer side-by-side
-- Quote comparison scatter chart (lead time × price, vendor-colored dots)
-- Quote table columns: Vendor / Price / Lead / Quality / Origin only — sortable carets on PRICE / LEAD / QUALITY / TOTAL
-- `.STEP` extensions visible only on this surface
-- Selection indicator = vendor wordmark in oxidized-red text (never row-level vertical bars)
-
-*Project Workspace (variant P):*
-- Filename hero (project name), assemblies-grouped parts table with qty/assy multipliers
-- Bulk filter strip: `CHEAPEST` / `FASTEST` / `BY DUE DATE` + `[X] US ORIGIN ONLY`
-- Vendor multi-quote stacking (vendors with 5+ variants collapse to expandable parent rows)
-- 4-step status timeline: RFQ Sent → Quotes Received → Quote Selection → Parts Ordered
-- Project totals: `EST. LEAD` and `TARIFFS*` (not Weighted Lead, not Cert Fees)
-- Flat-parts mode fallback: `NO ASSEMBLIES — N INDEPENDENT PARTS`
-
-*Editable Specs (variant EDIT):*
-- Three states: default → editing → has-pending-edits with `--surface-2` tint + italic value (rejects red dots and bold as too loud)
-- Hover-only edit affordance (no static pencil icons)
-- Units toggle (`METRIC / IMPERIAL`) inside editable-specs panels, default imperial
-
-*Order Confirmation (variant R):*
-- Full-page checkout (not modal)
-- `PLACE ORDER` is the only filled-color CTA in the entire system
-
-**Pre-work / dependencies:**
-- License + self-host **Suisse Int'l Condensed** and **Söhne Buch** — currently using free analogs (Space Mono, IBM Plex Sans) which "preserve shape but should not ship" per `docs/DESIGN.md` §Loading. Lab Mono is already free via Fontshare.
-- Verify TODO-018, TODO-019, TODO-022 (editable specs, reset-to-extracted, vendor in-flight badges) integrate cleanly into the new editable-specs interaction model — they shipped against the old layout.
-
-**Suggested PR sequence:**
-1. **PR-A** — Font loading + typography scale wiring in `tailwind.config.ts` and `index.css`. No layout changes. Verify Lab Mono tabular-nums and the 11px–48px scale renders correctly.
-2. **PR-B** — New `ClientWorkspaceShell` with collapsible left + right rails, new left-rail composition. Both Part and Project routes consume it. Old shell deleted in the same PR.
-3. **PR-C** — Part Workspace v5: filename hero, breadcrumbs, drawing+STEP viewer pairing, scatter chart, sortable quote table with the locked column set. Map current `ClientQuoteDecisionPanel` + `ClientQuoteComparisonChart` onto the new layout.
-4. **PR-D** — Project Workspace v5: filter strip, assemblies-grouped table, vendor stacking, 4-step timeline, project totals with `EST. LEAD` / `TARIFFS*`, flat-parts fallback.
-5. **PR-E** — Editable Specs Detail v3: three-state interaction on `ClientPartRequestEditor`, units toggle, hover-only edit affordance.
-6. **PR-F** — Order Confirmation full-page route replacing the current `ProcurementHandoffPanel` checkout flow. Coordinates with TODO-020 (Stripe).
-
-**Where to start:** `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/` — open `design-board.html` and the four approved variant PNGs. Then read `docs/DESIGN.md` end-to-end. Then PR-A.
-
-**Anti-scope:** This TODO is **dashboards only**. The landing page is parked under TODO-026 and stays parked.
-
-**Effort:** XL (human: ~4–6 weeks / CC: ~3–5 days across 6 PRs) | **Priority:** P1 (locked design, current dashboard contradicts stakeholder agreement)
-
-**Depends on:**
-- Suisse Int'l Condensed + Söhne Buch licensing decision (or explicit "ship free analogs" override)
-- Coordination with TODO-020 (Stripe) for PR-F Order Confirmation
-- TODO-022 already shipped — vendor-status badges merge cleanly into new table
-
-**Reference artifacts:**
-- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/variant-O.png` — Part Workspace v5
-- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/variant-P.png` — Project Workspace v5
-- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/variant-EDIT.png` — Editable Specs Detail v3
-- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/variant-R.png` — Order Confirmation
-- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/design-board.html` — comparison board (7.5 MB)
-- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/approved.json` — round 9 lock record
-- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425-r{1..8}/` — 8 archive rounds, 30 mockups
-- `docs/DESIGN.md` — locked spec
-- PR #227 — design lock-in commit (decisions list, accent rules, scale)
+**Depends on:** PR #236 merged locally and a valid Camoufox Xometry profile.

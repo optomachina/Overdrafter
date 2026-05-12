@@ -86,14 +86,24 @@ npm run e2e:prepare
 
 ## Live Vendor Harness (Xometry + Fictiv)
 
-### Step 1 — Bootstrap a Playwright session
+### Step 1 — Bootstrap an Xometry session
 
 ```bash
+XOMETRY_BROWSER_ENGINE=camoufox \
+XOMETRY_USER_DATA_DIR="$PWD/worker/state/xometry-camoufox-user-data" \
 npm --prefix worker run auth:xometry
-# Opens a Chromium window. Log in to Xometry manually.
-# Navigate to https://www.xometry.com/quoting/home/ and confirm you're authenticated.
-# Press Enter. Session saved to worker/state/xometry-storage-state.json by default.
-# Or pass a custom path as the first argument:
+# Opens Camoufox. Log in to Xometry manually.
+# Confirm the authenticated dashboard loads, then press Enter.
+# The persistent Firefox profile is saved in XOMETRY_USER_DATA_DIR.
+```
+
+Camoufox with a persistent profile is the preferred Xometry path after PR #236. Patchright
+storage-state mode remains available for comparison, but it has been observed to silently
+degrade behind Xometry's Cloudflare wall.
+
+Legacy Patchright/storage-state bootstrap:
+
+```bash
 npm --prefix worker run auth:xometry -- /custom/path/xometry.json
 ```
 
@@ -111,12 +121,15 @@ npm --prefix worker run auth:fictiv -- /custom/path/fictiv.json
 ### Step 2 — Export the session paths
 
 ```bash
-export XOMETRY_STORAGE_STATE_PATH="/Users/$(whoami)/Documents/GitHub/Overdrafter/worker/state/xometry-storage-state.json"
+export XOMETRY_BROWSER_ENGINE="camoufox"
+export XOMETRY_USER_DATA_DIR="/Users/$(whoami)/Documents/GitHub/Overdrafter/worker/state/xometry-camoufox-user-data"
 export FICTIV_STORAGE_STATE_PATH="/Users/$(whoami)/Documents/GitHub/Overdrafter/worker/state/fictiv-storage-state.json"
-export WORKER_LIVE_ADAPTERS="xometry,fictiv"
+export WORKER_LIVE_ADAPTERS="xometry"
 ```
 
-Add this to your shell profile or `.env` in `worker/` so you don't have to repeat it.
+Use `WORKER_LIVE_ADAPTERS=xometry` for the first controlled `dmrifles@gmail.com` app test.
+Expand to `xometry,fictiv` after the Xometry app-triggered path passes.
+Add these values to your shell profile or `.env` in `worker/` so you don't have to repeat them.
 
 ### Step 3 — Trigger a real quote run
 
@@ -136,7 +149,7 @@ npm --prefix worker run validate:openclaw-gate -- --quote-run-id <quote_run_id>
 # Save output to a file
 npm --prefix worker run validate:openclaw-gate -- --quote-run-id <id> --out gate-report.json
 
-# Require both vendors (Task B / full openclaw gate)
+# Require both vendors after the single-vendor app path is stable
 npm --prefix worker run validate:openclaw-gate -- --quote-run-id <id> --required-vendors xometry,fictiv
 ```
 
@@ -152,10 +165,26 @@ must return real quotes with non-null `total_price_usd` and `lead_time_business_
 - `fail_stub_or_simulation` — at least one vendor returned simulated data. `WORKER_MODE` may not be `live`, or a required storage-state path is missing.
 - `fail_insufficient_data` — not enough quote rows found for the run ID. Check the run ID is correct and the worker completed.
 
+### Quantity sweeps
+
+```bash
+XOMETRY_BROWSER_ENGINE=camoufox \
+XOMETRY_USER_DATA_DIR="$PWD/worker/state/xometry-camoufox-user-data" \
+npm --prefix worker run sweep:xometry-quantity -- --quantities 1
+
+npm --prefix worker run sweep:fictiv-quantity -- --quantities 1,5,25,100
+```
+
+PR #236 validated a real Xometry qty=1 result through Camoufox. Repeated Xometry sweeps can
+degrade after multiple quote attempts in one session, so use them for diagnosis, not as the
+first app-flow gate.
+
 ### Session maintenance
 
 Sessions expire. Re-run `auth:xometry` and `auth:fictiv` at least weekly in production.
 `login_required` errors in worker logs mean the session is stale — re-auth immediately.
+Check `/health` before customer-visible tests; `xometry_session_age_days` should be present
+when a session path or persistent profile is configured.
 
 ---
 
@@ -205,11 +234,11 @@ npm --prefix worker run install:browsers
 | `WORKER_LIVE_ADAPTERS` | no | `xometry` | Comma-separated list of live-enabled vendors (e.g. `xometry,fictiv`) |
 | `WORKER_NAME` | no | `quote-worker-1` | Worker identity for logging |
 | `WORKER_POLL_INTERVAL_MS` | no | `5000` | Task poll interval in ms |
-| `XOMETRY_STORAGE_STATE_PATH` | live mode (storage-state path) | — | Path to Xometry Playwright session JSON. Required when `XOMETRY_USER_DATA_DIR` is not set. |
-| `XOMETRY_STORAGE_STATE_JSON` | live mode (storage-state path) | — | Session JSON as a string (alternative to path, for prod secrets) |
-| `XOMETRY_USER_DATA_DIR` | live mode (persistent profile path) | — | Path to the persistent Chromium user-data-dir (e.g. `$PWD/worker/state/xometry-user-data`). When set, the adapter uses Patchright's persistent context instead of `XOMETRY_STORAGE_STATE_*`. Created on first launch; preserves cookies, local storage, and the Chrome profile across runs. Must be writable by the worker process. |
-| `XOMETRY_BROWSER_CHANNEL` | no | — | Optional Chrome channel for the Xometry persistent context (e.g. `chrome`, `chrome-canary`). Leave unset to use the bundled Patchright Chromium. |
-| `XOMETRY_PROFILE_LOCK_WAIT_MS` | no | `30000` | How long to wait for a stale `SingletonLock` in the Xometry user-data-dir to clear before failing with `profile_in_use` (see PR #229). |
+| `XOMETRY_STORAGE_STATE_PATH` | live mode | — | Path to Xometry Playwright session JSON |
+| `XOMETRY_STORAGE_STATE_JSON` | live mode | — | Session JSON as a string (alternative to path, for prod secrets) |
+| `XOMETRY_BROWSER_ENGINE` | no | `patchright` | Xometry browser engine: `patchright` or `camoufox`. Prefer `camoufox` for current live Xometry tests. |
+| `XOMETRY_USER_DATA_DIR` | camoufox mode | — | Persistent Camoufox/Firefox profile directory for Xometry. Required for reliable Cloudflare session continuity. |
+| `XOMETRY_SESSION_FRESHNESS_WARN_DAYS` | no | `7` | Session-age warning threshold surfaced by worker startup logs and health checks. |
 | `FICTIV_STORAGE_STATE_PATH` | live mode | — | Path to Fictiv Playwright session JSON |
 | `FICTIV_STORAGE_STATE_JSON` | live mode | — | Session JSON as a string (alternative to path, for prod secrets) |
 | `OPENAI_API_KEY` | extraction | — | For drawing extraction (primary model) |
@@ -228,6 +257,7 @@ npm --prefix worker run install:browsers
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Worker logs `login_required` | Xometry or Fictiv session expired | Re-run `auth:xometry` and/or `auth:fictiv` |
+| Xometry dashboard renders but clicks do nothing | Patchright/storage-state session silently degraded behind Cloudflare | Re-bootstrap with `XOMETRY_BROWSER_ENGINE=camoufox` and persistent `XOMETRY_USER_DATA_DIR` |
 | Gate returns `fail_stub_or_simulation` | `WORKER_MODE` not set to `live`, or session path missing | Check env vars |
 | Gate returns `fail_anti_detection` | Vendor portal blocked automation | Do not retry. Research vendor partner API. |
 | `XOMETRY_STORAGE_STATE_PATH is not configured` error | Env var not exported | `export XOMETRY_STORAGE_STATE_PATH=...` |
@@ -236,50 +266,16 @@ npm --prefix worker run install:browsers
 | `db:reset` fails | Docker not running | Start Docker Desktop |
 | Typecheck fails after migration | DB types stale | `npm run db:types` |
 
----
+### Production rollout notes
 
-## Running the live worker (current state — local only)
-
-The worker is **not hosted in production**. The web app runs on Vercel and the database
-runs on Supabase, but the Playwright-based worker requires a long-lived process with a
-persistent Chrome user-data-dir on disk — neither of those platforms can host it.
-Until a hosted worker is set up (tracked in OVD-202), the live worker runs from a
-developer's machine when a real quote is needed (demos, OVD-190 first transactions,
-gate validation runs).
-
-### Demo / first-transaction procedure
-
-Before the demo or transaction, on the laptop that will run the worker:
-
-```bash
-# 1. Confirm the Xometry session is fresh (re-auth if older than ~7 days)
-npm --prefix worker run auth:xometry
-
-# 2. Export env (or put in worker/.env)
-export WORKER_MODE=live
-export WORKER_LIVE_ADAPTERS=xometry            # fictiv when its live run is validated
-export XOMETRY_USER_DATA_DIR="$PWD/worker/state/xometry-user-data"
-export XOMETRY_STORAGE_STATE_PATH="$PWD/worker/state/xometry-storage-state.json"
-
-# 3. Start the worker
-npm --prefix worker run dev
-
-# 4. Confirm this line appears in the logs:
-#    Starting worker in live mode.
-```
-
-The worker will then poll for tasks and run real Xometry automation when the app
-triggers a quote. Stop the worker (`Ctrl-C`) when the demo is done. The Chrome
-user-data-dir persists between runs, so subsequent starts don't need a fresh login.
-
-### Why not a hosted worker yet
-
-Hosting requires a long-lived container with persistent disk (Fly Machines, Railway,
-small VPS — ~$5–10/month). Doing it now is premature: there's no continuous customer
-load, the Xometry session lives on a local Chrome profile that would have to be
-re-bootstrapped on the host, and the cost-of-being-wrong is tiny. Defer until
-unattended customer use starts (post-OVD-190).
-
-When that time comes, see OVD-202 for the platform decision and rollout checklist
-(env var matrix, session refresh cadence, deploy gating, the
-`Starting worker in live mode.` smoke check).
+- Keep CI and staging on explicit `WORKER_MODE=simulate`.
+- Set production worker env to `WORKER_MODE=live`.
+- Start with `WORKER_LIVE_ADAPTERS=xometry` for the no-Stripe MVP; expand to `xometry,fictiv` after the app-triggered Xometry path is stable.
+- Prefer `XOMETRY_BROWSER_ENGINE=camoufox` with persistent `XOMETRY_USER_DATA_DIR` for current Xometry live runs.
+- Enable Fictiv live credentials when two-vendor validation is required.
+- Provide vendor sessions via either mounted file paths or inline secret JSON:
+  - `XOMETRY_STORAGE_STATE_PATH` or `XOMETRY_STORAGE_STATE_JSON`
+  - `FICTIV_STORAGE_STATE_PATH` or `FICTIV_STORAGE_STATE_JSON`
+- Confirm startup logs include `Starting worker in live mode`.
+- Within 10 minutes of deploy, run one real quote and confirm quote URLs are not `simulated://`.
+- Refresh vendor sessions at least weekly with `auth:xometry` and `auth:fictiv`.

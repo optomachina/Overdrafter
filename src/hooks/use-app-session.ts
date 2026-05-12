@@ -7,6 +7,7 @@ import { getFixtureSessionDataForSearch } from "@/features/quotes/client-workspa
 import { fetchAppSessionData } from "@/features/quotes/api/session-access";
 import {
   getStoredSupabaseAccessToken,
+  readLiveSupabaseBootstrap,
   readStartupSupabaseBootstrap,
   removeStoredSupabaseSession,
 } from "@/features/quotes/api/shared/startup-auth";
@@ -351,6 +352,26 @@ export function useAppSession() {
         pendingAuthTransitionRef.current = false;
         scheduleSessionRefresh();
         return currentSession;
+      }
+
+      if (result.authState === "anonymous" && getStoredSupabaseAccessToken()) {
+        const liveBootstrap = await readLiveSupabaseBootstrap();
+        if (liveBootstrap.session) {
+          pendingAuthTransitionRef.current = true;
+          seedSessionFromSupabaseSession(liveBootstrap.session, "use-app-session.query.anonymous-live-session-rescue");
+          scheduleSessionRefresh();
+          return {
+            user: liveBootstrap.session.user,
+            memberships: currentSession?.user?.id === liveBootstrap.session.user.id
+              ? currentSession.memberships
+              : EMPTY_MEMBERSHIPS,
+            isVerifiedAuth: hasVerifiedAuth(liveBootstrap.session.user),
+            isPlatformAdmin: currentSession?.user?.id === liveBootstrap.session.user.id
+              ? currentSession.isPlatformAdmin ?? false
+              : false,
+            authState: "authenticated",
+          } satisfies AppSessionData;
+        }
       }
 
       pendingAuthTransitionRef.current = false;

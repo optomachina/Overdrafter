@@ -63,6 +63,7 @@ function buildBlockerReasons(input: {
   const { job, part } = input;
   const reasons: string[] = [];
   const requirement = part?.approvedRequirement ?? null;
+  const clientRequirement = part?.clientRequirement ?? null;
 
   if (job.archived_at) {
     reasons.push("Archived parts cannot request quotes.");
@@ -85,18 +86,18 @@ function buildBlockerReasons(input: {
     reasons.push("Upload a CAD model before requesting a quote.");
   }
 
-  if (!requirement) {
+  if (!requirement && !clientRequirement) {
     reasons.push("Finish the request details so OverDrafter can create approved quote requirements.");
     return reasons;
   }
 
-  if (requirement.applicable_vendors.length === 0) {
+  if (requirement && requirement.applicable_vendors.length === 0) {
     reasons.push("No enabled vendors are available for this part in its current package state.");
   }
 
   if (
     hasQuoteCompatibleServiceKinds(job) &&
-    requirement.material.trim().length === 0
+    (requirement?.material ?? clientRequirement?.material ?? "").trim().length === 0
   ) {
     reasons.push("Add material before requesting a quote.");
   }
