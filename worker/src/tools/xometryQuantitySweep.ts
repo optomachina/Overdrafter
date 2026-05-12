@@ -118,12 +118,20 @@ function makeInput(quantity: number, cadPath: string, drawingPath: string | null
   };
 }
 
-// Split the original combined pattern into two single-purpose regexes to keep
-// SonarCloud's S5852 static analyzer happy. Both regexes are simple enough
-// that backtracking is bounded by their fixed structure (no quantifier
-// followed by a same-alphabet anchor).
-const DAYS_PATTERN = /\b(\d{1,3})\s+(?:production|business|working|calendar)?\s*days?\b/gi;
-const PRICE_PATTERN = /\$(\d{1,3}(?:,\d{3})*\.\d{2})/g;
+// Single-purpose regexes scanned independently and paired by index proximity.
+// DAYS_PATTERN: matches "5 days", "5 production days", "5 business days", etc.
+// PRICE_PATTERN: matches "$194.13" or "$1,234.56".
+//
+// SonarCloud's S5852 heuristic statically flags any regex with adjacent
+// repetition operators as "potentially super-linear", even when the patterns
+// are demonstrably linear-time (digits/words/whitespace are disjoint character
+// classes, so no catastrophic backtracking is possible). We've cycled through
+// three rewrites trying to satisfy the analyzer; each one was flagged on a
+// different bounded construct. Both regexes here are safe to run on adversarial
+// input — input size is bounded by `excerptText` (2000 chars) anyway.
+// NOSONAR: typescript:S5852 — false positive on linear-time bounded patterns.
+const DAYS_PATTERN = /\b(\d{1,3})\s+(?:(?:production|business|working|calendar)\s+)?days?\b/gi; // NOSONAR
+const PRICE_PATTERN = /\$(\d{1,3}(?:,\d{3})*\.\d{2})/g; // NOSONAR
 const MAX_GAP_BETWEEN_DAYS_AND_PRICE = 80;
 
 function parseLeadTimeOptions(text: string) {
