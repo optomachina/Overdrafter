@@ -19,12 +19,14 @@
     "verify": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.json",
     "auth:xometry": "tsx src/tools/xometryAuth.ts",
     "auth:fictiv": "tsx src/tools/fictivAuth.ts",
+    "sweep:xometry-quantity": "tsx src/tools/xometryQuantitySweep.ts",
     "validate:openclaw-gate": "tsx src/tools/validateOpenclawGate.ts",
     "cleanup:dmrifles-demo": "tsx src/tools/cleanupDmriflesDemoData.ts",
     "extract:smoke": "tsx src/tools/extractDrawingSmoke.ts",
     "import:dmrifles-quotes": "tsx src/tools/importDmriflesQuotes.ts",
     "import:quotes": "tsx src/tools/importSpreadsheetQuotes.ts",
     "install:browsers": "playwright install chromium",
+    "install:camoufox": "node node_modules/camoufox-js/dist/__main__.js fetch",
     "extract:eval": "tsx src/tools/extractEval.ts"
   },
   "dependencies": {

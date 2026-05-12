@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "patchright";
+import { Camoufox, launchOptions as camoufoxLaunchOptions } from "camoufox-js";
+import { firefox as playwrightFirefox } from "playwright";
 import { createRunDir, uniqueName } from "../files.js";
 import {
   VendorAutomationError,
@@ -206,6 +208,61 @@ async function readBodyText(page: Page) {
   return page.locator("body").innerText().catch(() => "");
 }
 
+async function escapeDashboardIfNeeded(page: Page, timeoutMs: number) {
+  const bodyText = await readBodyText(page);
+  const isDashboard = XOMETRY_LOCATORS.dashboardSignals.some((pattern) => pattern.test(bodyText));
+  if (!isDashboard) {
+    return false;
+  }
+
+  const startingUrl = page.url();
+
+  // First try: Playwright synthetic click
+  for (const selector of XOMETRY_LOCATORS.startNewQuoteButtons) {
+    const button = page.locator(selector).first();
+    if ((await button.count().catch(() => 0)) === 0) continue;
+    if (!(await button.isVisible().catch(() => false))) continue;
+
+    await button.click({ timeout: 5000 }).catch(() => undefined);
+    const navigated = await page
+      .waitForURL((url) => url.toString() !== startingUrl, { timeout: 8_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (navigated) {
+      await page.waitForLoadState("networkidle", { timeout: timeoutMs }).catch(() => undefined);
+      return true;
+    }
+  }
+
+  // Fallback: in-page JS click. React onClick handlers sometimes don't fire from Playwright's
+  // synthetic click on custom button components but reliably fire from a native HTMLElement.click().
+  const jsClicked = await page
+    .evaluate(() => {
+      const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) =>
+        /start\s+[aA]\s+[Nn]ew\s+Instant\s+Quote/i.test(b.textContent ?? ""),
+      );
+      if (button) {
+        button.click();
+        return true;
+      }
+      return false;
+    })
+    .catch(() => false);
+
+  if (jsClicked) {
+    const navigated = await page
+      .waitForURL((url) => url.toString() !== startingUrl, { timeout: timeoutMs })
+      .then(() => true)
+      .catch(() => false);
+    if (navigated) {
+      await page.waitForLoadState("networkidle", { timeout: timeoutMs }).catch(() => undefined);
+    }
+    return navigated;
+  }
+
+  return false;
+}
+
 async function waitForQuoteSignals(page: Page, timeoutMs: number) {
   await page.waitForFunction(
     (patterns) => {
@@ -226,9 +283,164 @@ async function waitForQuoteSignals(page: Page, timeoutMs: number) {
   );
 }
 
-async function setFilesOnUpload(page: Page, files: string[]) {
+async function waitAndDismissItarPopup(page: Page, isItar: boolean, timeoutMs: number) {
+  // Xometry's authenticated "Start a New Quote" flow shows an ITAR/export-control
+  // popup BEFORE opening the file picker. The "No" radio is pre-selected, so for
+  // non-ITAR parts we just need to click "Continue". For ITAR parts we click the
+  // "Yes" radio first.
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const bodyText = await readBodyText(page);
+    if (XOMETRY_LOCATORS.itarPopupSignals.some((p) => p.test(bodyText))) {
+      if (isItar) {
+        for (const selector of XOMETRY_LOCATORS.itarYesRadios) {
+          const radio = page.locator(selector).first();
+          if ((await radio.count().catch(() => 0)) === 0) continue;
+          await radio.click({ timeout: 3000 }).catch(() => undefined);
+          break;
+        }
+      }
+      for (const selector of XOMETRY_LOCATORS.itarConfirmContinueButtons) {
+        const btn = page.locator(selector).first();
+        if ((await btn.count().catch(() => 0)) === 0) continue;
+        if (!(await btn.isVisible().catch(() => false))) continue;
+        await btn.click({ timeout: 3000 }).catch(() => undefined);
+        return true;
+      }
+    }
+    try {
+      await page.waitForTimeout(250);
+    } catch {
+      // ignore
+    }
+  }
+  return false;
+}
+
+async function setFilesViaChooser(page: Page, files: string[], isItar: boolean) {
+  // Xometry's authenticated flow:
+  //   1. Click "Start a New Instant Quote" -> ITAR popup appears
+  //   2. Click "Continue" -> native OS file picker opens (Playwright intercepts)
+  //   3. setFiles on the file chooser
+  // We set up the filechooser listener BEFORE the click sequence so it catches
+  // the chooser whenever it fires, regardless of whether the ITAR popup appears.
+  for (const selector of XOMETRY_LOCATORS.startNewQuoteButtons) {
+    const trigger = page.locator(selector).first();
+    if ((await trigger.count().catch(() => 0)) === 0) continue;
+    if (!(await trigger.isVisible().catch(() => false))) continue;
+
+    const fileChooserPromise = page
+      .waitForEvent("filechooser", { timeout: 20_000 })
+      .catch(() => null);
+
+    try {
+      await trigger.click({ timeout: 5000 });
+    } catch {
+      continue;
+    }
+
+    // ITAR popup may appear; dismiss it so the click chain reaches the file picker.
+    await waitAndDismissItarPopup(page, isItar, 5_000);
+
+    const fileChooser = await fileChooserPromise;
+    if (fileChooser) {
+      await fileChooser.setFiles(files);
+      return selector;
+    }
+    // No file chooser appeared even after dismissing ITAR — try the next variant.
+  }
+  return null;
+}
+
+async function dismissXometryPostUploadPopups(page: Page, isItar: boolean) {
+  // After upload, Xometry shows two popups in sequence:
+  //   1. ITAR classification ("Is this an ITAR part?") with Yes/No buttons.
+  //      Default No for non-ITAR test parts; flip via XOMETRY_PART_IS_ITAR=1 or
+  //      requirement.is_itar once that field exists.
+  //   2. One-time "rename parts" onboarding modal with an "Okay" button.
+  //
+  // Bounded to ~10s total (40 × 250ms) with an early exit if neither signal has
+  // been observed after the first few polls — keeps unit tests well under the
+  // default vitest 5s timeout when popups are absent from the mocked body text.
+  const MAX_POLLS = 40;
+  const POLL_MS = 250;
+  const EARLY_EXIT_POLLS_WITHOUT_SIGNAL = 4;
+
+  let itarDismissed = false;
+  let renameDismissed = false;
+  let pollsWithoutAnySignal = 0;
+
+  for (let poll = 0; poll < MAX_POLLS; poll += 1) {
+    if (itarDismissed && renameDismissed) break;
+
+    const bodyText = await readBodyText(page);
+    const sawItar = XOMETRY_LOCATORS.itarPopupSignals.some((p) => p.test(bodyText));
+    const sawRename = XOMETRY_LOCATORS.renamePartsPopupSignals.some((p) => p.test(bodyText));
+
+    if (!sawItar && !sawRename && !itarDismissed && !renameDismissed) {
+      pollsWithoutAnySignal += 1;
+      if (pollsWithoutAnySignal >= EARLY_EXIT_POLLS_WITHOUT_SIGNAL) {
+        break;
+      }
+    } else {
+      pollsWithoutAnySignal = 0;
+    }
+
+    if (!itarDismissed && sawItar) {
+      if (isItar) {
+        for (const selector of XOMETRY_LOCATORS.itarYesRadios) {
+          const radio = page.locator(selector).first();
+          if ((await radio.count().catch(() => 0)) === 0) continue;
+          await radio.click({ timeout: 3000 }).catch(() => undefined);
+          break;
+        }
+      }
+      for (const selector of XOMETRY_LOCATORS.itarConfirmContinueButtons) {
+        const btn = page.locator(selector).first();
+        if ((await btn.count().catch(() => 0)) === 0) continue;
+        if (!(await btn.isVisible().catch(() => false))) continue;
+        await btn.click({ timeout: 3000 }).catch(() => undefined);
+        itarDismissed = true;
+        break;
+      }
+    }
+
+    if (!renameDismissed && sawRename) {
+      for (const selector of XOMETRY_LOCATORS.renamePartsAcknowledgeButtons) {
+        const btn = page.locator(selector).first();
+        if ((await btn.count().catch(() => 0)) === 0) continue;
+        if (!(await btn.isVisible().catch(() => false))) continue;
+        await btn.click({ timeout: 3000 }).catch(() => undefined);
+        renameDismissed = true;
+        break;
+      }
+    }
+
+    if (itarDismissed && renameDismissed) break;
+    // Tolerate test mocks that don't implement waitForTimeout — the function may
+    // not exist on the locator at all, so we can't rely on .catch().
+    try {
+      await page.waitForTimeout(POLL_MS);
+    } catch {
+      // ignore; continue polling without sleep
+    }
+  }
+
+  return { itarDismissed, renameDismissed };
+}
+
+async function setFilesOnUpload(page: Page, files: string[], isItar = false) {
   const attemptedSelectors: string[] = [];
   const deadline = Date.now() + 15_000;
+
+  // Xometry's "Start a New Instant Quote" button programmatically clicks a hidden
+  // file input. fileChooser interception is the only mechanism that actually drives
+  // Xometry's React state machine — direct setInputFiles on the hidden input is
+  // ignored. The Finder window briefly flashes on macOS but Playwright intercepts.
+  const chooserSelector = await setFilesViaChooser(page, files, isItar);
+  if (chooserSelector) {
+    return { selector: `filechooser:${chooserSelector}`, attemptedSelectors: [chooserSelector] };
+  }
 
   while (Date.now() < deadline) {
     for (const selector of XOMETRY_LOCATORS.uploadInputs) {
@@ -585,7 +797,34 @@ export class XometryAdapter extends VendorAdapter {
         launchArgs.push("--disable-dev-shm-usage");
       }
 
-      if (this.config.xometryUserDataDir) {
+      if (this.config.xometryBrowserEngine === "camoufox") {
+        // Camoufox produces a fresh browser fingerprint per launch. Cloudflare's
+        // __cf_bm cookie is tied to fingerprint, so storage-state alone won't
+        // keep us authenticated across launches. user_data_dir gives a persistent
+        // Firefox profile that survives both fingerprint and cookies cleanly.
+        if (this.config.xometryUserDataDir) {
+          await fs.mkdir(this.config.xometryUserDataDir, { recursive: true });
+          browserContext = (await Camoufox({
+            headless: this.config.playwrightHeadless,
+            window: [1366, 900],
+            humanize: true,
+            geoip: true,
+            user_data_dir: this.config.xometryUserDataDir,
+          })) as unknown as BrowserContext;
+        } else {
+          const camoufoxOpts = await camoufoxLaunchOptions({
+            headless: this.config.playwrightHeadless,
+            window: [1366, 900],
+            humanize: true,
+            geoip: true,
+          });
+          browser = (await playwrightFirefox.launch(camoufoxOpts)) as unknown as Browser;
+          browserContext = (await browser.newContext({
+            storageState: this.config.xometryStorageStatePath ?? undefined,
+            viewport: { width: 1366, height: 900 },
+          })) as unknown as BrowserContext;
+        }
+      } else if (this.config.xometryUserDataDir) {
         await fs.mkdir(this.config.xometryUserDataDir, { recursive: true });
         await acquireXometryProfileLock(this.config.xometryUserDataDir, {
           waitMs: this.config.xometryProfileLockWaitMs,
@@ -630,48 +869,92 @@ export class XometryAdapter extends VendorAdapter {
       await page.waitForLoadState("networkidle").catch(() => undefined);
       await detectBlockingState(page, runDir);
       await appendArtifacts(artifacts, page, runDir, "landing");
+      const escapedDashboard = await escapeDashboardIfNeeded(page, this.config.browserTimeoutMs);
+      if (escapedDashboard) {
+        await appendArtifacts(artifacts, page, runDir, "post-dashboard");
+      }
 
       const uploadFiles = [
         input.stagedCadFile.localPath,
         input.stagedDrawingFile?.localPath,
       ].filter((value): value is string => Boolean(value));
 
+      const isItar = process.env.XOMETRY_PART_IS_ITAR === "1";
+
       try {
-        const uploadResult = await setFilesOnUpload(page, uploadFiles);
+        const uploadResult = await setFilesOnUpload(page, uploadFiles, isItar);
         uploadSelector = uploadResult.selector;
       } catch (error) {
         if (!input.stagedDrawingFile) {
           throw error;
         }
 
-        const uploadResult = await setFilesOnUpload(page, [input.stagedCadFile.localPath]);
+        const uploadResult = await setFilesOnUpload(page, [input.stagedCadFile.localPath], isItar);
         uploadSelector = uploadResult.selector;
         drawingUploadMode = "not_needed";
       }
 
-      await waitForQuoteSignals(page, this.config.browserTimeoutMs);
+      // Xometry's post-upload flow on /quoting/home/:
+      //   1) ITAR popup is handled inside setFilesOnUpload (it appears BEFORE the
+      //      file picker in fresh sessions).
+      //   2) one-time rename-parts onboarding popup -> click Okay
+      //   3) page navigates to /quoting/quote/<QID> (the configurator)
+      await dismissXometryPostUploadPopups(page, isItar);
+      await page
+        .waitForURL(/\/quoting\/quote\//, { timeout: this.config.browserTimeoutMs })
+        .catch(() => undefined);
+      await page.waitForLoadState("networkidle", { timeout: this.config.browserTimeoutMs })
+        .catch(() => undefined);
       await detectBlockingState(page, runDir);
       detectedFlow = "upload_complete";
       await appendArtifacts(artifacts, page, runDir, "uploaded");
 
       await setQuantity(page, normalizedQuantity(input));
 
-      await findButtonAndOpen(page, XOMETRY_LOCATORS.materialButtons, "material");
-      selectedMaterial = await chooseOptionByTerms(
-        page,
-        materialTerms,
-        XOMETRY_LOCATORS.materialOptions,
-        "material",
+      // Xometry auto-detects geometry and pre-selects material/finish that match
+      // the part. If the requirement material/finish already appear on the page,
+      // skip the dropdown manipulation — opening the dropdown without a matching
+      // option throws and aborts an otherwise valid quote.
+      const preConfigText = await readBodyText(page);
+      const materialAlreadyMatches = materialTerms.some((term) =>
+        new RegExp(escapeRegex(term), "i").test(preConfigText),
       );
+      if (!materialAlreadyMatches) {
+        try {
+          await findButtonAndOpen(page, XOMETRY_LOCATORS.materialButtons, "material");
+          selectedMaterial = await chooseOptionByTerms(
+            page,
+            materialTerms,
+            XOMETRY_LOCATORS.materialOptions,
+            "material",
+          );
+        } catch (error) {
+          // Material may be locked or auto-detected; surface as best-effort.
+          if (!(error instanceof VendorAutomationError)) throw error;
+        }
+      } else {
+        selectedMaterial = materialTerms[0];
+      }
 
       if (finishTerms && finishTerms.length > 0) {
-        await findButtonAndOpen(page, XOMETRY_LOCATORS.finishButtons, "finish");
-        selectedFinish = await chooseOptionByTerms(
-          page,
-          finishTerms,
-          XOMETRY_LOCATORS.finishOptions,
-          "finish",
+        const finishAlreadyMatches = finishTerms.some((term) =>
+          new RegExp(escapeRegex(term), "i").test(preConfigText),
         );
+        if (!finishAlreadyMatches) {
+          try {
+            await findButtonAndOpen(page, XOMETRY_LOCATORS.finishButtons, "finish");
+            selectedFinish = await chooseOptionByTerms(
+              page,
+              finishTerms,
+              XOMETRY_LOCATORS.finishOptions,
+              "finish",
+            );
+          } catch (error) {
+            if (!(error instanceof VendorAutomationError)) throw error;
+          }
+        } else {
+          selectedFinish = finishTerms[0];
+        }
       }
 
       const postConfigText = await readBodyText(page);
@@ -692,6 +975,24 @@ export class XometryAdapter extends VendorAdapter {
       await page.waitForLoadState("networkidle").catch(() => undefined);
       await detectBlockingState(page, runDir);
       detectedFlow = "configuration_complete";
+
+      // Xometry recomputes prices after quantity changes; the tierAndLeadTime
+      // labels render before their $X.XX siblings finish populating. Wait until
+      // at least one tier label contains a dollar amount before extracting.
+      await page
+        .waitForFunction(
+          () => {
+            const tiers = document.querySelectorAll('[data-testid="tierAndLeadTime"]');
+            for (const tier of tiers) {
+              const container = tier.closest("label, [data-testid], section, div");
+              const text = container?.parentElement?.textContent ?? container?.textContent ?? "";
+              if (/\$\d[\d,]*\.\d{2}/.test(text)) return true;
+            }
+            return /\$\d[\d,]*\.\d{2}/.test(document.body.innerText ?? "");
+          },
+          { timeout: this.config.browserTimeoutMs },
+        )
+        .catch(() => undefined);
       await appendArtifacts(artifacts, page, runDir, "configured");
 
       const bodyText = await readBodyText(page);
