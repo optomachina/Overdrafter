@@ -179,19 +179,50 @@ function collectThreads(text: string) {
   return [...new Set((matches ?? []).map((match) => normalizeWhitespace(match)))].slice(0, 12);
 }
 
-function estimateTightestTolerance(text: string) {
-  const matches = [
-    ...text.matchAll(/(?:\+\/-|±)\s*([0-9]*\.?[0-9]+)/g),
-    ...text.matchAll(/\b(?:TWO|THREE|FOUR)[ \t]+PLACE[ \t]+DECIMAL[ \t]*[+#]?[ \t]*((?:\d+(?:\.\d+)?|\.\d+))/gi),
-  ];
-  if (matches.length === 0) {
+function readLeadingToleranceValue(fragment: string) {
+  let index = 0;
+  while (index < fragment.length && /[\s+#]/.test(fragment[index] ?? "")) {
+    index += 1;
+  }
+
+  let valueText = "";
+  while (index < fragment.length) {
+    const character = fragment[index] ?? "";
+    if (!/[0-9.]/.test(character)) {
+      break;
+    }
+
+    valueText += character;
+    index += 1;
+  }
+
+  if (!/\d/.test(valueText)) {
     return null;
   }
 
-  const parsed = matches
+  const value = Number.parseFloat(valueText);
+  return Number.isFinite(value) ? value : null;
+}
+
+function estimateTightestTolerance(text: string) {
+  const parsed = [...text.matchAll(/(?:\+\/-|±)\s*((?:\d+(?:\.\d+)?|\.\d+))/g)]
     .map((match) => Number.parseFloat(match[1] ?? ""))
-    .filter((value) => Number.isFinite(value))
-    .sort((left, right) => left - right);
+    .filter((value) => Number.isFinite(value));
+
+  const upperText = text.toUpperCase();
+  ["TWO PLACE DECIMAL", "THREE PLACE DECIMAL", "FOUR PLACE DECIMAL"].forEach((phrase) => {
+    let searchIndex = upperText.indexOf(phrase);
+    while (searchIndex >= 0) {
+      const value = readLeadingToleranceValue(text.slice(searchIndex + phrase.length, searchIndex + phrase.length + 24));
+      if (value !== null) {
+        parsed.push(value);
+      }
+
+      searchIndex = upperText.indexOf(phrase, searchIndex + phrase.length);
+    }
+  });
+
+  parsed.sort((left, right) => left - right);
 
   if (parsed.length === 0) {
     return null;
