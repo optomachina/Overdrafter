@@ -117,7 +117,7 @@ export const FICTIV_LOCATORS = {
   ],
   quoteReadySignals: [
     /\$\d[\d,]*\.\d{2}/,
-    /\d+\s+production\s+days/i,
+    /\d{1,4}\s+production\s+days/i,
   ],
   quantityInputs: [
     '[data-test-target*="quantity"] input',

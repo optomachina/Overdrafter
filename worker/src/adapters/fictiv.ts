@@ -133,7 +133,8 @@ type FictivQuoteRawPayload = Record<string, unknown> & {
 };
 
 const FIRST_CURRENCY_PATTERN = /\$ ?([\d,]+(?:\.\d{2})?)/;
-const LEAD_TIME_PATTERN = /\b(\d{1,4})\s+(?:business|production|working|calendar)?\s*days?\b/i;
+const LEAD_TIME_PATTERN =
+  /\b(\d{1,4})\s+(?:(?:business|production|working|calendar)\s+)?days?\b/i;
 
 function sanitizeSegment(value: string) {
   return value.replaceAll(/[^a-zA-Z0-9._-]+/g, "-").toLowerCase();

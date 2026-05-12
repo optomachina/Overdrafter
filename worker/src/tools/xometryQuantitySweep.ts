@@ -143,7 +143,8 @@ function makeInput(quantity: number, cadPath: string, drawingPath: string | null
   };
 }
 
-const OPTION_PATTERN = /(\d{1,3})\s+(?:production|business|working|calendar)?\s*days?[^$]{0,80}?\$([\d,]+\.\d{2})/gi;
+const OPTION_PATTERN =
+  /(\d{1,3})\s+(?:(?:production|business|working|calendar)\s+)?days?[^$]{0,80}?\$([\d,]+\.\d{2})/gi;
 
 function parseLeadTimeOptions(text: string) {
   const seen = new Set<string>();
