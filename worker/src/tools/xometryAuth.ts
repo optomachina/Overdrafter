@@ -157,13 +157,13 @@ async function bootstrapCamoufox(outputPath: string) {
 
     await fs.mkdir(userDataDir, { recursive: true });
 
-    const context = (await Camoufox({
+    const context = await Camoufox({
       headless: false,
       window: [1366, 900],
       humanize: true,
       geoip: true,
       user_data_dir: userDataDir,
-    })) as Awaited<ReturnType<typeof playwrightFirefox.launchPersistentContext>>;
+    });
     const page = await context.newPage();
 
     await page.goto("https://www.xometry.com/quoting/home/", { waitUntil: "domcontentloaded" });

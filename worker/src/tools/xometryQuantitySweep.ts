@@ -177,78 +177,75 @@ function rawPayloadBodyExcerpt(rawPayload: unknown): string {
   return typeof excerpt === "string" ? excerpt : "";
 }
 
+function formatPrice(value: number | null): string {
+  return value === null ? "—" : `$${value.toFixed(2)}`;
+}
+
+function formatBusinessDays(value: number | null): string {
+  return value === null ? "—" : `${value} days`;
+}
+
 function formatRow(row: SweepRow) {
   if (row.error) {
     return `  qty ${row.quantity}: ERROR (${row.elapsedSec.toFixed(1)}s) — ${row.error}`;
   }
-  const total = row.totalPriceUsd !== null ? `$${row.totalPriceUsd.toFixed(2)}` : "—";
-  const unit = row.unitPriceUsd !== null ? `$${row.unitPriceUsd.toFixed(2)}` : "—";
-  const lead = row.leadTimeBusinessDays !== null ? `${row.leadTimeBusinessDays} days` : "—";
+  const total = formatPrice(row.totalPriceUsd);
+  const unit = formatPrice(row.unitPriceUsd);
+  const lead = formatBusinessDays(row.leadTimeBusinessDays);
   return `  qty ${row.quantity}: ${row.status} | total ${total} | unit ${unit} | lead ${lead} | ${row.elapsedSec.toFixed(1)}s | ${row.parsedOptions.length} options scraped`;
 }
 
-async function main() {
-  const cadPath = requiredEnv("XOMETRY_LIVE_TEST_CAD_PATH");
-  const drawingPath = process.env.XOMETRY_LIVE_TEST_DRAWING_PATH ?? null;
-  const quantities = parseQuantitiesArg();
+function buildErrorRow(quantity: number, startedAt: string, startMs: number, error: unknown): SweepRow {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    quantity,
+    startedAt,
+    elapsedSec: (Date.now() - startMs) / 1000,
+    status: null,
+    totalPriceUsd: null,
+    unitPriceUsd: null,
+    leadTimeBusinessDays: null,
+    quoteUrl: null,
+    parsedOptions: [],
+    bodyExcerpt: null,
+    error: message,
+  };
+}
 
-  console.log(`Xometry pricing sweep — quantities: [${quantities.join(", ")}]`);
-  console.log(`  CAD: ${cadPath}`);
-  console.log(`  Drawing: ${drawingPath ?? "(none)"}`);
+async function runQuote(
+  adapter: XometryAdapter,
+  quantity: number,
+  cadPath: string,
+  drawingPath: string | null,
+): Promise<SweepRow> {
+  const startedAt = new Date().toISOString();
+  const startMs = Date.now();
+  process.stdout.write(`\n>>> Quoting qty ${quantity}... `);
 
-  const config = makeConfig();
-  const adapter = new XometryAdapter("xometry", config);
-  const rows: SweepRow[] = [];
-
-  for (const quantity of quantities) {
-    const startedAt = new Date().toISOString();
-    const startMs = Date.now();
-    process.stdout.write(`\n>>> Quoting qty ${quantity}... `);
-
-    let row: SweepRow;
-    try {
-      const result = await adapter.quote(makeInput(quantity, cadPath, drawingPath));
-      const elapsedSec = (Date.now() - startMs) / 1000;
-      const bodyExcerpt = rawPayloadBodyExcerpt(result.rawPayload);
-      const parsedOptions = parseLeadTimeOptions(bodyExcerpt);
-
-      row = {
-        quantity,
-        startedAt,
-        elapsedSec,
-        status: result.status,
-        totalPriceUsd: result.totalPriceUsd,
-        unitPriceUsd: result.unitPriceUsd,
-        leadTimeBusinessDays: result.leadTimeBusinessDays,
-        quoteUrl: result.quoteUrl,
-        parsedOptions,
-        bodyExcerpt,
-        error: null,
-      };
-      console.log("done");
-    } catch (error) {
-      const elapsedSec = (Date.now() - startMs) / 1000;
-      const message = error instanceof Error ? error.message : String(error);
-      row = {
-        quantity,
-        startedAt,
-        elapsedSec,
-        status: null,
-        totalPriceUsd: null,
-        unitPriceUsd: null,
-        leadTimeBusinessDays: null,
-        quoteUrl: null,
-        parsedOptions: [],
-        bodyExcerpt: null,
-        error: message,
-      };
-      console.log("FAILED");
-    }
-
-    rows.push(row);
-    console.log(formatRow(row));
+  try {
+    const result = await adapter.quote(makeInput(quantity, cadPath, drawingPath));
+    const bodyExcerpt = rawPayloadBodyExcerpt(result.rawPayload);
+    console.log("done");
+    return {
+      quantity,
+      startedAt,
+      elapsedSec: (Date.now() - startMs) / 1000,
+      status: result.status,
+      totalPriceUsd: result.totalPriceUsd,
+      unitPriceUsd: result.unitPriceUsd,
+      leadTimeBusinessDays: result.leadTimeBusinessDays,
+      quoteUrl: result.quoteUrl,
+      parsedOptions: parseLeadTimeOptions(bodyExcerpt),
+      bodyExcerpt,
+      error: null,
+    };
+  } catch (error) {
+    console.log("FAILED");
+    return buildErrorRow(quantity, startedAt, startMs, error);
   }
+}
 
+function printPricingCurve(rows: SweepRow[]) {
   console.log("\n=== Pricing curve (selected option per run) ===\n");
   console.log("| Qty | Status                  | Lead time | Total      | Unit price |");
   console.log("|-----|-------------------------|-----------|------------|------------|");
@@ -257,12 +254,14 @@ async function main() {
       console.log(`| ${String(row.quantity).padStart(3)} | error                   | —         | —          | —          |`);
       continue;
     }
-    const total = row.totalPriceUsd !== null ? `$${row.totalPriceUsd.toFixed(2)}` : "—";
-    const unit = row.unitPriceUsd !== null ? `$${row.unitPriceUsd.toFixed(2)}` : "—";
-    const lead = row.leadTimeBusinessDays !== null ? `${row.leadTimeBusinessDays} days` : "—";
+    const total = formatPrice(row.totalPriceUsd);
+    const unit = formatPrice(row.unitPriceUsd);
+    const lead = formatBusinessDays(row.leadTimeBusinessDays);
     console.log(`| ${String(row.quantity).padStart(3)} | ${(row.status ?? "—").padEnd(23)} | ${lead.padEnd(9)} | ${total.padEnd(10)} | ${unit.padEnd(10)} |`);
   }
+}
 
+function printOptionsBreakdown(rows: SweepRow[]) {
   console.log("\n=== Full lead-time options per quantity (parsed from page text) ===\n");
   for (const row of rows) {
     if (row.parsedOptions.length === 0) {
@@ -275,13 +274,37 @@ async function main() {
       console.log(`  - ${String(option.days).padStart(3)} days  $${option.priceUsd.toFixed(2).padStart(9)} total  ($${unitPrice.toFixed(2)}/unit)`);
     }
   }
+}
+
+async function main() {
+  const cadPath = requiredEnv("XOMETRY_LIVE_TEST_CAD_PATH");
+  const drawingPath = process.env.XOMETRY_LIVE_TEST_DRAWING_PATH ?? null;
+  const quantities = parseQuantitiesArg();
+
+  console.log(`Xometry pricing sweep — quantities: [${quantities.join(", ")}]`);
+  console.log(`  CAD: ${cadPath}`);
+  console.log(`  Drawing: ${drawingPath ?? "(none)"}`);
+
+  const adapter = new XometryAdapter("xometry", makeConfig());
+  const rows: SweepRow[] = [];
+
+  for (const quantity of quantities) {
+    const row = await runQuote(adapter, quantity, cadPath, drawingPath);
+    rows.push(row);
+    console.log(formatRow(row));
+  }
+
+  printPricingCurve(rows);
+  printOptionsBreakdown(rows);
 
   const outPath = path.join(os.tmpdir(), `xometry-sweep-${Date.now()}.json`);
   await fs.writeFile(outPath, JSON.stringify(rows, null, 2), "utf8");
   console.log(`\nFull results written to: ${outPath}`);
 }
 
-main().catch((error) => {
+try {
+  await main();
+} catch (error) {
   console.error(error);
   process.exitCode = 1;
-});
+}
