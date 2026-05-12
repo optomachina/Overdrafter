@@ -182,7 +182,7 @@ function collectThreads(text: string) {
 function estimateTightestTolerance(text: string) {
   const matches = [
     ...text.matchAll(/(?:\+\/-|±)\s*([0-9]*\.?[0-9]+)/g),
-    ...text.matchAll(/\b(?:TWO|THREE|FOUR)\s+PLACE\s+DECIMAL\s*[+#]?\s*([0-9]*\.?[0-9]+)/gi),
+    ...text.matchAll(/\b(?:TWO|THREE|FOUR)[ \t]+PLACE[ \t]+DECIMAL[ \t]*[+#]?[ \t]*((?:\d+(?:\.\d+)?|\.\d+))/gi),
   ];
   if (matches.length === 0) {
     return null;
