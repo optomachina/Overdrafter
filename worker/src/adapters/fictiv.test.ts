@@ -143,6 +143,15 @@ function makeLocator(behavior: LocatorBehavior = {}) {
     first() {
       return this;
     },
+    nth(_index: number) {
+      return this;
+    },
+    async waitFor() {
+      return undefined;
+    },
+    async isVisible() {
+      return resolve(behavior.count, 0) > 0;
+    },
     async count() {
       return resolve(behavior.count, 0);
     },

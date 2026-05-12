@@ -89,6 +89,14 @@ type FictivTerminalOutcome = {
   matchedSignal: string | null;
 };
 
+export type FictivLeadTimeOption = {
+  region: "domestic" | "overseas";
+  tier: "fastest" | "standard" | "cost_effective";
+  days: number | null;
+  totalPriceUsd: number | null;
+  rawText: string;
+};
+
 type FictivParsedQuote = {
   bodyText: string;
   totalPrice: number | null;
@@ -97,6 +105,7 @@ type FictivParsedQuote = {
   manualReviewSelector: string | null;
   priceSource: FictivValueSource;
   leadTimeSource: FictivValueSource;
+  leadTimeOptions: FictivLeadTimeOption[];
 };
 
 type FictivQuoteRawPayload = Record<string, unknown> & {
@@ -120,10 +129,12 @@ type FictivQuoteRawPayload = Record<string, unknown> & {
   retryCount?: number;
   failureCode?: string | null;
   url?: string | null;
+  leadTimeOptions?: FictivLeadTimeOption[];
 };
 
 const FIRST_CURRENCY_PATTERN = /\$ ?([\d,]+(?:\.\d{2})?)/;
-const LEAD_TIME_PATTERN = /\b(\d{1,4})\s+(?:business\s+)?days?\b/i;
+const LEAD_TIME_PATTERN =
+  /\b(\d{1,4})\s+(?:(?:business|production|working|calendar)\s+)?days?\b/i;
 
 function sanitizeSegment(value: string) {
   return value.replaceAll(/[^a-zA-Z0-9._-]+/g, "-").toLowerCase();
@@ -524,6 +535,8 @@ async function setQuantity(page: Page, quantity: number) {
 }
 
 async function detectBlockingState(page: Page, runDir: string) {
+  await dismissAutoConfigLoadingModal(page).catch(() => undefined);
+
   const bodyText = await readBodyText(page);
   const signal = detectBlockingStateSignal({
     text: bodyText,
@@ -678,8 +691,93 @@ async function trySetMaterialAndFinish(
   };
 }
 
+async function detectSelectedCncRadioCard(page: Page) {
+  const selectedCount = await page
+    .locator(FICTIV_LOCATORS.selectedProcessRadios[0])
+    .count()
+    .catch(() => 0);
+
+  if (selectedCount === 0) {
+    return null;
+  }
+
+  const selectedText = await page
+    .locator(FICTIV_LOCATORS.selectedProcessRadios[0])
+    .first()
+    .innerText()
+    .catch(() => "");
+
+  return /cnc|machining/i.test(selectedText) ? "CNC Machining" : null;
+}
+
+async function clickCncRadioCard(page: Page) {
+  for (const selector of FICTIV_LOCATORS.processRadioCards) {
+    const cncCard = page
+      .locator(selector)
+      .filter({ hasText: /CNC\s*Machining/i })
+      .first();
+
+    if ((await cncCard.count().catch(() => 0)) === 0) {
+      continue;
+    }
+
+    try {
+      await cncCard.click();
+      return "CNC Machining";
+    } catch {
+      // Try the next selector pattern.
+    }
+  }
+
+  return null;
+}
+
+async function dismissOverlayModals(page: Page) {
+  for (const selector of FICTIV_LOCATORS.modalCloseButtons) {
+    const closeButtons = page.locator(selector);
+    const count = await closeButtons.count().catch(() => 0);
+
+    for (let index = 0; index < count; index += 1) {
+      const button = closeButtons.nth(index);
+      if (!(await button.isVisible().catch(() => false))) {
+        continue;
+      }
+
+      await button.click({ timeout: 2000 }).catch(() => undefined);
+      await page.waitForTimeout(200).catch(() => undefined);
+    }
+  }
+}
+
+async function dismissAutoConfigLoadingModal(page: Page) {
+  const continueButton = page.locator(FICTIV_LOCATORS.autoConfigModalContinue[0]).first();
+  if (!(await continueButton.isVisible().catch(() => false))) {
+    return false;
+  }
+
+  const hideCheckbox = page.locator(FICTIV_LOCATORS.autoConfigModalHideCheckbox[0]).first();
+  if (await hideCheckbox.isVisible().catch(() => false)) {
+    await hideCheckbox.click({ timeout: 2000 }).catch(() => undefined);
+    await page.waitForTimeout(200).catch(() => undefined);
+  }
+
+  await continueButton.click({ timeout: 2000 }).catch(() => undefined);
+  await page.waitForTimeout(200).catch(() => undefined);
+  return true;
+}
+
 async function trySelectCncProcess(page: Page) {
   const processTerms = ["CNC", "CNC Machining", "Machining"];
+
+  const alreadySelected = await detectSelectedCncRadioCard(page);
+  if (alreadySelected) {
+    return alreadySelected;
+  }
+
+  const clickedCnc = await clickCncRadioCard(page);
+  if (clickedCnc) {
+    return clickedCnc;
+  }
 
   const existingSelection = await firstWorkingText(page, FICTIV_LOCATORS.processButtons);
   if (existingSelection && processTerms.some((term) => new RegExp(escapeRegex(term), "i").test(existingSelection.text))) {
@@ -809,6 +907,74 @@ async function detectQuoteUrl(page: Page) {
   }
 
   return page.url();
+}
+
+function inferRegionFromText(text: string): "domestic" | "overseas" | null {
+  if (/usa|mexico|domestic|north america/i.test(text)) return "domestic";
+  if (/overseas|international|asia/i.test(text)) return "overseas";
+  return null;
+}
+
+function inferTierFromText(text: string): "fastest" | "standard" | "cost_effective" | null {
+  if (/fastest/i.test(text)) return "fastest";
+  if (/cost.?effective|economy/i.test(text)) return "cost_effective";
+  if (/standard/i.test(text)) return "standard";
+  return null;
+}
+
+// The currently-selected option has its data-test-target swapped to
+// `quote-level-lead-time-selected-option`. Infer its region/tier from text.
+async function readSelectedLeadTimeOption(
+  page: Page,
+  seen: Set<string>,
+): Promise<FictivLeadTimeOption | null> {
+  const selectedLocator = page.locator('[data-test-target="quote-level-lead-time-selected-option"]').first();
+  if ((await selectedLocator.count().catch(() => 0)) === 0) return null;
+
+  const rawText = (await selectedLocator.innerText().catch(() => "")).trim();
+  if (!rawText) return null;
+
+  const region = inferRegionFromText(rawText);
+  const tier = inferTierFromText(rawText);
+  if (!region || !tier) return null;
+
+  const key = `${region}:${tier}`;
+  if (seen.has(key)) return null;
+
+  return {
+    region,
+    tier,
+    days: parseLeadTime(rawText),
+    totalPriceUsd: parseFirstCurrency(rawText),
+    rawText,
+  };
+}
+
+async function extractLeadTimeOptions(page: Page): Promise<FictivLeadTimeOption[]> {
+  const results: FictivLeadTimeOption[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of FICTIV_LOCATORS.leadTimeOptionTargets) {
+    const locator = page.locator(entry.selector).first();
+    if ((await locator.count().catch(() => 0)) === 0) continue;
+
+    const rawText = (await locator.innerText().catch(() => "")).trim();
+    if (!rawText) continue;
+
+    results.push({
+      region: entry.region,
+      tier: entry.tier,
+      days: parseLeadTime(rawText),
+      totalPriceUsd: parseFirstCurrency(rawText),
+      rawText,
+    });
+    seen.add(`${entry.region}:${entry.tier}`);
+  }
+
+  const selected = await readSelectedLeadTimeOption(page, seen);
+  if (selected) results.push(selected);
+
+  return results;
 }
 
 async function navigateToQuoteSurface(page: Page) {
@@ -1030,6 +1196,7 @@ export class FictivAdapter extends VendorAdapter {
 
       await waitForTerminalQuoteOutcome(page, this.config.browserTimeoutMs, runDir);
       await appendArtifacts(artifacts, page, runDir, "analysis-complete");
+      await dismissOverlayModals(page);
     }
 
     const openedConfigurationDrawer = await openConfigurationDrawerIfPresent(page);
@@ -1061,6 +1228,13 @@ export class FictivAdapter extends VendorAdapter {
   }
 
   private async extractQuoteData(page: Page): Promise<FictivParsedQuote> {
+    await page
+      .locator('[data-test-target="quote-level-lead-time-price-selected"]')
+      .first()
+      .waitFor({ state: "attached", timeout: this.config.browserTimeoutMs })
+      .catch(() => undefined);
+    await dismissAutoConfigLoadingModal(page).catch(() => undefined);
+
     const bodyText = await readBodyText(page);
     const priceResult = await extractParsedValue(
       page,
@@ -1075,6 +1249,7 @@ export class FictivAdapter extends VendorAdapter {
       bodyText,
     );
     const manualReviewResult = await detectManualReview(page, bodyText);
+    const leadTimeOptions = await extractLeadTimeOptions(page);
 
     return {
       bodyText,
@@ -1084,6 +1259,7 @@ export class FictivAdapter extends VendorAdapter {
       manualReviewSelector: manualReviewResult.selector,
       priceSource: priceResult.source,
       leadTimeSource: leadTimeResult.source,
+      leadTimeOptions,
     };
   }
 
@@ -1341,6 +1517,7 @@ export class FictivAdapter extends VendorAdapter {
           requestedQuantity: input.requestedQuantity,
           url: quoteUrl,
           source: "fictiv-live-adapter",
+          leadTimeOptions: parsed.leadTimeOptions,
         }),
       };
     } catch (error) {
