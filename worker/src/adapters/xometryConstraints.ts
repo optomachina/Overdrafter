@@ -1,6 +1,7 @@
 export const XOMETRY_URLS = {
   quoteHome: "https://www.xometry.com/quoting/home/",
   login: "https://www.xometry.com/login/",
+  quotePathPattern: /\/quoting\/quote\/Q\d{2}-/,
 } as const;
 
 export const XOMETRY_LOCATORS = {
@@ -14,10 +15,10 @@ export const XOMETRY_LOCATORS = {
   ],
   manualReviewSignals: [
     /manual review/i,
+    /manually quoted/i,
+    /manually-quoted/i,
     /requires review/i,
     /drawing required/i,
-    /upload drawing/i,
-    /add drawing/i,
   ],
   uploadInputs: [
     '[data-testid="file-upload"] input[type="file"]',
@@ -49,8 +50,19 @@ export const XOMETRY_LOCATORS = {
     /itar/i,
     /export control regulation/i,
   ],
+  // Continue button inside the export-controlled-parts modal that opens
+  // immediately after upload while authenticated. Dialog-scoped selectors
+  // first (more specific, avoids matching the Checkout/Cart Continue buttons
+  // elsewhere on the page); broader fallbacks last.
+  exportControlContinue: [
+    'div[role="dialog"] button:has-text("Continue")',
+    '[aria-modal="true"] button:has-text("Continue")',
+    'button:has-text("Continue"):not(:has-text("Checkout")):not(:has-text("Cart"))',
+  ],
   itarConfirmContinueButtons: [
-    'button:has-text("Continue")',
+    'div[role="dialog"] button:has-text("Continue")',
+    '[aria-modal="true"] button:has-text("Continue")',
+    'button:has-text("Continue"):not(:has-text("Checkout")):not(:has-text("Cart"))',
     '[role="button"]:has-text("Continue")',
   ],
   itarYesRadios: [
@@ -67,26 +79,39 @@ export const XOMETRY_LOCATORS = {
     'button:has-text("Got it")',
     'button:has-text("Continue")',
   ],
+  // Configuration page URL pattern. Adapter waits for this in addition to text signals.
+  quotePagePathPattern: /\/quoting\/quote\/Q\d{2}-/,
+  // Configuration-page-specific text signals. Configurator-specific text first
+  // (avoids spurious dashboard tile matches), broader fallbacks later.
   quoteReadySignals: [
+    /lead\s+time\s*:\s*\d+\s+business\s+days/i,
+    /continue\s+to\s+checkout/i,
     /configure part/i,
     /edit specifications/i,
     /part configuration/i,
     /process[:\s]+cnc/i,
   ],
   quantityInputs: [
+    'input[type="number"][pattern]',
     '[data-testid*="quantity"] input',
     'input[name*="quantity"]',
     'input[id*="quantity"]',
     'input[type="number"][pattern="^[0-9]*$"]',
     'input[type="number"]',
   ],
+  // Material/finish are read-only on the summary page where price tiers live.
+  // Editing them requires navigating to the Configure tab (which hides tier
+  // pricing). Keep these selectors so the adapter still records what it
+  // attempted, but they intentionally do NOT navigate to the Configure tab —
+  // the gate only needs price + lead time, not requirement enforcement.
   materialButtons: [
     '[data-testid="requirement-Material"]',
-    '[data-testid*="material" i]',
+    '[data-testid*="material" i]:not([data-testid*="navigate" i])',
     '[aria-label*="material" i]',
     'button:has-text("Material")',
   ],
   materialOptions: [
+    'input[type="radio"][name="material"]',
     '[role="option"]',
     '[data-testid*="option" i]',
     '[data-testid*="material" i] button',
@@ -99,25 +124,32 @@ export const XOMETRY_LOCATORS = {
     'button:has-text("Post-Processing")',
   ],
   finishOptions: [
+    'input[type="radio"][name*="finish" i]',
+    'input[type="radio"][name*="post" i]',
     '[role="option"]',
     '[data-testid*="option" i]',
   ],
+  // Configuration-page price tier. `[data-testid=part-discount]` exposes the tier
+  // total (e.g. "$252.97 (Save $59.81)"). `.price-tier` is the wrapping container.
   priceText: [
-    '[data-testid="tierAndLeadTime"]',
+    '[data-testid="part-discount"]',
+    '.price-tier',
     '[data-testid*="price" i]',
     '[data-testid*="total" i]',
     '[aria-label*="price" i]',
     '[class*="price" i]',
+    // tierAndLeadTime label contains both lead-time and price text; placed last so
+    // its selector key doesn't collide with priceText[0] in the unit-test mock.
+    '[data-testid="tierAndLeadTime"]',
   ],
   leadTimeText: [
+    '[data-testid="tierAndLeadTime"]',
+    '.price-tier',
     '[data-testid*="lead" i]',
     '[data-testid*="delivery" i]',
     '[aria-label*="lead" i]',
     '[class*="lead" i]',
     '[class*="delivery" i]',
-    // tierAndLeadTime contains both lead-time and price text; placed last so its
-    // selector key doesn't collide with priceText[0] in the unit-test mock.
-    '[data-testid="tierAndLeadTime"]',
   ],
   manualReviewText: [
     '[data-testid*="review" i]',

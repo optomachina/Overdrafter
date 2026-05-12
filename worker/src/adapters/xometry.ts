@@ -266,6 +266,10 @@ async function escapeDashboardIfNeeded(page: Page, timeoutMs: number) {
 async function waitForQuoteSignals(page: Page, timeoutMs: number) {
   await page.waitForFunction(
     (patterns) => {
+      // Configuration page lands at /quoting/quote/Q##-XXXX after a successful upload.
+      if (new RegExp(patterns.urlPattern).test(window.location.href)) {
+        return true;
+      }
       const body = document.body;
       if (!body) return false;
       const text = body.innerText ?? "";
@@ -276,6 +280,7 @@ async function waitForQuoteSignals(page: Page, timeoutMs: number) {
     {
       readyPatterns: XOMETRY_LOCATORS.quoteReadySignals.map((pattern) => pattern.source),
       reviewPatterns: XOMETRY_LOCATORS.manualReviewSignals.map((pattern) => pattern.source),
+      urlPattern: XOMETRY_LOCATORS.quotePagePathPattern.source,
     },
     {
       timeout: timeoutMs,
@@ -283,185 +288,95 @@ async function waitForQuoteSignals(page: Page, timeoutMs: number) {
   );
 }
 
-async function waitAndDismissItarPopup(page: Page, isItar: boolean, timeoutMs: number) {
-  // Xometry's authenticated "Start a New Quote" flow shows an ITAR/export-control
-  // popup BEFORE opening the file picker. The "No" radio is pre-selected, so for
-  // non-ITAR parts we just need to click "Continue". For ITAR parts we click the
-  // "Yes" radio first.
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const bodyText = await readBodyText(page);
-    if (XOMETRY_LOCATORS.itarPopupSignals.some((p) => p.test(bodyText))) {
-      if (isItar) {
-        for (const selector of XOMETRY_LOCATORS.itarYesRadios) {
-          const radio = page.locator(selector).first();
-          if ((await radio.count().catch(() => 0)) === 0) continue;
-          await radio.click({ timeout: 3000 }).catch(() => undefined);
-          break;
-        }
-      }
-      for (const selector of XOMETRY_LOCATORS.itarConfirmContinueButtons) {
-        const btn = page.locator(selector).first();
-        if ((await btn.count().catch(() => 0)) === 0) continue;
-        if (!(await btn.isVisible().catch(() => false))) continue;
-        await btn.click({ timeout: 3000 }).catch(() => undefined);
-        return true;
-      }
+async function navigateToQuoteConfigurationPage(
+  page: Page,
+  timeoutMs: number,
+  runDir: string,
+) {
+  // Three observed paths after upload:
+  //   1. Modal "Continue" appears → click → page redirects to /quoting/quote/Q##-XXXX.
+  //      Empirically the redirect can take 60-90s on Xometry's side as it
+  //      processes the CAD upload before navigating.
+  //   2. No modal — Xometry redirects directly to the quote URL.
+  //   3. Modal already dismissed by a prior session — the new quote appears as
+  //      the topmost tile on the dashboard, which we click.
+  // Strategy: give the modal up to 30 s to render, click it once it's there,
+  // then hand off to page.waitForURL.
+  const modalDeadline = Date.now() + Math.min(timeoutMs, 30_000);
+  let modalSelector: string | null = null;
+
+  while (Date.now() < modalDeadline && !modalSelector) {
+    if (XOMETRY_LOCATORS.quotePagePathPattern.test(page.url())) {
+      return { url: page.url(), via: "auto_redirect", modalSelector };
     }
-    try {
-      await page.waitForTimeout(250);
-    } catch {
-      // ignore
-    }
-  }
-  return false;
-}
-
-async function setFilesViaChooser(page: Page, files: string[], isItar: boolean) {
-  // Xometry's authenticated flow:
-  //   1. Click "Start a New Instant Quote" -> ITAR popup appears
-  //   2. Click "Continue" -> native OS file picker opens (Playwright intercepts)
-  //   3. setFiles on the file chooser
-  // We set up the filechooser listener BEFORE the click sequence so it catches
-  // the chooser whenever it fires, regardless of whether the ITAR popup appears.
-  for (const selector of XOMETRY_LOCATORS.startNewQuoteButtons) {
-    const trigger = page.locator(selector).first();
-    if ((await trigger.count().catch(() => 0)) === 0) continue;
-    if (!(await trigger.isVisible().catch(() => false))) continue;
-
-    const fileChooserPromise = page
-      .waitForEvent("filechooser", { timeout: 20_000 })
-      .catch(() => null);
-
-    try {
-      await trigger.click({ timeout: 5000 });
-    } catch {
-      continue;
-    }
-
-    // ITAR popup may appear; dismiss it so the click chain reaches the file picker.
-    await waitAndDismissItarPopup(page, isItar, 5_000);
-
-    const fileChooser = await fileChooserPromise;
-    if (fileChooser) {
-      await fileChooser.setFiles(files);
-      return selector;
-    }
-    // No file chooser appeared even after dismissing ITAR — try the next variant.
-  }
-  return null;
-}
-
-async function dismissXometryPostUploadPopups(page: Page, isItar: boolean) {
-  // After upload, Xometry shows two popups in sequence:
-  //   1. ITAR classification ("Is this an ITAR part?") with Yes/No buttons.
-  //      Default No for non-ITAR test parts; flip via XOMETRY_PART_IS_ITAR=1 or
-  //      requirement.is_itar once that field exists.
-  //   2. One-time "rename parts" onboarding modal with an "Okay" button.
-  //
-  // Bounded to ~10s total (40 × 250ms) with an early exit if neither signal has
-  // been observed after the first few polls — keeps unit tests well under the
-  // default vitest 5s timeout when popups are absent from the mocked body text.
-  const MAX_POLLS = 40;
-  const POLL_MS = 250;
-  const EARLY_EXIT_POLLS_WITHOUT_SIGNAL = 4;
-
-  let itarDismissed = false;
-  let renameDismissed = false;
-  let pollsWithoutAnySignal = 0;
-
-  for (let poll = 0; poll < MAX_POLLS; poll += 1) {
-    if (itarDismissed && renameDismissed) break;
-
-    const bodyText = await readBodyText(page);
-    const sawItar = XOMETRY_LOCATORS.itarPopupSignals.some((p) => p.test(bodyText));
-    const sawRename = XOMETRY_LOCATORS.renamePartsPopupSignals.some((p) => p.test(bodyText));
-
-    if (!sawItar && !sawRename && !itarDismissed && !renameDismissed) {
-      pollsWithoutAnySignal += 1;
-      if (pollsWithoutAnySignal >= EARLY_EXIT_POLLS_WITHOUT_SIGNAL) {
-        break;
-      }
-    } else {
-      pollsWithoutAnySignal = 0;
-    }
-
-    if (!itarDismissed && sawItar) {
-      if (isItar) {
-        for (const selector of XOMETRY_LOCATORS.itarYesRadios) {
-          const radio = page.locator(selector).first();
-          if ((await radio.count().catch(() => 0)) === 0) continue;
-          await radio.click({ timeout: 3000 }).catch(() => undefined);
-          break;
-        }
-      }
-      for (const selector of XOMETRY_LOCATORS.itarConfirmContinueButtons) {
-        const btn = page.locator(selector).first();
-        if ((await btn.count().catch(() => 0)) === 0) continue;
-        if (!(await btn.isVisible().catch(() => false))) continue;
-        await btn.click({ timeout: 3000 }).catch(() => undefined);
-        itarDismissed = true;
-        break;
-      }
-    }
-
-    if (!renameDismissed && sawRename) {
-      for (const selector of XOMETRY_LOCATORS.renamePartsAcknowledgeButtons) {
-        const btn = page.locator(selector).first();
-        if ((await btn.count().catch(() => 0)) === 0) continue;
-        if (!(await btn.isVisible().catch(() => false))) continue;
-        await btn.click({ timeout: 3000 }).catch(() => undefined);
-        renameDismissed = true;
-        break;
-      }
-    }
-
-    if (itarDismissed && renameDismissed) break;
-    // Tolerate test mocks that don't implement waitForTimeout — the function may
-    // not exist on the locator at all, so we can't rely on .catch().
-    try {
-      await page.waitForTimeout(POLL_MS);
-    } catch {
-      // ignore; continue polling without sleep
-    }
-  }
-
-  return { itarDismissed, renameDismissed };
-}
-
-async function setFilesOnUpload(page: Page, files: string[], isItar = false) {
-  const attemptedSelectors: string[] = [];
-  const deadline = Date.now() + 15_000;
-
-  // Xometry's "Start a New Instant Quote" button programmatically clicks a hidden
-  // file input. fileChooser interception is the only mechanism that actually drives
-  // Xometry's React state machine — direct setInputFiles on the hidden input is
-  // ignored. The Finder window briefly flashes on macOS but Playwright intercepts.
-  const chooserSelector = await setFilesViaChooser(page, files, isItar);
-  if (chooserSelector) {
-    return { selector: `filechooser:${chooserSelector}`, attemptedSelectors: [chooserSelector] };
-  }
-
-  while (Date.now() < deadline) {
-    for (const selector of XOMETRY_LOCATORS.uploadInputs) {
-      if (!attemptedSelectors.includes(selector)) {
-        attemptedSelectors.push(selector);
-      }
-
+    for (const selector of XOMETRY_LOCATORS.exportControlContinue) {
       const locator = page.locator(selector).first();
-      const count = await locator.count().catch(() => 0);
-
-      if (count < 1) continue;
-
+      const visible = await locator.isVisible().catch(() => false);
+      if (!visible) continue;
       try {
-        await locator.setInputFiles(files);
-        return { selector, attemptedSelectors };
+        await locator.click();
+        modalSelector = selector;
+        break;
       } catch {
-        // Try the next known upload locator.
+        // Try the next candidate selector.
       }
     }
+    if (!modalSelector) {
+      await page.waitForTimeout(500).catch(() => undefined);
+    }
+  }
 
-    await page.waitForTimeout(500);
+  // Snapshot: what was on the page right after the modal poll resolved (clicked
+  // or gave up). This is the most useful debugging artifact for navigation
+  // failures.
+  await capturePageArtifacts(page, runDir, "post-modal-poll").catch(() => undefined);
+
+  // Wait for navigation to the configuration URL using Playwright's native
+  // event-based wait. Budget is the full timeoutMs since modal-click → redirect
+  // can be slow.
+  try {
+    await page.waitForURL(XOMETRY_LOCATORS.quotePagePathPattern, { timeout: timeoutMs });
+    return { url: page.url(), via: modalSelector ? "modal_redirect" : "auto_redirect", modalSelector };
+  } catch {
+    await capturePageArtifacts(page, runDir, "wait-for-url-timeout").catch(() => undefined);
+    // Fall back to clicking the newest tile if it appeared on the dashboard.
+    const tile = page
+      .locator('a[href*="/quoting/quote/"], a[href*="get.xometry.com/quote/"]')
+      .first();
+    if (await tile.isVisible().catch(() => false)) {
+      const href = await tile.getAttribute("href").catch(() => null);
+      if (href) {
+        const target = new URL(href, page.url()).toString();
+        await page.goto(target, { waitUntil: "load" });
+        await page.waitForLoadState("networkidle").catch(() => undefined);
+        return { url: page.url(), via: "tile_click", modalSelector };
+      }
+    }
+    return {
+      url: page.url(),
+      via: modalSelector ? "modal_no_redirect" : "no_modal_no_tile",
+      modalSelector,
+    };
+  }
+}
+
+async function setFilesOnUpload(page: Page, files: string[]) {
+  const attemptedSelectors: string[] = [];
+  const setInputErrors: Error[] = [];
+
+  for (const selector of XOMETRY_LOCATORS.uploadInputs) {
+    attemptedSelectors.push(selector);
+    const locator = page.locator(selector).first();
+    const count = await locator.count().catch(() => 0);
+    if (count < 1) continue;
+    try {
+      await locator.setInputFiles(files);
+      return { selector, attemptedSelectors };
+    } catch (error) {
+      if (error instanceof Error) {
+        setInputErrors.push(error);
+      }
+    }
   }
 
   throw new VendorAutomationError(
@@ -473,6 +388,7 @@ async function setFilesOnUpload(page: Page, files: string[], isItar = false) {
       attemptedSelectors,
       nearbyAttributes: [...XOMETRY_LOCATORS.uploadInputs],
       url: page.url(),
+      setInputErrorCount: setInputErrors.length,
     },
   );
 }
@@ -756,9 +672,9 @@ export class XometryAdapter extends VendorAdapter {
       );
     }
 
-    if (!this.config.xometryStorageStatePath) {
+    if (!this.config.xometryUserDataDir && !this.config.xometryStorageStatePath) {
       throw new VendorAutomationError(
-        "XOMETRY_STORAGE_STATE_PATH is not configured for live automation.",
+        "Live mode requires XOMETRY_USER_DATA_DIR (recommended) or XOMETRY_STORAGE_STATE_PATH.",
         "login_required",
         {
           vendor: "xometry",
@@ -850,7 +766,7 @@ export class XometryAdapter extends VendorAdapter {
         });
 
         browserContext = await browser.newContext({
-          storageState: this.config.xometryStorageStatePath,
+          storageState: this.config.xometryStorageStatePath ?? undefined,
         });
       }
 
@@ -874,86 +790,77 @@ export class XometryAdapter extends VendorAdapter {
         await appendArtifacts(artifacts, page, runDir, "post-dashboard");
       }
 
-      const uploadFiles = [
-        input.stagedCadFile.localPath,
-        input.stagedDrawingFile?.localPath,
-      ].filter((value): value is string => Boolean(value));
-
-      const isItar = process.env.XOMETRY_PART_IS_ITAR === "1";
-
-      try {
-        const uploadResult = await setFilesOnUpload(page, uploadFiles, isItar);
-        uploadSelector = uploadResult.selector;
-      } catch (error) {
-        if (!input.stagedDrawingFile) {
-          throw error;
-        }
-
-        const uploadResult = await setFilesOnUpload(page, [input.stagedCadFile.localPath], isItar);
-        uploadSelector = uploadResult.selector;
+      // Empirically, Xometry's redesigned post-upload flow only redirects to a
+      // /quoting/quote/Q##-XXXX configuration page when a single CAD file is
+      // uploaded. Bundling cad+drawing keeps the page on the dashboard with
+      // an open "are these export-controlled" modal that never resolves to a
+      // quote URL. Always upload CAD first; rely on attachDrawingFallback
+      // later in the flow to attach the drawing if Xometry asks for it.
+      const uploadResult = await setFilesOnUpload(page, [input.stagedCadFile.localPath]);
+      uploadSelector = uploadResult.selector;
+      if (input.stagedDrawingFile) {
         drawingUploadMode = "not_needed";
       }
 
-      // Xometry's post-upload flow on /quoting/home/:
-      //   1) ITAR popup is handled inside setFilesOnUpload (it appears BEFORE the
-      //      file picker in fresh sessions).
-      //   2) one-time rename-parts onboarding popup -> click Okay
-      //   3) page navigates to /quoting/quote/<QID> (the configurator)
-      await dismissXometryPostUploadPopups(page, isItar);
-      await page
-        .waitForURL(/\/quoting\/quote\//, { timeout: this.config.browserTimeoutMs })
-        .catch(() => undefined);
-      await page.waitForLoadState("networkidle", { timeout: this.config.browserTimeoutMs })
-        .catch(() => undefined);
+      // After upload, an export-controlled-parts modal appears for authenticated
+      // sessions. Submitting the modal redirects to /quoting/quote/Q##-XXXX,
+      // which is the configuration page we need. Some sessions skip the modal
+      // and the redirect happens on its own.
+      // Mirror the manual probe: a fixed delay lets Xometry render the
+      // export-controlled-parts modal before we look for it. The subsequent
+      // networkidle wait can be slow (60+ s) while Xometry processes the CAD
+      // upload, so this short pause makes the modal visible before any
+      // long-running wait blocks our poll.
+      await page.waitForTimeout(5_000).catch(() => undefined);
+      await page.waitForLoadState("networkidle").catch(() => undefined);
+      await navigateToQuoteConfigurationPage(page, 120_000, runDir);
+
+      await waitForQuoteSignals(page, this.config.browserTimeoutMs);
+      await page.waitForLoadState("networkidle").catch(() => undefined);
       await detectBlockingState(page, runDir);
       detectedFlow = "upload_complete";
       await appendArtifacts(artifacts, page, runDir, "uploaded");
 
-      await setQuantity(page, normalizedQuantity(input));
-
-      // Xometry auto-detects geometry and pre-selects material/finish that match
-      // the part. If the requirement material/finish already appear on the page,
-      // skip the dropdown manipulation — opening the dropdown without a matching
-      // option throws and aborts an otherwise valid quote.
-      const preConfigText = await readBodyText(page);
-      const materialAlreadyMatches = materialTerms.some((term) =>
-        new RegExp(escapeRegex(term), "i").test(preConfigText),
-      );
-      if (!materialAlreadyMatches) {
-        try {
-          await findButtonAndOpen(page, XOMETRY_LOCATORS.materialButtons, "material");
-          selectedMaterial = await chooseOptionByTerms(
-            page,
-            materialTerms,
-            XOMETRY_LOCATORS.materialOptions,
-            "material",
-          );
-        } catch (error) {
-          // Material may be locked or auto-detected; surface as best-effort.
-          if (!(error instanceof VendorAutomationError)) throw error;
+      // Quantity / material / finish are best-effort on the configuration page.
+      // Xometry instant-quote pages already display tier prices for the default
+      // quantity + auto-detected material, which satisfies the gate. If the
+      // edit controls are present we apply requested overrides; if absent we
+      // proceed with displayed defaults rather than failing the run.
+      try {
+        await setQuantity(page, normalizedQuantity(input));
+      } catch (error) {
+        if (error instanceof VendorAutomationError && error.code !== "selector_failure") {
+          throw error;
         }
-      } else {
-        selectedMaterial = materialTerms[0];
+      }
+
+      try {
+        await findButtonAndOpen(page, XOMETRY_LOCATORS.materialButtons, "material");
+        selectedMaterial = await chooseOptionByTerms(
+          page,
+          materialTerms,
+          XOMETRY_LOCATORS.materialOptions,
+          "material",
+        );
+      } catch (error) {
+        if (error instanceof VendorAutomationError && error.code !== "selector_failure") {
+          throw error;
+        }
       }
 
       if (finishTerms && finishTerms.length > 0) {
-        const finishAlreadyMatches = finishTerms.some((term) =>
-          new RegExp(escapeRegex(term), "i").test(preConfigText),
-        );
-        if (!finishAlreadyMatches) {
-          try {
-            await findButtonAndOpen(page, XOMETRY_LOCATORS.finishButtons, "finish");
-            selectedFinish = await chooseOptionByTerms(
-              page,
-              finishTerms,
-              XOMETRY_LOCATORS.finishOptions,
-              "finish",
-            );
-          } catch (error) {
-            if (!(error instanceof VendorAutomationError)) throw error;
+        try {
+          await findButtonAndOpen(page, XOMETRY_LOCATORS.finishButtons, "finish");
+          selectedFinish = await chooseOptionByTerms(
+            page,
+            finishTerms,
+            XOMETRY_LOCATORS.finishOptions,
+            "finish",
+          );
+        } catch (error) {
+          if (error instanceof VendorAutomationError && error.code !== "selector_failure") {
+            throw error;
           }
-        } else {
-          selectedFinish = finishTerms[0];
         }
       }
 
