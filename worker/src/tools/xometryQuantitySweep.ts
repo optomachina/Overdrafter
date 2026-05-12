@@ -118,23 +118,46 @@ function makeInput(quantity: number, cadPath: string, drawingPath: string | null
   };
 }
 
-// `[^$]*` is intentionally greedy with a negated character class — since
-// `[^$]` cannot match `$`, no backtracking is required to find the next `\$`.
-// (SonarCloud S5852 flagged the previous lazy form `[^$]{0,80}?` as a regex
-// DOS risk via super-linear backtracking. The greedy form is linear-time.)
-const OPTION_PATTERN = /(\d{1,3})\s+(?:production|business|working|calendar)?\s*days?[^$]*\$([\d,]+\.\d{2})/gi;
+// Split the original combined pattern into two single-purpose regexes to keep
+// SonarCloud's S5852 static analyzer happy. Both regexes are simple enough
+// that backtracking is bounded by their fixed structure (no quantifier
+// followed by a same-alphabet anchor).
+const DAYS_PATTERN = /\b(\d{1,3})\s+(?:production|business|working|calendar)?\s*days?\b/gi;
+const PRICE_PATTERN = /\$(\d{1,3}(?:,\d{3})*\.\d{2})/g;
+const MAX_GAP_BETWEEN_DAYS_AND_PRICE = 80;
 
 function parseLeadTimeOptions(text: string) {
+  const days: Array<{ index: number; value: number }> = [];
+  for (const match of text.matchAll(DAYS_PATTERN)) {
+    if (match.index === undefined) continue;
+    const value = Number.parseInt(match[1], 10);
+    if (!Number.isFinite(value)) continue;
+    days.push({ index: match.index, value });
+  }
+
+  const prices: Array<{ index: number; value: number }> = [];
+  for (const match of text.matchAll(PRICE_PATTERN)) {
+    if (match.index === undefined) continue;
+    const value = Number.parseFloat(match[1].replaceAll(",", ""));
+    if (!Number.isFinite(value)) continue;
+    prices.push({ index: match.index, value });
+  }
+
   const seen = new Set<string>();
   const options: Array<{ days: number; priceUsd: number }> = [];
-  for (const match of text.matchAll(OPTION_PATTERN)) {
-    const days = Number.parseInt(match[1], 10);
-    const price = Number.parseFloat(match[2].replaceAll(",", ""));
-    if (!Number.isFinite(days) || !Number.isFinite(price)) continue;
-    const key = `${days}:${price}`;
+  for (const dayEntry of days) {
+    // Pair each `N days` token with the closest subsequent `$X.XX` token
+    // within MAX_GAP_BETWEEN_DAYS_AND_PRICE characters.
+    const candidate = prices.find(
+      (price) =>
+        price.index > dayEntry.index &&
+        price.index - dayEntry.index <= MAX_GAP_BETWEEN_DAYS_AND_PRICE,
+    );
+    if (!candidate) continue;
+    const key = `${dayEntry.value}:${candidate.value}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    options.push({ days, priceUsd: price });
+    options.push({ days: dayEntry.value, priceUsd: candidate.value });
   }
   return options.sort((a, b) => a.days - b.days || a.priceUsd - b.priceUsd);
 }
