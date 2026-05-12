@@ -23,6 +23,11 @@ vi.mock("node:fs/promises", () => ({
 
 import { extractPdfText, inferDrawingSignalsFromPdf, renderPdfPreviewAssets } from "./pdfDrawing";
 
+const TEST_INPUT_PDF_PATH = "/safe-test/input/example.pdf";
+const TEST_QB00002_PDF_PATH = "/safe-test/input/1093-05589-02.pdf";
+const TEST_OUTPUT_DIR = "/safe-test/output";
+const TEST_OCR_DIR = "/safe-test/work/overdrafter-pdf-ocr-test";
+
 const PRIMARY_REGRESSION_FIXTURE = {
   pageCount: 1,
   pages: [
@@ -57,7 +62,7 @@ describe("pdfDrawing", () => {
     mockMkdtemp.mockReset();
     mockRename.mockReset();
     mockAccess.mockResolvedValue(undefined);
-    mockMkdtemp.mockResolvedValue("/tmp/overdrafter-pdf-ocr-test");
+    mockMkdtemp.mockResolvedValue(TEST_OCR_DIR);
     mockRename.mockResolvedValue(undefined);
   });
 
@@ -67,7 +72,7 @@ describe("pdfDrawing", () => {
       .mockResolvedValueOnce({ stdout: "PAGE 1 TEXT" })
       .mockResolvedValueOnce({ stdout: "PAGE 2 TEXT" });
 
-    await expect(extractPdfText("/tmp/example.pdf")).resolves.toEqual({
+    await expect(extractPdfText(TEST_INPUT_PDF_PATH)).resolves.toEqual({
       pageCount: 2,
       pages: [
         { page: 1, text: "PAGE 1 TEXT" },
@@ -78,13 +83,13 @@ describe("pdfDrawing", () => {
     expect(mockExecFileAsync).toHaveBeenNthCalledWith(
       1,
       "pdfinfo",
-      ["/tmp/example.pdf"],
+      [TEST_INPUT_PDF_PATH],
       expect.any(Object),
     );
     expect(mockExecFileAsync).toHaveBeenNthCalledWith(
       2,
       "pdftotext",
-      ["-layout", "-enc", "UTF-8", "-f", "1", "-l", "1", "/tmp/example.pdf", "-"],
+      ["-layout", "-enc", "UTF-8", "-f", "1", "-l", "1", TEST_INPUT_PDF_PATH, "-"],
       expect.any(Object),
     );
   });
@@ -104,7 +109,7 @@ describe("pdfDrawing", () => {
         ].join("\n"),
       });
 
-    await expect(extractPdfText("/tmp/1093-05589-02.pdf")).resolves.toEqual({
+    await expect(extractPdfText(TEST_QB00002_PDF_PATH)).resolves.toEqual({
       pageCount: 1,
       pages: [
         {
@@ -124,13 +129,13 @@ describe("pdfDrawing", () => {
     expect(mockExecFileAsync).toHaveBeenNthCalledWith(
       3,
       "qlmanage",
-      ["-t", "-s", "3000", "-o", "/tmp/overdrafter-pdf-ocr-test", "/tmp/1093-05589-02.pdf"],
+      ["-t", "-s", "3000", "-o", TEST_OCR_DIR, TEST_QB00002_PDF_PATH],
       expect.any(Object),
     );
     expect(mockExecFileAsync).toHaveBeenNthCalledWith(
       4,
       "tesseract",
-      ["/tmp/overdrafter-pdf-ocr-test/drawing-page-1.png", "stdout", "--psm", "4"],
+      [`${TEST_OCR_DIR}/drawing-page-1.png`, "stdout", "--psm", "4"],
       expect.any(Object),
     );
   });
@@ -141,9 +146,9 @@ describe("pdfDrawing", () => {
       .mockResolvedValueOnce({ stdout: "" })
       .mockResolvedValueOnce({ stdout: "" });
 
-    await expect(renderPdfPreviewAssets("/tmp/example.pdf", "/tmp/output", 2)).resolves.toEqual([
+    await expect(renderPdfPreviewAssets(TEST_INPUT_PDF_PATH, TEST_OUTPUT_DIR, 2)).resolves.toEqual([
       {
-        localPath: "/tmp/output/drawing-thumbnail.png",
+        localPath: `${TEST_OUTPUT_DIR}/drawing-thumbnail.png`,
         pageNumber: 1,
         kind: "thumbnail",
         width: null,
@@ -151,7 +156,7 @@ describe("pdfDrawing", () => {
         contentType: "image/png",
       },
       {
-        localPath: "/tmp/output/drawing-page-1.png",
+        localPath: `${TEST_OUTPUT_DIR}/drawing-page-1.png`,
         pageNumber: 1,
         kind: "page",
         width: null,
@@ -159,7 +164,7 @@ describe("pdfDrawing", () => {
         contentType: "image/png",
       },
       {
-        localPath: "/tmp/output/drawing-page-2.png",
+        localPath: `${TEST_OUTPUT_DIR}/drawing-page-2.png`,
         pageNumber: 2,
         kind: "page",
         width: null,
@@ -180,8 +185,8 @@ describe("pdfDrawing", () => {
         "-singlefile",
         "-scale-to",
         "320",
-        "/tmp/example.pdf",
-        "/tmp/output/drawing-thumbnail",
+        TEST_INPUT_PDF_PATH,
+        `${TEST_OUTPUT_DIR}/drawing-thumbnail`,
       ],
       expect.any(Object),
     );
@@ -197,8 +202,8 @@ describe("pdfDrawing", () => {
         "-singlefile",
         "-scale-to",
         "1600",
-        "/tmp/example.pdf",
-        "/tmp/output/drawing-page-2",
+        TEST_INPUT_PDF_PATH,
+        `${TEST_OUTPUT_DIR}/drawing-page-2`,
       ],
       expect.any(Object),
     );

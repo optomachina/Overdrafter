@@ -91,7 +91,7 @@ function buildBlockerReasons(input: {
     return reasons;
   }
 
-  if (requirement && requirement.applicable_vendors.length === 0) {
+  if (requirement?.applicable_vendors.length === 0) {
     reasons.push("No enabled vendors are available for this part in its current package state.");
   }
 

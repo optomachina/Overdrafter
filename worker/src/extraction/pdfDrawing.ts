@@ -173,10 +173,10 @@ function collectNotes(lines: StructuredLine[]) {
 }
 
 function collectThreads(text: string) {
-  const matches = text.match(
-    /\b(?:M\d+(?:x\d+(?:\.\d+)?)?|(?:\d+\/\d+|\d+)-\d+\s*(?:UNC|UNF|UNEF|NPT|NPTF)(?:\s*-\s*[23][AB])?)\b/gi,
-  );
-  return [...new Set((matches ?? []).map((match) => normalizeWhitespace(match)))].slice(0, 12);
+  const metricMatches = text.match(/\bM\d+(?:x\d+(?:\.\d+)?)?\b/gi) ?? [];
+  const imperialMatches =
+    text.match(/\b(?:\d+\/\d+|\d+)-\d+\s*(?:UNC|UNF|UNEF|NPT|NPTF)(?:\s*-\s*[23][AB])?\b/gi) ?? [];
+  return [...new Set([...metricMatches, ...imperialMatches].map((match) => normalizeWhitespace(match)))].slice(0, 12);
 }
 
 function readLeadingToleranceValue(fragment: string) {
@@ -624,7 +624,7 @@ function rescueOcrTitleBlockFields(input: {
     );
   }
 
-  const materialMatch = input.text.match(/\b6061\s+Alloy\b/i);
+  const materialMatch = /\b6061\s+Alloy\b/i.exec(input.text);
   if (materialMatch && (!input.fields.material.value || input.fields.material.reviewNeeded || /ANODIZE/i.test(input.fields.material.value))) {
     input.fields.material = buildRescuedField("6061 Alloy", ["ocr_title_block", "label_match"], 0.86);
   }
