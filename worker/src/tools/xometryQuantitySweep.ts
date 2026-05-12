@@ -5,6 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import { XometryAdapter } from "../adapters/xometry.js";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types.js";
+import { buildVendorQuoteFilePayload } from "./_vendorQuoteInputBuilders.js";
 
 const DEFAULT_QUANTITIES = [1, 5, 25, 100];
 
@@ -95,38 +96,11 @@ function makeInput(quantity: number, cadPath: string, drawingPath: string | null
       drawing_file_id: drawingPath ? "drawing-sweep" : null,
       quantity,
     },
-    cadFile: {
-      id: "cad-sweep",
-      job_id: "job-sweep",
-      storage_bucket: "job-files",
-      storage_path: "cad/sweep.step",
-      original_name: path.basename(cadPath),
-      file_kind: "cad",
-    },
-    drawingFile: drawingPath
-      ? {
-          id: "drawing-sweep",
-          job_id: "job-sweep",
-          storage_bucket: "job-files",
-          storage_path: "drawing/sweep.pdf",
-          original_name: path.basename(drawingPath),
-          file_kind: "drawing",
-        }
-      : null,
-    stagedCadFile: {
-      originalName: path.basename(cadPath),
-      localPath: cadPath,
-      storageBucket: "job-files",
-      storagePath: "cad/sweep.step",
-    },
-    stagedDrawingFile: drawingPath
-      ? {
-          originalName: path.basename(drawingPath),
-          localPath: drawingPath,
-          storageBucket: "job-files",
-          storagePath: "drawing/sweep.pdf",
-        }
-      : null,
+    ...buildVendorQuoteFilePayload({
+      cadPath,
+      drawingPath,
+      idPrefix: "sweep",
+    }),
     requirement: {
       id: `req-sweep-q${quantity}`,
       part_id: `part-sweep-q${quantity}`,
@@ -144,7 +118,11 @@ function makeInput(quantity: number, cadPath: string, drawingPath: string | null
   };
 }
 
-const OPTION_PATTERN = /(\d{1,3})\s+(?:production|business|working|calendar)?\s*days?[^$]{0,80}?\$([\d,]+\.\d{2})/gi;
+// `[^$]*` is intentionally greedy with a negated character class — since
+// `[^$]` cannot match `$`, no backtracking is required to find the next `\$`.
+// (SonarCloud S5852 flagged the previous lazy form `[^$]{0,80}?` as a regex
+// DOS risk via super-linear backtracking. The greedy form is linear-time.)
+const OPTION_PATTERN = /(\d{1,3})\s+(?:production|business|working|calendar)?\s*days?[^$]*\$([\d,]+\.\d{2})/gi;
 
 function parseLeadTimeOptions(text: string) {
   const seen = new Set<string>();

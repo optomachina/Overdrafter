@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { FictivAdapter } from "./fictiv";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
+import { buildVendorQuoteFilePayload } from "../tools/_vendorQuoteInputBuilders";
 
 const runLive = process.env.RUN_FICTIV_LIVE_TEST === "1" && process.env.CI !== "true";
 const liveDescribe = runLive ? describe : describe.skip;
@@ -69,38 +70,14 @@ function makeInput(): VendorQuoteAdapterInput {
       drawing_file_id: drawingPath ? "drawing-live" : null,
       quantity: 2,
     },
-    cadFile: {
-      id: "cad-live",
-      job_id: "job-live",
-      storage_bucket: "job-files",
-      storage_path: "cad/live-test.step",
-      original_name: path.basename(cadPath),
-      file_kind: "cad",
-    },
-    drawingFile: drawingPath
-      ? {
-          id: "drawing-live",
-          job_id: "job-live",
-          storage_bucket: "job-files",
-          storage_path: "drawing/live-test.pdf",
-          original_name: path.basename(drawingPath),
-          file_kind: "drawing",
-        }
-      : null,
-    stagedCadFile: {
-      originalName: path.basename(cadPath),
-      localPath: cadPath,
-      storageBucket: "job-files",
-      storagePath: "cad/live-test.step",
-    },
-    stagedDrawingFile: drawingPath
-      ? {
-          originalName: path.basename(drawingPath),
-          localPath: drawingPath,
-          storageBucket: "job-files",
-          storagePath: "drawing/live-test.pdf",
-        }
-      : null,
+    ...buildVendorQuoteFilePayload({
+      cadPath,
+      drawingPath,
+      idPrefix: "live",
+      jobId: "job-live",
+      cadStoragePath: "cad/live-test.step",
+      drawingStoragePath: "drawing/live-test.pdf",
+    }),
     requirement: {
       id: "req-live",
       part_id: "part-live",
