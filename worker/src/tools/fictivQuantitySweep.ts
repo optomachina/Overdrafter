@@ -73,6 +73,7 @@ function makeConfig(): WorkerConfig {
     xometryStorageStateJson: null,
     xometryUserDataDir: null,
     xometryBrowserChannel: null,
+    xometryBrowserEngine: "patchright",
     xometryProfileLockWaitMs: 0,
     xometrySessionFreshnessWarnDays: 14,
     fictivStorageStatePath: requiredEnv("FICTIV_STORAGE_STATE_PATH"),

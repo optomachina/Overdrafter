@@ -5,6 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import { XometryAdapter } from "../adapters/xometry.js";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types.js";
+import { buildVendorQuoteFilePayload } from "./_vendorQuoteInputBuilders.js";
 
 const DEFAULT_QUANTITIES = [1, 5, 25, 100];
 
@@ -64,6 +65,7 @@ function makeConfig(): WorkerConfig {
     xometryStorageStateJson: process.env.XOMETRY_STORAGE_STATE_JSON ?? null,
     xometryUserDataDir: process.env.XOMETRY_USER_DATA_DIR ?? null,
     xometryBrowserChannel: process.env.XOMETRY_BROWSER_CHANNEL ?? null,
+    xometryBrowserEngine: process.env.XOMETRY_BROWSER_ENGINE === "camoufox" ? "camoufox" : "patchright",
     xometryProfileLockWaitMs: 30_000,
     xometrySessionFreshnessWarnDays: 14,
     fictivStorageStatePath: null,
@@ -94,38 +96,11 @@ function makeInput(quantity: number, cadPath: string, drawingPath: string | null
       drawing_file_id: drawingPath ? "drawing-sweep" : null,
       quantity,
     },
-    cadFile: {
-      id: "cad-sweep",
-      job_id: "job-sweep",
-      storage_bucket: "job-files",
-      storage_path: "cad/sweep.step",
-      original_name: path.basename(cadPath),
-      file_kind: "cad",
-    },
-    drawingFile: drawingPath
-      ? {
-          id: "drawing-sweep",
-          job_id: "job-sweep",
-          storage_bucket: "job-files",
-          storage_path: "drawing/sweep.pdf",
-          original_name: path.basename(drawingPath),
-          file_kind: "drawing",
-        }
-      : null,
-    stagedCadFile: {
-      originalName: path.basename(cadPath),
-      localPath: cadPath,
-      storageBucket: "job-files",
-      storagePath: "cad/sweep.step",
-    },
-    stagedDrawingFile: drawingPath
-      ? {
-          originalName: path.basename(drawingPath),
-          localPath: drawingPath,
-          storageBucket: "job-files",
-          storagePath: "drawing/sweep.pdf",
-        }
-      : null,
+    ...buildVendorQuoteFilePayload({
+      cadPath,
+      drawingPath,
+      idPrefix: "sweep",
+    }),
     requirement: {
       id: `req-sweep-q${quantity}`,
       part_id: `part-sweep-q${quantity}`,
@@ -143,20 +118,54 @@ function makeInput(quantity: number, cadPath: string, drawingPath: string | null
   };
 }
 
-const OPTION_PATTERN =
-  /(\d{1,3})\s+(?:(?:production|business|working|calendar)\s+)?days?[^$]{0,80}?\$([\d,]+\.\d{2})/gi;
+// Single-purpose regexes scanned independently and paired by index proximity.
+// DAYS_PATTERN: matches "5 days", "5 production days", "5 business days", etc.
+// PRICE_PATTERN: matches "$194.13" or "$1,234.56".
+//
+// SonarCloud's S5852 heuristic statically flags any regex with adjacent
+// repetition operators as "potentially super-linear", even when the patterns
+// are demonstrably linear-time (digits/words/whitespace are disjoint character
+// classes, so no catastrophic backtracking is possible). We've cycled through
+// three rewrites trying to satisfy the analyzer; each one was flagged on a
+// different bounded construct. Both regexes here are safe to run on adversarial
+// input — input size is bounded by `excerptText` (2000 chars) anyway.
+// NOSONAR: typescript:S5852 — false positive on linear-time bounded patterns.
+const DAYS_PATTERN = /\b(\d{1,3})\s+(?:(?:production|business|working|calendar)\s+)?days?\b/gi; // NOSONAR
+const PRICE_PATTERN = /\$(\d{1,3}(?:,\d{3})*\.\d{2})/g; // NOSONAR
+const MAX_GAP_BETWEEN_DAYS_AND_PRICE = 80;
 
 function parseLeadTimeOptions(text: string) {
+  const days: Array<{ index: number; value: number }> = [];
+  for (const match of text.matchAll(DAYS_PATTERN)) {
+    if (match.index === undefined) continue;
+    const value = Number.parseInt(match[1], 10);
+    if (!Number.isFinite(value)) continue;
+    days.push({ index: match.index, value });
+  }
+
+  const prices: Array<{ index: number; value: number }> = [];
+  for (const match of text.matchAll(PRICE_PATTERN)) {
+    if (match.index === undefined) continue;
+    const value = Number.parseFloat(match[1].replaceAll(",", ""));
+    if (!Number.isFinite(value)) continue;
+    prices.push({ index: match.index, value });
+  }
+
   const seen = new Set<string>();
   const options: Array<{ days: number; priceUsd: number }> = [];
-  for (const match of text.matchAll(OPTION_PATTERN)) {
-    const days = Number.parseInt(match[1], 10);
-    const price = Number.parseFloat(match[2].replaceAll(",", ""));
-    if (!Number.isFinite(days) || !Number.isFinite(price)) continue;
-    const key = `${days}:${price}`;
+  for (const dayEntry of days) {
+    // Pair each `N days` token with the closest subsequent `$X.XX` token
+    // within MAX_GAP_BETWEEN_DAYS_AND_PRICE characters.
+    const candidate = prices.find(
+      (price) =>
+        price.index > dayEntry.index &&
+        price.index - dayEntry.index <= MAX_GAP_BETWEEN_DAYS_AND_PRICE,
+    );
+    if (!candidate) continue;
+    const key = `${dayEntry.value}:${candidate.value}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    options.push({ days, priceUsd: price });
+    options.push({ days: dayEntry.value, priceUsd: candidate.value });
   }
   return options.sort((a, b) => a.days - b.days || a.priceUsd - b.priceUsd);
 }

@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "patchright";
+import { Camoufox, launchOptions as camoufoxLaunchOptions } from "camoufox-js";
+import { firefox as playwrightFirefox } from "playwright";
 import { createRunDir, uniqueName } from "../files.js";
 import {
   VendorAutomationError,
@@ -204,6 +206,61 @@ async function firstWorkingText(page: Page, selectors: readonly string[]) {
 
 async function readBodyText(page: Page) {
   return page.locator("body").innerText().catch(() => "");
+}
+
+async function escapeDashboardIfNeeded(page: Page, timeoutMs: number) {
+  const bodyText = await readBodyText(page);
+  const isDashboard = XOMETRY_LOCATORS.dashboardSignals.some((pattern) => pattern.test(bodyText));
+  if (!isDashboard) {
+    return false;
+  }
+
+  const startingUrl = page.url();
+
+  // First try: Playwright synthetic click
+  for (const selector of XOMETRY_LOCATORS.startNewQuoteButtons) {
+    const button = page.locator(selector).first();
+    if ((await button.count().catch(() => 0)) === 0) continue;
+    if (!(await button.isVisible().catch(() => false))) continue;
+
+    await button.click({ timeout: 5000 }).catch(() => undefined);
+    const navigated = await page
+      .waitForURL((url) => url.toString() !== startingUrl, { timeout: 8_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (navigated) {
+      await page.waitForLoadState("networkidle", { timeout: timeoutMs }).catch(() => undefined);
+      return true;
+    }
+  }
+
+  // Fallback: in-page JS click. React onClick handlers sometimes don't fire from Playwright's
+  // synthetic click on custom button components but reliably fire from a native HTMLElement.click().
+  const jsClicked = await page
+    .evaluate(() => {
+      const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) =>
+        /start\s+a\s+new\s+Instant\s+Quote/i.test(b.textContent ?? ""),
+      );
+      if (button) {
+        button.click();
+        return true;
+      }
+      return false;
+    })
+    .catch(() => false);
+
+  if (jsClicked) {
+    const navigated = await page
+      .waitForURL((url) => url.toString() !== startingUrl, { timeout: timeoutMs })
+      .then(() => true)
+      .catch(() => false);
+    if (navigated) {
+      await page.waitForLoadState("networkidle", { timeout: timeoutMs }).catch(() => undefined);
+    }
+    return navigated;
+  }
+
+  return false;
 }
 
 async function waitForQuoteSignals(page: Page, timeoutMs: number) {
@@ -656,7 +713,34 @@ export class XometryAdapter extends VendorAdapter {
         launchArgs.push("--disable-dev-shm-usage");
       }
 
-      if (this.config.xometryUserDataDir) {
+      if (this.config.xometryBrowserEngine === "camoufox") {
+        // Camoufox produces a fresh browser fingerprint per launch. Cloudflare's
+        // __cf_bm cookie is tied to fingerprint, so storage-state alone won't
+        // keep us authenticated across launches. user_data_dir gives a persistent
+        // Firefox profile that survives both fingerprint and cookies cleanly.
+        if (this.config.xometryUserDataDir) {
+          await fs.mkdir(this.config.xometryUserDataDir, { recursive: true });
+          browserContext = (await Camoufox({
+            headless: this.config.playwrightHeadless,
+            window: [1366, 900],
+            humanize: true,
+            geoip: true,
+            user_data_dir: this.config.xometryUserDataDir,
+          })) as unknown as BrowserContext;
+        } else {
+          const camoufoxOpts = await camoufoxLaunchOptions({
+            headless: this.config.playwrightHeadless,
+            window: [1366, 900],
+            humanize: true,
+            geoip: true,
+          });
+          browser = (await playwrightFirefox.launch(camoufoxOpts)) as unknown as Browser;
+          browserContext = (await browser.newContext({
+            storageState: this.config.xometryStorageStatePath ?? undefined,
+            viewport: { width: 1366, height: 900 },
+          })) as unknown as BrowserContext;
+        }
+      } else if (this.config.xometryUserDataDir) {
         await fs.mkdir(this.config.xometryUserDataDir, { recursive: true });
         await acquireXometryProfileLock(this.config.xometryUserDataDir, {
           waitMs: this.config.xometryProfileLockWaitMs,
@@ -701,6 +785,10 @@ export class XometryAdapter extends VendorAdapter {
       await page.waitForLoadState("networkidle").catch(() => undefined);
       await detectBlockingState(page, runDir);
       await appendArtifacts(artifacts, page, runDir, "landing");
+      const escapedDashboard = await escapeDashboardIfNeeded(page, this.config.browserTimeoutMs);
+      if (escapedDashboard) {
+        await appendArtifacts(artifacts, page, runDir, "post-dashboard");
+      }
 
       // Empirically, Xometry's redesigned post-upload flow only redirects to a
       // /quoting/quote/Q##-XXXX configuration page when a single CAD file is
@@ -794,6 +882,24 @@ export class XometryAdapter extends VendorAdapter {
       await page.waitForLoadState("networkidle").catch(() => undefined);
       await detectBlockingState(page, runDir);
       detectedFlow = "configuration_complete";
+
+      // Xometry recomputes prices after quantity changes; the tierAndLeadTime
+      // labels render before their $X.XX siblings finish populating. Wait until
+      // at least one tier label contains a dollar amount before extracting.
+      await page
+        .waitForFunction(
+          () => {
+            const tiers = document.querySelectorAll('[data-testid="tierAndLeadTime"]');
+            for (const tier of tiers) {
+              const container = tier.closest("label, [data-testid], section, div");
+              const text = container?.parentElement?.textContent ?? container?.textContent ?? "";
+              if (/\$\d[\d,]*\.\d{2}/.test(text)) return true;
+            }
+            return /\$\d[\d,]*\.\d{2}/.test(document.body.innerText ?? "");
+          },
+          { timeout: this.config.browserTimeoutMs },
+        )
+        .catch(() => undefined);
       await appendArtifacts(artifacts, page, runDir, "configured");
 
       const bodyText = await readBodyText(page);

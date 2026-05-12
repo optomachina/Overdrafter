@@ -27,11 +27,13 @@
     "import:dmrifles-quotes": "tsx src/tools/importDmriflesQuotes.ts",
     "import:quotes": "tsx src/tools/importSpreadsheetQuotes.ts",
     "install:browsers": "playwright install chromium",
+    "install:camoufox": "node node_modules/camoufox-js/dist/__main__.js fetch",
     "extract:eval": "tsx src/tools/extractEval.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
     "@supabase/supabase-js": "^2.77.0",
+    "camoufox-js": "^0.10.2",
     "dotenv": "^16.6.1",
     "fast-xml-parser": "^5.2.5",
     "node-stream-zip": "^1.15.0",

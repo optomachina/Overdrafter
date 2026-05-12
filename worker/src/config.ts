@@ -46,6 +46,7 @@ const schema = z.object({
   XOMETRY_STORAGE_STATE_JSON: z.string().optional(),
   XOMETRY_USER_DATA_DIR: z.string().optional(),
   XOMETRY_BROWSER_CHANNEL: z.string().optional(),
+  XOMETRY_BROWSER_ENGINE: z.enum(["patchright", "camoufox"]).default("patchright"),
   XOMETRY_PROFILE_LOCK_WAIT_MS: z.coerce.number().int().nonnegative().default(30000),
   XOMETRY_SESSION_FRESHNESS_WARN_DAYS: z.coerce.number().nonnegative().default(7),
   FICTIV_STORAGE_STATE_PATH: z.string().optional(),
@@ -117,6 +118,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       ? path.resolve(parsed.XOMETRY_USER_DATA_DIR)
       : null,
     xometryBrowserChannel: parsed.XOMETRY_BROWSER_CHANNEL ?? null,
+    xometryBrowserEngine: parsed.XOMETRY_BROWSER_ENGINE,
     xometryProfileLockWaitMs: parsed.XOMETRY_PROFILE_LOCK_WAIT_MS,
     xometrySessionFreshnessWarnDays: parsed.XOMETRY_SESSION_FRESHNESS_WARN_DAYS,
     fictivStorageStatePath: parsed.FICTIV_STORAGE_STATE_PATH

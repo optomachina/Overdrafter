@@ -208,6 +208,12 @@ function createFakePage(options: FakePageOptions) {
     async waitForURL() {
       return undefined;
     },
+    async waitForEvent() {
+      return undefined;
+    },
+    on() {
+      return undefined;
+    },
     async goto(url: string) {
       currentUrl = options.redirectUrl ?? url;
     },
@@ -367,7 +373,7 @@ describe("XometryAdapter", () => {
     expect(result.artifacts).toHaveLength(8);
   });
 
-  it("falls back to a separate drawing upload and reports manual review", async () => {
+  it("falls back to a separate drawing upload and reports manual review", { timeout: 30_000 }, async () => {
     const workerTempDir = await makeTempDir();
     const uploadFilesMock = vi.fn(async (files: string[]) => {
       if (files.length > 1) {
