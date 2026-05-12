@@ -239,7 +239,7 @@ async function escapeDashboardIfNeeded(page: Page, timeoutMs: number) {
   const jsClicked = await page
     .evaluate(() => {
       const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) =>
-        /start\s+[aA]\s+[Nn]ew\s+Instant\s+Quote/i.test(b.textContent ?? ""),
+        /start\s+a\s+new\s+Instant\s+Quote/i.test(b.textContent ?? ""),
       );
       if (button) {
         button.click();
