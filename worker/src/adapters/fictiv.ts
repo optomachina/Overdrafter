@@ -922,15 +922,41 @@ function inferTierFromText(text: string): "fastest" | "standard" | "cost_effecti
   return null;
 }
 
+// The currently-selected option has its data-test-target swapped to
+// `quote-level-lead-time-selected-option`. Infer its region/tier from text.
+async function readSelectedLeadTimeOption(
+  page: Page,
+  seen: Set<string>,
+): Promise<FictivLeadTimeOption | null> {
+  const selectedLocator = page.locator('[data-test-target="quote-level-lead-time-selected-option"]').first();
+  if ((await selectedLocator.count().catch(() => 0)) === 0) return null;
+
+  const rawText = (await selectedLocator.innerText().catch(() => "")).trim();
+  if (!rawText) return null;
+
+  const region = inferRegionFromText(rawText);
+  const tier = inferTierFromText(rawText);
+  if (!region || !tier) return null;
+
+  const key = `${region}:${tier}`;
+  if (seen.has(key)) return null;
+
+  return {
+    region,
+    tier,
+    days: parseLeadTime(rawText),
+    totalPriceUsd: parseFirstCurrency(rawText),
+    rawText,
+  };
+}
+
 async function extractLeadTimeOptions(page: Page): Promise<FictivLeadTimeOption[]> {
   const results: FictivLeadTimeOption[] = [];
   const seen = new Set<string>();
 
   for (const entry of FICTIV_LOCATORS.leadTimeOptionTargets) {
     const locator = page.locator(entry.selector).first();
-    if ((await locator.count().catch(() => 0)) === 0) {
-      continue;
-    }
+    if ((await locator.count().catch(() => 0)) === 0) continue;
 
     const rawText = (await locator.innerText().catch(() => "")).trim();
     if (!rawText) continue;
@@ -945,26 +971,8 @@ async function extractLeadTimeOptions(page: Page): Promise<FictivLeadTimeOption[
     seen.add(`${entry.region}:${entry.tier}`);
   }
 
-  // The currently-selected option has its data-test-target swapped to
-  // `quote-level-lead-time-selected-option`. Infer its region/tier from text.
-  const selectedLocator = page.locator('[data-test-target="quote-level-lead-time-selected-option"]').first();
-  if ((await selectedLocator.count().catch(() => 0)) > 0) {
-    const rawText = (await selectedLocator.innerText().catch(() => "")).trim();
-    if (rawText) {
-      const region = inferRegionFromText(rawText);
-      const tier = inferTierFromText(rawText);
-      const key = region && tier ? `${region}:${tier}` : null;
-      if (region && tier && key && !seen.has(key)) {
-        results.push({
-          region,
-          tier,
-          days: parseLeadTime(rawText),
-          totalPriceUsd: parseFirstCurrency(rawText),
-          rawText,
-        });
-      }
-    }
-  }
+  const selected = await readSelectedLeadTimeOption(page, seen);
+  if (selected) results.push(selected);
 
   return results;
 }

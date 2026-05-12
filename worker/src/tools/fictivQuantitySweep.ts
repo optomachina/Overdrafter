@@ -185,14 +185,109 @@ function rawPayloadLeadTimeOptions(rawPayload: unknown, quantity: number): Struc
     });
 }
 
+function formatPrice(value: number | null): string {
+  return value === null ? "—" : `$${value.toFixed(2)}`;
+}
+
+function formatBusinessDays(value: number | null): string {
+  return value === null ? "—" : `${value} days`;
+}
+
+function formatDaysSuffix(value: number | null): string {
+  return value === null ? "—" : `${value}d`;
+}
+
 function formatRow(row: SweepRow) {
   if (row.error) {
     return `  qty ${row.quantity}: ERROR (${row.elapsedSec.toFixed(1)}s) — ${row.error}`;
   }
-  const total = row.totalPriceUsd !== null ? `$${row.totalPriceUsd.toFixed(2)}` : "—";
-  const unit = row.unitPriceUsd !== null ? `$${row.unitPriceUsd.toFixed(2)}` : "—";
-  const lead = row.leadTimeBusinessDays !== null ? `${row.leadTimeBusinessDays} days` : "—";
+  const total = formatPrice(row.totalPriceUsd);
+  const unit = formatPrice(row.unitPriceUsd);
+  const lead = formatBusinessDays(row.leadTimeBusinessDays);
   return `  qty ${row.quantity}: ${row.status} | total ${total} | unit ${unit} | lead ${lead} | ${row.elapsedSec.toFixed(1)}s | ${row.structuredOptions.length} options scraped`;
+}
+
+function buildErrorRow(quantity: number, startedAt: string, startMs: number, error: unknown): SweepRow {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    quantity,
+    startedAt,
+    elapsedSec: (Date.now() - startMs) / 1000,
+    status: null,
+    totalPriceUsd: null,
+    unitPriceUsd: null,
+    leadTimeBusinessDays: null,
+    quoteUrl: null,
+    structuredOptions: [],
+    bodyExcerpt: null,
+    error: message,
+  };
+}
+
+async function runQuote(
+  adapter: FictivAdapter,
+  quantity: number,
+  cadPath: string,
+  drawingPath: string | null,
+): Promise<SweepRow> {
+  const startedAt = new Date().toISOString();
+  const startMs = Date.now();
+  process.stdout.write(`\n>>> Quoting qty ${quantity}... `);
+
+  try {
+    const result = await adapter.quote(makeInput(quantity, cadPath, drawingPath));
+    console.log("done");
+    return {
+      quantity,
+      startedAt,
+      elapsedSec: (Date.now() - startMs) / 1000,
+      status: result.status,
+      totalPriceUsd: result.totalPriceUsd,
+      unitPriceUsd: result.unitPriceUsd,
+      leadTimeBusinessDays: result.leadTimeBusinessDays,
+      quoteUrl: result.quoteUrl,
+      structuredOptions: rawPayloadLeadTimeOptions(result.rawPayload, quantity),
+      bodyExcerpt: rawPayloadBodyExcerpt(result.rawPayload),
+      error: null,
+    };
+  } catch (error) {
+    console.log("FAILED");
+    return buildErrorRow(quantity, startedAt, startMs, error);
+  }
+}
+
+function printPricingCurve(rows: SweepRow[]) {
+  console.log("\n=== Pricing curve (selected option per run) ===\n");
+  console.log("| Qty | Status                  | Lead time | Total      | Unit price |");
+  console.log("|-----|-------------------------|-----------|------------|------------|");
+  for (const row of rows) {
+    if (row.error) {
+      console.log(`| ${String(row.quantity).padStart(3)} | error                   | —         | —          | —          |`);
+      continue;
+    }
+    const total = formatPrice(row.totalPriceUsd);
+    const unit = formatPrice(row.unitPriceUsd);
+    const lead = formatBusinessDays(row.leadTimeBusinessDays);
+    console.log(`| ${String(row.quantity).padStart(3)} | ${(row.status ?? "—").padEnd(23)} | ${lead.padEnd(9)} | ${total.padEnd(10)} | ${unit.padEnd(10)} |`);
+  }
+}
+
+function printStructuredGrid(rows: SweepRow[]) {
+  console.log("\n=== Structured lead-time grid (region × tier × quantity) ===\n");
+  console.log("| Qty | Region   | Tier            | Days  | Total       | Unit price |");
+  console.log("|-----|----------|-----------------|-------|-------------|------------|");
+  for (const row of rows) {
+    if (row.structuredOptions.length === 0) {
+      console.log(`| ${String(row.quantity).padStart(3)} | (no structured options captured)                                  |`);
+      continue;
+    }
+    for (const option of row.structuredOptions) {
+      const days = formatDaysSuffix(option.days);
+      const total = formatPrice(option.totalPriceUsd);
+      const unit = formatPrice(option.unitPriceUsd);
+      console.log(`| ${String(row.quantity).padStart(3)} | ${option.region.padEnd(8)} | ${option.tier.padEnd(15)} | ${days.padEnd(5)} | ${total.padEnd(11)} | ${unit.padEnd(10)} |`);
+    }
+  }
 }
 
 async function main() {
@@ -204,95 +299,26 @@ async function main() {
   console.log(`  CAD: ${cadPath}`);
   console.log(`  Drawing: ${drawingPath ?? "(none)"}`);
 
-  const config = makeConfig();
-  const adapter = new FictivAdapter("fictiv", config);
+  const adapter = new FictivAdapter("fictiv", makeConfig());
   const rows: SweepRow[] = [];
 
   for (const quantity of quantities) {
-    const startedAt = new Date().toISOString();
-    const startMs = Date.now();
-    process.stdout.write(`\n>>> Quoting qty ${quantity}... `);
-
-    let row: SweepRow;
-    try {
-      const result = await adapter.quote(makeInput(quantity, cadPath, drawingPath));
-      const elapsedSec = (Date.now() - startMs) / 1000;
-      const bodyExcerpt = rawPayloadBodyExcerpt(result.rawPayload);
-      const structuredOptions = rawPayloadLeadTimeOptions(result.rawPayload, quantity);
-
-      row = {
-        quantity,
-        startedAt,
-        elapsedSec,
-        status: result.status,
-        totalPriceUsd: result.totalPriceUsd,
-        unitPriceUsd: result.unitPriceUsd,
-        leadTimeBusinessDays: result.leadTimeBusinessDays,
-        quoteUrl: result.quoteUrl,
-        structuredOptions,
-        bodyExcerpt,
-        error: null,
-      };
-      console.log("done");
-    } catch (error) {
-      const elapsedSec = (Date.now() - startMs) / 1000;
-      const message = error instanceof Error ? error.message : String(error);
-      row = {
-        quantity,
-        startedAt,
-        elapsedSec,
-        status: null,
-        totalPriceUsd: null,
-        unitPriceUsd: null,
-        leadTimeBusinessDays: null,
-        quoteUrl: null,
-        structuredOptions: [],
-        bodyExcerpt: null,
-        error: message,
-      };
-      console.log("FAILED");
-    }
-
+    const row = await runQuote(adapter, quantity, cadPath, drawingPath);
     rows.push(row);
     console.log(formatRow(row));
   }
 
-  console.log("\n=== Pricing curve (selected option per run) ===\n");
-  console.log("| Qty | Status                  | Lead time | Total      | Unit price |");
-  console.log("|-----|-------------------------|-----------|------------|------------|");
-  for (const row of rows) {
-    if (row.error) {
-      console.log(`| ${String(row.quantity).padStart(3)} | error                   | —         | —          | —          |`);
-      continue;
-    }
-    const total = row.totalPriceUsd !== null ? `$${row.totalPriceUsd.toFixed(2)}` : "—";
-    const unit = row.unitPriceUsd !== null ? `$${row.unitPriceUsd.toFixed(2)}` : "—";
-    const lead = row.leadTimeBusinessDays !== null ? `${row.leadTimeBusinessDays} days` : "—";
-    console.log(`| ${String(row.quantity).padStart(3)} | ${(row.status ?? "—").padEnd(23)} | ${lead.padEnd(9)} | ${total.padEnd(10)} | ${unit.padEnd(10)} |`);
-  }
-
-  console.log("\n=== Structured lead-time grid (region × tier × quantity) ===\n");
-  console.log("| Qty | Region   | Tier            | Days  | Total       | Unit price |");
-  console.log("|-----|----------|-----------------|-------|-------------|------------|");
-  for (const row of rows) {
-    if (row.structuredOptions.length === 0) {
-      console.log(`| ${String(row.quantity).padStart(3)} | (no structured options captured)                                  |`);
-      continue;
-    }
-    for (const option of row.structuredOptions) {
-      const days = option.days !== null ? `${option.days}d` : "—";
-      const total = option.totalPriceUsd !== null ? `$${option.totalPriceUsd.toFixed(2)}` : "—";
-      const unit = option.unitPriceUsd !== null ? `$${option.unitPriceUsd.toFixed(2)}` : "—";
-      console.log(`| ${String(row.quantity).padStart(3)} | ${option.region.padEnd(8)} | ${option.tier.padEnd(15)} | ${days.padEnd(5)} | ${total.padEnd(11)} | ${unit.padEnd(10)} |`);
-    }
-  }
+  printPricingCurve(rows);
+  printStructuredGrid(rows);
 
   const outPath = path.join(os.tmpdir(), `fictiv-sweep-${Date.now()}.json`);
   await fs.writeFile(outPath, JSON.stringify(rows, null, 2), "utf8");
   console.log(`\nFull results written to: ${outPath}`);
 }
 
-main().catch((error) => {
+try {
+  await main();
+} catch (error) {
   console.error(error);
   process.exitCode = 1;
-});
+}
