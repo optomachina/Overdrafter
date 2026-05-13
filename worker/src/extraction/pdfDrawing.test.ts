@@ -2,10 +2,12 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockExecFileAsync, mockAccess, mockRename } = vi.hoisted(() => ({
+const { mockExecFileAsync, mockAccess, mockMkdtemp, mockRename, mockRm } = vi.hoisted(() => ({
   mockExecFileAsync: vi.fn(),
   mockAccess: vi.fn(),
+  mockMkdtemp: vi.fn(),
   mockRename: vi.fn(),
+  mockRm: vi.fn(),
 }));
 
 vi.mock("node:util", () => ({
@@ -15,11 +17,18 @@ vi.mock("node:util", () => ({
 vi.mock("node:fs/promises", () => ({
   default: {
     access: mockAccess,
+    mkdtemp: mockMkdtemp,
     rename: mockRename,
+    rm: mockRm,
   },
 }));
 
 import { extractPdfText, inferDrawingSignalsFromPdf, renderPdfPreviewAssets } from "./pdfDrawing";
+
+const TEST_INPUT_PDF_PATH = "/safe-test/input/example.pdf";
+const TEST_QB00002_PDF_PATH = "/safe-test/input/1093-05589-02.pdf";
+const TEST_OUTPUT_DIR = "/safe-test/output";
+const TEST_OCR_DIR = "/safe-test/work/overdrafter-pdf-ocr-test";
 
 const PRIMARY_REGRESSION_FIXTURE = {
   pageCount: 1,
@@ -52,9 +61,13 @@ describe("pdfDrawing", () => {
   beforeEach(() => {
     mockExecFileAsync.mockReset();
     mockAccess.mockReset();
+    mockMkdtemp.mockReset();
     mockRename.mockReset();
+    mockRm.mockReset();
     mockAccess.mockResolvedValue(undefined);
+    mockMkdtemp.mockResolvedValue(TEST_OCR_DIR);
     mockRename.mockResolvedValue(undefined);
+    mockRm.mockResolvedValue(undefined);
   });
 
   it("extracts page count and page text via poppler tools", async () => {
@@ -63,7 +76,7 @@ describe("pdfDrawing", () => {
       .mockResolvedValueOnce({ stdout: "PAGE 1 TEXT" })
       .mockResolvedValueOnce({ stdout: "PAGE 2 TEXT" });
 
-    await expect(extractPdfText("/tmp/example.pdf")).resolves.toEqual({
+    await expect(extractPdfText(TEST_INPUT_PDF_PATH)).resolves.toEqual({
       pageCount: 2,
       pages: [
         { page: 1, text: "PAGE 1 TEXT" },
@@ -74,15 +87,62 @@ describe("pdfDrawing", () => {
     expect(mockExecFileAsync).toHaveBeenNthCalledWith(
       1,
       "pdfinfo",
-      ["/tmp/example.pdf"],
+      [TEST_INPUT_PDF_PATH],
       expect.any(Object),
     );
     expect(mockExecFileAsync).toHaveBeenNthCalledWith(
       2,
       "pdftotext",
-      ["-layout", "-enc", "UTF-8", "-f", "1", "-l", "1", "/tmp/example.pdf", "-"],
+      ["-layout", "-enc", "UTF-8", "-f", "1", "-l", "1", TEST_INPUT_PDF_PATH, "-"],
       expect.any(Object),
     );
+  });
+
+  it("falls back to OCR text when poppler text extraction is unavailable", async () => {
+    mockExecFileAsync
+      .mockRejectedValueOnce(new Error("pdfinfo missing"))
+      .mockRejectedValueOnce(new Error("pdftoppm missing"))
+      .mockResolvedValueOnce({ stdout: "" })
+      .mockResolvedValueOnce({
+        stdout: [
+          "ROUND, CARBON FIBER END ATTACHMENTS",
+          "BONDED",
+          "MATERIAL rinsH ANODIZE, BLACK, MIL-A-8625F, TYPE II -",
+          "6061 Alloy CLASS 2 1093-05589 02",
+          "THREE PLACE DECIMAL +.005",
+        ].join("\n"),
+      });
+
+    await expect(extractPdfText(TEST_QB00002_PDF_PATH)).resolves.toEqual({
+      pageCount: 1,
+      pages: [
+        {
+          page: 1,
+          text: [
+            "ROUND, CARBON FIBER END ATTACHMENTS",
+            "BONDED",
+            "MATERIAL rinsH ANODIZE, BLACK, MIL-A-8625F, TYPE II -",
+            "6061 Alloy CLASS 2 1093-05589 02",
+            "THREE PLACE DECIMAL +.005",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(mockMkdtemp).toHaveBeenCalledWith(expect.stringContaining("overdrafter-pdf-ocr-"));
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
+      3,
+      "qlmanage",
+      ["-t", "-s", "3000", "-o", TEST_OCR_DIR, TEST_QB00002_PDF_PATH],
+      expect.any(Object),
+    );
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
+      4,
+      "tesseract",
+      [`${TEST_OCR_DIR}/drawing-page-1.png`, "stdout", "--psm", "4"],
+      expect.any(Object),
+    );
+    expect(mockRm).toHaveBeenCalledWith(TEST_OCR_DIR, { recursive: true, force: true });
   });
 
   it("renders a thumbnail plus one full-page preview per page on linux-safe tooling", async () => {
@@ -91,9 +151,9 @@ describe("pdfDrawing", () => {
       .mockResolvedValueOnce({ stdout: "" })
       .mockResolvedValueOnce({ stdout: "" });
 
-    await expect(renderPdfPreviewAssets("/tmp/example.pdf", "/tmp/output", 2)).resolves.toEqual([
+    await expect(renderPdfPreviewAssets(TEST_INPUT_PDF_PATH, TEST_OUTPUT_DIR, 2)).resolves.toEqual([
       {
-        localPath: "/tmp/output/drawing-thumbnail.png",
+        localPath: `${TEST_OUTPUT_DIR}/drawing-thumbnail.png`,
         pageNumber: 1,
         kind: "thumbnail",
         width: null,
@@ -101,7 +161,7 @@ describe("pdfDrawing", () => {
         contentType: "image/png",
       },
       {
-        localPath: "/tmp/output/drawing-page-1.png",
+        localPath: `${TEST_OUTPUT_DIR}/drawing-page-1.png`,
         pageNumber: 1,
         kind: "page",
         width: null,
@@ -109,7 +169,7 @@ describe("pdfDrawing", () => {
         contentType: "image/png",
       },
       {
-        localPath: "/tmp/output/drawing-page-2.png",
+        localPath: `${TEST_OUTPUT_DIR}/drawing-page-2.png`,
         pageNumber: 2,
         kind: "page",
         width: null,
@@ -130,8 +190,8 @@ describe("pdfDrawing", () => {
         "-singlefile",
         "-scale-to",
         "320",
-        "/tmp/example.pdf",
-        "/tmp/output/drawing-thumbnail",
+        TEST_INPUT_PDF_PATH,
+        `${TEST_OUTPUT_DIR}/drawing-thumbnail`,
       ],
       expect.any(Object),
     );
@@ -147,8 +207,8 @@ describe("pdfDrawing", () => {
         "-singlefile",
         "-scale-to",
         "1600",
-        "/tmp/example.pdf",
-        "/tmp/output/drawing-page-2",
+        TEST_INPUT_PDF_PATH,
+        `${TEST_OUTPUT_DIR}/drawing-page-2`,
       ],
       expect.any(Object),
     );
@@ -188,5 +248,37 @@ describe("pdfDrawing", () => {
     expect(result.finish.value).not.toBe("TIM 11/18/2013");
     expect(result.description.value).not.toBe("87654321");
     expect(result.debugCandidates.partNumber[0]?.reasons).not.toContain("rejected_spec_string");
+  });
+
+  it("rescues title-block fields and tolerance from OCR text when layout anchors are noisy", () => {
+    const result = inferDrawingSignalsFromPdf({
+      baseName: "1093-05589-02",
+      pdfText: {
+        pageCount: 1,
+        pages: [
+          {
+            page: 1,
+            text: [
+              "ROUND, CARBON FIBER END ATTACHMENTS",
+              "BONDED",
+              "MATERIAL rinsH ANODIZE, BLACK, MIL-A-8625F, TYPE II -",
+              "6061 Alloy CLASS 2 1093-05589 02",
+              "THREE PLACE DECIMAL +.005",
+            ].join("\n"),
+          },
+        ],
+      },
+    });
+
+    expect(result.partNumber.value).toBe("1093-05589");
+    expect(result.revision.value).toBe("02");
+    expect(result.description.value).toBe("ROUND, CARBON FIBER END ATTACHMENTS BONDED");
+    expect(result.material.value).toBe("6061 Alloy");
+    expect(result.finish.value).toBe("ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2");
+    expect(result.tightestTolerance).toBe("±0.005");
+    expect(result.threads).toEqual([]);
+    expect(result.quoteDescription).toBe("BONDED, CARBON FIBER END ATTACHMENT");
+    expect(result.quoteFinish).toBe("Black Anodize, Type II");
+    expect(result.reviewFields).toEqual([]);
   });
 });

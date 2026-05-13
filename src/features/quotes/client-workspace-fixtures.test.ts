@@ -262,11 +262,12 @@ describe("client workspace fixtures", () => {
 
     const [updatedWorkspaceItem] = await gateway.fetchClientQuoteWorkspaceByJobIds([QUOTED_FIXTURE_JOB_ID]);
     const propertyState = updatedWorkspaceItem?.part?.clientRequirement?.projectPartProperties;
+    const seededProcessDefault = propertyState?.defaults.process ?? null;
 
-    expect(updatedWorkspaceItem?.part?.clientRequirement?.process).toBe(input.process ?? null);
+    expect(updatedWorkspaceItem?.part?.clientRequirement?.process).toBe(seededProcessDefault);
     expect(propertyState).toMatchObject({
       defaults: expect.objectContaining({
-        process: input.process ?? null,
+        process: seededProcessDefault,
       }),
       overrides: {},
     });

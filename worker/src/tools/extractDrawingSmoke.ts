@@ -27,6 +27,7 @@ function buildSmokeConfig(): WorkerConfig {
   const openAiApiKey = process.env.OPENAI_API_KEY ?? null;
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY ?? null;
   const openRouterApiKey = process.env.OPENROUTER_API_KEY ?? null;
+  const hasDrawingExtractionModelKey = Boolean(openAiApiKey || openRouterApiKey);
 
   return {
     supabaseUrl: "https://example.supabase.co",
@@ -60,7 +61,7 @@ function buildSmokeConfig(): WorkerConfig {
     drawingExtractionModel: process.env.DRAWING_EXTRACTION_MODEL ?? "gpt-5.4",
     drawingExtractionEnableModelFallback: parseEnvBooleanLike(
       process.env.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK,
-      Boolean(openAiApiKey),
+      hasDrawingExtractionModelKey,
     ),
     drawingExtractionDebugAllowedModels: parseEnvList(
       process.env.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS,

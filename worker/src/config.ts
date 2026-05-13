@@ -89,6 +89,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   const parsed = schema.parse(env);
   const workerTempDir = path.resolve(parsed.WORKER_TEMP_DIR);
   const workerLiveAdapters = parseWorkerLiveAdapters(parsed.WORKER_LIVE_ADAPTERS);
+  const hasDrawingExtractionModelKey = Boolean(parsed.OPENAI_API_KEY || parsed.OPENROUTER_API_KEY);
   const drawingExtractionDebugAllowedModels = parseEnvList(
     parsed.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS,
     parsed.DRAWING_EXTRACTION_MODEL,
@@ -132,7 +133,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     drawingExtractionModel: parsed.DRAWING_EXTRACTION_MODEL,
     drawingExtractionEnableModelFallback: parseEnvBooleanLike(
       parsed.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK,
-      Boolean(parsed.OPENAI_API_KEY),
+      hasDrawingExtractionModelKey,
     ),
     drawingExtractionDebugAllowedModels,
   };

@@ -222,7 +222,7 @@ export async function runHybridExtraction(
         modelEnabled:
           input.config.drawingExtractionEnableModelFallback &&
           Boolean(
-            input.config.openAiApiKey || input.config.anthropicApiKey || input.config.openRouterApiKey,
+            input.config.openAiApiKey || input.config.openRouterApiKey,
           ),
       }))
   ) {

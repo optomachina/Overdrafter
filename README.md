@@ -381,7 +381,15 @@ Use `docs/recurring-workflows.md` instead of relying on pasted handoff snippets.
 
 ## Current State
 
-The portal and Supabase foundation are implemented. The worker is executable in simulation mode and structured for live Playwright-based vendor adapters, but live vendor automation and production-grade extraction still need to be filled in.
+The portal and Supabase foundation are implemented. The no-Stripe MVP target is a live quote-request loop for `dmrifles@gmail.com`: sign in, upload parts, request quotes, and receive live vendor results or explicit manual-follow-up states.
+
+Recent live-adapter status:
+
+- Fictiv live automation was repaired in PR #235 and validated against the current Fictiv portal.
+- Xometry live automation was validated in PR #236 through `XOMETRY_BROWSER_ENGINE=camoufox` plus a persistent `XOMETRY_USER_DATA_DIR`; the run reached the real Xometry configurator and extracted a real price/lead-time result.
+- Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
+
+Billing, Stripe, card capture, and in-app order placement are deferred. For controlled tests, a local live worker is acceptable; unattended use still requires hosting the live worker on a long-lived platform.
 
 ## Favicon Verification
 

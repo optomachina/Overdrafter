@@ -1,12 +1,24 @@
 # OverDrafter Acceptance Criteria
 
-Last updated: March 11, 2026
+Last updated: May 12, 2026
 
 ## Purpose
 
 This document defines what it means for the current repository-hardening phase to be complete.
 
 ## Acceptance criteria
+
+### MVP addendum — no-Stripe live quote path for `dmrifles@gmail.com`
+- The existing `dmrifles@gmail.com` user can sign in to the target environment.
+- `dmrifles@gmail.com` has a client membership in the target organization.
+- The client user can upload supported CNC part files, including STEP/PDF packages.
+- Uploaded parts appear in the client workspace without requiring internal-only navigation.
+- The client user can request a quote from a part or project workspace.
+- The request creates durable quote-request intent and worker queue records.
+- A live worker can process the request with `WORKER_MODE=live` and a narrow `WORKER_LIVE_ADAPTERS` rollout.
+- Xometry live runs use the Camoufox persistent-profile path unless a later validated path replaces it.
+- The client UI shows quote lifecycle state and either a received quote result or explicit manual-follow-up/failure state.
+- No Stripe, billing, card capture, or in-app order placement is required for this MVP.
 
 ### Feature addendum — Client-triggered quote requests
 - A logged-in client user can request a quote from the part workspace for an uploaded part they can edit.

@@ -202,6 +202,25 @@ export function validateModelFieldValue(field: ModelFieldName, value: string | n
   return rejectionReasons;
 }
 
+function buildModelFallbackClient(config: WorkerConfig, dependencies: { client?: OpenAI }) {
+  if (dependencies.client) {
+    return dependencies.client;
+  }
+
+  if (config.openAiApiKey) {
+    return new OpenAI({ apiKey: config.openAiApiKey });
+  }
+
+  if (config.openRouterApiKey) {
+    return new OpenAI({
+      apiKey: config.openRouterApiKey,
+      baseURL: "https://openrouter.ai/api/v1",
+    });
+  }
+
+  return null;
+}
+
 function isModelAttemptSufficient(parsed: ParsedModelResponse) {
   return CRITICAL_MODEL_FIELDS.every((fieldName) => {
     const field = parsed[fieldName];
@@ -322,11 +341,17 @@ export async function extractDrawingFieldsWithModel(
     client?: OpenAI;
   } = {},
 ): Promise<DrawingModelExtractionResult | null> {
-  if (!input.config.drawingExtractionEnableModelFallback || !input.config.openAiApiKey) {
+  if (
+    !input.config.drawingExtractionEnableModelFallback ||
+    (!input.config.openAiApiKey && !input.config.openRouterApiKey)
+  ) {
     return null;
   }
 
-  const client = dependencies.client ?? new OpenAI({ apiKey: input.config.openAiApiKey });
+  const client = buildModelFallbackClient(input.config, dependencies);
+  if (!client) {
+    return null;
+  }
   const cropPath = path.join(input.outputDir, "drawing-title-block.png");
   let titleBlockCropPath: string | null = null;
   const attempts: DrawingModelExtractionResult["attempts"] = [];
