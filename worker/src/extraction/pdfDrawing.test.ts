@@ -2,11 +2,12 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockExecFileAsync, mockAccess, mockMkdtemp, mockRename } = vi.hoisted(() => ({
+const { mockExecFileAsync, mockAccess, mockMkdtemp, mockRename, mockRm } = vi.hoisted(() => ({
   mockExecFileAsync: vi.fn(),
   mockAccess: vi.fn(),
   mockMkdtemp: vi.fn(),
   mockRename: vi.fn(),
+  mockRm: vi.fn(),
 }));
 
 vi.mock("node:util", () => ({
@@ -18,6 +19,7 @@ vi.mock("node:fs/promises", () => ({
     access: mockAccess,
     mkdtemp: mockMkdtemp,
     rename: mockRename,
+    rm: mockRm,
   },
 }));
 
@@ -61,9 +63,11 @@ describe("pdfDrawing", () => {
     mockAccess.mockReset();
     mockMkdtemp.mockReset();
     mockRename.mockReset();
+    mockRm.mockReset();
     mockAccess.mockResolvedValue(undefined);
     mockMkdtemp.mockResolvedValue(TEST_OCR_DIR);
     mockRename.mockResolvedValue(undefined);
+    mockRm.mockResolvedValue(undefined);
   });
 
   it("extracts page count and page text via poppler tools", async () => {
@@ -138,6 +142,7 @@ describe("pdfDrawing", () => {
       [`${TEST_OCR_DIR}/drawing-page-1.png`, "stdout", "--psm", "4"],
       expect.any(Object),
     );
+    expect(mockRm).toHaveBeenCalledWith(TEST_OCR_DIR, { recursive: true, force: true });
   });
 
   it("renders a thumbnail plus one full-page preview per page on linux-safe tooling", async () => {

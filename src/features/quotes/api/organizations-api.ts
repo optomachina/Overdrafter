@@ -8,7 +8,7 @@ export async function createSelfServiceOrganization(organizationName: string): P
     p_organization_name: organizationName,
   });
 
-  if (error?.message.toLowerCase().includes("already has an organization membership")) {
+  if (error?.message?.toLowerCase().includes("already has an organization membership")) {
     return "existing-membership";
   }
 

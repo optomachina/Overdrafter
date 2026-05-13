@@ -590,6 +590,24 @@ function parsePartReferenceFromStem(baseName: string) {
   };
 }
 
+/**
+ * Applies OCR title-block rescue heuristics after primary parser extraction and
+ * before final field validation.
+ *
+ * This mutates `input.fields` in place. Filename-stem values from
+ * `parsePartReferenceFromStem(input.baseName)` may replace only empty or
+ * review-needed `partNumber` and `revision` fields. OCR text may replace
+ * `description` only when it is empty or review-needed; `material` only when it
+ * is empty, review-needed, or visibly contains finish text; and `finish` only
+ * when it is empty, review-needed, or lacks anodize evidence. The QB00002 title
+ * block rescue constants use parser-style confidence scores of 0.9 for part
+ * number, 0.88 for revision/description/finish, and 0.86 for material.
+ *
+ * @param input.baseName - Uploaded drawing filename stem used for part/revision fallback.
+ * @param input.text - OCR/plain text from the drawing page.
+ * @param input.fields - Mutable extraction field map to rescue in place.
+ * @returns Nothing; successful rescues are written back to `input.fields`.
+ */
 function rescueOcrTitleBlockFields(input: {
   baseName: string;
   text: string;
@@ -600,8 +618,7 @@ function rescueOcrTitleBlockFields(input: {
   if (stemReference) {
     const partNumberWeak =
       !input.fields.partNumber.value ||
-      input.fields.partNumber.reviewNeeded ||
-      input.fields.partNumber.value.includes(stemReference.revision);
+      input.fields.partNumber.reviewNeeded;
     const revisionWeak = !input.fields.revision.value || input.fields.revision.reviewNeeded;
 
     if (partNumberWeak) {
@@ -614,6 +631,7 @@ function rescueOcrTitleBlockFields(input: {
   }
 
   if (
+    (!input.fields.description.value || input.fields.description.reviewNeeded) &&
     /ROUND,\s*CARBON FIBER END ATTACHMENTS/i.test(input.text) &&
     /\bBONDED\b/i.test(input.text)
   ) {
@@ -892,39 +910,43 @@ async function extractPdfTextWithOcrFallback(
   pageCount: number,
 ): Promise<PdfTextExtraction | null> {
   const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-pdf-ocr-"));
-  const pages: PdfTextPage[] = [];
+  try {
+    const pages: PdfTextPage[] = [];
 
-  for (let page = 1; page <= Math.max(1, pageCount); page += 1) {
-    if (page !== 1) {
-      pages.push({ page, text: "" });
-      continue;
+    for (let page = 1; page <= Math.max(1, pageCount); page += 1) {
+      if (page !== 1) {
+        pages.push({ page, text: "" });
+        continue;
+      }
+
+      const previewPath = path.join(runDir, `drawing-page-${page}.png`);
+      const preview = await renderPdfFirstPagePreview(localPath, previewPath, 3000);
+      if (!preview) {
+        pages.push({ page, text: "" });
+        continue;
+      }
+
+      try {
+        const { stdout } = await execFileAsync("tesseract", [preview.localPath, "stdout", "--psm", "4"], {
+          maxBuffer: 20 * 1024 * 1024,
+        });
+        pages.push({ page, text: stdout });
+      } catch {
+        pages.push({ page, text: "" });
+      }
     }
 
-    const previewPath = path.join(runDir, `drawing-page-${page}.png`);
-    const preview = await renderPdfFirstPagePreview(localPath, previewPath, 3000);
-    if (!preview) {
-      pages.push({ page, text: "" });
-      continue;
+    if (!pages.some((page) => page.text.trim().length > 0)) {
+      return null;
     }
 
-    try {
-      const { stdout } = await execFileAsync("tesseract", [preview.localPath, "stdout", "--psm", "4"], {
-        maxBuffer: 20 * 1024 * 1024,
-      });
-      pages.push({ page, text: stdout });
-    } catch {
-      pages.push({ page, text: "" });
-    }
+    return {
+      pageCount: Math.max(1, pageCount),
+      pages,
+    };
+  } finally {
+    await fs.rm(runDir, { recursive: true, force: true }).catch(() => undefined);
   }
-
-  if (!pages.some((page) => page.text.trim().length > 0)) {
-    return null;
-  }
-
-  return {
-    pageCount: Math.max(1, pageCount),
-    pages,
-  };
 }
 
 async function renderPdfPage(

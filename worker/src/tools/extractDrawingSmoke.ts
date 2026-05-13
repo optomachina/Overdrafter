@@ -27,7 +27,7 @@ function buildSmokeConfig(): WorkerConfig {
   const openAiApiKey = process.env.OPENAI_API_KEY ?? null;
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY ?? null;
   const openRouterApiKey = process.env.OPENROUTER_API_KEY ?? null;
-  const hasDrawingExtractionModelKey = Boolean(openAiApiKey || anthropicApiKey || openRouterApiKey);
+  const hasDrawingExtractionModelKey = Boolean(openAiApiKey || openRouterApiKey);
 
   return {
     supabaseUrl: "https://example.supabase.co",
