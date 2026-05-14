@@ -107,7 +107,7 @@ describe("ClientQuoteRequestStatusCard", () => {
   });
 
   it.each([
-    ["not_requested", "Quote Not requested", ["border-white/10", "bg-white/6", "text-white/70"]],
+    ["not_requested", "Quote Not requested", ["border", "border-border", "bg-accent", "text-foreground/80"]],
     ["queued", "Quote Queued", ["border-amber-400/20", "bg-amber-500/10", "text-amber-100"]],
     ["requesting", "Quote Requesting", ["border-amber-400/20", "bg-amber-500/10", "text-amber-100"]],
     ["received", "Quote Quoted", ["border-emerald-400/20", "bg-emerald-500/10", "text-emerald-100"]],

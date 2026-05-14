@@ -141,11 +141,11 @@ const InternalJobDetail = () => {
 
       {isCrossOrgReadOnlyView ? (
         <section className="mb-8">
-          <Card className="border-white/10 bg-black/20">
+          <Card className="border-border bg-muted">
             <CardHeader>
               <CardTitle>Read-only God Mode</CardTitle>
             </CardHeader>
-            <CardContent className="pt-0 text-sm text-white/60">
+            <CardContent className="pt-0 text-sm text-muted-foreground">
               Cross-organization job detail is available for inspection, but editing and publish
               actions stay disabled outside your home organization.
             </CardContent>
@@ -155,11 +155,11 @@ const InternalJobDetail = () => {
 
       {isDiagnosticReadOnlyView ? (
         <section className="mb-8">
-          <Card className="border-white/10 bg-black/20">
+          <Card className="border-border bg-muted">
             <CardHeader>
               <CardTitle>Diagnostic Read-Only View</CardTitle>
             </CardHeader>
-            <CardContent className="pt-0 text-sm text-white/60">
+            <CardContent className="pt-0 text-sm text-muted-foreground">
               This internal job page is open for diagnostics from your client session. Editing, queueing, and publish actions stay disabled.
             </CardContent>
           </Card>

@@ -25,7 +25,7 @@ function toneClasses(tone: ActivityLogEntry["tone"]): string {
       return "border-amber-400/20 bg-amber-500/8 text-amber-100";
     case "default":
     default:
-      return "border-white/10 bg-black/20 text-white/78";
+      return "border-border bg-muted text-foreground/80";
   }
 }
 
@@ -58,18 +58,18 @@ export function ActivityLog({
   emptyState = "No notable system activity yet.",
 }: ActivityLogProps) {
   return (
-    <section className={cn("rounded-surface-lg border border-white/8 bg-ws-card p-5", className)}>
+    <section className={cn("rounded-surface-lg border border-border bg-ws-card p-5", className)}>
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-white/35">{title}</p>
-          <p className="mt-2 text-sm text-white/55">
+          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
+          <p className="mt-2 text-sm text-muted-foreground">
             Recent workflow milestones backed by curated audit and worker events.
           </p>
         </div>
       </div>
 
       {entries.length === 0 ? (
-        <p className="mt-4 text-sm text-white/45">{emptyState}</p>
+        <p className="mt-4 text-sm text-muted-foreground">{emptyState}</p>
       ) : (
         <div className="mt-4 space-y-3">
           {entries.map((entry) => {
@@ -81,23 +81,23 @@ export function ActivityLog({
                 <div className={cn("rounded-2xl border px-4 py-3", toneClasses(entry.tone))}>
                   <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 text-left">
                     <div className="flex items-center gap-3">
-                      <div className="rounded-full border border-white/10 bg-white/6 p-2 text-white/70">
+                      <div className="rounded-full border border-border bg-accent p-2 text-foreground/80">
                         <Icon className="h-3.5 w-3.5" />
                       </div>
                       <div>
                         <p className="text-sm font-medium">{entry.label}</p>
                         {occurredAtLabel ? (
-                          <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-white/40">
+                          <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                             {occurredAtLabel}
                           </p>
                         ) : null}
                       </div>
                     </div>
-                    {entry.detail ? <ChevronDown className="h-4 w-4 text-white/45" /> : null}
+                    {entry.detail ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : null}
                   </CollapsibleTrigger>
                   {entry.detail ? (
                     <CollapsibleContent>
-                      <p className="mt-3 pl-11 text-sm leading-6 text-white/55">{entry.detail}</p>
+                      <p className="mt-3 pl-11 text-sm leading-6 text-muted-foreground">{entry.detail}</p>
                     </CollapsibleContent>
                   ) : null}
                 </div>

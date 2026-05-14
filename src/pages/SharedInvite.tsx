@@ -54,7 +54,7 @@ const SharedInvite = () => {
             <>
               <Button
                 type="button"
-                className="h-10 rounded-full bg-white px-4 text-sm font-medium text-black hover:bg-white/90"
+                className="h-10 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-accent"
                 onClick={() => setAuthOpen(true)}
               >
                 Log in
@@ -62,7 +62,7 @@ const SharedInvite = () => {
               <Button
                 type="button"
                 variant="outline"
-                className="h-10 rounded-full border-white/10 bg-transparent px-4 text-sm text-white hover:bg-white/6"
+                className="h-10 rounded-full border-border bg-transparent px-4 text-sm text-foreground hover:bg-accent"
                 onClick={() => setAuthOpen(true)}
               >
                 Sign up for free
@@ -70,16 +70,16 @@ const SharedInvite = () => {
             </>
           ) : null
         }
-        sidebarContent={<div className="px-3 text-sm text-white/55">Shared project invite</div>}
+        sidebarContent={<div className="px-3 text-sm text-muted-foreground">Shared project invite</div>}
         sidebarFooter={!user ? <GuestSidebarCta onLogIn={() => setAuthOpen(true)} /> : null}
       >
         <div className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-6 pb-16">
-          <div className="w-full rounded-[28px] border border-white/8 bg-ws-raised p-8 text-center shadow-[0_8px_40px_rgba(0,0,0,0.2)]">
-            <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-full bg-white/8">
-              <Loader2 className="h-5 w-5 animate-spin text-white/80" />
+          <div className="w-full rounded-[28px] border border-border bg-ws-raised p-8 text-center shadow-[0_8px_40px_rgba(0,0,0,0.2)]">
+            <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-full bg-accent">
+              <Loader2 className="h-5 w-5 animate-spin text-foreground/80" />
             </div>
-            <h1 className="text-3xl font-semibold tracking-tight text-white">Open shared project</h1>
-            <p className="mt-3 text-sm leading-6 text-white/55">
+            <h1 className="text-3xl font-semibold tracking-tight text-foreground">Open shared project</h1>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
               {user
                 ? isVerifiedAuth
                   ? "Checking the invite and redirecting you into the project."

@@ -146,15 +146,21 @@ vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
     children,
     sidebarContent,
     sidebarFooter,
+    rightRailContent,
+    rightRailFooter,
   }: {
     children?: ReactNode;
     sidebarContent?: ReactNode;
     sidebarFooter?: ReactNode;
+    rightRailContent?: ReactNode;
+    rightRailFooter?: ReactNode;
   }) => (
     <div>
       <div>{sidebarContent}</div>
       <div>{children}</div>
       <div>{sidebarFooter}</div>
+      <div>{rightRailContent}</div>
+      <div>{rightRailFooter}</div>
     </div>
   ),
 }));
@@ -431,15 +437,19 @@ function renderWithClient(initialEntry: string) {
   };
 }
 
+// PartInfoPanel (the "Request" surface) moved from a workspace tab into the
+// shell's right rail (TODO-027 PR-B), so it is always mounted — no tab switch.
 async function renderClientPartOnTab(tab?: "Request" | "Activity") {
   const result = renderWithClient("/parts/job-1");
-  if (tab) {
+  if (tab === "Activity") {
     await openWorkspaceTab(tab);
+  } else if (tab === "Request") {
+    await screen.findByTestId("part-info-panel");
   }
   return result;
 }
 
-async function openWorkspaceTab(name: "Quote" | "Request" | "Activity") {
+async function openWorkspaceTab(name: "Quote" | "Activity") {
   const [tab] = await screen.findAllByRole("tab", { name });
   fireEvent.pointerDown(tab, { button: 0, ctrlKey: false });
   fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
@@ -447,7 +457,7 @@ async function openWorkspaceTab(name: "Quote" | "Request" | "Activity") {
 }
 
 async function findRequestButton(name: string | RegExp) {
-  await openWorkspaceTab("Request");
+  await screen.findByTestId("part-info-panel");
   return screen.findByRole("button", { name });
 }
 
@@ -693,14 +703,14 @@ describe("ClientPart", () => {
 
     expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
     expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
-    await openWorkspaceTab("Request");
+    await screen.findByTestId("part-info-panel");
     expect(screen.getByText("Part information")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /prev rev/i })).toBeInTheDocument();
     expect(screen.queryByText("This part could not be loaded.")).not.toBeInTheDocument();
     expect(api.fetchPartDetailByJobId).toHaveBeenCalledTimes(1);
   });
 
-  it("renders the workspace tabs and switches between quote, request, and activity", async () => {
+  it("renders the workspace tabs plus the right-rail part info panel", async () => {
     renderWithClient("/parts/job-1");
 
     expect(await screen.findByRole("tab", { name: "Quote" })).toBeInTheDocument();
@@ -708,21 +718,20 @@ describe("ClientPart", () => {
     expect(screen.getByRole("button", { name: "Review order" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Attach files" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Files" })).not.toBeInTheDocument();
+    // PartInfoPanel moved into the shell right rail on desktop, with a mobile-only
+    // Request tab fallback so small screens can still reach quote-request controls.
+    expect(screen.getByRole("tab", { name: "Request" })).toHaveClass("md:hidden");
     expect(screen.getByTestId("part-viewer-row")).toBeInTheDocument();
     expect(screen.getByTestId("part-product-data-bar")).toBeInTheDocument();
-    expect(screen.queryByText("Part information")).not.toBeInTheDocument();
+    // Right rail renders PartInfoPanel without any tab switch.
+    expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
     expect(screen.queryByLabelText("Leave a comment")).not.toBeInTheDocument();
 
-    for (const [tab, assertion] of [
-      ["Request", () => screen.findByTestId("part-info-panel")],
-      ["Activity", () => screen.findByLabelText("Leave a comment")],
-    ] as const) {
-      await openWorkspaceTab(tab);
-      await assertion();
-    }
+    await openWorkspaceTab("Activity");
+    await screen.findByLabelText("Leave a comment");
   });
 
-  it("renders PartInfoPanel in the Request tab and omits the old workspace badge cluster", async () => {
+  it("renders PartInfoPanel in the right rail and omits the old workspace badge cluster", async () => {
     await renderClientPartOnTab("Request");
     expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
 

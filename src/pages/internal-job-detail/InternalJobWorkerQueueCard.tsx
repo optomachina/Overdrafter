@@ -9,7 +9,7 @@ type InternalJobWorkerQueueCardProps = {
 
 export function InternalJobWorkerQueueCard({ tasks }: InternalJobWorkerQueueCardProps) {
   return (
-    <Card className="border-white/10 bg-white/5">
+    <Card className="border-border bg-accent">
       <CardHeader>
         <CardTitle>Worker queue</CardTitle>
       </CardHeader>
@@ -17,13 +17,13 @@ export function InternalJobWorkerQueueCard({ tasks }: InternalJobWorkerQueueCard
         {tasks.slice(0, 8).map((task) => (
           <div
             key={task.id}
-            className="flex items-center justify-between rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm"
+            className="flex items-center justify-between rounded-2xl border border-border bg-muted px-4 py-3 text-sm"
           >
             <div>
               <p className="font-medium">{formatStatusLabel(task.task_type)}</p>
-              <p className="text-xs text-white/50">{new Date(task.created_at).toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">{new Date(task.created_at).toLocaleString()}</p>
             </div>
-            <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/75">
+            <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
               {formatStatusLabel(task.status)}
             </Badge>
           </div>

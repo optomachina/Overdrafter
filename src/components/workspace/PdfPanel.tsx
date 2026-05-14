@@ -31,7 +31,7 @@ export function PdfPanel({
 }: PdfPanelProps) {
   return (
     <div>
-      <p className="mb-[6px] text-[9px] font-bold uppercase tracking-[0.14em] text-white/20">PDF drawing</p>
+      <p className="mb-[6px] text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">PDF drawing</p>
       <ClientDrawingPreviewPanel
         drawingFile={drawingFile ?? null}
         drawingPreview={drawingPreview ?? { pageCount: 0, thumbnail: null, pages: [] }}

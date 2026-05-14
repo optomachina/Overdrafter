@@ -55,7 +55,7 @@ export function InternalJobVendorCompareSection({
 
   return (
     <section className="mt-8">
-      <Card className="border-white/10 bg-white/5">
+      <Card className="border-border bg-accent">
         <CardHeader>
           <CardTitle>Vendor compare view</CardTitle>
         </CardHeader>
@@ -66,11 +66,11 @@ export function InternalJobVendorCompareSection({
             onChange={onChangeQuantity}
           />
           {!quoteRows.length ? (
-            <p className="text-sm text-white/55">
+            <p className="text-sm text-muted-foreground">
               No vendor quote rows yet. Once the worker processes queued tasks, raw vendor results will appear here.
             </p>
           ) : visibleQuoteRows.length === 0 ? (
-            <p className="text-sm text-white/55">
+            <p className="text-sm text-muted-foreground">
               No vendor quote rows are available for qty {activeCompareRequestedQuantity}.
             </p>
           ) : (
@@ -81,13 +81,13 @@ export function InternalJobVendorCompareSection({
               const isManualIntake = hasManualQuoteIntakeSource(quote);
 
               return (
-                <div key={quote.id} className="rounded-3xl border border-white/8 bg-black/20 p-5">
+                <div key={quote.id} className="rounded-3xl border border-border bg-muted p-5">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
                       <p className="text-lg font-medium">{part?.name ?? "Unknown part"}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
-                        <p className="text-white/50">{formatVendorName(quote.vendor)}</p>
-                        <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/65">
+                        <p className="text-muted-foreground">{formatVendorName(quote.vendor)}</p>
+                        <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                           Qty {quote.requested_quantity}
                         </Badge>
                         {isManualVendor ? (
@@ -100,34 +100,34 @@ export function InternalJobVendorCompareSection({
                             Manual intake
                           </Badge>
                         ) : !isManualVendor ? (
-                          <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/65">
+                          <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                             Browser adapter
                           </Badge>
                         ) : null}
                       </div>
                     </div>
-                    <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/75">
+                    <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                       {formatStatusLabel(quote.status)}
                     </Badge>
                   </div>
-                  <Separator className="my-4 bg-white/10" />
+                  <Separator className="my-4 bg-accent" />
                   <div className="grid gap-4 md:grid-cols-4">
                     <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-white/40">Raw total</p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Raw total</p>
                       <p className="mt-2 text-lg font-medium">{formatCurrency(quote.total_price_usd)}</p>
                     </div>
                     <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-white/40">Projected client</p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Projected client</p>
                       <p className="mt-2 text-lg font-medium">
                         {formatCurrency(projectedClientPrice(quote.total_price_usd))}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-white/40">Lead time</p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Lead time</p>
                       <p className="mt-2 text-lg font-medium">{formatLeadTime(quote.lead_time_business_days)}</p>
                     </div>
                     <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-white/40">Quote link</p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Quote link</p>
                       {isSafeExternalQuoteUrl(quote.quote_url) ? (
                         <a
                           href={quote.quote_url}
@@ -139,13 +139,13 @@ export function InternalJobVendorCompareSection({
                           <ArrowUpRight className="ml-1 h-4 w-4" />
                         </a>
                       ) : (
-                        <p className="mt-2 text-sm text-white/50">Not available</p>
+                        <p className="mt-2 text-sm text-muted-foreground">Not available</p>
                       )}
                     </div>
                   </div>
                   {Array.isArray(quote.dfm_issues) && quote.dfm_issues.length > 0 ? (
-                    <div className="mt-4 rounded-2xl border border-white/8 bg-white/5 p-4 text-sm text-white/55">
-                      <p className="font-medium text-white">DFM issues</p>
+                    <div className="mt-4 rounded-2xl border border-border bg-accent p-4 text-sm text-muted-foreground">
+                      <p className="font-medium text-foreground">DFM issues</p>
                       {(quote.dfm_issues as string[]).map((issue) => (
                         <p key={issue} className="mt-2">
                           {issue}
@@ -154,10 +154,10 @@ export function InternalJobVendorCompareSection({
                     </div>
                   ) : null}
                   {importedOffers.length > 0 ? (
-                    <div className="mt-4 rounded-2xl border border-white/8 bg-white/5 p-4">
+                    <div className="mt-4 rounded-2xl border border-border bg-accent p-4">
                       <div className="flex items-center justify-between gap-4">
-                        <p className="text-sm font-medium text-white">Imported offer lanes</p>
-                        <p className="text-xs text-white/45">
+                        <p className="text-sm font-medium text-foreground">Imported offer lanes</p>
+                        <p className="text-xs text-muted-foreground">
                           {importedOffers.length} option{importedOffers.length === 1 ? "" : "s"}
                         </p>
                       </div>
@@ -167,15 +167,15 @@ export function InternalJobVendorCompareSection({
                           const publishedOptionKinds = offer.id ? optionKindsByOfferId.get(offer.id) ?? [] : [];
 
                           return (
-                            <div key={offer.offerId} className="rounded-2xl border border-white/8 bg-black/20 p-4">
+                            <div key={offer.offerId} className="rounded-2xl border border-border bg-muted p-4">
                               <div className="flex flex-wrap items-start justify-between gap-4">
                                 <div>
-                                  <p className="font-medium text-white">{laneLabel || offer.supplier}</p>
+                                  <p className="font-medium text-foreground">{laneLabel || offer.supplier}</p>
                                   <div className="mt-2 flex flex-wrap gap-2 text-xs">
                                     {offer.quoteRef ? (
                                       <Badge
                                         variant="secondary"
-                                        className="border border-white/10 bg-white/5 text-white/70"
+                                        className="border border-border bg-accent text-foreground/80"
                                       >
                                         Ref: {offer.quoteRef}
                                       </Badge>
@@ -183,7 +183,7 @@ export function InternalJobVendorCompareSection({
                                     {offer.shipReceiveBy ? (
                                       <Badge
                                         variant="secondary"
-                                        className="border border-white/10 bg-white/5 text-white/70"
+                                        className="border border-border bg-accent text-foreground/80"
                                       >
                                         Ship/receive: {offer.shipReceiveBy}
                                       </Badge>
@@ -191,14 +191,14 @@ export function InternalJobVendorCompareSection({
                                     {offer.process ? (
                                       <Badge
                                         variant="secondary"
-                                        className="border border-white/10 bg-white/5 text-white/70"
+                                        className="border border-border bg-accent text-foreground/80"
                                       >
                                         {offer.process}
                                       </Badge>
                                     ) : null}
                                     <Badge
                                       variant="secondary"
-                                      className="border border-white/10 bg-white/5 text-white/70"
+                                      className="border border-border bg-accent text-foreground/80"
                                     >
                                       Qty {offer.requestedQuantity}
                                     </Badge>
@@ -213,25 +213,25 @@ export function InternalJobVendorCompareSection({
                                   </div>
                                 </div>
                                 <div className="text-right">
-                                  <p className="text-lg font-medium text-white">{formatCurrency(offer.totalPriceUsd)}</p>
-                                  <p className="text-sm text-white/50">{formatLeadTime(offer.leadTimeBusinessDays)}</p>
+                                  <p className="text-lg font-medium text-foreground">{formatCurrency(offer.totalPriceUsd)}</p>
+                                  <p className="text-sm text-muted-foreground">{formatLeadTime(offer.leadTimeBusinessDays)}</p>
                                 </div>
                               </div>
-                              <div className="mt-4 grid gap-3 text-sm text-white/55 md:grid-cols-3">
+                              <div className="mt-4 grid gap-3 text-sm text-muted-foreground md:grid-cols-3">
                                 <div>
-                                  <p className="text-xs uppercase tracking-[0.2em] text-white/35">Unit</p>
-                                  <p className="mt-1 text-white/75">{formatCurrency(offer.unitPriceUsd)}</p>
+                                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Unit</p>
+                                  <p className="mt-1 text-foreground/80">{formatCurrency(offer.unitPriceUsd)}</p>
                                 </div>
                                 <div>
-                                  <p className="text-xs uppercase tracking-[0.2em] text-white/35">Material</p>
-                                  <p className="mt-1 text-white/75">{offer.material || "N/A"}</p>
+                                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Material</p>
+                                  <p className="mt-1 text-foreground/80">{offer.material || "N/A"}</p>
                                 </div>
                                 <div>
-                                  <p className="text-xs uppercase tracking-[0.2em] text-white/35">Finish</p>
-                                  <p className="mt-1 text-white/75">{offer.finish || "N/A"}</p>
+                                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Finish</p>
+                                  <p className="mt-1 text-foreground/80">{offer.finish || "N/A"}</p>
                                 </div>
                               </div>
-                              {offer.notes ? <p className="mt-3 text-sm text-white/55">{offer.notes}</p> : null}
+                              {offer.notes ? <p className="mt-3 text-sm text-muted-foreground">{offer.notes}</p> : null}
                             </div>
                           );
                         })}

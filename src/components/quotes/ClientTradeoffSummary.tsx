@@ -13,13 +13,13 @@ export function ClientTradeoffSummary({ summary, className }: ClientTradeoffSumm
   const [showAlternatives, setShowAlternatives] = useState(false);
 
   return (
-    <div className={cn("rounded-surface-lg border border-white/10 bg-black/30 p-4", className)}>
+    <div className={cn("rounded-surface-lg border border-border bg-muted p-4", className)}>
       <div className="mb-3 flex items-center gap-2">
         <Star className="h-4 w-4 text-amber-400" />
-        <h3 className="text-sm font-semibold text-white/90">Routing Recommendation</h3>
+        <h3 className="text-sm font-semibold text-foreground/80">Routing Recommendation</h3>
       </div>
 
-      <p className="mb-4 text-xs text-white/60">{summary.comparisonText}</p>
+      <p className="mb-4 text-xs text-muted-foreground">{summary.comparisonText}</p>
 
       <div className="rounded-lg border border-amber-400/20 bg-amber-400/5 p-3">
         <div className="mb-1 flex items-center gap-2">
@@ -29,12 +29,12 @@ export function ClientTradeoffSummary({ summary, className }: ClientTradeoffSumm
           >
             Recommended
           </Badge>
-          <span className="text-sm font-medium text-white/90">{summary.topPick.vendorName}</span>
-          <span className="ml-auto text-xs text-white/50">
+          <span className="text-sm font-medium text-foreground/80">{summary.topPick.vendorName}</span>
+          <span className="ml-auto text-xs text-muted-foreground">
             {Math.round(summary.topPick.overallScore ?? 0)}/100
           </span>
         </div>
-        <p className="text-xs text-white/70">{summary.topPick.statement}</p>
+        <p className="text-xs text-foreground/80">{summary.topPick.statement}</p>
         {summary.topPick.strengths.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
             {summary.topPick.strengths.map((s) => (
@@ -65,7 +65,7 @@ export function ClientTradeoffSummary({ summary, className }: ClientTradeoffSumm
         <div className="mt-3">
           <button
             type="button"
-            className="flex w-full items-center gap-1 text-xs text-white/50 hover:text-white/70"
+            className="flex w-full items-center gap-1 text-xs text-muted-foreground hover:text-foreground/80"
             onClick={() => setShowAlternatives(!showAlternatives)}
           >
             {showAlternatives ? (
@@ -91,14 +91,14 @@ export function ClientTradeoffSummary({ summary, className }: ClientTradeoffSumm
 
 function AlternativeCard({ statement }: { statement: TradeoffStatement }) {
   return (
-    <div className="rounded-lg border border-white/5 bg-white/[0.02] p-3">
+    <div className="rounded-lg border border-border bg-accent p-3">
       <div className="mb-1 flex items-center gap-2">
-        <span className="text-sm font-medium text-white/80">{statement.vendorName}</span>
-        <span className="ml-auto text-xs text-white/40">
+        <span className="text-sm font-medium text-foreground/80">{statement.vendorName}</span>
+        <span className="ml-auto text-xs text-muted-foreground">
           {Math.round(statement.overallScore ?? 0)}/100
         </span>
       </div>
-      <p className="text-xs text-white/60">{statement.statement}</p>
+      <p className="text-xs text-muted-foreground">{statement.statement}</p>
       {statement.strengths.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1">
           {statement.strengths.map((s) => (

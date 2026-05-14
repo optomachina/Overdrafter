@@ -31,12 +31,12 @@ function SidebarActionButton({
       type="button"
       variant="ghost"
       className={cn(
-        "w-full justify-start rounded-[10px] pl-1 pr-3 text-white/[0.94] hover:bg-white/6 hover:text-white",
-        active && "bg-white/[0.08] text-white",
+        "w-full justify-start rounded-[10px] pl-1 pr-3 text-foreground hover:bg-accent hover:text-foreground",
+        active && "bg-accent text-foreground",
       )}
       onClick={onClick}
     >
-      <span className="flex w-5 shrink-0 items-center justify-center text-white/[0.96]">
+      <span className="flex w-5 shrink-0 items-center justify-center text-foreground">
         <Icon aria-hidden="true" className="h-4 w-4" />
       </span>
       {label}
@@ -54,16 +54,16 @@ export function InternalDashboardSidebar({
 }: InternalDashboardSidebarProps) {
   return (
     <div className="space-y-5">
-      <div className="rounded-[20px] border border-white/[0.08] bg-white/[0.03] px-4 py-4">
+      <div className="rounded-[20px] border border-border bg-accent px-4 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-[14px] bg-white/[0.06] text-white">
+          <div className="flex h-10 w-10 items-center justify-center rounded-[14px] bg-accent text-foreground">
             <ShieldCheck className="h-5 w-5" />
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-white/40">
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
               Internal workspace
             </p>
-            <p className="truncate text-sm text-white/80">
+            <p className="truncate text-sm text-foreground/80">
               {role ? formatStatusLabel(role) : "Operations"}
             </p>
           </div>

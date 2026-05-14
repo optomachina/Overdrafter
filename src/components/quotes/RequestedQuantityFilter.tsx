@@ -28,10 +28,10 @@ export function RequestedQuantityFilter({
           type="button"
           variant={value === "all" ? "default" : "outline"}
           className={cn(
-            "rounded-full border-white/10",
+            "rounded-full border-border",
             value === "all"
-              ? "bg-white text-black hover:bg-white/90"
-              : "bg-transparent text-white hover:bg-white/6",
+              ? "bg-primary text-primary-foreground hover:bg-accent"
+              : "bg-transparent text-foreground hover:bg-accent",
           )}
           onClick={() => onChange("all")}
         >
@@ -44,10 +44,10 @@ export function RequestedQuantityFilter({
           type="button"
           variant={value === quantity ? "default" : "outline"}
           className={cn(
-            "rounded-full border-white/10",
+            "rounded-full border-border",
             value === quantity
-              ? "bg-white text-black hover:bg-white/90"
-              : "bg-transparent text-white hover:bg-white/6",
+              ? "bg-primary text-primary-foreground hover:bg-accent"
+              : "bg-transparent text-foreground hover:bg-accent",
           )}
           onClick={() => onChange(quantity)}
         >

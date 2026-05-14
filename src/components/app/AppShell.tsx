@@ -59,27 +59,27 @@ export function AppShell({
           className={cn(
             "sticky top-0 hidden h-screen shrink-0 border-r backdrop-blur md:flex md:flex-col",
             isClientChat
-              ? "border-white/5 bg-ws-shell/95"
-              : "border-white/8 bg-ws-deep/95",
+              ? "border-border bg-ws-shell/95"
+              : "border-border bg-ws-deep/95",
             collapsed ? "w-20" : "w-[19rem]",
           )}
         >
           <div className="flex items-center justify-between px-4 py-5">
             <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06]">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-accent">
                 <FileSpreadsheet className="h-5 w-5 text-primary" />
               </div>
               {!collapsed && (
                 <div>
-                  <p className="text-sm font-medium text-white/70">OverDrafter</p>
-                  <p className="font-semibold tracking-tight text-white">Curated CNC Quotes</p>
+                  <p className="text-sm font-medium text-foreground/80">OverDrafter</p>
+                  <p className="font-semibold tracking-tight text-foreground">Curated CNC Quotes</p>
                 </div>
               )}
             </div>
             <Button
               variant="ghost"
               size="icon"
-              className="text-white/60 hover:bg-white/5 hover:text-white"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground"
               onClick={() => setCollapsed((value) => !value)}
             >
               {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
@@ -96,9 +96,9 @@ export function AppShell({
                       "flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-colors",
                       isActive
                         ? isClientChat
-                          ? "bg-white/[0.1] text-white"
-                          : "bg-white/[0.07] text-white"
-                        : "text-white/65 hover:bg-white/5 hover:text-white",
+                          ? "bg-accent text-foreground"
+                          : "bg-accent text-foreground"
+                        : "text-foreground/80 hover:bg-accent hover:text-foreground",
                       collapsed && "justify-center px-0",
                     )
                   }
@@ -119,11 +119,11 @@ export function AppShell({
           </div>
 
           <div className="px-4 pb-4">
-            <Separator className="bg-white/10" />
+            <Separator className="bg-accent" />
             <div className={cn("mt-4 flex items-center gap-3", collapsed && "justify-center")}>
-              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.05]">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-accent">
                 {activeMembership?.role === "client" ? (
-                  <UserRound className="h-4 w-4 text-white/70" />
+                  <UserRound className="h-4 w-4 text-foreground/80" />
                 ) : (
                   <ShieldCheck className="h-4 w-4 text-primary" />
                 )}
@@ -131,7 +131,7 @@ export function AppShell({
               {!collapsed && (
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{user?.email ?? "Signed out"}</p>
-                  <p className="truncate text-xs text-white/45">
+                  <p className="truncate text-xs text-muted-foreground">
                     {activeMembership ? formatStatusLabel(activeMembership.role) : "Verification pending"}
                   </p>
                 </div>
@@ -145,8 +145,8 @@ export function AppShell({
             className={cn(
               "sticky top-0 z-20 border-b backdrop-blur-xl",
               isClientChat
-                ? "border-white/5 bg-ws-shell/92"
-                : "border-white/8 bg-background/80",
+                ? "border-border bg-ws-shell/92"
+                : "border-border bg-background/80",
             )}
           >
             <div
@@ -162,7 +162,7 @@ export function AppShell({
                       <Button
                         variant="outline"
                         size="icon"
-                        className="border-white/10 bg-white/[0.04] md:hidden"
+                        className="border-border bg-accent md:hidden"
                       >
                         <PanelLeft className="h-4 w-4" />
                         <span className="sr-only">Open sidebar</span>
@@ -170,10 +170,10 @@ export function AppShell({
                     </SheetTrigger>
                     <SheetContent
                       side="left"
-                      className="w-[22rem] border-r border-white/10 bg-ws-deep p-0 text-white sm:max-w-[22rem]"
+                      className="w-[22rem] border-r border-border bg-ws-deep p-0 text-foreground sm:max-w-[22rem]"
                     >
-                      <SheetHeader className="border-b border-white/10 px-6 py-5">
-                        <SheetTitle className="text-white">{sidebarTitle}</SheetTitle>
+                      <SheetHeader className="border-b border-border px-6 py-5">
+                        <SheetTitle className="text-foreground">{sidebarTitle}</SheetTitle>
                       </SheetHeader>
                       <div className="h-full overflow-y-auto px-4 py-5">
                         {sidebarContent}
@@ -190,7 +190,7 @@ export function AppShell({
                   {title}
                 </h1>
                 {subtitle ? (
-                  <p className={cn("mt-2 max-w-3xl text-sm text-white/55", isClientChat && "max-w-2xl")}>
+                  <p className={cn("mt-2 max-w-3xl text-sm text-muted-foreground", isClientChat && "max-w-2xl")}>
                     {subtitle}
                   </p>
                 ) : null}

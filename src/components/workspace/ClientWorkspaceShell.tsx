@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { PanelLeftOpen, Sidebar, type LucideIcon } from "lucide-react";
+import { PanelLeftOpen, PanelRightClose, PanelRightOpen, Sidebar, type LucideIcon } from "lucide-react";
 import logoMark from "@/assets/logo-mark.svg";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -19,8 +19,23 @@ const CURSOR_TOOLTIP_OFFSET = 14;
 const SIDEBAR_HEADER_INSET_CLASS = "px-2";
 const SIDEBAR_LOGO_VISUAL_OFFSET_CLASS = "translate-x-[5px]";
 const SIDEBAR_ICON_TOOLTIP_CLASS_NAME =
-  "workspace-shell rounded-lg border-transparent bg-ws-deep px-2.5 py-1.5 text-[11px] font-medium text-white shadow-[0_10px_30px_rgba(0,0,0,0.45)]";
+  "workspace-shell rounded-lg border-transparent bg-ws-deep px-2.5 py-1.5 text-[11px] font-medium text-foreground shadow-[0_10px_30px_rgba(0,0,0,0.45)]";
 const BRAND_NAME = "OverDrafter";
+
+const DESKTOP_RIGHT_RAIL_COLLAPSED_STORAGE_KEY = "workspace-shell.right-rail-collapsed-v1";
+const DESKTOP_RIGHT_RAIL_WIDTH = 288;
+const DESKTOP_RIGHT_RAIL_COLLAPSED_WIDTH = "32px";
+
+function readDesktopRightRailCollapsed() {
+  try {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem(DESKTOP_RIGHT_RAIL_COLLAPSED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 function readDesktopSidebarCollapsed() {
   try {
@@ -74,6 +89,14 @@ type ClientWorkspaceShellProps = {
   sidebarRailActions?: SidebarRailAction[];
   showSidebar?: boolean;
   onLogoClick?: () => void;
+  /**
+   * Optional collapsible right rail — the PART INFO / PROJECT INFO panel and
+   * ROADMAP chips per docs/DESIGN.md §Layout. Only rendered when provided, so
+   * routes that don't pass it (most internal pages) are unaffected.
+   */
+  rightRailContent?: ReactNode;
+  rightRailFooter?: ReactNode;
+  rightRailLabel?: string;
   children: ReactNode;
 };
 
@@ -223,10 +246,10 @@ function SidebarIconButton({
         hideCursorTooltip();
       }}
       className={cn(
-        "flex h-9 w-9 items-center justify-center rounded border text-white/[0.96] transition-colors duration-150",
+        "flex h-9 w-9 items-center justify-center rounded border text-foreground/95 transition-colors duration-150",
         isActive
-          ? "border-white/[0.12] bg-white/[0.1] text-white"
-          : "border-transparent hover:border-white/[0.08] hover:bg-white/[0.06] hover:text-white",
+          ? "border-border bg-accent text-foreground"
+          : "border-transparent hover:border-border hover:bg-accent hover:text-foreground",
         disabled && "cursor-not-allowed opacity-50",
         className,
       )}
@@ -281,14 +304,14 @@ function SidebarScaffold({
   onLogoClick?: () => void;
 }) {
   return (
-    <div className="workspace-shell flex h-full flex-col bg-ws-shell text-white">
+    <div className="workspace-shell flex h-full flex-col bg-ws-shell text-foreground">
       <div className={cn("flex items-center justify-between gap-3 pb-3 pt-3", SIDEBAR_HEADER_INSET_CLASS)}>
         {onLogoClick ? (
           <button
             type="button"
             onClick={onLogoClick}
             aria-label={`${BRAND_NAME} home`}
-            className="grid h-9 w-9 place-items-center rounded text-left transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+            className="grid h-9 w-9 place-items-center rounded text-left transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <img
               src={logoMark}
@@ -330,7 +353,7 @@ function CollapsedSidebarRail({
 }) {
   return (
     <div
-      className="workspace-shell group flex h-full cursor-e-resize flex-col items-center gap-3 bg-ws-shell px-2 py-3 text-white"
+      className="workspace-shell group flex h-full cursor-e-resize flex-col items-center gap-3 bg-ws-shell px-2 py-3 text-foreground"
       onClick={onOpen}
     >
       <div className="flex h-9 w-full items-center justify-center">
@@ -369,6 +392,57 @@ function CollapsedSidebarRail({
   );
 }
 
+function RightRailScaffold({
+  rightRailContent,
+  rightRailFooter,
+  rightRailLabel,
+  onCollapse,
+}: Pick<ClientWorkspaceShellProps, "rightRailContent" | "rightRailFooter" | "rightRailLabel"> & {
+  onCollapse: () => void;
+}) {
+  return (
+    <div className="workspace-shell flex h-full flex-col bg-ws-shell text-foreground">
+      <div className="flex items-center justify-between gap-3 px-3 pb-3 pt-3">
+        {rightRailLabel ? (
+          <span className="ws-section-label truncate">{rightRailLabel}</span>
+        ) : (
+          <span />
+        )}
+        <SidebarIconButton
+          label="Close panel"
+          icon={PanelRightClose}
+          onClick={onCollapse}
+          ariaExpanded
+          tooltipMode="cursor"
+        />
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto sidebar-scroll px-3">{rightRailContent}</div>
+
+      {rightRailFooter ? (
+        <div className="border-t border-border px-3 pb-3 pt-3">{rightRailFooter}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function CollapsedRightRail({ onOpen }: { onOpen: () => void }) {
+  return (
+    <div
+      className="workspace-shell group flex h-full cursor-w-resize flex-col items-center gap-3 border-l border-border bg-ws-shell px-2 py-3 text-foreground"
+      onClick={onOpen}
+    >
+      <SidebarIconButton
+        label="Open panel"
+        icon={PanelRightOpen}
+        onClick={onOpen}
+        ariaExpanded={false}
+        className="cursor-w-resize"
+      />
+    </div>
+  );
+}
+
 export function ClientWorkspaceShell({
   topRightContent,
   headerContent,
@@ -377,12 +451,17 @@ export function ClientWorkspaceShell({
   sidebarRailActions,
   showSidebar = true,
   onLogoClick,
+  rightRailContent,
+  rightRailFooter,
+  rightRailLabel,
   children,
 }: ClientWorkspaceShellProps) {
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(() => readDesktopSidebarCollapsed());
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => readDesktopSidebarWidth());
   const [isResizing, setIsResizing] = useState(false);
+  const [rightRailCollapsed, setRightRailCollapsed] = useState(() => readDesktopRightRailCollapsed());
+  const hasRightRail = rightRailContent != null;
   const resizingRef = useRef(false);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
   const BrandLabelTag = onLogoClick ? "button" : "div";
@@ -405,6 +484,17 @@ export function ClientWorkspaceShell({
       // Ignore storage failures.
     }
   }, [sidebarWidth]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        DESKTOP_RIGHT_RAIL_COLLAPSED_STORAGE_KEY,
+        rightRailCollapsed ? "1" : "0",
+      );
+    } catch {
+      // Ignore storage failures in private browsing and restricted contexts.
+    }
+  }, [rightRailCollapsed]);
 
   useEffect(() => {
     return () => {
@@ -442,12 +532,12 @@ export function ClientWorkspaceShell({
 
   return (
     <TooltipProvider delayDuration={SIDEBAR_TOOLTIP_DELAY_MS}>
-      <div className={cn("workspace-shell min-h-svh bg-ws-overlay text-white", isResizing && "select-none")}>
+      <div className={cn("workspace-shell min-h-svh bg-ws-overlay text-foreground", isResizing && "select-none")}>
         <div className="flex min-h-svh">
           {showSidebar ? (
             <aside
               className={cn(
-                "sidebar-host relative sticky top-0 hidden shrink-0 self-start overflow-visible border-r border-white/[0.08] md:block",
+                "sidebar-host relative sticky top-0 hidden shrink-0 self-start overflow-visible border-r border-border md:block",
                 !isResizing && "transition-[width] duration-200 ease-out",
               )}
               style={{
@@ -469,7 +559,7 @@ export function ClientWorkspaceShell({
                     className="absolute inset-y-0 right-0 z-20 hidden w-3 translate-x-1/2 cursor-col-resize md:block"
                     onPointerDown={handleResizePointerDown}
                   >
-                    <div className="absolute inset-y-6 left-1/2 w-px -translate-x-1/2 rounded-full bg-white/10 transition-colors duration-150 hover:bg-white/22" />
+                    <div className="absolute inset-y-6 left-1/2 w-px -translate-x-1/2 rounded-full bg-border transition-colors duration-150 hover:bg-muted-foreground" />
                   </div>
                 </div>
                 <div className={cn("h-full", desktopSidebarCollapsed ? "block" : "hidden")}>
@@ -498,7 +588,7 @@ export function ClientWorkspaceShell({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="rounded text-white/[0.96] hover:bg-white/[0.06] hover:text-white md:hidden"
+                      className="rounded text-foreground/95 hover:bg-accent hover:text-foreground md:hidden"
                     >
                       <PanelLeftOpen className="h-5 w-5" />
                       <span className="sr-only">Open sidebar</span>
@@ -506,7 +596,7 @@ export function ClientWorkspaceShell({
                   </SheetTrigger>
                   <SheetContent
                     side="left"
-                    className="workspace-shell w-[260px] border-r border-white/[0.08] bg-ws-shell p-0 text-white sm:max-w-[260px] [&>button]:hidden"
+                    className="workspace-shell w-[260px] border-r border-border bg-ws-shell p-0 text-foreground sm:max-w-[260px] [&>button]:hidden"
                   >
                     <SidebarScaffold
                       sidebarContent={sidebarContent}
@@ -529,16 +619,16 @@ export function ClientWorkspaceShell({
                   className={cn(
                     "flex h-10 min-w-0 items-center text-left",
                     onLogoClick &&
-                      "transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20",
+                      "transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   )}
                 >
-                  <span className="block truncate text-[15px] font-medium tracking-[-0.01em] text-white/[0.94]">
+                  <span className="block truncate text-[15px] font-medium tracking-[-0.01em] text-foreground/95">
                     {BRAND_NAME}
                   </span>
                 </BrandLabelTag>
                 {headerContent ? (
                   <>
-                    <span className="text-white/30">/</span>
+                    <span className="text-muted-foreground">/</span>
                     <div className="min-w-0 flex-1">{headerContent}</div>
                   </>
                 ) : null}
@@ -549,6 +639,31 @@ export function ClientWorkspaceShell({
 
             <main className="flex min-w-0 flex-1 flex-col">{children}</main>
           </div>
+
+          {hasRightRail ? (
+            <aside
+              className="relative sticky top-0 hidden shrink-0 self-start border-l border-border transition-[width] duration-200 ease-out md:block"
+              style={{
+                width: rightRailCollapsed
+                  ? DESKTOP_RIGHT_RAIL_COLLAPSED_WIDTH
+                  : `${DESKTOP_RIGHT_RAIL_WIDTH}px`,
+              }}
+            >
+              <div className="sidebar-host h-svh">
+                <div className={cn("h-full", rightRailCollapsed && "hidden")}>
+                  <RightRailScaffold
+                    rightRailContent={rightRailContent}
+                    rightRailFooter={rightRailFooter}
+                    rightRailLabel={rightRailLabel}
+                    onCollapse={() => setRightRailCollapsed(true)}
+                  />
+                </div>
+                <div className={cn("h-full", rightRailCollapsed ? "block" : "hidden")}>
+                  <CollapsedRightRail onOpen={() => setRightRailCollapsed(false)} />
+                </div>
+              </div>
+            </aside>
+          ) : null}
         </div>
       </div>
     </TooltipProvider>

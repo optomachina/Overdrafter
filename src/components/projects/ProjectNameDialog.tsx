@@ -39,7 +39,7 @@ export function ProjectNameDialog({
 }: ProjectNameDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-ws-raised text-white">
+      <DialogContent className="workspace-shell rounded-2xl border-border bg-ws-raised text-foreground">
         <form
           className="space-y-4"
           onSubmit={(event) => {
@@ -54,20 +54,20 @@ export function ProjectNameDialog({
         >
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
-            {description ? <DialogDescription className="text-white/55">{description}</DialogDescription> : null}
+            {description ? <DialogDescription className="text-muted-foreground">{description}</DialogDescription> : null}
           </DialogHeader>
           <Input
             autoFocus
             value={value}
             onChange={(event) => onValueChange(event.target.value)}
             placeholder={placeholder}
-            className="h-10 rounded-[10px] border-white/[0.08] bg-ws-overlay text-white placeholder:text-white/35 focus-visible:ring-white/20"
+            className="h-10 rounded-[10px] border-border bg-ws-overlay text-foreground placeholder:text-muted-foreground focus-visible:ring-white/20"
           />
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
-              className="rounded-[10px] border-white/[0.08] bg-transparent text-white hover:bg-white/[0.06]"
+              className="rounded-[10px] border-border bg-transparent text-foreground hover:bg-accent"
               onClick={() => onOpenChange(false)}
             >
               Cancel

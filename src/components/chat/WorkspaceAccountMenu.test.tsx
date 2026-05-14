@@ -13,6 +13,11 @@ const diagnosticsMocks = vi.hoisted(() => ({
   useDiagnosticsSnapshot: vi.fn(() => ({ enabled: false })),
 }));
 
+const themeMocks = vi.hoisted(() => ({
+  resolvedTheme: "light" as "light" | "dark",
+  setTheme: vi.fn(),
+}));
+
 vi.mock("@/lib/diagnostics", async () => {
   const actual = await vi.importActual<typeof import("@/lib/diagnostics")>("@/lib/diagnostics");
   return {
@@ -22,6 +27,13 @@ vi.mock("@/lib/diagnostics", async () => {
     useDiagnosticsSnapshot: () => diagnosticsMocks.useDiagnosticsSnapshot(),
   };
 });
+
+vi.mock("next-themes", () => ({
+  useTheme: () => ({
+    resolvedTheme: themeMocks.resolvedTheme,
+    setTheme: themeMocks.setTheme,
+  }),
+}));
 
 function makeUser(overrides: Partial<User> = {}): User {
   return {
@@ -260,6 +272,8 @@ describe("WorkspaceAccountMenu", () => {
   afterEach(() => {
     diagnosticsMocks.setDiagnosticsEnabled.mockReset();
     diagnosticsMocks.setDiagnosticsPanelOpen.mockReset();
+    themeMocks.resolvedTheme = "light";
+    themeMocks.setTheme.mockReset();
     vi.unstubAllGlobals();
   });
 
@@ -278,6 +292,25 @@ describe("WorkspaceAccountMenu", () => {
     await openMainMenu();
 
     expect(screen.getByRole("menu")).toHaveClass("w-[var(--radix-dropdown-menu-trigger-width)]");
+  });
+
+  it("toggles dark mode from the account menu", async () => {
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Dark mode" }));
+
+    expect(themeMocks.setTheme).toHaveBeenCalledWith("dark");
+  });
+
+  it("offers light mode when the resolved theme is dark", async () => {
+    themeMocks.resolvedTheme = "dark";
+
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+
+    await openMainMenu();
+
+    expect(screen.getByRole("menuitem", { name: "Light mode" })).toBeInTheDocument();
   });
 
   it("opens the help submenu with the requested items", async () => {

@@ -1,4 +1,5 @@
 import { Agentation } from "agentation";
+import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -91,39 +92,41 @@ const queryClient = new QueryClient({
 });
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <DiagnosticsBootstrap />
-        <ExtractionLauncher hideFloatingButton />
-        <FixturePanel hideFloatingButton />
-        {import.meta.env.DEV && <Agentation />}
-        <AppErrorBoundary>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/projects/:projectId" element={<ClientProject />} />
-            <Route path="/projects/:projectId/review" element={<ClientProjectReview />} />
-            <Route path="/parts/:jobId" element={<ClientPart />} />
-            <Route path="/parts/:jobId/review" element={<ClientPartReview />} />
-            <Route path="/shared/:inviteToken" element={<SharedInvite />} />
-            <Route path="/jobs/new" element={<JobCreate />} />
-            <Route path="/internal/admin" element={<InternalAdmin />} />
-            <Route path="/internal/jobs/:jobId" element={<InternalJobDetail />} />
-            <Route path="/client/packages/:packageId" element={<ClientPackage />} />
-            <Route path="/signin" element={<SignIn />} />
-            <Route path="/auth/callback" element={<AuthCallback />} />
-            <Route path="/dev-login" element={<DevLogin />} />
-            <Route path="/debug/state-gallery" element={<StateGallery />} />
-            <Route path="/debug/concepts" element={<ConceptsGallery />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </AppErrorBoundary>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
+  <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <DiagnosticsBootstrap />
+          <ExtractionLauncher hideFloatingButton />
+          <FixturePanel hideFloatingButton />
+          {import.meta.env.DEV && <Agentation />}
+          <AppErrorBoundary>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/projects/:projectId" element={<ClientProject />} />
+              <Route path="/projects/:projectId/review" element={<ClientProjectReview />} />
+              <Route path="/parts/:jobId" element={<ClientPart />} />
+              <Route path="/parts/:jobId/review" element={<ClientPartReview />} />
+              <Route path="/shared/:inviteToken" element={<SharedInvite />} />
+              <Route path="/jobs/new" element={<JobCreate />} />
+              <Route path="/internal/admin" element={<InternalAdmin />} />
+              <Route path="/internal/jobs/:jobId" element={<InternalJobDetail />} />
+              <Route path="/client/packages/:packageId" element={<ClientPackage />} />
+              <Route path="/signin" element={<SignIn />} />
+              <Route path="/auth/callback" element={<AuthCallback />} />
+              <Route path="/dev-login" element={<DevLogin />} />
+              <Route path="/debug/state-gallery" element={<StateGallery />} />
+              <Route path="/debug/concepts" element={<ConceptsGallery />} />
+              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </AppErrorBoundary>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+  </ThemeProvider>
 );
 
 export default App;

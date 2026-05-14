@@ -34,12 +34,12 @@ export function ProcurementHandoffPanel({
   }
 
   return (
-    <section className="rounded-[26px] border border-white/8 bg-ws-card p-6">
+    <section className="rounded-[26px] border border-border bg-ws-card p-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-2xl">
-          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Procurement handoff</p>
-          <h2 className="mt-2 text-xl font-semibold text-white">Capture the details needed for manual follow-up</h2>
-          <p className="mt-2 text-sm text-white/55">
+          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Procurement handoff</p>
+          <h2 className="mt-2 text-xl font-semibold text-foreground">Capture the details needed for manual follow-up</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
             This {scopeLabel} review captures shipping, billing, and PO context for OverDrafter follow-up. It does not place an order or collect payment inside the app.
           </p>
         </div>
@@ -58,7 +58,7 @@ export function ProcurementHandoffPanel({
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.35fr_0.95fr]">
         <div className="space-y-5">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Shipping plan</p>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Shipping plan</p>
             <div className="mt-3 grid gap-3 md:grid-cols-3">
               {PROCUREMENT_SHIPPING_OPTIONS.map((option) => {
                 const isSelected = value.shippingPlan === option.value;
@@ -71,13 +71,13 @@ export function ProcurementHandoffPanel({
                     className={cn(
                       "rounded-2xl border px-4 py-4 text-left transition-colors",
                       isSelected
-                        ? "border-white/25 bg-white/12 text-white"
-                        : "border-white/8 bg-black/20 text-white/70 hover:bg-white/6",
+                        ? "border-border bg-accent text-foreground"
+                        : "border-border bg-muted text-foreground/80 hover:bg-accent",
                     )}
                     onClick={() => updateField("shippingPlan", option.value as ProcurementShippingOption)}
                   >
                     <p className="text-sm font-semibold">{option.label}</p>
-                    <p className={cn("mt-2 text-sm", isSelected ? "text-white/70" : "text-white/55")}>
+                    <p className={cn("mt-2 text-sm", isSelected ? "text-foreground/80" : "text-muted-foreground")}>
                       {option.description}
                     </p>
                   </button>
@@ -87,7 +87,7 @@ export function ProcurementHandoffPanel({
           </div>
 
           <div>
-            <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Billing path</p>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Billing path</p>
             <div className="mt-3 grid gap-3 md:grid-cols-3">
               {PROCUREMENT_BILLING_OPTIONS.map((option) => {
                 const isSelected = value.billingPlan === option.value;
@@ -100,13 +100,13 @@ export function ProcurementHandoffPanel({
                     className={cn(
                       "rounded-2xl border px-4 py-4 text-left transition-colors",
                       isSelected
-                        ? "border-white/25 bg-white/12 text-white"
-                        : "border-white/8 bg-black/20 text-white/70 hover:bg-white/6",
+                        ? "border-border bg-accent text-foreground"
+                        : "border-border bg-muted text-foreground/80 hover:bg-accent",
                     )}
                     onClick={() => updateField("billingPlan", option.value as ProcurementBillingOption)}
                   >
                     <p className="text-sm font-semibold">{option.label}</p>
-                    <p className={cn("mt-2 text-sm", isSelected ? "text-white/70" : "text-white/55")}>
+                    <p className={cn("mt-2 text-sm", isSelected ? "text-foreground/80" : "text-muted-foreground")}>
                       {option.description}
                     </p>
                   </button>
@@ -117,77 +117,77 @@ export function ProcurementHandoffPanel({
 
           <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-2">
-              <span className="text-sm text-white/70">Ship-to contact</span>
+              <span className="text-sm text-foreground/80">Ship-to contact</span>
               <Input
                 value={value.shipToContact}
                 onChange={(event) => updateField("shipToContact", event.target.value)}
                 placeholder="Receiving contact or team"
-                className="border-white/10 bg-black/20 text-white placeholder:text-white/35"
+                className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
               />
             </label>
             <label className="space-y-2">
-              <span className="text-sm text-white/70">Ship-to location</span>
+              <span className="text-sm text-foreground/80">Ship-to location</span>
               <Input
                 value={value.shipToLocation}
                 onChange={(event) => updateField("shipToLocation", event.target.value)}
                 placeholder="City, state, or facility"
-                className="border-white/10 bg-black/20 text-white placeholder:text-white/35"
+                className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
               />
             </label>
             <label className="space-y-2">
-              <span className="text-sm text-white/70">Billing contact name</span>
+              <span className="text-sm text-foreground/80">Billing contact name</span>
               <Input
                 value={value.billingContactName}
                 onChange={(event) => updateField("billingContactName", event.target.value)}
                 placeholder="Name for procurement follow-up"
-                className="border-white/10 bg-black/20 text-white placeholder:text-white/35"
+                className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
               />
             </label>
             <label className="space-y-2">
-              <span className="text-sm text-white/70">Billing contact email</span>
+              <span className="text-sm text-foreground/80">Billing contact email</span>
               <Input
                 type="email"
                 value={value.billingContactEmail}
                 onChange={(event) => updateField("billingContactEmail", event.target.value)}
                 placeholder="buyer@company.com"
-                className="border-white/10 bg-black/20 text-white placeholder:text-white/35"
+                className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
               />
             </label>
           </div>
 
           <div className="grid gap-4 md:grid-cols-[0.9fr_1.1fr]">
             <label className="space-y-2">
-              <span className="text-sm text-white/70">PO reference</span>
+              <span className="text-sm text-foreground/80">PO reference</span>
               <Input
                 value={value.poReference}
                 onChange={(event) => updateField("poReference", event.target.value)}
                 placeholder="PO number or internal reference"
-                className="border-white/10 bg-black/20 text-white placeholder:text-white/35"
+                className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
               />
             </label>
             <label className="space-y-2">
-              <span className="text-sm text-white/70">Special instructions</span>
+              <span className="text-sm text-foreground/80">Special instructions</span>
               <Textarea
                 value={value.specialInstructions}
                 onChange={(event) => updateField("specialInstructions", event.target.value)}
                 placeholder="Packaging notes, carrier instructions, approval checkpoints, or handoff context."
-                className="min-h-[110px] border-white/10 bg-black/20 text-white placeholder:text-white/35"
+                className="min-h-[110px] border-border bg-muted text-foreground placeholder:text-muted-foreground"
               />
             </label>
           </div>
         </div>
 
-        <div className="rounded-[22px] border border-white/8 bg-black/20 p-5">
+        <div className="rounded-[22px] border border-border bg-muted p-5">
           <div>
             <div>
-              <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Handoff summary</p>
-              <p className="mt-2 text-lg font-semibold text-white">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Handoff summary</p>
+              <p className="mt-2 text-lg font-semibold text-foreground">
                 {summary.ready ? "Ready for OverDrafter follow-up" : "More detail is needed before release"}
               </p>
             </div>
           </div>
 
-          <div className="mt-5 space-y-3 text-sm text-white/70">
+          <div className="mt-5 space-y-3 text-sm text-foreground/80">
             <SummaryRow label="Shipping" value={summary.shippingLabel} />
             <SummaryRow label="Ship to" value={summary.shipToSummary} />
             <SummaryRow label="Billing" value={summary.billingLabel} />
@@ -218,9 +218,9 @@ export function ProcurementHandoffPanel({
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/8 bg-white/5 px-4 py-3">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">{label}</p>
-      <p className="mt-2 text-sm text-white/80">{value}</p>
+    <div className="rounded-2xl border border-border bg-accent px-4 py-3">
+      <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+      <p className="mt-2 text-sm text-foreground/80">{value}</p>
     </div>
   );
 }

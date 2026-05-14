@@ -97,10 +97,10 @@ function QuoteChartTooltip({
   }
 
   return (
-    <div className="rounded-xl border border-white/10 bg-ws-raised px-3 py-2 text-xs text-white/80 shadow-xl">
-      <p className="font-semibold text-white">{point.vendorLabel}</p>
+    <div className="rounded-xl border border-border bg-ws-raised px-3 py-2 text-xs text-foreground/80 shadow-xl">
+      <p className="font-semibold text-foreground">{point.vendorLabel}</p>
       {point.tier || point.sourcing ? (
-        <p className="text-white/55">{[point.tier, point.sourcing].filter(Boolean).join(" · ")}</p>
+        <p className="text-muted-foreground">{[point.tier, point.sourcing].filter(Boolean).join(" · ")}</p>
       ) : null}
       <p className="mt-1">{formatCurrency(point.unitPriceUsd)} / ea</p>
       <p>{point.leadTimeBusinessDays} bd lead time</p>
@@ -144,7 +144,7 @@ export function QuoteChart({ quotes, selectedOfferId, onSelect, onHoverOffer }: 
         r={radius}
         fill={fill}
         opacity={opacity}
-        stroke={isSelected ? "#ffffff" : "transparent"}
+        stroke={isSelected ? "var(--accent-red)" : "transparent"}
         strokeWidth={isSelected ? 2 : 0}
         data-testid={`quote-point-${point.offerId}`}
         aria-label={`${point.vendorLabel} ${point.offerId}`}
@@ -183,7 +183,7 @@ export function QuoteChart({ quotes, selectedOfferId, onSelect, onHoverOffer }: 
     <div className="rounded-[14px] border border-ws-border-subtle bg-ws-card p-4">
       <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1">
         {series.map((entry) => (
-          <span key={entry.vendorKey} className="flex items-center gap-1.5 text-xs text-white/55">
+          <span key={entry.vendorKey} className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span className="h-2 w-2 rounded-full" style={{ background: entry.color }} />
             {entry.vendorLabel}
           </span>
@@ -200,20 +200,20 @@ export function QuoteChart({ quotes, selectedOfferId, onSelect, onHoverOffer }: 
               }
             }}
           >
-            <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="4 4" />
+            <CartesianGrid stroke="var(--hairline)" strokeDasharray="4 4" />
             <XAxis
               type="number"
               dataKey="leadTimeBusinessDays"
               domain={[0, xMax]}
               tickLine={false}
-              axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
-              tick={{ fill: "rgba(255,255,255,0.35)" }}
+              axisLine={{ stroke: "var(--hairline)" }}
+              tick={{ fill: "var(--muted-ink)" }}
             >
               <Label
                 value="Lead time (bd)"
                 position="insideBottom"
                 offset={-10}
-                style={{ fill: "rgba(255,255,255,0.35)", fontSize: 11 }}
+                style={{ fill: "var(--muted-ink)", fontSize: 11 }}
               />
             </XAxis>
             <YAxis
@@ -221,8 +221,8 @@ export function QuoteChart({ quotes, selectedOfferId, onSelect, onHoverOffer }: 
               dataKey="unitPriceUsd"
               domain={[0, yMax]}
               tickLine={false}
-              axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
-              tick={{ fill: "rgba(255,255,255,0.35)" }}
+              axisLine={{ stroke: "var(--hairline)" }}
+              tick={{ fill: "var(--muted-ink)" }}
               tickFormatter={(value: number) => formatCurrency(value)}
               width={84}
             >
@@ -230,7 +230,7 @@ export function QuoteChart({ quotes, selectedOfferId, onSelect, onHoverOffer }: 
                 value="Price / ea"
                 angle={-90}
                 position="insideLeft"
-                style={{ fill: "rgba(255,255,255,0.35)", fontSize: 11 }}
+                style={{ fill: "var(--muted-ink)", fontSize: 11 }}
               />
             </YAxis>
             <Tooltip cursor={false} content={<QuoteChartTooltip />} />

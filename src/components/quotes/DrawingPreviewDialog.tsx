@@ -102,10 +102,10 @@ export function DrawingPreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[80vh] w-[80vw] max-w-[min(80vw,1100px)] border-white/10 bg-ws-overlay p-0 text-white">
-        <DialogHeader className="gap-3 border-b border-white/8 px-6 py-5 pr-20">
+      <DialogContent className="h-[80vh] w-[80vw] max-w-[min(80vw,1100px)] border-border bg-ws-overlay p-0 text-foreground">
+        <DialogHeader className="gap-3 border-b border-border px-6 py-5 pr-20">
           <DialogTitle>{fileName}</DialogTitle>
-          <DialogDescription className="text-white/55">
+          <DialogDescription className="text-muted-foreground">
             Review the uploaded drawing PDF and download the original file.
           </DialogDescription>
         </DialogHeader>
@@ -115,7 +115,7 @@ export function DrawingPreviewDialog({
             type="button"
             size="icon"
             variant="ghost"
-            className="rounded-full text-white/75 hover:bg-white/10 hover:text-white"
+            className="rounded-full text-foreground/80 hover:bg-accent hover:text-foreground"
             onClick={onDownload}
             aria-label="Download PDF"
           >
@@ -125,7 +125,7 @@ export function DrawingPreviewDialog({
 
         <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-3">
           <div className="mb-3 flex items-center justify-between px-2">
-            <div className="text-sm text-white/55">
+            <div className="text-sm text-muted-foreground">
               {usesEmbeddedPdfPreview
                 ? "Original PDF"
                 : pageCount > 0
@@ -138,7 +138,7 @@ export function DrawingPreviewDialog({
                   type="button"
                   size="icon"
                   variant="outline"
-                  className="rounded-full border-white/10 bg-white/5 text-white hover:bg-white/10"
+                  className="rounded-full border-border bg-accent text-foreground hover:bg-accent"
                   onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
                   disabled={currentPage <= 1}
                   aria-label="Previous page"
@@ -149,7 +149,7 @@ export function DrawingPreviewDialog({
                   type="button"
                   size="icon"
                   variant="outline"
-                  className="rounded-full border-white/10 bg-white/5 text-white hover:bg-white/10"
+                  className="rounded-full border-border bg-accent text-foreground hover:bg-accent"
                   onClick={() => setCurrentPage((page) => Math.min(page + 1, pageCount))}
                   disabled={currentPage >= pageCount}
                   aria-label="Next page"
@@ -160,16 +160,16 @@ export function DrawingPreviewDialog({
             ) : null}
           </div>
 
-          <div className="relative min-h-0 flex-1 overflow-hidden rounded-surface-lg border border-white/8 bg-ws-deep">
+          <div className="relative min-h-0 flex-1 overflow-hidden rounded-surface-lg border border-border bg-ws-deep">
             {isLoading ? (
-              <div className="flex h-full items-center justify-center text-white/55">
+              <div className="flex h-full items-center justify-center text-muted-foreground">
                 <Loader2 className="h-6 w-6 animate-spin" />
               </div>
             ) : usesEmbeddedPdfPreview ? (
               <iframe
                 src={pdfUrl}
                 title={`${fileName} PDF preview`}
-                className="h-full w-full border-0 bg-white"
+                className="h-full w-full border-0 bg-background"
               />
             ) : currentPageUrl ? (
               <img
@@ -178,13 +178,13 @@ export function DrawingPreviewDialog({
                 className="h-full w-full object-contain"
               />
             ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-white/45">
+              <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
                 {state === "failed" || state === "unavailable" ? (
-                  <AlertCircle className="h-6 w-6 text-white/40" />
+                  <AlertCircle className="h-6 w-6 text-muted-foreground" />
                 ) : null}
                 <div>{emptyStateMessage}</div>
                 {state === "unavailable" && statusMessage ? (
-                  <div className="max-w-md text-xs text-white/35">{statusMessage}</div>
+                  <div className="max-w-md text-xs text-muted-foreground">{statusMessage}</div>
                 ) : null}
               </div>
             )}

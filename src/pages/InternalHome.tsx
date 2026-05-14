@@ -193,10 +193,10 @@ const InternalHome = () => {
       <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col px-4 pb-8 pt-4 md:px-6 md:pb-10 md:pt-6">
         <div className="flex flex-col gap-4 pb-8 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h1 className="text-[2rem] font-medium tracking-[-0.02em] text-white md:text-[2.35rem]">
+            <h1 className="text-[2rem] font-medium tracking-[-0.02em] text-foreground md:text-[2.35rem]">
               Operations Dashboard
             </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/55">
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
               Review extracted specs, launch vendor quote runs, and publish curated options with
               versioned pricing.
             </p>
@@ -231,36 +231,36 @@ const InternalHome = () => {
 
         <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
-            <p className="mb-1 text-[11px] text-white/45">Total jobs</p>
-            <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{metrics.totalJobs}</p>
+            <p className="mb-1 text-[11px] text-muted-foreground">Total jobs</p>
+            <p className="text-[24px] font-bold tracking-[-0.02em] text-foreground">{metrics.totalJobs}</p>
           </div>
           <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
-            <p className="mb-1 text-[11px] text-white/45">In review</p>
+            <p className="mb-1 text-[11px] text-muted-foreground">In review</p>
             <p className="text-[24px] font-bold tracking-[-0.02em] text-amber-400">{metrics.needsReview}</p>
           </div>
           <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
-            <p className="mb-1 text-[11px] text-white/45">Active quote runs</p>
-            <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{metrics.quoted}</p>
+            <p className="mb-1 text-[11px] text-muted-foreground">Active quote runs</p>
+            <p className="text-[24px] font-bold tracking-[-0.02em] text-foreground">{metrics.quoted}</p>
           </div>
           <div className="rounded border border-ws-border-subtle bg-ws-card p-4">
-            <p className="mb-1 text-[11px] text-white/45">Published packages</p>
-            <p className="text-[24px] font-bold tracking-[-0.02em] text-white">{(packagesQuery.data ?? []).length}</p>
+            <p className="mb-1 text-[11px] text-muted-foreground">Published packages</p>
+            <p className="text-[24px] font-bold tracking-[-0.02em] text-foreground">{(packagesQuery.data ?? []).length}</p>
           </div>
         </section>
 
         {activeMembership?.role === "internal_admin" ? (
           <section className="mt-8">
-            <Card className="border-white/10 bg-black/20">
+            <Card className="border-border bg-muted">
               <CardHeader>
                 <CardTitle>Team Access</CardTitle>
-                <p className="text-sm text-white/55">
+                <p className="text-sm text-muted-foreground">
                   Promote client users to estimator or admin after they have joined this hidden
                   workspace.
                 </p>
               </CardHeader>
               <CardContent>
                 {organizationMembershipsQuery.isLoading ? (
-                  <div className="flex items-center justify-center rounded-3xl border border-dashed border-white/10 bg-white/5 p-8">
+                  <div className="flex items-center justify-center rounded-3xl border border-dashed border-border bg-accent p-8">
                     <Loader2 className="h-5 w-5 animate-spin text-primary" />
                   </div>
                 ) : organizationMembershipsQuery.isError ? (
@@ -270,20 +270,20 @@ const InternalHome = () => {
                       : "Failed to load team access."}
                   </div>
                 ) : (organizationMembershipsQuery.data ?? []).length === 0 ? (
-                  <div className="rounded-3xl border border-dashed border-white/10 bg-white/5 p-8 text-center">
+                  <div className="rounded-3xl border border-dashed border-border bg-accent p-8 text-center">
                     <p className="font-medium">No members found</p>
-                    <p className="mt-2 text-sm text-white/50">
+                    <p className="mt-2 text-sm text-muted-foreground">
                       Members appear here after they sign in and get attached to this account.
                     </p>
                   </div>
                 ) : (
                   <Table>
                     <TableHeader>
-                      <TableRow className="border-white/10 hover:bg-transparent">
-                        <TableHead className="text-white/55">Member</TableHead>
-                        <TableHead className="text-white/55">Current role</TableHead>
-                        <TableHead className="text-white/55">Created</TableHead>
-                        <TableHead className="text-right text-white/55">Access level</TableHead>
+                      <TableRow className="border-border hover:bg-transparent">
+                        <TableHead className="text-muted-foreground">Member</TableHead>
+                        <TableHead className="text-muted-foreground">Current role</TableHead>
+                        <TableHead className="text-muted-foreground">Created</TableHead>
+                        <TableHead className="text-right text-muted-foreground">Access level</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -293,11 +293,11 @@ const InternalHome = () => {
                           updateMembershipRoleMutation.variables?.membershipId === member.id;
 
                         return (
-                          <TableRow key={member.id} className="border-white/10 hover:bg-white/5">
+                          <TableRow key={member.id} className="border-border hover:bg-accent">
                             <TableCell>
                               <div>
                                 <p className="font-medium">{member.email}</p>
-                                <p className="text-xs text-white/45">
+                                <p className="text-xs text-muted-foreground">
                                   {member.userId === user?.id ? "You" : "Team member"}
                                 </p>
                               </div>
@@ -305,12 +305,12 @@ const InternalHome = () => {
                             <TableCell>
                               <Badge
                                 variant="secondary"
-                                className="border border-white/10 bg-white/5 text-white/75"
+                                className="border border-border bg-accent text-foreground/80"
                               >
                                 {formatStatusLabel(member.role)}
                               </Badge>
                             </TableCell>
-                            <TableCell className="text-sm text-white/55">
+                            <TableCell className="text-sm text-muted-foreground">
                               {new Date(member.createdAt).toLocaleDateString()}
                             </TableCell>
                             <TableCell className="text-right">
@@ -328,7 +328,7 @@ const InternalHome = () => {
                                   }
                                   disabled={!isVerifiedAuth || updateMembershipRoleMutation.isPending}
                                 >
-                                  <SelectTrigger className="border-white/10 bg-white/5 text-white">
+                                  <SelectTrigger className="border-border bg-accent text-foreground">
                                     <SelectValue placeholder="Select role" />
                                   </SelectTrigger>
                                   <SelectContent>

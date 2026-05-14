@@ -42,13 +42,13 @@ function MetadataGroup({
   values: MetadataValue[];
 }) {
   return (
-    <div className="rounded-[22px] border border-white/8 bg-black/20 p-4">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">{title}</p>
+    <div className="rounded-[22px] border border-border bg-muted p-4">
+      <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
       <dl className="mt-3 space-y-3">
         {values.map((entry) => (
           <div key={entry.label} className="flex items-start justify-between gap-4">
-            <dt className="text-xs text-white/45">{entry.label}</dt>
-            <dd className={cn("max-w-[60%] text-right text-sm text-white", entry.tone === "muted" && "text-white/45")}>
+            <dt className="text-xs text-muted-foreground">{entry.label}</dt>
+            <dd className={cn("max-w-[60%] text-right text-sm text-foreground", entry.tone === "muted" && "text-muted-foreground")}>
               {entry.value}
             </dd>
           </div>
@@ -98,17 +98,17 @@ export function ClientQuoteRequestStatusCard({
             <Badge className={cn(getQuoteRequestStatusBadgeClassName(status), "tracking-normal normal-case")}>
               Quote {label}
             </Badge>
-            <p className="text-sm font-medium text-white">Xometry request status</p>
+            <p className="text-sm font-medium text-foreground">Xometry request status</p>
           </div>
           {isBusy ? (
             <div aria-label="Submitting…" className="flex flex-col gap-2">
-              <div className="h-3 w-3/4 animate-pulse rounded-full bg-white/15" />
-              <div className="h-3 w-1/2 animate-pulse rounded-full bg-white/10" />
+              <div className="h-3 w-3/4 animate-pulse rounded-full bg-accent" />
+              <div className="h-3 w-1/2 animate-pulse rounded-full bg-accent" />
             </div>
           ) : status === "failed" ? (
-            <p role="alert" className="text-sm text-white/75">{detail}</p>
+            <p role="alert" className="text-sm text-foreground/80">{detail}</p>
           ) : (
-            <p className="text-sm text-white/75">{detail}</p>
+            <p className="text-sm text-foreground/80">{detail}</p>
           )}
         </div>
         {onAction && actionLabel ? (
@@ -128,7 +128,7 @@ export function ClientQuoteRequestStatusCard({
       {blockerReasons.length > 0 ? (
         <div className="mt-4 flex flex-wrap gap-2">
           {blockerReasons.map((reason) => (
-            <Badge key={reason} className="border border-white/10 bg-black/20 text-white/75">
+            <Badge key={reason} className="border border-border bg-muted text-foreground/80">
               {reason}
             </Badge>
           ))}
@@ -236,34 +236,34 @@ export function ClientDfmPanel({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[22px] border border-white/8 bg-black/20 p-4">
+      <section className="rounded-[22px] border border-border bg-muted p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-medium text-white">Design-for-manufacturing signals</p>
-            <p className="mt-2 text-sm text-white/55">
+            <p className="text-sm font-medium text-foreground">Design-for-manufacturing signals</p>
+            <p className="mt-2 text-sm text-muted-foreground">
               Future vendor and internal DFM summaries can drop into this panel without changing the surrounding workspace.
             </p>
           </div>
-          <Sparkles className="h-4 w-4 text-white/45" />
+          <Sparkles className="h-4 w-4 text-muted-foreground" />
         </div>
       </section>
 
       {dfmNotes.length > 0 ? (
         <div className="space-y-3">
           {dfmNotes.map(({ option, note }, index) => (
-            <section key={`${option.key}:${index}`} className="rounded-[22px] border border-white/8 bg-black/20 p-4">
+            <section key={`${option.key}:${index}`} className="rounded-[22px] border border-border bg-muted p-4">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge className="border border-white/10 bg-white/6 text-white/70">{option.vendorLabel}</Badge>
-                <Badge className="border border-white/10 bg-white/6 text-white/70">Qty {option.requestedQuantity}</Badge>
+                <Badge className="border border-border bg-accent text-foreground/80">{option.vendorLabel}</Badge>
+                <Badge className="border border-border bg-accent text-foreground/80">Qty {option.requestedQuantity}</Badge>
               </div>
-              <p className="mt-3 text-sm text-white/70">{note}</p>
+              <p className="mt-3 text-sm text-foreground/80">{note}</p>
             </section>
           ))}
         </div>
       ) : (
-        <section className="rounded-[22px] border border-dashed border-white/10 bg-black/20 p-5">
-          <p className="text-sm font-medium text-white">No DFM issues surfaced yet</p>
-          <p className="mt-2 text-sm text-white/50">
+        <section className="rounded-[22px] border border-dashed border-border bg-muted p-5">
+          <p className="text-sm font-medium text-foreground">No DFM issues surfaced yet</p>
+          <p className="mt-2 text-sm text-muted-foreground">
             TODO: drop normalized vendor DFM findings and internal review cues into this card when those client-safe signals are available.
           </p>
         </section>
@@ -289,32 +289,32 @@ export function ClientReadOnlyChatPanel({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[22px] border border-white/8 bg-black/20 p-4">
+      <section className="rounded-[22px] border border-border bg-muted p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-medium text-white">Ask about this part</p>
-            <p className="mt-2 text-sm text-white/55">
+            <p className="text-sm font-medium text-foreground">Ask about this part</p>
+            <p className="mt-2 text-sm text-muted-foreground">
               Chat is contextual here, not the primary workspace. This read-only tab shows the kinds of questions the future assistant surface should answer.
             </p>
           </div>
-          <MessageSquareLock className="h-4 w-4 text-white/45" />
+          <MessageSquareLock className="h-4 w-4 text-muted-foreground" />
         </div>
       </section>
 
-      <section className="rounded-[22px] border border-white/8 bg-black/20 p-4">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Suggested prompts</p>
+      <section className="rounded-[22px] border border-border bg-muted p-4">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Suggested prompts</p>
         <div className="mt-3 space-y-2">
           {prompts.map((prompt) => (
-            <div key={prompt} className="rounded-2xl border border-white/8 bg-ws-base px-4 py-3 text-sm text-white/70">
+            <div key={prompt} className="rounded-2xl border border-border bg-ws-base px-4 py-3 text-sm text-foreground/80">
               {prompt}
             </div>
           ))}
         </div>
       </section>
 
-      <section className="rounded-[22px] border border-white/8 bg-black/20 p-4">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Current context</p>
-        <div className="mt-3 space-y-2 text-sm text-white/60">
+      <section className="rounded-[22px] border border-border bg-muted p-4">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Current context</p>
+        <div className="mt-3 space-y-2 text-sm text-muted-foreground">
           <p>Latest request: {latestQuoteRequest ? formatStatusLabel(latestQuoteRequest.status) : "Not requested"}</p>
           <p>Latest run: {latestQuoteRun ? formatStatusLabel(latestQuoteRun.status) : "No run yet"}</p>
         </div>

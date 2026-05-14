@@ -132,7 +132,7 @@ function summaryBadgeClass(status: string) {
     case "failed":
       return "border-rose-500/20 bg-rose-500/10 text-rose-200";
     default:
-      return "border-white/10 bg-white/5 text-white/70";
+      return "border-border bg-accent text-foreground/80";
   }
 }
 
@@ -151,7 +151,7 @@ function LightStatus({
         : "bg-amber-300 shadow-[0_0_16px_rgba(253,224,71,0.55)]";
 
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium text-white/80">
+    <span className="inline-flex items-center gap-2 rounded-full border border-border bg-accent px-2.5 py-1 text-[11px] font-medium text-foreground/80">
       <span className={`h-2.5 w-2.5 rounded-full ${palette}`} />
       {label}
     </span>
@@ -192,26 +192,26 @@ function ExtractionFieldTable({
     : [];
 
   return (
-    <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
+    <div className="rounded-2xl border border-border bg-muted p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-medium text-white">{title}</p>
-          <p className="mt-1 text-xs text-white/50">{sourceLabel}</p>
+          <p className="text-sm font-medium text-foreground">{title}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{sourceLabel}</p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs">
-          <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+          <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
             Build: {workerBuildVersion ?? "Unknown"}
           </Badge>
-          <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+          <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
             Extractor: {extractorVersion ?? "Unknown"}
           </Badge>
           {requestedModel ? (
-            <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+            <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
               Requested: {requestedModel}
             </Badge>
           ) : null}
           {effectiveModel ? (
-            <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+            <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
               Effective: {effectiveModel}
             </Badge>
           ) : null}
@@ -221,14 +221,14 @@ function ExtractionFieldTable({
       {rows.length > 0 ? (
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {rows.map(([label, value]) => (
-            <div key={label} className="rounded-xl border border-white/8 bg-white/5 p-3">
-              <p className="text-xs uppercase tracking-[0.2em] text-white/40">{label}</p>
-              <p className="mt-2 text-sm text-white">{value}</p>
+            <div key={label} className="rounded-xl border border-border bg-accent p-3">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{label}</p>
+              <p className="mt-2 text-sm text-foreground">{value}</p>
             </div>
           ))}
         </div>
       ) : (
-        <p className="mt-4 text-sm text-white/50">No extraction payload is available.</p>
+        <p className="mt-4 text-sm text-muted-foreground">No extraction payload is available.</p>
       )}
 
       <div className="mt-4 flex flex-wrap gap-2 text-xs">
@@ -241,7 +241,7 @@ function ExtractionFieldTable({
             Review clear
           </Badge>
         )}
-        <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+        <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
           Warnings: {warnings.length}
         </Badge>
       </div>
@@ -527,7 +527,7 @@ export function ExtractionLabCard({
 
   return (
     <>
-      <Card className="border-white/10 bg-white/5">
+      <Card className="border-border bg-accent">
         <CardHeader className="gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle>Extraction Lab</CardTitle>
@@ -540,7 +540,7 @@ export function ExtractionLabCard({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="border-white/10 bg-white/5"
+                className="border-border bg-accent"
                 onClick={() => refreshCatalogMutation.mutate()}
                 disabled={refreshCatalogMutation.isPending}
               >
@@ -555,7 +555,7 @@ export function ExtractionLabCard({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="border-white/10 bg-white/5"
+                className="border-border bg-accent"
                 onClick={() => setConfirmAction({ kind: "queue-canonical" })}
                 disabled={disabled || queueExtractionMutation.isPending}
               >
@@ -570,19 +570,19 @@ export function ExtractionLabCard({
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="rounded-2xl border border-white/8 bg-black/20 p-4 text-sm text-white/60">
+          <div className="rounded-2xl border border-border bg-muted p-4 text-sm text-muted-foreground">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+              <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                 Worker: {workerReadinessQuery.data?.workerName ?? "Unknown"}
               </Badge>
-              <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+              <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                 Build: {workerReadinessQuery.data?.workerBuildVersion ?? "Unknown"}
               </Badge>
-              <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+              <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                 Default model: {workerReadinessQuery.data?.drawingExtractionModel ?? "Unknown"}
               </Badge>
               {modelCatalogQuery.data?.updatedAt ? (
-                <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                   Catalog: {formatDateTime(modelCatalogQuery.data.updatedAt)}
                 </Badge>
               ) : null}
@@ -613,22 +613,22 @@ export function ExtractionLabCard({
             const debugRunnable = selectedModel ? writeRunnableModelIds.has(selectedModel.modelId) : true;
 
             return (
-              <div key={part.id} className="rounded-2xl border border-white/8 bg-black/20 p-4">
+              <div key={part.id} className="rounded-2xl border border-border bg-muted p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-medium text-white">{part.name}</p>
+                    <p className="text-sm font-medium text-foreground">{part.name}</p>
                     <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                      <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                      <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                         Canonical extractor: {part.extraction?.extractor_version ?? "None"}
                       </Badge>
-                      <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                      <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                         Canonical build: {canonicalExtraction.workerBuildVersion ?? "Unknown"}
                       </Badge>
                       <Badge className={summaryBadgeClass(latestRun?.status ?? "neutral")}>
                         Latest debug run: {latestRun ? formatStatusLabel(latestRun.status) : "None"}
                       </Badge>
                       {selectedModel ? (
-                        <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                        <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                           {providerLabel(selectedModel.provider)}
                         </Badge>
                       ) : null}
@@ -645,7 +645,7 @@ export function ExtractionLabCard({
                       <Button
                         type="button"
                         variant="outline"
-                        className="border-white/10 bg-white/5"
+                        className="border-border bg-accent"
                         onClick={() => setActiveInspection({ kind: "preview", id: previewRuns[0]!.id })}
                       >
                         <Eye className="mr-2 h-4 w-4" />
@@ -656,7 +656,7 @@ export function ExtractionLabCard({
                       <Button
                         type="button"
                         variant="outline"
-                        className="border-white/10 bg-white/5"
+                        className="border-border bg-accent"
                         onClick={() => setActiveInspection({ kind: "debug", id: latestRun.id })}
                       >
                         <Eye className="mr-2 h-4 w-4" />
@@ -682,7 +682,7 @@ export function ExtractionLabCard({
                         }));
                       }}
                     >
-                      <SelectTrigger id={`debug-model-${part.id}`} className="border-white/10 bg-black/20">
+                      <SelectTrigger id={`debug-model-${part.id}`} className="border-border bg-muted">
                         <SelectValue placeholder="Select model" />
                       </SelectTrigger>
                       <SelectContent>
@@ -717,7 +717,7 @@ export function ExtractionLabCard({
                   <Button
                     type="button"
                     variant="outline"
-                    className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                    className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
                     disabled={disabled || isDebugPending || !debugRunnable}
                     onClick={() => setConfirmAction({ kind: "save-debug", partId: part.id, modelId: selectedModelId })}
                   >
@@ -736,22 +736,22 @@ export function ExtractionLabCard({
                       <button
                         key={run.id}
                         type="button"
-                        className="flex w-full items-center justify-between rounded-xl border border-white/8 bg-white/[0.04] px-3 py-3 text-left transition hover:bg-white/[0.08]"
+                        className="flex w-full items-center justify-between rounded-xl border border-border bg-accent px-3 py-3 text-left transition hover:bg-accent"
                         onClick={() => setActiveInspection({ kind: "preview", id: run.id })}
                       >
                         <div className="flex flex-wrap items-center gap-2 text-xs">
                           <Badge className={summaryBadgeClass(run.result.status)}>{formatStatusLabel(run.result.status)}</Badge>
-                          <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                          <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                             {providerLabel(run.result.provider)}
                           </Badge>
-                          <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                          <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                             {run.result.effectiveModel}
                           </Badge>
-                          <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                          <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                             {formatDuration(run.result.durationMs)}
                           </Badge>
                         </div>
-                        <span className="text-xs text-white/45">{formatDateTime(run.createdAt)}</span>
+                        <span className="text-xs text-muted-foreground">{formatDateTime(run.createdAt)}</span>
                       </button>
                     ))}
                   </div>
@@ -763,10 +763,10 @@ export function ExtractionLabCard({
       </Card>
 
       <Dialog open={Boolean(activeInspection)} onOpenChange={(open) => !open && setActiveInspection(null)}>
-        <DialogContent className="h-[88vh] w-[min(96vw,72rem)] max-w-[72rem] overflow-y-auto border-white/10 bg-ws-overlay p-0 text-white">
-          <DialogHeader className="border-b border-white/8 px-6 py-5">
+        <DialogContent className="h-[88vh] w-[min(96vw,72rem)] max-w-[72rem] overflow-y-auto border-border bg-ws-overlay p-0 text-foreground">
+          <DialogHeader className="border-b border-border px-6 py-5">
             <DialogTitle>Extraction inspection</DialogTitle>
-            <DialogDescription className="text-white/55">
+            <DialogDescription className="text-muted-foreground">
               Compare canonical output with the selected preview or persisted debug run.
             </DialogDescription>
           </DialogHeader>
@@ -779,16 +779,16 @@ export function ExtractionLabCard({
                     <Badge className={summaryBadgeClass(activePreviewRun.result.status)}>
                       {formatStatusLabel(activePreviewRun.result.status)}
                     </Badge>
-                    <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                    <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                       Provider: {providerLabel(activePreviewRun.result.provider)}
                     </Badge>
-                    <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                    <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                       Model: {activePreviewRun.result.effectiveModel}
                     </Badge>
-                    <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                    <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                       Duration: {formatDuration(activePreviewRun.result.durationMs)}
                     </Badge>
-                    <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                    <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                       Cost: {formatCost(activePreviewRun.result.estimatedCostUsd)}
                     </Badge>
                   </>
@@ -798,10 +798,10 @@ export function ExtractionLabCard({
                     <Badge className={summaryBadgeClass(activeDebugRun.status)}>
                       {formatStatusLabel(activeDebugRun.status)}
                     </Badge>
-                    <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                    <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                       Requested model: {activeDebugRun.requested_model}
                     </Badge>
-                    <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                    <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                       Effective model: {activeDebugRun.effective_model ?? "Pending"}
                     </Badge>
                   </>
@@ -849,27 +849,27 @@ export function ExtractionLabCard({
 
                   {activePreviewRun ? (
                     <>
-                      <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
-                        <p className="text-sm font-medium text-white">Parser context</p>
-                        <pre className="mt-3 max-h-64 overflow-auto rounded-xl border border-white/8 bg-ws-inset p-3 text-xs text-white/70">
+                      <div className="rounded-2xl border border-border bg-muted p-4">
+                        <p className="text-sm font-medium text-foreground">Parser context</p>
+                        <pre className="mt-3 max-h-64 overflow-auto rounded-xl border border-border bg-ws-inset p-3 text-xs text-foreground/80">
                           {activePreviewRun.result.parserContext}
                         </pre>
                       </div>
 
-                      <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
-                        <p className="text-sm font-medium text-white">Model attempts</p>
+                      <div className="rounded-2xl border border-border bg-muted p-4">
+                        <p className="text-sm font-medium text-foreground">Model attempts</p>
                         <div className="mt-3 space-y-3">
                           {activePreviewRun.result.modelAttempts.map((attempt) => (
-                            <div key={attempt.attempt} className="rounded-xl border border-white/8 bg-ws-inset p-3">
+                            <div key={attempt.attempt} className="rounded-xl border border-border bg-ws-inset p-3">
                               <div className="flex flex-wrap gap-2 text-xs">
-                                <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                                <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                                   {attempt.attempt}
                                 </Badge>
                                 <Badge className={summaryBadgeClass(attempt.titleBlockSufficient ? "approved" : "needs_review")}>
                                   {attempt.titleBlockSufficient ? "Sufficient" : "Escalated"}
                                 </Badge>
                               </div>
-                              <pre className="mt-3 max-h-64 overflow-auto text-xs text-white/70">
+                              <pre className="mt-3 max-h-64 overflow-auto text-xs text-foreground/80">
                                 {JSON.stringify(attempt.rawResponse, null, 2)}
                               </pre>
                             </div>
@@ -878,9 +878,9 @@ export function ExtractionLabCard({
                       </div>
                     </>
                   ) : (
-                    <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
-                      <p className="text-sm font-medium text-white">Raw debug payload</p>
-                      <pre className="mt-3 max-h-80 overflow-auto rounded-xl border border-white/8 bg-ws-inset p-3 text-xs text-white/70">
+                    <div className="rounded-2xl border border-border bg-muted p-4">
+                      <p className="text-sm font-medium text-foreground">Raw debug payload</p>
+                      <pre className="mt-3 max-h-80 overflow-auto rounded-xl border border-border bg-ws-inset p-3 text-xs text-foreground/80">
                         {JSON.stringify(activeDebugRun?.result, null, 2)}
                       </pre>
                     </div>
@@ -888,14 +888,14 @@ export function ExtractionLabCard({
                 </div>
 
                 <div className="space-y-5">
-                  <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
+                  <div className="rounded-2xl border border-border bg-muted p-4">
                     <div className="flex items-center gap-2">
-                      <ImageIcon className="h-4 w-4 text-white/60" />
-                      <p className="text-sm font-medium text-white">Preview image</p>
+                      <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                      <p className="text-sm font-medium text-foreground">Preview image</p>
                     </div>
-                    <div className="mt-4 overflow-hidden rounded-xl border border-white/8 bg-ws-inset">
+                    <div className="mt-4 overflow-hidden rounded-xl border border-border bg-ws-inset">
                       {isPreviewImageLoading ? (
-                        <div className="flex h-64 items-center justify-center text-white/50">
+                        <div className="flex h-64 items-center justify-center text-muted-foreground">
                           <Loader2 className="h-5 w-5 animate-spin" />
                         </div>
                       ) : previewImageUrl ? (
@@ -905,8 +905,8 @@ export function ExtractionLabCard({
                           className="h-auto w-full object-contain"
                         />
                       ) : (
-                        <div className="flex h-64 flex-col items-center justify-center gap-3 px-4 text-center text-sm text-white/45">
-                          <AlertTriangle className="h-5 w-5 text-white/35" />
+                        <div className="flex h-64 flex-col items-center justify-center gap-3 px-4 text-center text-sm text-muted-foreground">
+                          <AlertTriangle className="h-5 w-5 text-muted-foreground" />
                           <p>No persisted page preview is available.</p>
                         </div>
                       )}
@@ -914,39 +914,39 @@ export function ExtractionLabCard({
                   </div>
 
                   {activePreviewRun ? (
-                    <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
-                      <p className="text-sm font-medium text-white">Preview run</p>
-                      <div className="mt-3 grid gap-3 text-sm text-white/65">
+                    <div className="rounded-2xl border border-border bg-muted p-4">
+                      <p className="text-sm font-medium text-foreground">Preview run</p>
+                      <div className="mt-3 grid gap-3 text-sm text-foreground/80">
                         <div>
-                          <p className="text-xs uppercase tracking-[0.2em] text-white/40">Created</p>
+                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Created</p>
                           <p className="mt-2">{formatDateTime(activePreviewRun.createdAt)}</p>
                         </div>
                         <div>
-                          <p className="text-xs uppercase tracking-[0.2em] text-white/40">Tokens</p>
+                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Tokens</p>
                           <p className="mt-2">
                             {activePreviewRun.result.inputTokens ?? "?"} in / {activePreviewRun.result.outputTokens ?? "?"} out
                           </p>
                         </div>
                         <div>
-                          <p className="text-xs uppercase tracking-[0.2em] text-white/40">Preview assets</p>
+                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Preview assets</p>
                           <p className="mt-2">{activePreviewRun.result.preview.previewAssetCount}</p>
                         </div>
                       </div>
                     </div>
                   ) : activeDebugRun ? (
-                    <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
-                      <p className="text-sm font-medium text-white">Debug run timing</p>
-                      <div className="mt-3 grid gap-3 text-sm text-white/65">
+                    <div className="rounded-2xl border border-border bg-muted p-4">
+                      <p className="text-sm font-medium text-foreground">Debug run timing</p>
+                      <div className="mt-3 grid gap-3 text-sm text-foreground/80">
                         <div>
-                          <p className="text-xs uppercase tracking-[0.2em] text-white/40">Created</p>
+                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Created</p>
                           <p className="mt-2">{formatDateTime(activeDebugRun.created_at)}</p>
                         </div>
                         <div>
-                          <p className="text-xs uppercase tracking-[0.2em] text-white/40">Started</p>
+                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Started</p>
                           <p className="mt-2">{formatDateTime(activeDebugRun.started_at)}</p>
                         </div>
                         <div>
-                          <p className="text-xs uppercase tracking-[0.2em] text-white/40">Completed</p>
+                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Completed</p>
                           <p className="mt-2">{formatDateTime(activeDebugRun.completed_at)}</p>
                         </div>
                       </div>
@@ -961,29 +961,29 @@ export function ExtractionLabCard({
               </div>
             </div>
           ) : (
-            <div className="px-6 py-8 text-sm text-white/55">Select a preview or debug run.</div>
+            <div className="px-6 py-8 text-sm text-muted-foreground">Select a preview or debug run.</div>
           )}
         </DialogContent>
       </Dialog>
 
       <AlertDialog open={Boolean(confirmAction)} onOpenChange={(open) => !open && setConfirmAction(null)}>
-        <AlertDialogContent className="border-white/10 bg-ws-overlay text-white">
+        <AlertDialogContent className="border-border bg-ws-overlay text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {confirmAction?.kind === "queue-canonical" ? "Queue canonical extraction?" : "Save debug run?"}
             </AlertDialogTitle>
-            <AlertDialogDescription className="text-white/60">
+            <AlertDialogDescription className="text-muted-foreground">
               {confirmAction?.kind === "queue-canonical"
                 ? "This will write to the job-backed extraction pipeline."
                 : "This will create a persisted debug run."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-white/10 bg-transparent text-white hover:bg-white/6">
+            <AlertDialogCancel className="border-border bg-transparent text-foreground hover:bg-accent">
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              className="bg-white text-black hover:bg-white/90"
+              className="bg-primary text-primary-foreground hover:bg-accent"
               onClick={() => {
                 if (!confirmAction) {
                   return;

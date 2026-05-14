@@ -62,9 +62,9 @@ export function SearchPartsDialog({
         placeholder="Search parts and projects"
         value={query}
         onValueChange={setQuery}
-        className="border-white/8 bg-ws-overlay text-white placeholder:text-white/40"
+        className="border-border bg-ws-overlay text-foreground placeholder:text-muted-foreground"
       />
-      <CommandList className="max-h-[420px] bg-ws-overlay text-white">
+      <CommandList className="max-h-[420px] bg-ws-overlay text-foreground">
         <CommandEmpty>No matching projects or parts.</CommandEmpty>
 
         <CommandGroup heading="Projects">
@@ -76,12 +76,12 @@ export function SearchPartsDialog({
                 onOpenChange(false);
                 onSelectProject(project.id);
               }}
-              className="rounded-xl data-[selected=true]:bg-white/8 data-[selected=true]:text-white"
+              className="rounded-xl data-[selected=true]:bg-accent data-[selected=true]:text-foreground"
             >
-              <FolderKanban className="mr-2 h-4 w-4 text-white/60" />
+              <FolderKanban className="mr-2 h-4 w-4 text-muted-foreground" />
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <span className="truncate">{project.name}</span>
-                <span className="text-xs text-white/45">{project.partCount}</span>
+                <span className="text-xs text-muted-foreground">{project.partCount}</span>
               </div>
             </CommandItem>
           ))}
@@ -99,12 +99,12 @@ export function SearchPartsDialog({
                   onOpenChange(false);
                   onSelectPart(job.id);
                 }}
-                className="rounded-xl data-[selected=true]:bg-white/8 data-[selected=true]:text-white"
+                className="rounded-xl data-[selected=true]:bg-accent data-[selected=true]:text-foreground"
               >
-                <Shapes className="mr-2 h-4 w-4 text-white/60" />
+                <Shapes className="mr-2 h-4 w-4 text-muted-foreground" />
                 <div className="min-w-0">
                   <p className="truncate">{presentation.title}</p>
-                  <p className="truncate text-xs text-white/45">{presentation.description}</p>
+                  <p className="truncate text-xs text-muted-foreground">{presentation.description}</p>
                 </div>
               </CommandItem>
             );

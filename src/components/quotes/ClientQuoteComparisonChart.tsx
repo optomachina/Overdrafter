@@ -77,11 +77,11 @@ function decorateChartPointVisuals(point: ChartPoint): DecoratedChartPoint {
   const radius = isActive ? point.r + 2 : point.r;
   const fillOpacity = point.disabled ? 0.35 : isActive ? 1 : 0.8;
 
-  let stroke = "rgba(255,255,255,0.3)";
+  let stroke = "var(--hairline)";
   if (point.selected) {
-    stroke = "#ffffff";
+    stroke = "var(--accent-red)";
   } else if (isActive) {
-    stroke = "rgba(255,255,255,0.65)";
+    stroke = "var(--muted-ink)";
   }
 
   let strokeWidth = 1;
@@ -184,13 +184,13 @@ function CustomTooltipContent({ active, payload }: { active?: boolean; payload?:
   const leadDisplay = point.leadTimeDays !== null ? `${point.leadTimeDays} business days` : "Not quoted";
 
   return (
-    <div className="rounded-lg border border-white/10 bg-[#1a1d2e] px-3 py-2.5 shadow-xl">
-      <p className="text-xs font-semibold text-white">
+    <div className="rounded-lg border border-border bg-ws-raised px-3 py-2.5 shadow-xl">
+      <p className="text-xs font-semibold text-foreground">
         {point.supplier}
         {point.tier ? ` · ${point.tier}` : ""}
         {point.sourcing ? ` · ${point.sourcing}` : ""}
       </p>
-      <div className="mt-1.5 space-y-0.5 text-[11px] text-white/55">
+      <div className="mt-1.5 space-y-0.5 text-[11px] text-muted-foreground">
         <p>{formatCurrency(point.unitPrice)}/unit</p>
         <p>Total: {formatCurrency(point.totalPrice)}</p>
         <p>Lead: {leadDisplay}</p>
@@ -255,7 +255,7 @@ export function ClientQuoteComparisonChart({
   return (
     <ChartContainer config={chartConfig} className="h-[420px] w-full">
       <ScatterChart margin={{ top: 16, right: 20, bottom: 24, left: 6 }}>
-        <CartesianGrid stroke="rgba(255,255,255,0.06)" />
+        <CartesianGrid stroke="var(--hairline)" />
         <XAxis
           type="number"
           dataKey="x"
@@ -274,7 +274,7 @@ export function ClientQuoteComparisonChart({
             value="Lead Time (business days)"
             position="insideBottom"
             offset={-12}
-            style={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }}
+            style={{ fill: "var(--muted-ink)", fontSize: 10 }}
           />
         </XAxis>
         <YAxis
@@ -291,7 +291,7 @@ export function ClientQuoteComparisonChart({
             angle={-90}
             position="insideLeft"
             offset={4}
-            style={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }}
+            style={{ fill: "var(--muted-ink)", fontSize: 10 }}
           />
         </YAxis>
         <ZAxis
@@ -305,7 +305,7 @@ export function ClientQuoteComparisonChart({
           <ReferenceArea
             x1={naZoneStart}
             x2={xDomainMax}
-            fill="rgba(255,255,255,0.03)"
+            fill="var(--surface-2)"
             strokeOpacity={0}
           >
             <Label
@@ -313,7 +313,7 @@ export function ClientQuoteComparisonChart({
               position="insideTop"
               offset={8}
               style={{
-                fill: "rgba(255,255,255,0.25)",
+                fill: "var(--muted-ink)",
                 fontSize: 10,
                 fontWeight: 500,
               }}

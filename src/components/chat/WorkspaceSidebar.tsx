@@ -271,7 +271,7 @@ function isAdditiveSelectionInput(input: { ctrlKey: boolean; metaKey: boolean })
 }
 
 function SectionTitle({ children }: { children: ReactNode }) {
-  return <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-white/40">{children}</p>;
+  return <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{children}</p>;
 }
 
 function SidebarSectionHeading({
@@ -291,7 +291,7 @@ function SidebarSectionHeading({
         type="button"
         aria-expanded={expanded}
         aria-label={`${expanded ? "Collapse" : "Expand"} ${label.toLowerCase()}`}
-        className="flex items-center gap-1 rounded-[10px] py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-white/38 transition-colors hover:text-white/68"
+        className="flex items-center gap-1 rounded-[10px] py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-foreground/80 transition-colors hover:text-foreground/80"
         onClick={onToggle}
       >
         <span>{label}</span>
@@ -312,15 +312,15 @@ type FilterOptionProps = {
 function FilterOption({ icon, label, selected, onSelect }: FilterOptionProps) {
   return (
     <DropdownMenuItem
-      className="flex items-center gap-3 rounded-[10px] px-2.5 py-2 text-sm text-white/90 focus:bg-white/[0.08] focus:text-white"
+      className="flex items-center gap-3 rounded-[10px] px-2.5 py-2 text-sm text-foreground/80 focus:bg-accent focus:text-foreground"
       onSelect={(event) => {
         event.preventDefault();
         onSelect();
       }}
     >
-      <span className="text-white/[0.9]">{icon}</span>
+      <span className="text-foreground">{icon}</span>
       <span>{label}</span>
-      {selected ? <Check className="ml-auto h-4 w-4 text-white/82" /> : null}
+      {selected ? <Check className="ml-auto h-4 w-4 text-foreground/80" /> : null}
     </DropdownMenuItem>
   );
 }
@@ -1017,11 +1017,11 @@ export function WorkspaceSidebar({
                 "group flex w-full items-center gap-2.5 rounded-[10px] text-left transition-colors",
                 SIDEBAR_ROW_PADDING_CLASS,
                 isSelected || activeJobId === job.id
-                  ? "bg-white/[0.08] text-white"
-                  : "text-white/[0.8] hover:bg-white/[0.06] hover:text-white",
+                  ? "bg-accent text-foreground"
+                  : "text-foreground hover:bg-accent hover:text-foreground",
               )}
             >
-            <Shapes className="h-4 w-4 shrink-0 text-white/[0.9]" />
+            <Shapes className="h-4 w-4 shrink-0 text-foreground" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <p className="min-w-0 truncate text-sm leading-5">{presentation.title}</p>
@@ -1030,12 +1030,12 @@ export function WorkspaceSidebar({
                 ) : null}
               </div>
               {!nestedInProject && parentProjectNames.length > 0 ? (
-                <p className="truncate text-[12px] leading-4 text-white/[0.38]">{parentProjectNames.join(" · ")}</p>
+                <p className="truncate text-[12px] leading-4 text-foreground">{parentProjectNames.join(" · ")}</p>
               ) : null}
             </div>
             {isPinned ? (
               <div className="flex items-center gap-2">
-                <Star className="h-3.5 w-3.5 fill-current text-white/[0.72]" />
+                <Star className="h-3.5 w-3.5 fill-current text-foreground" />
               </div>
             ) : null}
           </div>
@@ -1197,11 +1197,11 @@ export function WorkspaceSidebar({
                 "group relative flex w-full items-center gap-2.5 rounded-[10px] text-left transition-colors",
                 SIDEBAR_ROW_PADDING_CLASS,
                 isDragging ? "opacity-55" : "",
-                dropPosition === "before" ? "border-t border-white/70" : "",
-                dropPosition === "after" ? "border-b border-white/70" : "",
+                dropPosition === "before" ? "border-t border-border" : "",
+                dropPosition === "after" ? "border-b border-border" : "",
                 isActive
-                  ? "bg-white/[0.08] text-white"
-                  : "text-white/[0.8] hover:bg-white/[0.06] hover:text-white",
+                  ? "bg-accent text-foreground"
+                  : "text-foreground hover:bg-accent hover:text-foreground",
               )}
             >
               {isActive ? (
@@ -1218,14 +1218,14 @@ export function WorkspaceSidebar({
                     event.stopPropagation();
                     toggleProjectExpanded(project.id);
                   }}
-                  className="rounded-[8px] p-0.5 text-white/[0.72] transition-colors hover:bg-white/[0.08] hover:text-white"
+                  className="rounded-[8px] p-0.5 text-foreground transition-colors hover:bg-accent hover:text-foreground"
                 >
                   <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", expanded ? "rotate-90" : "")} />
                 </button>
               ) : (
                 <span className="h-4 w-4 shrink-0" />
               )}
-              <Folder className="h-4 w-4 shrink-0 text-white/[0.9]" />
+              <Folder className="h-4 w-4 shrink-0 text-foreground" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <p className="min-w-0 truncate text-sm leading-5">{project.name}</p>
@@ -1236,12 +1236,12 @@ export function WorkspaceSidebar({
               </div>
               {isPinned ? (
                 <div className="flex items-center gap-2">
-                  <Star className="h-3.5 w-3.5 fill-current text-white/[0.72]" />
+                  <Star className="h-3.5 w-3.5 fill-current text-foreground" />
                 </div>
               ) : null}
             </div>
           </ContextMenuTrigger>
-          <ContextMenuContent className="workspace-shell w-56 rounded-xl border-white/[0.08] bg-ws-raised p-1 text-white">
+          <ContextMenuContent className="workspace-shell w-56 rounded-xl border-border bg-ws-raised p-1 text-foreground">
             <ContextMenuItem onSelect={() => onSelectProject(project.id)}>Edit project</ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
@@ -1285,7 +1285,7 @@ export function WorkspaceSidebar({
         </ContextMenu>
 
         {expanded ? (
-          <div className="ml-[14px] space-y-1 border-l border-white/[0.08] pl-3">
+          <div className="ml-[14px] space-y-1 border-l border-border pl-3">
             {sortedProjectJobs.map((job) => renderPartRow(job, { contextProjectId: project.id, nestedInProject: true }))}
           </div>
         ) : null}
@@ -1305,7 +1305,7 @@ export function WorkspaceSidebar({
         size="icon"
         aria-label="New project"
         disabled={!canCreateProject}
-        className="h-8 w-8 rounded-[10px] text-white/[0.92] hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+        className="h-8 w-8 rounded-[10px] text-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
         onClick={() => {
           onCreateProject?.();
         }}
@@ -1319,14 +1319,14 @@ export function WorkspaceSidebar({
             variant="ghost"
             size="icon"
             aria-label="Sort and filter sidebar"
-            className="h-8 w-8 rounded-[10px] text-white/[0.92] hover:bg-white/[0.06] hover:text-white"
+            className="h-8 w-8 rounded-[10px] text-foreground hover:bg-accent hover:text-foreground"
           >
             <ListFilter className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="workspace-shell w-64 rounded-xl border-white/[0.08] bg-ws-raised p-1.5 text-white"
+          className="workspace-shell w-64 rounded-xl border-border bg-ws-raised p-1.5 text-foreground"
         >
           <SectionTitle>Sort by</SectionTitle>
           <FilterOption
@@ -1342,7 +1342,7 @@ export function WorkspaceSidebar({
             onSelect={() => persistFilters({ ...filters, sortBy: "updated" })}
           />
 
-          <DropdownMenuSeparator className="my-1 bg-white/[0.08]" />
+          <DropdownMenuSeparator className="my-1 bg-accent" />
 
           <SectionTitle>Show</SectionTitle>
           <FilterOption
@@ -1372,12 +1372,12 @@ export function WorkspaceSidebar({
                 type="button"
                 variant="ghost"
                 className={cn(
-                  "h-10 w-full justify-start rounded-[10px] bg-transparent text-white/[0.94] hover:bg-white/[0.06] hover:text-white",
+                  "h-10 w-full justify-start rounded-[10px] bg-transparent text-foreground hover:bg-accent hover:text-foreground",
                   SIDEBAR_ACTION_BUTTON_PADDING_CLASS,
                 )}
                 onClick={onCreateJob}
               >
-                <span className="flex w-5 shrink-0 items-center justify-center text-white/[0.96]">
+                <span className="flex w-5 shrink-0 items-center justify-center text-foreground">
                   <PlusSquare aria-hidden="true" className="h-4 w-4" />
                 </span>
                 <span className="truncate">New Job</span>
@@ -1389,12 +1389,12 @@ export function WorkspaceSidebar({
                 type="button"
                 variant="ghost"
                 className={cn(
-                  "h-10 w-full justify-start rounded-[10px] bg-transparent text-white/[0.94] hover:bg-white/[0.06] hover:text-white",
+                  "h-10 w-full justify-start rounded-[10px] bg-transparent text-foreground hover:bg-accent hover:text-foreground",
                   SIDEBAR_ACTION_BUTTON_PADDING_CLASS,
                 )}
                 onClick={onSearch}
               >
-                <span className="flex w-5 shrink-0 items-center justify-center text-white/[0.96]">
+                <span className="flex w-5 shrink-0 items-center justify-center text-foreground">
                   <Search aria-hidden="true" className="h-4 w-4" />
                 </span>
                 <span className="truncate">Search</span>
@@ -1417,7 +1417,7 @@ export function WorkspaceSidebar({
               {visibleProjects.length > 0 ? (
                 visibleProjects.map((project) => renderProjectRow(project, visibleJobsByProjectId.get(project.id) ?? []))
               ) : (
-                <div className="px-2 py-2 text-sm text-white/[0.42]">{noProjectsMessage}</div>
+                <div className="px-2 py-2 text-sm text-foreground">{noProjectsMessage}</div>
               )}
             </div>
           ) : (
@@ -1432,7 +1432,7 @@ export function WorkspaceSidebar({
               {visibleStandaloneParts.length > 0 ? (
                 visibleStandaloneParts.map((job) => renderPartRow(job))
               ) : (
-                <div className="px-2 py-2 text-sm text-white/[0.42]">{noPartsMessage}</div>
+                <div className="px-2 py-2 text-sm text-foreground">{noPartsMessage}</div>
               )}
             </div>
           ) : null}
@@ -1526,10 +1526,10 @@ export function WorkspaceSidebar({
           }
         }}
       >
-        <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-ws-raised text-white">
+        <DialogContent className="workspace-shell rounded-2xl border-border bg-ws-raised text-foreground">
           <DialogHeader>
             <DialogTitle>Archive project</DialogTitle>
-            <DialogDescription className="text-white/55">
+            <DialogDescription className="text-muted-foreground">
               {projectToArchive
                 ? `Archive ${projectToArchive.name}. Parts only in this project will also be archived.`
                 : "Archive this project."}
@@ -1538,7 +1538,7 @@ export function WorkspaceSidebar({
           <DialogFooter>
             <Button
               variant="outline"
-              className="rounded-[10px] border-white/[0.08] bg-transparent text-white hover:bg-white/[0.06]"
+              className="rounded-[10px] border-border bg-transparent text-foreground hover:bg-accent"
               onClick={() => setProjectToArchive(null)}
             >
               Cancel
@@ -1576,10 +1576,10 @@ export function WorkspaceSidebar({
           }
         }}
       >
-        <DialogContent className="workspace-shell rounded-2xl border-white/[0.08] bg-ws-raised text-white">
+        <DialogContent className="workspace-shell rounded-2xl border-border bg-ws-raised text-foreground">
           <DialogHeader>
             <DialogTitle>Dissolve project</DialogTitle>
-            <DialogDescription className="text-white/55">
+            <DialogDescription className="text-muted-foreground">
               {projectToDissolve
                 ? `Dissolve ${projectToDissolve.name}. The project will be deleted and its parts will remain in Parts.`
                 : "Dissolve this project."}
@@ -1588,7 +1588,7 @@ export function WorkspaceSidebar({
           <DialogFooter>
             <Button
               variant="outline"
-              className="rounded-[10px] border-white/[0.08] bg-transparent text-white hover:bg-white/[0.06]"
+              className="rounded-[10px] border-border bg-transparent text-foreground hover:bg-accent"
               onClick={() => setProjectToDissolve(null)}
             >
               Cancel

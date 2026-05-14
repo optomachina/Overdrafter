@@ -25,39 +25,39 @@ export function InternalJobOverviewSection({ job }: InternalJobOverviewSectionPr
       ) : null}
 
       <section className="grid gap-4 lg:grid-cols-4">
-        <Card className="border-white/10 bg-white/5">
+        <Card className="border-border bg-accent">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-white/70">Job status</CardTitle>
+            <CardTitle className="text-sm font-medium text-foreground/80">Job status</CardTitle>
           </CardHeader>
           <CardContent>
-            <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/80">
+            <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
               {formatStatusLabel(job.job.status)}
             </Badge>
           </CardContent>
         </Card>
-        <Card className="border-white/10 bg-white/5">
+        <Card className="border-border bg-accent">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-white/70">Parts</CardTitle>
+            <CardTitle className="text-sm font-medium text-foreground/80">Parts</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-semibold">{job.parts.length}</p>
           </CardContent>
         </Card>
-        <Card className="border-white/10 bg-white/5">
+        <Card className="border-border bg-accent">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-white/70">Files</CardTitle>
+            <CardTitle className="text-sm font-medium text-foreground/80">Files</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-semibold">{job.files.length}</p>
           </CardContent>
         </Card>
-        <Card className="border-white/10 bg-white/5">
+        <Card className="border-border bg-accent">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-white/70">Pricing policy</CardTitle>
+            <CardTitle className="text-sm font-medium text-foreground/80">Pricing policy</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-lg font-semibold">{job.pricingPolicy?.version ?? "v1_markup_20"}</p>
-            <p className="mt-1 text-sm text-white/55">{job.pricingPolicy?.markup_percent ?? 20}% markup</p>
+            <p className="mt-1 text-sm text-muted-foreground">{job.pricingPolicy?.markup_percent ?? 20}% markup</p>
           </CardContent>
         </Card>
       </section>

@@ -56,11 +56,11 @@ export function FixturePanel({ hideFloatingButton = false }: { hideFloatingButto
   return (
     <div className="fixed bottom-20 right-4 z-40 flex max-w-[min(92vw,22rem)] flex-col items-end gap-3">
       {open ? (
-        <div className="rounded-3xl border border-white/10 bg-[#0f172a]/96 p-4 text-white shadow-2xl backdrop-blur">
+        <div className="rounded-3xl border border-border bg-[#0f172a]/96 p-4 text-foreground shadow-2xl backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-white/45">Fixture mode</p>
-              <p className="mt-2 text-sm text-white/70">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Fixture mode</p>
+              <p className="mt-2 text-sm text-foreground/80">
                 Jump into repeatable client workspace scenarios without using Supabase.
               </p>
             </div>
@@ -68,7 +68,7 @@ export function FixturePanel({ hideFloatingButton = false }: { hideFloatingButto
               type="button"
               size="sm"
               variant="outline"
-              className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+              className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
               onClick={() => navigate(exitHref)}
             >
               Exit
@@ -81,13 +81,13 @@ export function FixturePanel({ hideFloatingButton = false }: { hideFloatingButto
               className={cn(
                 "rounded-2xl border px-4 py-3 text-left transition",
                 location.pathname === "/debug/state-gallery"
-                  ? "border-white/30 bg-white/12"
-                  : "border-white/8 bg-white/[0.04] hover:bg-white/[0.08]",
+                  ? "border-border bg-accent"
+                  : "border-border bg-accent hover:bg-accent",
               )}
               onClick={() => navigate(appendDebugQuery("/debug/state-gallery", location.search))}
             >
-              <p className="text-sm font-medium text-white">State gallery</p>
-              <p className="mt-1 text-xs text-white/55">
+              <p className="text-sm font-medium text-foreground">State gallery</p>
+              <p className="mt-1 text-xs text-muted-foreground">
                 Review auth, workspace, part, and project fixture surfaces from one page.
               </p>
             </button>
@@ -99,13 +99,13 @@ export function FixturePanel({ hideFloatingButton = false }: { hideFloatingButto
                 className={cn(
                   "rounded-2xl border px-4 py-3 text-left transition",
                   activeScenario?.id === scenario.id
-                    ? "border-white/30 bg-white/12"
-                    : "border-white/8 bg-white/[0.04] hover:bg-white/[0.08]",
+                    ? "border-border bg-accent"
+                    : "border-border bg-accent hover:bg-accent",
                 )}
                 onClick={() => navigate(appendDebugQuery(scenario.canonicalPath, location.search))}
               >
-                <p className="text-sm font-medium text-white">{scenario.label}</p>
-                <p className="mt-1 text-xs text-white/55">{scenario.description}</p>
+                <p className="text-sm font-medium text-foreground">{scenario.label}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{scenario.description}</p>
               </button>
             ))}
           </div>
@@ -116,7 +116,7 @@ export function FixturePanel({ hideFloatingButton = false }: { hideFloatingButto
         <Button
           type="button"
           size="sm"
-          className="w-fit gap-2 rounded-full border border-white/12 bg-[#111827]/92 text-white shadow-2xl hover:bg-[#1f2937]"
+          className="w-fit gap-2 rounded-full border border-border bg-[#111827]/92 text-foreground shadow-2xl hover:bg-[#1f2937]"
           onClick={() => setOpen((current) => !current)}
         >
           <FlaskConical className="h-4 w-4" />

@@ -2,7 +2,7 @@ import type { ClientQuoteRequestStatus } from "@/features/quotes/types";
 
 // Canonical client-facing badge tokens for quote request statuses.
 const QUOTE_REQUEST_STATUS_BADGE_CLASS_NAMES: Record<ClientQuoteRequestStatus, string> = {
-  not_requested: "border border-white/10 bg-white/6 text-white/70",
+  not_requested: "border border-border bg-accent text-foreground/80",
   queued: "border border-amber-400/20 bg-amber-500/10 text-amber-100",
   requesting: "border border-amber-400/20 bg-amber-500/10 text-amber-100",
   received: "border border-emerald-400/20 bg-emerald-500/10 text-emerald-100",

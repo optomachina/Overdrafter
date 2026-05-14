@@ -271,7 +271,7 @@ const JobCreate = () => {
       ) : null}
 
       <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-        <Card className="border-white/10 bg-white/5">
+        <Card className="border-border bg-accent">
           <CardHeader>
             <CardTitle>Job details</CardTitle>
           </CardHeader>
@@ -284,7 +284,7 @@ const JobCreate = () => {
                 onChange={(event) => setTitle(event.target.value)}
                 disabled={!isVerifiedAuth}
                 placeholder="Flight bracket RFQ"
-                className="border-white/10 bg-black/20"
+                className="border-border bg-muted"
               />
             </div>
             <div className="space-y-2">
@@ -295,7 +295,7 @@ const JobCreate = () => {
                 onChange={(event) => setDescription(event.target.value)}
                 disabled={!isVerifiedAuth}
                 placeholder="Customer-facing CNC job for bracket and housing components."
-                className="min-h-32 border-white/10 bg-black/20"
+                className="min-h-32 border-border bg-muted"
               />
             </div>
             <div className="space-y-2">
@@ -306,33 +306,33 @@ const JobCreate = () => {
                 onChange={(event) => setTagInput(event.target.value)}
                 disabled={!isVerifiedAuth}
                 placeholder="Demo, Priority, Customer A"
-                className="border-white/10 bg-black/20"
+                className="border-border bg-muted"
               />
-              <p className="text-xs text-white/45">
+              <p className="text-xs text-muted-foreground">
                 Optional comma-separated labels for filtering and internal organization.
               </p>
             </div>
-            <div className="rounded-2xl border border-white/8 bg-black/20 p-4 text-sm text-white/55">
-              <p className="font-medium text-white">Account</p>
+            <div className="rounded-2xl border border-border bg-muted p-4 text-sm text-muted-foreground">
+              <p className="font-medium text-foreground">Account</p>
               <p className="mt-1">{activeMembership.organizationName}</p>
-              <p className="mt-4 font-medium text-white">Role</p>
+              <p className="mt-4 font-medium text-foreground">Role</p>
               <p className="mt-1">{formatStatusLabel(activeMembership.role)}</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-white/10 bg-white/5">
+        <Card className="border-border bg-accent">
           <CardHeader className="flex flex-row items-center justify-between gap-3">
             <div>
               <CardTitle>Files</CardTitle>
-              <p className="mt-2 text-sm text-white/55">
+              <p className="mt-2 text-sm text-muted-foreground">
                 Upload STEP or similar CAD files plus PDF drawings. Matching is filename-based and
                 case-insensitive.
               </p>
             </div>
             <Button
               variant="outline"
-              className="border-white/10 bg-white/5"
+              className="border-border bg-accent"
               onClick={() => fileInputRef.current?.click()}
               disabled={!isVerifiedAuth}
             >
@@ -350,10 +350,10 @@ const JobCreate = () => {
             />
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded-3xl border border-dashed border-white/10 bg-black/20 p-6 text-center">
+            <div className="rounded-3xl border border-dashed border-border bg-muted p-6 text-center">
               <FileUp className="mx-auto h-10 w-10 text-primary" />
               <p className="mt-4 font-medium">Drop files into the picker above</p>
-              <p className="mt-2 text-sm text-white/50">
+              <p className="mt-2 text-sm text-muted-foreground">
                 Supported: STEP, STP, IGES, SolidWorks part files, Parasolid, and PDF drawings.
                 STEP uploads get a local 3D preview before submission.
               </p>
@@ -364,7 +364,7 @@ const JobCreate = () => {
                 {fileSummary.map((file, index) => (
                   <div
                     key={`${file.name}-${index}`}
-                    className="rounded-[1.75rem] border border-white/8 bg-black/20 p-3"
+                    className="rounded-[1.75rem] border border-border bg-muted p-3"
                   >
                     <div className="flex flex-col gap-3 sm:flex-row">
                       {isStepPreviewableFile(file.name) ? (
@@ -373,17 +373,17 @@ const JobCreate = () => {
                           className="h-40 w-full shrink-0 sm:w-40"
                         />
                       ) : (
-                        <div className="flex h-40 w-full shrink-0 flex-col items-center justify-center rounded-[1.4rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(11,15,24,0.95))] sm:w-40">
-                          <div className="rounded-full border border-white/10 bg-white/5 p-3">
+                        <div className="flex h-40 w-full shrink-0 flex-col items-center justify-center rounded-[1.4rem] border border-border bg-muted sm:w-40">
+                          <div className="rounded-full border border-border bg-accent p-3">
                             <FileUp className="h-6 w-6 text-primary" />
                           </div>
                           <Badge
                             variant="secondary"
-                            className="mt-4 border border-white/10 bg-white/5 text-white/70"
+                            className="mt-4 border border-border bg-accent text-foreground/80"
                           >
                             {formatStatusLabel(file.kind)}
                           </Badge>
-                          <p className="mt-2 px-3 text-center text-xs text-white/45">
+                          <p className="mt-2 px-3 text-center text-xs text-muted-foreground">
                             Preview available for `.step` and `.stp` uploads.
                           </p>
                         </div>
@@ -392,10 +392,10 @@ const JobCreate = () => {
                       <div className="flex min-w-0 flex-1 flex-col justify-between gap-4 py-1">
                         <div className="min-w-0">
                           <p className="truncate font-medium">{file.name}</p>
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-white/50">
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             <Badge
                               variant="secondary"
-                              className="border border-white/10 bg-white/5 text-white/70"
+                              className="border border-border bg-accent text-foreground/80"
                             >
                               {formatStatusLabel(file.kind)}
                             </Badge>
@@ -412,7 +412,7 @@ const JobCreate = () => {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="text-white/55 hover:bg-white/5 hover:text-white"
+                            className="text-muted-foreground hover:bg-accent hover:text-foreground"
                             onClick={() => removeFile(index)}
                             disabled={!isVerifiedAuth}
                           >
@@ -497,10 +497,10 @@ const JobCreate = () => {
       <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col px-4 pb-8 pt-4 md:px-6 md:pb-10 md:pt-6">
         <div className="flex flex-col gap-4 pb-8 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h1 className="text-[2rem] font-medium tracking-[-0.02em] text-white md:text-[2.35rem]">
+            <h1 className="text-[2rem] font-medium tracking-[-0.02em] text-foreground md:text-[2.35rem]">
               Create CNC Quote Job
             </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/55">
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
               Create a job, attach CAD and drawing files, match them into parts, and queue
               structured extraction.
             </p>

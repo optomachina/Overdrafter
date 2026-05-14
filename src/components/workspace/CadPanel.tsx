@@ -8,7 +8,7 @@ type CadPanelProps = {
 export function CadPanel({ cadFile }: CadPanelProps) {
   return (
     <div>
-      <p className="mb-[6px] text-[9px] font-bold uppercase tracking-[0.14em] text-white/20">CAD model</p>
+      <p className="mb-[6px] text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">CAD model</p>
       <ClientCadPreviewPanel cadFile={cadFile ?? null} />
     </div>
   );

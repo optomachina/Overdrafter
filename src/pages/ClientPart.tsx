@@ -77,14 +77,14 @@ type LocalComment = {
 
 function CommentCard({ comment }: { comment: LocalComment }) {
   return (
-    <article className="rounded-lg border border-white/10 bg-black/20 p-4">
+    <article className="rounded-lg border border-border bg-muted p-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-medium text-white">{comment.authorLabel}</p>
-        <p className="text-xs uppercase tracking-[0.16em] text-white/35">
+        <p className="text-sm font-medium text-foreground">{comment.authorLabel}</p>
+        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
           {new Date(comment.createdAt).toLocaleString()}
         </p>
       </div>
-      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-white/65">{comment.body}</p>
+      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-foreground/80">{comment.body}</p>
     </article>
   );
 }
@@ -422,6 +422,40 @@ const ClientPart = () => {
     ? { ...extractionDefaults, ...dbDefaults }
     : extractionDefaults;
 
+  const partInfoPanel =
+    partDetail?.job && presentation ? (
+      <PartInfoPanel
+        effectiveRequestDraft={effectiveRequestDraft}
+        quoteQuantityInput={quoteQuantityInput}
+        onQuoteQuantityInputChange={setQuoteQuantityInput}
+        onDraftChange={handleDraftChange}
+        onSave={handleSaveRequest}
+        onUploadRevision={attachFilesPicker.openFilePicker}
+        isSaving={saveRequestMutation.isPending}
+        onResetField={handleResetField}
+        onResetAllFields={handleResetAllFields}
+        fieldDefaults={partFieldDefaults}
+        statusContent={
+          <>
+            <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
+            {quoteRequestViewModel ? (
+              <ClientQuoteRequestStatusCard
+                status={quoteRequestViewModel.status}
+                tone={quoteRequestViewModel.tone}
+                label={quoteRequestViewModel.label}
+                detail={quoteRequestViewModel.detail}
+                actionLabel={quoteRequestViewModel.action.label}
+                actionDisabled={quoteRequestViewModel.action.disabled || isCancelingQuoteRequest}
+                blockerReasons={quoteRequestViewModel.blockerReasons}
+                isBusy={isRequestingQuote || isCancelingQuoteRequest}
+                onAction={quoteRequestViewModel.action.kind === "none" ? null : handleQuoteRequestAction}
+              />
+            ) : null}
+          </>
+        }
+      />
+    ) : null;
+
   return (
     <>
       <AlertDialog open={showCancelRequestDialog} onOpenChange={setShowCancelRequestDialog}>
@@ -506,11 +540,13 @@ const ClientPart = () => {
             onDeleteArchivedParts={handleDeleteArchivedParts}
           />
         }
+        rightRailLabel="Part info"
+        rightRailContent={partInfoPanel}
       >
         <div className="mx-auto flex w-full max-w-[1480px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
           {isPartDetailLoading ? (
             <div className="flex min-h-[320px] items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-white/60" />
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : partDetail?.job && presentation ? (
             <>
@@ -519,20 +555,20 @@ const ClientPart = () => {
                 description={presentation.description}
                 details={
                   <div className="space-y-4">
-                    <div className="flex flex-wrap items-center gap-2 text-sm text-white/55">
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                       {breadcrumbProject ? (
                         <>
                           <button
                             type="button"
-                            className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-white/70 transition hover:bg-white/8 hover:text-white"
+                            className="rounded-full border border-border bg-muted px-3 py-1 text-foreground/80 transition hover:bg-accent hover:text-foreground"
                             onClick={() => navigate(`/projects/${breadcrumbProject.id}`)}
                           >
                             {breadcrumbProject.name}
                           </button>
-                          <span className="text-white/25">/</span>
+                          <span className="text-muted-foreground">/</span>
                         </>
                       ) : null}
-                      <span className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-white">
+                      <span className="rounded-full border border-border bg-accent px-3 py-1 text-foreground">
                         {displayPartTitle}
                       </span>
                     </div>
@@ -549,7 +585,7 @@ const ClientPart = () => {
                             size="icon"
                             aria-label={isFavorite ? "Unfavorite part" : "Favorite part"}
                             className={cn(
-                              "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
+                              "rounded-full border-border bg-transparent text-foreground hover:bg-accent",
                               isFavorite &&
                                 "border-amber-400/30 bg-amber-500/16 text-amber-200 hover:bg-amber-500/22",
                             )}
@@ -559,7 +595,7 @@ const ClientPart = () => {
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          {isFavorite ? "Remove favorite" : "Add favorite"} <span className="ml-2 text-white/45">F</span>
+                          {isFavorite ? "Remove favorite" : "Add favorite"} <span className="ml-2 text-muted-foreground">F</span>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -569,7 +605,7 @@ const ClientPart = () => {
                         <Button
                           type="button"
                           variant="outline"
-                          className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                          className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
                           onClick={() => {
                             const previousId =
                               revisionOptions[
@@ -585,7 +621,7 @@ const ClientPart = () => {
                         <Button
                           type="button"
                           variant="outline"
-                          className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                          className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
                           onClick={() => {
                             const nextId =
                               revisionOptions[(selectedRevisionIndex + 1) % revisionOptions.length]?.jobId;
@@ -602,7 +638,7 @@ const ClientPart = () => {
                       <Button
                         type="button"
                         variant="outline"
-                        className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                        className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
                         onClick={() => navigate(`/projects/${projectMemberships[0]!.project.id}`)}
                       >
                         Open project
@@ -612,7 +648,7 @@ const ClientPart = () => {
                       <Button
                         type="button"
                         variant="outline"
-                        className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                        className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
                         onClick={() => setShowMoveDialog(true)}
                       >
                         <FolderInput className="mr-2 h-4 w-4" />
@@ -622,7 +658,7 @@ const ClientPart = () => {
                     <Button
                       type="button"
                       variant="outline"
-                      className="rounded-full border-white/10 bg-white/8 text-white hover:bg-white/12"
+                      className="rounded-full border-border bg-accent text-foreground hover:bg-accent/70"
                       onClick={attachFilesPicker.openFilePicker}
                     >
                       <Upload className="mr-2 h-4 w-4" />
@@ -635,14 +671,14 @@ const ClientPart = () => {
                           variant="outline"
                           size="icon"
                           aria-label="Issue detail actions"
-                          className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                          className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
                         >
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent
                         align="end"
-                        className="w-64 border-white/10 bg-ws-overlay p-2 text-white"
+                        className="w-64 border-border bg-ws-overlay p-2 text-foreground"
                       >
                         <DropdownMenuItem
                           onSelect={(event) => {
@@ -705,7 +741,7 @@ const ClientPart = () => {
                           <History className="mr-2 h-4 w-4" />
                           Show version history
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator className="bg-white/10" />
+                        <DropdownMenuSeparator className="bg-border" />
                         <DropdownMenuItem
                           onSelect={(event) => {
                             event.preventDefault();
@@ -747,11 +783,11 @@ const ClientPart = () => {
               </ClientPartHeader>
 
               <Tabs defaultValue="quote" className="flex flex-col gap-4">
-                <TabsList className="h-auto flex-wrap justify-start gap-2 rounded-[22px] border border-white/8 bg-ws-card p-2">
+                <TabsList className="h-auto flex-wrap justify-start gap-2 rounded-[22px] border border-border bg-ws-card p-2">
                   <TabsTrigger value="quote" className="rounded-full px-4 py-2">
                     Quote
                   </TabsTrigger>
-                  <TabsTrigger value="request" className="rounded-full px-4 py-2">
+                  <TabsTrigger value="request" className="rounded-full px-4 py-2 md:hidden">
                     Request
                   </TabsTrigger>
                   <TabsTrigger value="activity" className="rounded-full px-4 py-2">
@@ -803,53 +839,24 @@ const ClientPart = () => {
                   />
                 </TabsContent>
 
-                <TabsContent value="request" className="mt-0">
-                  <PartInfoPanel
-                    effectiveRequestDraft={effectiveRequestDraft}
-                    quoteQuantityInput={quoteQuantityInput}
-                    onQuoteQuantityInputChange={setQuoteQuantityInput}
-                    onDraftChange={handleDraftChange}
-                    onSave={handleSaveRequest}
-                    onUploadRevision={attachFilesPicker.openFilePicker}
-                    isSaving={saveRequestMutation.isPending}
-                    onResetField={handleResetField}
-                    onResetAllFields={handleResetAllFields}
-                    fieldDefaults={partFieldDefaults}
-                    statusContent={
-                      <>
-                        <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
-                        {quoteRequestViewModel ? (
-                          <ClientQuoteRequestStatusCard
-                            status={quoteRequestViewModel.status}
-                            tone={quoteRequestViewModel.tone}
-                            label={quoteRequestViewModel.label}
-                            detail={quoteRequestViewModel.detail}
-                            actionLabel={quoteRequestViewModel.action.label}
-                            actionDisabled={quoteRequestViewModel.action.disabled || isCancelingQuoteRequest}
-                            blockerReasons={quoteRequestViewModel.blockerReasons}
-                            isBusy={isRequestingQuote || isCancelingQuoteRequest}
-                            onAction={quoteRequestViewModel.action.kind === "none" ? null : handleQuoteRequestAction}
-                          />
-                        ) : null}
-                      </>
-                    }
-                  />
+                <TabsContent value="request" className="mt-0 md:hidden">
+                  {partInfoPanel}
                 </TabsContent>
 
                 <TabsContent value="activity" className="mt-0">
-                  <section className="rounded-[30px] border border-white/8 bg-ws-card p-5 md:p-6">
+                  <section className="rounded-[30px] border border-border bg-ws-card p-5 md:p-6">
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div>
-                        <p className="text-xs uppercase tracking-[0.18em] text-white/35">Activity</p>
-                        <h2 className="mt-2 text-xl font-semibold text-white">Comments and history</h2>
-                        <p className="mt-1 text-sm text-white/55">
+                        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Activity</p>
+                        <h2 className="mt-2 text-xl font-semibold text-foreground">Comments and history</h2>
+                        <p className="mt-1 text-sm text-muted-foreground">
                           Leave context for collaborators and review the part activity feed.
                         </p>
                       </div>
                     </div>
 
-                    <div className="mt-5 rounded-surface-lg border border-white/8 bg-black/20 p-4">
-                      <label htmlFor="activity-comment" className="text-sm font-medium text-white/78">
+                    <div className="mt-5 rounded-surface-lg border border-border bg-muted p-4">
+                      <label htmlFor="activity-comment" className="text-sm font-medium text-foreground/80">
                         Leave a comment
                       </label>
                       <Textarea
@@ -857,10 +864,10 @@ const ClientPart = () => {
                         value={commentDraft}
                         onChange={(event) => setCommentDraft(event.target.value)}
                         placeholder="Add context, decisions, or a follow-up note."
-                        className="mt-3 min-h-28 border-white/10 bg-ws-shell text-white placeholder:text-white/30"
+                        className="mt-3 min-h-28 border-border bg-ws-shell text-foreground placeholder:text-muted-foreground"
                       />
                       <div className="mt-3 flex items-center justify-between gap-3">
-                        <p className="text-xs text-white/40">
+                        <p className="text-xs text-muted-foreground">
                           Comments stay attached to this part in your current browser.
                         </p>
                         <Button type="button" onClick={handleAddComment} disabled={commentDraft.trim().length === 0}>
@@ -871,7 +878,7 @@ const ClientPart = () => {
                     </div>
 
                     <Tabs defaultValue="activity" className="mt-5">
-                      <TabsList className="h-auto flex-wrap justify-start gap-2 rounded-[16px] bg-black/20 p-1.5">
+                      <TabsList className="h-auto flex-wrap justify-start gap-2 rounded-[16px] bg-muted p-1.5">
                         <TabsTrigger value="activity">Activity</TabsTrigger>
                         <TabsTrigger value="comments">Comments</TabsTrigger>
                       </TabsList>
@@ -880,9 +887,9 @@ const ClientPart = () => {
                         <ActivityLog entries={activityEntries} />
                       </TabsContent>
                       <TabsContent value="comments" className="mt-4">
-                        <div className="rounded-surface-lg border border-white/8 bg-ws-card p-5">
+                        <div className="rounded-surface-lg border border-border bg-ws-card p-5">
                           {comments.length === 0 ? (
-                            <p className="text-sm text-white/45">No comments yet.</p>
+                            <p className="text-sm text-muted-foreground">No comments yet.</p>
                           ) : (
                             <div className="space-y-3">
                               {comments.map((comment) => (
@@ -898,7 +905,7 @@ const ClientPart = () => {
               </Tabs>
             </>
           ) : (
-            <div className="rounded-[26px] border border-white/8 bg-ws-card px-6 py-12 text-center text-white/45">
+            <div className="rounded-[26px] border border-border bg-ws-card px-6 py-12 text-center text-muted-foreground">
               This part could not be loaded.
             </div>
           )}
@@ -976,25 +983,25 @@ const ClientPart = () => {
       />
 
       <Dialog open={showMoveDialog} onOpenChange={setShowMoveDialog}>
-        <DialogContent className="border-white/10 bg-ws-overlay text-white">
+        <DialogContent className="border-border bg-ws-overlay text-foreground">
           <DialogHeader>
             <DialogTitle>Manage project membership</DialogTitle>
-            <DialogDescription className="text-white/55">
+            <DialogDescription className="text-muted-foreground">
               Add this part to more projects or remove it from projects it already belongs to.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-2">
             {currentProjectOptions.length === 0 ? (
-              <p className="text-sm text-white/45">No compatible projects are available for this part.</p>
+              <p className="text-sm text-muted-foreground">No compatible projects are available for this part.</p>
             ) : (
               currentProjectOptions.map((project) => (
                 <button
                   key={project.project.id}
                   type="button"
                   className={cn(
-                    "flex w-full items-center justify-between rounded-lg border border-white/8 bg-black/20 px-4 py-3 text-left transition hover:bg-white/4",
-                    partDetail?.projectIds.includes(project.project.id) && "border-white/20",
+                    "flex w-full items-center justify-between rounded-lg border border-border bg-muted px-4 py-3 text-left transition hover:bg-accent",
+                    partDetail?.projectIds.includes(project.project.id) && "border-foreground/30",
                   )}
                   disabled={assignJobMutation.isPending || removeJobMutation.isPending}
                   onClick={() => {
@@ -1007,13 +1014,13 @@ const ClientPart = () => {
                   }}
                 >
                   <div>
-                    <p className="text-sm font-medium text-white">{project.project.name}</p>
-                    <p className="text-xs text-white/45">{project.partCount} parts</p>
+                    <p className="text-sm font-medium text-foreground">{project.project.name}</p>
+                    <p className="text-xs text-muted-foreground">{project.partCount} parts</p>
                   </div>
                   {partDetail?.projectIds.includes(project.project.id) ? (
-                    <XCircle className="h-4 w-4 text-white/45" />
+                    <XCircle className="h-4 w-4 text-muted-foreground" />
                   ) : (
-                    <MoveRight className="h-4 w-4 text-white/45" />
+                    <MoveRight className="h-4 w-4 text-muted-foreground" />
                   )}
                 </button>
               ))
@@ -1023,7 +1030,7 @@ const ClientPart = () => {
           <DialogFooter>
             <Button
               variant="outline"
-              className="border-white/10 bg-transparent text-white hover:bg-white/6"
+              className="border-border bg-transparent text-foreground hover:bg-accent"
               onClick={() => setShowMoveDialog(false)}
             >
               Close
@@ -1033,20 +1040,20 @@ const ClientPart = () => {
       </Dialog>
 
       <Dialog open={isVersionHistoryOpen} onOpenChange={setIsVersionHistoryOpen}>
-        <DialogContent className="max-w-3xl border-white/10 bg-ws-overlay text-white">
+        <DialogContent className="max-w-3xl border-border bg-ws-overlay text-foreground">
           <DialogHeader>
             <DialogTitle>Version history</DialogTitle>
-            <DialogDescription className="text-white/55">
+            <DialogDescription className="text-muted-foreground">
               Current client-visible history combines activity events with browser-local comments.
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <ActivityLog entries={activityEntries} className="bg-ws-card" />
-            <div className="rounded-surface-lg border border-white/8 bg-ws-card p-5">
-              <p className="text-xs uppercase tracking-[0.18em] text-white/35">Comments</p>
+            <div className="rounded-surface-lg border border-border bg-ws-card p-5">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Comments</p>
               {comments.length === 0 ? (
-                <p className="mt-4 text-sm text-white/45">No comments yet.</p>
+                <p className="mt-4 text-sm text-muted-foreground">No comments yet.</p>
               ) : (
                 <div className="mt-4 space-y-3">
                   {comments.map((comment) => (

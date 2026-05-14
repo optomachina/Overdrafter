@@ -85,16 +85,16 @@ const ClientPartReview = () => {
       onLogoClick={() => navigate("/")}
       sidebarContent={
         <div className="space-y-1 py-2">
-          <div className="rounded-[10px] border border-white/8 bg-black/20 px-3 py-3">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Review</p>
+          <div className="rounded-[10px] border border-border bg-muted px-3 py-3">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Review</p>
             {partName ? (
-              <p className="mt-1.5 truncate text-sm font-medium text-white">{partName}</p>
+              <p className="mt-1.5 truncate text-sm font-medium text-foreground">{partName}</p>
             ) : null}
           </div>
           <button
             type="button"
             onClick={() => navigate(`/parts/${jobId}`)}
-            className="flex w-full items-center gap-2 rounded-[10px] px-3 py-2.5 text-left text-sm text-white/60 transition hover:bg-white/6 hover:text-white"
+            className="flex w-full items-center gap-2 rounded-[10px] px-3 py-2.5 text-left text-sm text-muted-foreground transition hover:bg-accent hover:text-foreground"
           >
             <MoveLeft className="h-3.5 w-3.5 shrink-0" />
             Back to part
@@ -105,21 +105,21 @@ const ClientPartReview = () => {
       <div className="mx-auto flex w-full max-w-[960px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
         {workspaceQuery.isLoading ? (
           <div className="flex min-h-[320px] items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-white/60" />
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : !workspaceQuery.data ? (
-          <div className="rounded-[26px] border border-white/8 bg-ws-card px-6 py-12 text-center text-white/45">
+          <div className="rounded-[26px] border border-border bg-ws-card px-6 py-12 text-center text-muted-foreground">
             This review page could not be loaded.
           </div>
         ) : (
           <>
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-white/35">Review</p>
-                <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
+                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Review</p>
+                <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
                   {getClientItemPresentation(workspaceQuery.data.job, workspaceQuery.data.summary).title}
                 </h1>
-                <p className="mt-2 text-sm text-white/55">
+                <p className="mt-2 text-sm text-muted-foreground">
                   Confirm the selected quote and capture shipping, billing, and PO handoff details before OverDrafter follow-up.
                 </p>
                 <RequestSummaryBadges
@@ -135,7 +135,7 @@ const ClientPartReview = () => {
                 <Button
                   type="button"
                   variant="outline"
-                  className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                  className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
                   onClick={() => navigate(`/parts/${jobId}`)}
                 >
                   <MoveLeft className="mr-2 h-4 w-4" />
@@ -148,18 +148,18 @@ const ClientPartReview = () => {
               </div>
             </div>
 
-            <section className="rounded-[26px] border border-white/8 bg-ws-card p-6">
+            <section className="rounded-[26px] border border-border bg-ws-card p-6">
               <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-white/35">Selected option</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Selected option</p>
                   {selectedOption ? (
-                    <div className="mt-4 rounded-2xl border border-white/8 bg-black/20 px-4 py-4">
-                      <p className="text-sm font-semibold text-white">{selectedOption.vendorLabel}</p>
+                    <div className="mt-4 rounded-2xl border border-border bg-muted px-4 py-4">
+                      <p className="text-sm font-semibold text-foreground">{selectedOption.vendorLabel}</p>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <Badge className="border border-white/10 bg-white/6 text-white/70">
+                        <Badge className="border border-border bg-accent text-foreground/80">
                           Qty {selectedOption.requestedQuantity}
                         </Badge>
-                        <Badge className="border border-white/10 bg-white/6 text-white/70">
+                        <Badge className="border border-border bg-accent text-foreground/80">
                           {selectedOption.domesticStatus === "domestic"
                             ? "USA"
                             : selectedOption.domesticStatus === "foreign"
@@ -167,31 +167,31 @@ const ClientPartReview = () => {
                               : "Unknown"}
                         </Badge>
                       </div>
-                      <p className="mt-4 text-sm text-white/55">
+                      <p className="mt-4 text-sm text-muted-foreground">
                         {selectedOption.resolvedDeliveryDate ?? formatLeadTime(selectedOption.leadTimeBusinessDays)}
                       </p>
                     </div>
                   ) : (
-                    <p className="mt-4 text-sm text-white/45">No quote has been selected yet for this part.</p>
+                    <p className="mt-4 text-sm text-muted-foreground">No quote has been selected yet for this part.</p>
                   )}
                 </div>
 
                 <div className="space-y-4">
-                  <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-4">
-                    <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Price</p>
-                    <p className="mt-2 text-2xl font-semibold text-white">
+                  <div className="rounded-2xl border border-border bg-muted px-4 py-4">
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Price</p>
+                    <p className="mt-2 text-2xl font-semibold text-foreground">
                       {selectedOption ? formatCurrency(selectedOption.totalPriceUsd) : "No quote selected"}
                     </p>
-                    <p className="mt-3 text-sm text-white/55">
+                    <p className="mt-3 text-sm text-muted-foreground">
                       {selectedOption
                         ? selectedOption.resolvedDeliveryDate ?? formatLeadTime(selectedOption.leadTimeBusinessDays)
                         : "Select a quote on the part page to review pricing and delivery timing here."}
                     </p>
                   </div>
 
-                  <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-4">
-                    <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Request context</p>
-                    <p className="mt-2 text-sm text-white/70">
+                  <div className="rounded-2xl border border-border bg-muted px-4 py-4">
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Request context</p>
+                    <p className="mt-2 text-sm text-foreground/80">
                       {workspaceQuery.data.job.description ?? "No freeform request text provided."}
                     </p>
                   </div>
@@ -206,12 +206,12 @@ const ClientPartReview = () => {
             />
 
             {showHandoffSummary ? (
-              <section className="rounded-[26px] border border-white/8 bg-ws-card p-6">
-                <p className="text-xs uppercase tracking-[0.18em] text-white/35">Release check</p>
-                <h2 className="mt-2 text-xl font-semibold text-white">
+              <section className="rounded-[26px] border border-border bg-ws-card p-6">
+                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Release check</p>
+                <h2 className="mt-2 text-xl font-semibold text-foreground">
                   {handoffSummary.ready ? "Ready for OverDrafter follow-up" : "More procurement detail is still needed"}
                 </h2>
-                <p className="mt-3 text-sm text-white/70">
+                <p className="mt-3 text-sm text-foreground/80">
                   This route packages the selected quote with procurement handoff details. No payment is collected and no order is placed here.
                 </p>
                 {handoffSummary.missingFields.length > 0 ? (

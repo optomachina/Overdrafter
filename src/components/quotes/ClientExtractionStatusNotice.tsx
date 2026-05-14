@@ -44,7 +44,7 @@ export function ClientExtractionStatusNotice({
           <div className="flex items-start gap-3">
             <Clock3 className="mt-0.5 h-5 w-5 text-sky-200" />
             <div className="space-y-2">
-              <p className="text-sm font-medium text-white">Drawing extraction in progress</p>
+              <p className="text-sm font-medium text-foreground">Drawing extraction in progress</p>
               <p className="text-sm text-sky-100/85">
                 Uploaded drawing metadata is still being processed. Available fields will populate automatically when extraction finishes.
               </p>
@@ -58,7 +58,7 @@ export function ClientExtractionStatusNotice({
           <div className="flex items-start gap-3">
             <XCircle className="mt-0.5 h-5 w-5 text-rose-200" />
             <div className="space-y-2">
-              <p className="text-sm font-medium text-white">Drawing extraction failed</p>
+              <p className="text-sm font-medium text-foreground">Drawing extraction failed</p>
               <p className="text-sm text-rose-100/85">
                 {diagnostics.lastFailureMessage ??
                   "The drawing PDF could not be processed yet. Review the upload and try again if needed."}
@@ -78,7 +78,7 @@ export function ClientExtractionStatusNotice({
           <div className="flex items-start gap-3">
             <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-200" />
             <div className="space-y-2">
-              <p className="text-sm font-medium text-white">Partial drawing metadata found</p>
+              <p className="text-sm font-medium text-foreground">Partial drawing metadata found</p>
               <p className="text-sm text-amber-100/85">
                 Available fields were populated, but some drawing data still needs review before relying on it.
               </p>
@@ -109,7 +109,7 @@ export function ClientExtractionStatusNotice({
           <div className="flex items-start gap-3">
             <CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-200" />
             <div className="space-y-2">
-              <p className="text-sm font-medium text-white">Drawing metadata extracted</p>
+              <p className="text-sm font-medium text-foreground">Drawing metadata extracted</p>
               <p className="text-sm text-emerald-100/85">
                 Drawing-derived fields were applied to this request and are ready for review.
               </p>
@@ -120,12 +120,12 @@ export function ClientExtractionStatusNotice({
     case "uploaded":
     default:
       return (
-        <div className={cn("rounded-2xl border border-white/10 bg-white/5 p-4", className)}>
+        <div className={cn("rounded-2xl border border-border bg-accent p-4", className)}>
           <div className="flex items-start gap-3">
-            <FileSearch className="mt-0.5 h-5 w-5 text-white/70" />
+            <FileSearch className="mt-0.5 h-5 w-5 text-foreground/80" />
             <div className="space-y-2">
-              <p className="text-sm font-medium text-white">Waiting for drawing metadata</p>
-              <p className="text-sm text-white/70">
+              <p className="text-sm font-medium text-foreground">Waiting for drawing metadata</p>
+              <p className="text-sm text-foreground/80">
                 A drawing PDF has not produced extracted metadata yet. Upload a PDF drawing or wait for processing to begin.
               </p>
             </div>

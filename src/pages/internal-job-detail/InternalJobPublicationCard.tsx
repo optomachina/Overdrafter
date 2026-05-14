@@ -28,21 +28,21 @@ export function InternalJobPublicationCard({
   writeActionsDisabled,
 }: InternalJobPublicationCardProps) {
   return (
-    <Card className="border-white/10 bg-white/5">
+    <Card className="border-border bg-accent">
       <CardHeader>
         <CardTitle>Publication readiness</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {!latestQuoteRun ? (
-          <p className="text-sm text-white/55">
+          <p className="text-sm text-muted-foreground">
             Start a quote run after approving requirements to evaluate publication readiness.
           </p>
         ) : (
           <>
-            <div className="flex items-center justify-between rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
+            <div className="flex items-center justify-between rounded-2xl border border-border bg-muted px-4 py-3">
               <div>
                 <p className="font-medium">Latest quote run</p>
-                <p className="text-xs text-white/50">{latestQuoteRun.id}</p>
+                <p className="text-xs text-muted-foreground">{latestQuoteRun.id}</p>
               </div>
               <Badge
                 variant="secondary"
@@ -56,13 +56,13 @@ export function InternalJobPublicationCard({
               </Badge>
             </div>
             <Textarea
-              className="min-h-28 border-white/10 bg-black/20"
+              className="min-h-28 border-border bg-muted"
               value={clientSummary}
               disabled={writeActionsDisabled}
               onChange={(event) => onClientSummaryChange(event.target.value)}
               placeholder="Client-facing summary"
             />
-            <div className="space-y-2 rounded-2xl border border-white/8 bg-black/20 p-4 text-sm text-white/55">
+            <div className="space-y-2 rounded-2xl border border-border bg-muted p-4 text-sm text-muted-foreground">
               {readiness?.reasons?.length ? (
                 readiness.reasons.map((reason) => <p key={reason}>{reason}</p>)
               ) : (
@@ -84,7 +84,7 @@ export function InternalJobPublicationCard({
               {readiness?.ready ? "Publish client package" : "Publish with internal approval"}
             </Button>
             {latestPackage ? (
-              <Button asChild variant="outline" className="w-full border-white/10 bg-white/5">
+              <Button asChild variant="outline" className="w-full border-border bg-accent">
                 <Link to={`/client/packages/${latestPackage.id}`}>
                   Open latest client package
                   <ArrowUpRight className="ml-2 h-4 w-4" />

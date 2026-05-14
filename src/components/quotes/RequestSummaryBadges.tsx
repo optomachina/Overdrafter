@@ -48,7 +48,7 @@ export function RequestSummaryBadges({
         </Badge>
       ))}
       {showQuoteFields && quantity ? (
-        <Badge className="border border-white/10 bg-white/6 text-white/75">
+        <Badge className="border border-border bg-accent text-foreground/80">
           Qty {quantity}
         </Badge>
       ) : null}

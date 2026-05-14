@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -26,7 +26,12 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://api.fontshare.com" crossorigin>
+    <!-- Free analogs per docs/DESIGN.md §Loading: Space Mono (display monos),
+         IBM Plex Sans (Söhne Buch body), Lab Mono via Fontshare. Production
+         self-hosts licensed Suisse Int'l Condensed + Söhne Buch (TODO-027). -->
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://api.fontshare.com/v2/css?f[]=lab-mono@400,500&display=swap" rel="stylesheet">
     <meta property="og:title" content="Overdrafter | Manufacturing Orchestration">
   <meta name="twitter:title" content="Overdrafter | Manufacturing Orchestration">
   <meta property="og:description" content="Upload CAD and drawing packages, extract manufacturing requirements, collect supplier quotes, and publish client-ready CNC options from one controlled workflow.">

@@ -51,7 +51,7 @@ export function ClientIntelligencePanel({
       </div>
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as IntelligencePanelTab)}>
-        <TabsList className="mt-4 h-auto flex-wrap justify-start gap-2 rounded-[16px] bg-black/20 p-1.5">
+        <TabsList className="mt-4 h-auto flex-wrap justify-start gap-2 rounded-[16px] bg-muted p-1.5">
           {TAB_LABELS.map((tab) => {
             const Icon = tab.icon;
 
@@ -59,7 +59,7 @@ export function ClientIntelligencePanel({
               <TabsTrigger
                 key={tab.value}
                 value={tab.value}
-                className="rounded-[12px] px-3 py-2 text-white/70 data-[state=active]:bg-white data-[state=active]:text-black"
+                className="rounded-[12px] px-3 py-2 text-foreground/80 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
               >
                 <Icon className="mr-2 h-4 w-4" />
                 {tab.label}

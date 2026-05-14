@@ -119,7 +119,7 @@ Deferred. State is communicated through plain words (`REVIEW`, `READY`, `HOLD`, 
 
 ### Dark mode
 
-**Deferred.** Daylight is the hero. A future dark mode should:
+**Interim toggle shipped.** Daylight remains the default visual thesis, but the pre-redesign black palette is available as a user-selectable account-menu toggle. A future dark mode should still:
 - Redesign surfaces, not invert colors
 - Reduce accent saturation 10–20%
 - Keep the same hairline rule rhythm
@@ -284,6 +284,7 @@ Reject any UI work that includes:
 | 2026-05-05 | **Order Confirmation page** is the surface that bridges Quote Selection → Parts Ordered | Full page (not modal). High-value B2B orders ($5k–$50k+) need a dense scannable canvas, not a popup. Sections: Order Summary / Line Items / Costs / Ship To / Payment Method / Terms. Single primary CTA `PLACE ORDER ($24,820)` in oxidized-red filled. Right rail shows vertical status timeline with `CONFIRM ORDER` as the current step. |
 | 2026-05-05 | Files extension `.STEP` shown **only on the Part Workspace**, dropped in Project / Assembly contexts | The file IS the artifact in Part Workspace (`BRACKET-A07.STEP` is the hero). In Project/Assembly contexts the extension is noise — show `BRACKET-A07` not `BRACKET-A07.STEP`. |
 | 2026-05-05 | Roadmap items rendered as **muted mono uppercase chips** in info-panel footers | DFM Flags, Ask OverDrafter, Tariff Auto-Calc, Hover Part > Highlight in Assembly, Multi-page PDF Nav, etc. Visible-but-parked: signals "we know this is needed, not in MVP." |
+| 2026-05-14 | Dark mode revived as an account-menu toggle using the pre-redesign palette verbatim | Interim revival for users who want the prior clean black look while keeping bone as the default. This does not replace the future deliberate dark redesign described in `### Dark mode`. |
 
 ---
 

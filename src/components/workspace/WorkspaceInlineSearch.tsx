@@ -155,7 +155,7 @@ export function WorkspaceInlineSearch({
     <div ref={rootRef} className={cn("relative w-full min-w-0", className)}>
       <Command
         shouldFilter={false}
-        className="overflow-visible bg-transparent text-white [&_[cmdk-input-wrapper]_svg]:hidden"
+        className="overflow-visible bg-transparent text-foreground [&_[cmdk-input-wrapper]_svg]:hidden"
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
@@ -184,7 +184,7 @@ export function WorkspaceInlineSearch({
                   placeholder={placeholder}
                   aria-label={placeholder}
                   className={cn(
-                    "h-10 rounded-full border border-white/10 bg-white/[0.04] pr-4 text-sm text-white placeholder:text-white/35 focus-visible:ring-0",
+                    "h-10 rounded-full border border-border bg-muted pr-4 text-sm text-foreground placeholder:text-muted-foreground focus-visible:ring-0",
                     hasScopeChip ? "pl-[8.85rem]" : "pl-4",
                   )}
                 />
@@ -195,12 +195,12 @@ export function WorkspaceInlineSearch({
         </TooltipProvider>
         {hasScopeChip ? (
           <div className="pointer-events-none absolute inset-y-0 left-[1.22rem] z-10 flex items-center">
-            <span className="pointer-events-auto relative -top-px inline-flex max-w-[8rem] items-center gap-1 rounded-full border border-white/12 bg-white/10 px-2 py-1 text-xs font-medium text-white/88">
+            <span className="pointer-events-auto relative -top-px inline-flex max-w-[8rem] items-center gap-1 rounded-full border border-border bg-accent px-2 py-1 text-xs font-medium text-foreground">
               <span className="truncate">{activeScopedProject.name}</span>
               <button
                 type="button"
                 aria-label={`Clear ${activeScopedProject.name} search scope`}
-                className="inline-flex h-4 w-4 items-center justify-center rounded-full text-white/55 transition hover:bg-white/12 hover:text-white"
+                className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition hover:bg-accent hover:text-foreground"
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -214,12 +214,12 @@ export function WorkspaceInlineSearch({
           </div>
         ) : null}
         {isOpen && hasQuery ? (
-          <div className="absolute right-0 top-[calc(100%+0.5rem)] z-30 w-full overflow-hidden rounded-xl border border-white/10 bg-ws-shell shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
-            <CommandList className="max-h-[360px] bg-transparent p-2 text-white">
+          <div className="absolute right-0 top-[calc(100%+0.5rem)] z-30 w-full overflow-hidden rounded-xl border border-border bg-ws-shell shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
+            <CommandList className="max-h-[360px] bg-transparent p-2 text-foreground">
               {!hasResults ? <CommandEmpty>No matching projects or parts.</CommandEmpty> : null}
 
               {filteredProjects.length > 0 ? (
-                <CommandGroup heading="Projects" className="text-white/70">
+                <CommandGroup heading="Projects" className="text-muted-foreground">
                   {filteredProjects.map((project) => (
                     <CommandItem
                       key={project.id}
@@ -228,12 +228,12 @@ export function WorkspaceInlineSearch({
                         close();
                         onSelectProject(project.id);
                       }}
-                      className="rounded-lg px-3 py-2.5 data-[selected=true]:bg-white/8 data-[selected=true]:text-white"
+                      className="rounded-lg px-3 py-2.5 data-[selected=true]:bg-accent data-[selected=true]:text-foreground"
                     >
-                      <FolderKanban className="mr-2 h-4 w-4 text-white/60" />
+                      <FolderKanban className="mr-2 h-4 w-4 text-muted-foreground" />
                       <div className="flex min-w-0 flex-1 items-center gap-2">
                         <span className="truncate">{project.name}</span>
-                        <span className="text-xs text-white/45">{project.partCount}</span>
+                        <span className="text-xs text-muted-foreground">{project.partCount}</span>
                       </div>
                     </CommandItem>
                   ))}
@@ -241,7 +241,7 @@ export function WorkspaceInlineSearch({
               ) : null}
 
               {filteredJobs.length > 0 ? (
-                <CommandGroup heading="Parts" className="text-white/70">
+                <CommandGroup heading="Parts" className="text-muted-foreground">
                   {filteredJobs.map((job) => {
                     const presentation = getClientItemPresentation(job, summariesByJobId.get(job.id));
 
@@ -253,12 +253,12 @@ export function WorkspaceInlineSearch({
                           close();
                           onSelectPart(job.id);
                         }}
-                        className="rounded-lg px-3 py-2.5 data-[selected=true]:bg-white/8 data-[selected=true]:text-white"
+                        className="rounded-lg px-3 py-2.5 data-[selected=true]:bg-accent data-[selected=true]:text-foreground"
                       >
-                        <Shapes className="mr-2 h-4 w-4 text-white/60" />
+                        <Shapes className="mr-2 h-4 w-4 text-muted-foreground" />
                         <div className="min-w-0">
                           <p className="truncate">{presentation.title}</p>
-                          <p className="truncate text-xs text-white/45">{presentation.description}</p>
+                          <p className="truncate text-xs text-muted-foreground">{presentation.description}</p>
                         </div>
                       </CommandItem>
                     );

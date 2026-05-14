@@ -180,8 +180,8 @@ describe("WorkspaceSidebar", () => {
     expect(collapseProjectsButton).toHaveTextContent("Projects");
     expect(collapsePartsButton).toHaveTextContent("Parts");
     expect(sortAndFilterButton).toBeInTheDocument();
-    expect(newJobButton).toHaveClass("text-white/[0.94]");
-    expect(searchButton).toHaveClass("text-white/[0.94]");
+    expect(newJobButton).toHaveClass("text-foreground");
+    expect(searchButton).toHaveClass("text-foreground");
     expect(newJobButton).toHaveClass("pl-1", "pr-3");
     expect(searchButton).toHaveClass("pl-1", "pr-3");
   });
@@ -263,8 +263,8 @@ describe("WorkspaceSidebar", () => {
     const projectRow = screen.getAllByRole("button", { name: /project one/i })[0];
     const partRow = screen.getByRole("button", { name: /1093-00003/i });
 
-    expect(folderIcon).toHaveClass("text-white/[0.9]");
-    expect(partIcon).toHaveClass("text-white/[0.9]");
+    expect(folderIcon).toHaveClass("text-foreground");
+    expect(partIcon).toHaveClass("text-foreground");
     expect(projectRow).toHaveClass("px-2", "py-2");
     expect(partRow).toHaveClass("px-2", "py-2");
   });
@@ -577,7 +577,7 @@ describe("WorkspaceSidebar", () => {
     });
 
     const projectRow = screen.getAllByRole("button", { name: /project one/i })[0]!;
-    expect(projectRow).toHaveClass("bg-white/[0.08]");
+    expect(projectRow).toHaveClass("bg-accent");
     expect(projectRow.querySelector(String.raw`.bg-sky-300\/85`)).not.toBeNull();
   });
 
@@ -770,7 +770,7 @@ describe("WorkspaceSidebar", () => {
 
     expect(selectedRows).toHaveLength(2);
     selectedRows.forEach((row) => {
-      expect(row).toHaveClass("bg-white/[0.08]");
+      expect(row).toHaveClass("bg-accent");
     });
   });
 
