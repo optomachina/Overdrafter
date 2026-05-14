@@ -29,7 +29,6 @@ type ExtractedQuoteSignal = {
   leadTimeBusinessDays: number | null;
 };
 
-const PRICE_PATTERN = /(?:\$|usd\s*)\s*(\d[\d,]*(?:\.\d{2})?)/i;
 const LEAD_TIME_PATTERN = /(\d{1,3})\s*(?:business\s*)?(?:day|days)\b/i;
 const MANUAL_REVIEW_PATTERN = /\b(manual review|engineering review|reviewing|requires review|quote request received)\b/i;
 const CONFIGURATION_REQUIRED_PATTERN =
@@ -467,11 +466,8 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
 }
 
 export function extractQuoteSignal(text: string): ExtractedQuoteSignal {
-  const priceMatch = PRICE_PATTERN.exec(text);
   const leadTimeMatch = LEAD_TIME_PATTERN.exec(text);
-  const parsedTotalPriceUsd = priceMatch?.[1]
-    ? Number.parseFloat(priceMatch[1].replaceAll(",", ""))
-    : null;
+  const parsedTotalPriceUsd = extractCurrencySignal(text);
   const leadTimeBusinessDays = leadTimeMatch?.[1]
     ? Number.parseInt(leadTimeMatch[1], 10)
     : null;
@@ -485,6 +481,60 @@ export function extractQuoteSignal(text: string): ExtractedQuoteSignal {
       ? leadTimeBusinessDays
       : null,
   };
+}
+
+function extractCurrencySignal(text: string): number | null {
+  const normalizedText = text.toLowerCase();
+  const markers = ["$", "usd"];
+
+  for (const marker of markers) {
+    let searchFrom = 0;
+
+    while (searchFrom < normalizedText.length) {
+      const markerIndex = normalizedText.indexOf(marker, searchFrom);
+      if (markerIndex < 0) {
+        break;
+      }
+
+      const parsedValue = parseCurrencyPrefix(text.slice(markerIndex + marker.length, markerIndex + marker.length + 24));
+      if (parsedValue !== null) {
+        return parsedValue;
+      }
+
+      searchFrom = markerIndex + marker.length;
+    }
+  }
+
+  return null;
+}
+
+function parseCurrencyPrefix(value: string): number | null {
+  let cursor = 0;
+  while (cursor < value.length && value[cursor]?.trim() === "") {
+    cursor += 1;
+  }
+
+  let token = "";
+  while (cursor < value.length) {
+    const character = value[cursor];
+    if (!character || (!isDigit(character) && character !== "," && character !== ".")) {
+      break;
+    }
+
+    token += character;
+    cursor += 1;
+  }
+
+  if (!token || ![...token].some(isDigit)) {
+    return null;
+  }
+
+  const parsedValue = Number.parseFloat(token.replaceAll(",", ""));
+  return Number.isFinite(parsedValue) ? parsedValue : null;
+}
+
+function isDigit(value: string) {
+  return value >= "0" && value <= "9";
 }
 
 export function isLoginRequiredPageSignal(input: {
