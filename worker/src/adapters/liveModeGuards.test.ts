@@ -132,9 +132,14 @@ describe("live-mode adapter guards", () => {
     );
 
     for (const vendor of hiddenVendors) {
-      expect(registry[vendor]).toBeDefined();
+      const adapter = registry[vendor];
+      expect(adapter).toBeDefined();
+      if (!adapter) {
+        throw new Error(`${vendor} adapter was not registered`);
+      }
+
       await expect(
-        registry[vendor]!.quote(
+        adapter.quote(
           makeInput({
             stagedCadFile: {
               originalName: "part.step",

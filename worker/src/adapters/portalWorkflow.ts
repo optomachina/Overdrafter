@@ -29,8 +29,8 @@ type ExtractedQuoteSignal = {
   leadTimeBusinessDays: number | null;
 };
 
-const PRICE_PATTERN = /(?:\$|usd\s*)\s*([0-9][0-9,]*(?:\.[0-9]{2})?)/i;
-const LEAD_TIME_PATTERN = /([0-9]{1,3})\s*(?:business\s*)?(?:day|days)\b/i;
+const PRICE_PATTERN = /(?:\$|usd\s*)\s*(\d[\d,]*(?:\.\d{2})?)/i;
+const LEAD_TIME_PATTERN = /(\d{1,3})\s*(?:business\s*)?(?:day|days)\b/i;
 const MANUAL_REVIEW_PATTERN = /\b(manual review|engineering review|reviewing|requires review|quote request received)\b/i;
 const CONFIGURATION_REQUIRED_PATTERN =
   /\b(set (?:size and )?material|enter your zip code|specify your parts configuration|select a technology|select material|select thickness|configure (?:your )?part|checkout)\b/i;
@@ -467,10 +467,10 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
 }
 
 export function extractQuoteSignal(text: string): ExtractedQuoteSignal {
-  const priceMatch = text.match(PRICE_PATTERN);
-  const leadTimeMatch = text.match(LEAD_TIME_PATTERN);
+  const priceMatch = PRICE_PATTERN.exec(text);
+  const leadTimeMatch = LEAD_TIME_PATTERN.exec(text);
   const parsedTotalPriceUsd = priceMatch?.[1]
-    ? Number.parseFloat(priceMatch[1].replace(/,/g, ""))
+    ? Number.parseFloat(priceMatch[1].replaceAll(",", ""))
     : null;
   const leadTimeBusinessDays = leadTimeMatch?.[1]
     ? Number.parseInt(leadTimeMatch[1], 10)

@@ -111,7 +111,7 @@ describe("buildErrorRow", () => {
         {
           kind: "screenshot",
           label: "OSH Cut login-required screenshot",
-          localPath: "/tmp/oshcut-login.png",
+          localPath: ".tmp/vendor-workflow-smoke/oshcut-login.png",
           contentType: "image/png",
         },
       ],
