@@ -6,6 +6,7 @@ import { FictivAdapter } from "./fictiv";
 import { ProtolabsAdapter } from "./protolabs";
 import { SendCutSendAdapter } from "./sendcutsend";
 import { buildAdapterRegistry } from "./index";
+import { EXTENDED_VENDOR_WORKFLOWS } from "./extendedVendorWorkflows";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 
 function sortAlphabetically(values: string[]) {
@@ -120,6 +121,35 @@ describe("live-mode adapter guards", () => {
       code: "not_implemented",
     });
   });
+
+  it("throws login_required for every hidden live vendor candidate when session state is missing", async () => {
+    const hiddenVendors = EXTENDED_VENDOR_WORKFLOWS.map((workflow) => workflow.vendor);
+    const registry = buildAdapterRegistry(
+      makeConfig({
+        workerMode: "live",
+        workerLiveAdapters: hiddenVendors,
+      }),
+    );
+
+    for (const vendor of hiddenVendors) {
+      expect(registry[vendor]).toBeDefined();
+      await expect(
+        registry[vendor]!.quote(
+          makeInput({
+            stagedCadFile: {
+              originalName: "part.step",
+              localPath: path.resolve(".tmp/part.step"),
+              storageBucket: "job-files",
+              storagePath: "cad/part.step",
+            },
+          }),
+        ),
+      ).rejects.toMatchObject({
+        name: "VendorAutomationError",
+        code: "login_required",
+      });
+    }
+  });
 });
 
 describe("buildAdapterRegistry", () => {
@@ -154,9 +184,17 @@ describe("buildAdapterRegistry", () => {
     );
 
     expect(sortAlphabetically(Object.keys(registry))).toEqual([
+      "fabworks",
       "fictiv",
+      "geomiq",
+      "oshcut",
+      "ponoko",
       "protolabs",
+      "protolabsnetwork",
+      "quickparts",
+      "rapiddirect",
       "sendcutsend",
+      "weerg",
       "xometry",
     ]);
   });

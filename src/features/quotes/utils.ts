@@ -84,6 +84,22 @@ export function formatVendorName(vendor: VendorName): string {
       return "SendCutSend";
     case "protolabs":
       return "Protolabs";
+    case "oshcut":
+      return "OSH Cut";
+    case "fabworks":
+      return "Fabworks";
+    case "ponoko":
+      return "Ponoko";
+    case "quickparts":
+      return "Quickparts";
+    case "rapiddirect":
+      return "RapidDirect";
+    case "geomiq":
+      return "Geomiq";
+    case "weerg":
+      return "Weerg";
+    case "protolabsnetwork":
+      return "Protolabs Network";
     case "partsbadger":
       return "PartsBadger";
     case "fastdms":

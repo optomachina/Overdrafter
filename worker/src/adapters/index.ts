@@ -3,6 +3,7 @@ import { FictivAdapter } from "./fictiv.js";
 import { ProtolabsAdapter } from "./protolabs.js";
 import { SendCutSendAdapter } from "./sendcutsend.js";
 import { XometryAdapter } from "./xometry.js";
+import { buildExtendedVendorAdapters } from "./extendedVendorWorkflows.js";
 import type { VendorAdapter } from "./base.js";
 
 export function buildAdapterRegistry(config: WorkerConfig): Partial<Record<VendorName, VendorAdapter>> {
@@ -11,6 +12,7 @@ export function buildAdapterRegistry(config: WorkerConfig): Partial<Record<Vendo
     fictiv: new FictivAdapter("fictiv", config),
     protolabs: new ProtolabsAdapter("protolabs", config),
     sendcutsend: new SendCutSendAdapter("sendcutsend", config),
+    ...buildExtendedVendorAdapters(config),
   };
 
   if (config.workerMode !== "live") {

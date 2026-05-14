@@ -12,6 +12,14 @@ export type VendorName =
   | "fictiv"
   | "protolabs"
   | "sendcutsend"
+  | "oshcut"
+  | "fabworks"
+  | "ponoko"
+  | "quickparts"
+  | "rapiddirect"
+  | "geomiq"
+  | "weerg"
+  | "protolabsnetwork"
   | "partsbadger"
   | "fastdms"
   | "devzmanufacturing"
@@ -22,6 +30,14 @@ export const LIVE_AUTOMATION_VENDORS = [
   "fictiv",
   "protolabs",
   "sendcutsend",
+  "oshcut",
+  "fabworks",
+  "ponoko",
+  "quickparts",
+  "rapiddirect",
+  "geomiq",
+  "weerg",
+  "protolabsnetwork",
 ] as const;
 
 export type LiveAutomationVendorName = (typeof LIVE_AUTOMATION_VENDORS)[number];
@@ -293,6 +309,9 @@ export type WorkerConfig = {
   supabaseServiceRoleKey: string;
   workerMode: "simulate" | "live";
   workerLiveAdapters: LiveAutomationVendorName[];
+  vendorStorageStateDir: string | null;
+  vendorStorageStatePaths: Partial<Record<LiveAutomationVendorName, string>>;
+  vendorStorageStateJson: Partial<Record<LiveAutomationVendorName, string>>;
   workerName: string;
   pollIntervalMs: number;
   httpHost: string;
