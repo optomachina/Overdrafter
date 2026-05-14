@@ -28,10 +28,10 @@ const DESKTOP_RIGHT_RAIL_COLLAPSED_WIDTH = "32px";
 
 function readDesktopRightRailCollapsed() {
   try {
-    if (typeof window === "undefined") {
+    if (typeof globalThis.window === "undefined") {
       return false;
     }
-    return window.localStorage.getItem(DESKTOP_RIGHT_RAIL_COLLAPSED_STORAGE_KEY) === "1";
+    return globalThis.window.localStorage.getItem(DESKTOP_RIGHT_RAIL_COLLAPSED_STORAGE_KEY) === "1";
   } catch {
     return false;
   }
@@ -39,17 +39,17 @@ function readDesktopRightRailCollapsed() {
 
 function readDesktopSidebarCollapsed() {
   try {
-    if (typeof window === "undefined") {
+    if (typeof globalThis.window === "undefined") {
       return false;
     }
 
     const value =
-      window.localStorage.getItem(DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY) ??
-      window.localStorage.getItem(LEGACY_DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY);
+      globalThis.window.localStorage.getItem(DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY) ??
+      globalThis.window.localStorage.getItem(LEGACY_DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY);
 
     if (value !== null) {
-      window.localStorage.setItem(DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY, value);
-      window.localStorage.removeItem(LEGACY_DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY);
+      globalThis.window.localStorage.setItem(DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY, value);
+      globalThis.window.localStorage.removeItem(LEGACY_DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY);
     }
 
     return value === "1";
@@ -60,10 +60,10 @@ function readDesktopSidebarCollapsed() {
 
 function readDesktopSidebarWidth() {
   try {
-    if (typeof window === "undefined") {
+    if (typeof globalThis.window === "undefined") {
       return DESKTOP_SIDEBAR_DEFAULT_WIDTH;
     }
-    const value = window.localStorage.getItem(DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY);
+    const value = globalThis.window.localStorage.getItem(DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY);
     if (value === null) return DESKTOP_SIDEBAR_DEFAULT_WIDTH;
     const parsed = parseInt(value, 10);
     if (!Number.isFinite(parsed)) return DESKTOP_SIDEBAR_DEFAULT_WIDTH;
@@ -133,7 +133,7 @@ function SidebarIconButton({
       return;
     }
 
-    window.clearTimeout(cursorTooltipTimerRef.current);
+    globalThis.window.clearTimeout(cursorTooltipTimerRef.current);
     cursorTooltipTimerRef.current = null;
   }, []);
 
@@ -149,7 +149,7 @@ function SidebarIconButton({
   useEffect(() => {
     return () => {
       clearCursorTooltipTimer();
-      document.removeEventListener("pointerup", handlePointerUp);
+      globalThis.document.removeEventListener("pointerup", handlePointerUp);
     };
   }, [clearCursorTooltipTimer, handlePointerUp]);
 
@@ -180,7 +180,7 @@ function SidebarIconButton({
     }
 
     clearCursorTooltipTimer();
-    cursorTooltipTimerRef.current = window.setTimeout(() => {
+    cursorTooltipTimerRef.current = globalThis.window.setTimeout(() => {
       setIsCursorTooltipOpen(true);
       cursorTooltipTimerRef.current = null;
     }, SIDEBAR_TOOLTIP_DELAY_MS);
@@ -206,7 +206,7 @@ function SidebarIconButton({
 
         pointerDownRef.current = true;
         hideCursorTooltip();
-        document.addEventListener("pointerup", handlePointerUp, { once: true });
+        globalThis.document.addEventListener("pointerup", handlePointerUp, { once: true });
       }}
       onPointerEnter={(event) => {
         if (tooltipMode !== "cursor" || event.pointerType === "touch") {
@@ -262,7 +262,7 @@ function SidebarIconButton({
     return (
       <>
         {button}
-        {isCursorTooltipOpen && cursorTooltipPosition && typeof document !== "undefined"
+        {isCursorTooltipOpen && cursorTooltipPosition && typeof globalThis.document !== "undefined"
           ? createPortal(
               <div
                 id={tooltipId}
@@ -275,7 +275,7 @@ function SidebarIconButton({
               >
                 {label}
               </div>,
-              document.body,
+              globalThis.document.body,
             )
           : null}
       </>
@@ -426,20 +426,125 @@ function RightRailScaffold({
   );
 }
 
-function CollapsedRightRail({ onOpen }: { onOpen: () => void }) {
+function CollapsedRightRail({ onOpen }: Readonly<{ onOpen: () => void }>) {
   return (
-    <div
-      className="workspace-shell group flex h-full cursor-w-resize flex-col items-center gap-3 border-l border-border bg-ws-shell px-2 py-3 text-foreground"
-      onClick={onOpen}
-    >
-      <SidebarIconButton
-        label="Open panel"
-        icon={PanelRightOpen}
+    <div className="workspace-shell group flex h-full flex-col items-center gap-3 border-l border-border bg-ws-shell px-2 py-3 text-foreground">
+      <button
+        type="button"
+        aria-label="Open panel"
+        aria-expanded={false}
+        className="flex h-full w-full cursor-w-resize justify-center"
         onClick={onOpen}
-        ariaExpanded={false}
-        className="cursor-w-resize"
-      />
+      >
+        <span className="mt-0 flex h-9 w-9 items-center justify-center rounded border border-transparent text-foreground/95 transition-colors duration-150 hover:border-border hover:bg-accent hover:text-foreground">
+          <PanelRightOpen className="h-4 w-4" />
+        </span>
+      </button>
     </div>
+  );
+}
+
+type DesktopSidebarRegionProps = Readonly<
+  Pick<ClientWorkspaceShellProps, "sidebarContent" | "sidebarFooter" | "sidebarRailActions" | "onLogoClick"> & {
+    desktopSidebarCollapsed: boolean;
+    isResizing: boolean;
+    onCollapse: () => void;
+    onOpen: () => void;
+    onResizePointerDown: (event: React.PointerEvent) => void;
+    sidebarWidth: number;
+  }
+>;
+
+function DesktopSidebarRegion({
+  desktopSidebarCollapsed,
+  isResizing,
+  onCollapse,
+  onLogoClick,
+  onOpen,
+  onResizePointerDown,
+  sidebarContent,
+  sidebarFooter,
+  sidebarRailActions,
+  sidebarWidth,
+}: DesktopSidebarRegionProps) {
+  return (
+    <aside
+      className={cn(
+        "sidebar-host relative sticky top-0 hidden shrink-0 self-start overflow-visible border-r border-border md:block",
+        !isResizing && "transition-[width] duration-200 ease-out",
+      )}
+      style={{
+        width: desktopSidebarCollapsed ? DESKTOP_SIDEBAR_COLLAPSED_WIDTH : `${sidebarWidth}px`,
+      }}
+    >
+      <div className="h-svh">
+        <div className={cn("h-full", desktopSidebarCollapsed && "hidden")}>
+          <SidebarScaffold
+            sidebarContent={sidebarContent}
+            sidebarFooter={sidebarFooter}
+            onCollapse={onCollapse}
+            onLogoClick={onLogoClick}
+          />
+          <div
+            role="separator"
+            aria-label="Resize sidebar"
+            aria-orientation="vertical"
+            className="absolute inset-y-0 right-0 z-20 hidden w-3 translate-x-1/2 cursor-col-resize md:block"
+            onPointerDown={onResizePointerDown}
+          >
+            <div className="absolute inset-y-6 left-1/2 w-px -translate-x-1/2 rounded-full bg-border transition-colors duration-150 hover:bg-muted-foreground" />
+          </div>
+        </div>
+        <div className={cn("h-full", desktopSidebarCollapsed ? "block" : "hidden")}>
+          <CollapsedSidebarRail
+            sidebarRailActions={sidebarRailActions}
+            onOpen={onOpen}
+          />
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+type RightRailRegionProps = Readonly<
+  Pick<ClientWorkspaceShellProps, "rightRailContent" | "rightRailFooter" | "rightRailLabel"> & {
+    rightRailCollapsed: boolean;
+    onCollapse: () => void;
+    onOpen: () => void;
+  }
+>;
+
+function RightRailRegion({
+  onCollapse,
+  onOpen,
+  rightRailCollapsed,
+  rightRailContent,
+  rightRailFooter,
+  rightRailLabel,
+}: RightRailRegionProps) {
+  return (
+    <aside
+      className="relative sticky top-0 hidden shrink-0 self-start border-l border-border transition-[width] duration-200 ease-out md:block"
+      style={{
+        width: rightRailCollapsed
+          ? DESKTOP_RIGHT_RAIL_COLLAPSED_WIDTH
+          : `${DESKTOP_RIGHT_RAIL_WIDTH}px`,
+      }}
+    >
+      <div className="sidebar-host h-svh">
+        <div className={cn("h-full", rightRailCollapsed && "hidden")}>
+          <RightRailScaffold
+            rightRailContent={rightRailContent}
+            rightRailFooter={rightRailFooter}
+            rightRailLabel={rightRailLabel}
+            onCollapse={onCollapse}
+          />
+        </div>
+        <div className={cn("h-full", rightRailCollapsed ? "block" : "hidden")}>
+          <CollapsedRightRail onOpen={onOpen} />
+        </div>
+      </div>
+    </aside>
   );
 }
 
@@ -468,7 +573,7 @@ export function ClientWorkspaceShell({
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(
+      globalThis.window.localStorage.setItem(
         DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY,
         desktopSidebarCollapsed ? "1" : "0",
       );
@@ -479,7 +584,7 @@ export function ClientWorkspaceShell({
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+      globalThis.window.localStorage.setItem(DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
     } catch {
       // Ignore storage failures.
     }
@@ -487,7 +592,7 @@ export function ClientWorkspaceShell({
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(
+      globalThis.window.localStorage.setItem(
         DESKTOP_RIGHT_RAIL_COLLAPSED_STORAGE_KEY,
         rightRailCollapsed ? "1" : "0",
       );
@@ -520,13 +625,13 @@ export function ClientWorkspaceShell({
     const onPointerUp = () => {
       resizingRef.current = false;
       setIsResizing(false);
-      document.removeEventListener("pointermove", onPointerMove);
-      document.removeEventListener("pointerup", onPointerUp);
+      globalThis.document.removeEventListener("pointermove", onPointerMove);
+      globalThis.document.removeEventListener("pointerup", onPointerUp);
       resizeCleanupRef.current = null;
     };
 
-    document.addEventListener("pointermove", onPointerMove);
-    document.addEventListener("pointerup", onPointerUp);
+    globalThis.document.addEventListener("pointermove", onPointerMove);
+    globalThis.document.addEventListener("pointerup", onPointerUp);
     resizeCleanupRef.current = onPointerUp;
   }, [sidebarWidth]);
 
@@ -535,41 +640,18 @@ export function ClientWorkspaceShell({
       <div className={cn("workspace-shell min-h-svh bg-ws-overlay text-foreground", isResizing && "select-none")}>
         <div className="flex min-h-svh">
           {showSidebar ? (
-            <aside
-              className={cn(
-                "sidebar-host relative sticky top-0 hidden shrink-0 self-start overflow-visible border-r border-border md:block",
-                !isResizing && "transition-[width] duration-200 ease-out",
-              )}
-              style={{
-                width: desktopSidebarCollapsed ? DESKTOP_SIDEBAR_COLLAPSED_WIDTH : `${sidebarWidth}px`,
-              }}
-            >
-              <div className="h-svh">
-                <div className={cn("h-full", desktopSidebarCollapsed && "hidden")}>
-                  <SidebarScaffold
-                    sidebarContent={sidebarContent}
-                    sidebarFooter={sidebarFooter}
-                    onCollapse={() => setDesktopSidebarCollapsed(true)}
-                    onLogoClick={onLogoClick}
-                  />
-                  <div
-                    role="separator"
-                    aria-label="Resize sidebar"
-                    aria-orientation="vertical"
-                    className="absolute inset-y-0 right-0 z-20 hidden w-3 translate-x-1/2 cursor-col-resize md:block"
-                    onPointerDown={handleResizePointerDown}
-                  >
-                    <div className="absolute inset-y-6 left-1/2 w-px -translate-x-1/2 rounded-full bg-border transition-colors duration-150 hover:bg-muted-foreground" />
-                  </div>
-                </div>
-                <div className={cn("h-full", desktopSidebarCollapsed ? "block" : "hidden")}>
-                  <CollapsedSidebarRail
-                    sidebarRailActions={sidebarRailActions}
-                    onOpen={() => setDesktopSidebarCollapsed(false)}
-                  />
-                </div>
-              </div>
-            </aside>
+            <DesktopSidebarRegion
+              desktopSidebarCollapsed={desktopSidebarCollapsed}
+              isResizing={isResizing}
+              onCollapse={() => setDesktopSidebarCollapsed(true)}
+              onLogoClick={onLogoClick}
+              onOpen={() => setDesktopSidebarCollapsed(false)}
+              onResizePointerDown={handleResizePointerDown}
+              sidebarContent={sidebarContent}
+              sidebarFooter={sidebarFooter}
+              sidebarRailActions={sidebarRailActions}
+              sidebarWidth={sidebarWidth}
+            />
           ) : null}
 
           <div className="relative flex min-h-svh min-w-0 flex-1 flex-col">
@@ -641,28 +723,14 @@ export function ClientWorkspaceShell({
           </div>
 
           {hasRightRail ? (
-            <aside
-              className="relative sticky top-0 hidden shrink-0 self-start border-l border-border transition-[width] duration-200 ease-out md:block"
-              style={{
-                width: rightRailCollapsed
-                  ? DESKTOP_RIGHT_RAIL_COLLAPSED_WIDTH
-                  : `${DESKTOP_RIGHT_RAIL_WIDTH}px`,
-              }}
-            >
-              <div className="sidebar-host h-svh">
-                <div className={cn("h-full", rightRailCollapsed && "hidden")}>
-                  <RightRailScaffold
-                    rightRailContent={rightRailContent}
-                    rightRailFooter={rightRailFooter}
-                    rightRailLabel={rightRailLabel}
-                    onCollapse={() => setRightRailCollapsed(true)}
-                  />
-                </div>
-                <div className={cn("h-full", rightRailCollapsed ? "block" : "hidden")}>
-                  <CollapsedRightRail onOpen={() => setRightRailCollapsed(false)} />
-                </div>
-              </div>
-            </aside>
+            <RightRailRegion
+              onCollapse={() => setRightRailCollapsed(true)}
+              onOpen={() => setRightRailCollapsed(false)}
+              rightRailCollapsed={rightRailCollapsed}
+              rightRailContent={rightRailContent}
+              rightRailFooter={rightRailFooter}
+              rightRailLabel={rightRailLabel}
+            />
           ) : null}
         </div>
       </div>

@@ -95,9 +95,7 @@ export function AppShell({
                     cn(
                       "flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-colors",
                       isActive
-                        ? isClientChat
-                          ? "bg-accent text-foreground"
-                          : "bg-accent text-foreground"
+                        ? "bg-accent text-foreground"
                         : "text-foreground/80 hover:bg-accent hover:text-foreground",
                       collapsed && "justify-center px-0",
                     )

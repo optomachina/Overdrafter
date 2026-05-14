@@ -438,7 +438,7 @@ function renderWithClient(initialEntry: string) {
 }
 
 // PartInfoPanel (the "Request" surface) moved from a workspace tab into the
-// shell's right rail (TODO-027 PR-B), so it is always mounted — no tab switch.
+// shell's right rail (PR-B), so it is always mounted — no tab switch.
 async function renderClientPartOnTab(tab?: "Request" | "Activity") {
   const result = renderWithClient("/parts/job-1");
   if (tab === "Activity") {

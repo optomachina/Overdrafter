@@ -1480,8 +1480,9 @@ export function WorkspaceAccountMenu({
                 {editingSection === "company" && (
                   <div className="space-y-3">
                     <div>
-                      <label className="mb-1.5 block text-xs text-muted-foreground">Company name</label>
+                      <label htmlFor="organization-company-name" className="mb-1.5 block text-xs text-muted-foreground">Company name</label>
                       <Input
+                        id="organization-company-name"
                         ref={companyNameInputRef}
                         value={orgDetailsDraft.companyName ?? ""}
                         onChange={(e) => patchDraft({ companyName: e.target.value })}
@@ -1490,8 +1491,9 @@ export function WorkspaceAccountMenu({
                       />
                     </div>
                     <div>
-                      <label className="mb-1.5 block text-xs text-muted-foreground">Phone</label>
+                      <label htmlFor="organization-phone" className="mb-1.5 block text-xs text-muted-foreground">Phone</label>
                       <Input
+                        id="organization-phone"
                         value={orgDetailsDraft.phone ?? ""}
                         onChange={(e) => patchDraft({ phone: e.target.value })}
                         placeholder="+1 (520) 555-0100"
@@ -1504,8 +1506,9 @@ export function WorkspaceAccountMenu({
                 {editingSection === "billing" && (
                   <div className="space-y-3">
                     <div>
-                      <label className="mb-1.5 block text-xs text-muted-foreground">Street</label>
+                      <label htmlFor="billing-street" className="mb-1.5 block text-xs text-muted-foreground">Street</label>
                       <Input
+                        id="billing-street"
                         value={orgDetailsDraft.billingStreet ?? ""}
                         onChange={(e) => patchDraft({ billingStreet: e.target.value })}
                         placeholder="2348 E. Broadway Blvd"
@@ -1514,8 +1517,9 @@ export function WorkspaceAccountMenu({
                     </div>
                     <div className="grid grid-cols-5 gap-2">
                       <div className="col-span-2">
-                        <label className="mb-1.5 block text-xs text-muted-foreground">City</label>
+                        <label htmlFor="billing-city" className="mb-1.5 block text-xs text-muted-foreground">City</label>
                         <Input
+                          id="billing-city"
                           value={orgDetailsDraft.billingCity ?? ""}
                           onChange={(e) => patchDraft({ billingCity: e.target.value })}
                           placeholder="Tucson"
@@ -1523,8 +1527,9 @@ export function WorkspaceAccountMenu({
                         />
                       </div>
                       <div className="col-span-1">
-                        <label className="mb-1.5 block text-xs text-muted-foreground">State</label>
+                        <label htmlFor="billing-state" className="mb-1.5 block text-xs text-muted-foreground">State</label>
                         <Input
+                          id="billing-state"
                           value={orgDetailsDraft.billingState ?? ""}
                           onChange={(e) => patchDraft({ billingState: e.target.value })}
                           placeholder="AZ"
@@ -1532,8 +1537,9 @@ export function WorkspaceAccountMenu({
                         />
                       </div>
                       <div className="col-span-2">
-                        <label className="mb-1.5 block text-xs text-muted-foreground">ZIP</label>
+                        <label htmlFor="billing-zip" className="mb-1.5 block text-xs text-muted-foreground">ZIP</label>
                         <Input
+                          id="billing-zip"
                           value={orgDetailsDraft.billingZip ?? ""}
                           onChange={(e) => patchDraft({ billingZip: e.target.value })}
                           placeholder="85716"
@@ -1542,8 +1548,9 @@ export function WorkspaceAccountMenu({
                       </div>
                     </div>
                     <div>
-                      <label className="mb-1.5 block text-xs text-muted-foreground">Country</label>
+                      <label htmlFor="billing-country" className="mb-1.5 block text-xs text-muted-foreground">Country</label>
                       <Input
+                        id="billing-country"
                         value={orgDetailsDraft.billingCountry}
                         onChange={(e) => patchDraft({ billingCountry: e.target.value })}
                         placeholder="US"
@@ -1595,8 +1602,9 @@ export function WorkspaceAccountMenu({
                     {!orgDetailsDraft.shippingSameAsBilling && (
                       <>
                         <div>
-                          <label className="mb-1.5 block text-xs text-muted-foreground">Street</label>
+                          <label htmlFor="shipping-street" className="mb-1.5 block text-xs text-muted-foreground">Street</label>
                           <Input
+                            id="shipping-street"
                             value={orgDetailsDraft.shippingStreet ?? ""}
                             onChange={(e) => patchDraft({ shippingStreet: e.target.value })}
                             placeholder="2348 E. Broadway Blvd"
@@ -1605,8 +1613,9 @@ export function WorkspaceAccountMenu({
                         </div>
                         <div className="grid grid-cols-5 gap-2">
                           <div className="col-span-2">
-                            <label className="mb-1.5 block text-xs text-muted-foreground">City</label>
+                            <label htmlFor="shipping-city" className="mb-1.5 block text-xs text-muted-foreground">City</label>
                             <Input
+                              id="shipping-city"
                               value={orgDetailsDraft.shippingCity ?? ""}
                               onChange={(e) => patchDraft({ shippingCity: e.target.value })}
                               placeholder="Tucson"
@@ -1614,8 +1623,9 @@ export function WorkspaceAccountMenu({
                             />
                           </div>
                           <div className="col-span-1">
-                            <label className="mb-1.5 block text-xs text-muted-foreground">State</label>
+                            <label htmlFor="shipping-state" className="mb-1.5 block text-xs text-muted-foreground">State</label>
                             <Input
+                              id="shipping-state"
                               value={orgDetailsDraft.shippingState ?? ""}
                               onChange={(e) => patchDraft({ shippingState: e.target.value })}
                               placeholder="AZ"
@@ -1623,8 +1633,9 @@ export function WorkspaceAccountMenu({
                             />
                           </div>
                           <div className="col-span-2">
-                            <label className="mb-1.5 block text-xs text-muted-foreground">ZIP</label>
+                            <label htmlFor="shipping-zip" className="mb-1.5 block text-xs text-muted-foreground">ZIP</label>
                             <Input
+                              id="shipping-zip"
                               value={orgDetailsDraft.shippingZip ?? ""}
                               onChange={(e) => patchDraft({ shippingZip: e.target.value })}
                               placeholder="85716"
@@ -1633,8 +1644,9 @@ export function WorkspaceAccountMenu({
                           </div>
                         </div>
                         <div>
-                          <label className="mb-1.5 block text-xs text-muted-foreground">Country</label>
+                          <label htmlFor="shipping-country" className="mb-1.5 block text-xs text-muted-foreground">Country</label>
                           <Input
+                            id="shipping-country"
                             value={orgDetailsDraft.shippingCountry}
                             onChange={(e) => patchDraft({ shippingCountry: e.target.value })}
                             placeholder="US"
