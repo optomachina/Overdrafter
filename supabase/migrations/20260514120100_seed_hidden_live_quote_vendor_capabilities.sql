@@ -18,23 +18,28 @@ with
   base_material_groups as (
     select
       array['aluminum', 'steel', 'stainless_steel'] as metal_base,
-      array['abs', 'nylon'] as plastic_base
+      array['abs', 'nylon'] as plastic_base,
+      array['brass'] as brass_material
   ),
   material_groups as (
     select
       metal_base as metal_basic,
-      metal_base || array['brass', 'copper'] as metal_full,
+      metal_base || brass_material || array['copper'] as metal_full,
       metal_base || array['acrylic', 'delrin', 'wood'] as ponoko_materials,
-      metal_base || array['titanium', 'brass'] || plastic_base as multi_lite,
-      metal_base || array['titanium', 'brass'] || plastic_base || array['polycarbonate'] as multi_full,
+      metal_base || array['titanium'] || brass_material || plastic_base as multi_lite,
+      metal_base || array['titanium'] || brass_material || plastic_base || array['polycarbonate'] as multi_full,
       metal_base || plastic_base as weerg_materials
     from base_material_groups
   ),
+  base_certification_groups as (
+    select array['ISO9001'] as iso9001
+  ),
   certification_groups as (
     select
-      array['ISO9001'] as iso9001,
-      array['ISO9001', 'ISO13485'] as iso13485,
+      iso9001,
+      iso9001 || array['ISO13485'] as iso13485,
       array[]::text[] as none
+    from base_certification_groups
   ),
   vendor_rows (
     vendor_name,
