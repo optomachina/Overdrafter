@@ -28,7 +28,7 @@ const DESKTOP_RIGHT_RAIL_COLLAPSED_WIDTH = "32px";
 
 function readDesktopRightRailCollapsed() {
   try {
-    if (typeof globalThis.window === "undefined") {
+    if (globalThis.window === undefined) {
       return false;
     }
     return globalThis.window.localStorage.getItem(DESKTOP_RIGHT_RAIL_COLLAPSED_STORAGE_KEY) === "1";
@@ -39,7 +39,7 @@ function readDesktopRightRailCollapsed() {
 
 function readDesktopSidebarCollapsed() {
   try {
-    if (typeof globalThis.window === "undefined") {
+    if (globalThis.window === undefined) {
       return false;
     }
 
@@ -60,7 +60,7 @@ function readDesktopSidebarCollapsed() {
 
 function readDesktopSidebarWidth() {
   try {
-    if (typeof globalThis.window === "undefined") {
+    if (globalThis.window === undefined) {
       return DESKTOP_SIDEBAR_DEFAULT_WIDTH;
     }
     const value = globalThis.window.localStorage.getItem(DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY);
@@ -262,7 +262,7 @@ function SidebarIconButton({
     return (
       <>
         {button}
-        {isCursorTooltipOpen && cursorTooltipPosition && typeof globalThis.document !== "undefined"
+        {isCursorTooltipOpen && cursorTooltipPosition && globalThis.document !== undefined
           ? createPortal(
               <div
                 id={tooltipId}
