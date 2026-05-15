@@ -55,6 +55,8 @@ function makeConfig(): WorkerConfig {
     vendorStorageStateJson: {},
     workerName: "xometry-sweep",
     pollIntervalMs: 5000,
+    quantityPricingLadder: [...parseQuantitiesArg()],
+    vendorRateLimitMs: 0,
     pricingModelEnabled: false,
     pricingModelMinConfidence: 0.7,
     httpHost: "127.0.0.1",
