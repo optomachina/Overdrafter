@@ -22,7 +22,7 @@ function makeQuote(overrides: Partial<VendorQuoteAggregate> = {}): VendorQuoteAg
     updated_at: overrides.updated_at ?? "2026-04-01T00:00:00.000Z",
     offers: overrides.offers ?? [],
     artifacts: overrides.artifacts ?? [],
-  } as VendorQuoteAggregate;
+  };
 }
 
 describe("pricing-curves", () => {
