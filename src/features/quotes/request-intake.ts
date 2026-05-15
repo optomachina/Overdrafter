@@ -69,9 +69,10 @@ const QUOTE_SERVICE_PATTERNS = [
 ];
 const DEFAULT_QUANTITY_PRICING_LADDER = [1, 10, 100, 1000] as const;
 const QUANTITY_PRICING_PATTERNS = [
-  /\bquantity\s+(?:pricing|prices|price|curve|ladder)\b/i,
-  /\b(?:pricing|price)\s+(?:breaks|tiers|curve|ladder)\b/i,
-  /\bqty\s+(?:breaks|tiers|curve|ladder)\b/i,
+  /\bquantity[-\s]?(?:pricing|prices|price|curves?|ladders?)\b/i,
+  /\b(?:quantity|qty)[-\s]?(?:pricing|price)\b/i,
+  /\b(?:pricing|price)\s+(?:breaks|tiers|curves?|ladders?)\b/i,
+  /\bqty\s+(?:breaks|tiers|curves?|ladders?)\b/i,
 ];
 
 const SERVICE_KEYWORD_RULES: ServiceKeywordRule[] = [

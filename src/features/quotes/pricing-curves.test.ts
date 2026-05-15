@@ -63,9 +63,19 @@ describe("pricing-curves", () => {
     expect(decreasing[0].trend).toBe("decreasing");
     expect(
       classifyPricingCurveTrend([
-        decreasing[0].points[0],
         { ...decreasing[0].points[1], status: "manual_review", unitPriceUsd: null },
+        decreasing[0].points[0],
       ]),
     ).toBe("insufficient_data");
+  });
+
+  it("classifies trends after sorting unsorted input by requested quantity", () => {
+    const curve = buildVendorPricingCurves([
+      makeQuote({ id: "q-100", requested_quantity: 100, unit_price_usd: 4 }),
+      makeQuote({ id: "q-1", requested_quantity: 1, unit_price_usd: 10 }),
+      makeQuote({ id: "q-10", requested_quantity: 10, unit_price_usd: 8 }),
+    ])[0];
+
+    expect(classifyPricingCurveTrend([curve.points[2], curve.points[0], curve.points[1]])).toBe("decreasing");
   });
 });

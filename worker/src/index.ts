@@ -1544,7 +1544,7 @@ async function main() {
       runtimeState.currentTask = null;
     }
 
-    if (task.task_type === "run_vendor_quote" && config.vendorRateLimitMs > 0) {
+    if (!stopping && task.task_type === "run_vendor_quote" && config.vendorRateLimitMs > 0) {
       await sleep(config.vendorRateLimitMs);
     }
   }

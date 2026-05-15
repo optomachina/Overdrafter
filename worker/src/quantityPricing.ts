@@ -1,3 +1,9 @@
+/**
+ * Default quantity ladder used when quantity-pricing intent is present and no
+ * explicit ladder values are provided.
+ *
+ * Example: `DEFAULT_QUANTITY_PRICING_LADDER` resolves to `[1, 10, 100, 1000]`.
+ */
 export const DEFAULT_QUANTITY_PRICING_LADDER = [1, 10, 100, 1000] as const;
 
 function appendQuantity(target: number[], seen: Set<number>, value: unknown) {
@@ -39,6 +45,16 @@ function collectInputValues(input: unknown): unknown[] {
   return [];
 }
 
+/**
+ * Normalizes quantity ladder input into ascending, unique, positive integers.
+ *
+ * Accepts arrays, numbers, or comma/slash/whitespace-separated strings. Numeric
+ * values are truncated to integers, non-positive and non-numeric values are
+ * ignored, and `fallbackQuantity` is only considered when no input values are
+ * present.
+ *
+ * Example: `normalizePricingLadder("100 / 10, 1")` returns `[1, 10, 100]`.
+ */
 export function normalizePricingLadder(input: unknown, fallbackQuantity?: number | null): number[] {
   const values = collectInputValues(input);
 

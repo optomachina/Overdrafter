@@ -46,6 +46,14 @@ describe("request intake parsing", () => {
       requestedQuoteQuantities: [1, 10, 100, 1000],
       requestedByDate: null,
     });
+
+    expect(parseRequestIntake("Need pricing curves")).toMatchObject({
+      requestedQuoteQuantities: [1, 10, 100, 1000],
+    });
+
+    expect(parseRequestIntake("Need a price ladder")).toMatchObject({
+      requestedQuoteQuantities: [1, 10, 100, 1000],
+    });
   });
 
   it("parses a slash date only as a date-intent phrase and not as quantities", () => {
