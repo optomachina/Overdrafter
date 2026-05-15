@@ -65,6 +65,8 @@ function makeConfig(): WorkerConfig {
     pollIntervalMs: 5000,
     quantityPricingLadder: [...parseQuantitiesArg()],
     vendorRateLimitMs: 0,
+    pricingModelEnabled: false,
+    pricingModelMinConfidence: 0.7,
     httpHost: "127.0.0.1",
     httpPort: 0,
     workerTempDir: path.join(os.tmpdir(), "overdrafter-fictiv-sweep"),

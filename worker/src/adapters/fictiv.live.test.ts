@@ -27,6 +27,8 @@ function makeConfig(): WorkerConfig {
     workerLiveAdapters: ["xometry", "fictiv"],
     workerName: "worker-1",
     pollIntervalMs: 5000,
+    pricingModelEnabled: false,
+    pricingModelMinConfidence: 0.7,
     httpHost: "127.0.0.1",
     httpPort: 0,
     workerTempDir: path.join(os.tmpdir(), "overdrafter-fictiv-live-test"),

@@ -39,6 +39,8 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     workerMode: "simulate",
     workerName: "worker-1",
     pollIntervalMs: 5000,
+    pricingModelEnabled: false,
+    pricingModelMinConfidence: 0.7,
     httpHost: "127.0.0.1",
     httpPort: 8080,
     workerTempDir: "/tmp/overdrafter-tests",

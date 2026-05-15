@@ -22,6 +22,8 @@ describe("loadConfig", () => {
       pollIntervalMs: 5000,
       quantityPricingLadder: [1, 10, 100, 1000],
       vendorRateLimitMs: 0,
+      pricingModelEnabled: false,
+      pricingModelMinConfidence: 0.7,
       httpHost: "0.0.0.0",
       httpPort: 8080,
       artifactBucket: "quote-artifacts",
@@ -61,6 +63,8 @@ describe("loadConfig", () => {
       WORKER_POLL_INTERVAL_MS: "2500",
       WORKER_QUANTITY_PRICING_LADDER: "1000,100,10,1",
       WORKER_VENDOR_RATE_LIMIT_MS: "750",
+      WORKER_PRICING_MODEL_ENABLED: "true",
+      WORKER_PRICING_MODEL_MIN_CONFIDENCE: "0.82",
       WORKER_HTTP_HOST: "127.0.0.1",
       WORKER_TEMP_DIR: "./tmp/worker",
       QUOTE_ARTIFACT_BUCKET: "artifacts",
@@ -97,6 +101,8 @@ describe("loadConfig", () => {
       pollIntervalMs: 2500,
       quantityPricingLadder: [1, 10, 100, 1000],
       vendorRateLimitMs: 750,
+      pricingModelEnabled: true,
+      pricingModelMinConfidence: 0.82,
       httpHost: "127.0.0.1",
       httpPort: 9090,
       artifactBucket: "artifacts",
@@ -157,6 +163,16 @@ describe("loadConfig", () => {
         WORKER_QUANTITY_PRICING_LADDER: "bad,0,-10",
       }),
     ).toThrow(/WORKER_QUANTITY_PRICING_LADDER/);
+  });
+
+  it("rejects pricing model confidence outside the 0..1 range", () => {
+    expect(() =>
+      loadConfig({
+        SUPABASE_URL: "https://example.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+        WORKER_PRICING_MODEL_MIN_CONFIDENCE: "1.5",
+      }),
+    ).toThrow();
   });
 
   it("accepts hidden vendor candidates in WORKER_LIVE_ADAPTERS", () => {

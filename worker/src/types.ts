@@ -316,6 +316,8 @@ export type WorkerConfig = {
   pollIntervalMs: number;
   quantityPricingLadder: number[];
   vendorRateLimitMs: number;
+  pricingModelEnabled: boolean;
+  pricingModelMinConfidence: number;
   httpHost: string;
   httpPort: number;
   workerTempDir: string;
