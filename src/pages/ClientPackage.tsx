@@ -237,7 +237,7 @@ const ClientPackage = () => {
         "Review your curated CNC machining options and choose the best fit for cost, speed, or overall value."
       }
       actions={
-        <Button asChild variant="outline" className="border-white/10 bg-white/5">
+        <Button asChild variant="outline" className="border-border bg-accent">
           <Link to="/">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to dashboard
@@ -264,21 +264,21 @@ const ClientPackage = () => {
         </section>
       ) : null}
 
-      <section className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/8 bg-white/8 md:grid-cols-4">
+      <section className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-accent md:grid-cols-4">
         <div className="bg-ws-inset px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-white/40">Published</p>
-          <p className="mt-1 text-xl font-bold tracking-tight text-white">
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Published</p>
+          <p className="mt-1 text-xl font-bold tracking-tight text-foreground">
             {new Date(data.package.published_at).toLocaleDateString()}
           </p>
         </div>
         <div className="bg-ws-inset px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-white/40">Options</p>
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Options</p>
           <p className="mt-1 text-xl font-bold tracking-tight text-blue-400">
             {data.options.length}
           </p>
         </div>
         <div className="bg-ws-inset px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-white/40">Best Price</p>
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Best Price</p>
           <p className="mt-1 text-xl font-bold tracking-tight text-emerald-400">
             {data.options.length > 0
               ? formatCurrency(Math.min(...data.options.map((o) => o.published_price_usd)))
@@ -286,7 +286,7 @@ const ClientPackage = () => {
           </p>
         </div>
         <div className="bg-ws-inset px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-white/40">Status</p>
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Status</p>
           <div className="mt-1">
             {latestSelection ? (
               <div className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-400">
@@ -316,8 +316,8 @@ const ClientPackage = () => {
             onChange={setActiveRequestedQuantity}
           />
           {visibleOptions.length === 0 ? (
-            <Card className="border-white/10 bg-black/20">
-              <CardContent className="p-6 text-sm text-white/55">
+            <Card className="border-border bg-muted">
+              <CardContent className="p-6 text-sm text-muted-foreground">
                 No published options are available for qty {activeRequestedQuantity}.
               </CardContent>
             </Card>
@@ -325,22 +325,22 @@ const ClientPackage = () => {
             visibleOptionGroups.map((group) => (
               <div key={group.requestedQuantity} className="space-y-4">
                 {activeRequestedQuantity === "all" ? (
-                  <div className="flex items-center justify-between rounded-2xl border border-white/8 bg-white/5 px-4 py-3">
-                    <p className="text-sm font-medium text-white">Qty {group.requestedQuantity}</p>
-                    <p className="text-xs text-white/45">
+                  <div className="flex items-center justify-between rounded-2xl border border-border bg-accent px-4 py-3">
+                    <p className="text-sm font-medium text-foreground">Qty {group.requestedQuantity}</p>
+                    <p className="text-xs text-muted-foreground">
                       {group.items.length} option{group.items.length === 1 ? "" : "s"}
                     </p>
                   </div>
                 ) : null}
                 {group.items.map((option) => (
-                  <Card key={option.id} className="border-white/10 bg-black/20">
+                  <Card key={option.id} className="border-border bg-muted">
                     <CardHeader className="flex flex-row items-start justify-between gap-4">
                       <div>
                         <div className="flex flex-wrap gap-2">
                           <Badge className="border border-primary/20 bg-primary/10 text-primary">
                             {optionLabelForKind(option.option_kind)}
                           </Badge>
-                          <Badge className="border border-white/10 bg-white/6 text-white/75">
+                          <Badge className="border border-border bg-accent text-foreground/80">
                             Qty {option.requested_quantity}
                           </Badge>
                         </div>
@@ -348,11 +348,11 @@ const ClientPackage = () => {
                       </div>
                       <div className="text-right">
                         <p className="text-3xl font-semibold">{formatCurrency(option.published_price_usd)}</p>
-                        <p className="mt-1 text-sm text-white/50">{formatLeadTime(option.lead_time_business_days)}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{formatLeadTime(option.lead_time_business_days)}</p>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <p className="text-sm text-white/60">
+                      <p className="text-sm text-muted-foreground">
                         {option.comparison_summary || "Curated from the internal vendor comparison."}
                       </p>
                       <Button
@@ -376,7 +376,7 @@ const ClientPackage = () => {
         </div>
 
         <div className="space-y-6">
-          <Card className="border-white/10 bg-white/5">
+          <Card className="border-border bg-accent">
             <CardHeader>
               <CardTitle>Decision notes</CardTitle>
             </CardHeader>
@@ -385,7 +385,7 @@ const ClientPackage = () => {
                 value={selectionNote}
                 onChange={(event) => setSelectionNote(event.target.value)}
                 disabled={!isVerifiedAuth}
-                className="min-h-32 border-white/10 bg-black/20"
+                className="min-h-32 border-border bg-muted"
                 placeholder="Optional delivery, commercial, or approval notes for this selection."
               />
             </CardContent>
@@ -402,11 +402,11 @@ const ClientPackage = () => {
               </CardContent>
             </Card>
           ) : (
-            <Card className="border-white/10 bg-black/20">
+            <Card className="border-border bg-muted">
               <CardHeader>
                 <CardTitle>What happens next</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2 text-sm text-white/55">
+              <CardContent className="space-y-2 text-sm text-muted-foreground">
                 <p>Your selection is recorded against this published package.</p>
                 <p>The estimating team will confirm the underlying quote lane and continue the downstream order workflow.</p>
               </CardContent>

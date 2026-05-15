@@ -31,7 +31,7 @@ export function PartInfoPanel({
 }: PartInfoPanelProps) {
   return (
     <div>
-      <p className="mb-[6px] text-[9px] font-bold uppercase tracking-[0.14em] text-white/20">Part information</p>
+      <p className="mb-[6px] text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Part information</p>
       <section className="rounded-[12px] border border-ws-border-subtle bg-ws-card p-4">
         {statusContent ? <div className="mb-4 space-y-4">{statusContent}</div> : null}
 
@@ -50,7 +50,7 @@ export function PartInfoPanel({
               fieldDefaults={fieldDefaults}
             />
           ) : (
-            <p className="text-sm text-white/45">Part details are still loading.</p>
+            <p className="text-sm text-muted-foreground">Part details are still loading.</p>
           )}
         </div>
       </section>

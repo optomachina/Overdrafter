@@ -51,6 +51,17 @@ export default {
         surface: {
           elevated: "var(--surface-elevated)",
         },
+        // OverDrafter bone palette — docs/DESIGN.md §Color
+        paper: {
+          DEFAULT: "var(--bg)",
+          surface: "var(--surface)",
+          inset: "var(--surface-2)",
+          ink: "var(--text)",
+          muted: "var(--muted-ink)",
+          hairline: "var(--hairline)",
+          red: "var(--accent-red)",
+          data: "var(--ink-data)",
+        },
         ws: {
           base: "var(--ws-surface-base)",
           card: "var(--ws-surface-card)",
@@ -79,7 +90,25 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        // Body — Söhne Buch (licensed) / IBM Plex Sans (free analog)
+        sans: ['IBM Plex Sans', 'system-ui', '-apple-system', 'sans-serif'],
+        // Display — Suisse Int'l Condensed / GT America Mono (licensed) / Space Mono (free analog)
+        display: ['Space Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        // Mono / data — Lab Mono (free via Fontshare); Letter Gothic Mono on the license roadmap
+        mono: ['Lab Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+      },
+      // Typography scale — docs/DESIGN.md §Typography > Scale
+      fontSize: {
+        hero: ['46px', { lineHeight: '1.04', letterSpacing: '-0.01em', fontWeight: '700' }],
+        section: ['28px', { lineHeight: '1.14', letterSpacing: '-0.005em', fontWeight: '700' }],
+        subsection: ['18px', { lineHeight: '1.25', letterSpacing: '-0.005em', fontWeight: '700' }],
+        'body-lg': ['16px', { lineHeight: '1.5' }],
+        body: ['14px', { lineHeight: '1.5' }],
+        'body-sm': ['13px', { lineHeight: '1.45' }],
+        'data-lg': ['22px', { lineHeight: '1.2' }],
+        data: ['13px', { lineHeight: '1.4' }],
+        'data-sm': ['11px', { lineHeight: '1.35' }],
+        micro: ['10px', { lineHeight: '1.3', letterSpacing: '0.1em', fontWeight: '500' }],
       },
       borderRadius: {
         lg: "var(--radius)",

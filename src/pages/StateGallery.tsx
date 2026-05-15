@@ -257,14 +257,14 @@ function SectionShell({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-[36px] border border-white/10 bg-black/18 p-5 backdrop-blur-xl sm:p-6">
+    <section className="rounded-[36px] border border-border bg-muted p-5 backdrop-blur-xl sm:p-6">
       <div className="flex items-start gap-4">
-        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-white/10 bg-white/6 text-white/85">
+        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-border bg-accent text-foreground/80">
           {icon}
         </div>
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight text-white">{title}</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-white/60">{description}</p>
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
         </div>
       </div>
       <div className="mt-6">{children}</div>
@@ -282,10 +282,10 @@ function GalleryPanelCard({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-[30px] border border-white/10 bg-white/[0.03] p-4 sm:p-5">
+    <div className="rounded-[30px] border border-border bg-accent p-4 sm:p-5">
       <div className="mb-5">
-        <p className="text-xs font-medium uppercase tracking-[0.24em] text-white/38">{title}</p>
-        <p className="mt-2 text-sm leading-6 text-white/58">{description}</p>
+        <p className="text-xs font-medium uppercase tracking-[0.24em] text-foreground/80">{title}</p>
+        <p className="mt-2 text-sm leading-6 text-foreground/80">{description}</p>
       </div>
       {children}
     </div>
@@ -306,30 +306,30 @@ function StateMessageCard({
       ? "border-amber-400/20 bg-amber-500/10"
       : tone === "danger"
         ? "border-rose-400/20 bg-rose-500/10"
-        : "border-white/10 bg-white/[0.04]";
+        : "border-border bg-accent";
 
   return (
     <article className={`rounded-[28px] border p-5 ${toneClass}`}>
-      <h3 className="text-lg font-semibold text-white">{title}</h3>
-      <p className="mt-3 text-sm leading-6 text-white/65">{description}</p>
+      <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+      <p className="mt-3 text-sm leading-6 text-foreground/80">{description}</p>
     </article>
   );
 }
 
 function RoutePreviewCard({ card }: { card: PreviewCard }) {
   return (
-    <article className="overflow-hidden rounded-[30px] border border-white/10 bg-[#08111c]/90 shadow-[0_26px_70px_rgba(0,0,0,0.28)]">
-      <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4">
+    <article className="overflow-hidden rounded-[30px] border border-border bg-[#08111c]/90 shadow-[0_26px_70px_rgba(0,0,0,0.28)]">
+      <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
         <div>
-          <p className="text-xs font-medium uppercase tracking-[0.24em] text-white/38">{card.label}</p>
-          <h3 className="mt-2 text-lg font-semibold text-white">{card.title}</h3>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-white/58">{card.description}</p>
+          <p className="text-xs font-medium uppercase tracking-[0.24em] text-foreground/80">{card.label}</p>
+          <h3 className="mt-2 text-lg font-semibold text-foreground">{card.title}</h3>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-foreground/80">{card.description}</p>
         </div>
         <Button
           asChild
           type="button"
           variant="outline"
-          className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/8"
+          className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
         >
           <a href={card.href} target="_blank" rel="noreferrer">
             Open
@@ -341,7 +341,7 @@ function RoutePreviewCard({ card }: { card: PreviewCard }) {
         <iframe
           title={card.title}
           src={buildEmbeddedPreviewHref(card.href)}
-          className="h-[640px] w-full rounded-[22px] border border-white/8 bg-[#020617]"
+          className="h-[640px] w-full rounded-[22px] border border-border bg-[#020617]"
           loading="lazy"
         />
       </div>
@@ -355,20 +355,20 @@ const StateGallery = () => {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,hsl(var(--primary)/0.12),transparent_24%),linear-gradient(180deg,#1f2024_0%,#1a1b1f_44%,#12151b_100%)] text-white">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,hsl(var(--primary)/0.12),transparent_24%),linear-gradient(180deg,#1f2024_0%,#1a1b1f_44%,#12151b_100%)] text-foreground">
       <div className="mx-auto flex min-h-screen w-full max-w-[1680px]">
-        <aside className="sticky top-0 hidden h-screen w-[21rem] shrink-0 border-r border-white/6 bg-[#16181c]/94 backdrop-blur md:flex md:flex-col">
-          <div className="border-b border-white/8 px-5 py-5">
+        <aside className="sticky top-0 hidden h-screen w-[21rem] shrink-0 border-r border-border bg-[#16181c]/94 backdrop-blur md:flex md:flex-col">
+          <div className="border-b border-border px-5 py-5">
             <div className="flex items-center gap-3">
-              <div className="grid h-11 w-11 place-items-center rounded-2xl border border-white/10 bg-white/[0.06]">
+              <div className="grid h-11 w-11 place-items-center rounded-2xl border border-border bg-accent">
                 <PanelsTopLeft className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <p className="text-sm font-medium text-white/70">OverDrafter</p>
-                <p className="font-semibold tracking-tight text-white">State Gallery</p>
+                <p className="text-sm font-medium text-foreground/80">OverDrafter</p>
+                <p className="font-semibold tracking-tight text-foreground">State Gallery</p>
               </div>
             </div>
-            <p className="mt-4 text-sm leading-6 text-white/55">
+            <p className="mt-4 text-sm leading-6 text-muted-foreground">
               Deterministic UI surfaces for review, implementation, and Figma capture.
             </p>
           </div>
@@ -379,17 +379,17 @@ const StateGallery = () => {
                 <a
                   key={section.id}
                   href={`#${section.id}`}
-                  className="block rounded-[22px] border border-white/8 bg-white/[0.04] px-4 py-4 text-white transition hover:bg-white/[0.08]"
+                  className="block rounded-[22px] border border-border bg-accent px-4 py-4 text-foreground transition hover:bg-accent"
                 >
                   <p className="text-sm font-semibold">{section.label}</p>
-                  <p className="mt-1 text-xs leading-5 text-white/52">{section.description}</p>
+                  <p className="mt-1 text-xs leading-5 text-foreground/80">{section.description}</p>
                 </a>
               ))}
             </nav>
 
-            <div className="mt-6 rounded-[24px] border border-white/8 bg-black/20 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-white/38">Usage</p>
-              <p className="mt-3 text-sm leading-6 text-white/58">
+            <div className="mt-6 rounded-[24px] border border-border bg-muted p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-foreground/80">Usage</p>
+              <p className="mt-3 text-sm leading-6 text-foreground/80">
                 Run `npm run dev`, then use the bottom-right `Fixtures` launcher or open
                 ` /debug/state-gallery` directly.
               </p>
@@ -398,13 +398,13 @@ const StateGallery = () => {
         </aside>
 
         <div className="flex min-h-screen flex-1 flex-col">
-          <header className="sticky top-0 z-20 border-b border-white/8 bg-[#111214]/88 backdrop-blur-xl">
+          <header className="sticky top-0 z-20 border-b border-border bg-[#111214]/88 backdrop-blur-xl">
             <div className="px-5 py-5 sm:px-8">
-              <p className="text-xs font-medium uppercase tracking-[0.28em] text-white/40">State gallery</p>
-              <h1 className="mt-2 text-3xl font-medium tracking-tight text-white sm:text-4xl">
+              <p className="text-xs font-medium uppercase tracking-[0.28em] text-muted-foreground">State gallery</p>
+              <h1 className="mt-2 text-3xl font-medium tracking-tight text-foreground sm:text-4xl">
                 Review OverDrafter states without hunting through flows
               </h1>
-              <p className="mt-3 max-w-4xl text-sm leading-6 text-white/58">
+              <p className="mt-3 max-w-4xl text-sm leading-6 text-foreground/80">
                 Auth, workspace, part, project, internal-ops, and failure states are grouped into direct
                 navigation sections so the page behaves more like an OverDrafter workspace than a long
                 document.
@@ -412,13 +412,13 @@ const StateGallery = () => {
             </div>
           </header>
 
-          <div className="border-b border-white/6 bg-[#17191d]/92 px-5 py-4 md:hidden">
+          <div className="border-b border-border bg-[#17191d]/92 px-5 py-4 md:hidden">
             <div className="flex gap-2 overflow-x-auto pb-1">
               {gallerySections.map((section) => (
                 <a
                   key={section.id}
                   href={`#${section.id}`}
-                  className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/75"
+                  className="shrink-0 rounded-full border border-border bg-accent px-4 py-2 text-sm text-foreground/80"
                 >
                   {section.label}
                 </a>
@@ -428,21 +428,21 @@ const StateGallery = () => {
 
           <div className="px-5 py-6 sm:px-8 sm:py-8">
             <div className="space-y-8">
-        <section className="rounded-[34px] border border-white/10 bg-[#202226]/92 p-6 shadow-[0_24px_70px_rgba(0,0,0,0.28)] sm:p-7">
+        <section className="rounded-[34px] border border-border bg-[#202226]/92 p-6 shadow-[0_24px_70px_rgba(0,0,0,0.28)] sm:p-7">
           <div className="max-w-4xl">
-            <p className="text-xs font-medium uppercase tracking-[0.32em] text-white/42">Local dev surface</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+            <p className="text-xs font-medium uppercase tracking-[0.32em] text-foreground/80">Local dev surface</p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
               Fast access to high-value states
             </h2>
-            <p className="mt-4 text-base leading-7 text-white/62">
+            <p className="mt-4 text-base leading-7 text-foreground/80">
               The gallery exists so you can jump straight to implementation and review surfaces instead of
               reproducing auth, upload, extraction, and publication paths every time.
             </p>
-            <div className="mt-6 flex flex-wrap gap-3 text-sm text-white/56">
-              <span className="rounded-full border border-white/10 bg-white/6 px-4 py-2">
+            <div className="mt-6 flex flex-wrap gap-3 text-sm text-foreground/80">
+              <span className="rounded-full border border-border bg-accent px-4 py-2">
                 Available only in local dev or test builds
               </span>
-              <span className="rounded-full border border-white/10 bg-white/6 px-4 py-2">
+              <span className="rounded-full border border-border bg-accent px-4 py-2">
                 Embedded previews hide the floating fixture and diagnostics launchers
               </span>
             </div>
@@ -467,13 +467,13 @@ const StateGallery = () => {
               title="Verify email"
               description="Post-sign-up confirmation state shown when password auth is blocked until the inbox link is opened."
             >
-              <section className="w-full rounded-[28px] border border-white/10 bg-[#0b0d10]/96 p-5 text-white shadow-[0_32px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-6">
+              <section className="w-full rounded-[28px] border border-border bg-[#0b0d10]/96 p-5 text-foreground shadow-[0_32px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-6">
                 <div>
-                  <p className="text-[11px] font-medium uppercase tracking-[0.24em] text-white/40">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.24em] text-muted-foreground">
                     Confirm your email
                   </p>
                   <h3 className="mt-3 text-2xl font-semibold tracking-tight">Email verification required</h3>
-                  <p className="mt-2 text-sm leading-6 text-white/55">
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
                     Open the confirmation link from your inbox to finish setting up the account.
                   </p>
                 </div>
@@ -609,31 +609,31 @@ const StateGallery = () => {
               description={`High-level sample metrics for ${QUOTED_SAMPLE_RFQ.client}'s ${QUOTED_SAMPLE_RFQ.projectSystem} compare set.`}
             >
               <div className="grid gap-4 md:grid-cols-3">
-                <Card className="border-white/10 bg-white/5">
+                <Card className="border-border bg-accent">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-medium text-white/70">Suppliers</CardTitle>
+                    <CardTitle className="text-sm font-medium text-foreground/80">Suppliers</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-3xl font-semibold text-white">{QUOTED_SAMPLE_SUPPLIER_COUNT}</p>
-                    <p className="mt-2 text-sm text-white/55">Distinct suppliers represented in the shared quoted sample.</p>
+                    <p className="text-3xl font-semibold text-foreground">{QUOTED_SAMPLE_SUPPLIER_COUNT}</p>
+                    <p className="mt-2 text-sm text-muted-foreground">Distinct suppliers represented in the shared quoted sample.</p>
                   </CardContent>
                 </Card>
-                <Card className="border-white/10 bg-white/5">
+                <Card className="border-border bg-accent">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-medium text-white/70">Quote lanes</CardTitle>
+                    <CardTitle className="text-sm font-medium text-foreground/80">Quote lanes</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-3xl font-semibold text-white">{QUOTED_SAMPLE_LANE_COUNT}</p>
-                    <p className="mt-2 text-sm text-white/55">Workbook-backed options available in the compare view.</p>
+                    <p className="text-3xl font-semibold text-foreground">{QUOTED_SAMPLE_LANE_COUNT}</p>
+                    <p className="mt-2 text-sm text-muted-foreground">Workbook-backed options available in the compare view.</p>
                   </CardContent>
                 </Card>
-                <Card className="border-white/10 bg-white/5">
+                <Card className="border-border bg-accent">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-medium text-white/70">Selected lane</CardTitle>
+                    <CardTitle className="text-sm font-medium text-foreground/80">Selected lane</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-xl font-semibold text-white">{quotedSampleSelectedLane.supplier}</p>
-                    <p className="mt-2 text-sm text-white/55">
+                    <p className="text-xl font-semibold text-foreground">{quotedSampleSelectedLane.supplier}</p>
+                    <p className="mt-2 text-sm text-muted-foreground">
                       {quotedSampleSelectedLane.sourcing ?? "Unspecified"} {quotedSampleSelectedLane.tier?.toLowerCase()} at ${quotedSampleSelectedLane.totalPriceUsd.toFixed(2)} due {formatDisplayDate(QUOTED_SAMPLE_PART.requestedByDate)}.
                     </p>
                   </CardContent>

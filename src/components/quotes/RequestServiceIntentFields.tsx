@@ -26,16 +26,16 @@ type RequestServiceIntentFieldsProps = {
 function getToneClasses(tone: "client" | "internal") {
   return tone === "internal"
     ? {
-        card: "rounded-2xl border border-white/8 bg-white/5 px-4 py-3",
-        helper: "text-xs text-white/45",
-        select: "border-white/10 bg-black/20 text-white",
-        textarea: "min-h-[96px] border-white/10 bg-black/20 text-white",
+        card: "rounded-2xl border border-border bg-accent px-4 py-3",
+        helper: "text-xs text-muted-foreground",
+        select: "border-border bg-muted text-foreground",
+        textarea: "min-h-[96px] border-border bg-muted text-foreground",
       }
     : {
-        card: "rounded-2xl border border-white/10 bg-black/20 px-4 py-3",
-        helper: "text-xs text-white/45",
-        select: "border-white/10 bg-black/20 text-white",
-        textarea: "min-h-[96px] border-white/10 bg-black/20 text-white",
+        card: "rounded-2xl border border-border bg-muted px-4 py-3",
+        helper: "text-xs text-muted-foreground",
+        select: "border-border bg-muted text-foreground",
+        textarea: "min-h-[96px] border-border bg-muted text-foreground",
       };
 }
 
@@ -88,7 +88,7 @@ export function RequestServiceIntentFields({
                   className="mt-0.5"
                 />
                 <div className="space-y-1">
-                  <div className="text-sm font-medium text-white">{option.label}</div>
+                  <div className="text-sm font-medium text-foreground">{option.label}</div>
                   <p className={styles.helper}>{option.description}</p>
                 </div>
               </div>

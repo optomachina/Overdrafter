@@ -524,3 +524,107 @@ AUTHORIZED → CAPTURED (Xometry order placed)
 **Effort:** M | **Priority:** P1 after the first app-triggered live quote pass
 
 **Depends on:** PR #236 merged locally and a valid Camoufox Xometry profile.
+
+---
+
+## TODO-026: Landing-page redesign — revisit when ready to do it right
+
+**What:** The full public marketing landing redesign (`optomachina/landing-redesign` branch, R4-v2 hero + B1/B2/B3/B4 body + footer, all approved via /design-shotgun rounds 1-6 on 2026-05-05) was reviewed by friends/peers on 2026-05-08 and the feedback was negative. Park the work. Don't ship `Landing.tsx`. Don't merge `optomachina/landing-redesign`. The current landing at `overdrafter.com` stays as-is.
+
+**Why:** Multiple reviewers said the page didn't land. We didn't capture detailed structured feedback at the time, so we don't know whether the problem was the visual system, the copy, the sections, the structure, or all of it. Shipping a landing page that nobody likes is worse than shipping nothing — first impressions are unrecoverable. Better to revisit when (a) we have a clearer truth-contract about what to say, (b) the live app has more shape so a real "what you'll see" section is possible, and (c) we have someone with design taste reviewing.
+
+**Where to start when picking this up:**
+- Read this TODO, `.context/landing-page-plan.md`, and `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/approved.json` for the full design history (12+ AI variants, 5 rounds of refinement, ~6 approved variant PNGs).
+- Capture *what specifically* people didn't like before re-running /design-shotgun.
+- Decide whether to (a) start over from /design-consultation with new constraints, (b) iterate on the existing approved variants once we know what failed, or (c) hire an actual human designer.
+
+**What we have on disk (don't lose):**
+- `~/.gstack/projects/optomachina-Overdrafter/designs/landing-page-20260501/` — all 12+ variants, approved.json, feedback rounds 1-6, finalized.html, finalized.json
+- `.context/landing-page-plan.md` — full page outline with locked decisions D1-D5
+- `docs/DESIGN.md` — design system stays valid for the rest of the app even if landing is paused
+- Branch `optomachina/landing-redesign` — currently has only docs commits. Safe to leave parked or delete.
+
+**Acceptance criteria for un-burying this TODO:**
+- Specific, written feedback exists about what should change (visual, copy, structure, all of the above).
+- Either a designer is involved or there's a clear hypothesis worth testing.
+- The live app's part workspace is stable enough to screenshot for a real Section 4.
+
+**Effort:** L (human: ~1-2 weeks / CC: ~1-2 days once direction is clear) | **Priority:** P3 (deferred indefinitely)
+
+**Depends on:** Detailed feedback captured; live app shape stabilized; optionally a human designer in the loop.
+
+**Note:** This entry plus TODO-027 were accidentally dropped from `TODOS.md` during the PR #237 merge and restored on 2026-05-14.
+
+---
+
+## TODO-027: Implement Part Workspace v5 + Project Workspace v5 from locked DESIGN.md
+
+**Status:** 🔄 IN PROGRESS (started 2026-05-14)
+
+**What:** Build the approved dashboard mockups (variant O = Part Workspace v5, variant P = Project Workspace v5, variant EDIT = Editable Specs Detail v3, variant R = Order Confirmation) against the live `src/pages/ClientPart.tsx`, `src/pages/ClientProject.tsx`, and `src/components/workspace/ClientWorkspaceShell.tsx`. The design language is locked in `docs/DESIGN.md` and PR #227 — patterns have been specified but never implemented in code.
+
+**Why:** Nine rounds of `/design-shotgun` review with three stakeholders converged on a single dashboard direction on 2026-05-01. The DR-00x token cleanup pass shipped the surface tokens, but the actual layout, typography hero, filter strip, vendor-stacked rows, editable-specs interaction states, and 4-step status timeline were never built. We are shipping a 2025-era dashboard while telling stakeholders the redesign is "locked."
+
+**Locked patterns to implement** (full spec in `docs/DESIGN.md` and PR #227 body):
+
+*Shell (both surfaces):*
+- Collapsible left + right rails on every workspace surface
+- Left-rail composition: logo + tagline → NEW + SEARCH buttons → parts list → user-account footer (ChatGPT-style)
+- Right-rail: PART INFO / PROJECT INFO panel + ROADMAP chips at footer (muted mono uppercase)
+- Theme toggle is a single sun/moon icon, not a labeled pill
+
+*Part Workspace (variant O):*
+- Filename hero at 44–48px — largest type on the page
+- Breadcrumbs above the filename hero (center column only)
+- Drawing preview + STEP viewer side-by-side
+- Quote comparison scatter chart (lead time × price, vendor-colored dots)
+- Quote table columns: Vendor / Price / Lead / Quality / Origin — sortable carets on PRICE / LEAD / QUALITY / TOTAL
+- `.STEP` extensions visible only on this surface
+- Selection indicator = vendor wordmark in oxidized-red text (never row-level vertical bars)
+
+*Project Workspace (variant P):*
+- Filename hero (project name), assemblies-grouped parts table with qty/assy multipliers
+- Bulk filter strip: `CHEAPEST` / `FASTEST` / `BY DUE DATE` + `[X] US ORIGIN ONLY`
+- Vendor multi-quote stacking (vendors with 5+ variants collapse to expandable parent rows)
+- 4-step status timeline: RFQ Sent → Quotes Received → Quote Selection → Parts Ordered
+- Project totals: `EST. LEAD` and `TARIFFS*`
+- Flat-parts mode fallback: `NO ASSEMBLIES — N INDEPENDENT PARTS`
+
+*Editable Specs (variant EDIT):*
+- Three states: default → editing → has-pending-edits with `--surface-2` tint + italic value
+- Hover-only edit affordance (no static pencil icons)
+- Units toggle (`METRIC / IMPERIAL`) inside editable-specs panels, default imperial
+
+*Order Confirmation (variant R):*
+- Full-page checkout (not modal)
+- `PLACE ORDER` is the only filled-color CTA in the entire system
+
+**Pre-work / dependencies:**
+- License + self-host **Suisse Int'l Condensed** and **Söhne Buch** — currently using free analogs (Space Mono, IBM Plex Sans). Shipping free analogs in the interim per explicit override (2026-05-14).
+- Verify TODO-018, TODO-019, TODO-022 (editable specs, reset-to-extracted, vendor in-flight badges) integrate cleanly into the new editable-specs interaction model.
+
+**PR sequence:**
+1. **PR-A** — ✅ DONE (2026-05-14). Typography scale wiring in `tailwind.config.ts`, `index.html`, and `index.css`. Dropped Inter-specific loading; wires IBM Plex Sans + Space Mono + Lab Mono font-family stacks with system fallbacks while remote font loading stays deferred until the fonts can be self-hosted with integrity. Added `fontFamily` (`sans`/`display`/`mono`), the `fontSize` scale (`hero`→`micro`), the additive bone palette CSS vars, the Tailwind `paper-*` color namespace, and global tabular-nums. No layout changes. Lint clean, 931 tests pass.
+2. **PR-B0** — ✅ DONE (2026-05-14). **Theme migration: dark → bone.** The app was dark-themed and the DR-00x passes only *tokenized* the dark theme — `index.css :root` was dark OKLCH, `<html class="dark">`, `color-scheme: dark`, with **~1,773 hardcoded dark-theme color occurrences across ~95 files**. The bone palette in `docs/DESIGN.md` was never the live `:root`. **Resolution:** migrated hardcoded colors → semantic tokens (`text-foreground`/`text-muted-foreground`/`border-border`/`bg-muted`/`bg-accent`/…) across 83 files (each step non-breaking while `:root` stayed dark), then flipped `:root` to the bone palette + dropped `class="dark"` + set `color-scheme: light`. Covered: `ClientWorkspaceShell`, all `components/workspace/*`, `ClientPart.tsx`, `ClientProject.tsx`, all `components/quotes/*`, all `components/chat/*`, `components/ui/*`, auth/projects/internal pages, recharts grid/axis/selection colors in both quote charts, the `ws-section-label` utilities, and the sidebar scrollbar. Class-assertion tests updated to the new tokens. Modal/sheet overlay scrims deliberately kept `bg-black/NN` (a backdrop stays dark-translucent in any theme). **Verified:** lint clean, typecheck clean, **all 940 tests pass**; dev server + browser spot-check confirm the landing, sign-in dialog, and marketing chrome render correctly in bone with no console errors. **Known follow-ups (not blockers for PR-B–F):** `concepts/` galleries (18 files) + `StateGallery.tsx` still hardcode dark colors — dev-only showcases, will read wrong on bone until migrated; `StripePaymentPanel` Stripe-Elements inline styling deferred with TODO-020; authenticated `ClientPart`/`ClientProject` workspace surfaces use the same verified token system but couldn't be browser-QA'd here (need a local Supabase backend).
+3. **PR-B** — ✅ DONE (2026-05-14). `ClientWorkspaceShell` gained a **collapsible right rail** via new optional props (`rightRailContent`, `rightRailFooter`, `rightRailLabel`) — mirrors the left rail, own collapsed state + `localStorage` persistence, 288px expanded / 32px collapsed gutter. Additive and non-breaking: routes that don't pass `rightRailContent` are unchanged. `ClientPart` now wires its PART INFO panel (the editable-specs editor + extraction/quote-request status cards) into `rightRailContent` and the redundant "Request" workspace tab was removed. **Left-rail composition** (logo+tagline → NEW/SEARCH → parts list → user footer) already lived in `WorkspaceSidebar` / `WorkspaceAccountMenu` from the prior ChatGPT-style sidebar work. **Verified:** lint + typecheck clean, all `ClientPart`/`ClientWorkspaceShell` tests pass (test mock + assertions updated for the tab→rail move), and fixture-mode browser QA (`?fixture=client-needs-attention`) confirms the right rail renders the PART INFO panel in bone with no app console errors.
+4. **PR-C** — Part Workspace v5: filename hero, breadcrumbs, drawing+STEP viewer pairing, scatter chart, sortable quote table. ⚠️ See blocker.
+5. **PR-D** — Project Workspace v5: filter strip, assemblies-grouped table, vendor stacking, 4-step timeline, project totals. ⚠️ See blocker.
+6. **PR-E** — Editable Specs Detail v3: three-state interaction, units toggle, hover-only edit affordance. ⚠️ See blocker.
+7. **PR-F** — Order Confirmation full-page route replacing the current `ProcurementHandoffPanel` checkout flow. ⚠️ See blocker.
+
+**QA workflow for PR-C–F (resolved 2026-05-14):** these are pixel-level layout rebuilds of the `ClientPart` (1065 LOC) and `ClientProject` (1727 LOC) surfaces against the approved variant-O/P/EDIT/R mockups — they need iteration against a live render. The app's authenticated routes can't reach a backend locally, BUT the repo's **fixture mode** renders these surfaces with mock data and no backend: `VITE_ENABLE_FIXTURE_MODE=1 npm run dev`, then e.g. `/parts/fx-job-needs-attention?fixture=client-needs-attention` or `/projects/fx-project-quoted?fixture=client-quoted` (see `docs/debugging-workflows.md`). Combined with the gstack `/browse` skill this gives a real edit → screenshot → verify loop. PR-B was completed and visually QA'd this way.
+
+**Scope correction (2026-05-14):** the original 6-PR sequence assumed a clean token layer and had no theme-migration step. Discovered during PR-A that the app is dark-themed with ~1,773 hardcoded dark colors; PR-B0 was inserted to cover that. Revised effort: **XL+**.
+
+**Progress (2026-05-14):** PR-A ✅, PR-B0 ✅, PR-B ✅ — the full foundation (typography, bone theme, collapsible right-rail shell + ClientPart wired to it) is in and verified. PR-C–F remain: pixel layout rebuilds, now unblocked via the fixture-mode QA workflow above. They are genuinely large (filename hero + scatter chart + sortable/stacked tables + 4-step timeline + editable-specs 3-state + full-page order confirmation across two 1000+ LOC files) — multi-session work, but no longer blocked.
+
+**Anti-scope:** This TODO is **dashboards only**. The landing page is parked under TODO-026 and stays parked.
+
+**Effort:** XL (human: ~4–6 weeks / CC: ~3–5 days across 6 PRs) | **Priority:** P1
+
+**Reference artifacts:**
+- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/variant-{O,P,EDIT,R}.png`
+- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/design-board.html` — comparison board
+- `~/.gstack/projects/optomachina-Overdrafter/designs/part-workspace-20260425/approved.json` — round 9 lock record
+- `docs/DESIGN.md` — locked spec
+- PR #227 — design lock-in commit

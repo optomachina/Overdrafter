@@ -374,12 +374,12 @@ export function XometryDebugCard({
   };
 
   return (
-    <Card className="border-white/10 bg-white/5" data-testid="xometry-debug-card">
+    <Card className="border-border bg-accent" data-testid="xometry-debug-card">
       <CardHeader>
         <div className="flex items-center justify-between gap-4">
           <div>
             <CardTitle>Xometry Debug</CardTitle>
-            <p className="mt-2 text-sm text-white/55">
+            <p className="mt-2 text-sm text-muted-foreground">
               Submit one existing Xometry lane to the worker and inspect queue state, retries, and raw diagnostics.
             </p>
           </div>
@@ -391,7 +391,7 @@ export function XometryDebugCard({
           <div className="space-y-2">
             <Label>Part</Label>
             <Select value={selectedPartId} onValueChange={setSelectedPartId}>
-              <SelectTrigger className="border-white/10 bg-black/20">
+              <SelectTrigger className="border-border bg-muted">
                 <SelectValue placeholder="Select part" />
               </SelectTrigger>
               <SelectContent>
@@ -406,7 +406,7 @@ export function XometryDebugCard({
           <div className="space-y-2">
             <Label>Requested quantity lane</Label>
             <Select value={selectedRequestedQuantity} onValueChange={setSelectedRequestedQuantity}>
-              <SelectTrigger className="border-white/10 bg-black/20">
+              <SelectTrigger className="border-border bg-muted">
                 <SelectValue placeholder="Select quantity" />
               </SelectTrigger>
               <SelectContent>
@@ -420,22 +420,22 @@ export function XometryDebugCard({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm">
-          <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/75">
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-muted px-4 py-3 text-sm">
+          <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
             Run {latestQuoteRun?.id ?? "Not started"}
           </Badge>
-          <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/75">
+          <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
             {selectedQuote ? formatVendorName(selectedQuote.vendor) : "Xometry"}
           </Badge>
-          <span className="text-white/55">{debugState.description}</span>
+          <span className="text-muted-foreground">{debugState.description}</span>
         </div>
 
         <div className="grid gap-3 md:grid-cols-4">
-          <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-white/40">Worker readiness</p>
+          <div className="rounded-2xl border border-border bg-muted p-4">
+            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Worker readiness</p>
             <div className="mt-2 flex items-center gap-2">
               {readinessQuery.isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin text-white/55" />
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               ) : readinessQuery.data?.ready ? (
                 <CheckCircle2 className="h-4 w-4 text-emerald-300" />
               ) : (
@@ -449,32 +449,32 @@ export function XometryDebugCard({
                     : "Unavailable"}
               </p>
             </div>
-            <p className="mt-2 text-xs text-white/45">
+            <p className="mt-2 text-xs text-muted-foreground">
               {readinessQuery.data?.readinessIssues[0] ??
                 readinessQuery.data?.message ??
                 "Readiness probe not configured."}
             </p>
           </div>
-          <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-white/40">Queue task</p>
+          <div className="rounded-2xl border border-border bg-muted p-4">
+            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Queue task</p>
             <p className="mt-2 text-sm font-medium">
               {selectedQueueTask ? formatStatusLabel(selectedQueueTask.status) : "Idle"}
             </p>
-            <p className="mt-2 text-xs text-white/45">
+            <p className="mt-2 text-xs text-muted-foreground">
               Updated {formatDateTime(selectedQueueTask?.updated_at ?? selectedQueueTask?.created_at)}
             </p>
           </div>
-          <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-white/40">Vendor result</p>
+          <div className="rounded-2xl border border-border bg-muted p-4">
+            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Vendor result</p>
             <p className="mt-2 text-sm font-medium">
               {selectedQuote ? formatStatusLabel(selectedQuote.status) : "Missing"}
             </p>
-            <p className="mt-2 text-xs text-white/45">
+            <p className="mt-2 text-xs text-muted-foreground">
               Retry count {Number(rawPayload.retryCount ?? 0)}
             </p>
           </div>
-          <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-white/40">Next retry</p>
+          <div className="rounded-2xl border border-border bg-muted p-4">
+            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Next retry</p>
             <p className="mt-2 text-sm font-medium">
               {formatDateTime(
                 typeof rawPayload.retryScheduledFor === "string"
@@ -482,7 +482,7 @@ export function XometryDebugCard({
                   : null,
               )}
             </p>
-            <p className="mt-2 text-xs text-white/45">
+            <p className="mt-2 text-xs text-muted-foreground">
               Last quote update {formatDateTime(selectedQuote?.updated_at)}
             </p>
           </div>
@@ -503,7 +503,7 @@ export function XometryDebugCard({
           </Button>
           <Button
             variant="outline"
-            className="rounded-full border-white/10 bg-white/5"
+            className="rounded-full border-border bg-accent"
             onClick={() => {
               void Promise.all([
                 queryClient.invalidateQueries({ queryKey: ["job", jobId] }),
@@ -518,7 +518,7 @@ export function XometryDebugCard({
 
         <Collapsible>
           <CollapsibleTrigger asChild>
-            <Button variant="ghost" className="w-full justify-between rounded-2xl border border-white/8 bg-black/20">
+            <Button variant="ghost" className="w-full justify-between rounded-2xl border border-border bg-muted">
               Expanded diagnostics
               <ChevronDown className="h-4 w-4" />
             </Button>
@@ -526,25 +526,25 @@ export function XometryDebugCard({
           <CollapsibleContent className="space-y-4 pt-4">
             <div className="grid gap-3 md:grid-cols-2">
               {diagnosticFields.map(({ label, value }) => (
-                <div key={label} className="rounded-2xl border border-white/8 bg-black/20 p-4">
-                  <p className="text-xs uppercase tracking-[0.2em] text-white/40">{label}</p>
-                  <p className="mt-2 break-words text-sm text-white/80">{value}</p>
+                <div key={label} className="rounded-2xl border border-border bg-muted p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{label}</p>
+                  <p className="mt-2 break-words text-sm text-foreground/80">{value}</p>
                 </div>
               ))}
             </div>
 
-            <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-white/40">Body excerpt</p>
-              <pre className="mt-3 whitespace-pre-wrap break-words text-xs text-white/70">
+            <div className="rounded-2xl border border-border bg-muted p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Body excerpt</p>
+              <pre className="mt-3 whitespace-pre-wrap break-words text-xs text-foreground/80">
                 {typeof rawPayload.bodyExcerpt === "string" && rawPayload.bodyExcerpt.trim().length > 0
                   ? rawPayload.bodyExcerpt
                   : "No body excerpt captured."}
               </pre>
             </div>
 
-            <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-white/40">Notes</p>
-              <div className="mt-3 space-y-2 text-sm text-white/70">
+            <div className="rounded-2xl border border-border bg-muted p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Notes</p>
+              <div className="mt-3 space-y-2 text-sm text-foreground/80">
                 {notes.length > 0 ? (
                   notes.map((note) => <p key={note}>{note}</p>)
                 ) : (
@@ -553,17 +553,17 @@ export function XometryDebugCard({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
+            <div className="rounded-2xl border border-border bg-muted p-4">
               <div className="flex items-center justify-between gap-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-white/40">Artifacts</p>
-                <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Artifacts</p>
+                <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                   {artifacts.length} files
                 </Badge>
               </div>
-              <Separator className="my-4 bg-white/10" />
+              <Separator className="my-4 bg-accent" />
               {artifactGroups.map(({ label, items }) => (
                 <div key={label} className="mb-4 last:mb-0">
-                  <p className="text-sm font-medium text-white">{label}</p>
+                  <p className="text-sm font-medium text-foreground">{label}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {items.length > 0 ? (
                       items.map((artifact) => (
@@ -571,7 +571,7 @@ export function XometryDebugCard({
                           key={artifact.id}
                           type="button"
                           variant="outline"
-                          className="border-white/10 bg-white/5"
+                          className="border-border bg-accent"
                           onClick={() => void handleDownloadArtifact(artifact)}
                         >
                           {artifact.metadata && typeof artifact.metadata === "object" && !Array.isArray(artifact.metadata)
@@ -580,7 +580,7 @@ export function XometryDebugCard({
                         </Button>
                       ))
                     ) : (
-                      <p className="text-sm text-white/45">None captured.</p>
+                      <p className="text-sm text-muted-foreground">None captured.</p>
                     )}
                   </div>
                 </div>

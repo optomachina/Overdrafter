@@ -3,7 +3,7 @@ import { getQuoteRequestStatusBadgeClassName } from "@/features/quotes/quote-req
 
 describe("getQuoteRequestStatusBadgeClassName", () => {
   it.each([
-    ["not_requested", "border-white/10 bg-white/6 text-white/70"],
+    ["not_requested", "border border-border bg-accent text-foreground/80"],
     ["queued", "border-amber-400/20 bg-amber-500/10 text-amber-100"],
     ["requesting", "border-amber-400/20 bg-amber-500/10 text-amber-100"],
     ["received", "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"],

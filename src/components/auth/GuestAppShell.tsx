@@ -52,8 +52,10 @@ export function GuestAppShell({
     }
   };
 
+  // Guest shell intentionally keeps the pre-auth dark marketing treatment;
+  // docs/DESIGN.md logs this as a fixed-branding exception.
   return (
-    <div className="min-h-svh overflow-hidden bg-[radial-gradient(circle_at_top,hsl(var(--primary)/0.11),transparent_24%),linear-gradient(180deg,#1f2024_0%,#1b1c20_48%,#17181c_100%)] text-foreground">
+    <div className="min-h-svh overflow-hidden bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.11),transparent_24%),linear-gradient(180deg,#1f2024_0%,#1b1c20_48%,#17181c_100%)] text-white">
       <div className="relative mx-auto flex min-h-svh w-full max-w-[980px] flex-col">
         <header className="relative z-10 flex items-center justify-between px-4 pt-8 sm:px-6 sm:pt-6">
           <div className="flex items-center gap-3 text-white/90">
@@ -77,7 +79,7 @@ export function GuestAppShell({
 
           <div className="flex items-center gap-2">
             <Button
-              className="h-12 rounded-full bg-white px-6 text-lg font-semibold text-black hover:bg-white/90"
+              className="h-12 rounded-full bg-primary px-6 text-lg font-semibold text-primary-foreground hover:bg-accent"
               onClick={openSignIn}
             >
               Log in

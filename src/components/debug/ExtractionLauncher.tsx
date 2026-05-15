@@ -176,7 +176,7 @@ export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatin
         <Button
           type="button"
           size="sm"
-          className={`fixed right-4 z-40 w-fit gap-2 rounded-full border border-white/12 bg-[#111827]/92 text-white shadow-2xl hover:bg-[#1f2937] ${fixtureLauncherVisible ? "bottom-36" : "bottom-20"}`}
+          className={`fixed right-4 z-40 w-fit gap-2 rounded-full border border-border bg-ws-deep/92 text-foreground shadow-2xl hover:bg-accent ${fixtureLauncherVisible ? "bottom-36" : "bottom-20"}`}
           onClick={() => setOpen(true)}
         >
           <ScanSearch className="h-4 w-4" />
@@ -187,53 +187,53 @@ export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatin
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
           side="right"
-          className="w-[min(96vw,34rem)] overflow-y-auto border-white/10 bg-[#111827] p-0 text-white sm:max-w-[34rem]"
+          className="w-[min(96vw,34rem)] overflow-y-auto border-border bg-ws-deep p-0 text-foreground sm:max-w-[34rem]"
         >
           <div className="flex h-full flex-col">
-            <SheetHeader className="border-b border-white/10 px-6 py-5 text-left">
-              <SheetTitle className="flex items-center gap-2 text-white">
+            <SheetHeader className="border-b border-border px-6 py-5 text-left">
+              <SheetTitle className="flex items-center gap-2 text-foreground">
                 <ScanSearch className="h-5 w-5" />
                 Extraction
               </SheetTitle>
-              <SheetDescription className="text-white/60">
+              <SheetDescription className="text-muted-foreground">
                 Route-aware entry point into the Extraction Lab.
               </SheetDescription>
             </SheetHeader>
 
             <div className="space-y-6 px-6 py-5">
-              <div className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="space-y-3 rounded-2xl border border-border bg-muted p-4">
                 <div className="flex flex-wrap gap-2">
-                  <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                  <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                     Route: {location.pathname}
                   </Badge>
-                  <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                  <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                     {contextLabel(resolvedContext)}
                   </Badge>
                 </div>
                 {isBusy ? (
-                  <div className="flex items-center gap-2 text-sm text-white/60">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Resolving extraction context…
                   </div>
                 ) : null}
                 {actionJobId ? (
-                  <p className="text-sm text-white/75">
+                  <p className="text-sm text-foreground/80">
                     Job ID: <span className="font-mono text-xs">{actionJobId}</span>
                   </p>
                 ) : (
-                  <p className="text-sm text-white/60">
+                  <p className="text-sm text-muted-foreground">
                     This route does not map to an extractable job automatically. Paste a job or part ID to jump into the internal job page.
                   </p>
                 )}
               </div>
 
-              <div className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-sm font-medium text-white">Worker status</p>
+              <div className="space-y-3 rounded-2xl border border-border bg-muted p-4">
+                <p className="text-sm font-medium text-foreground">Worker status</p>
                 <div className="flex flex-wrap gap-2 text-xs">
-                  <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                  <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                     Build: {workerReadinessQuery.data?.workerBuildVersion ?? "Unknown"}
                   </Badge>
-                  <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+                  <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                     Model: {workerReadinessQuery.data?.drawingExtractionModel ?? "Unknown"}
                   </Badge>
                   <Badge
@@ -248,17 +248,17 @@ export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatin
                   </Badge>
                 </div>
                 {workerReadinessQuery.data?.message ? (
-                  <p className="text-xs text-white/55">{workerReadinessQuery.data.message}</p>
+                  <p className="text-xs text-muted-foreground">{workerReadinessQuery.data.message}</p>
                 ) : null}
               </div>
 
-              <div className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-sm font-medium text-white">Open Extraction Lab</p>
+              <div className="space-y-3 rounded-2xl border border-border bg-muted p-4">
+                <p className="text-sm font-medium text-foreground">Open Extraction Lab</p>
                 <div className="flex gap-3">
                   <Button
                     type="button"
                     variant="outline"
-                    className="border-white/10 bg-transparent text-white hover:bg-white/6"
+                    className="border-border bg-transparent text-foreground hover:bg-accent"
                     onClick={handleOpenInternalJob}
                   >
                     <FlaskConical className="mr-2 h-4 w-4" />
@@ -267,7 +267,7 @@ export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatin
                 </div>
                 {canOpenInternalJob && !actionJobId ? (
                   <div className="space-y-2">
-                    <Label htmlFor="extraction-launcher-job-input" className="text-white">
+                    <Label htmlFor="extraction-launcher-job-input" className="text-foreground">
                       Job or part ID
                     </Label>
                     <Input
@@ -275,7 +275,7 @@ export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatin
                       value={manualRouteId}
                       onChange={(event) => setManualRouteId(event.target.value)}
                       placeholder="Paste a job ID or part ID"
-                      className="border-white/10 bg-white/5 text-white placeholder:text-white/35"
+                      className="border-border bg-accent text-foreground placeholder:text-muted-foreground"
                     />
                   </div>
                 ) : null}

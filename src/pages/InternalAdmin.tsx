@@ -34,7 +34,7 @@ function formatDate(value: string): string {
 
 function LoadingState() {
   return (
-    <div className="flex items-center justify-center rounded-3xl border border-dashed border-white/10 bg-white/5 p-8">
+    <div className="flex items-center justify-center rounded-3xl border border-dashed border-border bg-accent p-8">
       <Loader2 className="h-5 w-5 animate-spin text-primary" />
     </div>
   );
@@ -50,14 +50,14 @@ function ErrorState({ message }: { message: string }) {
 
 function EmptyState({ title, description }: { title: string; description: string }) {
   return (
-    <div className="rounded-3xl border border-dashed border-white/10 bg-white/5 p-8 text-center">
+    <div className="rounded-3xl border border-dashed border-border bg-accent p-8 text-center">
       <p className="font-medium">{title}</p>
-      <p className="mt-2 text-sm text-white/50">{description}</p>
+      <p className="mt-2 text-sm text-muted-foreground">{description}</p>
     </div>
   );
 }
 
-const badgeClassName = "border border-white/10 bg-white/5 text-white/75";
+const badgeClassName = "border border-border bg-accent text-foreground/80";
 
 const InternalAdmin = () => {
   const navigate = useNavigate();
@@ -162,31 +162,31 @@ const InternalAdmin = () => {
     >
       <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col px-4 pb-8 pt-4 md:px-6 md:pb-10 md:pt-6">
         <div className="pb-8">
-          <h1 className="text-[2rem] font-medium tracking-[-0.02em] text-white md:text-[2.35rem]">
+          <h1 className="text-[2rem] font-medium tracking-[-0.02em] text-foreground md:text-[2.35rem]">
             Platform Admin God Mode
           </h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-white/55">
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
             Inspect organizations, memberships, jobs, and shared projects across the platform
             without switching accounts. Cross-organization access stays read-only.
           </p>
         </div>
 
         {!isPlatformAdmin ? (
-          <Card className="border-white/10 bg-black/20">
+          <Card className="border-border bg-muted">
             <CardHeader>
               <CardTitle>Not authorized</CardTitle>
             </CardHeader>
-            <CardContent className="pt-0 text-sm text-white/60">
+            <CardContent className="pt-0 text-sm text-muted-foreground">
               This page is only available to platform admins on the private allowlist.
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-8">
             <section>
-              <Card className="border-white/10 bg-black/20">
+              <Card className="border-border bg-muted">
                 <CardHeader>
                   <CardTitle>Organizations</CardTitle>
-                  <p className="text-sm text-white/55">
+                  <p className="text-sm text-muted-foreground">
                     All organizations with membership and active job counts.
                   </p>
                 </CardHeader>
@@ -209,25 +209,25 @@ const InternalAdmin = () => {
                   ) : (
                     <Table>
                       <TableHeader>
-                        <TableRow className="border-white/10 hover:bg-transparent">
-                          <TableHead className="text-white/55">Name</TableHead>
-                          <TableHead className="text-white/55">Slug</TableHead>
-                          <TableHead className="text-white/55">Members</TableHead>
-                          <TableHead className="text-white/55">Active Jobs</TableHead>
-                          <TableHead className="text-white/55">Created</TableHead>
+                        <TableRow className="border-border hover:bg-transparent">
+                          <TableHead className="text-muted-foreground">Name</TableHead>
+                          <TableHead className="text-muted-foreground">Slug</TableHead>
+                          <TableHead className="text-muted-foreground">Members</TableHead>
+                          <TableHead className="text-muted-foreground">Active Jobs</TableHead>
+                          <TableHead className="text-muted-foreground">Created</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {(organizationsQuery.data ?? []).map((organization) => (
                           <TableRow
                             key={organization.id}
-                            className="border-white/10 hover:bg-white/5"
+                            className="border-border hover:bg-accent"
                           >
                             <TableCell className="font-medium">{organization.name}</TableCell>
-                            <TableCell className="text-sm text-white/55">{organization.slug}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{organization.slug}</TableCell>
                             <TableCell>{organization.memberCount}</TableCell>
                             <TableCell>{organization.activeJobCount}</TableCell>
-                            <TableCell className="text-sm text-white/55">
+                            <TableCell className="text-sm text-muted-foreground">
                               {formatDate(organization.createdAt)}
                             </TableCell>
                           </TableRow>
@@ -240,10 +240,10 @@ const InternalAdmin = () => {
             </section>
 
             <section>
-              <Card className="border-white/10 bg-black/20">
+              <Card className="border-border bg-muted">
                 <CardHeader>
                   <CardTitle>Users</CardTitle>
-                  <p className="text-sm text-white/55">
+                  <p className="text-sm text-muted-foreground">
                     Memberships across all organizations, including role assignments.
                   </p>
                 </CardHeader>
@@ -266,18 +266,18 @@ const InternalAdmin = () => {
                   ) : (
                     <Table>
                       <TableHeader>
-                        <TableRow className="border-white/10 hover:bg-transparent">
-                          <TableHead className="text-white/55">Email</TableHead>
-                          <TableHead className="text-white/55">Org</TableHead>
-                          <TableHead className="text-white/55">Role</TableHead>
-                          <TableHead className="text-white/55">Joined</TableHead>
+                        <TableRow className="border-border hover:bg-transparent">
+                          <TableHead className="text-muted-foreground">Email</TableHead>
+                          <TableHead className="text-muted-foreground">Org</TableHead>
+                          <TableHead className="text-muted-foreground">Role</TableHead>
+                          <TableHead className="text-muted-foreground">Joined</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {(usersQuery.data ?? []).map((member) => (
-                          <TableRow key={member.id} className="border-white/10 hover:bg-white/5">
+                          <TableRow key={member.id} className="border-border hover:bg-accent">
                             <TableCell className="font-medium">{member.email}</TableCell>
-                            <TableCell className="text-sm text-white/55">
+                            <TableCell className="text-sm text-muted-foreground">
                               {member.organizationName}
                             </TableCell>
                             <TableCell>
@@ -285,7 +285,7 @@ const InternalAdmin = () => {
                                 {formatStatusLabel(member.role)}
                               </Badge>
                             </TableCell>
-                            <TableCell className="text-sm text-white/55">
+                            <TableCell className="text-sm text-muted-foreground">
                               {formatDate(member.createdAt)}
                             </TableCell>
                           </TableRow>
@@ -298,10 +298,10 @@ const InternalAdmin = () => {
             </section>
 
             <section>
-              <Card className="border-white/10 bg-black/20">
+              <Card className="border-border bg-muted">
                 <CardHeader>
                   <CardTitle>Jobs / Parts</CardTitle>
-                  <p className="text-sm text-white/55">
+                  <p className="text-sm text-muted-foreground">
                     Active jobs across the platform, with direct links into internal job detail.
                   </p>
                 </CardHeader>
@@ -324,36 +324,36 @@ const InternalAdmin = () => {
                   ) : (
                     <Table>
                       <TableHeader>
-                        <TableRow className="border-white/10 hover:bg-transparent">
-                          <TableHead className="text-white/55">Title</TableHead>
-                          <TableHead className="text-white/55">Org</TableHead>
-                          <TableHead className="text-white/55">Status</TableHead>
-                          <TableHead className="text-white/55">Created</TableHead>
+                        <TableRow className="border-border hover:bg-transparent">
+                          <TableHead className="text-muted-foreground">Title</TableHead>
+                          <TableHead className="text-muted-foreground">Org</TableHead>
+                          <TableHead className="text-muted-foreground">Status</TableHead>
+                          <TableHead className="text-muted-foreground">Created</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {(jobsQuery.data ?? []).map((job) => (
-                          <TableRow key={job.id} className="border-white/10 hover:bg-white/5">
+                          <TableRow key={job.id} className="border-border hover:bg-accent">
                             <TableCell>
                               <div>
                                 <Link
                                   to={`/internal/jobs/${job.id}`}
-                                  className="font-medium text-white underline-offset-4 hover:underline"
+                                  className="font-medium text-foreground underline-offset-4 hover:underline"
                                 >
                                   {job.title}
                                 </Link>
-                                <p className="text-xs text-white/45">
+                                <p className="text-xs text-muted-foreground">
                                   {job.partCount} {job.partCount === 1 ? "part" : "parts"}
                                 </p>
                               </div>
                             </TableCell>
-                            <TableCell className="text-sm text-white/55">{job.organizationName}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{job.organizationName}</TableCell>
                             <TableCell>
                               <Badge variant="secondary" className={badgeClassName}>
                                 {formatStatusLabel(job.status)}
                               </Badge>
                             </TableCell>
-                            <TableCell className="text-sm text-white/55">
+                            <TableCell className="text-sm text-muted-foreground">
                               {formatDate(job.createdAt)}
                             </TableCell>
                           </TableRow>
@@ -366,10 +366,10 @@ const InternalAdmin = () => {
             </section>
 
             <section>
-              <Card className="border-white/10 bg-black/20">
+              <Card className="border-border bg-muted">
                 <CardHeader>
                   <CardTitle>Projects</CardTitle>
-                  <p className="text-sm text-white/55">
+                  <p className="text-sm text-muted-foreground">
                     Shared project workspaces across organizations with member and job counts.
                   </p>
                 </CardHeader>
@@ -392,28 +392,28 @@ const InternalAdmin = () => {
                   ) : (
                     <Table>
                       <TableHeader>
-                        <TableRow className="border-white/10 hover:bg-transparent">
-                          <TableHead className="text-white/55">Name</TableHead>
-                          <TableHead className="text-white/55">Org</TableHead>
-                          <TableHead className="text-white/55">Owner</TableHead>
-                          <TableHead className="text-white/55">Members</TableHead>
-                          <TableHead className="text-white/55">Jobs</TableHead>
-                          <TableHead className="text-white/55">Created</TableHead>
+                        <TableRow className="border-border hover:bg-transparent">
+                          <TableHead className="text-muted-foreground">Name</TableHead>
+                          <TableHead className="text-muted-foreground">Org</TableHead>
+                          <TableHead className="text-muted-foreground">Owner</TableHead>
+                          <TableHead className="text-muted-foreground">Members</TableHead>
+                          <TableHead className="text-muted-foreground">Jobs</TableHead>
+                          <TableHead className="text-muted-foreground">Created</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {(projectsQuery.data ?? []).map((project) => (
-                          <TableRow key={project.id} className="border-white/10 hover:bg-white/5">
+                          <TableRow key={project.id} className="border-border hover:bg-accent">
                             <TableCell className="font-medium">{project.name}</TableCell>
-                            <TableCell className="text-sm text-white/55">
+                            <TableCell className="text-sm text-muted-foreground">
                               {project.organizationName}
                             </TableCell>
-                            <TableCell className="text-sm text-white/55">
+                            <TableCell className="text-sm text-muted-foreground">
                               {project.ownerEmail ?? "Unknown owner"}
                             </TableCell>
                             <TableCell>{project.memberCount}</TableCell>
                             <TableCell>{project.jobCount}</TableCell>
-                            <TableCell className="text-sm text-white/55">
+                            <TableCell className="text-sm text-muted-foreground">
                               {formatDate(project.createdAt)}
                             </TableCell>
                           </TableRow>

@@ -52,11 +52,11 @@ export function ClientWorkspaceToneBadge({
 
 function ReasonRow({ reason }: { reason: ClientWorkspaceStateReason }) {
   return (
-    <div className="flex items-start gap-2 rounded-2xl border border-white/8 bg-black/20 px-3 py-3">
+    <div className="flex items-start gap-2 rounded-2xl border border-border bg-muted px-3 py-3">
       <ClientWorkspaceToneBadge tone={reason.tone} className="shrink-0" />
       <div className="min-w-0">
-        <p className="text-sm font-medium text-white">{reason.label}</p>
-        <p className="mt-1 text-xs text-white/60">{reason.detail}</p>
+        <p className="text-sm font-medium text-foreground">{reason.label}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{reason.detail}</p>
       </div>
     </div>
   );
@@ -78,9 +78,9 @@ export function ClientWorkspaceStateSummary({
     <div className={cn("rounded-surface-lg border p-4", classes.panel, className)}>
       <div className="flex flex-wrap items-center gap-2">
         <ClientWorkspaceToneBadge tone={state.tone} />
-        <p className="text-sm font-medium text-white">{state.selection.label}</p>
+        <p className="text-sm font-medium text-foreground">{state.selection.label}</p>
       </div>
-      <p className="mt-2 text-sm text-white/70">{state.selection.detail}</p>
+      <p className="mt-2 text-sm text-foreground/80">{state.selection.detail}</p>
 
       {visibleReasons.length > 0 ? (
         <div className="mt-4 grid gap-3">

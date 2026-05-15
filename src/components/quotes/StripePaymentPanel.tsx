@@ -79,8 +79,8 @@ export function StripePaymentPanel({
         <div className="flex items-center gap-3">
           <CheckCircle2 className="h-6 w-6 shrink-0 text-emerald-400" />
           <div>
-            <p className="text-lg font-semibold text-white">Payment confirmed</p>
-            <p className="mt-1 text-sm text-white/60">
+            <p className="text-lg font-semibold text-foreground">Payment confirmed</p>
+            <p className="mt-1 text-sm text-muted-foreground">
               Your payment of {amountLabel} was authorized. OverDrafter will place the order once the session is confirmed.
             </p>
           </div>
@@ -90,11 +90,11 @@ export function StripePaymentPanel({
   }
 
   return (
-    <section className="rounded-[26px] border border-white/8 bg-ws-card p-6">
-      <p className="text-xs uppercase tracking-[0.18em] text-white/35">Payment</p>
-      <h2 className="mt-2 text-xl font-semibold text-white">Proceed to payment</h2>
-      <p className="mt-2 text-sm text-white/55">
-        Authorize a card payment of <span className="text-white">{amountLabel}</span>. Your card will not be charged until OverDrafter confirms the Xometry order.
+    <section className="rounded-[26px] border border-border bg-ws-card p-6">
+      <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Payment</p>
+      <h2 className="mt-2 text-xl font-semibold text-foreground">Proceed to payment</h2>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Authorize a card payment of <span className="text-foreground">{amountLabel}</span>. Your card will not be charged until OverDrafter confirms the Xometry order.
       </p>
 
       {clientSecret && stripePromise ? (
@@ -186,7 +186,7 @@ function CardForm({ clientSecret, amountLabel, onSuccess }: CardFormProps) {
     <form onSubmit={handleSubmit} className="mt-6 space-y-4">
       <div
         className={cn(
-          "rounded-2xl border border-white/10 bg-black/20 px-4 py-4",
+          "rounded-2xl border border-border bg-muted px-4 py-4",
         )}
       >
         <CardElement
@@ -225,7 +225,7 @@ function CardForm({ clientSecret, amountLabel, onSuccess }: CardFormProps) {
         )}
       </Button>
 
-      <p className="text-center text-xs text-white/35">
+      <p className="text-center text-xs text-muted-foreground">
         Your card will only be charged after the Xometry order is confirmed.
       </p>
     </form>

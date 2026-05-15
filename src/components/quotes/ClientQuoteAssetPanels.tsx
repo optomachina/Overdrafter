@@ -139,11 +139,11 @@ export function ClientDrawingPreviewPanel({
   }, [resolvedState, resolvedViewerMode, statusMessage]);
 
   return (
-    <section className={cn("rounded-[26px] border border-white/8 bg-ws-card p-5", className)}>
+    <section className={cn("rounded-[26px] border border-border bg-ws-card p-5", className)}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-white/35">Drawing</p>
-          <p className="mt-2 text-sm text-white/55">
+          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Drawing</p>
+          <p className="mt-2 text-sm text-muted-foreground">
             Drawing remains the source of truth for the quoteable part definition.
           </p>
         </div>
@@ -153,7 +153,7 @@ export function ClientDrawingPreviewPanel({
               <Button
                 type="button"
                 variant="outline"
-                className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
                 onClick={onOpenDialog}
               >
                 <Expand className="mr-2 h-4 w-4" />
@@ -163,7 +163,7 @@ export function ClientDrawingPreviewPanel({
             <Button
               type="button"
               variant="outline"
-              className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+              className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
               onClick={() => {
                 void downloadStoredFile(drawingFile);
               }}
@@ -175,17 +175,17 @@ export function ClientDrawingPreviewPanel({
         ) : null}
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-[22px] border border-white/8 bg-black/20">
-        <div className="bg-white">
+      <div className="mt-4 overflow-hidden rounded-[22px] border border-border bg-muted">
+        <div className="bg-background">
           {resolvedLoading ? (
             <div className="flex min-h-[320px] items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-zinc-500" />
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : hasPdfPreview && resolvedViewerMode === "pdf" ? (
             <iframe
               src={pdfUrl}
               title={`${drawingFile?.original_name ?? "Drawing"} PDF preview`}
-              className="h-[320px] w-full border-0 bg-white"
+              className="h-[320px] w-full border-0 bg-background"
             />
           ) : activePage ? (
             <img
@@ -194,22 +194,22 @@ export function ClientDrawingPreviewPanel({
               className="w-full object-contain"
             />
           ) : (
-            <div className="mx-auto flex min-h-[320px] max-w-md flex-col items-center justify-center gap-3 px-6 text-center text-sm text-zinc-500">
+            <div className="mx-auto flex min-h-[320px] max-w-md flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
               {resolvedState === "failed" || resolvedState === "unavailable" ? (
-                <AlertCircle className="h-6 w-6 text-zinc-400" />
+                <AlertCircle className="h-6 w-6 text-muted-foreground" />
               ) : null}
               <div>
                 {emptyState}
               </div>
               {resolvedState === "unavailable" && statusMessage ? (
-                <div className="text-xs text-zinc-400">{statusMessage}</div>
+                <div className="text-xs text-muted-foreground">{statusMessage}</div>
               ) : null}
             </div>
           )}
         </div>
 
         {resolvedPages.length > 1 ? (
-          <div className="flex flex-wrap gap-2 border-t border-white/8 px-4 py-3">
+          <div className="flex flex-wrap gap-2 border-t border-border px-4 py-3">
             {resolvedPages.map((page) => (
               <button
                 key={page.pageNumber}
@@ -218,8 +218,8 @@ export function ClientDrawingPreviewPanel({
                 className={cn(
                   "rounded-full border px-3 py-1 text-xs transition",
                   activePageNumber === page.pageNumber
-                    ? "border-white/20 bg-white text-black"
-                    : "border-white/10 bg-transparent text-white/70 hover:bg-white/6",
+                    ? "border-border bg-primary text-primary-foreground"
+                    : "border-border bg-transparent text-foreground/80 hover:bg-accent",
                 )}
               >
                 Page {page.pageNumber}
@@ -255,16 +255,16 @@ export function ClientCadPreviewPanel({
   const previewable = cadFile ? isStepPreviewableFile(cadFile.original_name) : false;
 
   return (
-    <section className={cn("rounded-[26px] border border-white/8 bg-ws-card p-5", className)}>
+    <section className={cn("rounded-[26px] border border-border bg-ws-card p-5", className)}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-white/35">CAD / isometric</p>
+          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">CAD / isometric</p>
         </div>
         {cadFile ? (
           <Button
             type="button"
             variant="outline"
-            className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+            className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
             onClick={() => {
               void downloadStoredFile(cadFile);
             }}
@@ -280,7 +280,7 @@ export function ClientCadPreviewPanel({
           onClick={() => setTab("cad")}
           className={cn(
             "rounded-full border px-3 py-1 text-xs transition",
-            tab === "cad" ? "border-white/20 bg-white/10 text-white" : "border-white/10 text-white/60",
+            tab === "cad" ? "border-border bg-accent text-foreground" : "border-border text-muted-foreground",
           )}
         >
           CAD preview
@@ -290,14 +290,14 @@ export function ClientCadPreviewPanel({
           onClick={() => setTab("manufacturing")}
           className={cn(
             "rounded-full border px-3 py-1 text-xs transition",
-            tab === "manufacturing" ? "border-white/20 bg-white/10 text-white" : "border-white/10 text-white/60",
+            tab === "manufacturing" ? "border-border bg-accent text-foreground" : "border-border text-muted-foreground",
           )}
         >
           Manufacturing view
         </button>
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-[22px] border border-white/8 bg-black/20">
+      <div className="mt-4 overflow-hidden rounded-[22px] border border-border bg-muted">
         {tab === "manufacturing" ? (
           geometryProjection ? (
             <GeometryProjectionView
@@ -308,22 +308,22 @@ export function ClientCadPreviewPanel({
             />
           ) : (
             <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
-              <div className="rounded-full border border-white/10 bg-white/6 p-3 text-white/70">
+              <div className="rounded-full border border-border bg-accent p-3 text-foreground/80">
                 <FileText className="h-6 w-6" />
               </div>
-              <p className="mt-4 text-sm font-medium text-white">Manufacturing view unavailable</p>
-              <p className="mt-2 max-w-[22rem] text-sm text-white/45">
+              <p className="mt-4 text-sm font-medium text-foreground">Manufacturing view unavailable</p>
+              <p className="mt-2 max-w-[22rem] text-sm text-muted-foreground">
                 Geometry projection data has not been generated for this part yet.
               </p>
             </div>
           )
         ) : !cadFile ? (
           <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
-            <div className="rounded-full border border-white/10 bg-white/6 p-3 text-white/70">
+            <div className="rounded-full border border-border bg-accent p-3 text-foreground/80">
               <Box className="h-6 w-6" />
             </div>
-            <p className="mt-4 text-sm font-medium text-white">CAD missing</p>
-            <p className="mt-2 max-w-[18rem] text-sm text-white/45">
+            <p className="mt-4 text-sm font-medium text-foreground">CAD missing</p>
+            <p className="mt-2 max-w-[18rem] text-sm text-muted-foreground">
               Upload a STEP or native CAD file to review geometry beside the drawing.
             </p>
           </div>
@@ -341,11 +341,11 @@ export function ClientCadPreviewPanel({
           />
         ) : (
           <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
-            <div className="rounded-full border border-white/10 bg-white/6 p-3 text-white/70">
+            <div className="rounded-full border border-border bg-accent p-3 text-foreground/80">
               <FileText className="h-6 w-6" />
             </div>
-            <p className="mt-4 text-sm font-medium text-white">{cadFile.original_name}</p>
-            <p className="mt-2 max-w-[18rem] text-sm text-white/45">
+            <p className="mt-4 text-sm font-medium text-foreground">{cadFile.original_name}</p>
+            <p className="mt-2 max-w-[18rem] text-sm text-muted-foreground">
               Interactive preview currently supports `.step` and `.stp`. Other CAD formats remain downloadable.
             </p>
           </div>

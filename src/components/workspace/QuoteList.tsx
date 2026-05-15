@@ -40,10 +40,10 @@ function QuoteStatusCard({
   const Icon = tone === "warning" ? TriangleAlert : CircleOff;
 
   return (
-    <div className="rounded border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center">
-      <Icon className="mx-auto h-5 w-5 text-white/35" />
-      <p className="mt-3 text-sm font-medium text-white/80">{title}</p>
-      <p className="mt-2 text-sm text-white/55">{body}</p>
+    <div className="rounded border border-dashed border-border bg-muted px-4 py-8 text-center">
+      <Icon className="mx-auto h-5 w-5 text-muted-foreground" />
+      <p className="mt-3 text-sm font-medium text-foreground">{title}</p>
+      <p className="mt-2 text-sm text-muted-foreground">{body}</p>
     </div>
   );
 }
@@ -141,8 +141,8 @@ export function QuoteList({
               className={cn(
                 "flex cursor-pointer items-center gap-3 rounded border px-4 py-3.5 transition",
                 isSelected
-                  ? "border-white/25 bg-white/5"
-                  : "border-ws-border-subtle bg-ws-card hover:border-white/12",
+                  ? "border-border bg-accent"
+                  : "border-ws-border-subtle bg-ws-card hover:border-border",
                 quote.excluded && "opacity-55",
               )}
               onClick={() => onSelect(isSelected ? null : quote.offerId)}
@@ -163,8 +163,8 @@ export function QuoteList({
               />
 
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-semibold text-white">{quote.vendorLabel}</p>
-                <p className="truncate text-[11px] text-white/45">
+                <p className="truncate text-[13px] font-semibold text-foreground">{quote.vendorLabel}</p>
+                <p className="truncate text-[11px] text-muted-foreground">
                   {[quote.tier, quote.sourcing].filter(Boolean).join(" · ") || "Standard"}
                 </p>
               </div>
@@ -183,8 +183,8 @@ export function QuoteList({
               </div>
 
               <div className="shrink-0 text-right">
-                <p className="text-[20px] font-bold leading-none text-white">{formatCurrency(quote.unitPriceUsd)}</p>
-                <p className="mt-0.5 text-[11px] text-white/45">
+                <p className="text-[20px] font-bold leading-none text-foreground">{formatCurrency(quote.unitPriceUsd)}</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
                   {quote.leadTimeBusinessDays !== null ? `${quote.leadTimeBusinessDays} bd` : "—"}
                 </p>
               </div>
@@ -193,7 +193,7 @@ export function QuoteList({
                 <Button
                   type="button"
                   variant="ghost"
-                  className="h-auto rounded-full border border-white/15 px-2.5 py-1 text-[11px] font-medium text-white/55 hover:bg-transparent hover:text-white/80"
+                  className="h-auto rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
                   onClick={(event) => {
                     event.stopPropagation();
                     onToggleVendorExclusion(quote.vendorKey, !quote.excluded);
@@ -209,7 +209,7 @@ export function QuoteList({
                 ) : (
                   <button
                     type="button"
-                    className="rounded-full border border-white/15 px-2.5 py-1 text-[11px] font-medium text-white/55 transition hover:border-white/30 hover:text-white/80"
+                    className="rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition hover:border-foreground/40 hover:text-foreground"
                     onClick={(event) => {
                       event.stopPropagation();
                       onSelect(quote.offerId);
@@ -229,7 +229,7 @@ export function QuoteList({
   return (
     <div className="rounded border border-ws-border-subtle bg-ws-card p-3">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/55">
+        <span className="inline-flex items-center rounded-full border border-border bg-muted px-3 py-1 text-xs text-muted-foreground">
           <SlidersHorizontal className="mr-2 h-3.5 w-3.5" />
           Presets
         </span>
@@ -239,10 +239,10 @@ export function QuoteList({
             type="button"
             variant={activePreset === preset.key ? "default" : "outline"}
             className={cn(
-              "h-7 rounded-full border-white/10 px-3 text-xs",
+              "h-7 rounded-full border-border px-3 text-xs",
               activePreset === preset.key
-                ? "bg-white text-black hover:bg-white/90"
-                : "bg-transparent text-white hover:bg-white/6",
+                ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                : "bg-transparent text-foreground hover:bg-accent",
             )}
             onClick={() => onPresetSelect(activePreset === preset.key ? null : preset.key)}
           >
@@ -252,16 +252,16 @@ export function QuoteList({
         {requestedByDate || onEditRequestedByDate ? (
           <div className="ml-auto flex items-center gap-2">
             {requestedByDate ? (
-              <span className="text-[11px] text-white/40">Need-by {requestedByDate}</span>
+              <span className="text-[11px] text-muted-foreground">Need-by {requestedByDate}</span>
             ) : (
-              <span className="text-[11px] text-white/30">No need-by date</span>
+              <span className="text-[11px] text-muted-foreground">No need-by date</span>
             )}
             {onEditRequestedByDate ? (
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-7 rounded-full border border-white/10 px-2.5 text-[11px] text-white/60 hover:bg-white/6 hover:text-white"
+                className="h-7 rounded-full border border-border px-2.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
                 onClick={onEditRequestedByDate}
               >
                 <Pencil className="mr-1.5 h-3 w-3" />

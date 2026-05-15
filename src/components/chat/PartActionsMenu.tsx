@@ -51,9 +51,9 @@ type PartActionPrimitives = {
   SubTrigger: ComponentType<Record<string, unknown>>;
 };
 
-const MENU_CONTENT_CLASS = "workspace-shell w-56 rounded-xl border-white/[0.08] bg-ws-raised p-1 text-white";
+const MENU_CONTENT_CLASS = "workspace-shell w-56 rounded-xl border-border bg-ws-raised p-1 text-foreground";
 const SUBMENU_CONTENT_CLASS =
-  "workspace-shell max-h-[280px] w-56 overflow-y-auto rounded-xl border-white/[0.08] bg-ws-raised p-1 text-white";
+  "workspace-shell max-h-[280px] w-56 overflow-y-auto rounded-xl border-border bg-ws-raised p-1 text-foreground";
 
 function renderSharedPartActions(
   primitives: PartActionPrimitives,

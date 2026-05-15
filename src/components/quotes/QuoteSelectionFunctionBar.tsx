@@ -122,10 +122,10 @@ export function QuoteSelectionFunctionBar({
                   size="sm"
                   disabled={disabled}
                   className={cn(
-                    "h-8 w-8 overflow-hidden rounded-full border border-white/10 p-0 [&_svg]:h-full [&_svg]:w-full",
+                    "h-8 w-8 overflow-hidden rounded-full border border-border p-0 [&_svg]:h-full [&_svg]:w-full",
                     scope === "domestic"
-                      ? "border-white/20 bg-white text-black hover:bg-white/90"
-                      : "bg-transparent text-white hover:bg-white/6",
+                      ? "border-border bg-primary text-primary-foreground hover:bg-accent"
+                      : "bg-transparent text-foreground hover:bg-accent",
                   )}
                   aria-label={scope === "domestic" ? domesticAriaLabel : globalAriaLabel}
                   aria-pressed={scope === "domestic"}
@@ -145,7 +145,7 @@ export function QuoteSelectionFunctionBar({
           </TooltipProvider>
 
           <div
-            className="inline-flex items-center overflow-hidden rounded-full border border-white/10 bg-black/20 p-0.5"
+            className="inline-flex items-center overflow-hidden rounded-full border border-border bg-muted p-0.5"
             role="group"
             aria-label="Quote preset"
           >
@@ -157,8 +157,8 @@ export function QuoteSelectionFunctionBar({
               className={cn(
                 "h-7 rounded-full px-3 text-xs",
                 mode === "balanced"
-                  ? "bg-white text-black hover:bg-white/90"
-                  : "text-white hover:bg-white/6",
+                  ? "bg-primary text-primary-foreground hover:bg-accent"
+                  : "text-foreground hover:bg-accent",
               )}
               aria-pressed={mode === "balanced"}
               onClick={() => onModeChange("balanced")}
@@ -173,8 +173,8 @@ export function QuoteSelectionFunctionBar({
               className={cn(
                 "h-7 rounded-full px-3 text-xs",
                 mode === "fastest"
-                  ? "bg-white text-black hover:bg-white/90"
-                  : "text-white hover:bg-white/6",
+                  ? "bg-primary text-primary-foreground hover:bg-accent"
+                  : "text-foreground hover:bg-accent",
               )}
               aria-pressed={mode === "fastest"}
               onClick={() => onModeChange("fastest")}
@@ -189,8 +189,8 @@ export function QuoteSelectionFunctionBar({
               className={cn(
                 "h-7 rounded-full px-3 text-xs",
                 mode === "cheapest"
-                  ? "bg-white text-black hover:bg-white/90"
-                  : "text-white hover:bg-white/6",
+                  ? "bg-primary text-primary-foreground hover:bg-accent"
+                  : "text-foreground hover:bg-accent",
               )}
               aria-pressed={mode === "cheapest"}
               onClick={() => onModeChange("cheapest")}
@@ -204,7 +204,7 @@ export function QuoteSelectionFunctionBar({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <label
-                    className="inline-flex cursor-help items-center gap-1.5 text-[11px] font-medium text-white/55"
+                    className="inline-flex cursor-help items-center gap-1.5 text-[11px] font-medium text-muted-foreground"
                     htmlFor="quote-selection-due-by"
                   >
                     <Filter className="h-3 w-3" aria-hidden />
@@ -222,7 +222,7 @@ export function QuoteSelectionFunctionBar({
                 disabled={disabled}
                 onChange={(event) => onRequestedByDateChange(event.target.value || null)}
                 aria-label="Need by date"
-                className="h-8 w-[7.6rem] appearance-none rounded-full border-white/10 bg-white/[0.03] px-2 text-center text-sm text-white focus-visible:ring-white/20 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-70 [&::-webkit-date-and-time-value]:text-center [&::-webkit-datetime-edit]:flex [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:items-center [&::-webkit-datetime-edit]:justify-center [&::-webkit-datetime-edit]:text-center [&::-webkit-datetime-edit-fields-wrapper]:flex [&::-webkit-datetime-edit-fields-wrapper]:w-full [&::-webkit-datetime-edit-fields-wrapper]:justify-center"
+                className="h-8 w-[7.6rem] appearance-none rounded-full border-border bg-accent px-2 text-center text-sm text-foreground focus-visible:ring-white/20 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-70 [&::-webkit-date-and-time-value]:text-center [&::-webkit-datetime-edit]:flex [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:items-center [&::-webkit-datetime-edit]:justify-center [&::-webkit-datetime-edit]:text-center [&::-webkit-datetime-edit-fields-wrapper]:flex [&::-webkit-datetime-edit-fields-wrapper]:w-full [&::-webkit-datetime-edit-fields-wrapper]:justify-center"
               />
               {requestedByDate ? (
                 <Button
@@ -230,7 +230,7 @@ export function QuoteSelectionFunctionBar({
                   variant="ghost"
                   size="sm"
                   disabled={disabled}
-                  className="h-8 rounded-full px-3 text-xs text-white/70 hover:bg-white/6 hover:text-white"
+                  className="h-8 rounded-full px-3 text-xs text-foreground/80 hover:bg-accent hover:text-foreground"
                   onClick={() => onRequestedByDateChange(null)}
                 >
                   Clear

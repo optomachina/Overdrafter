@@ -33,7 +33,7 @@ export function InternalJobRequirementsSection({
   writeActionsDisabled,
 }: InternalJobRequirementsSectionProps) {
   return (
-    <Card className="border-white/10 bg-white/5">
+    <Card className="border-border bg-accent">
       <CardHeader>
         <CardTitle>Parts and approved requirements</CardTitle>
       </CardHeader>

@@ -39,25 +39,25 @@ export function ProjectMembersDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="border-white/10 bg-ws-overlay text-white">
+      <DialogContent className="border-border bg-ws-overlay text-foreground">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Users className="h-5 w-5" />
             Project members
           </DialogTitle>
-          <DialogDescription className="text-white/55">
+          <DialogDescription className="text-muted-foreground">
             Invite editors by email and share the generated link directly.
           </DialogDescription>
         </DialogHeader>
 
         {canManage ? (
-          <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
+          <div className="rounded-2xl border border-border bg-muted p-4">
             <div className="flex gap-2">
               <Input
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="name@example.com"
-                className="border-white/10 bg-ws-raised text-white placeholder:text-white/35"
+                className="border-border bg-ws-raised text-foreground placeholder:text-muted-foreground"
               />
               <Button
                 className="rounded-full"
@@ -81,24 +81,24 @@ export function ProjectMembersDialog({
 
         <div className="space-y-3">
           <div>
-            <p className="mb-2 text-xs uppercase tracking-[0.2em] text-white/40">Members</p>
+            <p className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">Members</p>
             <div className="space-y-2">
               {memberships.map((membership) => (
                 <div
                   key={membership.id}
-                  className="flex items-center justify-between rounded-2xl border border-white/8 bg-black/20 px-4 py-3"
+                  className="flex items-center justify-between rounded-2xl border border-border bg-muted px-4 py-3"
                 >
                   <div>
-                    <p className="text-sm font-medium text-white">
+                    <p className="text-sm font-medium text-foreground">
                       {membership.user_id === currentUserId ? "You" : `Member ${membership.user_id.slice(0, 8)}`}
                     </p>
-                    <p className="text-xs uppercase tracking-[0.18em] text-white/40">{membership.role}</p>
+                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{membership.role}</p>
                   </div>
 
                   {canManage && membership.role !== "owner" ? (
                     <Button
                       variant="ghost"
-                      className="rounded-full text-white/60 hover:bg-white/6 hover:text-white"
+                      className="rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
                       disabled={removingMembershipId === membership.id}
                       onClick={async () => {
                         setRemovingMembershipId(membership.id);
@@ -123,10 +123,10 @@ export function ProjectMembersDialog({
           </div>
 
           <div>
-            <p className="mb-2 text-xs uppercase tracking-[0.2em] text-white/40">Pending invites</p>
+            <p className="mb-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">Pending invites</p>
             <div className="space-y-2">
               {invites.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-white/8 bg-black/20 px-4 py-6 text-sm text-white/45">
+                <div className="rounded-2xl border border-dashed border-border bg-muted px-4 py-6 text-sm text-muted-foreground">
                   No invites yet.
                 </div>
               ) : (
@@ -136,16 +136,16 @@ export function ProjectMembersDialog({
                   return (
                     <div
                       key={invite.id}
-                      className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3"
+                      className="rounded-2xl border border-border bg-muted px-4 py-3"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-white">{invite.email}</p>
-                          <p className="text-xs uppercase tracking-[0.18em] text-white/40">{invite.status}</p>
+                          <p className="truncate text-sm font-medium text-foreground">{invite.email}</p>
+                          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{invite.status}</p>
                         </div>
                         <Button
                           variant="ghost"
-                          className="rounded-full text-white/60 hover:bg-white/6 hover:text-white"
+                          className="rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
                           onClick={() => {
                             void navigator.clipboard.writeText(inviteLink);
                           }}

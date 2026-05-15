@@ -87,7 +87,7 @@ function getVendorStatusDisplay(status: string | undefined) {
 
   switch (status) {
     case "queued":
-      return { icon: Clock, label: "Pending", color: "text-white/40", bg: "bg-white/5" };
+      return { icon: Clock, label: "Pending", color: "text-muted-foreground", bg: "bg-accent" };
     case "running":
       return { icon: Loader2, label: "Fetching...", color: "text-amber-400", bg: "bg-amber-500/10", animate: true };
     case "instant_quote_received":
@@ -100,7 +100,7 @@ function getVendorStatusDisplay(status: string | undefined) {
     case "manual_vendor_followup":
       return { icon: AlertCircle, label: "Follow-up", color: "text-orange-400", bg: "bg-orange-500/10" };
     case "stale":
-      return { icon: Clock, label: "Stale", color: "text-white/40", bg: "bg-white/5" };
+      return { icon: Clock, label: "Stale", color: "text-muted-foreground", bg: "bg-accent" };
     default:
       return null;
   }
@@ -125,7 +125,7 @@ function VendorStatusBadge({
   const iconClassName = variant === "mobile" ? "mr-1 h-3 w-3" : "mr-0.5 h-3 w-3";
 
   return (
-    <Badge className={cn(badgeClassName, statusInfo.bg, "border-white/10", statusInfo.color)}>
+    <Badge className={cn(badgeClassName, statusInfo.bg, "border-border", statusInfo.color)}>
       <Icon className={cn(iconClassName, statusInfo.animate && "animate-spin")} />
       {statusInfo.label}
     </Badge>
@@ -165,16 +165,16 @@ function QuoteDataStatusCard({
   diagnostics?: QuoteDiagnostics | null;
 }) {
   return (
-    <div className="mt-4 rounded-surface-lg border border-dashed border-white/10 bg-black/20 px-4 py-8 text-center">
-      <Icon className="mx-auto h-5 w-5 text-white/35" />
-      <p className="mt-3 text-sm font-medium text-white/80">{title}</p>
-      <p className="mt-2 text-sm text-white/55">{body}</p>
+    <div className="mt-4 rounded-surface-lg border border-dashed border-border bg-muted px-4 py-8 text-center">
+      <Icon className="mx-auto h-5 w-5 text-muted-foreground" />
+      <p className="mt-3 text-sm font-medium text-foreground/80">{title}</p>
+      <p className="mt-2 text-sm text-muted-foreground">{body}</p>
       {diagnostics && diagnostics.excludedReasonCounts.length > 0 ? (
         <div className="mt-4 flex flex-wrap justify-center gap-2">
           {diagnostics.excludedReasonCounts.slice(0, 3).map((entry) => (
             <span
               key={entry.reason}
-              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/60"
+              className="rounded-full border border-border bg-accent px-3 py-1 text-[11px] text-muted-foreground"
             >
               {formatQuotePlotExclusionReason(entry.reason)}: {entry.count}
             </span>
@@ -211,11 +211,11 @@ function PanelHeader({
   const showLegacyPresets = !controls && onPresetSelect;
 
   return (
-    <div className="flex flex-col gap-3 border-b border-white/8 pb-4">
+    <div className="flex flex-col gap-3 border-b border-border pb-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-white/35">{title}</p>
-          <p className="mt-1.5 max-w-3xl text-sm text-white/55">{description}</p>
+          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
+          <p className="mt-1.5 max-w-3xl text-sm text-muted-foreground">{description}</p>
         </div>
         {headerActions}
       </div>
@@ -227,7 +227,7 @@ function PanelHeader({
 
         {showLegacyPresets ? (
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex items-center rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/55">
+            <div className="inline-flex items-center rounded-full border border-border bg-muted px-3 py-1 text-xs text-muted-foreground">
               <SlidersHorizontal className="mr-2 h-3.5 w-3.5" />
               Presets
             </div>
@@ -237,10 +237,10 @@ function PanelHeader({
                 type="button"
                 variant={activePreset === preset.key ? "default" : "outline"}
                 className={cn(
-                  "h-7 rounded-full border-white/10 px-3 text-xs",
+                  "h-7 rounded-full border-border px-3 text-xs",
                   activePreset === preset.key
-                    ? "bg-white text-black hover:bg-white/90"
-                    : "bg-transparent text-white hover:bg-white/6",
+                    ? "bg-primary text-primary-foreground hover:bg-accent"
+                    : "bg-transparent text-foreground hover:bg-accent",
                 )}
                 onClick={() => onPresetSelect(preset.key)}
               >
@@ -268,14 +268,14 @@ function SelectedOptionBanner({ option }: { option: ClientQuoteSelectionOption }
             className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
             style={{ backgroundColor: getVendorColor(option.vendorKey) }}
           />
-          <p className="text-base font-semibold text-white">{option.vendorLabel}</p>
+          <p className="text-base font-semibold text-foreground">{option.vendorLabel}</p>
           <p className="text-sm text-emerald-100/85">
             {formatCurrency(option.totalPriceUsd)} total · {" "}
             {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge className="border border-emerald-400/20 bg-black/20 text-emerald-100">
+          <Badge className="border border-emerald-400/20 bg-muted text-emerald-100">
             Qty {option.requestedQuantity}
           </Badge>
           {option.expedite ? (
@@ -305,7 +305,7 @@ function RankingModeIndicator({
         <p className="mt-1 text-sm font-medium text-sky-50">{copy.indicatorLabel}</p>
         <p className="mt-1 text-xs text-sky-100/70">{copy.indicatorDetail}</p>
       </div>
-      <Badge className="border border-sky-300/20 bg-black/20 text-sky-50">
+      <Badge className="border border-sky-300/20 bg-muted text-sky-50">
         {rankedCount} {rankedCount === 1 ? "leader" : "leaders"} tagged
       </Badge>
     </div>
@@ -336,15 +336,15 @@ function QuoteComparisonTable({
   const badgeCopy = getPresetModeBadgeCopy(getPresetMode(activePreset));
 
   return (
-    <div className="rounded-2xl border border-white/8 bg-black/20 p-2">
-      <Table className="text-white">
+    <div className="rounded-2xl border border-border bg-muted p-2">
+      <Table className="text-foreground">
         <TableHeader>
-          <TableRow className="border-white/8 hover:bg-transparent">
-            <TableHead className="text-[11px] text-white/45">Vendor</TableHead>
-            <TableHead className="text-[11px] text-white/45">Lane / Sourcing</TableHead>
-            <TableHead className="text-right text-[11px] text-white/45">Unit</TableHead>
-            <TableHead className="text-right text-[11px] text-white/45">Total</TableHead>
-            <TableHead className="text-right text-[11px] text-white/45">Estimated Delivery</TableHead>
+          <TableRow className="border-border hover:bg-transparent">
+            <TableHead className="text-[11px] text-muted-foreground">Vendor</TableHead>
+            <TableHead className="text-[11px] text-muted-foreground">Lane / Sourcing</TableHead>
+            <TableHead className="text-right text-[11px] text-muted-foreground">Unit</TableHead>
+            <TableHead className="text-right text-[11px] text-muted-foreground">Total</TableHead>
+            <TableHead className="text-right text-[11px] text-muted-foreground">Estimated Delivery</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -363,10 +363,10 @@ function QuoteComparisonTable({
               <TableRow
                 key={option.key}
                 className={cn(
-                  "cursor-pointer border-white/6 transition-colors",
+                  "cursor-pointer border-border transition-colors",
                   selected && "bg-emerald-500/10 hover:bg-emerald-500/12",
-                  !selected && hovered && "bg-white/[0.04]",
-                  !selected && !hovered && "hover:bg-white/[0.03]",
+                  !selected && hovered && "bg-accent",
+                  !selected && !hovered && "hover:bg-accent",
                   missesRequestedDate && "opacity-45",
                   !option.isSelectable && "cursor-not-allowed opacity-60",
                 )}
@@ -386,7 +386,7 @@ function QuoteComparisonTable({
                     />
                     <div>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-medium text-white">{option.vendorLabel}</span>
+                        <span className="text-sm font-medium text-foreground">{option.vendorLabel}</span>
                         {selected ? (
                           <BadgeCheck className="h-3.5 w-3.5 text-emerald-400" />
                         ) : null}
@@ -396,7 +396,7 @@ function QuoteComparisonTable({
                           </Badge>
                         ) : null}
                         {option.excluded ? (
-                          <Badge className="h-4 border border-white/10 bg-white/6 px-1 text-[9px] text-white/50">
+                          <Badge className="h-4 border border-border bg-accent px-1 text-[9px] text-muted-foreground">
                             Excl
                           </Badge>
                         ) : null}
@@ -417,22 +417,22 @@ function QuoteComparisonTable({
                     </div>
                   </div>
                 </TableCell>
-                <TableCell className="py-2.5 text-xs text-white/50">
+                <TableCell className="py-2.5 text-xs text-muted-foreground">
                   <p>{option.laneLabel ?? option.tier ?? "Standard"}</p>
                   {option.sourcing ? (
-                    <p className="text-[10px] text-white/35">{option.sourcing}</p>
+                    <p className="text-[10px] text-muted-foreground">{option.sourcing}</p>
                   ) : null}
                 </TableCell>
-                <TableCell className="py-2.5 text-right text-sm tabular-nums text-white/75">
+                <TableCell className="py-2.5 text-right text-sm tabular-nums text-foreground/80">
                   {formatCurrency(option.unitPriceUsd)}
                 </TableCell>
-                <TableCell className="py-2.5 text-right text-sm font-semibold tabular-nums text-white">
+                <TableCell className="py-2.5 text-right text-sm font-semibold tabular-nums text-foreground">
                   {formatCurrency(option.totalPriceUsd)}
                   {onToggleVendorExclusion ? (
                     <Button
                       type="button"
                       variant="ghost"
-                      className="mt-0.5 block h-auto p-0 text-[10px] text-white/40 hover:bg-transparent hover:text-white"
+                      className="mt-0.5 block h-auto p-0 text-[10px] text-muted-foreground hover:bg-transparent hover:text-foreground"
                       onClick={(event) => {
                         event.stopPropagation();
                         onToggleVendorExclusion(option.vendorKey, !option.excluded);
@@ -442,7 +442,7 @@ function QuoteComparisonTable({
                     </Button>
                   ) : null}
                 </TableCell>
-                <TableCell className="py-2.5 text-right text-sm tabular-nums text-white/65">
+                <TableCell className="py-2.5 text-right text-sm tabular-nums text-foreground/80">
                   {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
                 </TableCell>
               </TableRow>
@@ -494,11 +494,11 @@ function QuoteComparisonCards({
           <article
             key={option.key}
             className={cn(
-              "rounded-2xl border border-white/8 bg-black/20 p-4 transition-colors",
+              "rounded-2xl border border-border bg-muted p-4 transition-colors",
               option.isSelectable && "cursor-pointer",
               selected && "border-emerald-400/20 bg-emerald-500/10",
-              !selected && hovered && "bg-white/[0.05]",
-              !selected && !hovered && option.isSelectable && "hover:bg-white/[0.03]",
+              !selected && hovered && "bg-accent",
+              !selected && !hovered && option.isSelectable && "hover:bg-accent",
               missesRequestedDate && "opacity-55",
               !option.isSelectable && "cursor-not-allowed opacity-60",
             )}
@@ -519,7 +519,7 @@ function QuoteComparisonCards({
                   />
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-sm font-semibold text-white">{option.vendorLabel}</span>
+                      <span className="text-sm font-semibold text-foreground">{option.vendorLabel}</span>
                       {selected ? <BadgeCheck className="h-3.5 w-3.5 text-emerald-400" /> : null}
                       {showTopRankBadge ? (
                         <Badge className="border border-sky-300/20 bg-sky-500/15 text-sky-50">
@@ -527,13 +527,13 @@ function QuoteComparisonCards({
                         </Badge>
                       ) : null}
                       {option.excluded ? (
-                        <Badge className="h-4 border border-white/10 bg-white/6 px-1 text-[9px] text-white/50">
+                        <Badge className="h-4 border border-border bg-accent px-1 text-[9px] text-muted-foreground">
                           Excl
                         </Badge>
                       ) : null}
                       <VendorStatusBadge status={option.vendorStatus} />
                     </div>
-                    <p className="mt-1 text-xs text-white/45">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       {[option.laneLabel ?? option.tier ?? "Standard", option.sourcing].filter(Boolean).join(" · ")}
                     </p>
                   </div>
@@ -553,11 +553,11 @@ function QuoteComparisonCards({
               </div>
 
               <div className="shrink-0 text-right">
-                <p className="text-base font-semibold text-white">{formatCurrency(option.totalPriceUsd)}</p>
-                <p className="mt-1 text-xs text-white/55">
+                <p className="text-base font-semibold text-foreground">{formatCurrency(option.totalPriceUsd)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
                   {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
                 </p>
-                <p className="mt-1 text-[11px] text-white/40">Unit {formatCurrency(option.unitPriceUsd)}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">Unit {formatCurrency(option.unitPriceUsd)}</p>
               </div>
             </div>
 
@@ -566,7 +566,7 @@ function QuoteComparisonCards({
                 <Button
                   type="button"
                   variant="ghost"
-                  className="h-7 rounded-full border border-white/10 px-2.5 text-[11px] text-white/55 hover:bg-white/6 hover:text-white"
+                  className="h-7 rounded-full border border-border px-2.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
                   onClick={(event) => {
                     event.stopPropagation();
                     onToggleVendorExclusion(option.vendorKey, !option.excluded);
@@ -607,12 +607,12 @@ function MobileQuoteReviewDeck({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
+      <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-muted px-4 py-3">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Quote review</p>
-          <p className="mt-1 text-sm text-white/65">Swipe across vendors and commit your choice from the card.</p>
+          <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Quote review</p>
+          <p className="mt-1 text-sm text-foreground/80">Swipe across vendors and commit your choice from the card.</p>
         </div>
-        <Badge className="border border-white/10 bg-white/6 text-white/75">
+        <Badge className="border border-border bg-accent text-foreground/80">
           {options.length} option{options.length === 1 ? "" : "s"}
         </Badge>
       </div>
@@ -634,22 +634,22 @@ function MobileQuoteReviewDeck({
             <article
               key={option.key}
               className={cn(
-                "min-w-[calc(100vw-4.5rem)] snap-center rounded-[24px] border border-white/8 bg-black/20 p-4 shadow-[0_20px_60px_rgba(0,0,0,0.25)] sm:min-w-[22rem]",
+                "min-w-[calc(100vw-4.5rem)] snap-center rounded-[24px] border border-border bg-muted p-4 shadow-[0_20px_60px_rgba(0,0,0,0.25)] sm:min-w-[22rem]",
                 selected && "border-emerald-400/20 bg-emerald-500/10",
                 !option.isSelectable && "opacity-70",
               )}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-white/35">Option {index + 1}</p>
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Option {index + 1}</p>
                   <div className="mt-2 flex items-center gap-2">
                     <span
                       className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
                       style={{ backgroundColor: getVendorColor(option.vendorKey) }}
                     />
-                    <p className="truncate text-lg font-semibold text-white">{option.vendorLabel}</p>
+                    <p className="truncate text-lg font-semibold text-foreground">{option.vendorLabel}</p>
                   </div>
-                  <p className="mt-1 text-sm text-white/50">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     {[option.laneLabel ?? option.tier ?? "Standard", option.sourcing].filter(Boolean).join(" · ")}
                   </p>
                 </div>
@@ -662,23 +662,23 @@ function MobileQuoteReviewDeck({
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-2">
-                <div className="rounded-2xl border border-white/8 bg-white/5 p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Total</p>
-                  <p className="mt-1 text-xl font-semibold text-white">{formatCurrency(option.totalPriceUsd)}</p>
+                <div className="rounded-2xl border border-border bg-accent p-3">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Total</p>
+                  <p className="mt-1 text-xl font-semibold text-foreground">{formatCurrency(option.totalPriceUsd)}</p>
                 </div>
-                <div className="rounded-2xl border border-white/8 bg-white/5 p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Delivery</p>
-                  <p className="mt-1 text-base font-semibold text-white">
+                <div className="rounded-2xl border border-border bg-accent p-3">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Delivery</p>
+                  <p className="mt-1 text-base font-semibold text-foreground">
                     {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-white/8 bg-white/5 p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Unit</p>
-                  <p className="mt-1 text-base font-semibold text-white">{formatCurrency(option.unitPriceUsd)}</p>
+                <div className="rounded-2xl border border-border bg-accent p-3">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Unit</p>
+                  <p className="mt-1 text-base font-semibold text-foreground">{formatCurrency(option.unitPriceUsd)}</p>
                 </div>
-                <div className="rounded-2xl border border-white/8 bg-white/5 p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-white/35">Quantity</p>
-                  <p className="mt-1 text-base font-semibold text-white">{option.requestedQuantity}</p>
+                <div className="rounded-2xl border border-border bg-accent p-3">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Quantity</p>
+                  <p className="mt-1 text-base font-semibold text-foreground">{option.requestedQuantity}</p>
                 </div>
               </div>
 
@@ -840,8 +840,8 @@ function renderDecisionPanelContent({
       {selectedOption ? <SelectedOptionBanner option={selectedOption} /> : null}
 
       {!isMobile && (
-        <div className="rounded-surface-lg border border-white/8 bg-black/20 p-4">
-          <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-white/5" />}>
+        <div className="rounded-surface-lg border border-border bg-muted p-4">
+          <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-accent" />}>
             <ClientQuoteComparisonChart
               options={options}
               selectedKey={selectedOption?.key ?? null}

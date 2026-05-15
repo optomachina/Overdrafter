@@ -46,7 +46,7 @@ export function buildQuoteStats(quotes: ClientQuoteSelectionOption[]): QuoteStat
       label: "Options",
       value: String(activeQuotes.length),
       detail: `across ${vendorCount} vendor${vendorCount === 1 ? "" : "s"}`,
-      valueClassName: "text-white",
+      valueClassName: "text-foreground",
     },
   ];
 }

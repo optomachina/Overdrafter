@@ -8,8 +8,8 @@ export function GuestSidebarCta({ onLogIn }: GuestSidebarCtaProps) {
   return (
     <div className="space-y-4">
       <div>
-        <p className="text-sm font-semibold text-white">Get quotes tailored to you</p>
-        <p className="mt-3 text-sm leading-6 text-white/60">
+        <p className="text-sm font-semibold text-foreground">Get quotes tailored to you</p>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
           Log in to get quotes based on price and lead time, plus upload files.
         </p>
       </div>
@@ -17,7 +17,7 @@ export function GuestSidebarCta({ onLogIn }: GuestSidebarCtaProps) {
       <Button
         type="button"
         variant="outline"
-        className="h-11 w-full rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+        className="h-11 w-full rounded-full border-border bg-transparent text-foreground hover:bg-accent"
         onClick={onLogIn}
       >
         Log in

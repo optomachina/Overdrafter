@@ -142,7 +142,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
           </div>
         ) : null}
 
-        <div className="rounded-[28px] border border-white/8 bg-ws-raised shadow-[0_8px_40px_rgba(0,0,0,0.22)]">
+        <div className="rounded-[28px] border border-border bg-ws-raised shadow-[0_8px_40px_rgba(0,0,0,0.22)]">
           <div className="flex items-end gap-2 p-2">
             <Tooltip>
               <TooltipTrigger asChild>
@@ -150,7 +150,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-10 w-10 rounded-full text-white/75 hover:bg-white/8 hover:text-white"
+                  className="h-10 w-10 rounded-full text-foreground/80 hover:bg-accent hover:text-foreground"
                   onClick={() => {
                     if (!isSignedIn) {
                       onRequireAuth?.();
@@ -201,13 +201,13 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
               rows={1}
               placeholder={placeholder}
               disabled={isSubmitting}
-              className="h-10 max-h-[200px] min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-[15px] leading-6 text-white outline-none placeholder:text-white/45"
+              className="h-10 max-h-[200px] min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-[15px] leading-6 text-foreground outline-none placeholder:text-muted-foreground"
             />
 
             <Button
               type="button"
               size="icon"
-              className="h-10 w-10 rounded-full bg-white text-black hover:bg-white/90 disabled:bg-white/20 disabled:text-white/45"
+              className="h-10 w-10 rounded-full bg-primary text-primary-foreground hover:bg-accent disabled:bg-accent disabled:text-muted-foreground"
               disabled={isSubmitting || (!prompt.trim() && files.length === 0)}
               onClick={() => {
                 void handleSubmit();

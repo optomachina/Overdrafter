@@ -1,6 +1,6 @@
 # Design System — OverDrafter
 
-Last updated: 2026-04-25
+Last updated: 2026-05-14
 
 > Pretty good design follows pretty good rules. This is the canonical source of truth for OverDrafter's visual system. Read this before any UI or visual decision. If you change anything here, log a row in the Decisions section at the bottom and explain why.
 
@@ -94,7 +94,7 @@ Single accent. No multi-color systems. Colors are tokens, not values.
   --text:        #1C1B19;  /* warm black, NOT pure black */
   --muted:       #6B665C;  /* graphite pencil — secondary text, labels, micro nav */
   --hairline:    #D8D2C4;  /* 1px borders, dividers, used liberally */
-  --accent:      #C2410C;  /* oxidized red — engineer's pencil mark */
+  --accent-red:  #C2410C;  /* oxidized red — engineer's pencil mark */
   --ink-data:    #1F2E3A;  /* dark teal-black for the densest data tables (use sparingly) */
 }
 ```
@@ -109,7 +109,7 @@ The accent is reserved for:
 
 Never use the accent for:
 - Decoration
-- Brand display (the OverDrafter wordmark is `--text`, not `--accent`)
+- Brand display (the OverDrafter wordmark is `--text`, not `--accent-red`)
 - Multiple simultaneous emphases on one screen
 - Hover states (use `--surface-2` for hover)
 
@@ -119,7 +119,7 @@ Deferred. State is communicated through plain words (`REVIEW`, `READY`, `HOLD`, 
 
 ### Dark mode
 
-**Deferred.** Daylight is the hero. A future dark mode should:
+**Interim toggle shipped.** Daylight remains the default visual thesis, but the pre-redesign black palette is available as a user-selectable account-menu toggle. A future dark mode should still:
 - Redesign surfaces, not invert colors
 - Reduce accent saturation 10–20%
 - Keep the same hairline rule rhythm
@@ -167,7 +167,7 @@ Composition-first, not component-first. The application is laid out like an engi
 - **Top command strip** (44px). Project breadcrumb, customer, due date, current state. Mono uppercase 11px. This is a status bar, not a navbar.
 - **Center workspace** divided into hairline-bordered cells. Each cell has a mono uppercase corner label (`MATERIAL`, `TOLERANCE`, `FINISH`, `LEAD TIME`, `QUANTITY`, `CERTIFICATIONS`).
 - **3D viewer and drawing preview** live inset within the grid, hairline border, never full-bleed. Per `PRD.md` §72: visualizations collapse back to the clean view when not needed.
-- **Quote packages** render as horizontally-arranged spec-sheet columns at the bottom (NOT vertical pricing cards). One column gets a 2px left border in `--accent` to mark the selected option.
+- **Quote packages** render as horizontally-arranged spec-sheet columns at the bottom (NOT vertical pricing cards). One column gets a 2px left border in `--accent-red` to mark the selected option.
 - **Right decision ledger** (240px) shows margin delta, lead time delta, supplier confidence, DFM flags, exceptions. Lives only on quote-construction surfaces.
 
 ### Other layouts
@@ -284,6 +284,8 @@ Reject any UI work that includes:
 | 2026-05-05 | **Order Confirmation page** is the surface that bridges Quote Selection → Parts Ordered | Full page (not modal). High-value B2B orders ($5k–$50k+) need a dense scannable canvas, not a popup. Sections: Order Summary / Line Items / Costs / Ship To / Payment Method / Terms. Single primary CTA `PLACE ORDER ($24,820)` in oxidized-red filled. Right rail shows vertical status timeline with `CONFIRM ORDER` as the current step. |
 | 2026-05-05 | Files extension `.STEP` shown **only on the Part Workspace**, dropped in Project / Assembly contexts | The file IS the artifact in Part Workspace (`BRACKET-A07.STEP` is the hero). In Project/Assembly contexts the extension is noise — show `BRACKET-A07` not `BRACKET-A07.STEP`. |
 | 2026-05-05 | Roadmap items rendered as **muted mono uppercase chips** in info-panel footers | DFM Flags, Ask OverDrafter, Tariff Auto-Calc, Hover Part > Highlight in Assembly, Multi-page PDF Nav, etc. Visible-but-parked: signals "we know this is needed, not in MVP." |
+| 2026-05-14 | Dark mode revived as an account-menu toggle using the pre-redesign palette verbatim | Interim revival for users who want the prior clean black look while keeping bone as the default. This does not replace the future deliberate dark redesign described in `### Dark mode`. |
+| 2026-05-14 | GuestAppShell keeps a fixed dark pre-auth marketing shell | Intentional exception to theme-tokenized app surfaces: the signed-out prompt shell keeps the legacy dark gradient (`#1f2024` to `#17181c`, plus the white radial highlight) and white text for brand contrast. AuthPanel remains theme-driven. |
 
 ---
 
@@ -299,13 +301,13 @@ Both left and right rails on every workspace surface (Part, Project, Order Confi
 
 ```text
 HEADER
-  OVERDRAFTER (logo, heavy condensed sans, --accent)
+  OVERDRAFTER (logo, heavy condensed sans, --accent-red)
   MFG CO-PILOT (mono uppercase, --muted, 10px)
   [+ NEW]  [⌕ SEARCH]    (compact button row, hairline border, mono uppercase 11px)
   ─── hairline ───
 BODY
   PROJECT / PARTS LIST
-  (per row: 40px iso wireframe thumbnail · mono filename · price · lead, active row 3px --accent left border)
+  (per row: 40px iso wireframe thumbnail · mono filename · price · lead, active row 3px --accent-red left border)
 FOOTER
   (●) BLAINE WILSON  ⌃        (32px circular avatar with mono initials, name in body, org tagline in mono uppercase --muted, popup chevron)
 ```
@@ -317,28 +319,28 @@ The user-account footer mirrors ChatGPT / Linear / Notion patterns. Click anywhe
 Every vendor / quote table on every surface has sortable column headers. Caret indicators sit immediately to the right of the column label:
 
 - Inactive sort: outlined hairline caret in `--muted`
-- Active sort ascending: filled `--accent` caret pointing up
-- Active sort descending: filled `--accent` caret pointing down
+- Active sort ascending: filled `--accent-red` caret pointing up
+- Active sort descending: filled `--accent-red` caret pointing down
 
 Sortable columns: PRICE, LEAD, QUALITY, TOTAL. Non-sortable columns (VENDOR, ORIGIN) show no caret.
 
 ### Vendor multi-quote stacking
 
-A single vendor (e.g. Xometry) commonly returns 5+ quote variants (different lead, expedite tier, region). The vendor table renders these as a parent row with the vendor wordmark and a `(N quotes)` annotation, expandable to reveal per-quote sub-rows. Selection happens at the sub-row level; the sub-row carries the `--accent` wordmark color, never the parent. Collapsed parent rows show the currently-selected sub-quote's price/lead/quality inline.
+A single vendor (e.g. Xometry) commonly returns 5+ quote variants (different lead, expedite tier, region). The vendor table renders these as a parent row with the vendor wordmark and a `(N quotes)` annotation, expandable to reveal per-quote sub-rows. Selection happens at the sub-row level; the sub-row carries the `--accent-red` wordmark color, never the parent. Collapsed parent rows show the currently-selected sub-quote's price/lead/quality inline.
 
 ### Editable specs
 
 Field-level overrides on metadata panels (Part Info, Project Info). Three states:
 
-1. **Default** — plain mono values, right-aligned. No edit indicators visible. Hover reveals a subtle deeper-surface row tint and a mono uppercase `EDIT` label in `--accent` at the right edge.
-2. **Editing** — clicked field renders as a hairline-bordered input cell with a thin `--accent` focus ring. Hint below the field: `ESC to cancel · ENTER to apply` in `--muted`. Panel header shows `EDITED N FIELDS` chip in `--muted`.
-3. **Has pending edits** — overridden value renders with deeper-surface (`--surface-2`) background tint on the value cell AND italic value text. The panel header shows a `REVERT TO DEFAULTS` link right-aligned in `--accent` mono uppercase. No per-row WAS: annotation; the link carries the bulk-restore affordance.
+1. **Default** — plain mono values, right-aligned. No edit indicators visible. Hover reveals a subtle deeper-surface row tint and a mono uppercase `EDIT` label in `--accent-red` at the right edge.
+2. **Editing** — clicked field renders as a hairline-bordered input cell with a thin `--accent-red` focus ring. Hint below the field: `ESC to cancel · ENTER to apply` in `--muted`. Panel header shows `EDITED N FIELDS` chip in `--muted`.
+3. **Has pending edits** — overridden value renders with deeper-surface (`--surface-2`) background tint on the value cell AND italic value text. The panel header shows a `REVERT TO DEFAULTS` link right-aligned in `--accent-red` mono uppercase. No per-row WAS: annotation; the link carries the bulk-restore affordance.
 
 The override indicator deliberately rejects: red dots (too loud), bold value text (too loud), per-row WAS: annotations (clutter). The combination of `--surface-2` tint + italic is the quietest signal that still communicates "this is different."
 
 ### Units toggle
 
-A `METRIC / IMPERIAL` pill (radius 4 max) lives at the bottom of every editable-specs panel (Part Info, Project Info). Default is `IMPERIAL`, active in `--accent`. The toggle is per-panel, not global — switching units on the Part Info panel does not switch the Project Info panel, by design (each panel reflects the artifact it describes).
+A `METRIC / IMPERIAL` pill (radius 4 max) lives at the bottom of every editable-specs panel (Part Info, Project Info). Default is `IMPERIAL`, active in `--accent-red`. The toggle is per-panel, not global — switching units on the Part Info panel does not switch the Project Info panel, by design (each panel reflects the artifact it describes).
 
 The chrome-level metric/imperial toggle (round-5 design) was deliberately removed. It cluttered the global command strip and forced a single units choice across the whole product. The per-panel pill keeps the affordance close to where users actually read dimensions, without polluting the chrome.
 
@@ -358,8 +360,8 @@ Four steps, horizontal, mono uppercase labels, hairline connectors:
 `RFQ SENT` → `QUOTES RECEIVED` → `QUOTE SELECTION` → `PARTS ORDERED`
 
 Step indicators:
-- Completed: filled `--accent` dot
-- Current: `--accent` ring (outline)
+- Completed: filled `--accent-red` dot
+- Current: `--accent-red` ring (outline)
 - Pending: hairline ring in `--hairline`
 
 The Order Confirmation page renders this timeline vertically in its right rail with `CONFIRM ORDER` inserted as the current step between `QUOTE SELECTION` and `PARTS ORDERED`.
@@ -376,10 +378,10 @@ ORDER CONFIRMATION                                    (heavy condensed sans 48px
 ORDER SUMMARY    LINE ITEMS    COSTS    SHIP TO    PAYMENT METHOD    TERMS
 
 [SAVE AS DRAFT]  [PLACE ORDER ($24,820)]   ← only filled-color button on the page
-                                               --accent fill, white mono uppercase text
+                                               --accent-red fill, white mono uppercase text
 ```
 
-Right rail = vertical status timeline. The PLACE ORDER button is the **only** button on any OverDrafter page that uses a filled `--accent` background; everywhere else, primary actions are mono uppercase text in `--accent` with hairline outline.
+Right rail = vertical status timeline. The PLACE ORDER button is the **only** button on any OverDrafter page that uses a filled `--accent-red` background; everywhere else, primary actions are mono uppercase text in `--accent-red` with hairline outline.
 
 ### Project workspace modes
 

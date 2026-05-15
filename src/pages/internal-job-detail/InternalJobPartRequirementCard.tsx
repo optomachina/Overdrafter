@@ -171,15 +171,15 @@ export function InternalJobPartRequirementCard({
   const approvedSnapshot = part.approvedRequirement?.spec_snapshot ?? null;
 
   return (
-    <div className="rounded-3xl border border-white/8 bg-black/20 p-5">
+    <div className="rounded-3xl border border-border bg-muted p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-lg font-medium">{part.name}</p>
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
-            <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+            <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
               CAD: {part.cadFile?.original_name ?? "Missing"}
             </Badge>
-            <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+            <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
               Drawing: {part.drawingFile?.original_name ?? "Missing"}
             </Badge>
             <Badge variant="secondary" className="border border-primary/20 bg-primary/10 text-primary">
@@ -213,29 +213,29 @@ export function InternalJobPartRequirementCard({
             cadPreviewable && cadPreviewSource ? (
               <CadModelThumbnail source={cadPreviewSource} className="h-52 w-full" />
             ) : (
-              <div className="flex h-52 flex-col items-center justify-center rounded-[1.6rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(11,15,24,0.95))] px-4 text-center">
-                <div className="rounded-full border border-white/10 bg-white/5 p-3">
+              <div className="flex h-52 flex-col items-center justify-center rounded-[1.6rem] border border-border bg-muted px-4 text-center">
+                <div className="rounded-full border border-border bg-accent p-3">
                   <FileUp className="h-6 w-6 text-primary" />
                 </div>
-                <p className="mt-4 text-sm font-medium text-white">CAD attached</p>
-                <p className="mt-2 text-xs text-white/45">{part.cadFile.original_name}</p>
-                <p className="mt-3 text-xs text-white/40">
+                <p className="mt-4 text-sm font-medium text-foreground">CAD attached</p>
+                <p className="mt-2 text-xs text-muted-foreground">{part.cadFile.original_name}</p>
+                <p className="mt-3 text-xs text-muted-foreground">
                   Interactive preview is currently enabled for `.step` and `.stp`.
                 </p>
               </div>
             )
           ) : (
-            <div className="flex h-52 flex-col items-center justify-center rounded-[1.6rem] border border-dashed border-white/10 bg-black/20 px-4 text-center">
-              <div className="rounded-full border border-white/10 bg-white/5 p-3">
+            <div className="flex h-52 flex-col items-center justify-center rounded-[1.6rem] border border-dashed border-border bg-muted px-4 text-center">
+              <div className="rounded-full border border-border bg-accent p-3">
                 <AlertTriangle className="h-6 w-6 text-amber-300" />
               </div>
-              <p className="mt-4 text-sm font-medium text-white">CAD missing</p>
-              <p className="mt-2 text-xs text-white/45">Upload a STEP file to generate a reusable thumbnail.</p>
+              <p className="mt-4 text-sm font-medium text-foreground">CAD missing</p>
+              <p className="mt-2 text-xs text-muted-foreground">Upload a STEP file to generate a reusable thumbnail.</p>
             </div>
           )}
 
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-white/55">
-            <p className="font-medium text-white">Source files</p>
+          <div className="rounded-2xl border border-border bg-accent p-3 text-xs text-muted-foreground">
+            <p className="font-medium text-foreground">Source files</p>
             <p className="mt-2 truncate">CAD: {part.cadFile?.original_name ?? "Missing"}</p>
             <p className="mt-1 truncate">Drawing: {part.drawingFile?.original_name ?? "Missing"}</p>
           </div>
@@ -265,7 +265,7 @@ export function InternalJobPartRequirementCard({
             <Label htmlFor={descriptionInputId}>Description</Label>
             <Input
               id={descriptionInputId}
-              className="border-white/10 bg-black/20"
+              className="border-border bg-muted"
               value={currentDraft.description ?? ""}
               disabled={disabled}
               onChange={(event) =>
@@ -275,7 +275,7 @@ export function InternalJobPartRequirementCard({
                 }))
               }
             />
-            <p className="text-xs text-white/45">
+            <p className="text-xs text-muted-foreground">
               Extracted raw: {extraction.rawFields.description.raw || "Not found"}
               {extraction.rawFields.description.reviewNeeded
                 ? ` • review needed (${Math.round(extraction.rawFields.description.confidence * 100)}%)`
@@ -294,7 +294,7 @@ export function InternalJobPartRequirementCard({
             <Label htmlFor={partNumberInputId}>Part number</Label>
             <Input
               id={partNumberInputId}
-              className="border-white/10 bg-black/20"
+              className="border-border bg-muted"
               value={currentDraft.partNumber ?? ""}
               disabled={disabled}
               onChange={(event) =>
@@ -304,7 +304,7 @@ export function InternalJobPartRequirementCard({
                 }))
               }
             />
-            <p className="text-xs text-white/45">
+            <p className="text-xs text-muted-foreground">
               Extracted raw: {extraction.rawFields.partNumber.raw || "Not found"}
               {extraction.rawFields.partNumber.reviewNeeded
                 ? ` • review needed (${Math.round(extraction.rawFields.partNumber.confidence * 100)}%)`
@@ -323,7 +323,7 @@ export function InternalJobPartRequirementCard({
             <Label htmlFor={revisionInputId}>Revision</Label>
             <Input
               id={revisionInputId}
-              className="border-white/10 bg-black/20"
+              className="border-border bg-muted"
               value={currentDraft.revision ?? ""}
               disabled={disabled}
               onChange={(event) =>
@@ -333,7 +333,7 @@ export function InternalJobPartRequirementCard({
                 }))
               }
             />
-            <p className="text-xs text-white/45">
+            <p className="text-xs text-muted-foreground">
               Extracted raw: {extraction.rawFields.revision.raw || "Not found"}
               {extraction.rawFields.revision.reviewNeeded
                 ? ` • review needed (${Math.round(extraction.rawFields.revision.confidence * 100)}%)`
@@ -355,13 +355,13 @@ export function InternalJobPartRequirementCard({
                 id={quantityInputId}
                 type="number"
                 min={1}
-                className="border-white/10 bg-black/20"
+                className="border-border bg-muted"
                 value={currentDraft.quantity}
                 disabled={disabled}
                 onChange={(event) => onDraftQuantityChange(Number(event.target.value || 1))}
               />
             ) : (
-              <p className="rounded-2xl border border-white/8 bg-white/5 px-4 py-3 text-sm text-white/45">
+              <p className="rounded-2xl border border-border bg-accent px-4 py-3 text-sm text-muted-foreground">
                 Hidden for non-quote services.
               </p>
             )}
@@ -372,17 +372,17 @@ export function InternalJobPartRequirementCard({
               <>
                 <Input
                   id={quoteQuantitiesInputId}
-                  className="border-white/10 bg-black/20"
+                  className="border-border bg-muted"
                   value={quoteQuantityInput}
                   disabled={disabled}
                   placeholder="1/10/100"
                   onChange={(event) => onQuoteQuantityInputChange(event.target.value)}
                   onBlur={onQuoteQuantityInputCommit}
                 />
-                <p className="text-xs text-white/45">Use slash-delimited quantities like 1/10/100.</p>
+                <p className="text-xs text-muted-foreground">Use slash-delimited quantities like 1/10/100.</p>
               </>
             ) : (
-              <p className="rounded-2xl border border-white/8 bg-white/5 px-4 py-3 text-sm text-white/45">
+              <p className="rounded-2xl border border-border bg-accent px-4 py-3 text-sm text-muted-foreground">
                 Hidden for non-quote services.
               </p>
             )}
@@ -392,7 +392,7 @@ export function InternalJobPartRequirementCard({
             <Input
               id={requestedByDateInputId}
               type="date"
-              className="border-white/10 bg-black/20"
+              className="border-border bg-muted"
               value={currentDraft.requestedByDate ?? ""}
               disabled={disabled}
               onChange={(event) =>
@@ -407,7 +407,7 @@ export function InternalJobPartRequirementCard({
             <Label htmlFor={materialInputId}>Material</Label>
             <Input
               id={materialInputId}
-              className="border-white/10 bg-black/20"
+              className="border-border bg-muted"
               value={currentDraft.material ?? ""}
               disabled={disabled}
               onChange={(event) =>
@@ -417,7 +417,7 @@ export function InternalJobPartRequirementCard({
                 }))
               }
             />
-            <p className="text-xs text-white/45">
+            <p className="text-xs text-muted-foreground">
               Extracted: {extraction.material.normalized || extraction.material.raw || "Not found"}
               {extraction.material.reviewNeeded
                 ? ` • review needed (${Math.round(extraction.material.confidence * 100)}%)`
@@ -430,7 +430,7 @@ export function InternalJobPartRequirementCard({
             <Label htmlFor={finishInputId}>Finish</Label>
             <Input
               id={finishInputId}
-              className="border-white/10 bg-black/20"
+              className="border-border bg-muted"
               value={currentDraft.finish ?? ""}
               disabled={disabled}
               onChange={(event) =>
@@ -440,7 +440,7 @@ export function InternalJobPartRequirementCard({
                 }))
               }
             />
-            <p className="text-xs text-white/45">
+            <p className="text-xs text-muted-foreground">
               Extracted raw: {extractedFinishRaw || "Not found"}
               {finishReviewNeeded ? ` • review needed (${Math.round(finishConfidence * 100)}%)` : ""}
               {" • source: "}
@@ -459,7 +459,7 @@ export function InternalJobPartRequirementCard({
               id={tightestToleranceInputId}
               type="number"
               step="0.0001"
-              className="border-white/10 bg-black/20"
+              className="border-border bg-muted"
               value={currentDraft.tightestToleranceInch ?? ""}
               disabled={disabled}
               onChange={(event) =>
@@ -469,16 +469,16 @@ export function InternalJobPartRequirementCard({
                 }))
               }
             />
-            <p className="text-xs text-white/45">Extracted: {extraction.tightestTolerance.raw || "Not found"}</p>
+            <p className="text-xs text-muted-foreground">Extracted: {extraction.tightestTolerance.raw || "Not found"}</p>
           </div>
         </div>
       </div>
 
-      <div className="mt-5 rounded-2xl border border-white/8 bg-white/5 p-4">
+      <div className="mt-5 rounded-2xl border border-border bg-accent p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-medium text-white">RFQ metadata</p>
-            <p className="mt-1 text-xs text-white/50">
+            <p className="text-sm font-medium text-foreground">RFQ metadata</p>
+            <p className="mt-1 text-xs text-muted-foreground">
               Shared client-safe metadata plus internal release controls live on the same line-item model.
             </p>
           </div>
@@ -515,7 +515,7 @@ export function InternalJobPartRequirementCard({
             return (
               <label
                 key={vendor}
-                className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/5 px-4 py-3 text-sm"
+                className="flex items-center gap-3 rounded-2xl border border-border bg-accent px-4 py-3 text-sm"
               >
                 <Checkbox
                   checked={checked}
@@ -537,12 +537,12 @@ export function InternalJobPartRequirementCard({
       </div>
 
       {extraction.evidence.length > 0 ? (
-        <div className="mt-5 rounded-2xl border border-white/8 bg-white/5 p-4">
+        <div className="mt-5 rounded-2xl border border-border bg-accent p-4">
           <p className="text-sm font-medium">Evidence highlights</p>
-          <div className="mt-3 space-y-2 text-sm text-white/55">
+          <div className="mt-3 space-y-2 text-sm text-muted-foreground">
             {extraction.evidence.slice(0, 3).map((item, index) => (
               <div key={`${item.field}-${index}`}>
-                <span className="font-medium text-white/75">{item.field}</span>
+                <span className="font-medium text-foreground/80">{item.field}</span>
                 {`: page ${item.page}, confidence ${(item.confidence * 100).toFixed(0)}%, "${item.snippet}"`}
               </div>
             ))}
@@ -561,12 +561,12 @@ export function InternalJobPartRequirementCard({
       {showInternalDiagnostics ? (
         <div className="mt-5 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-medium text-white">Internal extraction diagnostics</p>
+            <p className="text-sm font-medium text-foreground">Internal extraction diagnostics</p>
             <Badge variant="secondary" className="border border-cyan-400/20 bg-cyan-500/10 text-cyan-200">
               Internal only
             </Badge>
           </div>
-          <div className="mt-3 grid gap-2 text-xs text-white/60 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-3">
             <p>Extractor version: {part.extraction?.extractor_version ?? "Unknown"}</p>
             <p>Worker build: {extraction.workerBuildVersion ?? "Unknown"}</p>
             <p>Model fallback: {extraction.model?.fallbackUsed ? "Yes" : "No"}</p>
@@ -574,9 +574,9 @@ export function InternalJobPartRequirementCard({
             <p>Model prompt: {extraction.model?.promptVersion ?? "Not recorded"}</p>
             <p>Review fields: {extraction.reviewFields?.length ?? 0}</p>
           </div>
-          <div className="mt-4 overflow-hidden rounded-xl border border-white/10">
+          <div className="mt-4 overflow-hidden rounded-xl border border-border">
             <table className="w-full border-collapse text-left text-xs">
-              <thead className="bg-white/5 text-white/70">
+              <thead className="bg-accent text-foreground/80">
                 <tr>
                   <th className="px-3 py-2 font-medium">Field</th>
                   <th className="px-3 py-2 font-medium">Source</th>
@@ -586,7 +586,7 @@ export function InternalJobPartRequirementCard({
               </thead>
               <tbody>
                 {extractionProvenanceRows.map((row) => (
-                  <tr key={row.field} className="border-t border-white/10 text-white/75">
+                  <tr key={row.field} className="border-t border-border text-foreground/80">
                     <td className="px-3 py-2">{row.field}</td>
                     <td className="px-3 py-2">{renderExtractionSource(row.selectedBy)}</td>
                     <td className="px-3 py-2">
@@ -599,28 +599,28 @@ export function InternalJobPartRequirementCard({
             </table>
           </div>
           <div className="mt-4">
-            <p className="text-xs font-medium text-white/85">Approved spec snapshot</p>
+            <p className="text-xs font-medium text-foreground/80">Approved spec snapshot</p>
             {approvedSnapshot ? (
-              <pre className="mt-2 max-h-52 overflow-auto rounded-xl border border-white/10 bg-black/30 p-3 text-[11px] text-white/65">
+              <pre className="mt-2 max-h-52 overflow-auto rounded-xl border border-border bg-muted p-3 text-[11px] text-foreground/80">
                 {formatJson(approvedSnapshot)}
               </pre>
             ) : (
-              <p className="mt-2 text-xs text-white/50">No snapshot recorded on the approved requirement.</p>
+              <p className="mt-2 text-xs text-muted-foreground">No snapshot recorded on the approved requirement.</p>
             )}
           </div>
           <div className="mt-4">
-            <p className="text-xs font-medium text-white/85">Part queue activity</p>
+            <p className="text-xs font-medium text-foreground/80">Part queue activity</p>
             {queueTasksToRender.length > 0 ? (
               <div className="mt-2 space-y-2">
                 {queueTasksToRender.map((task) => (
-                  <div key={task.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs">
+                  <div key={task.id} className="rounded-xl border border-border bg-muted p-3 text-xs">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="font-medium text-white">{formatStatusLabel(task.task_type)}</p>
-                      <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/80">
+                      <p className="font-medium text-foreground">{formatStatusLabel(task.task_type)}</p>
+                      <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
                         {formatStatusLabel(task.status)}
                       </Badge>
                     </div>
-                    <div className="mt-2 grid gap-1 text-white/60 sm:grid-cols-2">
+                    <div className="mt-2 grid gap-1 text-muted-foreground sm:grid-cols-2">
                       <p>Attempts: {task.attempts}</p>
                       <p>Created: {formatQueueDate(task.created_at)}</p>
                       <p>Updated: {formatQueueDate(task.updated_at)}</p>
@@ -633,22 +633,22 @@ export function InternalJobPartRequirementCard({
                         Last error: {task.last_error}
                       </p>
                     ) : null}
-                    <details className="mt-2 text-white/70">
-                      <summary className="cursor-pointer text-xs text-white/65">Queue payload</summary>
-                      <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-white/10 bg-black/35 p-2 text-[11px] text-white/60">
+                    <details className="mt-2 text-foreground/80">
+                      <summary className="cursor-pointer text-xs text-foreground/80">Queue payload</summary>
+                      <pre className="mt-2 max-h-40 overflow-auto rounded-lg border border-border bg-muted p-2 text-[11px] text-muted-foreground">
                         {formatJson(task.payload)}
                       </pre>
                     </details>
                   </div>
                 ))}
                 {hasMorePartQueueTasks ? (
-                  <p className="text-xs text-white/50">
+                  <p className="text-xs text-muted-foreground">
                     Showing the latest {queueTasksToRender.length} tasks for this part.
                   </p>
                 ) : null}
               </div>
             ) : (
-              <p className="mt-2 text-xs text-white/50">No worker queue tasks recorded for this part yet.</p>
+              <p className="mt-2 text-xs text-muted-foreground">No worker queue tasks recorded for this part yet.</p>
             )}
           </div>
         </div>

@@ -66,7 +66,7 @@ function ResetButton({
       type="button"
       aria-label={`Reset to extracted: ${String(defaultValue ?? "")}`}
       title={`Reset to extracted: ${String(defaultValue ?? "")}`}
-      className={`absolute right-2 ${posClass} text-white/30 hover:text-white/70`}
+      className={`absolute right-2 ${posClass} text-muted-foreground hover:text-foreground/80`}
       onClick={() => onReset(field)}
     >
       <RotateCcw className="h-3.5 w-3.5" />
@@ -128,7 +128,7 @@ export function ClientPartRequestEditor({
               id="client-request-part-number"
               value={draft.partNumber ?? ""}
               onChange={(event) => onChange({ partNumber: event.target.value || null })}
-              className="border-white/10 bg-black/20 text-white"
+              className="border-border bg-muted text-foreground"
             />
             <FieldResetButton field="partNumber" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
@@ -140,7 +140,7 @@ export function ClientPartRequestEditor({
               id="client-request-revision"
               value={draft.revision ?? ""}
               onChange={(event) => onChange({ revision: event.target.value || null })}
-              className="border-white/10 bg-black/20 text-white"
+              className="border-border bg-muted text-foreground"
             />
             <FieldResetButton field="revision" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
@@ -152,7 +152,7 @@ export function ClientPartRequestEditor({
               id="client-request-description"
               value={draft.description ?? ""}
               onChange={(event) => onChange({ description: event.target.value || null })}
-              className="border-white/10 bg-black/20 text-white"
+              className="border-border bg-muted text-foreground"
             />
             <FieldResetButton field="description" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
@@ -164,7 +164,7 @@ export function ClientPartRequestEditor({
               id="client-request-material"
               value={draft.material}
               onChange={(event) => onChange({ material: event.target.value })}
-              className="border-white/10 bg-black/20 text-white"
+              className="border-border bg-muted text-foreground"
               placeholder={showQuoteFields ? "e.g. 6061-T6 aluminum" : "Optional for non-quote services"}
             />
             <FieldResetButton field="material" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
@@ -177,7 +177,7 @@ export function ClientPartRequestEditor({
               id="client-request-finish"
               value={draft.finish ?? ""}
               onChange={(event) => onChange({ finish: event.target.value || null })}
-              className="border-white/10 bg-black/20 text-white"
+              className="border-border bg-muted text-foreground"
             />
             <FieldResetButton field="finish" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
@@ -192,7 +192,7 @@ export function ClientPartRequestEditor({
                 const value = event.target.value.trim();
                 onChange({ threads: value.length > 0 ? value : null });
               }}
-              className="min-h-[88px] border-white/10 bg-black/20 text-white"
+              className="min-h-[88px] border-border bg-muted text-foreground"
               placeholder="Optional thread callouts such as 1/4-20 UNC-2B."
             />
             <FieldResetButton field="threads" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} position="top" />
@@ -211,7 +211,7 @@ export function ClientPartRequestEditor({
                     : null,
                 })
               }
-              className="border-white/10 bg-black/20 text-white"
+              className="border-border bg-muted text-foreground"
               inputMode="decimal"
             />
             <FieldResetButton field="tightestToleranceInch" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
@@ -224,7 +224,7 @@ export function ClientPartRequestEditor({
               id="client-request-process"
               value={draft.process ?? ""}
               onChange={(event) => onChange({ process: event.target.value || null })}
-              className="border-white/10 bg-black/20 text-white"
+              className="border-border bg-muted text-foreground"
             />
             <FieldResetButton field="process" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
@@ -241,7 +241,7 @@ export function ClientPartRequestEditor({
                     quantity: Math.max(1, Number.parseInt(event.target.value || "1", 10) || 1),
                   })
                 }
-                className="border-white/10 bg-black/20 text-white"
+                className="border-border bg-muted text-foreground"
                 inputMode="numeric"
               />
             </div>
@@ -251,7 +251,7 @@ export function ClientPartRequestEditor({
                 id="client-request-quote-quantities"
                 value={quoteQuantityInput}
                 onChange={(event) => onQuoteQuantityInputChange(event.target.value)}
-                className="border-white/10 bg-black/20 text-white"
+                className="border-border bg-muted text-foreground"
                 placeholder="10 / 25 / 50"
               />
             </div>
@@ -264,7 +264,7 @@ export function ClientPartRequestEditor({
             type="date"
             value={draft.requestedByDate ?? ""}
             onChange={(event) => onChange({ requestedByDate: event.target.value || null })}
-            className="border-white/10 bg-black/20 text-white"
+            className="border-border bg-muted text-foreground"
           />
         </div>
         <div className="space-y-2 md:col-span-2">
@@ -273,16 +273,16 @@ export function ClientPartRequestEditor({
             id="client-request-notes"
             value={draft.notes ?? ""}
             onChange={(event) => onChange({ notes: event.target.value || null })}
-            className="min-h-[108px] border-white/10 bg-black/20 text-white"
+            className="min-h-[108px] border-border bg-muted text-foreground"
             placeholder="Optional drawing callouts, schedule constraints, or packaging notes."
           />
         </div>
       </div>
 
-      <div className="space-y-3 rounded-[1.75rem] border border-white/8 bg-white/5 p-4">
+      <div className="space-y-3 rounded-[1.75rem] border border-border bg-accent p-4">
         <div>
-          <p className="text-sm font-medium text-white">RFQ details</p>
-          <p className="mt-1 text-xs text-white/50">
+          <p className="text-sm font-medium text-foreground">RFQ details</p>
+          <p className="mt-1 text-xs text-muted-foreground">
             Shipping, certification, sourcing, and release status details stay client-safe here. Internal
             review-only controls remain on the estimator side.
           </p>
@@ -306,7 +306,7 @@ export function ClientPartRequestEditor({
         <Button
           type="button"
           variant="outline"
-          className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+          className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
           onClick={onUploadRevision}
         >
           <Upload className="mr-2 h-4 w-4" />
@@ -316,7 +316,7 @@ export function ClientPartRequestEditor({
           <Button
             type="button"
             variant="outline"
-            className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+            className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
             onClick={onResetAllFields}
           >
             <RotateCcw className="mr-2 h-4 w-4" />

@@ -278,27 +278,27 @@ export function AuthPanel({
   return (
     <section
       className={cn(
-        "w-full rounded-surface-lg border border-white/10 bg-ws-deep/96 p-5 text-white shadow-[0_32px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-6",
+        "w-full rounded-surface-lg border border-border bg-ws-deep/96 p-5 text-foreground shadow-[0_32px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-6",
         className,
       )}
     >
       <div>
-        <p className="text-[11px] font-medium uppercase tracking-[0.24em] text-white/40">
+        <p className="text-[11px] font-medium uppercase tracking-[0.24em] text-muted-foreground">
           {panelCopy.eyebrow}
         </p>
         <h2 className="mt-3 text-2xl font-semibold tracking-tight" aria-hidden="true">{panelCopy.title}</h2>
-        <p className="mt-2 text-sm leading-6 text-white/55">{panelCopy.description}</p>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">{panelCopy.description}</p>
       </div>
 
       {(authMode === "sign-in" || authMode === "sign-up") && (
-        <div className="mt-5 grid grid-cols-2 rounded-full border border-white/10 bg-white/[0.03] p-1">
+        <div className="mt-5 grid grid-cols-2 rounded-full border border-border bg-accent p-1">
           <button
             type="button"
             className={cn(
               "rounded-full px-3 py-2.5 text-sm transition-colors min-h-[44px]",
               authMode === "sign-in"
-                ? "bg-white text-black"
-                : "text-white/60 hover:text-white",
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground",
             )}
             onClick={() => {
               setAuthMode("sign-in");
@@ -312,8 +312,8 @@ export function AuthPanel({
             className={cn(
               "rounded-full px-3 py-2.5 text-sm transition-colors min-h-[44px]",
               authMode === "sign-up"
-                ? "bg-white text-black"
-                : "text-white/60 hover:text-white",
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground",
             )}
             onClick={() => {
               setAuthMode("sign-up");
@@ -332,7 +332,7 @@ export function AuthPanel({
       ) : null}
 
       {authMode === "update-password" && !user ? (
-        <div className="mt-5 rounded-3xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/65">
+        <div className="mt-5 rounded-3xl border border-border bg-accent px-4 py-3 text-sm text-foreground/80">
           Waiting for the recovery link to establish a session. If this does not clear, reopen the
           reset email and try again.
         </div>
@@ -359,13 +359,13 @@ export function AuthPanel({
             <>
               <SocialAuthButtons
                 className="mt-5"
-                buttonClassName="h-12 rounded-2xl border-white/10 bg-white/[0.03] text-white hover:bg-white/[0.07] hover:text-white"
+                buttonClassName="h-12 rounded-2xl border-border bg-accent text-foreground hover:bg-accent hover:text-foreground"
                 redirectPath={redirectPath}
               />
 
               <div className="relative my-5">
-                <Separator className="bg-white/10" />
-                <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-ws-deep px-3 text-[11px] uppercase tracking-[0.24em] text-white/35">
+                <Separator className="bg-accent" />
+                <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-ws-deep px-3 text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
                   Or with email
                 </span>
               </div>
@@ -375,7 +375,7 @@ export function AuthPanel({
           <form className="space-y-4" onSubmit={handleSubmit}>
             {showEmailField ? (
               <div className="space-y-2">
-                <Label htmlFor="auth-email" className="text-white/70">
+                <Label htmlFor="auth-email" className="text-foreground/80">
                   Email
                 </Label>
                 <Input
@@ -383,7 +383,7 @@ export function AuthPanel({
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  className="h-12 rounded-2xl border-white/10 bg-white/[0.03] px-4 text-white placeholder:text-white/35"
+                  className="h-12 rounded-2xl border-border bg-accent px-4 text-foreground placeholder:text-muted-foreground"
                   placeholder="your@company.com"
                   required
                 />
@@ -392,7 +392,7 @@ export function AuthPanel({
 
             {showPasswordField ? (
               <div className="space-y-2">
-                <Label htmlFor="auth-password" className="text-white/70">
+                <Label htmlFor="auth-password" className="text-foreground/80">
                   {authMode === "update-password" ? "New password" : "Password"}
                 </Label>
                 <Input
@@ -400,7 +400,7 @@ export function AuthPanel({
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  className="h-12 rounded-2xl border-white/10 bg-white/[0.03] px-4 text-white placeholder:text-white/35"
+                  className="h-12 rounded-2xl border-border bg-accent px-4 text-foreground placeholder:text-muted-foreground"
                   placeholder="••••••••"
                   required
                 />
@@ -409,7 +409,7 @@ export function AuthPanel({
 
             {showConfirmPasswordField ? (
               <div className="space-y-2">
-                <Label htmlFor="auth-confirm-password" className="text-white/70">
+                <Label htmlFor="auth-confirm-password" className="text-foreground/80">
                   Confirm new password
                 </Label>
                 <Input
@@ -417,7 +417,7 @@ export function AuthPanel({
                   type="password"
                   value={confirmPassword}
                   onChange={(event) => setConfirmPassword(event.target.value)}
-                  className="h-12 rounded-2xl border-white/10 bg-white/[0.03] px-4 text-white placeholder:text-white/35"
+                  className="h-12 rounded-2xl border-border bg-accent px-4 text-foreground placeholder:text-muted-foreground"
                   placeholder="••••••••"
                   required
                 />
@@ -446,7 +446,7 @@ export function AuthPanel({
         <>
           <button
             type="button"
-            className="mt-5 py-2 text-sm text-white/55 transition-colors hover:text-white"
+            className="mt-5 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
             onClick={() => {
               setAuthMode("forgot-password");
               setNotice(null);
@@ -454,11 +454,11 @@ export function AuthPanel({
           >
             Forgot password?
           </button>
-          <p className="mt-4 text-sm text-white/55">
+          <p className="mt-4 text-sm text-muted-foreground">
             Need an account?{" "}
             <button
               type="button"
-              className="py-1 px-0.5 text-white transition-colors hover:text-primary"
+              className="py-1 px-0.5 text-foreground transition-colors hover:text-primary"
               onClick={() => {
                 setAuthMode("sign-up");
                 setNotice(null);
@@ -471,11 +471,11 @@ export function AuthPanel({
       ) : null}
 
       {authMode === "sign-up" ? (
-        <p className="mt-5 text-sm text-white/55">
+        <p className="mt-5 text-sm text-muted-foreground">
           Already have an account?{" "}
           <button
             type="button"
-            className="text-white transition-colors hover:text-primary"
+            className="text-foreground transition-colors hover:text-primary"
             onClick={() => {
               setAuthMode("sign-in");
               setNotice(null);
@@ -487,11 +487,11 @@ export function AuthPanel({
       ) : null}
 
       {authMode === "forgot-password" ? (
-        <p className="mt-5 text-sm text-white/55">
+        <p className="mt-5 text-sm text-muted-foreground">
           Remembered it?{" "}
           <button
             type="button"
-            className="text-white transition-colors hover:text-primary"
+            className="text-foreground transition-colors hover:text-primary"
             onClick={() => {
               setAuthMode("sign-in");
               setNotice(null);
@@ -503,11 +503,11 @@ export function AuthPanel({
       ) : null}
 
       {authMode === "verify-email" ? (
-        <p className="mt-5 text-sm text-white/55">
+        <p className="mt-5 text-sm text-muted-foreground">
           Need a different route?{" "}
           <button
             type="button"
-            className="text-white transition-colors hover:text-primary"
+            className="text-foreground transition-colors hover:text-primary"
             onClick={() => {
               setAuthMode("sign-in");
               setNotice(null);

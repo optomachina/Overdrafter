@@ -99,9 +99,9 @@ export function ProjectInspectorPanel({
   if (mode === "empty") {
     return (
       <div className={cn("space-y-4", className)}>
-        <div className="rounded-lg border border-white/10 bg-black/20 p-5">
-          <h2 className="text-lg font-semibold text-white">{emptyTitle}</h2>
-          <p className="mt-2 text-sm text-white/55">{emptyBody}</p>
+        <div className="rounded-lg border border-border bg-muted p-5">
+          <h2 className="text-lg font-semibold text-foreground">{emptyTitle}</h2>
+          <p className="mt-2 text-sm text-muted-foreground">{emptyBody}</p>
         </div>
       </div>
     );
@@ -109,12 +109,12 @@ export function ProjectInspectorPanel({
 
   return (
     <div className={cn("space-y-4", className)}>
-      <div className="rounded-lg border border-white/10 bg-black/20 p-5">
+      <div className="rounded-lg border border-border bg-muted p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-base font-semibold text-white">{title}</h2>
+            <h2 className="truncate text-base font-semibold text-foreground">{title}</h2>
             {description ? (
-              <p className="mt-1 line-clamp-2 text-xs text-white/45">{description}</p>
+              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{description}</p>
             ) : null}
           </div>
           {onClear ? (
@@ -122,7 +122,7 @@ export function ProjectInspectorPanel({
               type="button"
               variant="ghost"
               size="icon"
-              className="h-7 w-7 shrink-0 rounded-full text-white/40 hover:bg-white/8 hover:text-white"
+              className="h-7 w-7 shrink-0 rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
               onClick={onClear}
               aria-label="Clear selected part"
             >
@@ -131,50 +131,50 @@ export function ProjectInspectorPanel({
           ) : null}
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-white/8 bg-white/8">
-          <div className="bg-black/40 px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Part no.</p>
-            <p className="mt-1 text-sm font-medium text-white">{propertyValue(partNumber)}</p>
+        <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border">
+          <div className="bg-ws-inset px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Part no.</p>
+            <p className="mt-1 text-sm font-medium text-foreground">{propertyValue(partNumber)}</p>
           </div>
-          <div className="bg-black/40 px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Rev</p>
-            <p className="mt-1 text-sm font-medium text-white">{propertyValue(revision)}</p>
+          <div className="bg-ws-inset px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Rev</p>
+            <p className="mt-1 text-sm font-medium text-foreground">{propertyValue(revision)}</p>
           </div>
-          <div className="bg-black/40 px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Material</p>
-            <p className="mt-1 text-sm font-medium text-white">{propertyValue(material)}</p>
+          <div className="bg-ws-inset px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Material</p>
+            <p className="mt-1 text-sm font-medium text-foreground">{propertyValue(material)}</p>
           </div>
-          <div className="bg-black/40 px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Finish</p>
-            <p className="mt-1 text-sm font-medium text-white">{propertyValue(finish)}</p>
+          <div className="bg-ws-inset px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Finish</p>
+            <p className="mt-1 text-sm font-medium text-foreground">{propertyValue(finish)}</p>
           </div>
-          <div className="bg-black/40 px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Qty</p>
-            <p className="mt-1 text-sm font-medium text-white">{propertyValue(quantity)}</p>
+          <div className="bg-ws-inset px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Qty</p>
+            <p className="mt-1 text-sm font-medium text-foreground">{propertyValue(quantity)}</p>
           </div>
-          <div className="bg-black/40 px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Status</p>
-            <p className="mt-1 text-sm font-medium text-white">{propertyValue(statusLabel)}</p>
+          <div className="bg-ws-inset px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Status</p>
+            <p className="mt-1 text-sm font-medium text-foreground">{propertyValue(statusLabel)}</p>
           </div>
-          <div className="bg-black/40 px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Created</p>
-            <p className="mt-1 text-sm font-medium text-white">{propertyValue(createdLabel)}</p>
+          <div className="bg-ws-inset px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Created</p>
+            <p className="mt-1 text-sm font-medium text-foreground">{propertyValue(createdLabel)}</p>
           </div>
-          <div className="bg-black/40 px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Project</p>
-            <p className="mt-1 text-sm font-medium text-white">{propertyValue(projectName)}</p>
+          <div className="bg-ws-inset px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Project</p>
+            <p className="mt-1 text-sm font-medium text-foreground">{propertyValue(projectName)}</p>
           </div>
-          <div className="bg-black/40 px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Selected quote</p>
-            <p className="mt-1 text-sm font-semibold text-white">{selectedQuoteLabel}</p>
+          <div className="bg-ws-inset px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Selected quote</p>
+            <p className="mt-1 text-sm font-semibold text-foreground">{selectedQuoteLabel}</p>
           </div>
-          <div className="bg-black/40 px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Lead time</p>
-            <p className="mt-1 text-sm font-semibold text-white">{leadTimeLabel}</p>
+          <div className="bg-ws-inset px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Lead time</p>
+            <p className="mt-1 text-sm font-semibold text-foreground">{leadTimeLabel}</p>
           </div>
-          <div className="col-span-2 bg-black/40 px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-[0.14em] text-white/35">Due by</p>
-            <p className="mt-1 text-sm font-medium text-white">{propertyValue(requestedByDate)}</p>
+          <div className="col-span-2 bg-ws-inset px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Due by</p>
+            <p className="mt-1 text-sm font-medium text-foreground">{propertyValue(requestedByDate)}</p>
           </div>
         </div>
       </div>
@@ -186,12 +186,12 @@ export function ProjectInspectorPanel({
       />
 
       <section className="space-y-2">
-        <div className="flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-          <span className="text-xs uppercase tracking-[0.18em] text-white/45">Geometry overlay</span>
+        <div className="flex items-center justify-between rounded-lg border border-border bg-muted px-3 py-2">
+          <span className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Geometry overlay</span>
           <Button
             type="button"
             variant="ghost"
-            className="h-7 rounded-full border border-white/10 px-3 text-xs text-white/70 hover:bg-white/8"
+            className="h-7 rounded-full border border-border px-3 text-xs text-foreground hover:bg-accent"
             onClick={() => setGeometryOverlayEnabled((current) => !current)}
           >
             {geometryOverlayEnabled ? "On" : "Off"}
@@ -207,7 +207,7 @@ export function ProjectInspectorPanel({
         />
       </section>
 
-      <section className="rounded-lg border border-white/10 bg-black/20 p-5">
+      <section className="rounded-lg border border-border bg-muted p-5">
         <ClientQuoteDecisionPanel
           title="Quotes"
           description="Compare vendor offers here and select the quote to keep without leaving the project ledger."

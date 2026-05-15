@@ -8,7 +8,93 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* Workspace Dark Theme with OKLCH colors */
+    /* ── OverDrafter bone / daylight palette — docs/DESIGN.md §Color ──
+       Single source of truth. The shadcn/Radix and workspace tokens below
+       are re-themed against these; do not introduce parallel color values.
+       TODO-027 PR-B0: theme flipped from dark → bone 2026-05-14 after the
+       ~95-file hardcoded-color migration. Dark mode now revives the prior
+       black palette as an interim toggle per DESIGN.md. */
+    --bg:         #F2EFE8;  /* bone / unbleached drafting paper */
+    --surface:    #FBF9F4;  /* half-shade lighter — primary card / inset */
+    --surface-2:  #E7E0D4;  /* deeper inset, selected row, secondary fill, hover */
+    --text:       #1C1B19;  /* warm black, never pure black */
+    --muted-ink:  #6B665C;  /* graphite pencil — secondary text, labels */
+    --hairline:   #D8D2C4;  /* 1px borders, dividers */
+    --accent-red: #C2410C;  /* oxidized red — engineer's pencil mark */
+    --ink-data:   #1F2E3A;  /* dark teal-black for the densest tables */
+    --hairline-strong: #C9C2B2;
+
+    /* shadcn / Radix tokens — re-themed against the bone palette */
+    --background: var(--bg);
+    --foreground: var(--text);
+
+    --card: var(--surface);
+    --card-foreground: var(--text);
+
+    --popover: var(--surface);
+    --popover-foreground: var(--text);
+
+    --primary: var(--text);
+    --primary-foreground: var(--bg);
+
+    --secondary: var(--surface-2);
+    --secondary-foreground: var(--text);
+
+    --muted: var(--surface-2);
+    --muted-foreground: var(--muted-ink);
+
+    /* shadcn `accent` = hover/raised surface (DESIGN.md: hover = --surface-2),
+       NOT the oxidized-red accent. Red lives in --accent-red. */
+    --accent: var(--surface-2);
+    --accent-foreground: var(--text);
+
+    --destructive: var(--accent-red);
+    --destructive-foreground: var(--bg);
+
+    --border: var(--hairline);
+    --input: var(--hairline);
+    --input-background: var(--surface);
+    --ring: var(--accent-red);
+
+    /* DESIGN.md §Border: radius scale 0 / 2 / 4 — never above 4px */
+    --radius: 4px;
+    --radius-surface-sm: 2px;
+    --radius-surface-lg: 4px;
+
+    --surface-elevated: var(--surface);
+
+    /* Workspace surface elevation system — bone */
+    --ws-surface-base: var(--bg);
+    --ws-surface-card: var(--surface);
+    --ws-surface-inset: var(--surface-2);
+    --ws-surface-raised: var(--surface);
+
+    /* Workspace shell surface tokens */
+    --ws-surface-shell: var(--surface);
+    --ws-surface-deep: var(--surface-2);
+    --ws-surface-overlay: var(--bg);
+
+    /* Workspace border system */
+    --ws-border-subtle: var(--hairline);
+    --ws-border-default: var(--hairline);
+    --ws-border-strong: var(--hairline-strong);
+
+    /* Artifact accent */
+    --ws-accent-surface: var(--surface-2);
+    --ws-accent-border: var(--accent-red);
+
+    /* Sidebar tokens */
+    --sidebar: var(--surface);
+    --sidebar-foreground: var(--text);
+    --sidebar-primary: var(--accent-red);
+    --sidebar-primary-foreground: var(--bg);
+    --sidebar-accent: var(--surface-2);
+    --sidebar-accent-foreground: var(--text);
+    --sidebar-border: var(--hairline);
+    --sidebar-ring: var(--accent-red);
+  }
+
+  .dark {
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
 
@@ -38,34 +124,24 @@ All colors MUST be HSL.
     --input-background: oklch(0.225 0 0);
     --ring: oklch(0.439 0 0);
 
-    --radius: 0.625rem;
-    --radius-surface-sm: 8px;
-    --radius-surface-lg: 24px;
-
-    /* Surface elevation */
     --surface-elevated: oklch(0.269 0 0);
 
-    /* Workspace surface elevation system */
     --ws-surface-base: oklch(0.165 0 0);
     --ws-surface-card: oklch(0.185 0 0);
     --ws-surface-inset: oklch(0.12 0 0);
     --ws-surface-raised: oklch(0.21 0 0);
 
-    /* Workspace shell surface tokens */
     --ws-surface-shell: #171717;
     --ws-surface-deep: #0f0f0f;
     --ws-surface-overlay: #212121;
 
-    /* Workspace border system */
     --ws-border-subtle: oklch(1 0 0 / 0.08);
     --ws-border-default: oklch(1 0 0 / 0.12);
     --ws-border-strong: oklch(1 0 0 / 0.18);
 
-    /* Artifact accent */
     --ws-accent-surface: oklch(0.25 0.015 250);
     --ws-accent-border: oklch(0.45 0.04 250 / 0.3);
 
-    /* Sidebar tokens */
     --sidebar: oklch(0.205 0 0);
     --sidebar-foreground: oklch(0.985 0 0);
     --sidebar-primary: oklch(0.488 0.243 264.376);
@@ -74,6 +150,16 @@ All colors MUST be HSL.
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(0.269 0 0);
     --sidebar-ring: oklch(0.439 0 0);
+
+    --bg: oklch(0.145 0 0);
+    --surface: oklch(0.185 0 0);
+    --surface-2: oklch(0.269 0 0);
+    --text: oklch(0.985 0 0);
+    --muted-ink: oklch(0.708 0 0);
+    --hairline: oklch(0.269 0 0);
+    --hairline-strong: oklch(0.18 0 0 / 0.18);
+
+    color-scheme: dark;
   }
 }
 
@@ -84,13 +170,15 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    /* All numbers render tabular per docs/DESIGN.md §Implementation */
+    font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: "tnum" 1, "lnum" 1;
   }
 
   /* Smooth scrolling */
   html {
     scroll-behavior: smooth;
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -103,14 +191,14 @@ All colors MUST be HSL.
 
 @layer utilities {
   .ws-section-label {
-    @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-white/50;
+    @apply font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground;
   }
   .ws-subsection-label {
-    @apply text-[10px] uppercase tracking-[0.18em] text-white/30;
+    @apply font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground;
   }
 
   .workspace-shell {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    @apply font-sans;
   }
 
   /* Sidebar: thin scrollbar, only visible on sidebar hover */
@@ -121,6 +209,10 @@ All colors MUST be HSL.
   }
 
   .sidebar-host:hover .sidebar-scroll {
+    scrollbar-color: rgba(28,27,25,0.28) transparent;
+  }
+
+  .dark .sidebar-host:hover .sidebar-scroll {
     scrollbar-color: rgba(255,255,255,0.18) transparent;
   }
 
@@ -140,6 +232,10 @@ All colors MUST be HSL.
   }
 
   .sidebar-host:hover .sidebar-scroll::-webkit-scrollbar-thumb {
+    background: rgba(28,27,25,0.28);
+  }
+
+  .dark .sidebar-host:hover .sidebar-scroll::-webkit-scrollbar-thumb {
     background: rgba(255,255,255,0.18);
   }
 

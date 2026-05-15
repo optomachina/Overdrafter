@@ -185,11 +185,11 @@ function buildProjectSummaryBadgeModel(summary: ProjectSummaryModel, isLoading: 
   if (isLoading) {
     return {
       quoteCoverage: {
-        className: "border border-white/10 bg-white/[0.03] text-white/60",
+        className: "border border-border bg-muted text-muted-foreground",
         label: "Loading quote coverage…",
       },
       selectionCoverage: {
-        className: "border border-white/10 bg-white/[0.03] text-white/60",
+        className: "border border-border bg-muted text-muted-foreground",
         label: "Loading selections…",
       },
     };
@@ -200,11 +200,11 @@ function buildProjectSummaryBadgeModel(summary: ProjectSummaryModel, isLoading: 
   if (isEmpty) {
     return {
       quoteCoverage: {
-        className: "border border-white/10 bg-white/[0.03] text-white/60",
+        className: "border border-border bg-muted text-muted-foreground",
         label: "No parts",
       },
       selectionCoverage: {
-        className: "border border-white/10 bg-white/[0.03] text-white/60",
+        className: "border border-border bg-muted text-muted-foreground",
         label: "No selections",
       },
     };
@@ -224,7 +224,7 @@ function buildProjectSummaryBadgeModel(summary: ProjectSummaryModel, isLoading: 
     selectionCoverage:
       summary.pendingSelectionCount > 0
         ? {
-            className: "border border-white/10 bg-white/6 text-white/75",
+            className: "border border-border bg-accent text-foreground/80",
             label: `${formatPartCountLabel(summary.pendingSelectionCount, "pending selection")}`,
           }
         : {
@@ -269,10 +269,10 @@ function ProjectSummaryStatCards({ statCards }: Readonly<{ statCards: ReturnType
   return (
     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       {statCards.map((card) => (
-        <div key={card.label} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">{card.label}</p>
-          <p className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">{card.value}</p>
-          <p className="mt-2 text-sm text-white/55">{card.caption}</p>
+        <div key={card.label} className="rounded-xl border border-border bg-muted p-4">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{card.label}</p>
+          <p className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-foreground">{card.value}</p>
+          <p className="mt-2 text-sm text-muted-foreground">{card.caption}</p>
         </div>
       ))}
     </div>
@@ -281,14 +281,14 @@ function ProjectSummaryStatCards({ statCards }: Readonly<{ statCards: ReturnType
 
 function ProjectSummarySpendDistribution({ summary }: Readonly<{ summary: ProjectSummaryModel }>) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+    <div className="rounded-xl border border-border bg-muted p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-medium text-white">Spend distribution</p>
-          <p className="text-sm text-white/55">Selected quote share by part.</p>
+          <p className="text-sm font-medium text-foreground">Spend distribution</p>
+          <p className="text-sm text-muted-foreground">Selected quote share by part.</p>
         </div>
         {summary.dominantSpendLabel && summary.dominantSpendPercent !== null ? (
-          <p className="text-sm text-white/60">
+          <p className="text-sm text-muted-foreground">
             {summary.dominantSpendLabel} is {formatPercentageLabel(summary.dominantSpendPercent)} of spend
           </p>
         ) : null}
@@ -300,17 +300,17 @@ function ProjectSummarySpendDistribution({ summary }: Readonly<{ summary: Projec
             <div key={row.jobId} className="space-y-2">
               <div className="flex items-center justify-between gap-3 text-sm">
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-white">{row.label}</p>
-                  <p className="text-xs text-white/45">{renderSpendDistributionLabel(row)}</p>
+                  <p className="truncate font-medium text-foreground">{row.label}</p>
+                  <p className="text-xs text-muted-foreground">{renderSpendDistributionLabel(row)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-medium text-white">{formatCurrencyLabel(row.spendUsd)}</p>
-                  <p className="text-xs text-white/45">{formatPercentageLabel(row.sharePercent)}</p>
+                  <p className="font-medium text-foreground">{formatCurrencyLabel(row.spendUsd)}</p>
+                  <p className="text-xs text-muted-foreground">{formatPercentageLabel(row.sharePercent)}</p>
                 </div>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-white/[0.08]">
+              <div className="h-2 overflow-hidden rounded-full bg-accent">
                 <div
-                  className={cn("h-full rounded-full", row.isCriticalPath ? "bg-amber-300" : "bg-white/80")}
+                  className={cn("h-full rounded-full", row.isCriticalPath ? "bg-amber-300" : "bg-foreground/80")}
                   style={{ width: `${Math.max(row.sharePercent, 4)}%` }}
                 />
               </div>
@@ -318,7 +318,7 @@ function ProjectSummarySpendDistribution({ summary }: Readonly<{ summary: Projec
           ))}
         </div>
       ) : (
-        <div className="mt-4 rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-sm text-white/50">
+        <div className="mt-4 rounded-xl border border-dashed border-border bg-muted p-4 text-sm text-muted-foreground">
           Select quote options to unlock spend distribution.
         </div>
       )}
@@ -328,9 +328,9 @@ function ProjectSummarySpendDistribution({ summary }: Readonly<{ summary: Projec
 
 function ProjectSummaryCallouts({ callouts }: Readonly<{ callouts: string[] }>) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-      <p className="text-sm font-medium text-white">Summary callouts</p>
-      <div className="mt-4 space-y-3 text-sm text-white/65">
+    <div className="rounded-xl border border-border bg-muted p-4">
+      <p className="text-sm font-medium text-foreground">Summary callouts</p>
+      <div className="mt-4 space-y-3 text-sm text-foreground/80">
         {callouts.map((callout) => (
           <p key={callout}>{callout}</p>
         ))}
@@ -348,8 +348,8 @@ function ProjectSummaryPanel({ summary, isLoading }: Readonly<ProjectSummaryPane
     <section className="rounded-lg border border-ws-border-subtle bg-ws-card p-4" aria-label="Project summary">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Project summary</p>
-          <h2 className="mt-1 text-lg font-semibold tracking-[-0.02em] text-white">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Project summary</p>
+          <h2 className="mt-1 text-lg font-semibold tracking-[-0.02em] text-foreground">
             Budget, coverage, and schedule at a glance
           </h2>
         </div>
@@ -464,7 +464,7 @@ function applyVendorPreferenceSelection(input: {
 
 function getPreferenceButtonClassName(isActive: boolean, tone: VendorPreferenceTone) {
   if (!isActive) {
-    return "h-7 rounded-full border-white/10 bg-transparent px-2.5 text-[11px] text-white/55 hover:bg-white/6 hover:text-white";
+    return "h-7 rounded-full border-border bg-transparent px-2.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground";
   }
 
   if (tone === "pinned") {
@@ -475,7 +475,7 @@ function getPreferenceButtonClassName(isActive: boolean, tone: VendorPreferenceT
     return "h-7 rounded-full border-rose-400/40 bg-rose-500/20 px-2.5 text-[11px] text-rose-200 hover:bg-rose-500/25";
   }
 
-  return "h-7 rounded-full border-white/20 bg-white/10 px-2.5 text-[11px] text-white hover:bg-white/14";
+  return "h-7 rounded-full border-border bg-accent px-2.5 text-[11px] text-foreground hover:bg-accent";
 }
 
 type VendorPreferenceScopeCardProps = Readonly<{
@@ -502,8 +502,8 @@ function VendorPreferenceScopeCard({
   onUpdateVendorPreferences,
 }: VendorPreferenceScopeCardProps) {
   return (
-    <div className="space-y-2 rounded-lg border border-white/10 bg-black/20 p-3">
-      <p className="text-[11px] uppercase tracking-[0.14em] text-white/45">{heading}</p>
+    <div className="space-y-2 rounded-lg border border-border bg-muted p-3">
+      <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{heading}</p>
       {availableVendors.map((vendor) => {
         const selection = resolveVendorPreferenceSelection({
           vendor,
@@ -513,7 +513,7 @@ function VendorPreferenceScopeCard({
 
         return (
           <div key={`${scope}-${vendor}`} className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs font-medium text-white">{getVendorDisplayName(vendor)}</span>
+            <span className="text-xs font-medium text-foreground">{getVendorDisplayName(vendor)}</span>
             <div className="flex flex-wrap items-center gap-1.5">
               {vendorPreferenceSelectionOptions.map((option) => (
                 <Button
@@ -566,7 +566,7 @@ function VendorPreferencePanel({
   onUpdateVendorPreferences,
 }: VendorPreferencePanelProps) {
   if (isVendorPreferenceLoading) {
-    return <p className="text-xs text-white/45">Loading vendor preference controls…</p>;
+    return <p className="text-xs text-muted-foreground">Loading vendor preference controls…</p>;
   }
 
   if (errorMessage) {
@@ -574,7 +574,7 @@ function VendorPreferencePanel({
   }
 
   if (availableVendors.length === 0) {
-    return <p className="text-xs text-white/45">No client quote vendors are enabled for this organization.</p>;
+    return <p className="text-xs text-muted-foreground">No client quote vendors are enabled for this organization.</p>;
   }
 
   return (
@@ -671,19 +671,19 @@ function ProjectInspectorContent({
 
   return (
     <>
-      <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
+      <div className="flex items-start justify-between gap-3 border-b border-border pb-4">
         <div className="space-y-1">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Inspector</p>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Inspector</p>
           {focusedJobId && focusedWorkspaceItem ? (
             <>
-              <h2 className="text-lg font-semibold tracking-[-0.02em] text-white">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
                 {focusedInspectorModel?.partNumber ??
                   focusedWorkspaceItem.part?.approvedRequirement?.part_number ??
                   focusedWorkspaceItem.summary?.partNumber ??
                   focusedWorkspaceItem.part?.name ??
                   focusedWorkspaceItem.job.title}
               </h2>
-              <p className="text-sm text-white/55">
+              <p className="text-sm text-muted-foreground">
                 {focusedInspectorModel?.description ??
                   focusedWorkspaceItem.part?.approvedRequirement?.description ??
                   focusedWorkspaceItem.summary?.description ??
@@ -693,8 +693,8 @@ function ProjectInspectorContent({
             </>
           ) : (
             <>
-              <h2 className="text-lg font-semibold tracking-[-0.02em] text-white">No part selected</h2>
-              <p className="text-sm text-white/55">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">No part selected</h2>
+              <p className="text-sm text-muted-foreground">
                 Select a row in the ledger to inspect that part without leaving the project workspace.
               </p>
             </>
@@ -704,7 +704,7 @@ function ProjectInspectorContent({
           <Button
             type="button"
             variant="ghost"
-            className="h-8 rounded-full px-3 text-white/65 hover:bg-white/6 hover:text-white"
+            className="h-8 rounded-full px-3 text-foreground/80 hover:bg-accent hover:text-foreground"
             onClick={onClear}
           >
             Clear
@@ -713,20 +713,20 @@ function ProjectInspectorContent({
       </div>
 
       <div className="mt-4 space-y-3">
-        <details open className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
-          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-white marker:content-none">
+        <details open className="overflow-hidden rounded-lg border border-border bg-muted">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-foreground marker:content-none">
             Properties
           </summary>
-          <div className="border-t border-white/10 px-4 py-3 text-sm text-white/55">
+          <div className="border-t border-border px-4 py-3 text-sm text-muted-foreground">
             {focusedInspectorModel ? (
               <div className="space-y-2">
                 {focusedInspectorModel.properties.map((item) => (
                   <div
                     key={item.label}
-                    className="flex items-start justify-between gap-4 border-b border-white/[0.05] pb-2 last:border-0 last:pb-0"
+                    className="flex items-start justify-between gap-4 border-b border-border pb-2 last:border-0 last:pb-0"
                   >
-                    <span className="text-white/45">{item.label}</span>
-                    <span className="text-right font-medium text-white">{item.value}</span>
+                    <span className="text-muted-foreground">{item.label}</span>
+                    <span className="text-right font-medium text-foreground">{item.value}</span>
                   </div>
                 ))}
               </div>
@@ -736,28 +736,28 @@ function ProjectInspectorContent({
           </div>
         </details>
 
-        <details open className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
-          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-white marker:content-none">
+        <details open className="overflow-hidden rounded-lg border border-border bg-muted">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-foreground marker:content-none">
             Project
           </summary>
-          <div className="border-t border-white/10 px-4 py-3 text-sm text-white/55">
+          <div className="border-t border-border px-4 py-3 text-sm text-muted-foreground">
             {focusedInspectorModel ? (
               <div className="space-y-4">
                 <div className="space-y-2">
                   {focusedInspectorModel.project.map((item) => (
                     <div
                       key={item.label}
-                      className="flex items-start justify-between gap-4 border-b border-white/[0.05] pb-2 last:border-0 last:pb-0"
+                      className="flex items-start justify-between gap-4 border-b border-border pb-2 last:border-0 last:pb-0"
                     >
-                      <span className="text-white/45">{item.label}</span>
-                      <span className="text-right font-medium text-white">{item.value}</span>
+                      <span className="text-muted-foreground">{item.label}</span>
+                      <span className="text-right font-medium text-foreground">{item.value}</span>
                     </div>
                   ))}
                 </div>
 
                 {focusedInspectorModel.quoteBadge ? (
                   <div className="space-y-2">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Quote status</p>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Quote status</p>
                     <Badge className={getQuoteRequestStatusBadgeClassName(focusedInspectorModel.quoteBadge.status)}>
                       {focusedInspectorModel.quoteBadge.label}
                     </Badge>
@@ -765,7 +765,7 @@ function ProjectInspectorContent({
                 ) : null}
 
                 <div className="space-y-2">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">Vendor preferences</p>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Vendor preferences</p>
                   <VendorPreferencePanel
                     availableVendors={availableVendors}
                     errorMessage={focusedVendorPreferencesErrorMessage}
@@ -780,7 +780,7 @@ function ProjectInspectorContent({
                 <Button
                   type="button"
                   variant="outline"
-                  className="w-full rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                  className="w-full rounded-full border-border bg-transparent text-foreground hover:bg-accent"
                   onClick={onOpenPartWorkspace}
                 >
                   Full workspace
@@ -1214,7 +1214,7 @@ const ClientProject = () => {
       <ClientWorkspaceShell
         onLogoClick={() => navigate("/")}
         headerContent={
-          <span className="truncate text-[15px] font-medium tracking-[-0.01em] text-white/[0.94]">
+          <span className="truncate text-[15px] font-medium tracking-[-0.01em] text-foreground">
             {projectQuery.data?.name ?? "Project"}
           </span>
         }
@@ -1288,15 +1288,15 @@ const ClientProject = () => {
       >
         <div className="mx-auto flex w-full max-w-[1380px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
           <div>
-            <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-white">
+            <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-foreground">
               {projectQuery.data?.name ?? "Project"}
             </h1>
-            <p className="mt-2 text-sm text-white/55">
+            <p className="mt-2 text-sm text-muted-foreground">
               Review every part in this project from a single dense ledger view.
             </p>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <Badge className="border border-white/10 bg-white/6 text-white/70">Parts: {projectPartCount}</Badge>
+              <Badge className="border border-border bg-accent text-foreground/80">Parts: {projectPartCount}</Badge>
               {projectQuoteRequestSummary.received > 0 ? (
                 <Badge className={getQuoteRequestStatusBadgeClassName("received")}>
                   Quoted: {projectQuoteRequestSummary.received}
@@ -1342,7 +1342,7 @@ const ClientProject = () => {
               <Button
                 type="button"
                 variant="outline"
-                className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
                 onClick={() => setShowMembers(true)}
               >
                 Share
@@ -1359,8 +1359,8 @@ const ClientProject = () => {
                   aria-expanded={isFilterPanelOpen}
                   aria-pressed={activeFilter !== "all"}
                   className={cn(
-                    "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
-                    (isFilterPanelOpen || activeFilter !== "all") && "border-white/20 bg-white/10",
+                    "rounded-full border-border bg-transparent text-foreground hover:bg-accent",
+                    (isFilterPanelOpen || activeFilter !== "all") && "border-border bg-accent",
                   )}
                   onClick={() => setIsFilterPanelOpen((current) => !current)}
                 >
@@ -1374,8 +1374,8 @@ const ClientProject = () => {
                       type="button"
                       variant="outline"
                       className={cn(
-                        "rounded-full border-white/10 bg-transparent text-white hover:bg-white/6",
-                        activeFilter === filter.id && "border-white/20 bg-white/10",
+                        "rounded-full border-border bg-transparent text-foreground hover:bg-accent",
+                        activeFilter === filter.id && "border-border bg-accent",
                       )}
                       onClick={() => setActiveFilter(filter.id)}
                     >
@@ -1383,7 +1383,7 @@ const ClientProject = () => {
                     </Button>
                   ))
                 ) : activeFilter !== "all" ? (
-                  <Badge className="border border-white/10 bg-white/6 text-white/70">
+                  <Badge className="border border-border bg-accent text-foreground/80">
                     {activeFilterOption.label}
                   </Badge>
                 ) : null}
@@ -1392,7 +1392,7 @@ const ClientProject = () => {
                 type="button"
                 variant="outline"
                 aria-label={isInspectorOpen ? "Hide inspector" : "Show inspector"}
-                className="rounded-full border-white/10 bg-transparent text-white hover:bg-white/6"
+                className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
                 onClick={handleToggleInspector}
               >
                 {isInspectorOpen ? (
@@ -1413,33 +1413,33 @@ const ClientProject = () => {
             <div className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-ws-border-subtle bg-ws-card">
               {projectJobsQuery.isLoading || projectWorkspaceItemsQuery.isLoading ? (
                 <div className="flex min-h-[240px] items-center justify-center">
-                  <Loader2 className="h-6 w-6 animate-spin text-white/60" />
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : filteredJobs.length === 0 ? (
-                <div className="px-6 py-12 text-center text-white/45">No parts match the current project filter.</div>
+                <div className="px-6 py-12 text-center text-muted-foreground">No parts match the current project filter.</div>
               ) : (
-                <Table className="w-full min-w-[640px] text-white">
+                <Table className="w-full min-w-[640px] text-foreground">
                   <TableHeader>
-                    <TableRow className="border-white/10 hover:bg-transparent">
-                      <TableHead className="h-10 px-5 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+                    <TableRow className="border-border hover:bg-transparent">
+                      <TableHead className="h-10 px-5 py-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
                         Part Number
                       </TableHead>
-                      <TableHead className="h-10 px-4 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+                      <TableHead className="h-10 px-4 py-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
                         Description
                       </TableHead>
-                      <TableHead className="h-10 px-2 py-2 text-center text-[11px] uppercase tracking-[0.18em] text-white/45">
+                      <TableHead className="h-10 px-2 py-2 text-center text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
                         CAD
                       </TableHead>
-                      <TableHead className="h-10 px-2 py-2 text-center text-[11px] uppercase tracking-[0.18em] text-white/45">
+                      <TableHead className="h-10 px-2 py-2 text-center text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
                         DWG
                       </TableHead>
-                      <TableHead className="h-10 px-2 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+                      <TableHead className="h-10 px-2 py-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
                         Quote
                       </TableHead>
-                      <TableHead className="h-10 px-2 py-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+                      <TableHead className="h-10 px-2 py-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
                         Assignee
                       </TableHead>
-                      <TableHead className="h-10 py-2 pl-2 pr-5 text-right text-[11px] uppercase tracking-[0.18em] text-white/45">
+                      <TableHead className="h-10 py-2 pl-2 pr-5 text-right text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
                         Creation Date
                       </TableHead>
                     </TableRow>
@@ -1469,26 +1469,26 @@ const ClientProject = () => {
                           aria-selected={isSelected}
                           data-state={isSelected ? "selected" : "idle"}
                           className={cn(
-                            "cursor-pointer border-white/[0.04] transition-colors",
+                            "cursor-pointer border-border transition-colors",
                             isSelected
-                              ? "bg-white/[0.08] shadow-[inset_3px_0_0_rgba(255,255,255,0.92)] hover:bg-white/[0.09]"
-                              : "hover:bg-white/[0.02]",
+                              ? "bg-accent shadow-[inset_3px_0_0_var(--accent-red)] hover:bg-accent"
+                              : "hover:bg-muted",
                           )}
                           onClick={() => handleOpenJobDrawer(job.id)}
                           onDoubleClick={() => navigate(`/parts/${job.id}`)}
                         >
                           <TableCell className="w-[18%] max-w-[220px] px-5 py-2.5">
-                            <p className="truncate text-[13px] font-medium text-white">{partNumber}</p>
+                            <p className="truncate text-[13px] font-medium text-foreground">{partNumber}</p>
                           </TableCell>
                           <TableCell className="max-w-[420px] px-4 py-2.5">
-                            <p className="truncate text-[13px] text-white/65">{description}</p>
+                            <p className="truncate text-[13px] text-foreground/80">{description}</p>
                           </TableCell>
                           <TableCell className="w-px whitespace-nowrap px-2 py-2.5 text-center">
                             <Badge
                               className={
                                 workspaceItem?.part?.cadFile
                                   ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300"
-                                  : "border border-white/10 bg-white/6 text-white/30"
+                                  : "border border-border bg-accent text-muted-foreground"
                               }
                             >
                               {workspaceItem?.part?.cadFile ? "Yes" : "No"}
@@ -1499,7 +1499,7 @@ const ClientProject = () => {
                               className={
                                 workspaceItem?.part?.drawingFile
                                   ? "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300"
-                                  : "border border-white/10 bg-white/6 text-white/30"
+                                  : "border border-border bg-accent text-muted-foreground"
                               }
                             >
                               {workspaceItem?.part?.drawingFile ? "Yes" : "No"}
@@ -1511,10 +1511,10 @@ const ClientProject = () => {
                           <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
                             {assigneeBadge ? (
                               assigneeBadge.isUnassigned ? (
-                                <div className="flex items-center gap-2 text-[13px] text-white/45">
+                                <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
                                   <span
                                     aria-hidden="true"
-                                    className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-white/10 bg-white/[0.03] text-[11px] font-semibold text-white/35"
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-border bg-muted text-[11px] font-semibold text-muted-foreground"
                                   >
                                     —
                                   </span>
@@ -1537,13 +1537,13 @@ const ClientProject = () => {
                             ) : (
                               <span
                                 aria-hidden="true"
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-white/10 bg-white/[0.03] text-[11px] font-semibold text-white/35"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-border bg-muted text-[11px] font-semibold text-muted-foreground"
                               >
                                 —
                               </span>
                             )}
                           </TableCell>
-                          <TableCell className="w-px whitespace-nowrap py-2.5 pl-2 pr-5 text-right text-[13px] text-white/55">
+                          <TableCell className="w-px whitespace-nowrap py-2.5 pl-2 pr-5 text-right text-[13px] text-muted-foreground">
                             {formatDateLabel(job.created_at)}
                           </TableCell>
                         </TableRow>
@@ -1586,7 +1586,7 @@ const ClientProject = () => {
         <Sheet open={mobileDrawerOpen} onOpenChange={setMobileDrawerOpen}>
           <SheetContent
             side="bottom"
-            className="h-[min(85vh,42rem)] overflow-y-auto border-white/10 bg-ws-card px-4 pb-6 pt-10 text-white sm:max-w-none"
+            className="h-[min(85vh,42rem)] overflow-y-auto border-border bg-ws-card px-4 pb-6 pt-10 text-foreground sm:max-w-none"
           >
             <SheetHeader className="sr-only">
               <SheetTitle>Project inspector</SheetTitle>
@@ -1636,10 +1636,10 @@ const ClientProject = () => {
       />
 
       <Dialog open={showAddPart} onOpenChange={setShowAddPart}>
-        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
+        <DialogContent className="border-border bg-ws-overlay text-foreground">
           <DialogHeader>
             <DialogTitle>Add part</DialogTitle>
-            <DialogDescription className="text-white/55">
+            <DialogDescription className="text-muted-foreground">
               Create a new draft directly inside this project.
             </DialogDescription>
           </DialogHeader>
@@ -1661,17 +1661,17 @@ const ClientProject = () => {
       />
 
       <Dialog open={showArchive} onOpenChange={setShowArchive}>
-        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
+        <DialogContent className="border-border bg-ws-overlay text-foreground">
           <DialogHeader>
             <DialogTitle>Archive project</DialogTitle>
-            <DialogDescription className="text-white/55">
+            <DialogDescription className="text-muted-foreground">
               Parts only in this project will also be archived.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button
               variant="outline"
-              className="border-white/10 bg-transparent text-white hover:bg-white/6"
+              className="border-border bg-transparent text-foreground hover:bg-accent"
               onClick={() => setShowArchive(false)}
             >
               Cancel
@@ -1684,17 +1684,17 @@ const ClientProject = () => {
       </Dialog>
 
       <Dialog open={showDissolve} onOpenChange={setShowDissolve}>
-        <DialogContent className="border-white/10 bg-[#1f1f1f] text-white">
+        <DialogContent className="border-border bg-ws-overlay text-foreground">
           <DialogHeader>
             <DialogTitle>Dissolve project</DialogTitle>
-            <DialogDescription className="text-white/55">
+            <DialogDescription className="text-muted-foreground">
               This deletes the project and leaves its parts in the main Parts list.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button
               variant="outline"
-              className="border-white/10 bg-transparent text-white hover:bg-white/6"
+              className="border-border bg-transparent text-foreground hover:bg-accent"
               onClick={() => setShowDissolve(false)}
             >
               Cancel

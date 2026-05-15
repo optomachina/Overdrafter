@@ -110,6 +110,16 @@ describe("App routes", () => {
 
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.stubGlobal("localStorage", localStorageMock);
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
     Object.defineProperty(window, "localStorage", {
       configurable: true,
       writable: true,

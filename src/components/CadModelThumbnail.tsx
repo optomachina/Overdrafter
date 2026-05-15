@@ -227,17 +227,17 @@ export function CadModelThumbnail({
     <div
       aria-label={`CAD preview for ${source.fileName}`}
       className={cn(
-        "relative isolate overflow-hidden rounded-surface-lg border border-white/12 bg-[radial-gradient(circle_at_top,hsl(var(--primary)/0.18),transparent_52%),linear-gradient(180deg,rgba(255,255,255,0.16),rgba(7,11,18,0.92))] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
+        "relative isolate overflow-hidden rounded-surface-lg border border-border bg-[radial-gradient(circle_at_top,hsl(var(--primary)/0.18),transparent_52%),linear-gradient(180deg,rgba(255,255,255,0.16),rgba(7,11,18,0.92))] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
         className,
       )}
     >
       <div ref={canvasHostRef} className="absolute inset-0" />
 
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between p-2">
-        <div className="rounded-full border border-white/15 bg-black/25 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.24em] text-white/75">
+        <div className="rounded-full border border-border bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-[0.24em] text-foreground/80">
           STEP
         </div>
-        <div className="rounded-full border border-white/12 bg-black/20 px-2 py-1 text-[11px] text-white/55">
+        <div className="rounded-full border border-border bg-muted px-2 py-1 text-[11px] text-muted-foreground">
           Hidden lines removed
         </div>
       </div>
@@ -245,18 +245,18 @@ export function CadModelThumbnail({
       {status !== "ready" ? (
         <div
           className={cn(
-            "absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/25 text-center text-white/75",
+            "absolute inset-0 flex flex-col items-center justify-center gap-3 bg-muted text-center text-foreground/80",
             status === "error" ? "pointer-events-auto" : "pointer-events-none",
           )}
         >
           {status === "loading" ? (
             <>
-              <div className="rounded-full border border-white/12 bg-black/20 p-3">
+              <div className="rounded-full border border-border bg-muted p-3">
                 <Loader2 className="h-6 w-6 animate-spin text-primary" />
               </div>
               <div>
                 <p className="text-sm font-medium">Generating preview</p>
-                <p className="mt-1 text-xs text-white/50">Meshing the STEP file locally in your browser.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Meshing the STEP file locally in your browser.</p>
               </div>
             </>
           ) : (
@@ -266,14 +266,14 @@ export function CadModelThumbnail({
               </div>
               <div className="max-w-[12rem] px-3">
                 <p className="text-sm font-medium">Preview unavailable</p>
-                <p className="mt-1 text-xs text-white/50">
+                <p className="mt-1 text-xs text-muted-foreground">
                   {errorMessage ?? "This STEP file could not be rendered into a thumbnail."}
                 </p>
               </div>
               {onFallbackAction ? (
                 <button
                   type="button"
-                  className="rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-white/18 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black/80"
+                  className="rounded-full border border-border bg-accent px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                   onClick={onFallbackAction}
                 >
                   {fallbackActionLabel}
@@ -284,12 +284,12 @@ export function CadModelThumbnail({
         </div>
       ) : null}
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between p-3 text-[11px] text-white/55">
-        <div className="inline-flex items-center gap-1.5 rounded-full border border-white/12 bg-black/20 px-2 py-1">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between p-3 text-[11px] text-muted-foreground">
+        <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2 py-1">
           <Rotate3D className="h-3.5 w-3.5" />
           Drag to inspect
         </div>
-        <div className="inline-flex items-center gap-1.5 rounded-full border border-white/12 bg-black/20 px-2 py-1">
+        <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2 py-1">
           <Box className="h-3.5 w-3.5" />
           Live 3D
         </div>

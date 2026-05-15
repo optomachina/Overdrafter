@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTheme } from "next-themes";
 import type { User } from "@supabase/supabase-js";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -17,8 +18,10 @@ import {
   Folder,
   LogOut,
   Loader2,
+  Moon,
   ScanSearch,
   Settings,
+  Sun,
   Trash2,
   Undo2,
 } from "lucide-react";
@@ -38,6 +41,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -111,15 +115,15 @@ type ReleaseNote = {
 };
 
 const MENU_CONTENT_CLASS =
-  "workspace-shell z-[70] w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 box-border rounded-surface-lg border border-white/[0.08] bg-ws-raised p-2.5 text-white shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
+  "workspace-shell z-[70] w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 box-border rounded-surface-lg border border-border bg-ws-raised p-2.5 text-foreground shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
 const SUBMENU_CONTENT_CLASS =
-  "workspace-shell z-[71] w-[320px] rounded-surface-lg border border-white/[0.08] bg-ws-raised p-2.5 text-white shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
+  "workspace-shell z-[71] w-[320px] rounded-surface-lg border border-border bg-ws-raised p-2.5 text-foreground shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
 const MENU_ITEM_CLASS =
-  "gap-3.5 rounded-surface-lg px-4 py-3 text-[15px] font-normal leading-6 text-white/[0.96] focus:bg-white/[0.08] focus:text-white";
-const MENU_ICON_CLASS = "h-[22px] w-[22px] shrink-0 text-white/[0.92]";
+  "gap-3.5 rounded-surface-lg px-4 py-3 text-[15px] font-normal leading-6 text-foreground focus:bg-accent focus:text-foreground";
+const MENU_ICON_CLASS = "h-[22px] w-[22px] shrink-0 text-foreground";
 const PANEL_SHEET_CLASS =
-  "workspace-shell w-[min(100vw,30rem)] border-l border-white/[0.08] bg-ws-raised p-0 text-white sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-full [&>button]:bg-white/[0.06] [&>button]:p-2 [&>button]:text-white/72 [&>button]:hover:bg-white/[0.1] [&>button]:hover:text-white";
-const PANEL_CARD_CLASS = "rounded-surface-lg border border-white/[0.08] bg-black/20 p-4";
+  "workspace-shell w-[min(100vw,30rem)] border-l border-border bg-ws-raised p-0 text-foreground sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-full [&>button]:bg-accent [&>button]:p-2 [&>button]:text-foreground/80 [&>button]:hover:bg-accent [&>button]:hover:text-foreground";
+const PANEL_CARD_CLASS = "rounded-surface-lg border border-border bg-muted p-4";
 const NOTIFICATION_BADGE_CLASS =
   "rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300";
 
@@ -244,14 +248,14 @@ function getRoleLabel(role: AppMembership["role"] | null | undefined): string {
 }
 
 function PanelSectionTitle({ children }: { children: string }) {
-  return <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/38">{children}</p>;
+  return <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-foreground/80">{children}</p>;
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-4 py-3">
-      <dt className="text-sm text-white/55">{label}</dt>
-      <dd className="max-w-[60%] text-right text-sm font-medium text-white">{value}</dd>
+      <dt className="text-sm text-muted-foreground">{label}</dt>
+      <dd className="max-w-[60%] text-right text-sm font-medium text-foreground">{value}</dd>
     </div>
   );
 }
@@ -270,15 +274,15 @@ function HelpCenterButton({
   return (
     <button
       type="button"
-      className="flex w-full items-center gap-3 rounded-surface-lg border border-white/[0.08] bg-white/[0.02] px-4 py-4 text-left transition hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+      className="flex w-full items-center gap-3 rounded-surface-lg border border-border bg-accent px-4 py-4 text-left transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
       onClick={onClick}
     >
-      <Icon className="h-5 w-5 shrink-0 text-white/[0.92]" strokeWidth={1.85} />
+      <Icon className="h-5 w-5 shrink-0 text-foreground" strokeWidth={1.85} />
       <div className="min-w-0 flex-1">
-        <p className="text-[16px] leading-6 text-white">{label}</p>
-        <p className="mt-1 text-sm leading-5 text-white/52">{description}</p>
+        <p className="text-[16px] leading-6 text-foreground">{label}</p>
+        <p className="mt-1 text-sm leading-5 text-foreground/80">{description}</p>
       </div>
-      <ChevronRight className="h-5 w-5 shrink-0 text-white/40" />
+      <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
     </button>
   );
 }
@@ -289,7 +293,7 @@ function ShortcutKeys({ keys }: { keys: string[] }) {
       {keys.map((key) => (
         <kbd
           key={key}
-          className="rounded border border-white/[0.08] bg-white/[0.06] px-2.5 py-1 text-xs font-medium text-white/88"
+          className="rounded border border-border bg-accent px-2.5 py-1 text-xs font-medium text-foreground/80"
         >
           {key}
         </kbd>
@@ -334,7 +338,7 @@ function getNotificationToneClasses(tone: WorkspaceNotificationItem["tone"]) {
       return "border-emerald-500/30 bg-emerald-500/12 text-emerald-200";
     case "default":
     default:
-      return "border-white/[0.08] bg-white/[0.06] text-white/72";
+      return "border-border bg-accent text-foreground/80";
   }
 }
 
@@ -379,6 +383,7 @@ export function WorkspaceAccountMenu({
   onDeleteArchivedParts,
 }: WorkspaceAccountMenuProps) {
   const profile = getAccountDisplayProfile(user);
+  const { resolvedTheme, setTheme } = useTheme();
   const panelContentRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activePanel, setActivePanel] = useState<AccountPanelId | null>(null);
@@ -541,6 +546,7 @@ export function WorkspaceAccountMenu({
   }
 
   const roleLabel = getRoleLabel(activeMembership?.role);
+  const isDarkTheme = resolvedTheme === "dark";
   const diagnosticsSnapshot = useDiagnosticsSnapshot();
   const showExtractionLauncher = shouldShowExtractionLauncher({
     membershipRole: activeMembership?.role ?? null,
@@ -685,12 +691,12 @@ export function WorkspaceAccountMenu({
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <PanelSectionTitle>Center status</PanelSectionTitle>
-                  <p className="mt-3 text-[20px] font-medium tracking-[-0.01em] text-white">
+                  <p className="mt-3 text-[20px] font-medium tracking-[-0.01em] text-foreground">
                     {notifications.unseenCount > 0
                       ? `${notifications.unseenCount} unseen ${notifications.unseenCount === 1 ? "notification" : "notifications"}`
                       : "All caught up"}
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-white/58">
+                  <p className="mt-2 text-sm leading-6 text-foreground/80">
                     The first browser slice tracks durable quote-workflow transitions from this workspace and keeps
                     seen state on this browser until server-backed notification records exist.
                   </p>
@@ -703,10 +709,10 @@ export function WorkspaceAccountMenu({
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <PanelSectionTitle>Browser permission</PanelSectionTitle>
-                  <p className="mt-3 text-[18px] font-medium text-white">
+                  <p className="mt-3 text-[18px] font-medium text-foreground">
                     {getBrowserPermissionLabel(notifications.browserPermission)}
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-white/58">
+                  <p className="mt-2 text-sm leading-6 text-foreground/80">
                     {getBrowserPermissionDescription(notifications.browserPermission)}
                   </p>
                 </div>
@@ -715,7 +721,7 @@ export function WorkspaceAccountMenu({
               {notifications.browserPermission === "default" ? (
                 <Button
                   type="button"
-                  className="mt-4 rounded-full bg-white text-black hover:bg-white/90"
+                  className="mt-4 rounded-full bg-primary text-primary-foreground hover:bg-accent"
                   disabled={notifications.isRequestingPermission}
                   onClick={() => {
                     void notifications.requestBrowserPermission().then(() => {
@@ -749,12 +755,12 @@ export function WorkspaceAccountMenu({
                   return (
                     <div
                       key={notificationType}
-                      className="rounded border border-white/[0.08] bg-white/[0.03] p-4"
+                      className="rounded border border-border bg-accent p-4"
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0">
-                          <h3 className="text-[16px] font-medium text-white">{definition.label}</h3>
-                          <p className="mt-1 text-sm leading-6 text-white/52">{definition.description}</p>
+                          <h3 className="text-[16px] font-medium text-foreground">{definition.label}</h3>
+                          <p className="mt-1 text-sm leading-6 text-foreground/80">{definition.description}</p>
                         </div>
                       </div>
                       <div className="mt-4 flex flex-col gap-2">
@@ -772,13 +778,13 @@ export function WorkspaceAccountMenu({
                             <label
                               key={`${notificationType}-${channel}`}
                               className={cn(
-                                "flex items-center justify-between gap-4 rounded border border-white/[0.08] px-4 py-3",
-                                isDisabled ? "opacity-60" : "bg-black/10",
+                                "flex items-center justify-between gap-4 rounded border border-border px-4 py-3",
+                                isDisabled ? "opacity-60" : "bg-muted",
                               )}
                             >
                               <span className="min-w-0">
-                                <span className="block text-sm font-medium text-white">{channelLabel}</span>
-                                <span className="mt-1 block text-xs leading-5 text-white/48">{channelDescription}</span>
+                                <span className="block text-sm font-medium text-foreground">{channelLabel}</span>
+                                <span className="mt-1 block text-xs leading-5 text-foreground/80">{channelDescription}</span>
                               </span>
                               <Switch
                                 aria-label={`${definition.label} ${channelLabel}`}
@@ -787,7 +793,7 @@ export function WorkspaceAccountMenu({
                                 onCheckedChange={(checked) =>
                                   notifications.setChannelEnabled(notificationType, channel, checked)
                                 }
-                                className="data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-white/[0.18]"
+                                className="data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-accent"
                               />
                             </label>
                           );
@@ -806,7 +812,7 @@ export function WorkspaceAccountMenu({
                   <Button
                     type="button"
                     variant="ghost"
-                    className="h-8 rounded-full border border-white/[0.08] px-3 text-xs text-white/72 hover:bg-white/[0.06] hover:text-white"
+                    className="h-8 rounded-full border border-border px-3 text-xs text-foreground/80 hover:bg-accent hover:text-foreground"
                     onClick={() => notifications.markAllSeen()}
                   >
                     Mark all seen
@@ -816,13 +822,13 @@ export function WorkspaceAccountMenu({
 
               <div className="mt-4 space-y-3">
                 {notifications.isLoading ? (
-                  <p className="text-sm leading-6 text-white/58">Loading notifications...</p>
+                  <p className="text-sm leading-6 text-foreground/80">Loading notifications...</p>
                 ) : notifications.supportedTypes.length === 0 ? (
-                  <p className="text-sm leading-6 text-white/58">
+                  <p className="text-sm leading-6 text-foreground/80">
                     Notification preferences will appear here after a workspace role is resolved.
                   </p>
                 ) : notifications.items.length === 0 ? (
-                  <p className="text-sm leading-6 text-white/58">
+                  <p className="text-sm leading-6 text-foreground/80">
                     No matching notification records are visible yet for this workspace.
                   </p>
                 ) : (
@@ -833,7 +839,7 @@ export function WorkspaceAccountMenu({
                         className={cn(
                           "rounded border p-4",
                           item.isSeen
-                            ? "border-white/[0.08] bg-white/[0.03]"
+                            ? "border-border bg-accent"
                             : "border-emerald-500/[0.28] bg-emerald-500/[0.08]",
                         )}
                       >
@@ -844,15 +850,15 @@ export function WorkspaceAccountMenu({
                                 {notifications.typeDefinitions[item.notificationType]?.label ?? item.title}
                               </span>
                               {!item.isSeen ? <span className={NOTIFICATION_BADGE_CLASS}>Unseen</span> : null}
-                              <span className="text-xs text-white/42">{formatNotificationTimestamp(item.occurredAt)}</span>
+                              <span className="text-xs text-foreground/80">{formatNotificationTimestamp(item.occurredAt)}</span>
                             </div>
-                            <h3 className="mt-3 text-[16px] font-medium text-white">{item.title}</h3>
-                            <p className="mt-2 text-sm leading-6 text-white/58">{item.detail}</p>
+                            <h3 className="mt-3 text-[16px] font-medium text-foreground">{item.title}</h3>
+                            <p className="mt-2 text-sm leading-6 text-foreground/80">{item.detail}</p>
                           </div>
                           <Button
                             type="button"
                             variant="ghost"
-                            className="h-8 rounded-full border border-white/[0.08] px-3 text-xs text-white/72 hover:bg-white/[0.06] hover:text-white"
+                            className="h-8 rounded-full border border-border px-3 text-xs text-foreground/80 hover:bg-accent hover:text-foreground"
                             onClick={() => notifications.setItemSeen(item.id, !item.isSeen)}
                           >
                             {item.isSeen ? "Mark unseen" : "Mark seen"}
@@ -873,13 +879,13 @@ export function WorkspaceAccountMenu({
               <PanelSectionTitle>Account</PanelSectionTitle>
               <div className="mt-4 flex items-center gap-4">
                 <Avatar className="h-12 w-12">
-                  <AvatarFallback className="bg-emerald-500 text-[18px] font-medium text-white">
+                  <AvatarFallback className="bg-emerald-500 text-[18px] font-medium text-foreground">
                     {profile.initials}
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0">
-                  <p className="truncate text-[20px] font-medium tracking-[-0.01em] text-white">{profile.displayName}</p>
-                  <p className="truncate text-sm text-white/52">{user.email ?? "No email available"}</p>
+                  <p className="truncate text-[20px] font-medium tracking-[-0.01em] text-foreground">{profile.displayName}</p>
+                  <p className="truncate text-sm text-foreground/80">{user.email ?? "No email available"}</p>
                 </div>
               </div>
             </div>
@@ -905,7 +911,7 @@ export function WorkspaceAccountMenu({
                       <button
                         type="button"
                         onClick={() => openEdit("company")}
-                        className="text-xs text-white/52 hover:text-white/80 transition-colors"
+                        className="text-xs text-foreground/80 hover:text-foreground/80 transition-colors"
                       >
                         Edit
                       </button>
@@ -930,7 +936,7 @@ export function WorkspaceAccountMenu({
                       <button
                         type="button"
                         onClick={() => openEdit("billing")}
-                        className="text-xs text-white/52 hover:text-white/80 transition-colors"
+                        className="text-xs text-foreground/80 hover:text-foreground/80 transition-colors"
                       >
                         Edit
                       </button>
@@ -958,7 +964,7 @@ export function WorkspaceAccountMenu({
                       <button
                         type="button"
                         onClick={() => openEdit("shipping")}
-                        className="text-xs text-white/52 hover:text-white/80 transition-colors"
+                        className="text-xs text-foreground/80 hover:text-foreground/80 transition-colors"
                       >
                         Edit
                       </button>
@@ -1016,7 +1022,7 @@ export function WorkspaceAccountMenu({
         return (
           <div className="space-y-4">
             <div className={PANEL_CARD_CLASS}>
-              <p className="text-sm leading-6 text-white/62">
+              <p className="text-sm leading-6 text-foreground/80">
                 Use these support surfaces to check recent changes, review shortcuts, capture diagnostics, or stage
                 policy content for production copy later.
               </p>
@@ -1037,20 +1043,20 @@ export function WorkspaceAccountMenu({
           <div className="space-y-3">
             {isArchiveLoading ? (
               <div className={PANEL_CARD_CLASS}>
-                <p className="text-sm leading-6 text-white/58">Loading archived items...</p>
+                <p className="text-sm leading-6 text-foreground/80">Loading archived items...</p>
               </div>
             ) : archiveItems.length === 0 ? (
               <div className={PANEL_CARD_CLASS}>
-                <p className="text-sm leading-6 text-white/58">No archived items yet.</p>
+                <p className="text-sm leading-6 text-foreground/80">No archived items yet.</p>
               </div>
             ) : (
               <>
                 {onDeleteArchivedParts && archivedPartCount > 0 ? (
                   <div className={PANEL_CARD_CLASS}>
-                    <h3 className="text-[17px] font-medium text-white">
+                    <h3 className="text-[17px] font-medium text-foreground">
                       {archivedPartCount} archived {archivedPartCount === 1 ? "part" : "parts"}
                     </h3>
-                    <p className="mt-1 text-sm text-white/52">
+                    <p className="mt-1 text-sm text-foreground/80">
                       Permanently remove archived parts and their related files from this workspace.
                     </p>
                   </div>
@@ -1062,15 +1068,15 @@ export function WorkspaceAccountMenu({
                       <div key={`project-${item.project.project.id}`} className={cn(PANEL_CARD_CLASS, "group/item")}>
                         <div className="flex items-start justify-between gap-4">
                           <div className="flex min-w-0 items-start gap-3">
-                            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04]">
-                              <Folder className="h-[18px] w-[18px] text-white/80" strokeWidth={1.9} />
+                            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-accent">
+                              <Folder className="h-[18px] w-[18px] text-foreground/80" strokeWidth={1.9} />
                             </span>
                             <div className="min-w-0">
-                              <h3 className="truncate text-[17px] font-medium text-white">{item.project.project.name}</h3>
-                              <p className="mt-1 text-sm text-white/52">{formatArchivedAt(item.project.project.archived_at)}</p>
+                              <h3 className="truncate text-[17px] font-medium text-foreground">{item.project.project.name}</h3>
+                              <p className="mt-1 text-sm text-foreground/80">{formatArchivedAt(item.project.project.archived_at)}</p>
                             </div>
                           </div>
-                          <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs font-medium text-white/70">
+                          <span className="rounded-full border border-border bg-accent px-3 py-1 text-xs font-medium text-foreground/80">
                             {item.project.partCount} {item.project.partCount === 1 ? "part" : "parts"}
                           </span>
                         </div>
@@ -1091,14 +1097,14 @@ export function WorkspaceAccountMenu({
                     >
                       <div className="relative flex min-w-0 items-start gap-4">
                         <div className="flex min-w-0 items-start gap-3 pr-0 sm:pr-[13.5rem]">
-                          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04]">
-                            <Box className="h-[18px] w-[18px] text-white/80" strokeWidth={1.9} />
+                          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-accent">
+                            <Box className="h-[18px] w-[18px] text-foreground/80" strokeWidth={1.9} />
                           </span>
                           <div className="min-w-0">
-                            <h3 className="truncate text-[17px] font-medium text-white">{presentation.title}</h3>
-                            <p className="mt-1 text-sm text-white/52">{formatArchivedAt(item.job.job.archived_at)}</p>
+                            <h3 className="truncate text-[17px] font-medium text-foreground">{presentation.title}</h3>
+                            <p className="mt-1 text-sm text-foreground/80">{formatArchivedAt(item.job.job.archived_at)}</p>
                             {item.job.projectNames.length > 0 ? (
-                              <p className="mt-3 truncate text-sm text-white/62">{item.job.projectNames.join(" · ")}</p>
+                              <p className="mt-3 truncate text-sm text-foreground/80">{item.job.projectNames.join(" · ")}</p>
                             ) : null}
                           </div>
                         </div>
@@ -1113,7 +1119,7 @@ export function WorkspaceAccountMenu({
                               variant="ghost"
                               size="sm"
                               disabled={isBusy}
-                              className="h-9 rounded-full border border-white/[0.08] bg-white/[0.04] px-3 text-white/78 hover:bg-white/[0.08] hover:text-white"
+                              className="h-9 rounded-full border border-border bg-accent px-3 text-foreground/80 hover:bg-accent hover:text-foreground"
                               onClick={() => void handleUnarchivePart(item.job.job.id)}
                             >
                               {isUnarchivePending ? (
@@ -1133,7 +1139,7 @@ export function WorkspaceAccountMenu({
                               variant="ghost"
                               size="sm"
                               disabled={isBusy}
-                              className="h-9 rounded-full border border-red-500/20 bg-red-500/10 px-3 text-red-100 hover:bg-red-500/18 hover:text-white"
+                              className="h-9 rounded-full border border-red-500/20 bg-red-500/10 px-3 text-red-100 hover:bg-red-500/18 hover:text-foreground"
                               onClick={() => setDeleteConfirmation({ kind: "single", job: item.job })}
                             >
                               {isDeletePending ? (
@@ -1160,9 +1166,9 @@ export function WorkspaceAccountMenu({
           <div className="space-y-4">
             {RELEASE_NOTES.map((note) => (
               <article key={note.title} className={PANEL_CARD_CLASS}>
-                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/40">{note.dateLabel}</p>
-                <h3 className="mt-3 text-[18px] font-medium tracking-[-0.01em] text-white">{note.title}</h3>
-                <ul className="mt-4 space-y-2 text-sm leading-6 text-white/65">
+                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{note.dateLabel}</p>
+                <h3 className="mt-3 text-[18px] font-medium tracking-[-0.01em] text-foreground">{note.title}</h3>
+                <ul className="mt-4 space-y-2 text-sm leading-6 text-foreground/80">
                   {note.bullets.map((bullet) => (
                     <li key={bullet}>{bullet}</li>
                   ))}
@@ -1176,26 +1182,26 @@ export function WorkspaceAccountMenu({
           <div className="space-y-4">
             <div className={PANEL_CARD_CLASS}>
               <PanelSectionTitle>Current status</PanelSectionTitle>
-              <p className="mt-4 text-sm leading-6 text-white/62">
+              <p className="mt-4 text-sm leading-6 text-foreground/80">
                 These are first-pass placeholders. Replace this copy with finalized Terms of Service, Privacy Policy,
                 and related production links when they are ready.
               </p>
             </div>
             <div className={PANEL_CARD_CLASS}>
-              <h3 className="text-[17px] font-medium text-white">Terms of Service</h3>
-              <p className="mt-2 text-sm leading-6 text-white/58">
+              <h3 className="text-[17px] font-medium text-foreground">Terms of Service</h3>
+              <p className="mt-2 text-sm leading-6 text-foreground/80">
                 Intended to cover acceptable use, quoting workflow expectations, and account responsibilities.
               </p>
             </div>
             <div className={PANEL_CARD_CLASS}>
-              <h3 className="text-[17px] font-medium text-white">Privacy Policy</h3>
-              <p className="mt-2 text-sm leading-6 text-white/58">
+              <h3 className="text-[17px] font-medium text-foreground">Privacy Policy</h3>
+              <p className="mt-2 text-sm leading-6 text-foreground/80">
                 Intended to document file handling, account metadata usage, and support diagnostics retention.
               </p>
             </div>
             <div className={PANEL_CARD_CLASS}>
-              <h3 className="text-[17px] font-medium text-white">Security & data handling</h3>
-              <p className="mt-2 text-sm leading-6 text-white/58">
+              <h3 className="text-[17px] font-medium text-foreground">Security & data handling</h3>
+              <p className="mt-2 text-sm leading-6 text-foreground/80">
                 Intended to summarize storage, vendor quoting handoff, and internal access controls.
               </p>
             </div>
@@ -1205,8 +1211,8 @@ export function WorkspaceAccountMenu({
         return (
           <div className="space-y-4">
             <div className={PANEL_CARD_CLASS}>
-              <h3 className="text-[18px] font-medium text-white">Current availability</h3>
-              <p className="mt-2 text-sm leading-6 text-white/60">
+              <h3 className="text-[18px] font-medium text-foreground">Current availability</h3>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
                 The browser workspace is available now. Native client surfaces are staged as placeholders until
                 installable builds exist.
               </p>
@@ -1215,8 +1221,8 @@ export function WorkspaceAccountMenu({
               <div className={PANEL_CARD_CLASS}>
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-[17px] font-medium text-white">Web app</h3>
-                    <p className="mt-1 text-sm text-white/58">Use the current browser workspace today.</p>
+                    <h3 className="text-[17px] font-medium text-foreground">Web app</h3>
+                    <p className="mt-1 text-sm text-foreground/80">Use the current browser workspace today.</p>
                   </div>
                   <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
                     Available
@@ -1224,12 +1230,12 @@ export function WorkspaceAccountMenu({
                 </div>
               </div>
               <div className={PANEL_CARD_CLASS}>
-                <h3 className="text-[17px] font-medium text-white">Desktop app</h3>
-                <p className="mt-1 text-sm text-white/58">Placeholder for macOS and Windows installers.</p>
+                <h3 className="text-[17px] font-medium text-foreground">Desktop app</h3>
+                <p className="mt-1 text-sm text-foreground/80">Placeholder for macOS and Windows installers.</p>
               </div>
               <div className={PANEL_CARD_CLASS}>
-                <h3 className="text-[17px] font-medium text-white">Mobile apps</h3>
-                <p className="mt-1 text-sm text-white/58">Placeholder for iPhone, iPad, and Android builds.</p>
+                <h3 className="text-[17px] font-medium text-foreground">Mobile apps</h3>
+                <p className="mt-1 text-sm text-foreground/80">Placeholder for iPhone, iPad, and Android builds.</p>
               </div>
             </div>
           </div>
@@ -1240,7 +1246,7 @@ export function WorkspaceAccountMenu({
             {SHORTCUT_ROWS.map((shortcut) => (
               <div key={`${shortcut.keys.join("+")}-${shortcut.description}`} className={PANEL_CARD_CLASS}>
                 <ShortcutKeys keys={shortcut.keys} />
-                <p className="mt-4 text-sm leading-6 text-white/62">{shortcut.description}</p>
+                <p className="mt-4 text-sm leading-6 text-foreground/80">{shortcut.description}</p>
               </div>
             ))}
           </div>
@@ -1297,20 +1303,20 @@ export function WorkspaceAccountMenu({
             aria-label="Open account menu"
             disabled={isSigningOut}
             className={cn(
-              "workspace-shell group/account flex w-full items-center gap-3 rounded-surface-lg px-3 py-2.5 text-left text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-60",
-              menuOpen ? "bg-white/[0.06]" : "bg-transparent hover:bg-white/[0.06] focus-visible:bg-white/[0.06]",
+              "workspace-shell group/account flex w-full items-center gap-3 rounded-surface-lg px-3 py-2.5 text-left text-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-60",
+              menuOpen ? "bg-accent" : "bg-transparent hover:bg-accent focus-visible:bg-accent",
             )}
           >
             <Avatar className="h-11 w-11 shrink-0">
-              <AvatarFallback className="bg-emerald-500 text-[18px] font-medium text-white">
+              <AvatarFallback className="bg-emerald-500 text-[18px] font-medium text-foreground">
                 {profile.initials}
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[15px] font-medium leading-5 tracking-[-0.01em] text-white/[0.96]">
+              <p className="truncate text-[15px] font-medium leading-5 tracking-[-0.01em] text-foreground">
                 {profile.displayName}
               </p>
-              <p className="truncate text-[13px] leading-5 text-white/48">
+              <p className="truncate text-[13px] leading-5 text-foreground/80">
                 {roleLabel}
               </p>
             </div>
@@ -1321,7 +1327,7 @@ export function WorkspaceAccountMenu({
             ) : null}
             <div
               className={cn(
-                "pointer-events-none hidden h-8 w-8 items-center justify-center rounded-full bg-white/[0.08] text-white/72 transition group-hover/account:flex group-focus-visible/account:flex md:flex",
+                "pointer-events-none hidden h-8 w-8 items-center justify-center rounded-full bg-accent text-foreground/80 transition group-hover/account:flex group-focus-visible/account:flex md:flex",
                 menuOpen ? "opacity-100" : "md:opacity-0 md:group-hover/account:opacity-100 md:group-focus-visible/account:opacity-100",
               )}
             >
@@ -1356,7 +1362,7 @@ export function WorkspaceAccountMenu({
           </DropdownMenuItem>
 
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className={cn(MENU_ITEM_CLASS, "data-[state=open]:bg-white/[0.08]")}>
+            <DropdownMenuSubTrigger className={cn(MENU_ITEM_CLASS, "data-[state=open]:bg-accent")}>
               <CircleHelp className={MENU_ICON_CLASS} strokeWidth={1.85} />
               <span>Help</span>
             </DropdownMenuSubTrigger>
@@ -1377,6 +1383,20 @@ export function WorkspaceAccountMenu({
               ))}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
+
+          <DropdownMenuSeparator className="my-1 bg-border" />
+
+          <DropdownMenuItem
+            className={MENU_ITEM_CLASS}
+            onSelect={() => setTheme(isDarkTheme ? "light" : "dark")}
+          >
+            {isDarkTheme ? (
+              <Sun className={MENU_ICON_CLASS} strokeWidth={1.85} />
+            ) : (
+              <Moon className={MENU_ICON_CLASS} strokeWidth={1.85} />
+            )}
+            <span>{isDarkTheme ? "Light mode" : "Dark mode"}</span>
+          </DropdownMenuItem>
 
           {showExtractionLauncher ? (
             <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={openExtractionLauncher}>
@@ -1436,11 +1456,11 @@ export function WorkspaceAccountMenu({
           }}
         >
           <div className="flex h-full flex-col">
-            <SheetHeader className="border-b border-white/[0.08] px-6 py-6">
-              <SheetTitle className="pr-12 text-[28px] font-medium tracking-[-0.02em] text-white">
+            <SheetHeader className="border-b border-border px-6 py-6">
+              <SheetTitle className="pr-12 text-[28px] font-medium tracking-[-0.02em] text-foreground">
                 {panelTitle}
               </SheetTitle>
-              <SheetDescription className="max-w-[28rem] pr-12 text-sm leading-6 text-white/52">
+              <SheetDescription className="max-w-[28rem] pr-12 text-sm leading-6 text-foreground/80">
                 {panelDescription}
               </SheetDescription>
             </SheetHeader>
@@ -1450,8 +1470,8 @@ export function WorkspaceAccountMenu({
             </ScrollArea>
 
             {activePanel === "settings" && editingSection !== null && (
-              <div className="border-t border-white/[0.08] bg-ws-raised px-6 pb-6 pt-5 shadow-[0_-8px_24px_rgba(0,0,0,0.4)]">
-                <p className="mb-4 text-[15px] font-medium text-white">
+              <div className="border-t border-border bg-ws-raised px-6 pb-6 pt-5 shadow-[0_-8px_24px_rgba(0,0,0,0.4)]">
+                <p className="mb-4 text-[15px] font-medium text-foreground">
                   {editingSection === "company" && "Edit Company"}
                   {editingSection === "billing" && "Edit Billing Address"}
                   {editingSection === "shipping" && "Edit Shipping Address"}
@@ -1460,22 +1480,24 @@ export function WorkspaceAccountMenu({
                 {editingSection === "company" && (
                   <div className="space-y-3">
                     <div>
-                      <label className="mb-1.5 block text-xs text-white/55">Company name</label>
+                      <label htmlFor="organization-company-name" className="mb-1.5 block text-xs text-muted-foreground">Company name</label>
                       <Input
+                        id="organization-company-name"
                         ref={companyNameInputRef}
                         value={orgDetailsDraft.companyName ?? ""}
                         onChange={(e) => patchDraft({ companyName: e.target.value })}
                         placeholder="4D Technology"
-                        className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                        className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
                       />
                     </div>
                     <div>
-                      <label className="mb-1.5 block text-xs text-white/55">Phone</label>
+                      <label htmlFor="organization-phone" className="mb-1.5 block text-xs text-muted-foreground">Phone</label>
                       <Input
+                        id="organization-phone"
                         value={orgDetailsDraft.phone ?? ""}
                         onChange={(e) => patchDraft({ phone: e.target.value })}
                         placeholder="+1 (520) 555-0100"
-                        className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                        className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
                       />
                     </div>
                   </div>
@@ -1484,50 +1506,55 @@ export function WorkspaceAccountMenu({
                 {editingSection === "billing" && (
                   <div className="space-y-3">
                     <div>
-                      <label className="mb-1.5 block text-xs text-white/55">Street</label>
+                      <label htmlFor="billing-street" className="mb-1.5 block text-xs text-muted-foreground">Street</label>
                       <Input
+                        id="billing-street"
                         value={orgDetailsDraft.billingStreet ?? ""}
                         onChange={(e) => patchDraft({ billingStreet: e.target.value })}
                         placeholder="2348 E. Broadway Blvd"
-                        className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                        className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
                       />
                     </div>
                     <div className="grid grid-cols-5 gap-2">
                       <div className="col-span-2">
-                        <label className="mb-1.5 block text-xs text-white/55">City</label>
+                        <label htmlFor="billing-city" className="mb-1.5 block text-xs text-muted-foreground">City</label>
                         <Input
+                          id="billing-city"
                           value={orgDetailsDraft.billingCity ?? ""}
                           onChange={(e) => patchDraft({ billingCity: e.target.value })}
                           placeholder="Tucson"
-                          className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                          className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
                         />
                       </div>
                       <div className="col-span-1">
-                        <label className="mb-1.5 block text-xs text-white/55">State</label>
+                        <label htmlFor="billing-state" className="mb-1.5 block text-xs text-muted-foreground">State</label>
                         <Input
+                          id="billing-state"
                           value={orgDetailsDraft.billingState ?? ""}
                           onChange={(e) => patchDraft({ billingState: e.target.value })}
                           placeholder="AZ"
-                          className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                          className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
                         />
                       </div>
                       <div className="col-span-2">
-                        <label className="mb-1.5 block text-xs text-white/55">ZIP</label>
+                        <label htmlFor="billing-zip" className="mb-1.5 block text-xs text-muted-foreground">ZIP</label>
                         <Input
+                          id="billing-zip"
                           value={orgDetailsDraft.billingZip ?? ""}
                           onChange={(e) => patchDraft({ billingZip: e.target.value })}
                           placeholder="85716"
-                          className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                          className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
                         />
                       </div>
                     </div>
                     <div>
-                      <label className="mb-1.5 block text-xs text-white/55">Country</label>
+                      <label htmlFor="billing-country" className="mb-1.5 block text-xs text-muted-foreground">Country</label>
                       <Input
+                        id="billing-country"
                         value={orgDetailsDraft.billingCountry}
                         onChange={(e) => patchDraft({ billingCountry: e.target.value })}
                         placeholder="US"
-                        className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                        className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
                       />
                     </div>
                   </div>
@@ -1536,15 +1563,15 @@ export function WorkspaceAccountMenu({
                 {editingSection === "shipping" && (
                   <div className="space-y-3">
                     {/* Styled button toggle — avoids native radio focus-trap issues inside Radix DismissableLayer */}
-                    <div className="flex overflow-hidden rounded-lg border border-white/[0.1]">
+                    <div className="flex overflow-hidden rounded-lg border border-border">
                       <button
                         type="button"
                         onClick={() => patchDraft({ shippingSameAsBilling: true })}
                         className={cn(
                           "flex-1 px-3 py-2 text-sm transition-colors",
                           orgDetailsDraft.shippingSameAsBilling
-                            ? "bg-white/[0.12] font-medium text-white"
-                            : "text-white/52 hover:bg-white/[0.04] hover:text-white/80",
+                            ? "bg-accent font-medium text-foreground"
+                            : "text-foreground/80 hover:bg-accent hover:text-foreground/80",
                         )}
                       >
                         Same as billing
@@ -1562,10 +1589,10 @@ export function WorkspaceAccountMenu({
                           })
                         }
                         className={cn(
-                          "flex-1 border-l border-white/[0.1] px-3 py-2 text-sm transition-colors",
+                          "flex-1 border-l border-border px-3 py-2 text-sm transition-colors",
                           !orgDetailsDraft.shippingSameAsBilling
-                            ? "bg-white/[0.12] font-medium text-white"
-                            : "text-white/52 hover:bg-white/[0.04] hover:text-white/80",
+                            ? "bg-accent font-medium text-foreground"
+                            : "text-foreground/80 hover:bg-accent hover:text-foreground/80",
                         )}
                       >
                         Different address
@@ -1575,50 +1602,55 @@ export function WorkspaceAccountMenu({
                     {!orgDetailsDraft.shippingSameAsBilling && (
                       <>
                         <div>
-                          <label className="mb-1.5 block text-xs text-white/55">Street</label>
+                          <label htmlFor="shipping-street" className="mb-1.5 block text-xs text-muted-foreground">Street</label>
                           <Input
+                            id="shipping-street"
                             value={orgDetailsDraft.shippingStreet ?? ""}
                             onChange={(e) => patchDraft({ shippingStreet: e.target.value })}
                             placeholder="2348 E. Broadway Blvd"
-                            className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                            className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
                           />
                         </div>
                         <div className="grid grid-cols-5 gap-2">
                           <div className="col-span-2">
-                            <label className="mb-1.5 block text-xs text-white/55">City</label>
+                            <label htmlFor="shipping-city" className="mb-1.5 block text-xs text-muted-foreground">City</label>
                             <Input
+                              id="shipping-city"
                               value={orgDetailsDraft.shippingCity ?? ""}
                               onChange={(e) => patchDraft({ shippingCity: e.target.value })}
                               placeholder="Tucson"
-                              className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                              className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
                             />
                           </div>
                           <div className="col-span-1">
-                            <label className="mb-1.5 block text-xs text-white/55">State</label>
+                            <label htmlFor="shipping-state" className="mb-1.5 block text-xs text-muted-foreground">State</label>
                             <Input
+                              id="shipping-state"
                               value={orgDetailsDraft.shippingState ?? ""}
                               onChange={(e) => patchDraft({ shippingState: e.target.value })}
                               placeholder="AZ"
-                              className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                              className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
                             />
                           </div>
                           <div className="col-span-2">
-                            <label className="mb-1.5 block text-xs text-white/55">ZIP</label>
+                            <label htmlFor="shipping-zip" className="mb-1.5 block text-xs text-muted-foreground">ZIP</label>
                             <Input
+                              id="shipping-zip"
                               value={orgDetailsDraft.shippingZip ?? ""}
                               onChange={(e) => patchDraft({ shippingZip: e.target.value })}
                               placeholder="85716"
-                              className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                              className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
                             />
                           </div>
                         </div>
                         <div>
-                          <label className="mb-1.5 block text-xs text-white/55">Country</label>
+                          <label htmlFor="shipping-country" className="mb-1.5 block text-xs text-muted-foreground">Country</label>
                           <Input
+                            id="shipping-country"
                             value={orgDetailsDraft.shippingCountry}
                             onChange={(e) => patchDraft({ shippingCountry: e.target.value })}
                             placeholder="US"
-                            className="border-white/[0.12] bg-white/[0.06] text-white placeholder:text-white/28 focus-visible:ring-white/20"
+                            className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
                           />
                         </div>
                       </>
@@ -1634,7 +1666,7 @@ export function WorkspaceAccountMenu({
                     variant="ghost"
                     onClick={cancelEdit}
                     disabled={isSavingOrg}
-                    className="flex-1 border border-white/[0.1] text-white/72 hover:bg-white/[0.06] hover:text-white"
+                    className="flex-1 border border-border text-foreground/80 hover:bg-accent hover:text-foreground"
                   >
                     Cancel
                   </Button>
@@ -1661,14 +1693,14 @@ export function WorkspaceAccountMenu({
               <div
                 data-testid={activePanel === "archive" ? "archive-footer-actions" : undefined}
                 className={cn(
-                  "border-t border-white/[0.08] px-6 py-4",
+                  "border-t border-border px-6 py-4",
                   activePanel === "archive" ? "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" : "",
                 )}
               >
                 <Button
                   type="button"
                   variant="ghost"
-                  className="h-10 rounded-full border border-white/[0.08] bg-transparent px-4 text-white/80 hover:bg-white/[0.06] hover:text-white"
+                  className="h-10 rounded-full border border-border bg-transparent px-4 text-foreground/80 hover:bg-accent hover:text-foreground"
                   onClick={() => setActivePanel("help-center")}
                 >
                   <ArrowUpRight className="mr-2 h-4 w-4" />
@@ -1680,7 +1712,7 @@ export function WorkspaceAccountMenu({
                     type="button"
                     variant="ghost"
                     disabled={deleteAllDisabled}
-                    className="h-10 rounded-full border border-red-500/20 bg-red-500/10 px-4 text-red-100 hover:bg-red-500/18 hover:text-white disabled:opacity-60"
+                    className="h-10 rounded-full border border-red-500/20 bg-red-500/10 px-4 text-red-100 hover:bg-red-500/18 hover:text-foreground disabled:opacity-60"
                     onClick={() => setDeleteConfirmation({ kind: "bulk", jobs: archivedJobs })}
                   >
                     {deleteConfirmation?.kind === "bulk" && hasPendingDelete ? (
@@ -1711,12 +1743,12 @@ export function WorkspaceAccountMenu({
           }
         }}
       >
-        <AlertDialogContent className="workspace-shell border-white/[0.08] bg-ws-raised text-white">
+        <AlertDialogContent className="workspace-shell border-border bg-ws-raised text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {deleteConfirmation?.kind === "bulk" ? "Delete all archived parts?" : "Delete archived part?"}
             </AlertDialogTitle>
-            <AlertDialogDescription className="text-white/55">
+            <AlertDialogDescription className="text-muted-foreground">
               {deleteConfirmation?.kind === "bulk"
                 ? `Delete ${deleteConfirmation.jobs.length} archived parts permanently, including their related files. This cannot be undone.`
                 : deleteConfirmation
@@ -1725,11 +1757,11 @@ export function WorkspaceAccountMenu({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-white/[0.08] bg-transparent text-white hover:bg-white/[0.06] hover:text-white">
+            <AlertDialogCancel className="border-border bg-transparent text-foreground hover:bg-accent hover:text-foreground">
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              className="bg-red-600 text-white hover:bg-red-500"
+              className="bg-red-600 text-foreground hover:bg-red-500"
               disabled={!deleteConfirmation || hasPendingDelete}
               onClick={(event) => {
                 if (!deleteConfirmation) {

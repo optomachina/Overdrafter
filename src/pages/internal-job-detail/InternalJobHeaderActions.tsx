@@ -24,7 +24,7 @@ export function InternalJobHeaderActions({
     <>
       <Button
         variant="outline"
-        className="border-white/10 bg-white/5"
+        className="border-border bg-accent"
         onClick={onRequestExtraction}
         disabled={writeActionsDisabled || requestExtractionPending}
       >
@@ -37,7 +37,7 @@ export function InternalJobHeaderActions({
       </Button>
       <Button
         variant="outline"
-        className="border-white/10 bg-white/5"
+        className="border-border bg-accent"
         onClick={onSaveRequirements}
         disabled={writeActionsDisabled || saveRequirementsPending}
       >

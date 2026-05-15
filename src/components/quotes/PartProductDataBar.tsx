@@ -95,8 +95,8 @@ export function PartProductDataBar({ part, summary, extraction, draft }: PartPro
     <div className="flex flex-col gap-2">
       {fields.map((field) => (
         <div key={field.label} className="flex items-baseline gap-1.5">
-          <span className="text-[11px] text-white/40">{field.label}</span>
-          <span className="text-[12px] font-medium text-white">{field.value}</span>
+          <span className="text-[11px] text-muted-foreground">{field.label}</span>
+          <span className="text-[12px] font-medium text-foreground">{field.value}</span>
         </div>
       ))}
     </div>

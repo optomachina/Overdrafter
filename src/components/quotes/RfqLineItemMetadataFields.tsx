@@ -63,7 +63,7 @@ export function RfqLineItemMetadataFields({
               type="date"
               value={value.shipping.requestedByDateOverride ?? ""}
               disabled={disabled}
-              className="border-white/10 bg-black/20 text-white"
+              className="border-border bg-muted text-foreground"
               onChange={(event) =>
                 updateShipping({ requestedByDateOverride: event.target.value || null })
               }
@@ -76,7 +76,7 @@ export function RfqLineItemMetadataFields({
             id={`${idPrefix}-packaging-notes`}
             value={value.shipping.packagingNotes ?? ""}
             disabled={disabled}
-            className="min-h-[96px] border-white/10 bg-black/20 text-white"
+            className="min-h-[96px] border-border bg-muted text-foreground"
             placeholder="Bagging, labeling, tray, or special handling requests."
             onChange={(event) => updateShipping({ packagingNotes: event.target.value || null })}
           />
@@ -87,7 +87,7 @@ export function RfqLineItemMetadataFields({
             id={`${idPrefix}-shipping-notes`}
             value={value.shipping.shippingNotes ?? ""}
             disabled={disabled}
-            className="min-h-[96px] border-white/10 bg-black/20 text-white"
+            className="min-h-[96px] border-border bg-muted text-foreground"
             placeholder="Delivery constraints, dock notes, or shipment handling details."
             onChange={(event) => updateShipping({ shippingNotes: event.target.value || null })}
           />
@@ -101,7 +101,7 @@ export function RfqLineItemMetadataFields({
             id={`${idPrefix}-required-certifications`}
             value={formatDelimitedStringList(value.certifications.requiredCertifications)}
             disabled={disabled}
-            className="border-white/10 bg-black/20 text-white"
+            className="border-border bg-muted text-foreground"
             placeholder="ITAR, AS9100, material certs"
             onChange={(event) =>
               updateCertifications({
@@ -121,7 +121,7 @@ export function RfqLineItemMetadataFields({
             }
             disabled={disabled}
           >
-            <SelectTrigger className="border-white/10 bg-black/20 text-white">
+            <SelectTrigger className="border-border bg-muted text-foreground">
               <SelectValue placeholder="Select inspection level" />
             </SelectTrigger>
             <SelectContent>
@@ -140,12 +140,12 @@ export function RfqLineItemMetadataFields({
             id={`${idPrefix}-certification-notes`}
             value={value.certifications.notes ?? ""}
             disabled={disabled}
-            className="min-h-[96px] border-white/10 bg-black/20 text-white"
+            className="min-h-[96px] border-border bg-muted text-foreground"
             placeholder="Traceability or inspection expectations."
             onChange={(event) => updateCertifications({ notes: event.target.value || null })}
           />
         </div>
-        <label className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/5 px-4 py-3 text-sm text-white/80">
+        <label className="flex items-center gap-3 rounded-2xl border border-border bg-accent px-4 py-3 text-sm text-foreground/80">
           <Checkbox
             checked={value.certifications.materialCertificationRequired === true}
             disabled={disabled}
@@ -155,7 +155,7 @@ export function RfqLineItemMetadataFields({
           />
           <span>Material certification required</span>
         </label>
-        <label className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/5 px-4 py-3 text-sm text-white/80">
+        <label className="flex items-center gap-3 rounded-2xl border border-border bg-accent px-4 py-3 text-sm text-foreground/80">
           <Checkbox
             checked={value.certifications.certificateOfConformanceRequired === true}
             disabled={disabled}
@@ -182,7 +182,7 @@ export function RfqLineItemMetadataFields({
             }
             disabled={disabled}
           >
-            <SelectTrigger className="border-white/10 bg-black/20 text-white">
+            <SelectTrigger className="border-border bg-muted text-foreground">
               <SelectValue placeholder="Select sourcing preference" />
             </SelectTrigger>
             <SelectContent>
@@ -207,7 +207,7 @@ export function RfqLineItemMetadataFields({
             }
             disabled={disabled}
           >
-            <SelectTrigger className="border-white/10 bg-black/20 text-white">
+            <SelectTrigger className="border-border bg-muted text-foreground">
               <SelectValue placeholder="Select provisioning" />
             </SelectTrigger>
             <SelectContent>
@@ -226,7 +226,7 @@ export function RfqLineItemMetadataFields({
             id={`${idPrefix}-preferred-suppliers`}
             value={formatDelimitedStringList(value.sourcing.preferredSuppliers)}
             disabled={disabled}
-            className="border-white/10 bg-black/20 text-white"
+            className="border-border bg-muted text-foreground"
             placeholder="Preferred shops or customer-nominated suppliers"
             onChange={(event) =>
               updateSourcing({
@@ -241,7 +241,7 @@ export function RfqLineItemMetadataFields({
             id={`${idPrefix}-sourcing-notes`}
             value={value.sourcing.notes ?? ""}
             disabled={disabled}
-            className="min-h-[96px] border-white/10 bg-black/20 text-white"
+            className="min-h-[96px] border-border bg-muted text-foreground"
             placeholder="Domestic preference, approved supplier context, or special sourcing instructions."
             onChange={(event) => updateSourcing({ notes: event.target.value || null })}
           />
@@ -260,7 +260,7 @@ export function RfqLineItemMetadataFields({
             }
             disabled={disabled}
           >
-            <SelectTrigger className="border-white/10 bg-black/20 text-white">
+            <SelectTrigger className="border-border bg-muted text-foreground">
               <SelectValue placeholder="Select release status" />
             </SelectTrigger>
             <SelectContent>
@@ -286,7 +286,7 @@ export function RfqLineItemMetadataFields({
               }
               disabled={disabled}
             >
-              <SelectTrigger className="border-white/10 bg-black/20 text-white">
+              <SelectTrigger className="border-border bg-muted text-foreground">
                 <SelectValue placeholder="Select review disposition" />
               </SelectTrigger>
               <SelectContent>
@@ -306,13 +306,13 @@ export function RfqLineItemMetadataFields({
             id={`${idPrefix}-release-notes`}
             value={value.release.notes ?? ""}
             disabled={disabled}
-            className="min-h-[96px] border-white/10 bg-black/20 text-white"
+            className="min-h-[96px] border-border bg-muted text-foreground"
             placeholder="Revision readiness, blockers, or release context."
             onChange={(event) => updateRelease({ notes: event.target.value || null })}
           />
         </div>
         {showInternalFields ? (
-          <label className="md:col-span-2 flex items-center gap-3 rounded-2xl border border-white/8 bg-white/5 px-4 py-3 text-sm text-white/80">
+          <label className="md:col-span-2 flex items-center gap-3 rounded-2xl border border-border bg-accent px-4 py-3 text-sm text-foreground/80">
             <Checkbox
               checked={value.release.quoteBlockedUntilRelease === true}
               disabled={disabled}

@@ -46,7 +46,7 @@ export function EmailVerificationPrompt({
         <Button
           type="button"
           variant="outline"
-          className="h-auto min-h-12 w-full min-w-0 rounded-full border-white/10 bg-white/5 px-4 py-3 text-center whitespace-normal leading-tight"
+          className="h-auto min-h-12 w-full min-w-0 rounded-full border-border bg-accent px-4 py-3 text-center whitespace-normal leading-tight"
           onClick={onResend}
           disabled={isRefreshing || isResending}
         >
@@ -57,7 +57,7 @@ export function EmailVerificationPrompt({
 
       <button
         type="button"
-        className="text-sm text-white/55 hover:text-white hover:underline"
+        className="text-sm text-muted-foreground hover:text-foreground hover:underline"
         onClick={onChangeEmail}
         disabled={isRefreshing || isResending}
       >

@@ -251,10 +251,10 @@ export function ManualQuoteIntakeCard({
   };
 
   return (
-    <Card className="border-white/10 bg-white/5">
+    <Card className="border-border bg-accent">
       <CardHeader>
         <CardTitle>Manual quote intake</CardTitle>
-        <p className="text-sm text-white/55">
+        <p className="text-sm text-muted-foreground">
           Record a quote from pasted email text, screenshot/PDF evidence, or a forwarded manual supplier reply.
           This writes normalized offer lanes directly into the compare view without using browser automation.
         </p>
@@ -264,7 +264,7 @@ export function ManualQuoteIntakeCard({
           <div className="space-y-2 md:col-span-1">
             <Label>Part</Label>
             <Select value={selectedPartId} onValueChange={setSelectedPartId} disabled={disabled || !parts.length}>
-              <SelectTrigger className="border-white/10 bg-black/20 text-white">
+              <SelectTrigger className="border-border bg-muted text-foreground">
                 <SelectValue placeholder="Select part" />
               </SelectTrigger>
               <SelectContent>
@@ -279,7 +279,7 @@ export function ManualQuoteIntakeCard({
           <div className="space-y-2 md:col-span-1">
             <Label>Vendor</Label>
             <Select value={vendor} onValueChange={(value) => setVendor(value as VendorName)} disabled={disabled}>
-              <SelectTrigger className="border-white/10 bg-black/20 text-white">
+              <SelectTrigger className="border-border bg-muted text-foreground">
                 <SelectValue placeholder="Select vendor" />
               </SelectTrigger>
               <SelectContent>
@@ -294,7 +294,7 @@ export function ManualQuoteIntakeCard({
           <div className="space-y-2 md:col-span-1">
             <Label>Status</Label>
             <Select value={status} onValueChange={(value) => setStatus(value as VendorStatus)} disabled={disabled}>
-              <SelectTrigger className="border-white/10 bg-black/20 text-white">
+              <SelectTrigger className="border-border bg-muted text-foreground">
                 <SelectValue placeholder="Select status" />
               </SelectTrigger>
               <SelectContent>
@@ -309,8 +309,8 @@ export function ManualQuoteIntakeCard({
         </div>
 
         {selectedPart ? (
-          <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm text-white/60">
-            <p className="font-medium text-white">Target part</p>
+          <div className="rounded-2xl border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">Target part</p>
             <p className="mt-1">
               {selectedPart.name}
               {selectedPart.approvedRequirement?.part_number
@@ -327,7 +327,7 @@ export function ManualQuoteIntakeCard({
           <div className="space-y-2">
             <Label>Quote URL</Label>
             <Input
-              className="border-white/10 bg-black/20"
+              className="border-border bg-muted"
               value={quoteUrl}
               disabled={disabled}
               onChange={(event) => setQuoteUrl(event.target.value)}
@@ -337,7 +337,7 @@ export function ManualQuoteIntakeCard({
           <div className="space-y-2">
             <Label>Internal note</Label>
             <Input
-              className="border-white/10 bg-black/20"
+              className="border-border bg-muted"
               value={summaryNote}
               disabled={disabled}
               onChange={(event) => setSummaryNote(event.target.value)}
@@ -352,7 +352,7 @@ export function ManualQuoteIntakeCard({
             <Button
               type="button"
               variant="outline"
-              className="border-white/10 bg-white/5"
+              className="border-border bg-accent"
               onClick={() => fileInputRef.current?.click()}
               disabled={disabled}
             >
@@ -368,7 +368,7 @@ export function ManualQuoteIntakeCard({
             className="hidden"
             onChange={handleEvidenceUpload}
           />
-          <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-4 text-sm text-white/50">
+          <div className="rounded-2xl border border-dashed border-border bg-muted p-4 text-sm text-muted-foreground">
             Supported intake evidence: PDF quotes, screenshots, photos, email exports, and OCR text files.
           </div>
           {evidenceFiles.length > 0 ? (
@@ -376,17 +376,17 @@ export function ManualQuoteIntakeCard({
               {evidenceFiles.map((file, index) => (
                 <div
                   key={`${file.name}-${index}`}
-                  className="flex items-center justify-between rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm"
+                  className="flex items-center justify-between rounded-2xl border border-border bg-muted px-4 py-3 text-sm"
                 >
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-white">{file.name}</p>
-                    <p className="text-xs text-white/45">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+                    <p className="truncate font-medium text-foreground">{file.name}</p>
+                    <p className="text-xs text-muted-foreground">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
                   </div>
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="text-white/55 hover:text-white"
+                    className="text-muted-foreground hover:text-foreground"
                     onClick={() => setEvidenceFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}
                     disabled={disabled}
                   >
@@ -401,36 +401,36 @@ export function ManualQuoteIntakeCard({
         <div className="space-y-2">
           <Label>Email body / OCR text</Label>
           <Textarea
-            className="min-h-32 border-white/10 bg-black/20"
+            className="min-h-32 border-border bg-muted"
             value={sourceText}
             disabled={disabled}
             onChange={(event) => setSourceText(event.target.value)}
             placeholder="Paste the vendor email, OCR output, or quote body here."
           />
           <div className="flex flex-wrap gap-2 text-xs">
-            <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+            <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
               <Mail className="mr-1 h-3.5 w-3.5" />
               Email copy/paste
             </Badge>
-            <Badge variant="secondary" className="border border-white/10 bg-white/5 text-white/70">
+            <Badge variant="secondary" className="border border-border bg-accent text-foreground/80">
               <FileText className="mr-1 h-3.5 w-3.5" />
               OCR or PDF text
             </Badge>
           </div>
         </div>
 
-        <div className="space-y-4 rounded-3xl border border-white/8 bg-black/20 p-4">
+        <div className="space-y-4 rounded-3xl border border-border bg-muted p-4">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="font-medium text-white">Offer lanes</p>
-              <p className="text-sm text-white/50">
+              <p className="font-medium text-foreground">Offer lanes</p>
+              <p className="text-sm text-muted-foreground">
                 Capture each vendor option exactly as offered so publication can choose from normalized lanes later.
               </p>
             </div>
             <Button
               type="button"
               variant="outline"
-              className="border-white/10 bg-white/5"
+              className="border-border bg-accent"
               onClick={() => setOffers((current) => [...current, createOfferDraft(current.length)])}
               disabled={disabled}
             >
@@ -441,14 +441,14 @@ export function ManualQuoteIntakeCard({
 
           <div className="grid gap-4">
             {offers.map((offer, index) => (
-              <div key={offer.id} className="rounded-2xl border border-white/8 bg-white/5 p-4">
+              <div key={offer.id} className="rounded-2xl border border-border bg-accent p-4">
                 <div className="mb-4 flex items-center justify-between gap-3">
-                  <p className="font-medium text-white">Offer lane {index + 1}</p>
+                  <p className="font-medium text-foreground">Offer lane {index + 1}</p>
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="text-white/55 hover:text-white"
+                    className="text-muted-foreground hover:text-foreground"
                     onClick={() => removeOffer(offer.id)}
                     disabled={disabled || offers.length === 1}
                   >
@@ -461,7 +461,7 @@ export function ManualQuoteIntakeCard({
                   <div className="space-y-2 xl:col-span-2">
                     <Label>Lane label</Label>
                     <Input
-                      className="border-white/10 bg-black/20"
+                      className="border-border bg-muted"
                       value={offer.laneLabel}
                       disabled={disabled}
                       onChange={(event) => updateOffer(offer.id, { laneLabel: event.target.value })}
@@ -474,7 +474,7 @@ export function ManualQuoteIntakeCard({
                       type="number"
                       min="0"
                       step="0.01"
-                      className="border-white/10 bg-black/20"
+                      className="border-border bg-muted"
                       value={offer.totalPriceUsd}
                       disabled={disabled}
                       onChange={(event) => updateOffer(offer.id, { totalPriceUsd: event.target.value })}
@@ -487,7 +487,7 @@ export function ManualQuoteIntakeCard({
                       type="number"
                       min="0"
                       step="1"
-                      className="border-white/10 bg-black/20"
+                      className="border-border bg-muted"
                       value={offer.leadTimeBusinessDays}
                       disabled={disabled}
                       onChange={(event) => updateOffer(offer.id, { leadTimeBusinessDays: event.target.value })}
@@ -500,7 +500,7 @@ export function ManualQuoteIntakeCard({
                       type="number"
                       min="0"
                       step="0.01"
-                      className="border-white/10 bg-black/20"
+                      className="border-border bg-muted"
                       value={offer.unitPriceUsd}
                       disabled={disabled}
                       onChange={(event) => updateOffer(offer.id, { unitPriceUsd: event.target.value })}
@@ -510,7 +510,7 @@ export function ManualQuoteIntakeCard({
                   <div className="space-y-2">
                     <Label>Quote reference</Label>
                     <Input
-                      className="border-white/10 bg-black/20"
+                      className="border-border bg-muted"
                       value={offer.quoteRef}
                       disabled={disabled}
                       onChange={(event) => updateOffer(offer.id, { quoteRef: event.target.value })}
@@ -521,7 +521,7 @@ export function ManualQuoteIntakeCard({
                     <Label>Quote date</Label>
                     <Input
                       type="date"
-                      className="border-white/10 bg-black/20"
+                      className="border-border bg-muted"
                       value={offer.quoteDateIso}
                       disabled={disabled}
                       onChange={(event) => updateOffer(offer.id, { quoteDateIso: event.target.value })}
@@ -530,7 +530,7 @@ export function ManualQuoteIntakeCard({
                   <div className="space-y-2">
                     <Label>Sourcing</Label>
                     <Input
-                      className="border-white/10 bg-black/20"
+                      className="border-border bg-muted"
                       value={offer.sourcing}
                       disabled={disabled}
                       onChange={(event) => updateOffer(offer.id, { sourcing: event.target.value })}
@@ -540,7 +540,7 @@ export function ManualQuoteIntakeCard({
                   <div className="space-y-2">
                     <Label>Tier</Label>
                     <Input
-                      className="border-white/10 bg-black/20"
+                      className="border-border bg-muted"
                       value={offer.tier}
                       disabled={disabled}
                       onChange={(event) => updateOffer(offer.id, { tier: event.target.value })}
@@ -550,7 +550,7 @@ export function ManualQuoteIntakeCard({
                   <div className="space-y-2">
                     <Label>Process</Label>
                     <Input
-                      className="border-white/10 bg-black/20"
+                      className="border-border bg-muted"
                       value={offer.process}
                       disabled={disabled}
                       onChange={(event) => updateOffer(offer.id, { process: event.target.value })}
@@ -560,7 +560,7 @@ export function ManualQuoteIntakeCard({
                   <div className="space-y-2">
                     <Label>Material</Label>
                     <Input
-                      className="border-white/10 bg-black/20"
+                      className="border-border bg-muted"
                       value={offer.material}
                       disabled={disabled}
                       onChange={(event) => updateOffer(offer.id, { material: event.target.value })}
@@ -570,7 +570,7 @@ export function ManualQuoteIntakeCard({
                   <div className="space-y-2">
                     <Label>Finish</Label>
                     <Input
-                      className="border-white/10 bg-black/20"
+                      className="border-border bg-muted"
                       value={offer.finish}
                       disabled={disabled}
                       onChange={(event) => updateOffer(offer.id, { finish: event.target.value })}
@@ -580,7 +580,7 @@ export function ManualQuoteIntakeCard({
                   <div className="space-y-2 xl:col-span-4">
                     <Label>Offer notes</Label>
                     <Textarea
-                      className="min-h-24 border-white/10 bg-black/20"
+                      className="min-h-24 border-border bg-muted"
                       value={offer.notes}
                       disabled={disabled}
                       onChange={(event) => updateOffer(offer.id, { notes: event.target.value })}

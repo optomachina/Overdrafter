@@ -102,7 +102,7 @@ function buildStats(options: readonly ClientQuoteSelectionOption[]): StatCell[] 
       label: "Price Range",
       value: range,
       detail: spread,
-      color: "text-white",
+      color: "text-foreground",
     },
   ];
 }
@@ -129,17 +129,17 @@ export function QuoteStatsBar({ options }: QuoteStatsBarProps) {
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/8 bg-white/8 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-accent md:grid-cols-4">
         {stats.map((stat) => (
           <div key={stat.label} className="bg-ws-inset px-4 py-3">
-            <p className="text-[10px] uppercase tracking-widest text-white/40">
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
               {stat.label}
             </p>
             <p className={`mt-1 text-xl font-bold tracking-tight ${stat.color}`}>
               {stat.value}
             </p>
             {stat.detail ? (
-              <p className="mt-0.5 text-[10px] text-white/40">{stat.detail}</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">{stat.detail}</p>
             ) : null}
           </div>
         ))}

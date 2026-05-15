@@ -225,7 +225,7 @@ describe("ClientQuoteComparisonChart", () => {
     expect(Number(screen.getByTestId("point-option-large").dataset.size)).toBeGreaterThan(
       Number(screen.getByTestId("point-option-selected").dataset.size),
     );
-    expect(screen.getByTestId("point-option-selected")).toHaveAttribute("data-stroke", "#ffffff");
+    expect(screen.getByTestId("point-option-selected")).toHaveAttribute("data-stroke", "var(--accent-red)");
     expect(screen.getByTestId("point-option-large")).toHaveAttribute(
       "data-fill",
       getVendorColor("infraredlaboratories"),
