@@ -167,7 +167,7 @@ Composition-first, not component-first. The application is laid out like an engi
 - **Top command strip** (44px). Project breadcrumb, customer, due date, current state. Mono uppercase 11px. This is a status bar, not a navbar.
 - **Center workspace** divided into hairline-bordered cells. Each cell has a mono uppercase corner label (`MATERIAL`, `TOLERANCE`, `FINISH`, `LEAD TIME`, `QUANTITY`, `CERTIFICATIONS`).
 - **3D viewer and drawing preview** live inset within the grid, hairline border, never full-bleed. Per `PRD.md` §72: visualizations collapse back to the clean view when not needed.
-- **Quote packages** render as horizontally-arranged spec-sheet columns at the bottom (NOT vertical pricing cards). One column gets a 2px left border in `--accent` to mark the selected option.
+- **Quote packages** render as horizontally-arranged spec-sheet columns at the bottom (NOT vertical pricing cards). One column gets a 2px left border in `--accent-red` to mark the selected option.
 - **Right decision ledger** (240px) shows margin delta, lead time delta, supplier confidence, DFM flags, exceptions. Lives only on quote-construction surfaces.
 
 ### Other layouts
@@ -285,6 +285,7 @@ Reject any UI work that includes:
 | 2026-05-05 | Files extension `.STEP` shown **only on the Part Workspace**, dropped in Project / Assembly contexts | The file IS the artifact in Part Workspace (`BRACKET-A07.STEP` is the hero). In Project/Assembly contexts the extension is noise — show `BRACKET-A07` not `BRACKET-A07.STEP`. |
 | 2026-05-05 | Roadmap items rendered as **muted mono uppercase chips** in info-panel footers | DFM Flags, Ask OverDrafter, Tariff Auto-Calc, Hover Part > Highlight in Assembly, Multi-page PDF Nav, etc. Visible-but-parked: signals "we know this is needed, not in MVP." |
 | 2026-05-14 | Dark mode revived as an account-menu toggle using the pre-redesign palette verbatim | Interim revival for users who want the prior clean black look while keeping bone as the default. This does not replace the future deliberate dark redesign described in `### Dark mode`. |
+| 2026-05-14 | GuestAppShell keeps a fixed dark pre-auth marketing shell | Intentional exception to theme-tokenized app surfaces: the signed-out prompt shell keeps the legacy dark gradient (`#1f2024` to `#17181c`, plus the white radial highlight) and white text for brand contrast. AuthPanel remains theme-driven. |
 
 ---
 
@@ -325,7 +326,7 @@ Sortable columns: PRICE, LEAD, QUALITY, TOTAL. Non-sortable columns (VENDOR, ORI
 
 ### Vendor multi-quote stacking
 
-A single vendor (e.g. Xometry) commonly returns 5+ quote variants (different lead, expedite tier, region). The vendor table renders these as a parent row with the vendor wordmark and a `(N quotes)` annotation, expandable to reveal per-quote sub-rows. Selection happens at the sub-row level; the sub-row carries the `--accent` wordmark color, never the parent. Collapsed parent rows show the currently-selected sub-quote's price/lead/quality inline.
+A single vendor (e.g. Xometry) commonly returns 5+ quote variants (different lead, expedite tier, region). The vendor table renders these as a parent row with the vendor wordmark and a `(N quotes)` annotation, expandable to reveal per-quote sub-rows. Selection happens at the sub-row level; the sub-row carries the `--accent-red` wordmark color, never the parent. Collapsed parent rows show the currently-selected sub-quote's price/lead/quality inline.
 
 ### Editable specs
 

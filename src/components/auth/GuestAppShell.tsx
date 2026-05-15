@@ -52,6 +52,8 @@ export function GuestAppShell({
     }
   };
 
+  // Guest shell intentionally keeps the pre-auth dark marketing treatment;
+  // docs/DESIGN.md logs this as a fixed-branding exception.
   return (
     <div className="min-h-svh overflow-hidden bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.11),transparent_24%),linear-gradient(180deg,#1f2024_0%,#1b1c20_48%,#17181c_100%)] text-white">
       <div className="relative mx-auto flex min-h-svh w-full max-w-[980px] flex-col">

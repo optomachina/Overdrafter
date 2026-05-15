@@ -30,7 +30,7 @@ export function RequestedQuantityFilter({
           className={cn(
             "rounded-full border-border",
             value === "all"
-              ? "bg-primary text-primary-foreground hover:bg-accent"
+              ? "bg-paper-red text-white hover:bg-paper-red"
               : "bg-transparent text-foreground hover:bg-accent",
           )}
           onClick={() => onChange("all")}
@@ -46,7 +46,7 @@ export function RequestedQuantityFilter({
           className={cn(
             "rounded-full border-border",
             value === quantity
-              ? "bg-primary text-primary-foreground hover:bg-accent"
+              ? "bg-paper-red text-white hover:bg-paper-red"
               : "bg-transparent text-foreground hover:bg-accent",
           )}
           onClick={() => onChange(quantity)}

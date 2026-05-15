@@ -292,7 +292,7 @@ const ClientHome = () => {
 
         {/* Drop zone */}
         <div
-          className="border-2 border-dashed border-border rounded-surface-lg px-8 py-12 text-center bg-muted hover:border-border hover:bg-accent cursor-pointer mb-5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+          className="border-2 border-dashed border-border rounded-surface-lg px-8 py-12 text-center bg-muted hover:border-border hover:bg-accent cursor-pointer mb-5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           onClick={newJobFilePicker.openFilePicker}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {

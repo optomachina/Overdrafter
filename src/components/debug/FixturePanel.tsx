@@ -56,7 +56,7 @@ export function FixturePanel({ hideFloatingButton = false }: { hideFloatingButto
   return (
     <div className="fixed bottom-20 right-4 z-40 flex max-w-[min(92vw,22rem)] flex-col items-end gap-3">
       {open ? (
-        <div className="rounded-3xl border border-border bg-[#0f172a]/96 p-4 text-foreground shadow-2xl backdrop-blur">
+        <div className="rounded-3xl border border-border bg-ws-deep/96 p-4 text-foreground shadow-2xl backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Fixture mode</p>
@@ -116,7 +116,7 @@ export function FixturePanel({ hideFloatingButton = false }: { hideFloatingButto
         <Button
           type="button"
           size="sm"
-          className="w-fit gap-2 rounded-full border border-border bg-[#111827]/92 text-foreground shadow-2xl hover:bg-[#1f2937]"
+          className="w-fit gap-2 rounded-full border border-border bg-ws-deep/92 text-foreground shadow-2xl hover:bg-accent"
           onClick={() => setOpen((current) => !current)}
         >
           <FlaskConical className="h-4 w-4" />

@@ -278,7 +278,7 @@ export function AuthPanel({
   return (
     <section
       className={cn(
-        "dark w-full rounded-surface-lg border border-border bg-ws-deep/96 p-5 text-foreground shadow-[0_32px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-6",
+        "w-full rounded-surface-lg border border-border bg-ws-deep/96 p-5 text-foreground shadow-[0_32px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-6",
         className,
       )}
     >

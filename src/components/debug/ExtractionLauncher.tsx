@@ -176,7 +176,7 @@ export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatin
         <Button
           type="button"
           size="sm"
-          className={`fixed right-4 z-40 w-fit gap-2 rounded-full border border-border bg-[#111827]/92 text-foreground shadow-2xl hover:bg-[#1f2937] ${fixtureLauncherVisible ? "bottom-36" : "bottom-20"}`}
+          className={`fixed right-4 z-40 w-fit gap-2 rounded-full border border-border bg-ws-deep/92 text-foreground shadow-2xl hover:bg-accent ${fixtureLauncherVisible ? "bottom-36" : "bottom-20"}`}
           onClick={() => setOpen(true)}
         >
           <ScanSearch className="h-4 w-4" />
@@ -187,7 +187,7 @@ export function ExtractionLauncher({ hideFloatingButton = false }: { hideFloatin
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
           side="right"
-          className="w-[min(96vw,34rem)] overflow-y-auto border-border bg-[#111827] p-0 text-foreground sm:max-w-[34rem]"
+          className="w-[min(96vw,34rem)] overflow-y-auto border-border bg-ws-deep p-0 text-foreground sm:max-w-[34rem]"
         >
           <div className="flex h-full flex-col">
             <SheetHeader className="border-b border-border px-6 py-5 text-left">
