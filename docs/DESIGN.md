@@ -332,7 +332,7 @@ A single vendor (e.g. Xometry) commonly returns 5+ quote variants (different lea
 
 Field-level overrides on metadata panels (Part Info, Project Info). Three states:
 
-1. **Default** — plain mono values, right-aligned. No edit indicators visible. Hover reveals a subtle deeper-surface row tint and a mono uppercase `EDIT` label in `--accent` at the right edge.
+1. **Default** — plain mono values, right-aligned. No edit indicators visible. Hover reveals a subtle deeper-surface row tint and a mono uppercase `EDIT` label in `--accent-red` at the right edge.
 2. **Editing** — clicked field renders as a hairline-bordered input cell with a thin `--accent` focus ring. Hint below the field: `ESC to cancel · ENTER to apply` in `--muted`. Panel header shows `EDITED N FIELDS` chip in `--muted`.
 3. **Has pending edits** — overridden value renders with deeper-surface (`--surface-2`) background tint on the value cell AND italic value text. The panel header shows a `REVERT TO DEFAULTS` link right-aligned in `--accent` mono uppercase. No per-row WAS: annotation; the link carries the bulk-restore affordance.
 
@@ -340,7 +340,7 @@ The override indicator deliberately rejects: red dots (too loud), bold value tex
 
 ### Units toggle
 
-A `METRIC / IMPERIAL` pill (radius 4 max) lives at the bottom of every editable-specs panel (Part Info, Project Info). Default is `IMPERIAL`, active in `--accent`. The toggle is per-panel, not global — switching units on the Part Info panel does not switch the Project Info panel, by design (each panel reflects the artifact it describes).
+A `METRIC / IMPERIAL` pill (radius 4 max) lives at the bottom of every editable-specs panel (Part Info, Project Info). Default is `IMPERIAL`, active in `--accent-red`. The toggle is per-panel, not global — switching units on the Part Info panel does not switch the Project Info panel, by design (each panel reflects the artifact it describes).
 
 The chrome-level metric/imperial toggle (round-5 design) was deliberately removed. It cluttered the global command strip and forced a single units choice across the whole product. The per-panel pill keeps the affordance close to where users actually read dimensions, without polluting the chrome.
 
@@ -381,7 +381,7 @@ ORDER SUMMARY    LINE ITEMS    COSTS    SHIP TO    PAYMENT METHOD    TERMS
                                                --accent-red fill, white mono uppercase text
 ```
 
-Right rail = vertical status timeline. The PLACE ORDER button is the **only** button on any OverDrafter page that uses a filled `--accent` background; everywhere else, primary actions are mono uppercase text in `--accent` with hairline outline.
+Right rail = vertical status timeline. The PLACE ORDER button is the **only** button on any OverDrafter page that uses a filled `--accent-red` background; everywhere else, primary actions are mono uppercase text in `--accent-red` with hairline outline.
 
 ### Project workspace modes
 
