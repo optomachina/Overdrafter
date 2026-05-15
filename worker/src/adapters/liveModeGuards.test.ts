@@ -21,6 +21,8 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     workerLiveAdapters: ["xometry"],
     workerName: "worker-1",
     pollIntervalMs: 5000,
+    pricingModelEnabled: false,
+    pricingModelMinConfidence: 0.7,
     httpHost: "127.0.0.1",
     httpPort: 8080,
     workerTempDir: path.resolve(".tmp/overdrafter-worker"),

@@ -20,6 +20,8 @@ describe("loadConfig", () => {
       vendorStorageStateJson: {},
       workerName: "quote-worker-1",
       pollIntervalMs: 5000,
+      pricingModelEnabled: false,
+      pricingModelMinConfidence: 0.7,
       httpHost: "0.0.0.0",
       httpPort: 8080,
       artifactBucket: "quote-artifacts",
@@ -57,6 +59,8 @@ describe("loadConfig", () => {
       }),
       WORKER_NAME: "worker-2",
       WORKER_POLL_INTERVAL_MS: "2500",
+      WORKER_PRICING_MODEL_ENABLED: "true",
+      WORKER_PRICING_MODEL_MIN_CONFIDENCE: "0.82",
       WORKER_HTTP_HOST: "127.0.0.1",
       WORKER_TEMP_DIR: "./tmp/worker",
       QUOTE_ARTIFACT_BUCKET: "artifacts",
@@ -91,6 +95,8 @@ describe("loadConfig", () => {
       },
       workerName: "worker-2",
       pollIntervalMs: 2500,
+      pricingModelEnabled: true,
+      pricingModelMinConfidence: 0.82,
       httpHost: "127.0.0.1",
       httpPort: 9090,
       artifactBucket: "artifacts",
@@ -141,6 +147,16 @@ describe("loadConfig", () => {
         WORKER_LIVE_ADAPTERS: "xometry,unknown_vendor",
       }),
     ).toThrow(/WORKER_LIVE_ADAPTERS includes unsupported adapters/);
+  });
+
+  it("rejects pricing model confidence outside the 0..1 range", () => {
+    expect(() =>
+      loadConfig({
+        SUPABASE_URL: "https://example.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+        WORKER_PRICING_MODEL_MIN_CONFIDENCE: "1.5",
+      }),
+    ).toThrow();
   });
 
   it("accepts hidden vendor candidates in WORKER_LIVE_ADAPTERS", () => {

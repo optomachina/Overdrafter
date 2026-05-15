@@ -285,6 +285,8 @@ npm --prefix worker run install:browsers
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | — | Service role key (never expose to client) |
 | `WORKER_MODE` | no | `simulate` | `simulate` or `live`. Live makes real vendor calls. |
 | `WORKER_LIVE_ADAPTERS` | no | `xometry` | Comma-separated list of live-enabled vendors (e.g. `xometry,fictiv`; hidden candidates require explicit opt-in) |
+| `WORKER_PRICING_MODEL_ENABLED` | no | `false` | Enables internal-only estimate helpers; estimates still require live vendor verification |
+| `WORKER_PRICING_MODEL_MIN_CONFIDENCE` | no | `0.7` | Minimum confidence required before internal routing may consider estimate-only hints |
 | `QUOTE_VENDOR_STORAGE_STATE_DIR` | hidden live adapters | — | Directory containing `<vendor>-storage-state.json` files for generic portal adapters |
 | `QUOTE_VENDOR_STORAGE_STATE_PATHS` | hidden live adapters | — | JSON object mapping vendor name to a Playwright storage-state path |
 | `QUOTE_VENDOR_STORAGE_STATE_JSON` | hidden live adapters | — | JSON object mapping vendor name to inline Playwright storage-state JSON |
