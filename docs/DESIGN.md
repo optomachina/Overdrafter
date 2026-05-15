@@ -307,7 +307,7 @@ HEADER
   ─── hairline ───
 BODY
   PROJECT / PARTS LIST
-  (per row: 40px iso wireframe thumbnail · mono filename · price · lead, active row 3px --accent left border)
+  (per row: 40px iso wireframe thumbnail · mono filename · price · lead, active row 3px --accent-red left border)
 FOOTER
   (●) BLAINE WILSON  ⌃        (32px circular avatar with mono initials, name in body, org tagline in mono uppercase --muted, popup chevron)
 ```
@@ -333,8 +333,8 @@ A single vendor (e.g. Xometry) commonly returns 5+ quote variants (different lea
 Field-level overrides on metadata panels (Part Info, Project Info). Three states:
 
 1. **Default** — plain mono values, right-aligned. No edit indicators visible. Hover reveals a subtle deeper-surface row tint and a mono uppercase `EDIT` label in `--accent-red` at the right edge.
-2. **Editing** — clicked field renders as a hairline-bordered input cell with a thin `--accent` focus ring. Hint below the field: `ESC to cancel · ENTER to apply` in `--muted`. Panel header shows `EDITED N FIELDS` chip in `--muted`.
-3. **Has pending edits** — overridden value renders with deeper-surface (`--surface-2`) background tint on the value cell AND italic value text. The panel header shows a `REVERT TO DEFAULTS` link right-aligned in `--accent` mono uppercase. No per-row WAS: annotation; the link carries the bulk-restore affordance.
+2. **Editing** — clicked field renders as a hairline-bordered input cell with a thin `--accent-red` focus ring. Hint below the field: `ESC to cancel · ENTER to apply` in `--muted`. Panel header shows `EDITED N FIELDS` chip in `--muted`.
+3. **Has pending edits** — overridden value renders with deeper-surface (`--surface-2`) background tint on the value cell AND italic value text. The panel header shows a `REVERT TO DEFAULTS` link right-aligned in `--accent-red` mono uppercase. No per-row WAS: annotation; the link carries the bulk-restore affordance.
 
 The override indicator deliberately rejects: red dots (too loud), bold value text (too loud), per-row WAS: annotations (clutter). The combination of `--surface-2` tint + italic is the quietest signal that still communicates "this is different."
 
