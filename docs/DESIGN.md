@@ -1,6 +1,6 @@
 # Design System — OverDrafter
 
-Last updated: 2026-04-25
+Last updated: 2026-05-14
 
 > Pretty good design follows pretty good rules. This is the canonical source of truth for OverDrafter's visual system. Read this before any UI or visual decision. If you change anything here, log a row in the Decisions section at the bottom and explain why.
 
