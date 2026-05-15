@@ -1229,7 +1229,12 @@ export class FictivAdapter extends VendorAdapter {
 
   private async extractQuoteData(page: Page): Promise<FictivParsedQuote> {
     await page
-      .locator('[data-test-target="quote-level-lead-time-price-selected"]')
+      .locator(
+        [
+          '[data-test-target="quote-level-lead-time-price-selected"]',
+          '[data-test-target="quote-level-lead-time-selected-option"]',
+        ].join(", "),
+      )
       .first()
       .waitFor({ state: "attached", timeout: this.config.browserTimeoutMs })
       .catch(() => undefined);
