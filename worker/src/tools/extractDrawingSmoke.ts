@@ -39,6 +39,8 @@ function buildSmokeConfig(): WorkerConfig {
     vendorStorageStateJson: {},
     workerName: "drawing-smoke",
     pollIntervalMs: 1000,
+    pricingModelEnabled: false,
+    pricingModelMinConfidence: 0.7,
     httpHost: "127.0.0.1",
     httpPort: 8080,
     workerTempDir: path.join(os.tmpdir(), "overdrafter-worker"),
