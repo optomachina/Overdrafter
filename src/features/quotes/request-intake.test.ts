@@ -38,6 +38,16 @@ describe("request intake parsing", () => {
     });
   });
 
+  it("uses the default quantity pricing ladder when pricing curves are requested without explicit quantities", () => {
+    expect(parseRequestIntake("Please quote quantity pricing for this bracket")).toEqual({
+      requestedServiceKinds: ["manufacturing_quote"],
+      primaryServiceKind: "manufacturing_quote",
+      serviceNotes: null,
+      requestedQuoteQuantities: [1, 10, 100, 1000],
+      requestedByDate: null,
+    });
+  });
+
   it("parses a slash date only as a date-intent phrase and not as quantities", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-07T10:00:00-07:00"));

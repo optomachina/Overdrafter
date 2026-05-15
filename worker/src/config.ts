@@ -2,6 +2,7 @@ import { z } from "zod";
 import path from "node:path";
 import os from "node:os";
 import { parseEnvBooleanLike, parseEnvList } from "./env.js";
+import { DEFAULT_QUANTITY_PRICING_LADDER, normalizePricingLadder } from "./quantityPricing.js";
 import { LIVE_AUTOMATION_VENDORS, type LiveAutomationVendorName, type WorkerConfig } from "./types.js";
 
 const envBoolean = z.preprocess((value) => {
@@ -36,6 +37,8 @@ const schema = z.object({
   QUOTE_VENDOR_STORAGE_STATE_JSON: z.string().optional(),
   WORKER_NAME: z.string().default("quote-worker-1"),
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
+  WORKER_QUANTITY_PRICING_LADDER: z.string().default(DEFAULT_QUANTITY_PRICING_LADDER.join(",")),
+  WORKER_VENDOR_RATE_LIMIT_MS: z.coerce.number().int().nonnegative().default(0),
   WORKER_HTTP_HOST: z.string().default("0.0.0.0"),
   WORKER_TEMP_DIR: z.string().default(path.join(os.tmpdir(), "overdrafter-worker")),
   QUOTE_ARTIFACT_BUCKET: z.string().default("quote-artifacts"),
@@ -126,6 +129,16 @@ function parseVendorStringRecord(rawValue: string | undefined, fieldName: string
   return result;
 }
 
+function parseQuantityPricingLadder(rawValue: string): number[] {
+  const ladder = normalizePricingLadder(rawValue);
+
+  if (ladder.length === 0) {
+    throw new Error("WORKER_QUANTITY_PRICING_LADDER must include at least one positive integer quantity.");
+  }
+
+  return ladder;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   const parsed = schema.parse(env);
   const workerTempDir = path.resolve(parsed.WORKER_TEMP_DIR);
@@ -146,6 +159,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     parsed.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS,
     parsed.DRAWING_EXTRACTION_MODEL,
   );
+  const quantityPricingLadder = parseQuantityPricingLadder(parsed.WORKER_QUANTITY_PRICING_LADDER);
 
   return {
     supabaseUrl: parsed.SUPABASE_URL,
@@ -157,6 +171,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     vendorStorageStateJson,
     workerName: parsed.WORKER_NAME,
     pollIntervalMs: parsed.WORKER_POLL_INTERVAL_MS,
+    quantityPricingLadder,
+    vendorRateLimitMs: parsed.WORKER_VENDOR_RATE_LIMIT_MS,
     httpHost: parsed.WORKER_HTTP_HOST,
     httpPort: parsed.PORT,
     workerTempDir,

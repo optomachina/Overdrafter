@@ -32,6 +32,8 @@ Optional:
 - `WORKER_LIVE_ADAPTERS=xometry` (production rollout target: `xometry,fictiv`)
 - `WORKER_NAME=quote-worker-1`
 - `WORKER_POLL_INTERVAL_MS=5000`
+- `WORKER_QUANTITY_PRICING_LADDER=1,10,100,1000`
+- `WORKER_VENDOR_RATE_LIMIT_MS=0`
 - `WORKER_HTTP_HOST=0.0.0.0`
 - `WORKER_TEMP_DIR=/tmp/overdrafter-worker`
 - `QUOTE_ARTIFACT_BUCKET=quote-artifacts`

@@ -314,6 +314,8 @@ export type WorkerConfig = {
   vendorStorageStateJson: Partial<Record<LiveAutomationVendorName, string>>;
   workerName: string;
   pollIntervalMs: number;
+  quantityPricingLadder: number[];
+  vendorRateLimitMs: number;
   httpHost: string;
   httpPort: number;
   workerTempDir: string;

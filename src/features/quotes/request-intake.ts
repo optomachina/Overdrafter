@@ -67,6 +67,12 @@ const QUOTE_SERVICE_PATTERNS = [
   /\b(?:rfq|quote|quotes|quoted|pricing|price\s+quote)\b/i,
   /\b(?:machine|machining|manufacture|manufacturing)\b/i,
 ];
+const DEFAULT_QUANTITY_PRICING_LADDER = [1, 10, 100, 1000] as const;
+const QUANTITY_PRICING_PATTERNS = [
+  /\bquantity\s+(?:pricing|prices|price|curve|ladder)\b/i,
+  /\b(?:pricing|price)\s+(?:breaks|tiers|curve|ladder)\b/i,
+  /\bqty\s+(?:breaks|tiers|curve|ladder)\b/i,
+];
 
 const SERVICE_KEYWORD_RULES: ServiceKeywordRule[] = [
   {
@@ -433,10 +439,17 @@ export function parseRequestIntake(prompt: string, now = new Date()): ParsedRequ
     ? replaceRangeWithSpaces(trimmedPrompt, dateMatch.start, dateMatch.end)
     : trimmedPrompt;
   const serviceIntent = parseServiceIntent(trimmedPrompt);
+  const requestedQuoteQuantities = normalizeRequestedQuoteQuantities(collectQuantityCandidates(quantitySource));
+  const wantsQuantityPricing = QUANTITY_PRICING_PATTERNS.some((pattern) => pattern.test(trimmedPrompt));
+  let resolvedQuoteQuantities = requestedQuoteQuantities;
+
+  if (requestedQuoteQuantities.length === 0 && wantsQuantityPricing) {
+    resolvedQuoteQuantities = [...DEFAULT_QUANTITY_PRICING_LADDER];
+  }
 
   return {
     ...serviceIntent,
-    requestedQuoteQuantities: normalizeRequestedQuoteQuantities(collectQuantityCandidates(quantitySource)),
+    requestedQuoteQuantities: resolvedQuoteQuantities,
     requestedByDate: dateMatch?.requestedByDate ?? null,
   };
 }

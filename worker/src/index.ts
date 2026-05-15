@@ -1376,6 +1376,8 @@ async function main() {
       workerMode: config.workerMode,
       healthUrl: healthServer.url,
       pollIntervalMs: config.pollIntervalMs,
+      quantityPricingLadder: config.quantityPricingLadder,
+      vendorRateLimitMs: config.vendorRateLimitMs,
       drawingExtractionModelFallback: config.drawingExtractionEnableModelFallback,
       drawingExtractionModel: config.drawingExtractionModel,
     },
@@ -1540,6 +1542,10 @@ async function main() {
       });
     } finally {
       runtimeState.currentTask = null;
+    }
+
+    if (task.task_type === "run_vendor_quote" && config.vendorRateLimitMs > 0) {
+      await sleep(config.vendorRateLimitMs);
     }
   }
 

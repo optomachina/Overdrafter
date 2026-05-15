@@ -63,6 +63,8 @@ function makeConfig(): WorkerConfig {
     vendorStorageStateJson: {},
     workerName: "fictiv-sweep",
     pollIntervalMs: 5000,
+    quantityPricingLadder: [...parseQuantitiesArg()],
+    vendorRateLimitMs: 0,
     httpHost: "127.0.0.1",
     httpPort: 0,
     workerTempDir: path.join(os.tmpdir(), "overdrafter-fictiv-sweep"),

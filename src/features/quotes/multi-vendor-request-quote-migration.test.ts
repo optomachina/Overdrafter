@@ -49,6 +49,13 @@ describe("multi-vendor request quote migration", () => {
     expect(migrationSql).toContain("'serviceRequestLineItemId', v_service_request_line_item_id");
   });
 
+  it("keeps one vendor result and queue task per requested quantity", () => {
+    expect(normalizedSql).toContain("cross join lateral unnest(public.normalize_positive_integer_array");
+    expect(normalizedSql).toContain("as requested_quantity");
+    expect(normalizedSql).toMatch(/quote_run_id,\s+part_id,\s+organization_id,\s+vendor,\s+requested_quantity/);
+    expect(normalizedSql).toContain("'requestedquantity', result.requested_quantity");
+  });
+
   it("hardens client quote workspace lineage and preserves legacy-compatible fallbacks", () => {
     expect(normalizedWorkspaceSql).toContain(
       "create or replace function public.api_list_client_quote_workspace",
