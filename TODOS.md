@@ -156,6 +156,33 @@ This TODO is now about implementing real Protolabs and SendCutSend automation or
 
 ---
 
+## TODO-026: Hidden extended vendor authenticated workflow tuning
+
+**What:** Finish authenticated live workflow tuning for hidden vendor candidates: OSH Cut, Fabworks, Ponoko, Quickparts, RapidDirect, Geomiq, Weerg, and Protolabs Network.
+
+**Why:** These vendors broaden instant-quote coverage beyond the current Xometry/Fictiv live path. They must remain hidden from default client fan-out until each workflow is validated with real vendor sessions and cannot leak placeholder, simulated, or stale pricing.
+
+**Current state:** Shared repo infrastructure exists:
+- generic hidden portal adapter in `worker/src/adapters/portalWorkflow.ts`
+- hidden vendor manifest in `worker/src/adapters/extendedVendorWorkflows.ts`
+- session bootstrap via `npm --prefix worker run auth:vendor -- <vendor|all|vendor1,vendor2>`
+- smoke runner via `npm --prefix worker run smoke:vendor-workflow -- --vendor <vendor|all|vendor1,vendor2> --cad <path>`
+- enum/capability migrations for internal validation only
+- public/guest probe notes in `.context/vendor-workflow-live-probe.md`
+
+Public/guest smoke currently proves useful non-price outcomes for some vendors:
+- OSH Cut and Fabworks accept uploads and return `manual_vendor_followup` with `detectedFlow: "configuration_required"`.
+- Quickparts requires login/registration before upload.
+- RapidDirect, Geomiq, Weerg, Ponoko, and Protolabs Network need authenticated or app-state smoke runs before final selector/configuration tuning.
+
+**Where to start:** Create/login vendor accounts with `auth:vendor -- all` or a comma-separated vendor subset, then run `smoke:vendor-workflow -- --vendor all` or a comma-separated vendor subset against the saved sessions. Use JSON `errorPayload.bodyExcerpt` plus HTML/screenshot artifacts to add narrowly scoped vendor-specific upload/configuration selectors.
+
+**Effort:** M/L across all vendors | **Priority:** P2
+
+**Depends on:** Valid vendor accounts/sessions and a decision to expand hidden vendor coverage beyond internal validation.
+
+---
+
 ## ~~TODO-016: Add `locked_at` index to `work_queue` for reaper query performance~~ ✅ DONE (local)
 
 **What:** Add a partial index to `work_queue` supporting the reaper's access pattern:

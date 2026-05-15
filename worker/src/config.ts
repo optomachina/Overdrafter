@@ -31,6 +31,9 @@ const schema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   WORKER_MODE: z.enum(["simulate", "live"]).default("simulate"),
   WORKER_LIVE_ADAPTERS: z.string().optional(),
+  QUOTE_VENDOR_STORAGE_STATE_DIR: z.string().optional(),
+  QUOTE_VENDOR_STORAGE_STATE_PATHS: z.string().optional(),
+  QUOTE_VENDOR_STORAGE_STATE_JSON: z.string().optional(),
   WORKER_NAME: z.string().default("quote-worker-1"),
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
   WORKER_HTTP_HOST: z.string().default("0.0.0.0"),
@@ -85,10 +88,59 @@ function parseWorkerLiveAdapters(rawValue: string | undefined): LiveAutomationVe
   return configuredAdapters as LiveAutomationVendorName[];
 }
 
+function parseVendorStringRecord(rawValue: string | undefined, fieldName: string): Partial<Record<LiveAutomationVendorName, string>> {
+  if (!rawValue || rawValue.trim().length === 0) {
+    return {};
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawValue);
+  } catch {
+    throw new Error(`${fieldName} must be a JSON object keyed by vendor name.`);
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${fieldName} must be a JSON object keyed by vendor name.`);
+  }
+
+  const liveAutomationSet = new Set<string>(LIVE_AUTOMATION_VENDORS);
+  const result: Partial<Record<LiveAutomationVendorName, string>> = {};
+
+  for (const [rawVendor, rawEntry] of Object.entries(parsed)) {
+    const vendor = rawVendor.trim().toLowerCase();
+    if (!liveAutomationSet.has(vendor)) {
+      throw new Error(
+        `${fieldName} includes unsupported vendor "${rawVendor}". Supported values: ${LIVE_AUTOMATION_VENDORS.join(", ")}.`,
+      );
+    }
+
+    if (typeof rawEntry !== "string" || rawEntry.trim().length === 0) {
+      throw new Error(`${fieldName}.${rawVendor} must be a non-empty string.`);
+    }
+
+    result[vendor as LiveAutomationVendorName] =
+      fieldName === "QUOTE_VENDOR_STORAGE_STATE_PATHS" ? path.resolve(rawEntry) : rawEntry;
+  }
+
+  return result;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   const parsed = schema.parse(env);
   const workerTempDir = path.resolve(parsed.WORKER_TEMP_DIR);
   const workerLiveAdapters = parseWorkerLiveAdapters(parsed.WORKER_LIVE_ADAPTERS);
+  const vendorStorageStateDir = parsed.QUOTE_VENDOR_STORAGE_STATE_DIR
+    ? path.resolve(parsed.QUOTE_VENDOR_STORAGE_STATE_DIR)
+    : null;
+  const vendorStorageStatePaths = parseVendorStringRecord(
+    parsed.QUOTE_VENDOR_STORAGE_STATE_PATHS,
+    "QUOTE_VENDOR_STORAGE_STATE_PATHS",
+  );
+  const vendorStorageStateJson = parseVendorStringRecord(
+    parsed.QUOTE_VENDOR_STORAGE_STATE_JSON,
+    "QUOTE_VENDOR_STORAGE_STATE_JSON",
+  );
   const hasDrawingExtractionModelKey = Boolean(parsed.OPENAI_API_KEY || parsed.OPENROUTER_API_KEY);
   const drawingExtractionDebugAllowedModels = parseEnvList(
     parsed.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS,
@@ -100,6 +152,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     supabaseServiceRoleKey: parsed.SUPABASE_SERVICE_ROLE_KEY,
     workerMode: parsed.WORKER_MODE,
     workerLiveAdapters,
+    vendorStorageStateDir,
+    vendorStorageStatePaths,
+    vendorStorageStateJson,
     workerName: parsed.WORKER_NAME,
     pollIntervalMs: parsed.WORKER_POLL_INTERVAL_MS,
     httpHost: parsed.WORKER_HTTP_HOST,

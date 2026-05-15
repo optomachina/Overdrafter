@@ -15,6 +15,9 @@ describe("loadConfig", () => {
     expect(config).toMatchObject({
       workerMode: "simulate",
       workerLiveAdapters: ["xometry"],
+      vendorStorageStateDir: null,
+      vendorStorageStatePaths: {},
+      vendorStorageStateJson: {},
       workerName: "quote-worker-1",
       pollIntervalMs: 5000,
       httpHost: "0.0.0.0",
@@ -45,6 +48,13 @@ describe("loadConfig", () => {
       SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
       WORKER_MODE: "live",
       WORKER_LIVE_ADAPTERS: "xometry,fictiv",
+      QUOTE_VENDOR_STORAGE_STATE_DIR: "./state/vendor-sessions",
+      QUOTE_VENDOR_STORAGE_STATE_PATHS: JSON.stringify({
+        oshcut: "./state/vendor-sessions/oshcut.json",
+      }),
+      QUOTE_VENDOR_STORAGE_STATE_JSON: JSON.stringify({
+        fabworks: "{\"cookies\":[],\"origins\":[]}",
+      }),
       WORKER_NAME: "worker-2",
       WORKER_POLL_INTERVAL_MS: "2500",
       WORKER_HTTP_HOST: "127.0.0.1",
@@ -72,6 +82,13 @@ describe("loadConfig", () => {
     expect(config).toMatchObject({
       workerMode: "live",
       workerLiveAdapters: ["xometry", "fictiv"],
+      vendorStorageStateDir: path.resolve("./state/vendor-sessions"),
+      vendorStorageStatePaths: {
+        oshcut: path.resolve("./state/vendor-sessions/oshcut.json"),
+      },
+      vendorStorageStateJson: {
+        fabworks: "{\"cookies\":[],\"origins\":[]}",
+      },
       workerName: "worker-2",
       pollIntervalMs: 2500,
       httpHost: "127.0.0.1",
@@ -124,6 +141,37 @@ describe("loadConfig", () => {
         WORKER_LIVE_ADAPTERS: "xometry,unknown_vendor",
       }),
     ).toThrow(/WORKER_LIVE_ADAPTERS includes unsupported adapters/);
+  });
+
+  it("accepts hidden vendor candidates in WORKER_LIVE_ADAPTERS", () => {
+    const config = loadConfig({
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+      WORKER_LIVE_ADAPTERS: "oshcut,fabworks,ponoko,quickparts,rapiddirect,geomiq,weerg,protolabsnetwork",
+    });
+
+    expect(config.workerLiveAdapters).toEqual([
+      "oshcut",
+      "fabworks",
+      "ponoko",
+      "quickparts",
+      "rapiddirect",
+      "geomiq",
+      "weerg",
+      "protolabsnetwork",
+    ]);
+  });
+
+  it("rejects unsupported vendors in generic storage state maps", () => {
+    expect(() =>
+      loadConfig({
+        SUPABASE_URL: "https://example.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+        QUOTE_VENDOR_STORAGE_STATE_PATHS: JSON.stringify({
+          unknown_vendor: "./state.json",
+        }),
+      }),
+    ).toThrow(/QUOTE_VENDOR_STORAGE_STATE_PATHS includes unsupported vendor/);
   });
 
   it("allows an explicit empty WORKER_LIVE_ADAPTERS rollout", () => {

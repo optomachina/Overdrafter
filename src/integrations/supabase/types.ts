@@ -2312,6 +2312,14 @@ export type Database = {
         | "fictiv"
         | "protolabs"
         | "sendcutsend"
+        | "oshcut"
+        | "fabworks"
+        | "ponoko"
+        | "quickparts"
+        | "rapiddirect"
+        | "geomiq"
+        | "weerg"
+        | "protolabsnetwork"
         | "partsbadger"
         | "fastdms"
         | "devzmanufacturing"
@@ -2507,6 +2515,14 @@ export const Constants = {
         "fictiv",
         "protolabs",
         "sendcutsend",
+        "oshcut",
+        "fabworks",
+        "ponoko",
+        "quickparts",
+        "rapiddirect",
+        "geomiq",
+        "weerg",
+        "protolabsnetwork",
         "partsbadger",
         "fastdms",
         "devzmanufacturing",

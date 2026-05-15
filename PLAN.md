@@ -57,6 +57,7 @@ Ship the no-Stripe live-quote MVP for the test user `dmrifles@gmail.com`: sign i
 **Task 3: Operationalize the test path**
 - Use the worker `/health` session-age fields before each customer-visible test run.
 - Keep Protolabs and SendCutSend disabled or routed to manual follow-up until their live adapters are implemented.
+- Keep hidden extended vendor candidates (`oshcut`, `fabworks`, `ponoko`, `quickparts`, `rapiddirect`, `geomiq`, `weerg`, `protolabsnetwork`) out of default client fan-out until authenticated smoke runs prove the individual workflows. They are enum/capability registered for internal validation only and require explicit `WORKER_LIVE_ADAPTERS` opt-in.
 - For controlled demos, a local live worker is acceptable. For unattended use, OVD-202 remains required: host the live worker on a long-lived platform.
 
 **Deferred: Stripe and ordering**
@@ -73,6 +74,7 @@ Ship the no-Stripe live-quote MVP for the test user `dmrifles@gmail.com`: sign i
 - Agent orchestration blackboard (re-evaluate at ≥50 real quotes/week).
 - DFM heatmap, quote scatter, revision diff visualizations.
 - Protolabs and SendCutSend live automation (TODO-017 — see TODOS.md).
+- Hidden extended vendor workflow hardening: OSH Cut, Fabworks, Ponoko, Quickparts, RapidDirect, Geomiq, Weerg, and Protolabs Network have a shared portal-upload adapter, auth bootstrap, smoke tooling, and public/guest probe evidence. Remaining work is authenticated session setup plus vendor-specific selector/configuration tuning.
 
 All previous Phase 1/2 quote-run items are now considered scaffolding that will be progressively hidden or repurposed under the new UX.
 

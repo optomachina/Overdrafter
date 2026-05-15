@@ -174,6 +174,7 @@ Phase 1 vendor boundary:
 
 - client-triggered requests dispatch across the requestable enabled vendor set for the organization
 - orgs with no explicit vendor config fall back to `xometry`, `fictiv`, and `protolabs`
+- hidden live-adapter candidates (`oshcut`, `fabworks`, `ponoko`, `quickparts`, `rapiddirect`, `geomiq`, `weerg`, `protolabsnetwork`) are enum-registered for internal workflow validation, but are not part of default client quote fan-out
 - existing internal and manual quote ingestion paths remain intact
 - request intent remains on `quote_requests`; execution remains on `quote_runs` and `vendor_quote_results`
 
