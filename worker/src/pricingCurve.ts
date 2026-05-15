@@ -186,8 +186,7 @@ function computeConfidence(input: {
 
   const completeness = input.pricedObservations.length / Math.max(1, input.observations.length);
   const quantitySpan =
-    input.pricedObservations[input.pricedObservations.length - 1].requestedQuantity /
-    input.pricedObservations[0].requestedQuantity;
+    input.pricedObservations.at(-1)!.requestedQuantity / input.pricedObservations[0].requestedQuantity;
   const spanScore = Math.min(1, Math.log10(Math.max(1, quantitySpan)) / 3);
   const gapPenalty = Math.min(0.3, input.gapObservations.length * 0.08);
 
