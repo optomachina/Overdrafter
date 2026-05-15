@@ -94,7 +94,7 @@ Single accent. No multi-color systems. Colors are tokens, not values.
   --text:        #1C1B19;  /* warm black, NOT pure black */
   --muted:       #6B665C;  /* graphite pencil — secondary text, labels, micro nav */
   --hairline:    #D8D2C4;  /* 1px borders, dividers, used liberally */
-  --accent:      #C2410C;  /* oxidized red — engineer's pencil mark */
+  --accent-red:  #C2410C;  /* oxidized red — engineer's pencil mark */
   --ink-data:    #1F2E3A;  /* dark teal-black for the densest data tables (use sparingly) */
 }
 ```
@@ -109,7 +109,7 @@ The accent is reserved for:
 
 Never use the accent for:
 - Decoration
-- Brand display (the OverDrafter wordmark is `--text`, not `--accent`)
+- Brand display (the OverDrafter wordmark is `--text`, not `--accent-red`)
 - Multiple simultaneous emphases on one screen
 - Hover states (use `--surface-2` for hover)
 
@@ -301,7 +301,7 @@ Both left and right rails on every workspace surface (Part, Project, Order Confi
 
 ```text
 HEADER
-  OVERDRAFTER (logo, heavy condensed sans, --accent)
+  OVERDRAFTER (logo, heavy condensed sans, --accent-red)
   MFG CO-PILOT (mono uppercase, --muted, 10px)
   [+ NEW]  [⌕ SEARCH]    (compact button row, hairline border, mono uppercase 11px)
   ─── hairline ───
@@ -319,8 +319,8 @@ The user-account footer mirrors ChatGPT / Linear / Notion patterns. Click anywhe
 Every vendor / quote table on every surface has sortable column headers. Caret indicators sit immediately to the right of the column label:
 
 - Inactive sort: outlined hairline caret in `--muted`
-- Active sort ascending: filled `--accent` caret pointing up
-- Active sort descending: filled `--accent` caret pointing down
+- Active sort ascending: filled `--accent-red` caret pointing up
+- Active sort descending: filled `--accent-red` caret pointing down
 
 Sortable columns: PRICE, LEAD, QUALITY, TOTAL. Non-sortable columns (VENDOR, ORIGIN) show no caret.
 
@@ -360,8 +360,8 @@ Four steps, horizontal, mono uppercase labels, hairline connectors:
 `RFQ SENT` → `QUOTES RECEIVED` → `QUOTE SELECTION` → `PARTS ORDERED`
 
 Step indicators:
-- Completed: filled `--accent` dot
-- Current: `--accent` ring (outline)
+- Completed: filled `--accent-red` dot
+- Current: `--accent-red` ring (outline)
 - Pending: hairline ring in `--hairline`
 
 The Order Confirmation page renders this timeline vertically in its right rail with `CONFIRM ORDER` inserted as the current step between `QUOTE SELECTION` and `PARTS ORDERED`.
@@ -378,7 +378,7 @@ ORDER CONFIRMATION                                    (heavy condensed sans 48px
 ORDER SUMMARY    LINE ITEMS    COSTS    SHIP TO    PAYMENT METHOD    TERMS
 
 [SAVE AS DRAFT]  [PLACE ORDER ($24,820)]   ← only filled-color button on the page
-                                               --accent fill, white mono uppercase text
+                                               --accent-red fill, white mono uppercase text
 ```
 
 Right rail = vertical status timeline. The PLACE ORDER button is the **only** button on any OverDrafter page that uses a filled `--accent` background; everywhere else, primary actions are mono uppercase text in `--accent` with hairline outline.
