@@ -841,6 +841,14 @@ export function mergeRequirementDraftState(input: RequirementDraftSeedInput) {
   };
 }
 
+/**
+ * Builds the editable quote requirement draft for a part by merging client edits,
+ * approved requirement data, normalized drawing extraction, and optional job
+ * request intent. Job request quantities, requested date, service kinds, primary
+ * service kind, and service notes seed the draft when stronger part-level values
+ * are absent. Manufacturing quote requests default `process` to `CNC Machining`
+ * when neither client nor approved requirement data supplies a process.
+ */
 export function buildRequirementDraft(
   part: PartAggregate,
   jobRequest?: {
