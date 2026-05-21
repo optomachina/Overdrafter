@@ -1,18 +1,18 @@
 // @vitest-environment node
 
-import os from "node:os";
 import path from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Derive test paths from the OS temp dir rather than hardcoding "/tmp" so the
-// fixtures match the production code (which uses os.tmpdir()) and so static
-// analysis does not flag publicly-writable directory literals.
-const TEST_TMP = os.tmpdir();
-const EXAMPLE_PDF = path.join(TEST_TMP, "example.pdf");
-const REGRESSION_PDF = path.join(TEST_TMP, "1093-05589-02.pdf");
-const OCR_RUN_DIR = path.join(TEST_TMP, "overdrafter-pdf-ocr-test");
-const OUTPUT_DIR = path.join(TEST_TMP, "output");
+// node:fs/promises is fully mocked below, so no real file I/O ever happens.
+// These paths are opaque fixture sentinels passed to the mocked functions —
+// they are deliberately NOT under the OS temp dir so static analysis does not
+// flag them as publicly-writable directory usage.
+const TEST_FIXTURE_ROOT = path.join("/fixture", "pdf-drawing");
+const EXAMPLE_PDF = path.join(TEST_FIXTURE_ROOT, "example.pdf");
+const REGRESSION_PDF = path.join(TEST_FIXTURE_ROOT, "1093-05589-02.pdf");
+const OCR_RUN_DIR = path.join(TEST_FIXTURE_ROOT, "overdrafter-pdf-ocr-test");
+const OUTPUT_DIR = path.join(TEST_FIXTURE_ROOT, "output");
 
 const { mockExecFileAsync, mockAccess, mockMkdtemp, mockRename } = vi.hoisted(() => ({
   mockExecFileAsync: vi.fn(),
