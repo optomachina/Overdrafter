@@ -147,9 +147,9 @@ For batch mode, the script opens vendors sequentially and waits for Enter after 
 
 ```bash
 export XOMETRY_BROWSER_ENGINE="camoufox"
-export XOMETRY_USER_DATA_DIR="/Users/$(whoami)/Documents/GitHub/Overdrafter/worker/state/xometry-camoufox-user-data"
-export FICTIV_STORAGE_STATE_PATH="/Users/$(whoami)/Documents/GitHub/Overdrafter/worker/state/fictiv-storage-state.json"
-export QUOTE_VENDOR_STORAGE_STATE_DIR="/Users/$(whoami)/Documents/GitHub/Overdrafter/worker/state/vendor-sessions"
+export XOMETRY_USER_DATA_DIR="$PWD/worker/state/xometry-camoufox-user-data"
+export FICTIV_STORAGE_STATE_PATH="$PWD/worker/state/fictiv-storage-state.json"
+export QUOTE_VENDOR_STORAGE_STATE_DIR="$PWD/worker/state/vendor-sessions"
 export WORKER_LIVE_ADAPTERS="xometry"
 ```
 
@@ -157,6 +157,7 @@ Use `WORKER_LIVE_ADAPTERS=xometry` for the first controlled `dmrifles@gmail.com`
 Expand to `xometry,fictiv` after the Xometry app-triggered path passes.
 For hidden candidates, set `WORKER_LIVE_ADAPTERS` to a narrow explicit list such as
 `oshcut` or `oshcut,fabworks` only during internal validation.
+These paths assume you are running commands from the repo root; adapt them for hosted or custom layouts.
 Add these values to your shell profile or `.env` in `worker/` so you don't have to repeat them.
 
 ### Step 2b — Run a hidden vendor workflow smoke
