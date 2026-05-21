@@ -1,7 +1,7 @@
 <!-- /autoplan restore point: /Users/blainewilson/.gstack/projects/optomachina-Overdrafter/claude-quizzical-williams-autoplan-restore-20260331-213648.md -->
 # OverDrafter Execution Plan
 
-Last updated: March 31, 2026
+Last updated: May 12, 2026
 
 ## Purpose
 
@@ -32,38 +32,36 @@ Operational workflow alignment:
 
 ## Active objective
 
-Implement the ideal multi-agent UX (see PRD.md North Star).
+Ship the no-Stripe live-quote MVP for the test user `dmrifles@gmail.com`: sign in, upload real part files, request quotes, and receive live vendor quote results or explicit manual-follow-up states. Billing, card collection, Stripe webhooks, and order placement are deferred until after the quote-request loop is reliable.
 
-### Immediate next steps (Phase 2 foundation — sequenced by dependency)
+### Immediate next steps (MVP — sequenced by dependency)
 
-> **Strategy:** Prove value first. Ship live OpenClaw harness and validate real quotes before building CAD distribution layer. Decomposed from the original 6-step block per /autoplan review (2026-03-31).
+> **Strategy:** Prove the customer-visible quote loop first. The active milestone is not checkout; it is a functioning upload -> quote request -> live quote result path for `dmrifles@gmail.com`.
 
-**Task C: Service-request line item RPC updates** *(prerequisite — ships first)*
-- Schema already landed: `service_request_line_items` + FK on `quote_requests` (migration `20260324000000`)
-- Update/add RPCs: `api_request_quote` return shape includes `service_request_line_item_id`; `api_list_client_quote_workspace` joins through line items
-- Regenerate Supabase TypeScript types after RPC changes
-- Add SQL contract comment to `build_manufacturing_quote_service_detail`
-- Acceptance: TypeScript compile passes; existing integration tests pass
+**Task 1: Rebase/sync local work onto the merged live-adapter PRs**
+- Recent PRs reviewed on May 12, 2026:
+  - PR #235 repaired the Fictiv live adapter against the current Fictiv portal and added Fictiv/Xometry quantity sweep tools.
+  - PR #236 added `XOMETRY_BROWSER_ENGINE=camoufox` with persistent Firefox profile support and validated a real Xometry quote: `$194.13`, 8 business days, real Xometry Q-ID `Q69-1104-8928`.
+  - PR #231 added `xometry_session_age_days` to worker `/health`.
+- Acceptance: local branch includes the merged worker changes from PRs #235, #236, and #231 before additional live-quote fixes are made.
 
-**Task A: OpenClaw anti-detection validation gate** *(prerequisite — must PASS before Task B ships to production)*
-- Test Xometry and Fictiv adapters against real vendor portals using Playwright headless browser
-- Pass criterion: ≥2 vendors return real quote with price + lead time persisted in DB
-- Fail criterion: If portals block on ≥2 vendors → research Xometry/Fictiv API alternatives before proceeding
-- Scope: Xometry + Fictiv only (Protolabs/SendCutSend are instant-quote providers deferred to TODO-017)
-- Include concurrent-session scenario in test suite
-- Document go/no-go result before enabling production traffic
-- Worker gate harness command: `npm --prefix worker run validate:openclaw-gate -- --quote-run-id <quote-run-id>`
+**Task 2: Validate app-triggered live quote flow**
+- Configure the test organization and `dmrifles@gmail.com` client membership in the target Supabase project.
+- Bootstrap vendor sessions:
+  - Xometry: prefer Camoufox persistent profile via `XOMETRY_BROWSER_ENGINE=camoufox` and `XOMETRY_USER_DATA_DIR`.
+  - Fictiv: use the repaired live adapter from PR #235 when two-vendor validation is needed.
+- Start the worker in `WORKER_MODE=live` with a narrow rollout set. For the first controlled app test, `WORKER_LIVE_ADAPTERS=xometry` is sufficient; expand to `xometry,fictiv` after the Xometry app path passes.
+- From the app, upload a STEP/PDF package as `dmrifles@gmail.com`, click `Request Quote`, and confirm persisted quote results or explicit manual-follow-up states appear in the client workspace.
+- Validate with `npm --prefix worker run validate:openclaw-gate -- --quote-run-id <quote-run-id>` after the worker finishes.
 
-**Task B: Live OpenClaw harness (Xometry + Fictiv)** *(gated on Task A passing)*
-- Xometry: already has live Playwright automation (`worker/src/adapters/xometry.ts:477+`); enable in production
-- Fictiv: implement live Playwright automation to match Xometry's pattern
-- Protolabs, SendCutSend: add `VendorAutomationError("not_implemented")` guards → `manual_vendor_followup` with clear reason code (no simulated prices in live mode)
-- Add `WORKER_LIVE_ADAPTERS` config field for per-adapter rollout control
-- Session security: `runtimeSecrets.ts` writes session file with `0o600` mode
-- Session resilience: health endpoint surfaces `xometry_auth_failure` on N consecutive `login_required` failures; Xometry task claiming suspends when auth is known-bad
-- Disable simulation mode by default (feature flag preserved for CI/staging)
-- Production-env assertion: warns if `WORKER_MODE=simulate` in production env
-- Acceptance criteria: see Phase 3 Eng Review section below; test plan at `~/.gstack/projects/optomachina-Overdrafter/blainewilson-claude-quizzical-williams-eng-review-test-plan-20260331-215444.md`
+**Task 3: Operationalize the test path**
+- Use the worker `/health` session-age fields before each customer-visible test run.
+- Keep Protolabs and SendCutSend disabled or routed to manual follow-up until their live adapters are implemented.
+- For controlled demos, a local live worker is acceptable. For unattended use, OVD-202 remains required: host the live worker on a long-lived platform.
+
+**Deferred: Stripe and ordering**
+- Stripe, payment authorization/capture, billing, and order placement are not required for this MVP.
+- `ClientProjectReview` / `ProcurementHandoffPanel` remains a manual handoff surface that does not collect payment or place orders inside the app.
 
 ### Phase 2 (following immediate steps)
 
@@ -79,6 +77,15 @@ Implement the ideal multi-agent UX (see PRD.md North Star).
 All previous Phase 1/2 quote-run items are now considered scaffolding that will be progressively hidden or repurposed under the new UX.
 
 ## Completed milestones
+
+### Milestone 10 — Live adapter breakthrough ✓
+Recent merged PRs changed the live-quote baseline:
+
+- PR #231: worker `/health` now exposes `xometry_session_age_days` with a configurable freshness warning threshold.
+- PR #235: Fictiv live automation was repaired against the current portal and validated with real quote data; quantity sweep tooling now exists.
+- PR #236: Xometry live automation gained `XOMETRY_BROWSER_ENGINE=camoufox` and persistent profile support; a real Xometry quote was validated at `$194.13` / 8 business days.
+
+Older planning notes below that describe Fictiv as a stub, Xometry as blocked by Patchright/storage-state behavior, or Stripe as pre-Frank blocking are historical and superseded by the current active objective above.
 
 ### Milestone 7 — Client-triggered quote requests ✓
 Single-part and project-bulk quote request RPCs (`api_request_quote`, `api_request_quotes`). Phase 1 shipped the request lifecycle scaffolding, and Phase 2 now expands request fan-out across org-enabled applicable vendors while preserving one request and one run per client action. Lifecycle states: `not_requested`, `queued`, `requesting`, `received`, `failed`, `canceled`. Client cancel + retry. Rate limiting and org cost ceiling guardrails. Failure reason sanitization. Double-submit protection. Accessibility (aria-live, role=alert, aria-disabled). TODO-014 shipped; remaining Phase 2 work is comparison UI and per-job vendor preferences.
@@ -218,9 +225,9 @@ Same root cause: the system has multiple paths where "looks like live data" and 
 
 **Critical findings:**
 
-1. **[CRITICAL] Fictiv/Protolabs/SendCutSend silently return simulated prices in live mode** (`fictiv.ts:43-46`, `protolabs.ts:17`, `sendcutsend.ts:15`). When `WORKER_MODE=live`, these adapters call `simulatedBaseAmount()` and return `instant_quote_received` with real vendor URLs but fake prices. The `rawPayload.mode="live"` makes DB rows look like real quotes. Fix: add `VendorAutomationError("not_implemented")` guard → routes to `manual_vendor_followup`. **Blocks Task B.**
+1. **[RESOLVED/SUPERSEDED] Fictiv/Protolabs/SendCutSend silently return simulated prices in live mode.** The original finding applied to the March 31 code state. Current state: Fictiv live automation was repaired in PR #235; Protolabs and SendCutSend now throw `VendorAutomationError("not_implemented")` in live mode and route to manual follow-up.
 
-2. **[HIGH] Single WORKER_MODE toggle gates all 4 adapters** (`config.ts:32`). Flipping to `live` makes Xometry real but makes Fictiv/Protolabs/SCS silent-stub simultaneously. Fix: add `WORKER_LIVE_ADAPTERS` config field. **Required for Task B.**
+2. **[RESOLVED] Single WORKER_MODE toggle gates all 4 adapters.** `WORKER_LIVE_ADAPTERS` now exists and should be used for narrow rollout. The no-Stripe MVP starts with `WORKER_LIVE_ADAPTERS=xometry`.
 
 3. **[HIGH] Session file permissions not hardened** (`runtimeSecrets.ts:44-57`). `XOMETRY_STORAGE_STATE_JSON` written with default umask permissions. Fix: `fs.writeFile(path, data, { mode: 0o600 })`. **Required before production deployment.**
 
@@ -234,15 +241,13 @@ Same root cause: the system has multiple paths where "looks like live data" and 
 
 **Test coverage:** 36% (8/22 paths). 14 gaps identified. 8 critical test scenarios missing.
 
-**Updated Task B acceptance criteria (additions from Eng Review):**
-- [ ] `FictivAdapter.quote()` throws `VendorAutomationError("not_implemented")` when `workerMode === "live"` (same for Protolabs, SendCutSend)
-- [ ] `WORKER_LIVE_ADAPTERS` config field implemented and respected by adapter dispatch
-- [ ] `runtimeSecrets.ts` writes session file with `0o600` mode
-- [ ] Health endpoint exposes `xometry_auth_failure` state on consecutive `login_required` failures
-- [ ] Unit tests for stubs-in-live-mode (see test plan)
-- [ ] Integration test for empty enabled vendors in `api_request_quote`
-- [ ] Integration test for mixed vendor result status (Fictiv received + Xometry failed)
-- [ ] Production env assertion: `WORKER_MODE=simulate` in production logs warning
+**Historical Task B acceptance criteria (current status):**
+- [x] Protolabs and SendCutSend throw `VendorAutomationError("not_implemented")` in live mode.
+- [x] Fictiv no longer needs a `not_implemented` live guard for MVP; PR #235 repaired live automation.
+- [x] `WORKER_LIVE_ADAPTERS` config field implemented and respected by adapter dispatch.
+- [x] Worker health exposes `xometry_session_age_days` from PR #231.
+- [ ] Consecutive `xometry_auth_failure` state on repeated `login_required` failures remains hardening.
+- [ ] Production env assertion for `WORKER_MODE=simulate` remains hardening.
 
 **Updated Task C acceptance criteria (additions from Eng Review):**
 - [ ] SQL comment added to `build_manufacturing_quote_service_detail` documenting JSONB contract
@@ -271,7 +276,7 @@ Same root cause: the system has multiple paths where "looks like live data" and 
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 3 | issues_open | Phase 2 scope decomposed. 6-step block → Task A/B/C. 2 open gaps (simulation-OFF assertion, nullable constraint). Cross-phase theme: silent synthetic data. |
 | Codex Review | `/codex review` | Independent 2nd opinion | 2 | issues_found | Prior items 2/3/4 confirmed shipped. failure_reason trust boundary fixed (TODO-009). |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 4 | issues_open | 10 issues (1 critical, 4 high, 5 medium). Fictiv/Protolabs/SCS stubs critical. Session security HIGH. Test coverage 36% (14 gaps). Test plan written. |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 4 | partially_superseded | Original stub findings were resolved/superseded by PRs #235 and #236. Remaining risks are operational hardening, live worker hosting, and app-triggered live-flow validation. |
 | Design Review | `/plan-design-review` | UI/UX gaps | 1 | clean | DR-001 through DR-006 + DR-001b all shipped. No UI scope in current plan. |
 
-**VERDICT:** PHASE 1 COMPLETE. PHASE 2 PLAN APPROVED (/autoplan 2026-03-31). Next: Task C (RPC updates) → Task A (anti-detection gate, Xometry + Fictiv) → Task B (live harness, add Fictiv automation + stubs for remaining). Session circuit-breaker and per-adapter liveness flag required before production flip.
+**VERDICT UPDATED 2026-05-12:** PHASE 1 COMPLETE. The current execution plan is the no-Stripe live-quote MVP: sync the merged live-adapter PRs, run an app-triggered Xometry quote as `dmrifles@gmail.com`, then expand to Fictiv/two-vendor validation after the single-vendor path is stable. Stripe is deferred. Long-lived worker hosting remains required for unattended use.

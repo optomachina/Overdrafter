@@ -992,6 +992,38 @@ async function handleVendorQuoteTask(
       throw error;
     }
 
+    if (result.totalPriceUsd !== null || result.unitPriceUsd !== null || result.leadTimeBusinessDays !== null) {
+      const { error: offerError } = await supabase.from("vendor_quote_offers").upsert(
+        {
+          vendor_quote_result_id: currentResult.id,
+          organization_id: task.organization_id,
+          offer_key: `${vendor}-${currentResult.requested_quantity ?? 1}`,
+          supplier: vendor,
+          lane_label: `${vendor} quote`,
+          sourcing: "automated",
+          tier: result.status === "official_quote_received" ? "Official" : "Instant",
+          unit_price_usd: result.unitPriceUsd,
+          total_price_usd: result.totalPriceUsd,
+          lead_time_business_days: result.leadTimeBusinessDays,
+          process: null,
+          material: context.requirement.material,
+          finish: context.requirement.finish,
+          tightest_tolerance: context.requirement.tightest_tolerance_inch?.toString() ?? null,
+          notes: result.notes.join("\n") || null,
+          raw_payload: {
+            ...result.rawPayload,
+            quoteUrl: result.quoteUrl,
+            requestedQuantity: currentResult.requested_quantity,
+          },
+        },
+        { onConflict: "vendor_quote_result_id,offer_key" },
+      );
+
+      if (offerError) {
+        throw offerError;
+      }
+    }
+
     // Compute and store routing scores for this quote run.
     // This is a best-effort operation — it will only succeed once all
     // vendor quotes for the run are in a terminal state.

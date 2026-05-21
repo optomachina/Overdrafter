@@ -327,7 +327,7 @@ describe("quotes utils", () => {
       finish: "Passivate",
       threads: null,
       tightestToleranceInch: 0.002,
-      process: null,
+      process: "CNC Machining",
       notes: null,
       quantity: 3,
       quoteQuantities: [3],

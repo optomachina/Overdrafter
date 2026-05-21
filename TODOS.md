@@ -140,19 +140,19 @@ Remaining adjacent work:
 
 **What:** Implement real Playwright automation for Protolabs and SendCutSend adapters (currently simulation-only). These are instant-quote providers that have more tractable APIs than Xometry.
 
-**Why:** Phase 2 Task B ships Xometry + Fictiv live automation. Protolabs and SendCutSend are deferred because they are instant-quote providers that may have programmatic APIs or simpler automation surfaces. Phase 2 multi-vendor live value is proven with Xometry + Fictiv first.
+**Why:** Xometry and Fictiv are the current live-adapter focus. Protolabs and SendCutSend are deferred because they are instant-quote providers that may have programmatic APIs or simpler automation surfaces. Phase 2 multi-vendor live value is proven with Xometry + Fictiv first.
 
-**Blocking state:** Current adapter behavior (pre-Task-B) differs by adapter:
-- **Protolabs** (`worker/src/adapters/protolabs.ts`): returns `status: "official_quote_received"` with **simulated non-null prices** (`unitPriceUsd`/`totalPriceUsd`) in `WORKER_MODE=live`. No `VendorAutomationError` guard exists — fake prices are indistinguishable from real quotes in the DB.
-- **SendCutSend** (`worker/src/adapters/sendcutsend.ts`): returns `status: "manual_vendor_followup"` with null prices, but no `"not_implemented"` reason code.
+**Current state:** The live-mode fake-price risk has been closed for the deferred adapters:
+- **Protolabs** (`worker/src/adapters/protolabs.ts`): throws `VendorAutomationError("not_implemented")` in live mode so it routes to manual vendor follow-up instead of returning simulated prices.
+- **SendCutSend** (`worker/src/adapters/sendcutsend.ts`): throws `VendorAutomationError("not_implemented")` in live mode so the reason code is explicit.
 
-Task B must add a `VendorAutomationError("not_implemented")` guard to both adapters so they route to `manual_vendor_followup` in live mode instead of returning simulated data.
+This TODO is now about implementing real Protolabs and SendCutSend automation or API-backed quoting, not about fail-closed guards.
 
 **Where to start:** `worker/src/adapters/protolabs.ts` and `worker/src/adapters/sendcutsend.ts` — investigate whether instant-quote API endpoints exist before building Playwright automation. SendCutSend has a known instant-quote API.
 
 **Effort:** M each (human: ~1 week / CC: ~1 day) | **Priority:** P2
 
-**Depends on:** Task B (live harness + adapter guard pattern established)
+**Depends on:** Stable Xometry/Fictiv live quote path and a decision to expand vendor coverage beyond the MVP.
 
 ---
 
@@ -364,19 +364,19 @@ Recommended evaluator behavior:
 
 ---
 
-## TODO-020: Stripe card payment integration (pre-Frank)
+## TODO-020: Stripe card payment integration
 
-**Status:** 🔄 **IN PROGRESS** — escalated to pre-Frank priority (2026-04-08)
+**Status:** ⏸ **DEFERRED** — no longer blocks the no-Stripe live-quote MVP (2026-05-12)
 
-**What:** Add Stripe card payment to `ClientProjectReview.tsx`. Frank completes the `ProcurementHandoffPanel` (shipping/billing/PO context), then sees a payment step below it. Stripe Elements card input. Payment Intent with delayed capture: authorize at checkout, capture after Xometry order placement confirms. Stripe webhook handler with signature verification and idempotency.
+**What:** Eventually add Stripe card payment to `ClientProjectReview.tsx`. A customer completes the `ProcurementHandoffPanel` (shipping/billing/PO context), then sees a payment step below it. Stripe Elements card input. Payment Intent with delayed capture: authorize at checkout, capture after vendor order placement confirms. Stripe webhook handler with signature verification and idempotency.
 
-**Why:** Frank has agreed to pay in full for the first order. The `ProcurementHandoffPanel` "manual follow-up" stub is not a real payment path. Stripe must ship BEFORE Frank's first real session, not after — the prior deferral was wrong.
+**Why:** Payment is required for a later fully transactional loop, but the current MVP goal is narrower: allow `dmrifles@gmail.com` to upload parts and request/receive quotes. The app should not collect card payment or place orders in this phase.
 
 **Pros:** Converts the first real quote into a transaction. Real revenue. Frank sees a complete loop.
 
-**Cons:** Stripe integration, webhook handling, payment migration, and delayed capture are non-trivial. Must ship alongside live harness (Task B) — don't build Stripe before Task A passes.
+**Cons:** Stripe integration, webhook handling, payment migration, and delayed capture are non-trivial. It should not be mixed into the live-quote MVP while the vendor automation path is still being hardened.
 
-**Context:** Priority escalated from "after Frank's first paid session" in /plan-eng-review on 2026-04-08. Design doc: `blainewilson-claude-gracious-ritchie-design-20260408-175506.md`. Enable Stripe Chargeback Protection ($0.25/txn) in Stripe dashboard.
+**Context:** Priority was escalated on 2026-04-08, but the May 12, 2026 product direction explicitly defers billing and payments. Keep this ticket as future transactional scope, not a blocker for first live quote usage.
 
 **Implementation notes:**
 - Preserve `ProcurementHandoffPanel` — add payment step below it, don't replace it
@@ -397,9 +397,9 @@ AUTHORIZED → CAPTURED (Xometry order placed)
 
 **Where to start:** `src/pages/ClientProjectReview.tsx` — add payment section below `ProcurementHandoffPanel`. Then `supabase/functions/create-payment-intent/` → `supabase/functions/stripe-webhook/` → migration.
 
-**Effort:** L (human: ~2 weeks / CC: ~2 hours) | **Priority:** P0 (pre-Frank, blocks first transaction)
+**Effort:** L (human: ~2 weeks / CC: ~2 hours) | **Priority:** P2 (post-live-quote MVP)
 
-**Depends on:** Task A gate pass. Stripe account configured with Chargeback Protection. `XOMETRY_STORAGE_STATE_PATH` set in production.
+**Depends on:** Stable live quote path, product decision to resume payments, Stripe account configured with Chargeback Protection.
 
 ---
 
@@ -442,42 +442,58 @@ AUTHORIZED → CAPTURED (Xometry order placed)
 
 ---
 
-## TODO-023: Fictiv live automation (recon + implementation)
+## ~~TODO-023: Fictiv live automation (recon + implementation)~~ ✅ DONE / HARDENING REMAINS (#235)
 
-**What:** Build real Playwright automation for the Fictiv adapter (`worker/src/adapters/fictiv.ts`). The adapter currently throws `VendorAutomationError("not_implemented")` in live mode. Phase 2 Task B requires both Xometry and Fictiv live quotes to pass the openclaw gate.
+**Status:** ✅ **COMPLETE for MVP live-adapter capability** (2026-05-12)
 
-**Why:** `openclawGate.ts` requires `realQuoteVendorCount >= TARGET_VENDORS.length` where `TARGET_VENDORS = ["xometry", "fictiv"]`. Without Fictiv live automation, Task A gate will never pass regardless of Xometry working.
+**Resolution:** PR #235 repaired the Fictiv live adapter against the current Fictiv portal UI and validated real portal usage. The old note saying `worker/src/adapters/fictiv.ts` was a 67-line stub is stale.
 
-**Blocking state:** Current `fictiv.ts` is a 67-line stub. Xometry adapter is 777 lines of full Playwright automation built through prior openclaw usage. Fictiv has been quoted through openclaw previously — that experience is the primary reference for mapping the automation surface.
+**Evidence:**
+- PR #235: `fix(worker): repair Fictiv live adapter + add quantity sweep tools`
+- `worker/src/adapters/fictiv.ts`: repaired live portal flow
+- `worker/src/tools/fictivQuantitySweep.ts`: quantity sweep tooling
+- Validation reported in PR #235: live Fictiv test returned `instant_quote_received` with real price + lead time; wide/dense sweeps captured structured price/lead-time options.
 
-**Recon first:** Before writing the adapter, map Fictiv's quoting flow:
-- Session model (cookies, localStorage, headers)
-- Auth sequence (login flow, session storage path)
-- Quote form selectors (file upload, material/process selection, quantity)
-- Quote result extraction (price, lead time, quote URL)
-- Anti-detection patterns (rate limits, bot detection signals)
-
-**Where to start:** Run `npm --prefix worker run auth:xometry` as the model — replicate the pattern for a `xometryAuth`-equivalent tool for Fictiv. Map the Fictiv quoting UI manually in a Chromium session before writing selectors.
-
-**Effort:** M-L (human: ~1 week / CC: ~2 hours after recon) | **Priority:** P1 (required for Task A gate pass)
-
-**Depends on:** Prior openclaw Fictiv quote runs as reference. Xometry live automation complete (to establish pattern).
+**Remaining hardening:**
+- Keep Fictiv behind `WORKER_LIVE_ADAPTERS` until the Xometry app-triggered path is verified.
+- Add operational session freshness parity for Fictiv if it becomes part of unattended demos.
+- Treat portal drift and modal handling as ongoing adapter maintenance, not initial implementation.
 
 ---
 
-## TODO-024: Xometry session freshness health signal
+## ~~TODO-024: Xometry session freshness health signal~~ ✅ DONE (#231)
 
-**What:** Add a proactive "session is stale" health signal to the worker, so operators can detect Xometry auth expiry before it fails a live quote run. Currently, session expiry is only caught at quote time via `login_required` error (non-retryable, task fails).
+**Status:** ✅ **COMPLETE** (2026-05-08)
 
-**Why:** The design doc (2026-04-08) identifies session rotation as a known risk for live mode. Session expiry mid-capture-window is a payment-state risk. A proactive health signal turns a reactive failure into an operational alert.
+**Resolution:** PR #231 added `xometry_session_age_days` to worker `/health`, `/healthz`, `/readyz`, and root health responses. It also added `XOMETRY_SESSION_FRESHNESS_WARN_DAYS` with a default 7-day warning threshold and startup warning behavior.
 
-**Pros:** Operators can re-auth before a quote run starts. Reduces "payment authorized, order failed" incidents.
-**Cons:** Requires a lightweight session validation step on the health server poll interval, or a cron-style pre-flight check.
+**Evidence:**
+- `worker/src/httpServer.ts`: session-age field and resilient age computation
+- `worker/src/httpServer.test.ts`: session freshness coverage
+- `worker/src/config.ts`: `XOMETRY_SESSION_FRESHNESS_WARN_DAYS`
+- PR #231 verification reported worker verify, targeted health tests, and root tests.
 
-**Context:** Identified during /plan-eng-review 2026-04-08. The health server (`worker/src/index.ts:1264`) already exists — this adds a session freshness field to its response.
+**Remaining related work:** A consecutive `xometry_auth_failure` circuit-breaker is still separate hardening. Session age is now observable; automatic auth refresh is not implemented.
 
-**Where to start:** `worker/src/index.ts` health server or a standalone session-check helper that loads the storage state file, checks its mtime vs. a configurable threshold (e.g., 7 days), and surfaces `xometry_session_age_days` in the `/health` response.
+---
 
-**Effort:** S (human: ~2 hours / CC: ~10 min) | **Priority:** P2
+## TODO-025: Xometry Camoufox operational hardening
 
-**Depends on:** Xometry live mode enabled (Task B).
+**What:** Harden the Xometry Camoufox path that PR #236 proved viable. The architecture now works: Camoufox plus a persistent Firefox profile reached the Xometry configurator and extracted real pricing. The remaining work is operational reliability.
+
+**Why:** PR #236 validated a real Xometry quote, but repeated sweeps degraded after roughly 10 quote attempts in one session. The likely causes are Cloudflare rate limiting, accumulated in-flight quotes, profile/cookie rotation, or Xometry resume-quote prompts. A controlled `dmrifles@gmail.com` test can proceed with one-shot runs, but unattended usage needs these cases handled.
+
+**Scope:**
+- Detect and surface rate-limit or Cloudflare degradation separately from ordinary selector failures.
+- Handle "resume in-flight quote" prompts or clean up in-flight quotes before a new sweep/run.
+- Define a safe request throttle for live Xometry runs.
+- Replace `XOMETRY_PART_IS_ITAR` env-only behavior with a per-part requirement field before ITAR parts are supported.
+- Decide whether periodic `__cf_bm` refresh or scheduled re-bootstrap is required.
+
+**Context:** Created from PR #236 follow-up notes. PR #236 added `XOMETRY_BROWSER_ENGINE=camoufox`, persistent `XOMETRY_USER_DATA_DIR` support, ITAR popup handling, rename-parts popup handling, best-effort material/finish matching, and structured Xometry price extraction. It validated qty=1 at `$194.13` / 8 business days for `1093-05589-02.STEP`.
+
+**Where to start:** `worker/src/adapters/xometry.ts`, `worker/src/tools/xometryQuantitySweep.ts`, and Xometry run artifacts from PR #236. Reproduce degradation with `XOMETRY_BROWSER_ENGINE=camoufox` and a persistent `XOMETRY_USER_DATA_DIR`, then add narrowly scoped detection and recovery.
+
+**Effort:** M | **Priority:** P1 after the first app-triggered live quote pass
+
+**Depends on:** PR #236 merged locally and a valid Camoufox Xometry profile.
