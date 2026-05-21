@@ -1,0 +1,812 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OverDrafter Completion Board</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f4efe5;
+      --panel: #fffaf0;
+      --ink: #1e1b16;
+      --muted: #706a5d;
+      --line: #d8cdbb;
+      --accent: #a53f2b;
+      --accent-2: #276a65;
+      --accent-3: #805d16;
+      --done: #4f7d4a;
+      --shadow: 0 24px 80px rgba(61, 49, 33, 0.16);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background:
+        linear-gradient(rgba(30, 27, 22, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(30, 27, 22, 0.025) 1px, transparent 1px),
+        var(--paper);
+      background-size: 28px 28px;
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 290px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 28px 22px;
+      border-right: 1px solid var(--line);
+      background: rgba(255, 250, 240, 0.86);
+      backdrop-filter: blur(16px);
+      overflow: auto;
+    }
+
+    main {
+      padding: 34px;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 940px;
+      margin: 8px 0 12px;
+      font-size: clamp(38px, 7vw, 82px);
+      line-height: 0.95;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0;
+    }
+
+    .lede {
+      max-width: 880px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px;
+      margin: 30px 0;
+      border: 1px solid var(--line);
+      background: var(--line);
+    }
+
+    .stat {
+      min-height: 104px;
+      padding: 18px;
+      background: rgba(255, 250, 240, 0.92);
+    }
+
+    .stat strong {
+      display: block;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 34px;
+      line-height: 1;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .nav {
+      display: grid;
+      gap: 8px;
+      margin-top: 22px;
+    }
+
+    .nav button,
+    .toolbar button,
+    .copy {
+      min-height: 38px;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--ink);
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .nav button {
+      padding: 9px 11px;
+    }
+
+    .nav button.active,
+    .toolbar button.active {
+      border-color: var(--accent);
+      background: rgba(165, 63, 43, 0.08);
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin: 20px 0 28px;
+    }
+
+    .toolbar button,
+    .copy {
+      padding: 8px 12px;
+      border-radius: 6px;
+    }
+
+    .search {
+      min-width: min(100%, 360px);
+      min-height: 38px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: rgba(255, 250, 240, 0.86);
+      color: var(--ink);
+      font: inherit;
+    }
+
+    .section {
+      margin: 42px 0;
+    }
+
+    .section-head {
+      display: flex;
+      gap: 18px;
+      align-items: end;
+      justify-content: space-between;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .tasks {
+      display: grid;
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .task {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 14px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 250, 240, 0.92);
+      box-shadow: 0 6px 24px rgba(61, 49, 33, 0.06);
+    }
+
+    .task.done {
+      opacity: 0.64;
+    }
+
+    .task input[type="checkbox"] {
+      width: 22px;
+      height: 22px;
+      margin-top: 2px;
+      accent-color: var(--done);
+    }
+
+    .task-top {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 10px 0;
+    }
+
+    .badge {
+      padding: 3px 7px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 11px;
+    }
+
+    .priority-high {
+      border-color: rgba(165, 63, 43, 0.55);
+      color: var(--accent);
+    }
+
+    .priority-medium {
+      border-color: rgba(128, 93, 22, 0.55);
+      color: var(--accent-3);
+    }
+
+    .priority-low {
+      border-color: rgba(39, 106, 101, 0.5);
+      color: var(--accent-2);
+    }
+
+    .prompt {
+      margin-top: 14px;
+      padding: 13px;
+      border-left: 3px solid var(--accent);
+      background: rgba(165, 63, 43, 0.06);
+      color: #352b21;
+    }
+
+    .prompt code {
+      white-space: pre-wrap;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .sources {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .sources a {
+      text-decoration-color: rgba(112, 106, 93, 0.35);
+    }
+
+    .note {
+      margin-top: 18px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 250, 240, 0.76);
+      color: var(--muted);
+    }
+
+    @media (max-width: 900px) {
+      .shell {
+        display: block;
+      }
+
+      aside {
+        position: static;
+        height: auto;
+      }
+
+      main {
+        padding: 22px;
+      }
+
+      .stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 560px) {
+      .stats {
+        grid-template-columns: 1fr;
+      }
+
+      .task {
+        grid-template-columns: 28px minmax(0, 1fr);
+        padding: 14px;
+      }
+
+      .task-top {
+        display: block;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="eyebrow">OverDrafter</div>
+      <h2>Completion Board</h2>
+      <p class="note">Checkboxes save in this browser. Use this as the working punch list for driving the repo from live-quote MVP to production-ready completion.</p>
+      <nav class="nav" id="nav"></nav>
+    </aside>
+
+    <main>
+      <div class="eyebrow">Generated from GitHub PRs, Linear issues, and repo Markdown</div>
+      <h1>Remaining Work to Finish OverDrafter</h1>
+      <p class="lede">The board is organized by dependency order: finish the customer-visible live quote loop, harden the worker and vendor adapters, close security gaps, then return to the larger product surfaces that make the project feel complete.</p>
+
+      <section class="stats" aria-label="Board summary">
+        <div class="stat"><strong id="totalCount">0</strong><span>Total tasks</span></div>
+        <div class="stat"><strong id="doneCount">0</strong><span>Checked off here</span></div>
+        <div class="stat"><strong id="remainingCount">0</strong><span>Remaining</span></div>
+        <div class="stat"><strong id="highCount">0</strong><span>High urgency / security</span></div>
+      </section>
+
+      <div class="toolbar" aria-label="Filters">
+        <input class="search" id="search" placeholder="Search tasks, IDs, sources, prompts..." />
+        <button type="button" data-filter="all" class="active">All</button>
+        <button type="button" data-filter="open">Open</button>
+        <button type="button" data-filter="done">Done</button>
+        <button type="button" id="reset">Reset checkoffs</button>
+      </div>
+
+      <div id="board"></div>
+
+      <section class="note">
+        <strong>Scope reviewed.</strong> GitHub PR history through PR #243, Linear issues in the Overdraft workspace/project set, and repository Markdown files including PRD, PLAN, ACCEPTANCE_CRITERIA, TODOS, RUNBOOK, DESIGN, architecture, test strategy, roadmap/horizon docs, planning docs, and specialized workflow docs. Canceled Linear onboarding issues and non-OverDrafter iCodexBar work were excluded from this project completion list.
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const storageKey = "overdrafter-completion-board:v1";
+    const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
+
+    const sections = [
+      {
+        id: "mvp",
+        title: "Live Quote MVP",
+        description: "Make the no-Stripe upload -> request quote -> live vendor result loop reliable for the test customer.",
+        tasks: [
+          {
+            id: "OVD-190-T1",
+            title: "Sync local work onto merged live-adapter baseline",
+            priority: "High",
+            status: "Repo plan",
+            tags: ["MVP", "Dependency", "GitHub"],
+            body: "Confirm the working branch includes PR #231, #235, #236, #237, #240, #241, and #242 before adding more live quote fixes.",
+            prompt: "Use the OverDrafter repo instructions. Verify the current branch is based on the latest main and includes the merged live-adapter and pricing PRs called out in PLAN.md. Report any drift, then update the branch or docs with the smallest safe change.",
+            sources: [
+              ["PLAN.md immediate Task 1", "https://github.com/optomachina/Overdrafter/blob/main/PLAN.md"],
+              ["PR #231", "https://github.com/optomachina/Overdrafter/pull/231"],
+              ["PR #235", "https://github.com/optomachina/Overdrafter/pull/235"],
+              ["PR #236", "https://github.com/optomachina/Overdrafter/pull/236"]
+            ]
+          },
+          {
+            id: "OVD-190-T2",
+            title: "Validate app-triggered Xometry live quote as dmrifles@gmail.com",
+            priority: "High",
+            status: "In progress parent",
+            tags: ["MVP", "Live worker", "Customer path"],
+            body: "Set up the test org/client, bootstrap the Xometry Camoufox profile, run the worker in live mode with a narrow Xometry rollout, request a quote from the app, and confirm a persisted result or explicit manual-follow-up state appears.",
+            prompt: "Implement and verify OVD-190 Task 2. Configure the test organization for dmrifles@gmail.com, run WORKER_MODE=live with WORKER_LIVE_ADAPTERS=xometry, upload a real STEP/PDF package through the app, click Request Quote, and validate persisted quote output with the openclaw gate. Keep Stripe and order placement out of scope.",
+            sources: [
+              ["OVD-190", "https://linear.app/overdrafter/issue/OVD-190/franks-first-real-transaction-live-harness-ui-simplification-stripe-v1"],
+              ["PLAN.md Task 2", "https://github.com/optomachina/Overdrafter/blob/main/PLAN.md"],
+              ["ACCEPTANCE_CRITERIA.md", "https://github.com/optomachina/Overdrafter/blob/main/ACCEPTANCE_CRITERIA.md"]
+            ]
+          },
+          {
+            id: "OVD-190-T3",
+            title: "Expand validation from Xometry-only to Xometry + Fictiv",
+            priority: "High",
+            status: "Remaining MVP",
+            tags: ["MVP", "Fictiv", "Validation"],
+            body: "After the single-vendor app path passes, rerun the controlled test with Fictiv enabled and confirm the two-vendor gate can complete or fail into explicit manual follow-up without fake prices.",
+            prompt: "Continue OVD-190 after the Xometry-only path passes. Enable xometry,fictiv in WORKER_LIVE_ADAPTERS, confirm session health for both vendors, run the same app-triggered quote path, and document the resulting vendor-lane states and validation evidence.",
+            sources: [
+              ["OVD-190", "https://linear.app/overdrafter/issue/OVD-190/franks-first-real-transaction-live-harness-ui-simplification-stripe-v1"],
+              ["PR #235", "https://github.com/optomachina/Overdrafter/pull/235"],
+              ["PLAN.md Task 3", "https://github.com/optomachina/Overdrafter/blob/main/PLAN.md"]
+            ]
+          },
+          {
+            id: "OVD-199",
+            title: "Implement SendCutSend live quote adapter",
+            priority: "Medium",
+            status: "In Progress",
+            tags: ["Vendor", "Adapter", "Quantity pricing"],
+            body: "Research whether an official quote API is available, otherwise map the authenticated browser flow for upload, material/process/finish/quantity selections, price, lead time, and fail-closed states.",
+            prompt: "Implement OVD-199. Start with API reconnaissance for SendCutSend, prefer a documented stable API if available, otherwise build the smallest reliable Playwright/Camoufox adapter. Add auth bootstrap only if needed, preserve fail-closed behavior, add focused tests, and update worker docs/runbook.",
+            sources: [
+              ["OVD-199", "https://linear.app/overdrafter/issue/OVD-199/implement-sendcutsend-live-quote-adapter"],
+              ["TODOS.md TODO-017", "https://github.com/optomachina/Overdrafter/blob/main/TODOS.md"]
+            ]
+          },
+          {
+            id: "OVD-200",
+            title: "Implement Protolabs live quote adapter",
+            priority: "Medium",
+            status: "Todo",
+            tags: ["Vendor", "Adapter", "Quantity pricing"],
+            body: "Mirror the SendCutSend adapter approach for Protolabs: API first if documented and allowed, browser automation otherwise, with explicit manual-follow-up on unsupported paths.",
+            prompt: "Implement OVD-200. Investigate Protolabs quoting APIs before browser automation, then add the live adapter with upload/configuration/price/lead-time extraction, anti-detection handling, tests, and runbook notes. Do not return simulated prices in live mode.",
+            sources: [
+              ["OVD-200", "https://linear.app/overdrafter/issue/OVD-200/implement-protolabs-live-quote-adapter"],
+              ["TODOS.md TODO-017", "https://github.com/optomachina/Overdrafter/blob/main/TODOS.md"]
+            ]
+          }
+        ]
+      },
+      {
+        id: "operations",
+        title: "Production Operations",
+        description: "Move from controlled local demos to unattended customer-safe operation.",
+        tasks: [
+          {
+            id: "OVD-202",
+            title: "Host the live worker on a long-lived platform",
+            priority: "High",
+            status: "Backlog",
+            tags: ["Worker", "Production", "Ops"],
+            body: "The current live worker can run locally for demos, but unattended use requires durable hosting, session storage, health checks, logs, restart behavior, and rollback notes.",
+            prompt: "Implement OVD-202. Select the smallest suitable long-lived worker host, deploy the live worker with secure vendor session handling, configure health and logs, document operational runbooks, and verify a live-mode smoke path without changing customer-facing behavior.",
+            sources: [
+              ["OVD-202", "https://linear.app/overdrafter/issue/OVD-202/host-the-live-worker-on-a-long-lived-platform-post-ovd-186-follow-up"],
+              ["RUNBOOK.md", "https://github.com/optomachina/Overdrafter/blob/main/RUNBOOK.md"],
+              ["PLAN.md", "https://github.com/optomachina/Overdrafter/blob/main/PLAN.md"]
+            ]
+          },
+          {
+            id: "TODO-025",
+            title: "Harden Xometry Camoufox operations",
+            priority: "High",
+            status: "Repo TODO",
+            tags: ["Xometry", "Camoufox", "Reliability"],
+            body: "PR #236 proved the architecture; remaining work is session lifecycle, profile lock cleanup, degradation detection, screenshots/logging, and repeatable operator recovery.",
+            prompt: "Complete TODO-025. Harden Xometry Camoufox session/profile management, add specific detection for rate-limit or Cloudflare degradation, improve recoverability, and verify with live smoke tooling plus worker tests where practical.",
+            sources: [
+              ["TODOS.md TODO-025", "https://github.com/optomachina/Overdrafter/blob/main/TODOS.md"],
+              ["PR #236", "https://github.com/optomachina/Overdrafter/pull/236"],
+              ["RUNBOOK.md", "https://github.com/optomachina/Overdrafter/blob/main/RUNBOOK.md"]
+            ]
+          },
+          {
+            id: "TODO-006-FOLLOWUP",
+            title: "Activate extraction quality alerts after production baseline",
+            priority: "Medium",
+            status: "Deferred follow-up",
+            tags: ["Observability", "Extraction", "Alerts"],
+            body: "The summary infrastructure exists, but alert evaluation should be activated after at least 14 full UTC days of production summary data.",
+            prompt: "Finish the TODO-006 follow-up. Inspect production extraction_quality_summary data, define conservative alert thresholds, activate alert evaluation, add docs for tuning, and verify it fails closed without noisy customer-facing effects.",
+            sources: [
+              ["TODOS.md TODO-006", "https://github.com/optomachina/Overdrafter/blob/main/TODOS.md"],
+              ["TEST_STRATEGY.md", "https://github.com/optomachina/Overdrafter/blob/main/TEST_STRATEGY.md"]
+            ]
+          },
+          {
+            id: "TODO-026-HIDDEN",
+            title: "Tune hidden extended vendor authenticated workflows",
+            priority: "Low",
+            status: "Repo TODO",
+            tags: ["Vendor expansion", "Internal validation"],
+            body: "OSH Cut, Fabworks, Ponoko, Quickparts, RapidDirect, Geomiq, Weerg, and Protolabs Network have shared infrastructure but need authenticated sessions and vendor-specific tuning before client fan-out.",
+            prompt: "Complete hidden vendor workflow tuning from TODOS.md. Bootstrap authenticated sessions for the hidden vendors, run smoke:vendor-workflow on real CAD, add narrow vendor-specific selectors/configuration only where evidence requires it, and keep all unproven vendors out of default client fan-out.",
+            sources: [
+              ["TODOS.md TODO-026 hidden vendor", "https://github.com/optomachina/Overdrafter/blob/main/TODOS.md"],
+              ["PR #238", "https://github.com/optomachina/Overdrafter/pull/238"]
+            ]
+          }
+        ]
+      },
+      {
+        id: "security",
+        title: "Security And Trust",
+        description: "Close known token and abuse risks before broader invite/payment use.",
+        tasks: [
+          {
+            id: "OVD-203",
+            title: "Hash invite access tokens instead of storing plaintext",
+            priority: "High",
+            status: "Backlog",
+            tags: ["Security", "Database", "Invite generator"],
+            body: "Raw magic-link bearer tokens in the orders table should be replaced with a hash so a database leak does not compromise invite-edit access.",
+            prompt: "Implement OVD-203. Add an access_token_hash migration and unique index, update token mint and lookup paths to hash raw tokens with SHA-256 or HMAC, backfill or invalidate existing plaintext tokens safely, remove plaintext reads, add tests, and document rollback/security implications.",
+            sources: [
+              ["OVD-203", "https://linear.app/overdrafter/issue/OVD-203/invite-generator-hash-access-token-instead-of-storing-plaintext"],
+              ["AGENTS.md security review guidance", "https://github.com/optomachina/Overdrafter/blob/main/AGENTS.md"]
+            ]
+          },
+          {
+            id: "OVD-204",
+            title: "Rate-limit /api/v1/recover",
+            priority: "High",
+            status: "Backlog",
+            tags: ["Security", "Abuse prevention", "Email"],
+            body: "The recovery endpoint needs per-IP and preferably per-email throttles to prevent mail abuse, sender reputation damage, and timing probes.",
+            prompt: "Implement OVD-204. Add conservative per-IP and per-email throttling for POST /api/v1/recover, keep responses neutral, add tests for allowed and blocked paths, and document the chosen store and operational tuning knobs.",
+            sources: [
+              ["OVD-204", "https://linear.app/overdrafter/issue/OVD-204/invite-generator-rate-limit-apiv1recover"],
+              ["TEST_STRATEGY.md rate-limit expectations", "https://github.com/optomachina/Overdrafter/blob/main/TEST_STRATEGY.md"]
+            ]
+          }
+        ]
+      },
+      {
+        id: "product",
+        title: "Product Surface",
+        description: "Finish the workspace interactions and approved visual direction after the live quote loop is trustworthy.",
+        tasks: [
+          {
+            id: "TODO-018",
+            title: "Editable spec fields on the part page",
+            priority: "Medium",
+            status: "Repo TODO",
+            tags: ["Client part", "Specs", "Review"],
+            body: "Let users edit key part spec fields while preserving extracted source truth and reviewed-user-edit boundaries.",
+            prompt: "Implement TODO-018. Add editable part spec fields using existing quote/workspace patterns, preserve extracted source truth separately from user-reviewed values, add validation and tests, and update docs if product behavior changes.",
+            sources: [
+              ["TODOS.md TODO-018", "https://github.com/optomachina/Overdrafter/blob/main/TODOS.md"],
+              ["PRD.md extraction principle", "https://github.com/optomachina/Overdrafter/blob/main/PRD.md"]
+            ]
+          },
+          {
+            id: "TODO-019",
+            title: "Reset edited spec fields to extracted values",
+            priority: "Medium",
+            status: "Repo TODO",
+            tags: ["Client part", "Specs", "Recovery"],
+            body: "After editable specs exist, provide a reset action per field that restores original extracted values from the approved requirements snapshot.",
+            prompt: "Implement TODO-019 after TODO-018. Add a per-field reset-to-extracted action, make reset state clear and accessible, cover with focused tests, and avoid overwriting intentional reviewed edits without explicit user action.",
+            sources: [
+              ["TODOS.md TODO-019", "https://github.com/optomachina/Overdrafter/blob/main/TODOS.md"]
+            ]
+          },
+          {
+            id: "TODO-021",
+            title: "Complete per-job and per-project vendor preferences",
+            priority: "Medium",
+            status: "Repo TODO",
+            tags: ["Vendor routing", "Project", "Quote fan-out"],
+            body: "Multi-vendor fan-out exists, but persisted vendor preferences need to be fully exposed and honored at the job/project level.",
+            prompt: "Complete TODO-021. Inspect the current vendor preference implementation, close any gaps in project/job persistence and UI, verify quote fan-out honors preferences, add tests for preference precedence, and update user-facing docs if needed.",
+            sources: [
+              ["TODOS.md TODO-021", "https://github.com/optomachina/Overdrafter/blob/main/TODOS.md"],
+              ["PR #215", "https://github.com/optomachina/Overdrafter/pull/215"]
+            ]
+          },
+          {
+            id: "TODO-027",
+            title: "Implement Part Workspace v5 + Project Workspace v5",
+            priority: "Medium",
+            status: "Repo TODO",
+            tags: ["UI", "Design system", "Dashboard"],
+            body: "The approved dashboard direction in DESIGN.md and PR #227 is only partially implemented; the live app still needs the v5 workspace layout, filter strip, vendor-stacked rows, editable-spec states, and status timeline.",
+            prompt: "Implement TODO-027 in small PR slices. Start from docs/DESIGN.md and the TODO-027 plan, update ClientPart, ClientProject, and ClientWorkspaceShell to the locked workspace v5 design, include responsive states, run browser QA, and keep landing-page redesign out of scope.",
+            sources: [
+              ["TODOS.md TODO-027", "https://github.com/optomachina/Overdrafter/blob/main/TODOS.md"],
+              ["docs/DESIGN.md", "https://github.com/optomachina/Overdrafter/blob/main/docs/DESIGN.md"],
+              ["PR #227", "https://github.com/optomachina/Overdrafter/pull/227"]
+            ]
+          },
+          {
+            id: "TODO-026-LANDING",
+            title: "Revisit landing-page redesign only after core app readiness",
+            priority: "Low",
+            status: "Deferred",
+            tags: ["Marketing", "Deferred"],
+            body: "The landing page is intentionally parked until there is a clear direction and the actual app workflow is solid.",
+            prompt: "Revisit TODO-026 only after the live quote MVP and workspace v5 are stable. Scope the landing page from current product truth, use real product visuals, avoid generic SaaS composition, and keep the page consistent with docs/DESIGN.md.",
+            sources: [
+              ["TODOS.md TODO-026 landing", "https://github.com/optomachina/Overdrafter/blob/main/TODOS.md"],
+              ["docs/DESIGN.md", "https://github.com/optomachina/Overdrafter/blob/main/docs/DESIGN.md"]
+            ]
+          }
+        ]
+      },
+      {
+        id: "future",
+        title: "North Star Expansion",
+        description: "Large product moves that follow once the MVP has earned more scope.",
+        tasks: [
+          {
+            id: "PHASE2-CAD",
+            title: "Plan cross-CAD plugin coverage",
+            priority: "Low",
+            status: "Future phase",
+            tags: ["CAD", "Plugins", "North Star"],
+            body: "The PRD points toward SolidWorks, Fusion 360, Onshape, Creo, Inventor, and a web fallback, but this should wait until live quote value is validated with real customers.",
+            prompt: "Create implementation-ready Linear issues for cross-CAD plugin coverage. Read PRD.md, PLAN.md, ARCHITECTURE.md, and docs/service-request-taxonomy.md, then decompose the smallest plugin-first slice with acceptance criteria and explicit non-goals.",
+            sources: [
+              ["PRD.md North Star", "https://github.com/optomachina/Overdrafter/blob/main/PRD.md"],
+              ["PLAN.md Phase 2", "https://github.com/optomachina/Overdrafter/blob/main/PLAN.md"]
+            ]
+          },
+          {
+            id: "PHASE2-PDM",
+            title: "Define PDM, revision, and fulfillment agents",
+            priority: "Low",
+            status: "Future phase",
+            tags: ["PDM", "Fulfillment", "Architecture"],
+            body: "Versioning, revision-aware agents, fulfillment coordination, and downstream state visibility are part of the north star but should be shaped as separate implementation slices.",
+            prompt: "Scope the PDM/revision/fulfillment phase. Read PRD.md, docs/fulfillment-state-model.md, docs/revision-version-bridge.md, and ARCHITECTURE.md, then draft child issues with acceptance criteria and migration boundaries.",
+            sources: [
+              ["docs/fulfillment-state-model.md", "https://github.com/optomachina/Overdrafter/blob/main/docs/fulfillment-state-model.md"],
+              ["docs/revision-version-bridge.md", "https://github.com/optomachina/Overdrafter/blob/main/docs/revision-version-bridge.md"],
+              ["PLAN.md Phase 2", "https://github.com/optomachina/Overdrafter/blob/main/PLAN.md"]
+            ]
+          },
+          {
+            id: "PHASE2-AGENTS",
+            title: "Re-evaluate agent blackboard and visualizations after usage threshold",
+            priority: "Low",
+            status: "Future phase",
+            tags: ["Agents", "3D viewer", "DFM"],
+            body: "Agent orchestration, DFM heatmaps, quote scatter, revision diff, and risk visualizations should be revisited after sustained real quote volume.",
+            prompt: "Prepare a future-phase plan for the agent orchestration blackboard and geometry-first visualizations. Use real quote-volume evidence, PRD north-star constraints, and current architecture boundaries; do not implement until the plan defines a small validated slice.",
+            sources: [
+              ["PRD.md", "https://github.com/optomachina/Overdrafter/blob/main/PRD.md"],
+              ["PLAN.md Phase 2", "https://github.com/optomachina/Overdrafter/blob/main/PLAN.md"],
+              ["docs/overdrafter-aspirational-mermaid.md", "https://github.com/optomachina/Overdrafter/blob/main/docs/overdrafter-aspirational-mermaid.md"]
+            ]
+          }
+        ]
+      }
+    ];
+
+    const board = document.querySelector("#board");
+    const nav = document.querySelector("#nav");
+    const search = document.querySelector("#search");
+    const reset = document.querySelector("#reset");
+    const filterButtons = [...document.querySelectorAll("[data-filter]")];
+    let filter = "all";
+
+    function allTasks() {
+      return sections.flatMap((section) => section.tasks.map((task) => ({ ...task, section: section.id })));
+    }
+
+    function isDone(id) {
+      return Boolean(saved[id]);
+    }
+
+    function persist() {
+      localStorage.setItem(storageKey, JSON.stringify(saved));
+    }
+
+    function matches(task) {
+      const query = search.value.trim().toLowerCase();
+      const haystack = [
+        task.id,
+        task.title,
+        task.priority,
+        task.status,
+        task.body,
+        task.prompt,
+        task.tags.join(" "),
+        task.sources.map((source) => source[0]).join(" ")
+      ].join(" ").toLowerCase();
+      const filterOk = filter === "all" || (filter === "done" && isDone(task.id)) || (filter === "open" && !isDone(task.id));
+      return filterOk && (!query || haystack.includes(query));
+    }
+
+    function renderStats() {
+      const tasks = allTasks();
+      const done = tasks.filter((task) => isDone(task.id)).length;
+      document.querySelector("#totalCount").textContent = tasks.length;
+      document.querySelector("#doneCount").textContent = done;
+      document.querySelector("#remainingCount").textContent = tasks.length - done;
+      document.querySelector("#highCount").textContent = tasks.filter((task) => task.priority === "High").length;
+    }
+
+    function renderNav() {
+      nav.innerHTML = "";
+      sections.forEach((section) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = section.title;
+        button.addEventListener("click", () => document.querySelector(`#${section.id}`).scrollIntoView({ behavior: "smooth" }));
+        nav.appendChild(button);
+      });
+    }
+
+    function render() {
+      renderStats();
+      board.innerHTML = "";
+
+      sections.forEach((section) => {
+        const visibleTasks = section.tasks.filter(matches);
+        if (!visibleTasks.length) return;
+
+        const sectionEl = document.createElement("section");
+        sectionEl.className = "section";
+        sectionEl.id = section.id;
+        sectionEl.innerHTML = `
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">${visibleTasks.length} visible task${visibleTasks.length === 1 ? "" : "s"}</div>
+              <h2>${section.title}</h2>
+              <p>${section.description}</p>
+            </div>
+          </div>
+          <div class="tasks"></div>
+        `;
+
+        const taskList = sectionEl.querySelector(".tasks");
+        visibleTasks.forEach((task) => {
+          const taskEl = document.createElement("article");
+          taskEl.className = `task ${isDone(task.id) ? "done" : ""}`;
+          const priorityClass = task.priority === "High" ? "priority-high" : task.priority === "Medium" ? "priority-medium" : "priority-low";
+          taskEl.innerHTML = `
+            <div><input type="checkbox" aria-label="Mark ${task.id} complete" ${isDone(task.id) ? "checked" : ""}></div>
+            <div>
+              <div class="task-top">
+                <h3>${task.title}</h3>
+                <span class="badge ${priorityClass}">${task.priority}</span>
+              </div>
+              <div class="badges">
+                <span class="badge">${task.id}</span>
+                <span class="badge">${task.status}</span>
+                ${task.tags.map((tag) => `<span class="badge">${tag}</span>`).join("")}
+              </div>
+              <p>${task.body}</p>
+              <div class="prompt"><code>${task.prompt}</code></div>
+              <button type="button" class="copy">Copy prompt</button>
+              <div class="sources">
+                ${task.sources.map((source) => `<a href="${source[1]}" target="_blank" rel="noreferrer">${source[0]}</a>`).join(" · ")}
+              </div>
+            </div>
+          `;
+
+          taskEl.querySelector("input").addEventListener("change", (event) => {
+            saved[task.id] = event.target.checked;
+            if (!event.target.checked) delete saved[task.id];
+            persist();
+            render();
+          });
+
+          taskEl.querySelector(".copy").addEventListener("click", async (event) => {
+            await navigator.clipboard.writeText(task.prompt);
+            event.currentTarget.textContent = "Copied";
+            setTimeout(() => {
+              event.currentTarget.textContent = "Copy prompt";
+            }, 1200);
+          });
+
+          taskList.appendChild(taskEl);
+        });
+
+        board.appendChild(sectionEl);
+      });
+    }
+
+    filterButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        filter = button.dataset.filter;
+        filterButtons.forEach((candidate) => candidate.classList.toggle("active", candidate === button));
+        render();
+      });
+    });
+
+    reset.addEventListener("click", () => {
+      Object.keys(saved).forEach((key) => delete saved[key]);
+      persist();
+      render();
+    });
+
+    search.addEventListener("input", render);
+    renderNav();
+    render();
+  </script>
+</body>
+</html>
