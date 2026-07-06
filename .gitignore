@@ -44,3 +44,10 @@ skills-lock.json
 .playwright-cli/
 output/playwright/
 /.stoneforge/.worktrees/
+
+# Local Codex CLI config (per-developer; not shared policy)
+.codex/
+
+# Stray browser-automation cookie/output dumps
+worker/#
+\#
