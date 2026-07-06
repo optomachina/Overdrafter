@@ -336,6 +336,36 @@ describe("buildQuoteRequestViewModel", () => {
     expectBlockedNotRequested(model, "Add material before requesting a quote.");
   });
 
+  it("uses a non-empty client material when approved material is blank", () => {
+    const defaultPart = makePart();
+    const model = buildQuoteRequestViewModel({
+      job: makeJob(),
+      part: makePart({
+        approvedRequirement: {
+          ...defaultPart.approvedRequirement,
+          material: "   ",
+        },
+        clientRequirement: {
+          description: "Bracket",
+          partNumber: "BRKT-001",
+          revision: "A",
+          material: "6061-T6",
+          finish: null,
+          tightestToleranceInch: null,
+          process: null,
+          notes: null,
+          quantity: 10,
+          quoteQuantities: [10],
+          requestedByDate: null,
+        },
+      }),
+      latestQuoteRequest: null,
+      latestQuoteRun: null,
+    });
+
+    expect(model.blockerReasons).not.toContain("Add material before requesting a quote.");
+  });
+
   it("surfaces the canceled state with a retry action", () => {
     const model = buildQuoteRequestViewModel({
       job: makeJob({ status: "ready_to_quote" }),

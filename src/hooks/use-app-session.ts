@@ -355,22 +355,26 @@ export function useAppSession() {
       }
 
       if (result.authState === "anonymous" && getStoredSupabaseAccessToken()) {
-        const liveBootstrap = await readLiveSupabaseBootstrap();
-        if (liveBootstrap.session) {
-          pendingAuthTransitionRef.current = true;
-          seedSessionFromSupabaseSession(liveBootstrap.session, "use-app-session.query.anonymous-live-session-rescue");
-          scheduleSessionRefresh();
-          return {
-            user: liveBootstrap.session.user,
-            memberships: currentSession?.user?.id === liveBootstrap.session.user.id
-              ? currentSession.memberships
-              : EMPTY_MEMBERSHIPS,
-            isVerifiedAuth: hasVerifiedAuth(liveBootstrap.session.user),
-            isPlatformAdmin: currentSession?.user?.id === liveBootstrap.session.user.id
-              ? currentSession.isPlatformAdmin ?? false
-              : false,
-            authState: "authenticated",
-          } satisfies AppSessionData;
+        try {
+          const liveBootstrap = await readLiveSupabaseBootstrap();
+          if (liveBootstrap.session) {
+            pendingAuthTransitionRef.current = true;
+            seedSessionFromSupabaseSession(liveBootstrap.session, "use-app-session.query.anonymous-live-session-rescue");
+            scheduleSessionRefresh();
+            return {
+              user: liveBootstrap.session.user,
+              memberships: currentSession?.user?.id === liveBootstrap.session.user.id
+                ? currentSession.memberships
+                : EMPTY_MEMBERSHIPS,
+              isVerifiedAuth: hasVerifiedAuth(liveBootstrap.session.user),
+              isPlatformAdmin: currentSession?.user?.id === liveBootstrap.session.user.id
+                ? currentSession.isPlatformAdmin ?? false
+                : false,
+              authState: "authenticated",
+            } satisfies AppSessionData;
+          }
+        } catch {
+          // Stay anonymous when the best-effort live rescue cannot read auth state.
         }
       }
 

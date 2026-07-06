@@ -97,7 +97,7 @@ function buildBlockerReasons(input: {
 
   if (
     hasQuoteCompatibleServiceKinds(job) &&
-    (requirement?.material ?? clientRequirement?.material ?? "").trim().length === 0
+    ((requirement?.material.trim() || clientRequirement?.material.trim()) ?? "").length === 0
   ) {
     reasons.push("Add material before requesting a quote.");
   }

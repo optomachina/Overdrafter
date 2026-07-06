@@ -135,7 +135,11 @@ type FixtureResolvedProjectPartValues = {
 function buildFixtureDefaultPropertyState(
   workspaceRequirement: ClientPartRequirementView | null,
   partDetailRequirement: ClientPartRequirementView | null,
+  primaryServiceKind: string | null,
 ): ClientPartPropertyState["defaults"] {
+  // Mirror buildRequirementDraft so reset resolves the same manufacturing default.
+  const processDefault = primaryServiceKind === "manufacturing_quote" ? "CNC Machining" : null;
+
   return {
     description: workspaceRequirement?.description ?? partDetailRequirement?.description ?? null,
     partNumber: workspaceRequirement?.partNumber ?? partDetailRequirement?.partNumber ?? null,
@@ -145,7 +149,7 @@ function buildFixtureDefaultPropertyState(
     tightestToleranceInch:
       workspaceRequirement?.tightestToleranceInch ?? partDetailRequirement?.tightestToleranceInch ?? null,
     threads: workspaceRequirement?.threads ?? partDetailRequirement?.threads ?? null,
-    process: workspaceRequirement?.process ?? partDetailRequirement?.process ?? null,
+    process: workspaceRequirement?.process ?? partDetailRequirement?.process ?? processDefault,
   };
 }
 
@@ -2103,7 +2107,11 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
         partDetailRequirement?.projectPartProperties ??
         null;
       const nextDefaults = {
-        ...buildFixtureDefaultPropertyState(workspaceRequirement, partDetailRequirement),
+        ...buildFixtureDefaultPropertyState(
+          workspaceRequirement,
+          partDetailRequirement,
+          workspaceItem.job.primary_service_kind ?? null,
+        ),
         ...(previousPropertyState?.defaults ?? {}),
       };
       const nextOverrides = Object.fromEntries(
@@ -2221,7 +2229,11 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
       const partDetailRequirement = ensureFixtureClientRequirement(partDetail.part);
       const propertyState = workspaceRequirement?.projectPartProperties ??
         partDetailRequirement?.projectPartProperties ?? {
-          defaults: buildFixtureDefaultPropertyState(workspaceRequirement, partDetailRequirement),
+          defaults: buildFixtureDefaultPropertyState(
+            workspaceRequirement,
+            partDetailRequirement,
+            workspaceItem.job.primary_service_kind ?? null,
+          ),
           overrides: {},
           createdAt: null,
           updatedAt: null,
