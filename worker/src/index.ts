@@ -1021,7 +1021,21 @@ async function handleVendorQuoteTask(
       );
 
       if (offerError) {
-        throw offerError;
+        console.warn(
+          JSON.stringify({
+            service: "overdrafter-cad-worker",
+            level: "warn",
+            source: "worker.vendor_quote_offer",
+            message: `Vendor quote offer upsert failed: ${summarizeError(offerError)}`,
+            context: {
+              vendorQuoteResultId: currentResult.id,
+              offerKey: `${vendor}-${currentResult.requested_quantity ?? 1}`,
+              supplier: vendor,
+              quoteRunId: task.quote_run_id,
+              jobId: task.job_id,
+            },
+          }),
+        );
       }
     }
 
