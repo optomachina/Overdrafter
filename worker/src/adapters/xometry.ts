@@ -94,7 +94,7 @@ export function detectBlockingStateSignal(input: { text: string; url: string }) 
 
   if (
     input.url.startsWith(XOMETRY_URLS.quoteHome) &&
-    isSignalPresent(input.text, XOMETRY_LOCATORS.anonymousQuoteHomeSignals)
+    XOMETRY_LOCATORS.anonymousQuoteHomeSignals.every((pattern) => pattern.test(input.text))
   ) {
     return "login_required";
   }

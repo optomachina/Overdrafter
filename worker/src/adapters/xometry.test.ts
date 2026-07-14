@@ -296,6 +296,15 @@ describe("Xometry helpers", () => {
         text: "Upload a 3D model to see instant pricing, lead time, and DFM feedback.",
         url: XOMETRY_URLS.quoteHome,
       }),
+    ).toBeNull();
+    expect(
+      detectBlockingStateSignal({
+        text: [
+          "Upload a 3D model to see instant pricing, lead time, and DFM feedback.",
+          "Already have an account?",
+        ].join(" "),
+        url: XOMETRY_URLS.quoteHome,
+      }),
     ).toBe("login_required");
   });
 });
