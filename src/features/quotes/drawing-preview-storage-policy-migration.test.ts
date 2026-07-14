@@ -14,6 +14,11 @@ describe("drawing preview storage policy migration", () => {
     expect(migrationSql).not.toMatch(/asset\.storage_path\s*=\s*name\b/);
   });
 
+  it("requires preview metadata to match the storage object bucket", () => {
+    expect(migrationSql).toContain("asset.storage_bucket = objects.bucket_id");
+    expect(migrationSql).not.toMatch(/asset\.storage_bucket\s*=\s*bucket_id\b/);
+  });
+
   it("preserves authenticated job access checks", () => {
     expect(migrationSql).toContain("to authenticated");
     expect(migrationSql).toContain("public.user_can_access_job(part.job_id)");

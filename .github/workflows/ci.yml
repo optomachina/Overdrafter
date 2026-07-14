@@ -93,6 +93,9 @@ jobs:
       - name: Reset local database
         run: npm run db:reset
 
+      - name: Test database policies
+        run: supabase test db --local
+
       - name: Seed local database
         run: npm run seed:dev
 

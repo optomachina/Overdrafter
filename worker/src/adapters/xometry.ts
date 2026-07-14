@@ -83,6 +83,13 @@ export function isManualReviewText(text: string) {
   return isSignalPresent(text, XOMETRY_LOCATORS.manualReviewSignals);
 }
 
+/**
+ * Classifies visible Xometry blocking signals for the current page.
+ *
+ * Anonymous quote-home copy maps to `login_required` only when `input.url`
+ * starts with {@link XOMETRY_URLS.quoteHome}. The same copy on any other URL
+ * must not be treated as an authentication failure.
+ */
 export function detectBlockingStateSignal(input: { text: string; url: string }) {
   if (isSignalPresent(input.text, XOMETRY_LOCATORS.captchaSignals)) {
     return "captcha";

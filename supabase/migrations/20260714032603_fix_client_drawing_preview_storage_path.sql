@@ -10,6 +10,7 @@ using (
     from public.drawing_preview_assets asset
     join public.parts part on part.id = asset.part_id
     where asset.storage_path = objects.name
+      and asset.storage_bucket = objects.bucket_id
       and public.user_can_access_job(part.job_id)
   )
 );

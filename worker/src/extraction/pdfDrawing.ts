@@ -618,7 +618,7 @@ function rescueOcrTitleBlockFields(input: {
   if (stemReference) {
     const extractedPartNumber = input.fields.partNumber.value?.trim() ?? "";
     const extractedRevision = input.fields.revision.value?.trim() ?? "";
-    const partNumberMatch = extractedPartNumber.match(PART_NUMBER_PATTERN)?.[0] ?? null;
+    const partNumberMatch = PART_NUMBER_PATTERN.exec(extractedPartNumber)?.[0] ?? null;
     const partNumberWeak =
       !extractedPartNumber ||
       input.fields.partNumber.reviewNeeded ||
