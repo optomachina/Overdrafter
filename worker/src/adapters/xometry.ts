@@ -92,6 +92,13 @@ export function detectBlockingStateSignal(input: { text: string; url: string }) 
     return "login_required";
   }
 
+  if (
+    input.url.startsWith(XOMETRY_URLS.quoteHome) &&
+    isSignalPresent(input.text, XOMETRY_LOCATORS.anonymousQuoteHomeSignals)
+  ) {
+    return "login_required";
+  }
+
   if (isSignalPresent(input.text, XOMETRY_LOCATORS.genericErrorSignals)) {
     return "anti_detection_block";
   }
