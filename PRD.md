@@ -70,6 +70,7 @@ The ideal multi-agent UX is:
 - Natural-language direction as the only control surface (“DFM this assembly for CNC aluminum 6061, get firm quotes from the 5 fastest shops under $800…”).
 - Invisible specialist agents (DFM, extraction, quoting swarm via OpenClaw browser harness, modeling/drafting updater, assembly/fulfillment coordinator, PDM agent) that decompose, negotiate on an internal blackboard, and execute in parallel.
 - On-demand visualizations only (live DFM heatmap on geometry, dynamic quote scatter, revision diff, risk heatmap) that collapse back to the clean CAD view when not needed.
+- A future costing heatmap that explains estimated cost contribution by geometric feature, tolerance, finish, and quantity. The estimator should learn from observed vendor quantity-price curves, preserve vendor/source provenance, show confidence, and remain explicitly estimate-only until a live quote verifies the price.
 - Branching/merging that feels like breathing; human override is instant and contextual.
 - OpenClaw browser automation stays completely invisible—tabs, form submissions, and quote scraping happen server-side.
 
@@ -201,6 +202,8 @@ If extraction or sourcing automation fails, the system must preserve visibility 
 ### 10. Extraction must preserve source truth and quote-ready normalization separately
 Drawing extraction must keep source-truth values from the drawing title block distinct from downstream quote-facing normalization. Raw extracted fields are evidence and must remain traceable. Quote-facing fields may be normalized for estimator and vendor workflows, but that normalization must not silently destroy source text or overwrite reviewed user edits.
 For drawings with missing, low-confidence, or conflicting parser output, the system may use a bounded model fallback to recover raw title-block values, but it must still validate the returned fields and fail closed into review when uncertainty remains.
+
+Manufacturing process follows the same boundary. The system should preserve raw drawing process text, derive a canonical process classification with confidence and provenance when possible, and let the user confirm or override that classification before quote dispatch. Vendor eligibility should be derived from the reviewed canonical process rather than a generic default vendor list.
 
 ### 6. Internal-only data must stay internal
 Internal operational notes, unpublished workflow/debug context, and other non-client-facing quote data must not leak into client-facing views. Client quote comparison may intentionally expose vendor identities and published raw lane context when that data is part of the workspace comparison experience.
