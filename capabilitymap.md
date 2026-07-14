@@ -1,6 +1,6 @@
 # OverDrafter Capability Map
 
-Last updated: March 13, 2026
+Last updated: July 14, 2026
 
 ## Purpose
 
@@ -29,6 +29,7 @@ This document classifies OverDrafter capabilities by planning horizon so future 
 | review routes before checkout | Next | already conceptually defined |
 | browser notifications | Next | useful extension of current web product |
 | richer RFQ metadata | Next | directly supports better quoting and review |
+| canonical manufacturing-process classification | Next | user-confirmable classification should normalize drawing/CAD evidence and drive vendor eligibility |
 | service request taxonomy | Next | adjacent product expansion |
 | assembly-aware project workflow | Later | project-scoped assembly context only; does not replace `Project` as the top-level container |
 | DFM / DFA status model | Later | product target is defined now in `docs/manufacturing-review-status-model.md`, but implementation still depends on richer RFQ metadata and service-line-item foundations |
@@ -46,6 +47,7 @@ This document classifies OverDrafter capabilities by planning horizon so future 
 | full PDM replacement of SOLIDWORKS PDM | Eventually | strategic ambition, not near-term scope |
 | GrabCAD Workbench-style collaboration replacement | Eventually | strategic direction, not immediate execution |
 | automated DFM assistant | Eventually | requires capability and data maturity |
+| feature-level costing heatmap | Later | depends on normalized geometry features, reviewed tolerances/process, and observed vendor quantity-price curves; estimates must retain confidence and require live verification |
 | vendor recommendation engine | Eventually | requires historical data and ranking logic |
 | autonomous orchestration | Eventually | requires strong auditability and control surfaces |
 

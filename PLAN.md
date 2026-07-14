@@ -73,10 +73,15 @@ Ship the no-Stripe live-quote MVP for the test user `dmrifles@gmail.com`: sign i
 - NL overlay + 3D-first viewer (after agent orchestration layer exists).
 - Agent orchestration blackboard (re-evaluate at ≥50 real quotes/week).
 - DFM heatmap, quote scatter, revision diff visualizations.
+- Canonical manufacturing-process classification: preserve raw drawing text, propose a normalized process with confidence and provenance, require the user to confirm or correct it before quote dispatch, and route quote fan-out through vendor capability profiles.
 - Protolabs and SendCutSend live automation (TODO-017 — see TODOS.md).
 - Hidden extended vendor workflow hardening: OSH Cut, Fabworks, Ponoko, Quickparts, RapidDirect, Geomiq, Weerg, and Protolabs Network have a shared portal-upload adapter, auth bootstrap, smoke tooling, and public/guest probe evidence. Remaining work is authenticated session setup plus vendor-specific selector/configuration tuning.
 
 All previous Phase 1/2 quote-run items are now considered scaffolding that will be progressively hidden or repurposed under the new UX.
+
+### Later capabilities (after geometry, review, and pricing-data foundations)
+
+- Feature-level costing heatmap: combine deterministic geometry/DFM features, tolerances, finish, quantity, and observed vendor quantity-price curves into confidence-scored estimate-only explanations that still require live quote verification.
 
 ## Completed milestones
 
