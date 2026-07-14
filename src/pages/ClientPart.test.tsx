@@ -1619,6 +1619,65 @@ describe("ClientPart", () => {
     expect(screen.queryByText("PDF-1.4")).not.toBeInTheDocument();
   });
 
+  it("keeps the PDF preview usable when optional extracted page images fail", async () => {
+    storedFile.loadStoredDrawingPreviewPages.mockRejectedValueOnce(new Error("preview asset unavailable"));
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(
+      createPartDetail({
+        drawingPreview: {
+          pageCount: 1,
+          thumbnail: null,
+          pages: [
+            {
+              pageNumber: 1,
+              storageBucket: "quote-artifacts",
+              storagePath: "preview/page-1.png",
+              width: 800,
+              height: 600,
+            },
+          ],
+        },
+        part: {
+          ...createPartDetail().part,
+          drawingFile: {
+            id: "drawing-1",
+            job_id: "job-1",
+            storage_bucket: "job-files",
+            storage_path: "org/bracket.pdf",
+            original_name: "bracket.pdf",
+            file_kind: "drawing",
+            mime_type: "application/pdf",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        },
+        files: [
+          {
+            id: "drawing-1",
+            job_id: "job-1",
+            storage_bucket: "job-files",
+            storage_path: "org/bracket.pdf",
+            original_name: "bracket.pdf",
+            file_kind: "drawing",
+            mime_type: "application/pdf",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+        ],
+      }),
+    );
+
+    await renderClientPartOnTab();
+
+    expect(await screen.findByTitle("bracket.pdf PDF preview")).toHaveAttribute(
+      "src",
+      "blob:part-drawing-pdf",
+    );
+    await waitFor(() => {
+      expect(storedFile.loadStoredDrawingPreviewPages).toHaveBeenCalled();
+    });
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
   it("keeps dialog page previews hydrated when PDF loading falls back to extracted page images", async () => {
     storedFile.loadStoredPdfObjectUrl.mockRejectedValueOnce(new Error("expired"));
     storedFile.loadStoredDrawingPreviewPages.mockResolvedValueOnce([{ pageNumber: 1, url: "blob:page-1" }]);
