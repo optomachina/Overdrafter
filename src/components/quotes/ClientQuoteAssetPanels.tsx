@@ -140,7 +140,7 @@ export function ClientDrawingPreviewPanel({
 
   return (
     <section className={cn("rounded-[26px] border border-border bg-ws-card p-5", className)}>
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Drawing</p>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -148,7 +148,7 @@ export function ClientDrawingPreviewPanel({
           </p>
         </div>
         {drawingFile ? (
-          <div className="flex shrink-0 gap-2">
+          <div className="flex flex-wrap gap-2 sm:shrink-0 sm:flex-nowrap">
             {onOpenDialog && resolvedState !== "missing" ? (
               <Button
                 type="button"

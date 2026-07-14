@@ -727,10 +727,16 @@ export function useClientPartController() {
         }
 
         if (pagesResult.status === "rejected") {
-          const message = getUserFacingErrorMessage(pagesResult.reason, "Unable to load drawing preview.");
-          toast.error(message);
-          setDrawingPreviewLoadError(message);
           setDrawingPreviewPageUrls([]);
+
+          if (!nextPdfUrl) {
+            const message = getUserFacingErrorMessage(pagesResult.reason, "Unable to load drawing preview.");
+            toast.error(message);
+            setDrawingPreviewLoadError(message);
+            return;
+          }
+
+          setDrawingPreviewLoadError(null);
           return;
         }
 

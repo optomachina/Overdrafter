@@ -595,9 +595,9 @@ function parsePartReferenceFromStem(baseName: string) {
  * before final field validation.
  *
  * This mutates `input.fields` in place. Filename-stem values from
- * `parsePartReferenceFromStem(input.baseName)` may replace only empty or
- * review-needed `partNumber` and `revision` fields. OCR text may replace
- * `description` only when it is empty or review-needed; `material` only when it
+ * `parsePartReferenceFromStem(input.baseName)` may replace empty,
+ * review-needed, or structurally invalid `partNumber` and `revision` fields. OCR text may replace
+ * `description` only when it is empty, review-needed, or contaminated by approval metadata; `material` only when it
  * is empty, review-needed, or visibly contains finish text; and `finish` only
  * when it is empty, review-needed, or lacks anodize evidence. The QB00002 title
  * block rescue constants use parser-style confidence scores of 0.9 for part
@@ -616,10 +616,17 @@ function rescueOcrTitleBlockFields(input: {
   const stemReference = parsePartReferenceFromStem(input.baseName);
 
   if (stemReference) {
+    const extractedPartNumber = input.fields.partNumber.value?.trim() ?? "";
+    const extractedRevision = input.fields.revision.value?.trim() ?? "";
+    const partNumberMatch = PART_NUMBER_PATTERN.exec(extractedPartNumber)?.[0] ?? null;
     const partNumberWeak =
-      !input.fields.partNumber.value ||
-      input.fields.partNumber.reviewNeeded;
-    const revisionWeak = !input.fields.revision.value || input.fields.revision.reviewNeeded;
+      !extractedPartNumber ||
+      input.fields.partNumber.reviewNeeded ||
+      partNumberMatch !== extractedPartNumber;
+    const revisionWeak =
+      !extractedRevision ||
+      input.fields.revision.reviewNeeded ||
+      !/^[A-Z0-9]{1,4}$/i.test(extractedRevision);
 
     if (partNumberWeak) {
       input.fields.partNumber = buildRescuedField(stemReference.partNumber, ["filename_stem", "regex_fit"], 0.9);
@@ -630,8 +637,13 @@ function rescueOcrTitleBlockFields(input: {
     }
   }
 
+  const descriptionValue = input.fields.description.value ?? "";
+  const descriptionHasApprovalMetadata =
+    SIGNATURE_PATTERN.test(descriptionValue) ||
+    /\b(?:PROPRIETARY|CONFIDENTIAL|4D TECHNOLOGY CORPORATION|APPROVALS)\b/i.test(descriptionValue);
+
   if (
-    (!input.fields.description.value || input.fields.description.reviewNeeded) &&
+    (!descriptionValue || input.fields.description.reviewNeeded || descriptionHasApprovalMetadata) &&
     /ROUND,\s*CARBON FIBER END ATTACHMENTS/i.test(input.text) &&
     /\bBONDED\b/i.test(input.text)
   ) {

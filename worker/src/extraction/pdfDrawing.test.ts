@@ -281,4 +281,57 @@ describe("pdfDrawing", () => {
     expect(result.quoteFinish).toBe("Black Anodize, Type II");
     expect(result.reviewFields).toEqual([]);
   });
+
+  it("prefers the strict filename identity over structurally invalid OCR title-block values", () => {
+    const result = inferDrawingSignalsFromPdf({
+      baseName: "1093-05589-02",
+      pdfText: {
+        pageCount: 1,
+        pages: [
+          {
+            page: 1,
+            text: [
+              "8 7 6 5 4 3 2 1",
+              "REVISIONS",
+              "REV DESCRIPTION ENGINEER | EC#/DATE",
+              "02 |CHANGED HOLE SIZE TIM 11/18/2013",
+              "N",
+              "N",
+              "x SS 6",
+              "ro) nm fo) Q",
+              "® .317 THRU ALL",
+              "——|",
+              "== «",
+              "|",
+              "-—)",
+              "2X R.59",
+              "@1.315",
+              "——",
+              "c",
+              "—S",
+              "PROPRIETARY AND CONFIDENTIAL UNLESS OTHERWISE SPECIFIED: APPROVALS NAME DATE 4D Technology Corporation",
+              "PREUWING WHE SOLE DRObEENY OF DIMENSIONS ARE IN INCHES SURFACE FINSH NS ENGINEER TIM 10/29/2013 TITLE:",
+              "4D TECHNOLOGY CORPORATION. ANY Oe each 5° BEND+2° INTERPRET GEOMETRIC DRAWN TIM 10/29/2013 * ROUND, CARBON FIBER END ATTACHMENTS",
+              "REPRODUCTION IN PART OR AS A WHOLE * AL £01 TOLERANCING PER: ~ ~ BONDED",
+              "WITHOUT THE WRITTEN PERMISSION OF TWO PLACE DECIMAL 2.01 ANSI Y14.5 1994 CHECKED",
+              "AD TECHNOLOGY CORPORATION IS THREE PLACE DECIMAL #.005 MFG",
+              "PROHIBITED, BREAK SHARP EDGES .003-.007 DO NOT SCALE DRAWING SIZE DWG. NO. REV",
+              "QA.",
+              "MATERIAL FINISH ANODIZE, BLACK, MIL-A-8625F, TYPE II B",
+              "6061 Alloy CLASS 2 THIRD ANGLE 0093-05589 02",
+              "Project: 8002 REFERENCE OPTICS - File Name: 1093-05589",
+            ].join("\n"),
+          },
+        ],
+      },
+    });
+
+    expect(result.partNumber.value).toBe("1093-05589");
+    expect(result.revision.value).toBe("02");
+    expect(result.description.value).toBe("ROUND, CARBON FIBER END ATTACHMENTS BONDED");
+    expect(result.quoteDescription).toBe("BONDED, CARBON FIBER END ATTACHMENT");
+    expect(result.description.reasons).toContain("ocr_title_block");
+    expect(result.partNumber.reasons).toContain("filename_stem");
+    expect(result.revision.reasons).toContain("filename_stem");
+  });
 });

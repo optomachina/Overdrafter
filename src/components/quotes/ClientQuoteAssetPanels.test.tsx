@@ -119,6 +119,20 @@ describe("ClientDrawingPreviewPanel", () => {
     expect(screen.getByTitle("drawing.pdf PDF preview")).toBeInTheDocument();
   });
 
+  it("allows drawing actions to wrap on narrow viewports", () => {
+    render(
+      <ClientDrawingPreviewPanel
+        drawingFile={drawingFile}
+        drawingPreview={emptyPreview}
+        state="ready"
+        onOpenDialog={vi.fn()}
+      />,
+    );
+
+    const actionRow = screen.getByRole("button", { name: "Expand" }).parentElement;
+    expect(actionRow).toHaveClass("flex-wrap", "sm:flex-nowrap");
+  });
+
   it("never renders raw PDF header text when PDF mode is selected", () => {
     render(
       <ClientDrawingPreviewPanel

@@ -114,6 +114,7 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 
 ### Schema or migration changes
 - validate the migration path
+- run the relevant pgTAP database tests for RLS or other database-enforced behavior
 - run static verification
 - run tests touching the affected data flow
 - include migration notes in the PR
@@ -139,6 +140,7 @@ Minimum CI target:
 - lint
 - typecheck
 - automated tests
+- pgTAP database tests when `supabase/tests/` contains database-policy coverage
 - build
 - worker verification when the worker package remains part of the repo gate
 - install dependencies for both the repo root and `worker/`
