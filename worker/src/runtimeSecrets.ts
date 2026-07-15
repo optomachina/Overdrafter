@@ -206,12 +206,12 @@ export async function validateDrawingExtractionReadiness(config: WorkerConfig): 
     return issues;
   }
 
-  if (config.openAiApiKey) {
+  if (config.openAiApiKey || config.openRouterApiKey) {
     return issues;
   }
 
   issues.push(
-    "Drawing extraction model fallback is enabled but OPENAI_API_KEY is missing. Fallback requests will stay disabled.",
+    "Drawing extraction model fallback is enabled but OPENAI_API_KEY and OPENROUTER_API_KEY are missing. Fallback requests will stay disabled.",
   );
 
   return issues;

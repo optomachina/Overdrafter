@@ -11,6 +11,23 @@ function emptyResponse<T>(): Promise<PostgrestResponse<T>> {
   });
 }
 
+/**
+ * Reads the client-approved manufacturing process used to create vendor offers.
+ */
+export function resolveRequirementProcess(specSnapshot: unknown): string | null {
+  if (!specSnapshot || typeof specSnapshot !== "object" || Array.isArray(specSnapshot)) {
+    return null;
+  }
+
+  const process = (specSnapshot as Record<string, unknown>).process;
+  if (typeof process !== "string") {
+    return null;
+  }
+
+  const normalizedProcess = process.trim();
+  return normalizedProcess || null;
+}
+
 export async function fetchPartContext(supabase: SupabaseClient, partId: string) {
   const { data: part, error: partError } = await supabase
     .from("parts")

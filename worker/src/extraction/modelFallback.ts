@@ -202,23 +202,67 @@ export function validateModelFieldValue(field: ModelFieldName, value: string | n
   return rejectionReasons;
 }
 
-function buildModelFallbackClient(config: WorkerConfig, dependencies: { client?: OpenAI }) {
+type ModelFallbackRuntimeConfig = Pick<
+  WorkerConfig,
+  "drawingExtractionModel" | "openAiApiKey" | "openRouterApiKey"
+>;
+
+function buildModelFallbackClient(
+  config: ModelFallbackRuntimeConfig,
+  dependencies: { client?: OpenAI },
+): { client: OpenAI; provider: "openai" | "openrouter" } | null {
+  if (!config.openAiApiKey && !config.openRouterApiKey) {
+    return null;
+  }
+
   if (dependencies.client) {
-    return dependencies.client;
+    return {
+      client: dependencies.client,
+      provider: config.openAiApiKey ? "openai" : "openrouter",
+    };
   }
 
   if (config.openAiApiKey) {
-    return new OpenAI({ apiKey: config.openAiApiKey });
+    return {
+      client: new OpenAI({ apiKey: config.openAiApiKey }),
+      provider: "openai",
+    };
   }
 
   if (config.openRouterApiKey) {
-    return new OpenAI({
-      apiKey: config.openRouterApiKey,
-      baseURL: "https://openrouter.ai/api/v1",
-    });
+    return {
+      client: new OpenAI({
+        apiKey: config.openRouterApiKey,
+        baseURL: "https://openrouter.ai/api/v1",
+      }),
+      provider: "openrouter",
+    };
   }
 
   return null;
+}
+
+/**
+ * Builds the provider-specific client and exact model identifier used for extraction.
+ */
+export function buildModelFallbackRuntime(
+  config: ModelFallbackRuntimeConfig,
+  dependencies: { client?: OpenAI } = {},
+): { client: OpenAI; model: string } | null {
+  const runtime = buildModelFallbackClient(config, dependencies);
+  if (!runtime) {
+    return null;
+  }
+
+  const configuredModel = config.drawingExtractionModel.trim();
+  const usesUnqualifiedOpenRouterModel = runtime.provider === "openrouter" && !configuredModel.includes("/");
+
+  return {
+    client: runtime.client,
+    model: usesUnqualifiedOpenRouterModel
+      ? `openai/${configuredModel}`
+      : configuredModel,
+  };
 }
 
 function isModelAttemptSufficient(parsed: ParsedModelResponse) {
@@ -348,8 +392,8 @@ export async function extractDrawingFieldsWithModel(
     return null;
   }
 
-  const client = buildModelFallbackClient(input.config, dependencies);
-  if (!client) {
+  const runtime = buildModelFallbackRuntime(input.config, dependencies);
+  if (!runtime) {
     return null;
   }
   const cropPath = path.join(input.outputDir, "drawing-title-block.png");
@@ -365,8 +409,8 @@ export async function extractDrawingFieldsWithModel(
 
   if (titleBlockCropPath) {
     const cropAttempt = await runModelAttempt({
-      client,
-      model: input.config.drawingExtractionModel,
+      client: runtime.client,
+      model: runtime.model,
       drawingSignals: input.drawingSignals,
       baseName: input.baseName,
       cropPath: titleBlockCropPath,
@@ -391,7 +435,7 @@ export async function extractDrawingFieldsWithModel(
       return {
         fields: attempts[0].fields,
         attempts,
-        modelName: input.config.drawingExtractionModel,
+        modelName: runtime.model,
         promptVersion: MODEL_FALLBACK_PROMPT_VERSION,
         usedTitleBlockCrop: true,
         usedFullPage: false,
@@ -404,7 +448,7 @@ export async function extractDrawingFieldsWithModel(
       ? {
           fields: attempts[attempts.length - 1].fields,
           attempts,
-          modelName: input.config.drawingExtractionModel,
+          modelName: runtime.model,
           promptVersion: MODEL_FALLBACK_PROMPT_VERSION,
           usedTitleBlockCrop: Boolean(titleBlockCropPath),
           usedFullPage: false,
@@ -413,8 +457,8 @@ export async function extractDrawingFieldsWithModel(
   }
 
   const fullPageAttempt = await runModelAttempt({
-    client,
-    model: input.config.drawingExtractionModel,
+    client: runtime.client,
+    model: runtime.model,
     drawingSignals: input.drawingSignals,
     baseName: input.baseName,
     cropPath: titleBlockCropPath,
@@ -438,7 +482,7 @@ export async function extractDrawingFieldsWithModel(
   return {
     fields: attempts[attempts.length - 1].fields,
     attempts,
-    modelName: input.config.drawingExtractionModel,
+    modelName: runtime.model,
     promptVersion: MODEL_FALLBACK_PROMPT_VERSION,
     usedTitleBlockCrop: Boolean(titleBlockCropPath),
     usedFullPage: true,

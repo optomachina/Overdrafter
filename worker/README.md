@@ -49,6 +49,9 @@ Optional:
 - `XOMETRY_STORAGE_STATE_JSON={"cookies":[],"origins":[]}`
 - `FICTIV_STORAGE_STATE_PATH=/absolute/path/to/fictiv-storage-state.json`
 - `FICTIV_STORAGE_STATE_JSON={"cookies":[],"origins":[]}`
+- `OPENAI_API_KEY=...` or `OPENROUTER_API_KEY=...` for drawing model fallback
+- `DRAWING_EXTRACTION_MODEL=gpt-5.4` (OpenRouter automatically qualifies unqualified OpenAI model names)
+- `DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK=true|false`
 
 ## Bootstrap Live Vendor Login State
 

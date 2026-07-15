@@ -101,6 +101,7 @@ export type ApprovedRequirementRecord = {
   quote_quantities: number[];
   requested_by_date: string | null;
   applicable_vendors: VendorName[];
+  spec_snapshot?: unknown;
 };
 
 export const SUPPORTED_REVIEW_FIELDS = [
