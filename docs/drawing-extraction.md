@@ -68,7 +68,8 @@ Priority order per field:
   - normalized quote-facing fields
   - review fields, warnings, and candidate/debug metadata
 - The browser must request preview runs through Supabase RPC rather than calling the worker directly.
-- `OPENAI_API_KEY` belongs only in the worker environment or secret manager.
+- `OPENAI_API_KEY` or `OPENROUTER_API_KEY` belongs only in the worker environment or secret manager.
+- When OpenRouter is the active provider, an unqualified model such as `gpt-5.4` is sent as the provider-qualified `openai/gpt-5.4`; already-qualified model identifiers are preserved.
 - `DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS` defines the allowlisted per-run model selector shown in the lab.
 - `WORKER_BUILD_VERSION` should be injected from deploy metadata or git SHA so preview runs and canonical rows reveal the exact worker build that produced them.
 

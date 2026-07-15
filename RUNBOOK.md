@@ -308,7 +308,7 @@ npm --prefix worker run install:browsers
 | `PLAYWRIGHT_HEADLESS` | no | `true` | Set `false` to watch automation in a browser window |
 | `PLAYWRIGHT_CAPTURE_TRACE` | no | `false` | Capture Playwright traces for debugging |
 | `PLAYWRIGHT_BROWSER_TIMEOUT_MS` | no | `30000` | Per-action browser timeout |
-| `DRAWING_EXTRACTION_MODEL` | no | `gpt-5.4` | Primary extraction model |
+| `DRAWING_EXTRACTION_MODEL` | no | `gpt-5.4` | Primary extraction model; OpenRouter qualifies unqualified OpenAI names automatically |
 | `DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK` | no | — | Enable fallback to secondary model on extraction failure |
 
 ---

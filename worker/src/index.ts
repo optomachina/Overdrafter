@@ -67,6 +67,7 @@ import {
 import { aggregateQuoteRunStatus } from "./quoteRunStatus.js";
 import { shouldWarnSimulateModeInProduction } from "./runtimeEnvironment.js";
 import { computeAndStoreRoutingScores } from "./scoringIntegration.js";
+import { buildVendorQuoteOfferPayload } from "./vendorQuoteOffer.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -994,29 +995,16 @@ async function handleVendorQuoteTask(
     }
 
     if (result.totalPriceUsd !== null || result.unitPriceUsd !== null || result.leadTimeBusinessDays !== null) {
+      const offerPayload = buildVendorQuoteOfferPayload({
+        vendorQuoteResultId: currentResult.id,
+        organizationId: task.organization_id,
+        vendor,
+        requestedQuantity: currentResult.requested_quantity,
+        requirement: context.requirement,
+        result,
+      });
       const { error: offerError } = await supabase.from("vendor_quote_offers").upsert(
-        {
-          vendor_quote_result_id: currentResult.id,
-          organization_id: task.organization_id,
-          offer_key: `${vendor}-${currentResult.requested_quantity ?? 1}`,
-          supplier: vendor,
-          lane_label: `${vendor} quote`,
-          sourcing: "automated",
-          tier: result.status === "official_quote_received" ? "Official" : "Instant",
-          unit_price_usd: result.unitPriceUsd,
-          total_price_usd: result.totalPriceUsd,
-          lead_time_business_days: result.leadTimeBusinessDays,
-          process: null,
-          material: context.requirement.material,
-          finish: context.requirement.finish,
-          tightest_tolerance: context.requirement.tightest_tolerance_inch?.toString() ?? null,
-          notes: result.notes.join("\n") || null,
-          raw_payload: {
-            ...result.rawPayload,
-            quoteUrl: result.quoteUrl,
-            requestedQuantity: currentResult.requested_quantity,
-          },
-        },
+        offerPayload,
         { onConflict: "vendor_quote_result_id,offer_key" },
       );
 
@@ -1029,7 +1017,7 @@ async function handleVendorQuoteTask(
             message: `Vendor quote offer upsert failed: ${summarizeError(offerError)}`,
             context: {
               vendorQuoteResultId: currentResult.id,
-              offerKey: `${vendor}-${currentResult.requested_quantity ?? 1}`,
+              offerKey: offerPayload.offer_key,
               supplier: vendor,
               quoteRunId: task.quote_run_id,
               jobId: task.job_id,
