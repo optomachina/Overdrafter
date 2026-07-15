@@ -207,6 +207,19 @@ describe("modelFallback", () => {
     expect(runtime?.model).toBe("anthropic/claude-sonnet-4.5");
   });
 
+  it("rejects an injected client when no provider key is configured", () => {
+    const runtime = buildModelFallbackRuntime(
+      {
+        drawingExtractionModel: "gpt-5.4",
+        openAiApiKey: null,
+        openRouterApiKey: null,
+      },
+      { client: { responses: {} } as unknown as OpenAI },
+    );
+
+    expect(runtime).toBeNull();
+  });
+
   it("sends the qualified OpenRouter model through crop and full-page attempts", async () => {
     const parse = vi
       .fn()

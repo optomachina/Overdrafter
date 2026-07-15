@@ -211,6 +211,10 @@ function buildModelFallbackClient(
   config: ModelFallbackRuntimeConfig,
   dependencies: { client?: OpenAI },
 ): { client: OpenAI; provider: "openai" | "openrouter" } | null {
+  if (!config.openAiApiKey && !config.openRouterApiKey) {
+    return null;
+  }
+
   if (dependencies.client) {
     return {
       client: dependencies.client,
