@@ -175,6 +175,24 @@ Why:
   to avoid idle-instance charges. A zero-idle service must be awakened with an
   authenticated request while queued work is waiting.
 
+Grant the validation caller `roles/run.invoker`, then wake the private worker while
+queued work is waiting:
+
+```bash
+gcloud run services add-iam-policy-binding overdrafter-cad-worker \
+  --region "$CLOUD_RUN_REGION" \
+  --member "user:your-email@example.com" \
+  --role roles/run.invoker
+
+SERVICE_URL="$(gcloud run services describe overdrafter-cad-worker \
+  --region "$CLOUD_RUN_REGION" \
+  --format='value(status.url)')"
+
+curl -fsS \
+  -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  "$SERVICE_URL/healthz"
+```
+
 Create the secrets once:
 
 ```bash
