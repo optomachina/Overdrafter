@@ -11,9 +11,16 @@ SUPABASE_URL="${SUPABASE_URL:-}"
 SUPABASE_SERVICE_ROLE_SECRET_NAME="${SUPABASE_SERVICE_ROLE_SECRET_NAME:-supabase-service-role-key}"
 XOMETRY_STORAGE_STATE_SECRET_NAME="${XOMETRY_STORAGE_STATE_SECRET_NAME:-xometry-storage-state}"
 OPENAI_API_KEY_SECRET_NAME="${OPENAI_API_KEY_SECRET_NAME:-}"
+OPENROUTER_API_KEY_SECRET_NAME="${OPENROUTER_API_KEY_SECRET_NAME:-}"
 WORKER_MODE="${WORKER_MODE:-live}"
 WORKER_LIVE_ADAPTERS="${WORKER_LIVE_ADAPTERS:-xometry}"
 WORKER_POLL_INTERVAL_MS="${WORKER_POLL_INTERVAL_MS:-5000}"
+if [[ -z "${WORKER_BUILD_VERSION:-}" ]]; then
+  WORKER_BUILD_VERSION="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  if [[ "$WORKER_BUILD_VERSION" != "unknown" ]] && [[ -n "$(git status --porcelain --untracked-files=normal -- . 2>/dev/null)" ]]; then
+    WORKER_BUILD_VERSION="${WORKER_BUILD_VERSION}-dirty"
+  fi
+fi
 QUOTE_ARTIFACT_BUCKET="${QUOTE_ARTIFACT_BUCKET:-quote-artifacts}"
 PLAYWRIGHT_HEADLESS="${PLAYWRIGHT_HEADLESS:-true}"
 PLAYWRIGHT_CAPTURE_TRACE="${PLAYWRIGHT_CAPTURE_TRACE:-false}"
@@ -21,6 +28,9 @@ PLAYWRIGHT_BROWSER_TIMEOUT_MS="${PLAYWRIGHT_BROWSER_TIMEOUT_MS:-45000}"
 PLAYWRIGHT_DISABLE_SANDBOX="${PLAYWRIGHT_DISABLE_SANDBOX:-true}"
 PLAYWRIGHT_DISABLE_DEV_SHM_USAGE="${PLAYWRIGHT_DISABLE_DEV_SHM_USAGE:-true}"
 CLOUD_RUN_SERVICE_ACCOUNT="${CLOUD_RUN_SERVICE_ACCOUNT:-}"
+CLOUD_RUN_MIN_INSTANCES="${CLOUD_RUN_MIN_INSTANCES:-1}"
+CLOUD_RUN_MAX_INSTANCES="${CLOUD_RUN_MAX_INSTANCES:-1}"
+GCLOUD_BIN="${GCLOUD_BIN:-gcloud}"
 
 if [[ -z "$PROJECT_ID" ]]; then
   echo "GOOGLE_CLOUD_PROJECT is required."
@@ -32,12 +42,28 @@ if [[ -z "$SUPABASE_URL" ]]; then
   exit 1
 fi
 
+if ! [[ "$CLOUD_RUN_MIN_INSTANCES" =~ ^[0-9]+$ && "$CLOUD_RUN_MAX_INSTANCES" =~ ^[0-9]+$ ]]; then
+  echo "CLOUD_RUN_MIN_INSTANCES and CLOUD_RUN_MAX_INSTANCES must be non-negative integers."
+  exit 1
+fi
+
+if (( 10#$CLOUD_RUN_MAX_INSTANCES < 1 )); then
+  echo "CLOUD_RUN_MAX_INSTANCES must be at least 1."
+  exit 1
+fi
+
+if (( 10#$CLOUD_RUN_MIN_INSTANCES > 10#$CLOUD_RUN_MAX_INSTANCES )); then
+  echo "CLOUD_RUN_MIN_INSTANCES cannot exceed CLOUD_RUN_MAX_INSTANCES."
+  exit 1
+fi
+
 env_vars=(
   "SUPABASE_URL=${SUPABASE_URL}"
   "WORKER_MODE=${WORKER_MODE}"
   "WORKER_LIVE_ADAPTERS=${WORKER_LIVE_ADAPTERS}"
   "WORKER_NAME=${SERVICE_NAME}"
   "WORKER_POLL_INTERVAL_MS=${WORKER_POLL_INTERVAL_MS}"
+  "WORKER_BUILD_VERSION=${WORKER_BUILD_VERSION}"
   "WORKER_HTTP_HOST=0.0.0.0"
   "WORKER_TEMP_DIR=/tmp/overdrafter-worker"
   "QUOTE_ARTIFACT_BUCKET=${QUOTE_ARTIFACT_BUCKET}"
@@ -52,19 +78,28 @@ secret_vars=(
   "SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_SECRET_NAME}:latest"
   "XOMETRY_STORAGE_STATE_JSON=${XOMETRY_STORAGE_STATE_SECRET_NAME}:latest"
 )
+remove_secret_vars=()
 
 if [[ -n "$OPENAI_API_KEY_SECRET_NAME" ]]; then
   secret_vars+=("OPENAI_API_KEY=${OPENAI_API_KEY_SECRET_NAME}:latest")
+else
+  remove_secret_vars+=("OPENAI_API_KEY")
+fi
+
+if [[ -n "$OPENROUTER_API_KEY_SECRET_NAME" ]]; then
+  secret_vars+=("OPENROUTER_API_KEY=${OPENROUTER_API_KEY_SECRET_NAME}:latest")
+else
+  remove_secret_vars+=("OPENROUTER_API_KEY")
 fi
 
 deploy_cmd=(
-  gcloud run deploy "$SERVICE_NAME"
+  "$GCLOUD_BIN" run deploy "$SERVICE_NAME"
   --project "$PROJECT_ID"
   --region "$REGION"
   --source .
   --execution-environment gen2
-  --min-instances 1
-  --max-instances 1
+  --min-instances "$CLOUD_RUN_MIN_INSTANCES"
+  --max-instances "$CLOUD_RUN_MAX_INSTANCES"
   --concurrency 1
   --cpu 2
   --memory 2Gi
@@ -77,6 +112,10 @@ deploy_cmd=(
 
 if [[ -n "$CLOUD_RUN_SERVICE_ACCOUNT" ]]; then
   deploy_cmd+=(--service-account "$CLOUD_RUN_SERVICE_ACCOUNT")
+fi
+
+if (( ${#remove_secret_vars[@]} > 0 )); then
+  deploy_cmd+=(--remove-secrets "$(IFS=,; echo "${remove_secret_vars[*]}")")
 fi
 
 printf 'Deploying %s to project %s in %s\n' "$SERVICE_NAME" "$PROJECT_ID" "$REGION"
