@@ -168,7 +168,12 @@ Why:
 
 - The runtime is a long-lived queue poller.
 - Browser automation runs longer than a typical webhook request.
-- The service can stay warm with `min-instances=1` and `--no-cpu-throttling`.
+- The service uses `--no-cpu-throttling` while an instance is active.
+- The deploy script defaults to `min-instances=1` so the queue poller continues to
+  make progress without an external trigger.
+- Guarded validation environments can explicitly set `CLOUD_RUN_MIN_INSTANCES=0`
+  to avoid idle-instance charges. A zero-idle service must be awakened with an
+  authenticated request while queued work is waiting.
 
 Create the secrets once:
 
@@ -189,6 +194,15 @@ printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | gcloud secrets versions add supabase-
   --data-file=-
 ```
 
+Drawing model fallback can use either provider. Create one provider secret and pass
+its name during deployment:
+
+```bash
+printf '%s' "$OPENROUTER_API_KEY" | gcloud secrets create openrouter-api-key \
+  --replication-policy=automatic \
+  --data-file=-
+```
+
 Deploy from the `worker/` directory:
 
 ```bash
@@ -199,12 +213,27 @@ SUPABASE_URL=https://your-project.supabase.co \
 ./scripts/deploy-cloud-run.sh
 ```
 
+For a guarded validation deployment with no idle instance, explicitly opt into zero:
+
+```bash
+CLOUD_RUN_MIN_INSTANCES=0 \
+GOOGLE_CLOUD_PROJECT=your-project-id \
+CLOUD_RUN_REGION=us-west1 \
+SUPABASE_URL=https://your-project.supabase.co \
+./scripts/deploy-cloud-run.sh
+```
+
+To inject an OpenRouter key from Secret Manager, add
+`OPENROUTER_API_KEY_SECRET_NAME=openrouter-api-key`. OpenAI is supported with
+`OPENAI_API_KEY_SECRET_NAME` in the same way.
+
 The deploy script:
 
 - builds from `worker/Dockerfile`
 - configures a single-instance Cloud Run service
 - injects `SUPABASE_SERVICE_ROLE_KEY` from Secret Manager
 - injects `XOMETRY_STORAGE_STATE_JSON` from Secret Manager
+- optionally injects `OPENAI_API_KEY` or `OPENROUTER_API_KEY` from Secret Manager
 - enables the Chromium flags that are typically needed in Cloud Run
 
 In Cloud Run, treat `/healthz` and `/readyz` as the only supported HTTP endpoints.
@@ -213,7 +242,7 @@ The worker debug routes are disabled because the deployed service runs with
 
 Recommended first-pass settings:
 
-- `min-instances=1`
+- `min-instances=1` for continuous polling; explicitly use `0` only for guarded validation with an authenticated wake request
 - `max-instances=1`
 - `concurrency=1`
 - `cpu=2`
