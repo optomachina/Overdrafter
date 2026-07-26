@@ -5,6 +5,8 @@ Baseline at review time: `main` @ `c8276e9`; `npm run typecheck`, `npm --prefix 
 
 This document answers a specific question: **knowing what we know now, how should this system have been designed from the start, and what does that imply for the code that exists?** It is a design argument, not a bug list. Concrete defects appear only where they illustrate a structural cause.
 
+> **Status.** Findings §2–§5, §9, and §10 have since been implemented; §12 records what landed and what did not. The findings below are kept in their original form because the reasoning is the point — the file/line references describe the code as reviewed, not as it now stands.
+
 ---
 
 ## 1. The thesis
@@ -213,21 +215,59 @@ Everything else — the provider registry, cost accounting, per-type concurrency
 
 ---
 
-## 12. Sequenced path from here
+## 12. Sequenced path — status
 
-No rewrite is required or recommended. Each step is independently shippable and independently valuable.
+No rewrite was required. Each step below was independently shippable.
 
-1. **Gate unanchored prices.** Make `priceSource: "body_text"` route to `manual_review_pending` with a locator-drift alert. Smallest diff, largest correctness gain. Product sign-off needed on the coverage tradeoff. (§2)
-2. **Check in an eval corpus and add the CI floor.** 30–50 drawings with ground truth; per-field accuracy thresholds as a required check. Unblocks every later change to prompt, model, or thresholds. (§4)
-3. **Collapse the two model paths.** Move the provider interface from `tools/` into the extraction core; make production and eval call it. Pin `temperature: 0` in production. Wire Anthropic as real failover. (§3)
-4. **Introduce `callModel()`.** Deadline, retry, token/cost/latency accounting, audit emission. Extend `buildExtractionCompletionPayload` to carry usage and prompt version. (§5)
-5. **Extract `Extracted<T>` and the policy module.** Migrate the adapters onto it; delete the duplicated thresholds. (§2, §10)
-6. **Per-task-type concurrency in the worker.** Extraction parallel, vendor automation serialized per profile. (§7)
-7. **Split as-built from aspirational docs.** Make `ARCHITECTURE.md` diffable against the tree. (§9)
+### Landed
+
+1. **Unanchored prices are gated.** (§2) `worker/src/extractedValue.ts` defines the provenance contract and the gate. A `body_text` price now routes to `manual_review_pending`, retains the observation under `unanchoredPriceObservedUsd` as evidence, and sets `locatorDriftDetected`. Applied to `xometry`, `fictiv`, and the generic `PortalQuoteWorkflowAdapter`, which had no scoped price locator at all.
+   *Behavior change:* results whose price came only from whole-page text no longer produce a client-visible price. That is the accuracy-over-coverage tradeoff the review flagged; it is now the default.
+2. **The two model paths are collapsed.** (§3) The provider interface, the three implementations, the cost table, and provider inference moved to `worker/src/extraction/`. `tools/extractEvalProviders.ts` and `tools/extractEvalCosts.ts` are re-export shims. Production gained deterministic sampling. Anthropic is a real production provider with OpenRouter fallback when a native key is absent.
+3. **`callModel()` exists.** (§5) One entry point owning the deadline, retry with full jitter, and token/cost/latency accounting; SDK-level retries disabled so providers behave uniformly.
+4. **Production LLM observability.** (§5) Completion events carry provider, prompt version, tokens, latency, cost, and attempts. Prompt version is a content hash of the prompt and schema rather than a hand-maintained string.
+5. **Policy consolidated.** (§10) Thresholds and sufficiency rules exist once in `extraction/policy.ts`; the duplicates in `modelFallback.ts`, `hybridExtraction.ts`, and `debugLab.ts` are gone.
+6. **Queue payload semantics fixed.** (§10) The helpers merge patches server-side instead of replacing, so a call site cannot drop a task's original inputs.
+7. **Docs split.** (§9) `ARCHITECTURE.md` now labels sections As-built or Target, and documents the untrusted-input and extraction-model contracts.
+
+### Partially landed
+
+8. **Eval gate — harness yes, corpus barely.** (§4) `worker/src/tools/extractEvalGate.ts` runs the production path over a corpus and fails below per-field floors; it is unit-tested, wired to `npm --prefix worker run eval:gate`, and has a CI job that reports *skipped* rather than *passed* when no corpus or provider key exists. The corpus holds **one** case: the real `1093-05589-02.pdf` already checked in under `public/fixtures/`, with ground truth read from the drawing's own text layer. It needs the rest of the real quote drawings.
+   *This is the highest-value remaining work in the repo.* Everything above is only measurable once it exists.
+
+   Two caveats are documented in `worker/eval-corpus/README.md`: one case means every field scores 0% or 100%, and the case is partly circular because `pdfDrawing.ts` contains rescues keyed to that drawing's literal expected values (see §13).
+
+### Not started
+
+9. **Per-task-type concurrency in the worker.** (§7) Extraction parallel to a bounded pool, vendor automation serialized per `(vendor, profile)`. Deliberately deferred: it touches the claim/lease path that all vendor work depends on, and it is the one change here that is hard to verify without a live queue.
+10. **`suggestLocatorUpdate` is still a stub.** (§8) Left in place rather than half-fixed. Now that the price gate emits `locatorDriftDetected` with DOM and screenshot artifacts already attached, the input for a real repair loop exists — but building it is a feature, not a cleanup, and it should be scoped as one. If it is not going to be built, delete it: it still reports fabricated confidence numbers into the same surfaces as measured ones.
+11. **Migration-shape tests.** (§10) The 13 `*-migration.test.ts` files still assert against SQL text. Moving them to `supabase test db` is mechanical but touches a lot of files for little behavioral gain; it is worth doing opportunistically rather than as a batch.
 
 ---
 
-## 13. What is already right
+## 13. Addendum — a finding the corpus surfaced
+
+Running the first real drawing through the new gate turned up something the original review missed, because it is invisible until you compare the parser against a drawing it was tuned on.
+
+`worker/src/extraction/pdfDrawing.ts` contains rescues keyed to one specific drawing's literal expected values:
+
+```ts
+const materialMatch = /\b6061\s+Alloy\b/i.exec(input.text);
+/ROUND,\s*CARBON FIBER END ATTACHMENTS/i.test(input.text)
+/ANODIZE,\s*BLACK,\s*MIL-A-8625F,\s*TYPE\s*II/i.test(input.text)
+```
+
+This is overfitting encoded as code. Three consequences:
+
+1. **It hides parser defects.** With the rescues active, this drawing looked correct. With them disabled, the underlying parse was wrong in two distinct ways — a FINISH value that absorbed the adjacent `THIRD ANGLE PROJECTION` cell, and a MATERIAL truncated from `6061 Alloy` to `6061`. Both are now fixed at the root, with regression tests, and both fields now parse correctly without help.
+2. **It corrupts any eval that includes the drawing.** A corpus case a rescue can satisfy measures the rescue, not the pipeline. This is documented on the case itself and in the corpus README so nobody reads the resulting green as generalization.
+3. **The repo's synthetic fixture disagrees with the real file.** `PRIMARY_REGRESSION_FIXTURE` in `pdfDrawing.test.ts` places the wrapped `BONDED` title line directly beneath `TITLE:`; in the actual PDF's extracted text it lands eight rows lower. The synthetic test passed throughout — it could not have caught either defect. **Fixtures written from memory of a drawing do not substitute for the drawing.**
+
+The rescues should come out once enough real drawings exist to judge the parser without them. Removing them now would degrade a live customer's result, so they stay, labelled, until the corpus can replace them.
+
+---
+
+## 14. What is already right
 
 Stated plainly, because the recommendation throughout is *apply your own best pattern uniformly*, not *start over*:
 

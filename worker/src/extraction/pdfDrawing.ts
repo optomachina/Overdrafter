@@ -403,7 +403,29 @@ function buildAnchoredCandidates(
         break;
       }
 
-      const boundedValue = cleanCapturedValue(nextLine.raw.slice(lowerRowStart, cellEnd));
+      // The cell's right edge is the next label on the anchor line, if there
+      // is one. When there is not, the cell runs to the end of the line being
+      // read — not to the end of the *anchor* line, which is often much
+      // shorter when a label sits alone above its value. Clipping to the
+      // anchor line's width truncated values like "6061 Alloy" to "6061".
+      const continuationCellEnd = nextAnchor?.start ?? nextLine.raw.length;
+      const boundedValue = cleanCapturedValue(nextLine.raw.slice(lowerRowStart, continuationCellEnd));
+      // Column-bounded fields may fall back to the whole line only while we
+      // have captured nothing yet — that covers a label sitting alone above
+      // its value. Once chunks are accumulating, an empty cell means this
+      // field's column has ended, and reading the whole line would splice in
+      // text from a neighbouring title-block cell. (A FINISH of
+      // "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2" used to pick up the
+      // adjacent "THIRD ANGLE PROJECTION" block this way.)
+      // Scoped to column-bounded fields. A description legitimately wraps to a
+      // row that starts outside the label's column, so the same guard there
+      // truncates wrapped titles.
+      const columnEnded = field !== "description" && chunks.length > 0 && !boundedValue;
+
+      if (columnEnded) {
+        break;
+      }
+
       const lineValue =
         field === "description"
           ? nextLine.normalized
