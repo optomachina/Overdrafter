@@ -63,7 +63,12 @@ def resolve_input(path: Path, *, must_be_file: bool = False) -> Path:
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def resolve_output(path: Path, root: Path | None, allow_outside_repo: bool = False) -> Path:
+def resolve_output(
+    path: Path,
+    root: Path | None,
+    allow_outside_repo: bool = False,
+    allow_directory: bool = False,
+) -> Path:
     """Resolves an output path, confining it beneath `root` when one applies.
 
     Confinement is meaningful only in batch mode, where target names are derived
@@ -88,7 +93,7 @@ def resolve_output(path: Path, root: Path | None, allow_outside_repo: bool = Fal
         if root_resolved not in resolved.parents:
             raise ValueError(f"Refusing to write outside {root_resolved}: {resolved}")
 
-    if resolved.exists() and not resolved.is_file():
+    if resolved.exists() and not resolved.is_file() and not allow_directory:
         raise ValueError(f"Output exists and is not a regular file: {resolved}")
 
     return resolved
@@ -262,7 +267,12 @@ def scrub_file(
 
     document.set_metadata({**(document.metadata or {}), **metadata})
     target = resolve_output(target, output_root, allow_outside_repo)
-    target.parent.mkdir(parents=True, exist_ok=True)
+    # Create at most one level, under a parent that already exists. `parents=True`
+    # would let a mistaken argument materialise an arbitrary directory tree.
+    if not target.parent.exists():
+        if not target.parent.parent.is_dir():
+            raise ValueError(f"Output directory's parent does not exist: {target.parent}")
+        target.parent.mkdir()
     # garbage=4 rewrites the object tree so removed strings do not linger in
     # unreferenced objects that a raw byte scan could still recover.
     document.save(target, garbage=4, deflate=True, clean=True)
@@ -303,6 +313,20 @@ def main() -> int:
     if not args.dry_run and not args.output:
         print("--output is required unless --dry-run is set", file=sys.stderr)
         return 2
+
+    if args.output is not None:
+        # Resolve and range-check the caller's output once, here at the
+        # boundary, rather than leaving a raw argv string in play downstream.
+        try:
+            args.output = resolve_output(
+                args.output,
+                None,
+                args.allow_outside_repo,
+                allow_directory=True,
+            )
+        except ValueError as error:
+            print(error, file=sys.stderr)
+            return 2
 
     sources = sorted(args.source.glob("*.pdf")) if args.source.is_dir() else [args.source]
     if not sources:
