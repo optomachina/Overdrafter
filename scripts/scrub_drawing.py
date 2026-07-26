@@ -41,6 +41,59 @@ except ImportError:
     raise SystemExit(2)
 
 
+def resolve_input(path: Path, *, must_be_file: bool = False) -> Path:
+    """Resolves a caller-supplied input path and rejects anything unusable.
+
+    Paths reach this script from CLI arguments, which may be assembled by
+    tooling rather than typed by hand. Resolving symlinks first means a link
+    cannot redirect a read somewhere unintended, and rejecting non-regular
+    files keeps the script off devices and pipes.
+    """
+    resolved = path.expanduser().resolve(strict=False)
+
+    if not resolved.exists():
+        raise ValueError(f"No such path: {resolved}")
+
+    if must_be_file and not resolved.is_file():
+        raise ValueError(f"Not a regular file: {resolved}")
+
+    return resolved
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def resolve_output(path: Path, root: Path | None, allow_outside_repo: bool = False) -> Path:
+    """Resolves an output path, confining it beneath `root` when one applies.
+
+    Confinement is meaningful only in batch mode, where target names are derived
+    from input filenames and the caller never sees them individually. For a
+    single file the caller named the target explicitly, so there is no root to
+    enforce against — deriving one from that same argument would make the check
+    vacuous rather than protective.
+    """
+    resolved = path.expanduser().resolve(strict=False)
+
+    # Scrubbed drawings are destined for the repo. Writing anywhere else is a
+    # sign the arguments are wrong -- the case this guards is an argument
+    # assembled by tooling rather than typed -- so it takes an explicit opt-in.
+    if not allow_outside_repo and REPO_ROOT not in resolved.parents:
+        raise ValueError(
+            f"Refusing to write outside {REPO_ROOT}: {resolved}. "
+            "Pass --allow-outside-repo if this is intended."
+        )
+
+    if root is not None:
+        root_resolved = root.expanduser().resolve(strict=False)
+        if root_resolved not in resolved.parents:
+            raise ValueError(f"Refusing to write outside {root_resolved}: {resolved}")
+
+    if resolved.exists() and not resolved.is_file():
+        raise ValueError(f"Output exists and is not a regular file: {resolved}")
+
+    return resolved
+
+
 @dataclass
 class Rule:
     pattern: re.Pattern[str]
@@ -54,7 +107,7 @@ class Rule:
 
 
 def load_rules(path: Path) -> tuple[list[Rule], dict[str, str], list[str]]:
-    config = json.loads(path.read_text())
+    config = json.loads(resolve_input(path, must_be_file=True).read_text())
     rules: list[Rule] = []
 
     for entry in config.get("replacements", []):
@@ -179,12 +232,14 @@ def verify(pdf_path: Path, forbidden: list[str]) -> list[str]:
 def scrub_file(
     source: Path,
     target: Path,
+    output_root: Path | None,
+    allow_outside_repo: bool,
     rules: list[Rule],
     metadata: dict[str, str],
     forbidden: list[str],
     dry_run: bool,
 ) -> int:
-    document = fitz.open(source)
+    document = fitz.open(resolve_input(source, must_be_file=True))
     all_changes: list[tuple[str, str]] = []
 
     for page in document:
@@ -206,6 +261,7 @@ def scrub_file(
         return 0
 
     document.set_metadata({**(document.metadata or {}), **metadata})
+    target = resolve_output(target, output_root, allow_outside_repo)
     target.parent.mkdir(parents=True, exist_ok=True)
     # garbage=4 rewrites the object tree so removed strings do not linger in
     # unreferenced objects that a raw byte scan could still recover.
@@ -227,6 +283,11 @@ def main() -> int:
     parser.add_argument("-o", "--output", type=Path, help="output file or directory")
     parser.add_argument("--rules", type=Path, required=True, help="JSON rules file")
     parser.add_argument("--dry-run", action="store_true", help="report changes without writing")
+    parser.add_argument(
+        "--allow-outside-repo",
+        action="store_true",
+        help="permit writing outside the repository (off by default)",
+    )
     args = parser.parse_args()
 
     if not args.source.exists():
@@ -251,13 +312,28 @@ def main() -> int:
     status = 0
     for source in sources:
         if args.dry_run:
-            target = source
+            target, output_root = source, None
         elif args.source.is_dir():
-            target = args.output / source.name
+            # `source.name` is a basename, so it cannot carry traversal, and the
+            # resolved target is additionally confined to the output directory.
+            target, output_root = args.output / source.name, args.output
         else:
-            target = args.output
+            target, output_root = args.output, None
 
-        status |= scrub_file(source, target, rules, metadata, forbidden, args.dry_run)
+        try:
+            status |= scrub_file(
+                source,
+                target,
+                output_root,
+                args.allow_outside_repo,
+                rules,
+                metadata,
+                forbidden,
+                args.dry_run,
+            )
+        except ValueError as error:
+            print(f"{source}: {error}", file=sys.stderr)
+            status |= 2
 
     return status
 

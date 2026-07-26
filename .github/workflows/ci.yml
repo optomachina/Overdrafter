@@ -175,8 +175,11 @@ jobs:
           cache: npm
           cache-dependency-path: worker/package-lock.json
 
+      # The gate only reads PDFs and calls provider HTTP APIs; it never needs a
+      # browser, so lifecycle scripts (which fetch Playwright/Patchright
+      # binaries) are skipped.
       - name: Install worker dependencies
-        run: npm --prefix worker ci
+        run: npm --prefix worker ci --ignore-scripts
 
       # The extraction pipeline shells out to pdftotext/pdfinfo/pdftoppm.
       - name: Install poppler-utils
@@ -192,12 +195,25 @@ jobs:
             echo "::notice::No extraction eval corpus checked in; skipping the quality gate. See worker/eval-corpus/README.md."
           fi
 
-      # With no provider key the deterministic parser still runs, which is worth
-      # gating on by itself — it is the path that produces most title-block
-      # values. The model fallback is disabled explicitly rather than left to
-      # depend on whether a secret happens to be set, so the run is reproducible.
+      # Any supported provider enables the production path, not OpenAI alone:
+      # the configured model may route to Anthropic or OpenRouter, and gating on
+      # one vendor's key would silently downgrade those deployments to
+      # parser-only while reporting a full-path run.
+      - name: Detect provider credentials
+        id: creds
+        run: |
+          if [ -n "$OPENAI_API_KEY" ] || [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Without credentials the deterministic parser is still worth gating on —
+      # it produces most title-block values. Fallback is disabled explicitly
+      # rather than left to depend on which secrets happen to be set, so the run
+      # is reproducible.
       - name: Run extraction gate (parser only)
-        if: ${{ steps.corpus.outputs.present == 'true' && env.OPENAI_API_KEY == '' }}
+        if: ${{ steps.corpus.outputs.present == 'true' && steps.creds.outputs.present == 'false' }}
         env:
           DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: "false"
         run: |
@@ -205,7 +221,7 @@ jobs:
           npm --prefix worker run eval:gate
 
       - name: Run extraction gate (full production path)
-        if: ${{ steps.corpus.outputs.present == 'true' && env.OPENAI_API_KEY != '' }}
+        if: ${{ steps.corpus.outputs.present == 'true' && steps.creds.outputs.present == 'true' }}
         run: npm --prefix worker run eval:gate
 
   ci:
