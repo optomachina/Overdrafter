@@ -8,6 +8,14 @@ import {
   type VendorQuoteAdapterInput,
   type VendorQuoteAdapterOutput,
 } from "../types.js";
+import {
+  gateLeadTime,
+  gateVendorPrice,
+  priceGateEvidence,
+  UNANCHORED_PRICE_NOTE,
+  type PriceGate,
+  type ValueSource,
+} from "../extractedValue.js";
 import { VendorAdapter } from "./base.js";
 import {
   buildFinishSearchTerms,
@@ -34,7 +42,7 @@ type FictivResultClassification =
   | "configuration_required"
   | "capability_limited";
 
-type FictivValueSource = "selector" | "body_text" | "none";
+type FictivValueSource = ValueSource;
 type FictivEndUseSource = "selector" | "assumed_default";
 
 type FictivResolvedTerms = {
@@ -99,12 +107,14 @@ export type FictivLeadTimeOption = {
 
 type FictivParsedQuote = {
   bodyText: string;
+  /** Already gated: null unless the price came from a declared locator. */
   totalPrice: number | null;
   leadTime: number | null;
   manualReview: boolean;
   manualReviewSelector: string | null;
   priceSource: FictivValueSource;
   leadTimeSource: FictivValueSource;
+  priceGate: PriceGate;
   leadTimeOptions: FictivLeadTimeOption[];
 };
 
@@ -1255,15 +1265,18 @@ export class FictivAdapter extends VendorAdapter {
     );
     const manualReviewResult = await detectManualReview(page, bodyText);
     const leadTimeOptions = await extractLeadTimeOptions(page);
+    // Withhold any price that no declared locator anchored; see gateVendorPrice.
+    const priceGate = gateVendorPrice(priceResult);
 
     return {
       bodyText,
-      totalPrice: priceResult.value,
-      leadTime: leadTimeResult.value,
-      manualReview: manualReviewResult.manualReview,
+      totalPrice: priceGate.trusted ? priceResult.value : null,
+      leadTime: gateLeadTime(leadTimeResult, priceGate),
+      manualReview: manualReviewResult.manualReview || priceGate.locatorDriftDetected,
       manualReviewSelector: manualReviewResult.selector,
       priceSource: priceResult.source,
       leadTimeSource: leadTimeResult.source,
+      priceGate,
       leadTimeOptions,
     };
   }
@@ -1478,7 +1491,25 @@ export class FictivAdapter extends VendorAdapter {
           : Math.round((totalPrice / normalizedQuantity(input)) * 100) / 100;
       const status = isInstantQuote ? "instant_quote_received" : "manual_review_pending";
       let notes: string[];
-      if (resultClassification === "manual_review") {
+      if (parsed.priceGate.locatorDriftDetected) {
+        notes = [UNANCHORED_PRICE_NOTE];
+        console.warn(
+          JSON.stringify({
+            service: "overdrafter-cad-worker",
+            level: "warn",
+            source: "vendor.locator_drift",
+            message:
+              "Fictiv price locators all missed; withheld an unanchored price and routed the lane to manual review.",
+            context: {
+              vendor: "fictiv",
+              partId: input.part.id,
+              quoteRunId: input.quoteRunId,
+              unanchoredPriceObservedUsd: parsed.priceGate.unanchoredPriceUsd,
+              url: quoteUrl,
+            },
+          }),
+        );
+      } else if (resultClassification === "manual_review") {
         notes = ["Fictiv flagged the part for manual review after upload and configuration."];
       } else if (resultClassification === "configuration_required") {
         notes = ["Fictiv requires additional configuration before an instant quote can be generated."];
@@ -1516,6 +1547,7 @@ export class FictivAdapter extends VendorAdapter {
           openedConfigurationDrawer: selection.openedConfigurationDrawer,
           priceSource,
           leadTimeSource,
+          ...priceGateEvidence(parsed.priceGate),
           resultClassification,
           portalStateSignal,
           bodyExcerpt: excerptText(bodyText),

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from "playwright";
+import { UNANCHORED_PRICE_NOTE } from "../extractedValue.js";
 import { VendorAdapter } from "./base.js";
 import {
   VendorAutomationError,
@@ -107,21 +108,32 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
       const signal = extractQuoteSignal(bodyText);
       const artifacts = await this.captureEvidence(page, input, "post-upload");
 
+      // This generic workflow has no vendor-specific price locators at all: its
+      // only reading is a whole-page currency scan, which is exactly the
+      // unanchored case gateVendorPrice refuses to publish. A price-like
+      // string is therefore treated as evidence that the vendor is quotable,
+      // never as the quote itself.
       if (signal.totalPriceUsd !== null) {
         return {
           vendor: this.vendor,
-          status: "instant_quote_received",
-          unitPriceUsd: Math.round((signal.totalPriceUsd / Math.max(1, input.requestedQuantity)) * 100) / 100,
-          totalPriceUsd: signal.totalPriceUsd,
-          leadTimeBusinessDays: signal.leadTimeBusinessDays,
+          status: "manual_review_pending",
+          unitPriceUsd: null,
+          totalPriceUsd: null,
+          leadTimeBusinessDays: null,
           quoteUrl: page.url(),
           dfmIssues: [],
-          notes: [`${this.workflow.displayName} returned quote-like pricing from the live portal.`],
+          notes: [
+            `${this.workflow.displayName} returned quote-like pricing, but this generic portal workflow has no vendor-specific price locator to anchor it. ${UNANCHORED_PRICE_NOTE}`,
+          ],
           artifacts,
           rawPayload: this.successPayload(input, {
             url: page.url(),
-            detectedFlow: "instant_quote",
-            leadTimeBusinessDays: signal.leadTimeBusinessDays,
+            detectedFlow: "unanchored_price",
+            priceTrusted: false,
+            priceGateReason: "unanchored_price",
+            locatorDriftDetected: false,
+            unanchoredPriceObservedUsd: signal.totalPriceUsd,
+            observedLeadTimeBusinessDays: signal.leadTimeBusinessDays,
           }),
         };
       }

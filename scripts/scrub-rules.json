@@ -1,0 +1,86 @@
+{
+  "_comment": [
+    "Rules for scripts/scrub_drawing.py. Every manufacturer identity becomes ACME Mfg Co.",
+    "at the Tucson downtown library address (Joel D. Valenzuela Main Library) so the sheet",
+    "stays realistic without carrying a real one. Rules run in order against each text span.",
+    "Add a pattern per customer as drawings are brought in, and add the same string to",
+    "'forbidden' so the post-write verification pass proves it is gone."
+  ],
+
+  "replacements": [
+    {
+      "label": "company name, title block",
+      "mode": "literal",
+      "match": "4D Technology Corporation",
+      "replace": "ACME Mfg Co."
+    },
+    {
+      "_comment": "Absorbs a trailing period so 'CORPORATION.' does not become 'CO..'",
+      "label": "company name, any case, incl. proprietary notice lines",
+      "mode": "regex",
+      "match": "(?i)4D\\s+TECHNOLOGY\\s+CORPORATION\\.?",
+      "replace": "ACME MFG CO."
+    },
+    {
+      "label": "engineer / drafter / checker initials",
+      "mode": "regex",
+      "match": "(?i)^\\s*TIM\\s*$",
+      "replace": "ACM"
+    },
+    {
+      "label": "internal project and file reference in the footer",
+      "mode": "regex",
+      "match": "(?i)^Project:.*$",
+      "replace": "Project: SAMPLE - File Name: SAMPLE"
+    },
+
+    {
+      "_comment": "Address rules. This drawing carries no address; these are here for the QB sheets that do.",
+      "label": "street address",
+      "mode": "regex",
+      "match": "(?i)\\d{3,6}\\s+[NSEW]?\\.?\\s*(?:[A-Z][a-z]+\\s+){1,3}(?:Rd|Road|St|Street|Ave|Avenue|Blvd|Boulevard|Dr|Drive|Way|Ln|Lane|Pkwy|Parkway)\\.?",
+      "replace": "101 N Stone Ave"
+    },
+    {
+      "label": "city / state / ZIP",
+      "mode": "regex",
+      "match": "(?i)\\b[A-Z][a-z]+,?\\s+(?:AZ|Arizona|CA|California|TX|Texas|NY|New York)\\s+\\d{5}(?:-\\d{4})?\\b",
+      "replace": "Tucson, AZ 85701"
+    },
+    {
+      "label": "phone number",
+      "mode": "regex",
+      "match": "(?i)(?:\\+?1[\\s.-]?)?\\(?\\d{3}\\)?[\\s.-]?\\d{3}[\\s.-]?\\d{4}",
+      "replace": "520-594-5500"
+    },
+    {
+      "label": "email address",
+      "mode": "regex",
+      "match": "(?i)[\\w.+-]+@[\\w-]+\\.[\\w.]+",
+      "replace": "drafting@acmemfg.example"
+    },
+    {
+      "label": "website",
+      "mode": "regex",
+      "match": "(?i)\\b(?:www\\.|https?://)[\\w.-]+\\.(?:com|net|org|io)\\b",
+      "replace": "www.acmemfg.example"
+    }
+  ],
+
+  "metadata": {
+    "author": "ACME Mfg Co.",
+    "title": "",
+    "subject": "",
+    "keywords": "",
+    "creator": "",
+    "producer": ""
+  },
+
+  "forbidden": [
+    "4D Technology",
+    "4D TECHNOLOGY",
+    "tim.horner",
+    "REFERENCE OPTICS",
+    "PScript5.dll"
+  ]
+}

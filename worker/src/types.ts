@@ -1,3 +1,16 @@
+import type { ValueSource } from "./extractedValue.js";
+
+/** Per-extraction model spend, recorded so cost and latency stay attributable. */
+export type ModelUsageSummary = {
+  provider: string;
+  modelName: string;
+  inputTokens: number;
+  outputTokens: number;
+  durationMs: number;
+  estimatedCostUsd: number | null;
+  attempts: number;
+};
+
 export type QueueTaskType =
   | "extract_part"
   | "debug_extract_part"
@@ -140,6 +153,11 @@ export type DrawingExtractionPayload = {
   modelFallbackUsed?: boolean;
   modelName?: string | null;
   modelPromptVersion?: string | null;
+  /**
+   * Tokens, latency, and cost for the model work behind this extraction.
+   * Null when no model was consulted.
+   */
+  modelUsage?: ModelUsageSummary | null;
   fieldSelections?: Partial<
     Record<DrawingFieldName, "parser" | "model" | "review">
   >;
@@ -254,6 +272,7 @@ export type XometryDetectedFlow =
   | "configuration_complete"
   | "instant_quote"
   | "manual_review"
+  | "locator_drift"
   | "manual_vendor_followup";
 
 export type XometryDrawingUploadMode =
@@ -262,7 +281,8 @@ export type XometryDrawingUploadMode =
   | "not_provided"
   | "not_needed";
 
-export type XometryValueSource = "selector" | "body_text" | "none";
+/** @deprecated Alias of the shared {@link ValueSource} contract in `extractedValue.ts`. */
+export type XometryValueSource = ValueSource;
 
 // Stable raw-payload contract for Xometry results and failures.
 export type XometryQuoteRawPayload = Record<string, unknown> & {

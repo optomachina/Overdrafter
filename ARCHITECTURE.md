@@ -6,11 +6,21 @@ Last updated: March 27, 2026
 
 This document defines the major architectural boundaries in OverDrafter. It exists to keep product, engineering, and workflow discussions grounded in the same system model.
 
-## System overview
+## How to read this document
 
-OverDrafter is a multi-agent manufacturing co-pilot. The system connects CAD-native intake, invisible specialist agents, asynchronous orchestration, and curated output while keeping all complexity hidden until it adds value.
+Sections marked **As-built** describe what is deployed and must be verifiable against the tree. Sections marked **Target** describe intended direction and are not implemented.
 
-The primary canvas is the user’s CAD tool (plugins) or a live 3D viewer. Natural language is the sole control surface. OpenClaw browser automation runs server-side and is never visible to the user. Specialist agents (DFM, extraction, quoting swarm, modeling/drafting, assembly/fulfillment, PDM) negotiate on an internal blackboard and execute in parallel. On-demand visualizations (heatmaps, diffs, scatters) are summoned only when needed and collapse immediately afterward.
+Keep the two labelled and separate. When the two were written in the same voice, the document stopped functioning as a check on the code: two separate drawing-extraction implementations coexisted for months, with the eval harness measuring the one production never ran, and nothing in these pages made that visible. If you cannot point at the code for a paragraph in an As-built section, it belongs under Target.
+
+## System overview (As-built)
+
+OverDrafter turns CAD and drawing uploads into comparable manufacturing quotes.
+
+Clients upload STEP and PDF files into project-scoped workspaces. An asynchronous worker extracts structured part requirements from those files, preferring deterministic label-anchored parsing and calling a vision model only when critical fields are missing, weak, or contested. Extraction output carries per-field confidence, evidence, and provenance, and fails closed into human review rather than guessing. Approved requirements drive quote collection: server-side browser automation drives vendor portals, and results normalize into a canonical internal quote model that estimators curate and publish to clients.
+
+## System overview (Target)
+
+The intended end state is a multi-agent manufacturing co-pilot: CAD-native intake through plugins, natural language as the primary control surface, specialist agents (DFM, extraction, quoting swarm, modeling/drafting, assembly/fulfillment, PDM) negotiating on an internal blackboard and executing in parallel, and on-demand visualizations summoned only when needed. None of this is implemented; see the Target section below for the components involved.
 
 ## Subsystems
 
@@ -87,7 +97,9 @@ Internal review implementation boundary:
 - project-level navigation that does not treat assemblies as the umbrella container
 - current project-ledger assignee bubbles derive from `project_jobs.created_by` joined to auth user profile metadata; this is the minimum safe source of truth until a dedicated part-assignee relation exists because each ledger row is still a project-job row owned by its creator
 
-### 9. Multi-agent orchestration & CAD-native layer (new)
+### 9. Multi-agent orchestration & CAD-native layer (Target — not implemented)
+
+None of the following exists in the codebase today. Vendor automation is implemented as per-vendor Playwright adapters under `worker/src/adapters/`, not as an agent harness.
 
 - CAD plugins (thin clients that inject into SolidWorks/Fusion/Onshape/etc.)
 - Live 3D STEP viewer as web fallback
@@ -191,6 +203,32 @@ Bridge ownership during the service-line-item migration:
 - auditability
 - observability
 - data separation
+
+## Untrusted-input contract (As-built)
+
+Anything the system does not compute deterministically — model output, and equally the DOM of a vendor portal we do not control — carries its provenance, and one policy decides what that provenance is permitted to do.
+
+- `worker/src/extractedValue.ts` defines `ValueSource` (`selector` | `body_text` | `none`) and the gate applied to scraped vendor values.
+- A vendor price is publishable only when anchored to a locator the adapter declares for that vendor. An unanchored price means every declared locator missed, so the adapter's contract with the vendor UI is broken; the lane routes to `manual_review_pending`, the observed number is retained under `unanchoredPriceObservedUsd` as evidence, and `locatorDriftDetected` is set for alerting. Lead time inherits the price's trust decision.
+- Drawing extraction expresses the same idea through per-field confidence, evidence, and `reviewNeeded` in `drawing_extractions`, and fails closed on parser/model disagreement.
+
+Do not add a new reader of untrusted input that returns a bare value. Return the provenance with it and route the decision through the shared policy.
+
+## Extraction model contract (As-built)
+
+One implementation serves production, the eval harness, and the debug lab. When they were separate, the harness ran with deterministic sampling and full usage accounting while production ran with neither, so eval numbers described a configuration no customer received.
+
+- `worker/src/extraction/schema.ts` — prompt and response schema.
+- `worker/src/extraction/policy.ts` — confidence thresholds, sufficiency rules, and prompt versioning. Prompt version is a content hash of the prompt and schema in the build, not a hand-maintained string.
+- `worker/src/extraction/modelRegistry.ts` — provider inference, capability flags, and the cost table. Single source of truth for model identity; the web extraction lab mirrors it in `src/features/quotes/extraction-models.ts` for the degraded path only.
+- `worker/src/extraction/modelProvider.ts` — the OpenAI, Anthropic, and OpenRouter implementations. All three are production-reachable.
+- `worker/src/extraction/callModel.ts` — the only entry point for a model request. Owns the deadline, retry with full jitter, and token/latency/cost accounting. SDK-level retries are disabled so provider behavior is uniform.
+
+Extraction completion events carry provider, prompt version, tokens, latency, cost, and attempt count, so `extraction_quality_summary` can attribute cost and speed changes rather than only accuracy drift.
+
+## Extraction quality gate (As-built)
+
+`worker/src/tools/extractEvalGate.ts` runs the production extraction path over a checked-in corpus and fails below per-field accuracy floors. The CI job reports skipped when no corpus or provider key is present, so an empty corpus never reads as a passing quality signal. Corpus layout and the intended coverage are documented in `worker/eval-corpus/README.md`.
 
 ## Extraction boundary
 

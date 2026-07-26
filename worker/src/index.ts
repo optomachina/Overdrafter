@@ -664,8 +664,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
         ...completionPayload,
       },
     });
-    await markTaskCompleted(supabase, task.id, {
-      ...task.payload,
+    await markTaskCompleted(supabase, task, {
       ...completionPayload,
     });
   } catch (error) {
@@ -792,8 +791,7 @@ async function handleDebugExtractTask(
       },
     });
 
-    await markTaskCompleted(supabase, task.id, {
-      ...task.payload,
+    await markTaskCompleted(supabase, task, {
       debugRunId,
       requestedModel,
       effectiveModel,
@@ -849,8 +847,7 @@ async function handleVendorQuoteTask(
   const requestStatusAtStart = await fetchQuoteRequestStatusForTask(supabase, task);
 
   if (requestStatusAtStart === "canceled") {
-    await markTaskCancelled(supabase, task.id, "Canceled before vendor automation started.", {
-      ...task.payload,
+    await markTaskCancelled(supabase, task, "Canceled before vendor automation started.", {
       ignoredDueToCanceledRequest: true,
     });
     return;
@@ -933,8 +930,7 @@ async function handleVendorQuoteTask(
       .eq("id", currentResult.id);
 
     await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
-    await markTaskCompleted(supabase, task.id, {
-      ...task.payload,
+    await markTaskCompleted(supabase, task, {
       vendorStatus: "manual_vendor_followup",
       manualVendor: true,
       manualReasonCode,
@@ -1052,9 +1048,8 @@ async function handleVendorQuoteTask(
     const requestStatusAfterResult = await fetchQuoteRequestStatusForTask(supabase, task);
 
     if (requestStatusAfterResult === "canceled") {
-      await markTaskCancelled(supabase, task.id, "Canceled while vendor automation was in flight.", {
-        ...task.payload,
-        vendorStatus: result.status,
+      await markTaskCancelled(supabase, task, "Canceled while vendor automation was in flight.", {
+          vendorStatus: result.status,
         artifactCount: artifactStoragePaths.length,
         ignoredDueToCanceledRequest: true,
       });
@@ -1062,8 +1057,7 @@ async function handleVendorQuoteTask(
     }
 
     await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
-    await markTaskCompleted(supabase, task.id, {
-      ...task.payload,
+    await markTaskCompleted(supabase, task, {
       vendorStatus: result.status,
       artifactCount: artifactStoragePaths.length,
     });
@@ -1133,9 +1127,8 @@ async function handleVendorQuoteTask(
     await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
 
     if (requiresManualVendorFollowUp) {
-      await markTaskCompleted(supabase, task.id, {
-        ...task.payload,
-        vendorStatus: "manual_vendor_followup",
+      await markTaskCompleted(supabase, task, {
+          vendorStatus: "manual_vendor_followup",
         manualVendor: true,
         manualReasonCode,
         failureCode,
@@ -1229,8 +1222,7 @@ async function handlePublishTask(supabase: SupabaseClient, task: QueueTaskRecord
     throw error;
   }
 
-  await markTaskCompleted(supabase, task.id, {
-    ...task.payload,
+  await markTaskCompleted(supabase, task, {
     published: true,
   });
 }
@@ -1244,8 +1236,7 @@ async function handleRepairTask(supabase: SupabaseClient, task: QueueTaskRecord)
       : [],
   });
 
-  await markTaskCompleted(supabase, task.id, {
-    ...task.payload,
+  await markTaskCompleted(supabase, task, {
     repairSuggestion: suggestion,
   });
 }
@@ -1272,9 +1263,8 @@ async function processTask(
       await handleRepairTask(supabase, task);
       return;
     case "poll_vendor_quote":
-      await markTaskCompleted(supabase, task.id, {
-        ...task.payload,
-        pollSkipped: true,
+      await markTaskCompleted(supabase, task, {
+          pollSkipped: true,
       });
       return;
     default:
@@ -1509,17 +1499,15 @@ async function main() {
       const retryCount = retryCountForAttempts(task.attempts);
 
       if (retryAt) {
-        await markTaskQueuedForRetry(supabase, task.id, message, retryAt, {
-          ...task.payload,
-          failureMessage: message,
+        await markTaskQueuedForRetry(supabase, task, message, retryAt, {
+              failureMessage: message,
           failureCode: failureCodeForError(error),
           retryCount,
           nextRetryAt: retryAt,
         });
       } else {
-        await markTaskFailed(supabase, task.id, message, {
-          ...task.payload,
-          failureMessage: message,
+        await markTaskFailed(supabase, task, message, {
+              failureMessage: message,
           failureCode: failureCodeForError(error),
           retryCount,
         });

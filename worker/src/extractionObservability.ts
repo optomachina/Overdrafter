@@ -29,6 +29,17 @@ export function buildExtractionCompletionPayload(input: {
     autoApprovedPartCount: input.autoApprovedPartCount,
     modelFallbackUsed: extraction.modelFallbackUsed ?? false,
     modelName: extraction.modelName ?? null,
+    // Model spend and prompt identity travel with the completion event so the
+    // audit ledger can answer "did this model change cost us more, or get
+    // slower" — not only "did accuracy drift". Without these the extraction
+    // quality summary could observe outcomes but never their price.
+    modelProvider: extraction.modelUsage?.provider ?? null,
+    modelPromptVersion: extraction.modelPromptVersion ?? null,
+    modelInputTokens: extraction.modelUsage?.inputTokens ?? null,
+    modelOutputTokens: extraction.modelUsage?.outputTokens ?? null,
+    modelDurationMs: extraction.modelUsage?.durationMs ?? null,
+    modelEstimatedCostUsd: extraction.modelUsage?.estimatedCostUsd ?? null,
+    modelAttempts: extraction.modelUsage?.attempts ?? null,
     autoApproved: extraction.status === "approved",
     completedAt: input.completedAt,
   };
