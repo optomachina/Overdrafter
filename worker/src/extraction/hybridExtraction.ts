@@ -329,6 +329,7 @@ export async function runHybridExtraction(
     modelFallbackUsed: Boolean(modelResult),
     modelName: modelResult?.modelName ?? null,
     modelPromptVersion: modelResult ? MODEL_FALLBACK_PROMPT_VERSION : null,
+    modelUsage: modelResult?.usage ?? null,
     fieldSelections,
     extractedDescriptionRaw: {
       value: description,

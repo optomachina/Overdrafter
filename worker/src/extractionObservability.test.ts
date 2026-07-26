@@ -125,4 +125,55 @@ describe("buildExtractionCompletionPayload", () => {
     expect(payload.modelFallbackUsed).toBe(false);
     expect(payload.modelName).toBeNull();
   });
+
+  it("records model spend and prompt identity so cost stays attributable", () => {
+    const payload = buildExtractionCompletionPayload({
+      extraction: createExtraction({
+        modelFallbackUsed: true,
+        modelName: "claude-sonnet-4-6",
+        modelPromptVersion: "sha256:abc123def456",
+        modelUsage: {
+          provider: "anthropic",
+          modelName: "claude-sonnet-4-6",
+          inputTokens: 4_200,
+          outputTokens: 310,
+          durationMs: 3_400,
+          estimatedCostUsd: 0.0172,
+          attempts: 2,
+        },
+      }),
+      extractionOutcome: { lifecycle: "succeeded", missingFields: [], reviewFields: [] },
+      extractorVersion: "worker-pdf-v3",
+      workerBuildVersion: "build-123",
+      previewAssetCount: 1,
+      autoApprovedPartCount: 1,
+      completedAt: "2026-03-23T12:34:56.000Z",
+    });
+
+    expect(payload).toMatchObject({
+      modelProvider: "anthropic",
+      modelPromptVersion: "sha256:abc123def456",
+      modelInputTokens: 4_200,
+      modelOutputTokens: 310,
+      modelDurationMs: 3_400,
+      modelEstimatedCostUsd: 0.0172,
+      modelAttempts: 2,
+    });
+  });
+
+  it("nulls model spend fields when no model was consulted", () => {
+    const payload = buildExtractionCompletionPayload({
+      extraction: createExtraction(),
+      extractionOutcome: { lifecycle: "succeeded", missingFields: [], reviewFields: [] },
+      extractorVersion: "worker-pdf-v3",
+      workerBuildVersion: "build-123",
+      previewAssetCount: 0,
+      autoApprovedPartCount: 1,
+      completedAt: "2026-03-23T12:34:56.000Z",
+    });
+
+    expect(payload.modelProvider).toBeNull();
+    expect(payload.modelInputTokens).toBeNull();
+    expect(payload.modelEstimatedCostUsd).toBeNull();
+  });
 });

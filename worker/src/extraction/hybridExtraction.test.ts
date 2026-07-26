@@ -84,6 +84,7 @@ describe("runHybridExtraction", () => {
       modelFallbackUsed: false,
       modelName: null,
       modelPromptVersion: null,
+      modelUsage: null,
       fieldSelections: {
         description: "parser",
         partNumber: "parser",
