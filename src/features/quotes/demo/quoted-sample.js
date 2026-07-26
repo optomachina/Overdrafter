@@ -24,7 +24,7 @@ export const QUOTED_SAMPLE_ASSETS = Object.freeze({
 })
 
 export const QUOTED_SAMPLE_RFQ = Object.freeze({
-  client: "4D Technology",
+  client: "ACME Mfg Co.",
   projectSystem: "Carbon Fiber End Attachment",
   rfqReceivedDate: "2026-02-28",
   quoteDueDate: "2026-03-18",

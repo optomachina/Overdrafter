@@ -30,6 +30,31 @@ Prompt, model, and threshold changes used to ship with no measured signal.
 you a regression hurt only once customers absorbed it. This corpus is the
 before-merge half of that story.
 
+## Scrub before you commit
+
+Customer drawings carry company names, engineer names, project codes, and
+proprietary notices. Scrub every drawing before it enters the repo:
+
+```bash
+pip install pymupdf
+python3 scripts/scrub_drawing.py --rules scripts/scrub-rules.json ~/path/to/QB000xx/ --dry-run
+python3 scripts/scrub_drawing.py --rules scripts/scrub-rules.json ~/path/to/QB000xx/ -o worker/eval-corpus/drawings/
+```
+
+Every manufacturer identity becomes **ACME Mfg Co.** at the Tucson downtown
+library address. Add a pattern per customer to `scripts/scrub-rules.json`, and
+add the same strings to its `forbidden` list — the script re-extracts the text
+after writing and exits non-zero if any forbidden term survived, so a
+replacement that quietly failed to apply cannot pass as done.
+
+Run `--dry-run` first and read the replacement list. The rules are regexes; a
+too-greedy one silently eats real title-block values.
+
+**Never put drawings in `public/`.** Vite copies that directory to the build
+root, so anything there is downloadable from the deployed app. That is how a
+sheet stamped "PROPRIETARY AND CONFIDENTIAL — SOLE PROPERTY OF …" came to be
+publicly served; it has since been scrubbed and moved here.
+
 ## Layout
 
 ```

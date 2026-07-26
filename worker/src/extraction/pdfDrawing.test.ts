@@ -45,7 +45,7 @@ const PRIMARY_REGRESSION_FIXTURE = {
         "MATERIAL      6061 ALLOY",
         "FINISH        ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2",
         "",
-        "                                                          4D Technology Corporation",
+        "                                                          ACME Mfg Co.",
         "                                                          TITLE:",
         "                                                          ROUND, CARBON FIBER END ATTACHMENTS",
         "                                                          BONDED",
@@ -258,7 +258,7 @@ describe("pdfDrawing", () => {
           {
             page: 1,
             text: [
-              at(50, "4D Technology Corporation"),
+              at(50, "ACME Mfg Co."),
               at(50, "TITLE:   MOUNT PLATE"),
               "MATERIAL      6061 ALLOY",
               // SIZE bounds the FINISH cell on the right.
@@ -289,7 +289,7 @@ describe("pdfDrawing", () => {
           {
             page: 1,
             text: [
-              "                                                          4D Technology Corporation",
+              "                                                          ACME Mfg Co.",
               "                                                          TITLE:   MOUNT PLATE",
               "          MATERIAL",
               "              6061 Alloy",
@@ -377,9 +377,9 @@ describe("pdfDrawing", () => {
               "——",
               "c",
               "—S",
-              "PROPRIETARY AND CONFIDENTIAL UNLESS OTHERWISE SPECIFIED: APPROVALS NAME DATE 4D Technology Corporation",
+              "PROPRIETARY AND CONFIDENTIAL UNLESS OTHERWISE SPECIFIED: APPROVALS NAME DATE ACME Mfg Co.",
               "PREUWING WHE SOLE DRObEENY OF DIMENSIONS ARE IN INCHES SURFACE FINSH NS ENGINEER TIM 10/29/2013 TITLE:",
-              "4D TECHNOLOGY CORPORATION. ANY Oe each 5° BEND+2° INTERPRET GEOMETRIC DRAWN TIM 10/29/2013 * ROUND, CARBON FIBER END ATTACHMENTS",
+              "ACME MFG CO. ANY Oe each 5° BEND+2° INTERPRET GEOMETRIC DRAWN TIM 10/29/2013 * ROUND, CARBON FIBER END ATTACHMENTS",
               "REPRODUCTION IN PART OR AS A WHOLE * AL £01 TOLERANCING PER: ~ ~ BONDED",
               "WITHOUT THE WRITTEN PERMISSION OF TWO PLACE DECIMAL 2.01 ANSI Y14.5 1994 CHECKED",
               "AD TECHNOLOGY CORPORATION IS THREE PLACE DECIMAL #.005 MFG",
@@ -387,7 +387,7 @@ describe("pdfDrawing", () => {
               "QA.",
               "MATERIAL FINISH ANODIZE, BLACK, MIL-A-8625F, TYPE II B",
               "6061 Alloy CLASS 2 THIRD ANGLE 0093-05589 02",
-              "Project: 8002 REFERENCE OPTICS - File Name: 1093-05589",
+              "Project: SAMPLE - File Name: SAMPLE",
             ].join("\n"),
           },
         ],

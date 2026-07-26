@@ -265,6 +265,15 @@ This is overfitting encoded as code. Three consequences:
 
 The rescues should come out once enough real drawings exist to judge the parser without them. Removing them now would degrade a live customer's result, so they stay, labelled, until the corpus can replace them.
 
+**Update — scrubbing proved the point.** Anonymising the corpus drawing (`scripts/scrub_drawing.py`, manufacturer → ACME Mfg Co.) changed parser behaviour, because a rescue's trigger condition tested for the literal string `4D TECHNOLOGY CORPORATION`. With the customer's name gone, the rescue stopped firing and the underlying defect surfaced: the description capture was bleeding the proprietary-notice block into the title. That bleed was always there — the customer's name was the only thing hiding it.
+
+It is now fixed at the root (the column-end guard applies to descriptions too), and one honest gap remains: the wrapped `BONDED` second line of the title lands eight rows away in the extracted text layout, past the two-line continuation window, so line-adjacency cannot reach it. That needs column-band capture or the model fallback. The `description` floor is 0 with that reason recorded, which is a tracked gap rather than a passing grade.
+
+Two transferable lessons:
+
+- **A parser that depends on customer-identifying strings cannot be anonymised without behaviour change.** Overfitting is not only an accuracy problem; it is a data-handling problem.
+- **Scrub early.** Had the drawing been anonymised when it was first added as a fixture, none of these rescues could have been written against it.
+
 ---
 
 ## 14. What is already right
