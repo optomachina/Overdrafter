@@ -58,6 +58,7 @@ import {
   WorkerConfig,
 } from "./types.js";
 import { buildExtractionCompletionPayload } from "./extractionObservability.js";
+import { createSpendGuard, SpendCapExceededError } from "./spendGuard.js";
 import {
   failureCodeForError,
   isRetryableVendorTaskError,
@@ -72,6 +73,19 @@ import { buildVendorQuoteOfferPayload } from "./vendorQuoteOffer.js";
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/**
+ * Booked per model attempt before the call, then replaced by the observed cost.
+ *
+ * Deliberately generous relative to a typical extraction: the reservation has to
+ * be made before token counts are known, and over-booking briefly is the safe
+ * direction. Under-booking would let a burst of concurrent calls collectively
+ * overshoot the ceiling.
+ */
+const MODEL_CALL_SPEND_ESTIMATE_USD = 0.25;
+
+/** Booked per vendor automation lane, covering its browser container time. */
+const VENDOR_RUN_SPEND_ESTIMATE_USD = 0.05;
 
 function buildTaskContext(task: QueueTaskRecord) {
   return {
@@ -560,6 +574,14 @@ async function runDrawingExtractionForTask(
       previewPagePath: firstPagePreviewPath,
       runDir,
       config: extractionConfig,
+      // Budget is enforced here rather than at request admission: a ceiling
+      // checked when a user clicks something cannot stop a retry storm or a
+      // stuck loop, which is the shape a runaway actually takes.
+      spend: {
+        guard: createSpendGuard(supabase, task.organization_id),
+        estimatedUsd: MODEL_CALL_SPEND_ESTIMATE_USD,
+        context: { jobId: task.job_id, partId: task.part_id, taskId: task.id },
+      },
     });
     const extractionOutcome = summarizeExtractionOutcome(extraction);
     const extractorVersion = currentExtractorVersion(Boolean(stagedDrawingFile));
@@ -938,6 +960,41 @@ async function handleVendorQuoteTask(
     return;
   }
 
+  // Browser automation bills as container time, so a lane is reserved before it
+  // starts. Unlike the extraction path there is no degraded mode to fall back
+  // to, so a refusal requeues the lane rather than failing it: the work is still
+  // wanted, just not at this moment's price.
+  const vendorSpendGuard = createSpendGuard(supabase, task.organization_id);
+  let vendorReservation;
+  try {
+    vendorReservation = await vendorSpendGuard.reserve("vendor_automation", VENDOR_RUN_SPEND_ESTIMATE_USD, {
+      jobId: task.job_id,
+      partId: task.part_id,
+      quoteRunId: task.quote_run_id,
+      taskId: task.id,
+    });
+  } catch (error) {
+    if (error instanceof SpendCapExceededError) {
+      const retryAt = nextRetryAt(task.attempts);
+
+      if (retryAt) {
+        await markTaskQueuedForRetry(supabase, task, `Spend cap reached: ${error.message}`, retryAt, {
+          spendCapReasonCode: error.reasonCode,
+        });
+      } else {
+        // Retries are exhausted, but nothing about this lane is broken -- it was
+        // priced out. Cancelling rather than failing keeps the distinction, so it
+        // reads as "not run" instead of "tried and defective" and can simply be
+        // requested again once budget is available.
+        await markTaskCancelled(supabase, task, `Spend cap reached: ${error.message}`, {
+          spendCapReasonCode: error.reasonCode,
+        });
+      }
+      return;
+    }
+    throw error;
+  }
+
   try {
     stageDir = await createRunDir(config, ["staging", task.quote_run_id, task.part_id]);
     const stagedCadFile = await stageStorageObject(supabase, context.cadFile, stageDir);
@@ -1138,6 +1195,9 @@ async function handleVendorQuoteTask(
 
     throw error;
   } finally {
+    // Settle regardless of outcome: an estimate left booked for a lane that
+    // never ran would hold budget for the rest of the window.
+    await vendorSpendGuard.settle(vendorReservation, VENDOR_RUN_SPEND_ESTIMATE_USD);
     await cleanupPaths([stageDir, ...artifactDirs]);
   }
 }

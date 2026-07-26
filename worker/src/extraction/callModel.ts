@@ -1,4 +1,5 @@
 import { estimateCost } from "./modelRegistry.js";
+import type { SpendContext, SpendGuard } from "../spendGuard.js";
 import {
   isModelError,
   type ExtractionProvider,
@@ -63,6 +64,22 @@ export type CallModelOptions = {
   sleep?: (ms: number) => Promise<void>;
   /** Injectable for tests; defaults to Math.random. */
   random?: () => number;
+  /**
+   * Budget enforcement. When supplied, budget is reserved before the first
+   * attempt and settled to the observed cost afterwards.
+   *
+   * This is the choke point the spend cap needs: every model request in the
+   * system routes through `callModel`, so a ceiling enforced here cannot be
+   * bypassed by a retry loop, a debug rerun, or any future caller. A refusal
+   * propagates as `SpendCapExceededError` and is deliberately not retried —
+   * the budget will not have changed by the next attempt.
+   */
+  spend?: {
+    guard: SpendGuard;
+    /** Booked up front, then replaced by the actual cost once known. */
+    estimatedUsd: number;
+    context?: SpendContext;
+  };
 };
 
 function defaultSleep(ms: number) {
@@ -80,6 +97,36 @@ export function retryDelayMs(attempt: number, random: () => number = Math.random
 }
 
 export async function callModel(
+  provider: ExtractionProvider,
+  input: ModelPromptInput,
+  modelId: string,
+  options: CallModelOptions = {},
+): Promise<ModelCallResult> {
+  if (!options.spend) {
+    return callModelWithinBudget(provider, input, modelId, options);
+  }
+
+  // Reserve before the first attempt. A refusal throws out of here without any
+  // provider request being made, which is the point.
+  const reservation = await options.spend.guard.reserve(
+    "llm_extraction",
+    options.spend.estimatedUsd,
+    { ...options.spend.context, provider: provider.provider, modelName: modelId },
+  );
+
+  let settlement = 0;
+  try {
+    const result = await callModelWithinBudget(provider, input, modelId, options);
+    settlement = result.usage.estimatedCostUsd ?? options.spend.estimatedUsd;
+    return result;
+  } finally {
+    // Settles at zero on failure: an estimate left booked for spend that never
+    // happened would turn a transient provider error into a slow outage.
+    await options.spend.guard.settle(reservation, settlement);
+  }
+}
+
+async function callModelWithinBudget(
   provider: ExtractionProvider,
   input: ModelPromptInput,
   modelId: string,

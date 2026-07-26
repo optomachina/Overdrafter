@@ -1,5 +1,5 @@
 import type { AppRole, JobStatus } from "@/integrations/supabase/types";
-import { callRpc } from "./shared/rpc";
+import { callRpc, callUntypedRpc } from "./shared/rpc";
 import { ensureData } from "./shared/response";
 
 export type AdminOrganizationSummary = {
@@ -61,4 +61,50 @@ export async function fetchAdminAllJobs(): Promise<AdminJobSummary[]> {
 export async function fetchAdminAllProjects(): Promise<AdminProjectSummary[]> {
   const { data, error } = await callRpc("api_admin_list_all_projects");
   return ensureData(data, error) as AdminProjectSummary[];
+}
+
+export type SpendSummary = {
+  windowHours: number;
+  since: string;
+  totalSpendUsd: number;
+  globalDailyCeilingUsd: number;
+  perRunCeilingUsd: number;
+  killSwitch: boolean;
+  byCategory: Record<string, number>;
+  byOrganization: Array<{
+    organizationId: string | null;
+    organizationName: string | null;
+    spendUsd: number;
+    dailyCeilingUsd: number | null;
+  }>;
+};
+
+/**
+ * Spend is observed and configured here, but enforced in the worker. A ceiling
+ * the UI applied would only bound spending the UI initiated, which is not the
+ * shape a runaway takes.
+ */
+export async function fetchSpendSummary(windowHours = 24): Promise<SpendSummary> {
+  // Untyped: these functions post-date the last generated Database types.
+  const { data, error } = await callUntypedRpc("api_spend_summary", {
+    p_window_hours: windowHours,
+  });
+  return ensureData(data, error) as SpendSummary;
+}
+
+export async function setGlobalSpendCap(input: {
+  dailyCeilingUsd?: number;
+  perRunCeilingUsd?: number;
+  killSwitch?: boolean;
+}) {
+  const { data, error } = await callUntypedRpc("api_set_global_spend_cap", {
+    p_daily_ceiling_usd: input.dailyCeilingUsd ?? null,
+    p_per_run_ceiling_usd: input.perRunCeilingUsd ?? null,
+    p_kill_switch: input.killSwitch ?? null,
+  });
+  return ensureData(data, error) as {
+    dailyCeilingUsd: number;
+    perRunCeilingUsd: number;
+    killSwitch: boolean;
+  };
 }

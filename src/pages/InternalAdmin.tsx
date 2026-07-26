@@ -6,6 +6,7 @@ import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { InternalDashboardSidebar } from "@/components/internal/InternalDashboardSidebar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SpendCapCard } from "@/components/admin/SpendCapCard";
 import {
   Table,
   TableBody,
@@ -182,6 +183,13 @@ const InternalAdmin = () => {
           </Card>
         ) : (
           <div className="space-y-8">
+            {/* Spend first: it is the control an operator reaches for under
+                pressure, and burying it behind inventory tables costs time
+                exactly when time matters. */}
+            <section>
+              <SpendCapCard />
+            </section>
+
             <section>
               <Card className="border-border bg-muted">
                 <CardHeader>
