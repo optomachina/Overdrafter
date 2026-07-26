@@ -151,6 +151,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    # Declared at job level on purpose: a step's own `env` block is not in scope
+    # for that step's `if` condition, so gating on `env.OPENAI_API_KEY` there
+    # always reads empty and the gate silently never runs.
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      # The gate reads PDFs off disk and never contacts Supabase, but the shared
+      # worker config loader validates these, so placeholders keep it runnable
+      # without production credentials.
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://placeholder.supabase.co' }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-service-role-key' }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -179,21 +192,21 @@ jobs:
             echo "::notice::No extraction eval corpus checked in; skipping the quality gate. See worker/eval-corpus/README.md."
           fi
 
-      - name: Run extraction gate
-        if: ${{ steps.corpus.outputs.present == 'true' && env.OPENAI_API_KEY != '' }}
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: npm --prefix worker run eval:gate
-
-      - name: Report missing credentials
+      # With no provider key the deterministic parser still runs, which is worth
+      # gating on by itself — it is the path that produces most title-block
+      # values. The model fallback is disabled explicitly rather than left to
+      # depend on whether a secret happens to be set, so the run is reproducible.
+      - name: Run extraction gate (parser only)
         if: ${{ steps.corpus.outputs.present == 'true' && env.OPENAI_API_KEY == '' }}
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: echo "::warning::Eval corpus is present but no provider key is configured; the extraction gate did not run."
+          DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: "false"
+        run: |
+          echo "::notice::No provider key configured; gating the deterministic parser only. Model-fallback fields are not measured."
+          npm --prefix worker run eval:gate
+
+      - name: Run extraction gate (full production path)
+        if: ${{ steps.corpus.outputs.present == 'true' && env.OPENAI_API_KEY != '' }}
+        run: npm --prefix worker run eval:gate
 
   ci:
     name: ci
