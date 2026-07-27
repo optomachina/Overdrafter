@@ -26,7 +26,7 @@ export function suggestLocatorUpdate(input: {
     };
   }
 
-  if (/not found|timeout/i.test(input.errorMessage)) {
+  if (/not found|timed?\s*out|timeout/i.test(input.errorMessage)) {
     return {
       basis: "locator_failure",
       diagnosis: "The selector likely drifted after a vendor UI change.",

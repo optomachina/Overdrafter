@@ -46,11 +46,15 @@ describe("suggestLocatorUpdate", () => {
   });
 
   it("never publishes a numeric confidence beside measured extraction confidence", () => {
-    expect(
-      suggestLocatorUpdate({
-        failedSelector: ".quote-cta",
-        errorMessage: "Timed out waiting for selector",
-      }),
-    ).not.toHaveProperty("confidence");
+    const suggestion = suggestLocatorUpdate({
+      failedSelector: ".quote-cta",
+      errorMessage: "Timed out waiting for selector",
+    });
+
+    expect(suggestion).toMatchObject({
+      basis: "locator_failure",
+      requiresHumanReview: true,
+    });
+    expect(suggestion).not.toHaveProperty("confidence");
   });
 });
