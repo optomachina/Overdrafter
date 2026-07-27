@@ -92,6 +92,10 @@ export async function fetchSpendSummary(): Promise<SpendSummary> {
   return ensureData(data, error) as SpendSummary;
 }
 
+/**
+ * Updates the platform-wide cap. Omitted fields are left unchanged, so the
+ * caller can flip the kill switch without restating the ceilings.
+ */
 export async function setGlobalSpendCap(input: {
   dailyCeilingUsd?: number;
   perRunCeilingUsd?: number;

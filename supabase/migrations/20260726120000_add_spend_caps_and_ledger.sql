@@ -435,6 +435,13 @@ $$;
 revoke all on function public.api_reserve_spend(uuid, text, numeric, jsonb) from public, anon, authenticated;
 revoke all on function public.api_settle_spend(uuid, numeric, jsonb) from public, anon, authenticated;
 
+-- Granted explicitly rather than left to the implicit default. If service_role
+-- ever held access only via PUBLIC, the revoke above would take it away, and
+-- because the guard fails closed that would stop every model call and vendor
+-- lane -- a full processing outage caused by a permission, not a budget.
+grant execute on function public.api_reserve_spend(uuid, text, numeric, jsonb) to service_role;
+grant execute on function public.api_settle_spend(uuid, numeric, jsonb) to service_role;
+
 -- These two are client-callable by design and enforce authorization internally.
 revoke all on function public.api_spend_summary() from public, anon;
 revoke all on function public.api_set_global_spend_cap(numeric, numeric, boolean) from public, anon;
