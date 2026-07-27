@@ -12,9 +12,10 @@ describe("suggestLocatorUpdate", () => {
         nearbyAttributes: ['data-testid="submit-quote"'],
       }),
     ).toEqual({
-      confidence: 0.8,
+      basis: "nearby_test_id",
       diagnosis: "A stable test id is present near the failed locator.",
       suggestion: "Prefer a data-testid or role-based locator over the legacy selector.",
+      requiresHumanReview: true,
     });
   });
 
@@ -25,8 +26,9 @@ describe("suggestLocatorUpdate", () => {
         errorMessage: "Locator not found after page update",
       }),
     ).toMatchObject({
-      confidence: 0.55,
+      basis: "locator_failure",
       diagnosis: "The selector likely drifted after a vendor UI change.",
+      requiresHumanReview: true,
     });
   });
 
@@ -37,8 +39,22 @@ describe("suggestLocatorUpdate", () => {
         errorMessage: "Unexpected browser disconnect",
       }),
     ).toMatchObject({
-      confidence: 0.35,
+      basis: "unknown",
       suggestion: "Capture a Playwright trace and compare the current page with the last known-good flow.",
+      requiresHumanReview: true,
     });
+  });
+
+  it("never publishes a numeric confidence beside measured extraction confidence", () => {
+    const suggestion = suggestLocatorUpdate({
+      failedSelector: ".quote-cta",
+      errorMessage: "Timed out waiting for selector",
+    });
+
+    expect(suggestion).toMatchObject({
+      basis: "locator_failure",
+      requiresHumanReview: true,
+    });
+    expect(suggestion).not.toHaveProperty("confidence");
   });
 });
