@@ -34,6 +34,7 @@ import {
 } from "./modelProvider.js";
 import { qualifyForOpenRouter } from "./modelRegistry.js";
 import { callModel, combineUsage, type ModelCallUsage } from "./callModel.js";
+import type { SpendContext, SpendGuard } from "../spendGuard.js";
 
 export {
   EXTRACTION_SYSTEM_INSTRUCTION,
@@ -288,6 +289,7 @@ async function runModelAttempt(input: {
   cropPath: string | null;
   fullPagePath: string | null;
   attempt: ModelAttempt;
+  spend?: { guard: SpendGuard; estimatedUsd: number; context?: SpendContext };
 }): Promise<{ parsed: ParsedModelResponse; usage: ModelCallUsage }> {
   const { output, usage } = await callModel(
     input.provider,
@@ -302,6 +304,7 @@ async function runModelAttempt(input: {
       attempt: input.attempt,
     },
     input.model,
+    input.spend ? { spend: input.spend } : {},
   );
 
   return { parsed: output.fields, usage };
@@ -315,6 +318,8 @@ export async function extractDrawingFieldsWithModel(
     baseName: string;
     drawingSignals: ExtractedDrawingSignals;
     pagePreviewPath: string | null;
+    /** Budget enforcement. Each attempt reserves and settles independently. */
+    spend?: { guard: SpendGuard; estimatedUsd: number; context?: SpendContext };
   },
   dependencies: {
     provider?: ExtractionProvider;
@@ -354,6 +359,7 @@ export async function extractDrawingFieldsWithModel(
       cropPath: titleBlockCropPath,
       fullPagePath: null,
       attempt: "title_block_crop",
+      spend: input.spend,
     });
     usages.push(usage);
 
@@ -405,6 +411,7 @@ export async function extractDrawingFieldsWithModel(
     cropPath: titleBlockCropPath,
     fullPagePath: input.pagePreviewPath,
     attempt: "full_page",
+    spend: input.spend,
   });
   usages.push(fullPageUsage);
 

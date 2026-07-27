@@ -158,3 +158,86 @@ describe("combineUsage", () => {
     expect(combineUsage([])).toBeNull();
   });
 });
+
+describe("callModel spend enforcement", () => {
+  function guardOf(reserve: ReturnType<typeof vi.fn>, settle: ReturnType<typeof vi.fn>) {
+    return { reserve, settle };
+  }
+
+  it("reserves before the first attempt and settles the observed cost", async () => {
+    const run = vi.fn().mockResolvedValue(success("gpt-4.1-mini"));
+    const reserve = vi.fn().mockResolvedValue({ reservationId: "res-1", estimatedUsd: 0.5 });
+    const settle = vi.fn().mockResolvedValue(undefined);
+
+    const { usage } = await callModel(providerOf(run), PROMPT, "gpt-4.1-mini", {
+      sleep: noSleep,
+      spend: { guard: guardOf(reserve, settle), estimatedUsd: 0.5, context: { partId: "p1" } },
+    });
+
+    expect(reserve).toHaveBeenCalledWith(
+      "llm_extraction",
+      0.5,
+      expect.objectContaining({ partId: "p1", provider: "openai", modelName: "gpt-4.1-mini" }),
+    );
+    // Settled to the real cost, not the reserved estimate.
+    expect(settle).toHaveBeenCalledWith({ reservationId: "res-1", estimatedUsd: 0.5 }, usage.estimatedCostUsd);
+  });
+
+  it("makes no provider request when the reservation is refused", async () => {
+    const run = vi.fn().mockResolvedValue(success());
+    const reserve = vi.fn().mockRejectedValue(new Error("cap reached"));
+    const settle = vi.fn();
+
+    await expect(
+      callModel(providerOf(run), PROMPT, "gpt-4.1-mini", {
+        sleep: noSleep,
+        spend: { guard: guardOf(reserve, settle), estimatedUsd: 0.5 },
+      }),
+    ).rejects.toThrow("cap reached");
+
+    expect(run).not.toHaveBeenCalled();
+    expect(settle).not.toHaveBeenCalled();
+  });
+
+  it("settles at zero when the call fails, so a failed spend does not hold budget", async () => {
+    const run = vi.fn().mockResolvedValue(failure("refusal"));
+    const reserve = vi.fn().mockResolvedValue({ reservationId: "res-1", estimatedUsd: 0.5 });
+    const settle = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      callModel(providerOf(run), PROMPT, "gpt-4.1-mini", {
+        sleep: noSleep,
+        spend: { guard: guardOf(reserve, settle), estimatedUsd: 0.5 },
+      }),
+    ).rejects.toBeInstanceOf(ModelCallError);
+
+    expect(settle).toHaveBeenCalledWith({ reservationId: "res-1", estimatedUsd: 0.5 }, 0);
+  });
+
+  it("reserves once for a call that retries internally", async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(failure("rate_limit"))
+      .mockResolvedValueOnce(success());
+    const reserve = vi.fn().mockResolvedValue({ reservationId: "res-1", estimatedUsd: 0.5 });
+    const settle = vi.fn().mockResolvedValue(undefined);
+
+    await callModel(providerOf(run), PROMPT, "gpt-4.1-mini", {
+      sleep: noSleep,
+      random: () => 0,
+      spend: { guard: guardOf(reserve, settle), estimatedUsd: 0.5 },
+    });
+
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(reserve).toHaveBeenCalledTimes(1);
+    expect(settle).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips enforcement entirely when no guard is supplied", async () => {
+    const run = vi.fn().mockResolvedValue(success());
+
+    await expect(
+      callModel(providerOf(run), PROMPT, "gpt-4.1-mini", { sleep: noSleep }),
+    ).resolves.toBeDefined();
+  });
+});
