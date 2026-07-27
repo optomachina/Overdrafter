@@ -32,7 +32,7 @@ export function SpendCapCard() {
 
   const summaryQuery = useQuery({
     queryKey: ["admin", "spend-summary"],
-    queryFn: () => fetchSpendSummary(24),
+    queryFn: () => fetchSpendSummary(),
     // Spend moves continuously; a stale ceiling reading is the one number here
     // that must not be trusted for long.
     refetchInterval: 60_000,
@@ -81,7 +81,7 @@ export function SpendCapCard() {
           <div className="flex items-baseline justify-between">
             <span className="text-2xl font-semibold">{usd(spend)}</span>
             <span className="text-sm text-muted-foreground">
-              of {usd(ceiling)} today &middot; per-run cap {usd(summary?.perRunCeilingUsd)}
+              of {usd(ceiling)} today (UTC) &middot; per-run cap {usd(summary?.perRunCeilingUsd)}
             </span>
           </div>
           <div className="mt-2 h-2 w-full overflow-hidden rounded bg-muted">
@@ -118,7 +118,9 @@ export function SpendCapCard() {
                 </span>
                 <span>
                   {usd(row.spendUsd)}
-                  {row.dailyCeilingUsd ? ` / ${usd(row.dailyCeilingUsd)}` : ""}
+                  {row.dailyCeilingUsd !== null && row.dailyCeilingUsd !== undefined
+                    ? ` / ${usd(row.dailyCeilingUsd)}`
+                    : ""}
                 </span>
               </div>
             ))}
@@ -140,8 +142,11 @@ export function SpendCapCard() {
             variant="outline"
             disabled={mutation.isPending || !dailyCeilingDraft.trim()}
             onClick={() => {
-              const parsed = Number.parseFloat(dailyCeilingDraft);
-              if (!Number.isFinite(parsed) || parsed < 0) {
+              // Number() rejects a partial parse, unlike parseFloat, which would
+              // read "25usd" as 25 and quietly set a ceiling nobody asked for.
+              const rawValue = dailyCeilingDraft.trim();
+              const parsed = Number(rawValue);
+              if (!rawValue || !Number.isFinite(parsed) || parsed < 0) {
                 toast.error("Enter a non-negative amount");
                 return;
               }

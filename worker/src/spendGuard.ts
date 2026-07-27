@@ -17,6 +17,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type SpendCategory = "llm_extraction" | "vendor_automation";
 
+/**
+ * Deadline for a ledger round-trip.
+ *
+ * supabase-js applies no client-side timeout by default, so without this a
+ * stalled ledger call would hang the worker's task loop indefinitely -- the
+ * failure mode the guard exists to prevent, arriving by a different route.
+ */
+const SPEND_RPC_TIMEOUT_MS = 10_000;
+
 export type SpendContext = {
   jobId?: string | null;
   partId?: string | null;
@@ -77,19 +86,23 @@ export function createSpendGuard(
 ): SpendGuard {
   return {
     async reserve(category, estimatedUsd, context = {}) {
-      const { data, error } = await supabase.rpc("api_reserve_spend", {
-        p_organization_id: organizationId,
-        p_category: category,
-        p_estimated_usd: estimatedUsd,
-        p_context: {
-          jobId: context.jobId ?? null,
-          partId: context.partId ?? null,
-          quoteRunId: context.quoteRunId ?? null,
-          taskId: context.taskId ?? null,
-          provider: context.provider ?? null,
-          modelName: context.modelName ?? null,
-        },
-      });
+      const { data, error } = await supabase
+        .rpc("api_reserve_spend", {
+          p_organization_id: organizationId,
+          p_category: category,
+          p_estimated_usd: estimatedUsd,
+          p_context: {
+            jobId: context.jobId ?? null,
+            partId: context.partId ?? null,
+            quoteRunId: context.quoteRunId ?? null,
+            taskId: context.taskId ?? null,
+            provider: context.provider ?? null,
+            modelName: context.modelName ?? null,
+          },
+        })
+        // A timed-out reservation surfaces below as ledger_unavailable, which
+        // fails closed -- the correct direction when budget is unknowable.
+        .abortSignal(AbortSignal.timeout(SPEND_RPC_TIMEOUT_MS));
 
       if (error) {
         throw new SpendCapExceededError(
@@ -120,11 +133,13 @@ export function createSpendGuard(
       // A failed call still settles, at zero. Leaving the estimate in place
       // would hold budget for the rest of the window for spend that never
       // happened, which turns a transient provider error into a slow outage.
-      const { error } = await supabase.rpc("api_settle_spend", {
-        p_reservation_id: reservation.reservationId,
-        p_actual_usd: Math.max(toNumber(actualUsd, 0), 0),
-        p_metadata: {},
-      });
+      const { error } = await supabase
+        .rpc("api_settle_spend", {
+          p_reservation_id: reservation.reservationId,
+          p_actual_usd: Math.max(toNumber(actualUsd, 0), 0),
+          p_metadata: {},
+        })
+        .abortSignal(AbortSignal.timeout(SPEND_RPC_TIMEOUT_MS));
 
       if (error) {
         // Settlement failure is not worth failing the surrounding work over:

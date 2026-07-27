@@ -7,9 +7,14 @@ function clientReturning(rpc: ReturnType<typeof vi.fn>) {
   return { rpc } as never;
 }
 
+/** Mirrors supabase-js: rpc() returns a builder exposing .abortSignal(). */
+function rpcReturning(result: unknown) {
+  return vi.fn().mockReturnValue({ abortSignal: vi.fn().mockResolvedValue(result) });
+}
+
 describe("createSpendGuard.reserve", () => {
   it("returns a reservation when the ledger allows the spend", async () => {
-    const rpc = vi.fn().mockResolvedValue({
+    const rpc = rpcReturning({
       data: { allowed: true, reservationId: "res-1" },
       error: null,
     });
@@ -32,7 +37,7 @@ describe("createSpendGuard.reserve", () => {
   });
 
   it("throws with the ledger's reason when a ceiling is reached", async () => {
-    const rpc = vi.fn().mockResolvedValue({
+    const rpc = rpcReturning({
       data: {
         allowed: false,
         reasonCode: "global_daily_ceiling",
@@ -50,7 +55,7 @@ describe("createSpendGuard.reserve", () => {
   });
 
   it("refuses the spend when the kill switch is on", async () => {
-    const rpc = vi.fn().mockResolvedValue({
+    const rpc = rpcReturning({
       data: { allowed: false, reasonCode: "kill_switch", reason: "halted" },
       error: null,
     });
@@ -63,7 +68,7 @@ describe("createSpendGuard.reserve", () => {
   it("fails closed when the ledger is unreachable", async () => {
     // A guard that opens up when its own storage is down provides no guarantee,
     // and an unreachable ledger is exactly when unbounded spend is least safe.
-    const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "connection refused" } });
+    const rpc = rpcReturning({ data: null, error: { message: "connection refused" } });
 
     const error = await createSpendGuard(clientReturning(rpc), "org-1")
       .reserve("llm_extraction", 0.05)
@@ -76,7 +81,7 @@ describe("createSpendGuard.reserve", () => {
 
 describe("createSpendGuard.settle", () => {
   it("replaces the estimate with the observed amount", async () => {
-    const rpc = vi.fn().mockResolvedValue({ data: { settled: true }, error: null });
+    const rpc = rpcReturning({ data: { settled: true }, error: null });
 
     await createSpendGuard(clientReturning(rpc), "org-1").settle(
       { reservationId: "res-1", estimatedUsd: 0.5 },
@@ -90,7 +95,7 @@ describe("createSpendGuard.settle", () => {
   });
 
   it("settles at zero when no cost was observed", async () => {
-    const rpc = vi.fn().mockResolvedValue({ data: { settled: true }, error: null });
+    const rpc = rpcReturning({ data: { settled: true }, error: null });
 
     await createSpendGuard(clientReturning(rpc), "org-1").settle(
       { reservationId: "res-1", estimatedUsd: 0.5 },
@@ -101,7 +106,7 @@ describe("createSpendGuard.settle", () => {
   });
 
   it("never negatively settles", async () => {
-    const rpc = vi.fn().mockResolvedValue({ data: { settled: true }, error: null });
+    const rpc = rpcReturning({ data: { settled: true }, error: null });
 
     await createSpendGuard(clientReturning(rpc), "org-1").settle(
       { reservationId: "res-1", estimatedUsd: 0.5 },
@@ -114,7 +119,7 @@ describe("createSpendGuard.settle", () => {
   it("does not throw when settlement fails", async () => {
     // The reservation already bounded the spend; failing the surrounding work
     // over a settlement error would be worse than leaving the estimate booked.
-    const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "timeout" } });
+    const rpc = rpcReturning({ data: null, error: { message: "timeout" } });
 
     await expect(
       createSpendGuard(clientReturning(rpc), "org-1").settle(
@@ -122,6 +127,29 @@ describe("createSpendGuard.settle", () => {
         0.01,
       ),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("spend RPC deadlines", () => {
+  it("bounds the reservation call so a stalled ledger cannot hang the worker", async () => {
+    const abortSignal = vi.fn().mockResolvedValue({ data: { allowed: true, reservationId: "r" }, error: null });
+    const rpc = vi.fn().mockReturnValue({ abortSignal });
+
+    await createSpendGuard(clientReturning(rpc), "org-1").reserve("llm_extraction", 0.05);
+
+    expect(abortSignal).toHaveBeenCalledWith(expect.any(AbortSignal));
+  });
+
+  it("bounds the settlement call too", async () => {
+    const abortSignal = vi.fn().mockResolvedValue({ data: { settled: true }, error: null });
+    const rpc = vi.fn().mockReturnValue({ abortSignal });
+
+    await createSpendGuard(clientReturning(rpc), "org-1").settle(
+      { reservationId: "r", estimatedUsd: 0.5 },
+      0.01,
+    );
+
+    expect(abortSignal).toHaveBeenCalledWith(expect.any(AbortSignal));
   });
 });
 

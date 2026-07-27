@@ -977,6 +977,30 @@ async function handleVendorQuoteTask(
     if (error instanceof SpendCapExceededError) {
       const retryAt = nextRetryAt(task.attempts);
 
+      // The result row was set to "running" before this point. Every other
+      // terminal path here moves it on; without this it would sit reporting
+      // "running" forever on a lane that was never going to run -- a
+      // customer-facing quote that silently never resolves.
+      await supabase
+        .from("vendor_quote_results")
+        .update({
+          status: retryAt ? "queued" : "manual_vendor_followup",
+          notes: [
+            retryAt
+              ? `Spend cap reached; this lane will retry. ${error.message}`
+              : `Spend cap reached and retries are exhausted; this lane needs manual vendor follow-up. ${error.message}`,
+          ],
+          raw_payload: {
+            mode: config.workerMode,
+            requiresManualVendorFollowUp: !retryAt,
+            manualFollowUpReason: "spend_cap_reached",
+            spendCapReasonCode: error.reasonCode,
+            requestedQuantity: currentResult.requested_quantity,
+            failureCode: "spend_cap_reached",
+          },
+        })
+        .eq("id", currentResult.id);
+
       if (retryAt) {
         await markTaskQueuedForRetry(supabase, task, `Spend cap reached: ${error.message}`, retryAt, {
           spendCapReasonCode: error.reasonCode,
@@ -995,10 +1019,16 @@ async function handleVendorQuoteTask(
     throw error;
   }
 
+  // Only container time actually consumed should be charged. Staging can fail
+  // before the browser ever launches, and settling the full estimate for a lane
+  // that never started would hold budget for spend that did not happen.
+  let vendorAutomationStarted = false;
+
   try {
     stageDir = await createRunDir(config, ["staging", task.quote_run_id, task.part_id]);
     const stagedCadFile = await stageStorageObject(supabase, context.cadFile, stageDir);
     const stagedDrawingFile = await stageStorageObject(supabase, context.drawingFile, stageDir);
+    vendorAutomationStarted = true;
     const result = await adapter.quote({
       organizationId: task.organization_id,
       quoteRunId: task.quote_run_id,
@@ -1197,7 +1227,10 @@ async function handleVendorQuoteTask(
   } finally {
     // Settle regardless of outcome: an estimate left booked for a lane that
     // never ran would hold budget for the rest of the window.
-    await vendorSpendGuard.settle(vendorReservation, VENDOR_RUN_SPEND_ESTIMATE_USD);
+    await vendorSpendGuard.settle(
+      vendorReservation,
+      vendorAutomationStarted ? VENDOR_RUN_SPEND_ESTIMATE_USD : 0,
+    );
     await cleanupPaths([stageDir, ...artifactDirs]);
   }
 }

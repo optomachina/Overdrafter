@@ -186,8 +186,11 @@ begin
     else v_global.daily_ceiling_usd
   end;
 
+  -- Gated on `enabled` to match the daily ceiling below. Without this, disabling
+  -- an org's override row would still leave its stale per-run ceiling in force,
+  -- which is the opposite of what disabling it means.
   v_per_run_ceiling := coalesce(
-    v_org.per_run_ceiling_usd,
+    case when coalesce(v_org.enabled, true) then v_org.per_run_ceiling_usd end,
     v_global.per_run_ceiling_usd,
     public.spend_default_per_run_ceiling_usd()
   );
@@ -307,14 +310,22 @@ end;
 $$;
 
 /** Rolling-window spend totals for the admin surface. */
-create or replace function public.api_spend_summary(p_window_hours integer default 24)
+/**
+ * Spend totals for the admin surface.
+ *
+ * Measures the same UTC calendar day that `api_reserve_spend` enforces against.
+ * A rolling window would disagree with the ceiling near midnight, so an operator
+ * asking "why was this refused" would be reading a number that was never the one
+ * doing the refusing.
+ */
+create or replace function public.api_spend_summary()
 returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  v_since timestamptz := timezone('utc', now()) - make_interval(hours => greatest(coalesce(p_window_hours, 24), 1));
+  v_since timestamptz := date_trunc('day', timezone('utc', now()));
   v_global public.spend_caps%rowtype;
   v_total numeric(14, 6);
   v_by_category jsonb;
@@ -354,7 +365,6 @@ begin
   ) ranked;
 
   return jsonb_build_object(
-    'windowHours', greatest(coalesce(p_window_hours, 24), 1),
     'since', v_since,
     'totalSpendUsd', v_total,
     'globalDailyCeilingUsd', coalesce(v_global.daily_ceiling_usd, public.spend_default_daily_ceiling_usd()),
@@ -383,6 +393,10 @@ begin
   if not public.is_platform_admin() then
     raise exception 'Not authorized';
   end if;
+
+  -- Serialized against itself so a concurrent first-write cannot have both
+  -- callers find no row and both attempt the insert.
+  perform pg_advisory_xact_lock(hashtext('overdrafter.spend_cap_write'));
 
   update public.spend_caps
   set
@@ -413,7 +427,16 @@ begin
 end;
 $$;
 
-revoke all on function public.api_reserve_spend(uuid, text, numeric, jsonb) from public;
-revoke all on function public.api_settle_spend(uuid, numeric, jsonb) from public;
-grant execute on function public.api_spend_summary(integer) to authenticated;
+-- Supabase grants EXECUTE on new public-schema functions to anon, authenticated
+-- and service_role, so revoking from PUBLIC alone leaves client roles able to
+-- call these. A client that could reach api_settle_spend could settle its own
+-- reservations to zero and spend without bound, which would defeat the entire
+-- mechanism. Only the worker's service_role retains access.
+revoke all on function public.api_reserve_spend(uuid, text, numeric, jsonb) from public, anon, authenticated;
+revoke all on function public.api_settle_spend(uuid, numeric, jsonb) from public, anon, authenticated;
+
+-- These two are client-callable by design and enforce authorization internally.
+revoke all on function public.api_spend_summary() from public, anon;
+revoke all on function public.api_set_global_spend_cap(numeric, numeric, boolean) from public, anon;
+grant execute on function public.api_spend_summary() to authenticated;
 grant execute on function public.api_set_global_spend_cap(numeric, numeric, boolean) to authenticated;

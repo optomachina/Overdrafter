@@ -64,7 +64,7 @@ export async function fetchAdminAllProjects(): Promise<AdminProjectSummary[]> {
 }
 
 export type SpendSummary = {
-  windowHours: number;
+  /** Start of the UTC calendar day the ceiling is enforced against. */
   since: string;
   totalSpendUsd: number;
   globalDailyCeilingUsd: number;
@@ -84,11 +84,11 @@ export type SpendSummary = {
  * the UI applied would only bound spending the UI initiated, which is not the
  * shape a runaway takes.
  */
-export async function fetchSpendSummary(windowHours = 24): Promise<SpendSummary> {
+export async function fetchSpendSummary(): Promise<SpendSummary> {
   // Untyped: these functions post-date the last generated Database types.
-  const { data, error } = await callUntypedRpc("api_spend_summary", {
-    p_window_hours: windowHours,
-  });
+  // No window argument: the summary measures the same UTC calendar day the
+  // ceiling is enforced against, so the figure shown is the figure gating.
+  const { data, error } = await callUntypedRpc("api_spend_summary");
   return ensureData(data, error) as SpendSummary;
 }
 
