@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 import { isAuthSessionMissingError, type Session } from "@supabase/supabase-js";
 import type { AppMembership, AppSessionData } from "@/features/quotes/types";
@@ -25,6 +29,29 @@ const EMPTY_APP_SESSION: AppSessionData = {
   isPlatformAdmin: false,
   authState: "anonymous",
 };
+
+function isAppSessionQuery(queryKey: readonly unknown[]): boolean {
+  return queryKey[0] === APP_SESSION_QUERY_KEY[0];
+}
+
+function clearSubjectBoundClientState(
+  queryClient: QueryClient,
+  previousUserId: string | null | undefined,
+  nextUserId: string | null | undefined,
+  options: { force?: boolean } = {},
+) {
+  if (!options.force && previousUserId === nextUserId) {
+    return;
+  }
+
+  void queryClient.cancelQueries({
+    predicate: (query) => !isAppSessionQuery(query.queryKey),
+  });
+  queryClient.removeQueries({
+    predicate: (query) => !isAppSessionQuery(query.queryKey),
+  });
+  queryClient.getMutationCache().clear();
+}
 
 export { getSupabaseAuthStorageKey } from "@/features/quotes/api/shared/startup-auth";
 
@@ -101,6 +128,14 @@ export function useAppSession() {
 
   const seedSessionFromSupabaseSession = useCallback(
     (session: Session, source: string) => {
+      const currentSession =
+        queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
+
+      clearSubjectBoundClientState(
+        queryClient,
+        currentSession?.user?.id,
+        session.user.id,
+      );
       queryClient.setQueryData<AppSessionData>(APP_SESSION_QUERY_KEY, (current) => ({
         user: session.user,
         memberships: current?.user?.id === session.user.id ? current.memberships : EMPTY_MEMBERSHIPS,
@@ -235,6 +270,12 @@ export function useAppSession() {
           updateInitialAuthCheck("none");
           markInitialRestoreResolved("use-app-session.auth-state-change.signed-out");
           clearRetryTimeout();
+          clearSubjectBoundClientState(
+            queryClient,
+            queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY)?.user?.id,
+            null,
+            { force: true },
+          );
           queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
           return;
         }
@@ -297,6 +338,12 @@ export function useAppSession() {
       );
 
       if (result.authState === "authenticated") {
+        clearSubjectBoundClientState(
+          queryClient,
+          currentSession?.user?.id,
+          result.user?.id,
+        );
+
         if (result.membershipError) {
           if (!membershipErrorRetriedRef.current) {
             membershipErrorRetriedRef.current = true;
@@ -323,6 +370,12 @@ export function useAppSession() {
       }
 
       if (result.authState === "invalid_session") {
+        clearSubjectBoundClientState(
+          queryClient,
+          currentSession?.user?.id,
+          null,
+          { force: true },
+        );
         terminalAuthStateRef.current = "invalid_session";
         sessionErrorRetriedRef.current = false;
         membershipErrorRetriedRef.current = false;
@@ -382,6 +435,12 @@ export function useAppSession() {
       terminalAuthStateRef.current = null;
       sessionErrorRetriedRef.current = false;
       membershipErrorRetriedRef.current = false;
+      clearSubjectBoundClientState(
+        queryClient,
+        currentSession?.user?.id,
+        null,
+        { force: true },
+      );
       updateInitialAuthCheck("none");
       markInitialRestoreResolved("use-app-session.query.anonymous");
       return result;
@@ -442,11 +501,23 @@ export function useAppSession() {
       "Clearing local Supabase session storage after terminal invalid_session classification.",
     );
     removeStoredSupabaseSession();
+    clearSubjectBoundClientState(
+      queryClient,
+      queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY)?.user?.id,
+      null,
+      { force: true },
+    );
     queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
   }, [isFixtureSession, queryClient, sessionQuery.data?.authState, sessionQuery.isLoading]);
 
   const signOut = async () => {
     if (isFixtureSession) {
+      clearSubjectBoundClientState(
+        queryClient,
+        queryClient.getQueryData<AppSessionData>(sessionQueryKey)?.user?.id,
+        null,
+        { force: true },
+      );
       queryClient.setQueryData(sessionQueryKey, EMPTY_APP_SESSION);
       return;
     }
@@ -471,6 +542,12 @@ export function useAppSession() {
     hasResolvedInitialRestoreRef.current = true;
     setHasResolvedInitialRestore(true);
     removeStoredSupabaseSession();
+    clearSubjectBoundClientState(
+      queryClient,
+      queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY)?.user?.id,
+      null,
+      { force: true },
+    );
     queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
 
     const { error } = await supabase.auth.signOut({ scope: "global" });
@@ -486,6 +563,12 @@ export function useAppSession() {
         "Supabase signOut reported no remaining browser session after optimistic logout.",
       );
       removeStoredSupabaseSession();
+      clearSubjectBoundClientState(
+        queryClient,
+        queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY)?.user?.id,
+        null,
+        { force: true },
+      );
       queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
       return;
     }

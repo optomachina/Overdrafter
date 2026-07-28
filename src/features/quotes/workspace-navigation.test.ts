@@ -2,10 +2,17 @@ import { QueryClient } from "@tanstack/react-query";
 import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createWorkspaceAccessScope,
   prefetchPartPage,
   prefetchProjectPage,
   workspaceQueryKeys,
 } from "@/features/quotes/workspace-navigation";
+
+const ACCESS_SCOPE = createWorkspaceAccessScope({
+  userId: "user-1",
+  organizationId: "org-1",
+  role: "client",
+});
 
 const {
   fetchPartDetailByJobId,
@@ -67,12 +74,24 @@ describe("workspace navigation prefetch", () => {
     fetchJobsByProject.mockResolvedValue(jobs);
     fetchClientQuoteWorkspaceByJobIds.mockResolvedValue(workspaceItems);
 
-    await prefetchProjectPage(queryClient, "project-1");
+    await prefetchProjectPage(queryClient, "project-1", {
+      accessScope: ACCESS_SCOPE,
+    });
 
-    expect(queryClient.getQueryData(workspaceQueryKeys.project("project-1"))).toEqual(project);
-    expect(queryClient.getQueryData(workspaceQueryKeys.projectJobs("project-1"))).toEqual(jobs);
     expect(
-      queryClient.getQueryData(workspaceQueryKeys.clientQuoteWorkspace(["job-2"])),
+      queryClient.getQueryData(
+        workspaceQueryKeys.project("project-1", ACCESS_SCOPE),
+      ),
+    ).toEqual(project);
+    expect(
+      queryClient.getQueryData(
+        workspaceQueryKeys.projectJobs("project-1", ACCESS_SCOPE),
+      ),
+    ).toEqual(jobs);
+    expect(
+      queryClient.getQueryData(
+        workspaceQueryKeys.clientQuoteWorkspace(["job-2"], ACCESS_SCOPE),
+      ),
     ).toEqual(workspaceItems);
     expect(fetchClientQuoteWorkspaceByJobIds).toHaveBeenCalledWith(["job-2"]);
   });
@@ -86,9 +105,15 @@ describe("workspace navigation prefetch", () => {
     });
     fetchPartDetailByJobId.mockResolvedValue(detail);
 
-    await prefetchPartPage(queryClient, "job-1");
+    await prefetchPartPage(queryClient, "job-1", {
+      accessScope: ACCESS_SCOPE,
+    });
 
-    expect(queryClient.getQueryData(workspaceQueryKeys.partDetail("job-1"))).toEqual(detail);
+    expect(
+      queryClient.getQueryData(
+        workspaceQueryKeys.partDetail("job-1", ACCESS_SCOPE),
+      ),
+    ).toEqual(detail);
   });
 
   it("skips duplicate part prefetches while cached data is still fresh", async () => {
@@ -99,8 +124,12 @@ describe("workspace navigation prefetch", () => {
     });
     fetchPartDetailByJobId.mockResolvedValue({ job: { id: "job-1" } });
 
-    await prefetchPartPage(queryClient, "job-1");
-    await prefetchPartPage(queryClient, "job-1");
+    await prefetchPartPage(queryClient, "job-1", {
+      accessScope: ACCESS_SCOPE,
+    });
+    await prefetchPartPage(queryClient, "job-1", {
+      accessScope: ACCESS_SCOPE,
+    });
 
     expect(fetchPartDetailByJobId).toHaveBeenCalledTimes(1);
   });
@@ -114,14 +143,26 @@ describe("workspace navigation prefetch", () => {
     });
     fetchPartDetailByJobId.mockResolvedValue(detail);
 
-    await prefetchPartPage(queryClient, "part-1");
+    await prefetchPartPage(queryClient, "part-1", {
+      accessScope: ACCESS_SCOPE,
+    });
 
-    expect(queryClient.getQueryData(workspaceQueryKeys.partDetail("job-1"))).toEqual(detail);
-    expect(queryClient.getQueryState(workspaceQueryKeys.partDetail("part-1"))).toBeUndefined();
+    expect(
+      queryClient.getQueryData(
+        workspaceQueryKeys.partDetail("job-1", ACCESS_SCOPE),
+      ),
+    ).toEqual(detail);
+    expect(
+      queryClient.getQueryState(
+        workspaceQueryKeys.partDetail("part-1", ACCESS_SCOPE),
+      ),
+    ).toBeUndefined();
   });
 
   it("skips remote prefetch for virtual seeded projects", async () => {
-    await prefetchProjectPage(queryClient, "seed-qb00001");
+    await prefetchProjectPage(queryClient, "seed-qb00001", {
+      accessScope: ACCESS_SCOPE,
+    });
 
     expect(fetchProject).not.toHaveBeenCalled();
     expect(fetchJobsByProject).not.toHaveBeenCalled();
@@ -134,11 +175,21 @@ describe("workspace navigation prefetch", () => {
     fetchJobsByProject.mockResolvedValue([{ id: "job-2", title: "Job Two" }]);
     isProjectNotFoundError.mockReturnValue(true);
 
-    await prefetchProjectPage(queryClient, "project-missing");
+    await prefetchProjectPage(queryClient, "project-missing", {
+      accessScope: ACCESS_SCOPE,
+    });
 
     await waitFor(() => {
-      expect(queryClient.getQueryState(workspaceQueryKeys.project("project-missing"))).toBeUndefined();
-      expect(queryClient.getQueryState(workspaceQueryKeys.projectJobs("project-missing"))).toBeUndefined();
+      expect(
+        queryClient.getQueryState(
+          workspaceQueryKeys.project("project-missing", ACCESS_SCOPE),
+        ),
+      ).toBeUndefined();
+      expect(
+        queryClient.getQueryState(
+          workspaceQueryKeys.projectJobs("project-missing", ACCESS_SCOPE),
+        ),
+      ).toBeUndefined();
     });
     expect(fetchClientQuoteWorkspaceByJobIds).not.toHaveBeenCalled();
   });

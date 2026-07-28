@@ -79,6 +79,20 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - targeted automated tests where practical
 - smoke verification of the affected flow
 - when refactoring a large route into route-local modules, add focused tests for extracted view-model hooks or pure selectors so derived state stays covered outside JSX
+- for Quote Intelligence navigation, verify Parts/Quotes/Search at phone, tablet, and desktop widths
+- for buyer quote comparison, assert total-price Y values, working-day X values, fixed independent points, and synchronized table/chart selection
+- keep noncomparable offers visible with explicit reasons, render missing-lead offers in the chart's unavailable zone, and prevent ineligible options from being selected
+- for authenticated workspace caches, verify account and access-scope changes synchronously clear prior rendered lists and remove prior subject-bound queries before the next session is published
+
+### iOS application changes
+
+- generate the Xcode project from the committed project definition
+- run Swift unit tests for route mapping and navigation policy
+- build and test an iPhone simulator destination
+- build and test an iPad simulator destination
+- verify auth-session persistence, file upload, external-link handoff, offline/retry behavior, and deep-link routing
+- validate a generic-device archive before TestFlight upload
+- install and smoke-test the uploaded TestFlight build before release completion
 
 ### Client-triggered quote request changes
 - validate request gating and lifecycle rendering in client part and project workspace tests

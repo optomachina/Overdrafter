@@ -132,6 +132,15 @@ function createWorkspaceDataResult() {
 
 vi.mock("@/features/quotes/workspace-navigation", () => ({
   WORKSPACE_SHARED_STALE_TIME_MS: 30_000,
+  createWorkspaceAccessScope: ({
+    userId,
+    organizationId,
+    role,
+  }: {
+    userId?: string | null;
+    organizationId?: string | null;
+    role?: string | null;
+  }) => JSON.stringify([userId ?? null, organizationId ?? null, role ?? null]),
   prefetchPartPage: vi.fn(),
   prefetchProjectPage: vi.fn(),
 }));
@@ -571,8 +580,8 @@ describe("useClientHomeController membership recovery", () => {
     await waitFor(() => {
       expect(useClientWorkspaceDataMock).toHaveBeenLastCalledWith(
         expect.objectContaining({
+          accessScope: JSON.stringify(["user-1", "org-1", "client"]),
           enabled: true,
-          userId: "user-1",
         }),
       );
     });

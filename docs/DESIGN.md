@@ -170,6 +170,23 @@ Composition-first, not component-first. The application is laid out like an engi
 - **Quote packages** render as horizontally-arranged spec-sheet columns at the bottom (NOT vertical pricing cards). One column gets a 2px left border in `--accent-red` to mark the selected option.
 - **Right decision ledger** (240px) shows margin delta, lead time delta, supplier confidence, DFM flags, exceptions. Lives only on quote-construction surfaces.
 
+### Quote Intelligence launch shell
+
+The July 28, 2026 launch direction supersedes the persistent left ledger as the default client entry shell while preserving it on legacy/internal construction surfaces.
+
+- Global client navigation is `PARTS | QUOTES | SEARCH`.
+- Desktop uses one thin top command/nav strip. iPhone uses a native or web bottom destination bar; iPad may use a native sidebar.
+- `All | Parts | Assemblies` is one compact segmented filter over a single collection.
+- A part row leads with its isometric thumbnail and artifact identity. The 3D viewer appears only on request.
+- Quote detail uses progressive hierarchy: estimate/request context leads before responses; actual offers lead after responses arrive.
+- Buyer quote scatter uses independent fixed-size points: working-day lead time on X, quoted total on Y. Never draw a connecting, trend, or Pareto line.
+- Chart and table are two views of one selection state.
+- Validity, source URL, and response timing live in the selected-response inspector when the source data exists; they do not permanently widen the core decision table on small screens.
+- `?app=ios` may suppress redundant web destination navigation because the native shell owns Parts/Quotes/Search, but must retain account, upload, and page actions.
+- PDM, marketplace, estimate, and supplier-benchmark controls remain hidden until their data contracts are approved and available.
+- Future estimates show a range and ranked approximate cost drivers for the uploaded design as-is. Sparse evidence widens the range; no customer-facing confidence score is shown.
+- Future supplier outcome comparisons are post-event and anonymized, with minimum-cohort, privacy, data-purpose, and competition-review gates before price, lead-time, or response-latency placement is exposed.
+
 ### Other layouts
 
 - **Project ledger:** dense parts table, full-width, hairline rows, mono numeric columns right-aligned, plain-word status, hover = `--surface-2`, selected row = inset accent border. No card grids. No zebra striping.
@@ -286,6 +303,8 @@ Reject any UI work that includes:
 | 2026-05-05 | Roadmap items rendered as **muted mono uppercase chips** in info-panel footers | DFM Flags, Ask OverDrafter, Tariff Auto-Calc, Hover Part > Highlight in Assembly, Multi-page PDF Nav, etc. Visible-but-parked: signals "we know this is needed, not in MVP." |
 | 2026-05-14 | Dark mode revived as an account-menu toggle using the pre-redesign palette verbatim | Interim revival for users who want the prior clean black look while keeping bone as the default. This does not replace the future deliberate dark redesign described in `### Dark mode`. |
 | 2026-05-14 | GuestAppShell keeps a fixed dark pre-auth marketing shell | Intentional exception to theme-tokenized app surfaces: the signed-out prompt shell keeps the legacy dark gradient (`#1f2024` to `#17181c`, plus the white radial highlight) and white text for brand contrast. AuthPanel remains theme-driven. |
+| 2026-07-28 | Client launch shell is `Parts \| Quotes \| Search` across responsive web and iOS | Project remains backend collaboration scope, but quoting is the universal job. Capabilities attach contextually instead of becoming top-level tabs. The new shell supersedes the persistent left ledger for client entry surfaces. |
+| 2026-07-28 | Buyer scatter uses fixed independent dots, X = working-day lead, Y = quoted total | Supplier offers do not form a curve. Bubble-size, connecting-line, trend-line, and Pareto-line metaphors distort the decision. |
 
 ---
 

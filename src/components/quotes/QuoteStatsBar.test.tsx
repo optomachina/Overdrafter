@@ -61,4 +61,32 @@ describe("QuoteStatsBar", () => {
     expect(screen.getByText("1.8x spread")).toBeInTheDocument();
     expect(screen.queryByText("Decision Prompt")).not.toBeInTheDocument();
   });
+
+  it("counts received offers even when none are currently recommendation-eligible", () => {
+    render(
+      <QuoteStatsBar
+        options={[
+          makeClientQuoteOption({
+            key: "late-one",
+            offerId: "offer-late-one",
+            persistedOfferId: "offer-late-one",
+            vendorQuoteResultId: "result-late-one",
+            supplier: "Supplier One",
+            eligible: false,
+          }),
+          makeClientQuoteOption({
+            key: "late-two",
+            offerId: "offer-late-two",
+            persistedOfferId: "offer-late-two",
+            vendorQuoteResultId: "result-late-two",
+            supplier: "Supplier Two",
+            eligible: false,
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("2", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("2 suppliers")).toBeInTheDocument();
+  });
 });

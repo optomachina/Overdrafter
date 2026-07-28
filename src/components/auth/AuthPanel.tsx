@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
@@ -89,6 +89,7 @@ export function AuthPanel({
   redirectPath = "/",
 }: AuthPanelProps) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user, refetch } = useAppSession();
   const [authMode, setAuthMode] = useState<AuthPanelMode>(initialMode);
   const [email, setEmail] = useState("");
@@ -127,7 +128,9 @@ export function AuthPanel({
   const showEmailField = authMode !== "update-password" && authMode !== "verify-email";
   const showPasswordField = authMode !== "forgot-password" && authMode !== "verify-email";
   const showConfirmPasswordField = authMode === "update-password";
-  const showSocialAuth = authMode === "sign-in" || authMode === "sign-up";
+  const isIOSAppWorkspace = searchParams.get("app") === "ios";
+  const showSocialAuth =
+    !isIOSAppWorkspace && (authMode === "sign-in" || authMode === "sign-up");
   const submitDisabled = isLoading || (authMode === "update-password" && !user);
 
   const handleSubmit = async (event: React.FormEvent) => {

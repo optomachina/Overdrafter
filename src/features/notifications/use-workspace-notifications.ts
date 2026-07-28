@@ -6,6 +6,7 @@ import {
 import type { AppMembership, ClientActivityEvent } from "@/features/quotes/types";
 import {
   stableJobIds,
+  type WorkspaceAccessScope,
   WORKSPACE_GC_TIME_MS,
   WORKSPACE_SHARED_STALE_TIME_MS,
   workspaceQueryKeys,
@@ -442,12 +443,14 @@ function createPreviewBrowserNotification() {
 }
 
 type UseWorkspaceNotificationsOptions = {
+  accessScope: WorkspaceAccessScope;
   jobIds: string[];
   role: AppMembership["role"] | null | undefined;
   userId?: string | null;
 };
 
 export function useWorkspaceNotifications({
+  accessScope,
   jobIds,
   role,
   userId,
@@ -465,7 +468,10 @@ export function useWorkspaceNotifications({
   );
 
   const activityQuery = useQuery({
-    queryKey: [...workspaceQueryKeys.clientActivity(normalizedJobIds), "notification-center"],
+    queryKey: [
+      ...workspaceQueryKeys.clientActivity(normalizedJobIds, accessScope),
+      "notification-center",
+    ],
     queryFn: () => fetchClientActivityEventsByJobIds(normalizedJobIds, 12),
     enabled: Boolean(userId) && normalizedJobIds.length > 0,
     staleTime: WORKSPACE_SHARED_STALE_TIME_MS,

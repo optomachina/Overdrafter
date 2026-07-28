@@ -17,9 +17,11 @@ At a high level, the product does four things:
 3. Lets internal estimators review extracted requirements and compare sourcing options.
 4. Publishes curated quote packages for client review and selection.
 
+The primary client entry model is `Parts | Quotes | Search` on responsive web and iOS. `Project` remains the collaboration and commercial container in the domain; it does not need to be the first navigation choice for every customer.
+
 ## Core terminology and container model
 
-OverDrafter uses `Project` as the customer-facing top-level container. A project is the commercial and workflow wrapper for an RFQ, quote package, prototype run, or purchasing request.
+OverDrafter uses `Project` as the top-level persisted collaboration and commercial container. A project is the workflow wrapper for an RFQ, quote package, prototype run, or purchasing request, but it is revealed contextually rather than serving as the primary client navigation.
 
 `Assembly` is a technical object that exists inside a project. It represents an engineering structure when a parent-child mechanical hierarchy is present, but it is not the umbrella object for the overall workflow.
 
@@ -33,7 +35,21 @@ The intended hierarchy is:
 - Documents and supporting files inside a project
 - Quote packages, quote rounds, and downstream order or review records scoped to a project
 
-Customer-facing creation and navigation language should therefore use project-oriented labels such as `Create Project`, `Add Parts`, `Add Assembly`, `Upload Files`, and `Request Quotes`.
+When collaboration or mixed-request context is needed, customer-facing actions should use project-oriented labels such as `Create Project`, `Add Parts`, `Add Assembly`, `Upload Files`, and `Request Quotes`. The primary launch navigation remains `Parts | Quotes | Search`.
+
+## Quote Intelligence launch surface
+
+The client application uses three durable, user-facing destinations:
+
+- `Parts` — the accessible artifact library, with All/Parts/Assemblies as one filter control
+- `Quotes` — quote requests and their current supplier-response/selection state
+- `Search` — live retrieval across accessible part, project, engineering, and quote metadata
+
+This presentation model does not replace `Project` in the backend. Projects continue to own collaboration and mixed-request context. A part or quote may link back to its containing project without forcing the user to enter through a project dashboard.
+
+Quote detail presents request facts and supplier offers directly. Buyer comparison uses independent points with ready-to-ship working days on X and quoted total price on Y. It must not draw a connecting, trend, or Pareto line through unrelated offers.
+
+The same launch model is used by responsive web and the iPhone/iPad application so a user does not have to learn two products.
 
 ## Client-triggered quote request capability
 
@@ -70,7 +86,8 @@ The ideal multi-agent UX is:
 - Natural-language direction as the only control surface (“DFM this assembly for CNC aluminum 6061, get firm quotes from the 5 fastest shops under $800…”).
 - Invisible specialist agents (DFM, extraction, quoting swarm via OpenClaw browser harness, modeling/drafting updater, assembly/fulfillment coordinator, PDM agent) that decompose, negotiate on an internal blackboard, and execute in parallel.
 - On-demand visualizations only (live DFM heatmap on geometry, dynamic quote scatter, revision diff, risk heatmap) that collapse back to the clean CAD view when not needed.
-- A future costing heatmap that explains estimated cost contribution by geometric feature, tolerance, finish, and quantity. The estimator should learn from observed vendor quantity-price curves, preserve vendor/source provenance, show confidence, and remain explicitly estimate-only until a live quote verifies the price.
+- A future costing heatmap that explains an estimated price range through ranked, approximate cost drivers for geometry, tolerance, material, finish, quantity, lead time, and origin. It should learn from immutable feature/condition/prediction/quote snapshots, preserve vendor/source provenance, compare every prediction with later firm quotes, and track accuracy internally. Customer-facing output must not show an abstract confidence score; internal uncertainty widens the displayed range instead.
+- A post-event supplier outcome view that can show an invited supplier where its price, ready-to-ship lead time, and response latency landed inside an anonymized cohort. It remains gated on explicit data-purpose terms, a minimum cohort, event closure, privacy review, and competition counsel; buyer-visible vendor identity must never leak into the supplier view.
 - Branching/merging that feels like breathing; human override is instant and contextual.
 - OpenClaw browser automation stays completely invisible—tabs, form submissions, and quote scraping happen server-side.
 
@@ -170,14 +187,15 @@ The current product should not be treated as owning:
 - ERP/CRM synchronization
 - real-time chat or threaded messaging as a core workflow surface
 - full manufacturing execution
-- native mobile applications
 - public marketing CMS functionality
+
+Native iPhone and iPad applications are now in scope. The first release may reuse hardened route-specific web workspaces inside a native navigation shell to preserve auth, upload, and quote mutation parity; privileged credentials must never be embedded in the application.
 
 ## Client workspace surface
 
 The client-facing workspace should be artifact-first. CAD, drawings, structured metadata, request state, and quote comparison should be the dominant surfaces in the part and project experience.
 
-Chat-style interaction may exist as a contextual tool inside the workspace, but it must not be the primary page surface or the primary information architecture. The intended client mental model remains `Project > Part > Artifacts > Quotes`, with conversation supporting that flow rather than replacing it.
+Chat-style interaction may exist as a contextual tool inside the workspace, but it must not be the primary page surface or the primary information architecture. The launch mental model is `Parts | Quotes | Search`; Project remains contextual collaboration scope, and artifact/quote detail remains the decision surface.
 
 ## Product principles
 

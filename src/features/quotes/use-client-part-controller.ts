@@ -82,7 +82,12 @@ import { buildProjectNameFromLabels, normalizeUploadStem } from "@/features/quot
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
 import { useWorkspaceNavigationModel } from "@/features/quotes/use-workspace-navigation-model";
-import { prefetchPartPage, prefetchProjectPage, workspaceQueryKeys } from "@/features/quotes/workspace-navigation";
+import {
+  createWorkspaceAccessScope,
+  prefetchPartPage,
+  prefetchProjectPage,
+  workspaceQueryKeys,
+} from "@/features/quotes/workspace-navigation";
 import { resolveStoredFileViewerMode } from "@/lib/file-viewer";
 import {
   downloadStoredFileBlob,
@@ -112,8 +117,17 @@ function shouldPollExtractionState(
   return lifecycle === "queued" || lifecycle === "extracting" || lifecycle === "uploaded";
 }
 
-export function useClientPartController() {
-  const { jobId: routeJobId = "" } = useParams();
+/**
+ * Loads the access-filtered part workspace and its quote actions.
+ * Callers that render their own signed-out gate can suppress the legacy homepage redirect.
+ */
+export function useClientPartController(
+  explicitJobId?: string,
+  options: { redirectUnauthenticated?: boolean } = {},
+) {
+  const { redirectUnauthenticated = true } = options;
+  const { jobId: routeJobIdParam = "" } = useParams();
+  const routeJobId = explicitJobId ?? routeJobIdParam;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user, activeMembership, signOut, isAuthInitializing } = useAppSession();
@@ -140,6 +154,11 @@ export function useClientPartController() {
   const isCancelQuoteRequestLockedRef = useRef(false);
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+  const workspaceAccessScope = createWorkspaceAccessScope({
+    userId: user?.id,
+    organizationId: activeMembership?.organizationId,
+    role: activeMembership?.role,
+  });
   const {
     accessibleProjects,
     accessibleJobs,
@@ -154,7 +173,7 @@ export function useClientPartController() {
     summariesByJobId,
   } = useClientWorkspaceData({
     enabled: Boolean(user),
-    userId: user?.id,
+    accessScope: workspaceAccessScope,
     projectCollaborationUnavailable,
   });
   const safeProjectJobMembershipsQuery = projectJobMembershipsQuery ?? {
@@ -192,7 +211,10 @@ export function useClientPartController() {
   });
 
   const partRouteQuery = useQuery({
-    queryKey: workspaceQueryKeys.partDetailRoute(routeJobId),
+    queryKey: workspaceQueryKeys.partDetailRoute(
+      routeJobId,
+      workspaceAccessScope,
+    ),
     queryFn: () => resolveClientPartDetailRoute(routeJobId),
     enabled: Boolean(user) && Boolean(routeJobId),
     retry: false,
@@ -200,7 +222,10 @@ export function useClientPartController() {
   });
   const resolvedJobId = partRouteQuery.data?.jobId ?? null;
   const partDetailQuery = useQuery({
-    queryKey: workspaceQueryKeys.partDetail(resolvedJobId ?? ""),
+    queryKey: workspaceQueryKeys.partDetail(
+      resolvedJobId ?? "",
+      workspaceAccessScope,
+    ),
     queryFn: () => fetchPartDetailByJobId(resolvedJobId ?? ""),
     enabled: Boolean(user) && Boolean(resolvedJobId),
     retry: false,
@@ -212,7 +237,10 @@ export function useClientPartController() {
     ...workspaceDetailQueryOptions,
   });
   const activityEventsQuery = useQuery({
-    queryKey: workspaceQueryKeys.clientActivity(resolvedJobId ? [resolvedJobId] : []),
+    queryKey: workspaceQueryKeys.clientActivity(
+      resolvedJobId ? [resolvedJobId] : [],
+      workspaceAccessScope,
+    ),
     queryFn: () => fetchClientActivityEventsByJobIds([resolvedJobId ?? ""]),
     enabled: Boolean(user) && Boolean(resolvedJobId),
     refetchInterval: () => {
@@ -401,6 +429,7 @@ export function useClientPartController() {
 
   useWarmClientWorkspaceNavigation({
     enabled: Boolean(user),
+    accessScope: workspaceAccessScope,
     canPrefetchProjects: !projectCollaborationUnavailable,
     projects: sidebarProjects,
     jobs: navigationModel.parts,
@@ -417,7 +446,7 @@ export function useClientPartController() {
   }, [projectCollaborationUnavailable]);
 
   useEffect(() => {
-    if (isAuthInitializing || user) {
+    if (!redirectUnauthenticated || isAuthInitializing || user) {
       return;
     }
 
@@ -430,12 +459,15 @@ export function useClientPartController() {
       },
     );
     navigate("/?auth=signin", { replace: true });
-  }, [isAuthInitializing, navigate, routeJobId, user]);
+  }, [isAuthInitializing, navigate, redirectUnauthenticated, routeJobId, user]);
 
   useEffect(() => {
     if (resolvedJobId && resolvedJobId !== routeJobId) {
       queryClient.removeQueries({
-        queryKey: workspaceQueryKeys.partDetail(routeJobId),
+        queryKey: workspaceQueryKeys.partDetail(
+          routeJobId,
+          workspaceAccessScope,
+        ),
         exact: true,
       });
       navigate(`/parts/${resolvedJobId}`, { replace: true });
@@ -445,7 +477,14 @@ export function useClientPartController() {
     if (partDetail?.job?.id && partDetail.job.id !== routeJobId) {
       navigate(`/parts/${partDetail.job.id}`, { replace: true });
     }
-  }, [navigate, partDetail?.job?.id, queryClient, resolvedJobId, routeJobId]);
+  }, [
+    navigate,
+    partDetail?.job?.id,
+    queryClient,
+    resolvedJobId,
+    routeJobId,
+    workspaceAccessScope,
+  ]);
 
   const summary = partDetail?.summary ?? summariesByJobId.get(canonicalJobId) ?? null;
   const presentation = partDetail?.job ? getClientItemPresentation(partDetail.job, summary) : null;
@@ -1163,11 +1202,14 @@ export function useClientPartController() {
   const prefetchProject = (projectId: string) => {
     void prefetchProjectPage(queryClient, projectId, {
       enabled: !projectCollaborationUnavailable,
+      accessScope: workspaceAccessScope,
     });
   };
 
   const prefetchPart = (jobId: string) => {
-    void prefetchPartPage(queryClient, jobId);
+    void prefetchPartPage(queryClient, jobId, {
+      accessScope: workspaceAccessScope,
+    });
   };
   const sidebarJobs = navigationModel.parts;
 
@@ -1281,5 +1323,6 @@ export function useClientPartController() {
     updatePartRenameValue: setPartRenameValue,
     user,
     isAuthInitializing,
+    workspaceAccessScope,
   };
 }

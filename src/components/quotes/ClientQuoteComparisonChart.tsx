@@ -29,7 +29,6 @@ type ClientQuoteComparisonChartProps = {
 type ChartPoint = {
   x: number;
   y: number;
-  r: number;
   key: string;
   vendorKey: VendorName;
   label: string;
@@ -55,26 +54,13 @@ type ChartPoint = {
 
 type DecoratedChartPoint = ChartPoint;
 
-const MIN_RADIUS = 6;
-const MAX_RADIUS = 22;
+const FIXED_POINT_RADIUS = 7;
+const FIXED_POINT_AREA = Math.PI * FIXED_POINT_RADIUS * FIXED_POINT_RADIUS;
 const NA_ZONE_PADDING = 3;
 const NA_ZONE_WIDTH = 8;
 
-function computeBubbleRadius(
-  totalPrice: number,
-  minPrice: number,
-  maxPrice: number,
-): number {
-  if (maxPrice === minPrice) {
-    return (MIN_RADIUS + MAX_RADIUS) / 2;
-  }
-  const ratio = (totalPrice - minPrice) / (maxPrice - minPrice);
-  return MIN_RADIUS + Math.sqrt(ratio) * (MAX_RADIUS - MIN_RADIUS);
-}
-
 function decorateChartPointVisuals(point: ChartPoint): DecoratedChartPoint {
   const isActive = point.selected || point.hovered;
-  const radius = isActive ? point.r + 2 : point.r;
   const fillOpacity = point.disabled ? 0.35 : isActive ? 1 : 0.8;
 
   let stroke = "var(--hairline)";
@@ -93,7 +79,7 @@ function decorateChartPointVisuals(point: ChartPoint): DecoratedChartPoint {
 
   return {
     ...point,
-    size: Math.PI * radius * radius,
+    size: FIXED_POINT_AREA,
     fill: getVendorColor(point.vendorKey),
     fillOpacity,
     stroke,
@@ -106,10 +92,6 @@ function buildChartData(
   selectedKey: string | null,
   hoveredKey: string | null,
 ) {
-  const totalPrices = options.map((o) => o.totalPriceUsd).filter(Number.isFinite);
-  const minTotal = totalPrices.length > 0 ? Math.min(...totalPrices) : 0;
-  const maxTotal = totalPrices.length > 0 ? Math.max(...totalPrices) : 1;
-
   const leadTimes = options
     .map((o) => o.leadTimeBusinessDays)
     .filter((v): v is number => v !== null && v >= 0);
@@ -119,12 +101,15 @@ function buildChartData(
   let naIndex = 0;
   const points = options
     .map((option): ChartPoint => {
-      const hasLeadTime = option.leadTimeBusinessDays !== null && option.leadTimeBusinessDays >= 0;
+      const leadTimeDays =
+        option.leadTimeBusinessDays !== null && option.leadTimeBusinessDays >= 0
+          ? option.leadTimeBusinessDays
+          : null;
       let xValue: number;
       let isNaZone = false;
 
-      if (hasLeadTime) {
-        xValue = option.leadTimeBusinessDays!;
+      if (leadTimeDays !== null) {
+        xValue = leadTimeDays;
       } else {
         isNaZone = true;
         xValue = naZoneStart + 1 + (naIndex % 4) * 1.5 + (naIndex >= 4 ? 0.75 : 0);
@@ -133,8 +118,7 @@ function buildChartData(
 
       return {
         x: xValue,
-        y: option.unitPriceUsd,
-        r: computeBubbleRadius(option.totalPriceUsd, minTotal, maxTotal),
+        y: option.totalPriceUsd,
         key: option.key,
         vendorKey: option.vendorKey,
         label: `${option.supplier}${option.tier ? ` · ${option.tier}` : ""}`,
@@ -143,14 +127,14 @@ function buildChartData(
         sourcing: option.sourcing,
         unitPrice: option.unitPriceUsd,
         totalPrice: option.totalPriceUsd,
-        leadTimeDays: option.leadTimeBusinessDays,
+        leadTimeDays,
         process: option.process,
         material: option.material,
         selected: selectedKey === option.key,
         hovered: hoveredKey === option.key,
         disabled: !option.eligible,
         isNaZone,
-        size: 0,
+        size: FIXED_POINT_AREA,
         fill: "",
         fillOpacity: 0,
         stroke: "",
@@ -170,9 +154,8 @@ function buildChartData(
 
   const hasNaZone = points.some((p) => p.isNaZone);
   const xDomainMax = hasNaZone ? naZoneStart + NA_ZONE_WIDTH : maxLeadTime + 2;
-  const maxBubbleSize = points.reduce((max, point) => Math.max(max, point.size), 0);
 
-  return { points, pointsByVendor, vendorKeys, naZoneStart, xDomainMax, hasNaZone, maxBubbleSize };
+  return { points, pointsByVendor, vendorKeys, naZoneStart, xDomainMax, hasNaZone };
 }
 
 function CustomTooltipContent({ active, payload }: { active?: boolean; payload?: Array<{ payload: ChartPoint }> }) {
@@ -181,19 +164,23 @@ function CustomTooltipContent({ active, payload }: { active?: boolean; payload?:
   }
 
   const point = payload[0].payload;
-  const leadDisplay = point.leadTimeDays !== null ? `${point.leadTimeDays} business days` : "Not quoted";
+  let leadDisplay = "Not quoted";
+  if (point.leadTimeDays !== null) {
+    const dayLabel = point.leadTimeDays === 1 ? "day" : "days";
+    leadDisplay = `${point.leadTimeDays} working ${dayLabel}`;
+  }
 
   return (
-    <div className="rounded-lg border border-border bg-ws-raised px-3 py-2.5 shadow-xl">
+    <div className="rounded border border-border bg-ws-raised px-3 py-2.5">
       <p className="text-xs font-semibold text-foreground">
         {point.supplier}
         {point.tier ? ` · ${point.tier}` : ""}
         {point.sourcing ? ` · ${point.sourcing}` : ""}
       </p>
       <div className="mt-1.5 space-y-0.5 text-[11px] text-muted-foreground">
-        <p>{formatCurrency(point.unitPrice)}/unit</p>
-        <p>Total: {formatCurrency(point.totalPrice)}</p>
-        <p>Lead: {leadDisplay}</p>
+        <p>Quoted total: {formatCurrency(point.totalPrice)}</p>
+        <p>Unit: {formatCurrency(point.unitPrice)}/unit</p>
+        <p>Ready to ship: {leadDisplay}</p>
         {point.process ? <p>{point.process}</p> : null}
         {point.material ? <p>{point.material}</p> : null}
       </div>
@@ -202,10 +189,11 @@ function CustomTooltipContent({ active, payload }: { active?: boolean; payload?:
 }
 
 /**
- * Plot eligible and ineligible quote options across lead time and unit price.
+ * Plot eligible and ineligible quote options across ready-to-ship working days
+ * and quoted totals.
  *
- * Bubble size represents total price, while hover and selection state are
- * surfaced visually and routed back to the caller.
+ * Every offer uses the same point size. Hover and selection state are surfaced
+ * through point styling and routed back to the caller.
  */
 export function ClientQuoteComparisonChart({
   options,
@@ -223,7 +211,6 @@ export function ClientQuoteComparisonChart({
     naZoneStart,
     xDomainMax,
     hasNaZone,
-    maxBubbleSize,
   } = useMemo(
     () => buildChartData(options, selectedKey, hoveredKey),
     [options, selectedKey, hoveredKey],
@@ -253,8 +240,16 @@ export function ClientQuoteComparisonChart({
   }, [options, organizationId, partId, points]);
 
   return (
-    <ChartContainer config={chartConfig} className="h-[420px] w-full">
-      <ScatterChart margin={{ top: 16, right: 20, bottom: 24, left: 6 }}>
+    <ChartContainer
+      config={chartConfig}
+      className="h-[320px] w-full sm:h-[420px]"
+      role="group"
+      aria-label="Quote comparison by ready-to-ship working days and quoted total"
+    >
+      <ScatterChart
+        accessibilityLayer
+        margin={{ top: 16, right: 20, bottom: 24, left: 6 }}
+      >
         <CartesianGrid stroke="var(--hairline)" />
         <XAxis
           type="number"
@@ -271,7 +266,7 @@ export function ClientQuoteComparisonChart({
           }}
         >
           <Label
-            value="Lead Time (business days)"
+            value="Ready-to-ship lead time (working days)"
             position="insideBottom"
             offset={-12}
             style={{ fill: "var(--muted-ink)", fontSize: 10 }}
@@ -287,7 +282,7 @@ export function ClientQuoteComparisonChart({
           width={80}
         >
           <Label
-            value="Unit Price"
+            value="Quoted total"
             angle={-90}
             position="insideLeft"
             offset={4}
@@ -297,8 +292,7 @@ export function ClientQuoteComparisonChart({
         <ZAxis
           type="number"
           dataKey="size"
-          range={[0, maxBubbleSize]}
-          domain={[0, maxBubbleSize]}
+          range={[FIXED_POINT_AREA, FIXED_POINT_AREA]}
         />
 
         {hasNaZone ? (
@@ -332,6 +326,7 @@ export function ClientQuoteComparisonChart({
             name={vendorKey}
             data={pointsByVendor.get(vendorKey) ?? []}
             fill={getVendorColor(vendorKey)}
+            line={false}
             onClick={(point) => {
               const payload = (point as { payload?: ChartPoint } | undefined)?.payload;
               if (payload?.option.isSelectable && !payload.disabled) {

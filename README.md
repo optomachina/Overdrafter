@@ -111,6 +111,7 @@ For recurring planning, verification, and handoff motions, use `docs/recurring-w
 The active runtime and ownership model for this repository is:
 
 - `src/` - the production React + Vite web application
+- `ios/` - the universal SwiftUI iPhone/iPad application and XcodeGen source project
 - `worker/` - the separate TypeScript worker package
 - `supabase/` - migrations, local config, and Edge Functions
 - `public/` - static assets served by the Vite app
@@ -126,6 +127,32 @@ appear in old diffs or stale local artifacts, do not treat them as canonical run
 ### What Was Implemented (scaffolding)
 
 The current React + Supabase + worker implementation provides the solid foundation (job intake, extraction, quote orchestration, OpenClaw harness) that will now be progressively wrapped and hidden behind the ideal multi-agent UX.
+
+The client launch surface is `Parts | Quotes | Search` on responsive web and in the iOS shell. Projects remain the
+collaboration/commercial container behind those collections. Quote detail keeps request status, source facts, and the
+lead-time-versus-total-price comparison together; the current short quote code is a login-gated locator rather than an
+access token.
+
+### iOS
+
+Generate and verify the checked-in Xcode project from its source definition:
+
+```bash
+cd ios
+xcodegen generate
+xcodebuild -project OverDrafter.xcodeproj -scheme OverDrafter \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' test
+xcodebuild -project OverDrafter.xcodeproj -scheme OverDrafter \
+  -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5)' test
+```
+
+The default app origin is `https://overdrafter.vercel.app`. Debug builds may override it with the
+`OVERDRAFTER_BASE_URL` process environment variable, including an HTTP localhost URL. Release builds accept only HTTPS.
+Archive signing supplies the Apple development team at release time; privileged credentials are not committed.
+The first build supports detail-preserving `overdrafter://` deep links. Universal HTTPS links remain deferred until the
+production associated-domain file and Apple capability are deployed together.
+The embedded workspace uses email/password authentication for the first beta; web social-auth controls are suppressed
+in iOS app mode until a native OAuth callback and session handoff are available.
 
 ### Supabase
 

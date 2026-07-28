@@ -1,6 +1,12 @@
 import { parsePartReference } from "@/features/quotes/part-reference";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
 
+type ClientPresentationJob = Pick<JobRecord, "title" | "description">;
+type ClientPresentationSummary = Pick<
+  JobPartSummary,
+  "partNumber" | "revision" | "description" | "quantity"
+>;
+
 /**
  * Match a client-visible job against a free-text search term.
  *
@@ -61,8 +67,8 @@ export function formatPartLabel(
  * @returns The normalized presentation fields used by client workspace surfaces.
  */
 export function getClientItemPresentation(
-  job: JobRecord,
-  partSummary?: JobPartSummary | null,
+  job: ClientPresentationJob,
+  partSummary?: ClientPresentationSummary | null,
 ): {
   title: string;
   description: string;

@@ -8,6 +8,23 @@ This document defines what it means for the current repository-hardening phase t
 
 ## Acceptance criteria
 
+### Feature addendum — Quote Intelligence web and iOS release
+
+- Authenticated clients can navigate directly to Parts, Quotes, Search, and quote detail.
+- Project remains the backend collaboration/commercial container and legacy Project/Part links remain compatible.
+- All/Parts/Assemblies is one filter control over the accessible artifact collection.
+- Search updates while typing and explains structured engineering interpretations without using fabricated geometry.
+- Quote detail presents request facts and supplier offers directly.
+- Buyer comparison uses independent fixed-size points with working-day lead time on X and total quoted price on Y.
+- The chart has no connecting, trend, or Pareto line, and chart/table selection remains synchronized.
+- Missing quote validity, response time, estimate, or benchmark data is shown as unavailable or suppressed rather than inferred.
+- Existing sign-in, upload, quote-request, cancel/retry, and offer-selection behavior remains functional.
+- Signing out, switching accounts, or changing organization/role context cannot render cached workspace data from the prior access scope.
+- The universal iPhone/iPad app exposes native Parts, Quotes, and Search destinations and reuses the authorized production workflow without embedding privileged credentials.
+- Responsive web, iPhone, and iPad verification passes before release.
+- Production website and TestFlight install links are smoke-tested against the release build.
+- Product, architecture, design, test, and release documentation reflect the shipped behavior.
+
 ### MVP addendum — no-Stripe live quote path for `dmrifles@gmail.com`
 - The existing `dmrifles@gmail.com` user can sign in to the target environment.
 - `dmrifles@gmail.com` has a client membership in the target organization.

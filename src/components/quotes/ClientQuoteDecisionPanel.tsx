@@ -261,7 +261,9 @@ function PanelHeader({
 function SelectedOptionBanner({ option }: { option: ClientQuoteSelectionOption }) {
   return (
     <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-emerald-200/80">Current selection</p>
+      <p className="text-[10px] uppercase tracking-[0.18em] text-emerald-800 dark:text-emerald-200">
+        Current selection
+      </p>
       <div className="mt-1.5 flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-2">
           <span
@@ -269,13 +271,13 @@ function SelectedOptionBanner({ option }: { option: ClientQuoteSelectionOption }
             style={{ backgroundColor: getVendorColor(option.vendorKey) }}
           />
           <p className="text-base font-semibold text-foreground">{option.vendorLabel}</p>
-          <p className="text-sm text-emerald-100/85">
+          <p className="text-sm text-foreground/80">
             {formatCurrency(option.totalPriceUsd)} total · {" "}
             {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge className="border border-emerald-400/20 bg-muted text-emerald-100">
+          <Badge className="border border-emerald-500/30 bg-muted text-foreground">
             Qty {option.requestedQuantity}
           </Badge>
           {option.expedite ? (
@@ -301,11 +303,11 @@ function RankingModeIndicator({
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-sky-400/15 bg-sky-500/10 px-4 py-3">
       <div className="min-w-0">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-sky-100/75">Active sort mode</p>
-        <p className="mt-1 text-sm font-medium text-sky-50">{copy.indicatorLabel}</p>
-        <p className="mt-1 text-xs text-sky-100/70">{copy.indicatorDetail}</p>
+        <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Active sort mode</p>
+        <p className="mt-1 text-sm font-medium text-foreground">{copy.indicatorLabel}</p>
+        <p className="mt-1 text-xs text-foreground/70">{copy.indicatorDetail}</p>
       </div>
-      <Badge className="border border-sky-300/20 bg-muted text-sky-50">
+      <Badge className="border border-sky-500/30 bg-muted text-foreground">
         {rankedCount} {rankedCount === 1 ? "leader" : "leaders"} tagged
       </Badge>
     </div>
@@ -839,21 +841,19 @@ function renderDecisionPanelContent({
 
       {selectedOption ? <SelectedOptionBanner option={selectedOption} /> : null}
 
-      {!isMobile && (
-        <div className="rounded-surface-lg border border-border bg-muted p-4">
-          <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-accent" />}>
-            <ClientQuoteComparisonChart
-              options={options}
-              selectedKey={selectedOption?.key ?? null}
-              hoveredKey={hoveredKey}
-              partId={partId}
-              organizationId={organizationId}
-              onSelect={onSelect}
-              onHover={setHoveredKey}
-            />
-          </Suspense>
-        </div>
-      )}
+      <div className="rounded-surface-lg border border-border bg-muted p-2 sm:p-4">
+        <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-accent" />}>
+          <ClientQuoteComparisonChart
+            options={options}
+            selectedKey={selectedOption?.key ?? null}
+            hoveredKey={hoveredKey}
+            partId={partId}
+            organizationId={organizationId}
+            onSelect={onSelect}
+            onHover={setHoveredKey}
+          />
+        </Suspense>
+      </div>
 
       <RankingModeIndicator
         mode={getPresetMode(activePreset)}

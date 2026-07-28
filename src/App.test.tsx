@@ -67,6 +67,22 @@ vi.mock("./pages/ClientPart", () => ({
   default: () => <div>Client Part Page</div>,
 }));
 
+vi.mock("./pages/ClientParts", () => ({
+  default: () => <div>Client Parts Page</div>,
+}));
+
+vi.mock("./pages/ClientQuotes", () => ({
+  default: () => <div>Client Quotes Page</div>,
+}));
+
+vi.mock("./pages/ClientQuoteDetail", () => ({
+  default: () => <div>Client Quote Detail Page</div>,
+}));
+
+vi.mock("./pages/ClientSearch", () => ({
+  default: () => <div>Client Search Page</div>,
+}));
+
 vi.mock("./pages/ClientProjectReview", () => ({
   default: () => <div>Client Project Review Page</div>,
 }));
@@ -164,6 +180,38 @@ describe("App routes", () => {
     render(<App />);
 
     expect(screen.getByText("Client Part Page")).toBeInTheDocument();
+  });
+
+  it("renders the parts collection route", () => {
+    window.history.pushState({}, "", "/parts");
+
+    render(<App />);
+
+    expect(screen.getByText("Client Parts Page")).toBeInTheDocument();
+  });
+
+  it("renders the quotes collection route", () => {
+    window.history.pushState({}, "", "/quotes");
+
+    render(<App />);
+
+    expect(screen.getByText("Client Quotes Page")).toBeInTheDocument();
+  });
+
+  it("renders the quote detail route", () => {
+    window.history.pushState({}, "", "/quotes/Q7K9MF");
+
+    render(<App />);
+
+    expect(screen.getByText("Client Quote Detail Page")).toBeInTheDocument();
+  });
+
+  it("renders the global search route", () => {
+    window.history.pushState({}, "", "/search");
+
+    render(<App />);
+
+    expect(screen.getByText("Client Search Page")).toBeInTheDocument();
   });
 
   it("renders the part review route", () => {

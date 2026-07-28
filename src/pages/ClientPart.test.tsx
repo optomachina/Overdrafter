@@ -1,9 +1,10 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
 import ClientPart from "./ClientPart";
 
 const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock, storedFile } = vi.hoisted(() => ({
@@ -420,16 +421,9 @@ function renderWithClient(initialEntry: string) {
     ...render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={[initialEntry]}>
+          <LocationEcho />
           <Routes>
-            <Route
-              path="/parts/:jobId"
-              element={
-                <>
-                  <ClientPart />
-                  <LocationEcho />
-                </>
-              }
-            />
+            <Route path="/parts/:jobId" element={<ClientPart />} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,
@@ -499,7 +493,12 @@ function createDeferredPromise<T>() {
 
 function LocationEcho() {
   const location = useLocation();
-  return <div data-testid="location-path">{location.pathname}</div>;
+  return (
+    <>
+      <div data-testid="location-path">{location.pathname}</div>
+      <div data-testid="location-search">{location.search}</div>
+    </>
+  );
 }
 
 function createPartDetail(overrides: Record<string, unknown> = {}) {
@@ -829,8 +828,17 @@ describe("ClientPart", () => {
     });
 
     expect(api.fetchPartDetailByJobId).toHaveBeenCalledWith("job-1");
-    expect(queryClient.getQueryState(["part-detail", "part-1"])).toBeUndefined();
-    expect(queryClient.getQueryData(["part-detail", "job-1"])).toEqual(createPartDetail());
+    const accessScope = createWorkspaceAccessScope({
+      userId: "user-1",
+      organizationId: "org-1",
+      role: "client",
+    });
+    expect(
+      queryClient.getQueryState(["part-detail", "part-1", accessScope]),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryData(["part-detail", "job-1", accessScope]),
+    ).toEqual(createPartDetail());
   });
 
   it("passes the collaboration gate through sidebar project prefetch", async () => {
@@ -845,6 +853,11 @@ describe("ClientPart", () => {
     fireEvent.click(screen.getByRole("button", { name: "Prefetch project" }));
 
     expect(prefetchProjectPage).toHaveBeenCalledWith(expect.anything(), "project-2", {
+      accessScope: createWorkspaceAccessScope({
+        userId: "user-1",
+        organizationId: "org-1",
+        role: "client",
+      }),
       enabled: false,
     });
   });
@@ -1886,5 +1899,19 @@ describe("ClientPart", () => {
 
     expect(screen.getByText("Restoring your part workspace.")).toBeInTheDocument();
     expect(screen.getByTestId("location-path")).toHaveTextContent("/parts/job-1");
+  });
+
+  it("preserves iOS app mode after account sign-out completes", async () => {
+    renderWithClient("/parts/job-1?app=ios");
+
+    await screen.findByText("Account Menu");
+    expect(lastAccountMenuProps?.onSignedOut).toEqual(expect.any(Function));
+
+    act(() => {
+      (lastAccountMenuProps?.onSignedOut as () => void)();
+    });
+
+    expect(screen.getByTestId("location-path")).toHaveTextContent("/");
+    expect(screen.getByTestId("location-search")).toHaveTextContent("?app=ios");
   });
 });
