@@ -84,19 +84,19 @@ function buildStats(options: readonly ClientQuoteSelectionOption[]): StatCell[] 
       label: "Best Unit Price",
       value: bestPrice === null ? "—" : formatCurrency(bestPrice),
       detail: formatOptionDetail(bestPriceOption),
-      color: "text-emerald-400",
+      color: "text-emerald-700 dark:text-emerald-300",
     },
     {
       label: "Fastest Lead",
       value: fastestLead === null ? "—" : `${fastestLead} days`,
       detail: formatOptionDetail(fastestOption),
-      color: "text-amber-400",
+      color: "text-amber-700 dark:text-amber-300",
     },
     {
       label: "Options Quoted",
       value: String(options.length),
       detail: `${suppliers.size} supplier${suppliers.size === 1 ? "" : "s"}`,
-      color: "text-blue-400",
+      color: "text-blue-700 dark:text-blue-300",
     },
     {
       label: "Price Range",
@@ -108,12 +108,11 @@ function buildStats(options: readonly ClientQuoteSelectionOption[]): StatCell[] 
 }
 
 function computeStats(options: readonly ClientQuoteSelectionOption[]): QuoteStatsModel {
-  const eligible = options.filter((o) => o.eligible);
-  const unitPrices = eligible.map((o) => o.unitPriceUsd).filter(Number.isFinite);
+  const unitPrices = options.map((o) => o.unitPriceUsd).filter(Number.isFinite);
   const { spreadRatio } = getPriceSpread(unitPrices);
 
   return {
-    stats: buildStats(eligible),
+    stats: buildStats(options),
     highSpreadGuidance: getHighSpreadGuidance(spreadRatio),
   };
 }
@@ -146,11 +145,11 @@ export function QuoteStatsBar({ options }: QuoteStatsBarProps) {
       </div>
 
       {highSpreadGuidance ? (
-        <div className="rounded-xl border border-amber-400/20 bg-amber-400/8 px-4 py-3 text-sm text-amber-50">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-300/90">
+        <div className="rounded-xl border border-amber-500/30 bg-amber-400/10 px-4 py-3 text-sm text-foreground">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-800 dark:text-amber-200">
             Decision Prompt
           </p>
-          <p className="mt-1 leading-6 text-amber-50/90">{highSpreadGuidance}</p>
+          <p className="mt-1 leading-6 text-foreground/80">{highSpreadGuidance}</p>
         </div>
       ) : null}
     </div>

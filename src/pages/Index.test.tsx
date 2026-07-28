@@ -1,15 +1,15 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobRecord } from "@/features/quotes/types";
 import Index from "./Index";
 
-const guestLandingHeading = /from part files\s*to vetted quotes\.\s*in one workspace\./i;
+const guestLandingHeading = /parts in\.\s*comparable quotes out\./i;
 const guestLandingBody =
-  /upload your CAD and drawing package\. OverDrafter extracts specs, dispatches vendor quotes, and keeps parts, projects, and options organized/i;
+  /keep part files, supplier responses, and manufacturing decisions in one traceable workspace/i;
 
 const mockUseAppSession = vi.fn();
 const mockFetchAccessibleProjects = vi.fn();
@@ -101,7 +101,10 @@ function renderIndex() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <Index />
+        <Routes>
+          <Route path="/" element={<Index />} />
+          <Route path="/parts" element={<div>Parts Collection</div>} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -123,7 +126,7 @@ describe("Index client home", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the guest ChatGPT-style landing shell", async () => {
+  it("renders the public quote-intelligence landing", async () => {
     mockUseAppSession.mockReturnValue({
       user: null,
       activeMembership: null,
@@ -134,14 +137,15 @@ describe("Index client home", () => {
 
     renderIndex();
 
-    expect(screen.getAllByRole("button", { name: /^log in$/i }).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByRole("button", { name: /sign up for free/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^sign in$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /create account/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /upload a part package/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
     expect(screen.getByText(guestLandingBody)).toBeInTheDocument();
-    expect(screen.getByText(/how it works/i)).toBeInTheDocument();
+    expect(screen.getByText(/example quote workspace/i)).toBeInTheDocument();
   });
 
-  it("renders accessible projects on the new client home", async () => {
+  it("routes an established client workspace to the parts collection", async () => {
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
       activeMembership: {
@@ -182,10 +186,8 @@ describe("Index client home", () => {
     renderIndex();
 
     await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: /bracket project/i }).length).toBeGreaterThan(0);
+      expect(screen.getByText("Parts Collection")).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: /new project/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /open account menu/i })).toBeInTheDocument();
   });
 
   it("holds the shell in auth restoration while auth is still unknown", () => {

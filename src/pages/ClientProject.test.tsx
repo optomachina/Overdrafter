@@ -13,6 +13,7 @@ import type {
   VendorQuoteAggregate,
 } from "@/features/quotes/types";
 import { createClientQuoteWorkspaceItemFixture } from "@/features/quotes/client-workspace-fixtures";
+import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
 import ClientProject from "./ClientProject";
 
 const { api, mockUseAppSession, mockUseIsMobile, prefetchProjectPage, prefetchPartPage, toastMock } = vi.hoisted(() => ({
@@ -1281,6 +1282,11 @@ describe("ClientProject", () => {
     fireEvent.click(screen.getByRole("button", { name: "Prefetch project" }));
 
     expect(prefetchProjectPage).toHaveBeenCalledWith(expect.anything(), "project-2", {
+      accessScope: createWorkspaceAccessScope({
+        userId: "user-1",
+        organizationId: "org-1",
+        role: "client",
+      }),
       enabled: false,
     });
   });

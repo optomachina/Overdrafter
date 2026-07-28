@@ -98,6 +98,7 @@ import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-pi
 import { readExcludedVendorKeys, toggleExcludedVendorKey } from "@/features/quotes/vendor-exclusions";
 import { useWorkspaceNavigationModel } from "@/features/quotes/use-workspace-navigation-model";
 import {
+  createWorkspaceAccessScope,
   prefetchPartPage,
   prefetchProjectPage,
   stableJobIds,
@@ -177,6 +178,11 @@ export function useClientProjectController() {
   const isMobile = useIsMobile();
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+  const workspaceAccessScope = createWorkspaceAccessScope({
+    userId: user?.id,
+    organizationId: activeMembership?.organizationId,
+    role: activeMembership?.role,
+  });
   const focusedJobSearchParam = searchParams.get("part");
 
   const setFocusedProjectPart = (jobId: string | null) => {
@@ -214,7 +220,7 @@ export function useClientProjectController() {
     summariesByJobId,
   } = useClientWorkspaceData({
     enabled: Boolean(user),
-    userId: user?.id,
+    accessScope: workspaceAccessScope,
     projectCollaborationUnavailable,
   });
   const safeProjectJobMembershipsQuery = projectJobMembershipsQuery ?? {
@@ -236,30 +242,33 @@ export function useClientProjectController() {
   const canLoadRemoteProjectData =
     Boolean(user) && !projectCollaborationUnavailable;
   const projectQuery = useQuery({
-    queryKey: workspaceQueryKeys.project(projectId),
+    queryKey: workspaceQueryKeys.project(projectId, workspaceAccessScope),
     queryFn: () => fetchProject(projectId),
     enabled: canLoadRemoteProjectData,
     ...workspaceDetailQueryOptions,
   });
   const projectJobsQuery = useQuery({
-    queryKey: workspaceQueryKeys.projectJobs(projectId),
+    queryKey: workspaceQueryKeys.projectJobs(projectId, workspaceAccessScope),
     queryFn: () => fetchJobsByProject(projectId),
     enabled: canLoadRemoteProjectData,
     ...workspaceDetailQueryOptions,
   });
   const projectMembershipsQuery = useQuery({
-    queryKey: ["project-memberships", projectId],
+    queryKey: ["project-memberships", projectId, workspaceAccessScope],
     queryFn: () => fetchProjectMemberships(projectId),
     enabled: canLoadRemoteProjectData && showMembers,
   });
   const projectAssigneesQuery = useQuery({
-    queryKey: workspaceQueryKeys.projectAssignees(projectId),
+    queryKey: workspaceQueryKeys.projectAssignees(
+      projectId,
+      workspaceAccessScope,
+    ),
     queryFn: () => fetchProjectAssigneeProfiles(projectId),
     enabled: canLoadRemoteProjectData,
     ...workspaceDetailQueryOptions,
   });
   const projectInvitesQuery = useQuery({
-    queryKey: ["project-invites", projectId],
+    queryKey: ["project-invites", projectId, workspaceAccessScope],
     queryFn: () => fetchProjectInvites(projectId),
     enabled: canLoadRemoteProjectData && showMembers,
   });
@@ -289,7 +298,10 @@ export function useClientProjectController() {
     projectAssigneesQuery.isError || projectJobMembershipsQuery.isError;
   const projectJobIds = useMemo(() => stableJobIds(projectJobs.map((job) => job.id)), [projectJobs]);
   const projectWorkspaceItemsQuery = useQuery({
-    queryKey: workspaceQueryKeys.clientQuoteWorkspace(projectJobIds),
+    queryKey: workspaceQueryKeys.clientQuoteWorkspace(
+      projectJobIds,
+      workspaceAccessScope,
+    ),
     queryFn: () => fetchClientQuoteWorkspaceByJobIds(projectJobIds),
     enabled: Boolean(user) && projectJobIds.length > 0,
     refetchInterval: (query) =>
@@ -299,7 +311,10 @@ export function useClientProjectController() {
     ...workspaceDetailQueryOptions,
   });
   const projectActivityQuery = useQuery({
-    queryKey: workspaceQueryKeys.clientActivity(projectJobIds),
+    queryKey: workspaceQueryKeys.clientActivity(
+      projectJobIds,
+      workspaceAccessScope,
+    ),
     queryFn: () => fetchClientActivityEventsByJobIds(projectJobIds),
     enabled: Boolean(user) && projectJobIds.length > 0,
     refetchInterval: () =>
@@ -724,6 +739,7 @@ export function useClientProjectController() {
 
   useWarmClientWorkspaceNavigation({
     enabled: Boolean(user),
+    accessScope: workspaceAccessScope,
     canPrefetchProjects: !projectCollaborationUnavailable,
     projects: sidebarProjects,
     jobs: navigationModel.parts,
@@ -1393,11 +1409,14 @@ export function useClientProjectController() {
   const prefetchProject = (nextProjectId: string) => {
     void prefetchProjectPage(queryClient, nextProjectId, {
       enabled: !projectCollaborationUnavailable,
+      accessScope: workspaceAccessScope,
     });
   };
 
   const prefetchPart = (jobId: string) => {
-    void prefetchPartPage(queryClient, jobId);
+    void prefetchPartPage(queryClient, jobId, {
+      accessScope: workspaceAccessScope,
+    });
   };
 
   const handleRequestProjectQuotes = async (jobIds: string[], forceRetry = false) => {
@@ -1575,6 +1594,7 @@ export function useClientProjectController() {
     isAuthInitializing,
     isInspectorOpen,
     workspaceItemsByJobId,
+    workspaceAccessScope,
     accessibleProjects,
   };
 }

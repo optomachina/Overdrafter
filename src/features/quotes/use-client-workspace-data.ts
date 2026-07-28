@@ -15,6 +15,7 @@ import {
   prefetchPartPage,
   prefetchProjectPage,
   stableJobIds,
+  type WorkspaceAccessScope,
   workspaceQueryKeys,
   WORKSPACE_DETAIL_STALE_TIME_MS,
   WORKSPACE_GC_TIME_MS,
@@ -23,12 +24,13 @@ import {
 
 type UseClientWorkspaceDataOptions = {
   enabled: boolean;
-  userId?: string;
+  accessScope: WorkspaceAccessScope;
   projectCollaborationUnavailable: boolean;
 };
 
 type UseWarmWorkspaceNavigationOptions = {
   enabled: boolean;
+  accessScope: WorkspaceAccessScope;
   projects: Array<{ id: string }>;
   jobs: JobRecord[];
   pinnedProjectIds?: string[];
@@ -53,22 +55,46 @@ function pushUnique(target: string[], value: string | null | undefined, limit: n
 function useStableWorkspaceList<T>({
   data,
   isFetching,
+  scopeKey,
 }: {
   data: T[] | undefined;
   isFetching: boolean;
+  scopeKey: WorkspaceAccessScope;
 }): T[] {
-  const stableRef = useRef<T[]>(data ?? []);
+  const stableRef = useRef<{
+    scopeKey: WorkspaceAccessScope;
+    items: T[];
+  }>({
+    scopeKey,
+    items: data ?? [],
+  });
+
+  const scopeChanged = stableRef.current.scopeKey !== scopeKey;
+
+  if (scopeChanged) {
+    stableRef.current = {
+      scopeKey,
+      items: [],
+    };
+  }
 
   useEffect(() => {
     const nextItems = data ?? [];
 
     if (nextItems.length > 0 || !isFetching) {
-      stableRef.current = nextItems;
+      stableRef.current = {
+        scopeKey,
+        items: nextItems,
+      };
     }
-  }, [data, isFetching]);
+  }, [data, isFetching, scopeKey]);
+
+  if (scopeChanged) {
+    return [];
+  }
 
   if (isFetching && (data?.length ?? 0) === 0) {
-    return stableRef.current;
+    return stableRef.current.items;
   }
 
   return data ?? [];
@@ -76,18 +102,18 @@ function useStableWorkspaceList<T>({
 
 export function useClientWorkspaceData({
   enabled,
-  userId,
+  accessScope,
   projectCollaborationUnavailable,
 }: UseClientWorkspaceDataOptions) {
   const accessibleProjectsQuery = useQuery({
-    queryKey: workspaceQueryKeys.clientProjects(),
+    queryKey: workspaceQueryKeys.clientProjects(accessScope),
     queryFn: fetchAccessibleProjects,
     enabled,
     staleTime: WORKSPACE_SHARED_STALE_TIME_MS,
     gcTime: WORKSPACE_GC_TIME_MS,
   });
   const accessibleJobsQuery = useQuery({
-    queryKey: workspaceQueryKeys.clientJobs(),
+    queryKey: workspaceQueryKeys.clientJobs(accessScope),
     queryFn: fetchAccessibleJobs,
     enabled,
     staleTime: WORKSPACE_SHARED_STALE_TIME_MS,
@@ -96,41 +122,48 @@ export function useClientWorkspaceData({
   const rawAccessibleJobs = useStableWorkspaceList({
     data: accessibleJobsQuery.data,
     isFetching: accessibleJobsQuery.isFetching,
+    scopeKey: accessScope,
   });
   const accessibleJobIds = useMemo(
     () => stableJobIds(rawAccessibleJobs.map((job) => job.id)),
     [rawAccessibleJobs],
   );
   const partSummariesQuery = useQuery({
-    queryKey: workspaceQueryKeys.clientPartSummaries(accessibleJobIds),
+    queryKey: workspaceQueryKeys.clientPartSummaries(
+      accessibleJobIds,
+      accessScope,
+    ),
     queryFn: () => fetchJobPartSummariesByJobIds(accessibleJobIds),
     enabled: enabled && accessibleJobIds.length > 0,
     staleTime: WORKSPACE_SHARED_STALE_TIME_MS,
     gcTime: WORKSPACE_GC_TIME_MS,
   });
   const projectJobMembershipsQuery = useQuery({
-    queryKey: workspaceQueryKeys.clientProjectJobMemberships(accessibleJobIds),
+    queryKey: workspaceQueryKeys.clientProjectJobMemberships(
+      accessibleJobIds,
+      accessScope,
+    ),
     queryFn: () => fetchProjectJobMembershipsByJobIds(accessibleJobIds),
     enabled: enabled && accessibleJobIds.length > 0 && !projectCollaborationUnavailable,
     staleTime: WORKSPACE_SHARED_STALE_TIME_MS,
     gcTime: WORKSPACE_GC_TIME_MS,
   });
   const sidebarPinsQuery = useQuery({
-    queryKey: workspaceQueryKeys.sidebarPins(userId),
+    queryKey: workspaceQueryKeys.sidebarPins(accessScope),
     queryFn: fetchSidebarPins,
     enabled,
     staleTime: WORKSPACE_SHARED_STALE_TIME_MS,
     gcTime: WORKSPACE_GC_TIME_MS,
   });
   const archivedProjectsQuery = useQuery({
-    queryKey: workspaceQueryKeys.archivedProjects(),
+    queryKey: workspaceQueryKeys.archivedProjects(accessScope),
     queryFn: fetchArchivedProjects,
     enabled,
     staleTime: WORKSPACE_SHARED_STALE_TIME_MS,
     gcTime: WORKSPACE_GC_TIME_MS,
   });
   const archivedJobsQuery = useQuery({
-    queryKey: workspaceQueryKeys.archivedJobs(),
+    queryKey: workspaceQueryKeys.archivedJobs(accessScope),
     queryFn: fetchArchivedJobs,
     enabled,
     staleTime: WORKSPACE_SHARED_STALE_TIME_MS,
@@ -140,10 +173,12 @@ export function useClientWorkspaceData({
   const accessibleProjects = useStableWorkspaceList({
     data: accessibleProjectsQuery.data,
     isFetching: accessibleProjectsQuery.isFetching,
+    scopeKey: accessScope,
   });
   const projectJobMemberships = useStableWorkspaceList({
     data: projectJobMembershipsQuery.data,
     isFetching: projectJobMembershipsQuery.isFetching,
+    scopeKey: accessScope,
   });
   const accessibleJobs = rawAccessibleJobs;
   const summariesByJobId = useMemo(
@@ -174,6 +209,7 @@ export function useClientWorkspaceData({
 
 export function useWarmClientWorkspaceNavigation({
   enabled,
+  accessScope,
   projects,
   jobs,
   pinnedProjectIds = [],
@@ -221,10 +257,14 @@ export function useWarmClientWorkspaceNavigation({
       await Promise.all([
         ...projectIdsToWarm
           .filter((projectId) => projectId !== activeProjectId)
-          .map((projectId) => prefetchProjectPage(queryClient, projectId)),
+          .map((projectId) =>
+            prefetchProjectPage(queryClient, projectId, { accessScope }),
+          ),
         ...jobIdsToWarm
           .filter((jobId) => jobId !== activeJobId)
-          .map((jobId) => prefetchPartPage(queryClient, jobId)),
+          .map((jobId) =>
+            prefetchPartPage(queryClient, jobId, { accessScope }),
+          ),
       ]);
     };
 
@@ -238,6 +278,7 @@ export function useWarmClientWorkspaceNavigation({
   }, [
     activeJobId,
     activeProjectId,
+    accessScope,
     canPrefetchProjects,
     enabled,
     jobs,
@@ -283,9 +324,15 @@ export async function invalidateClientWorkspaceQueries(
     queryClient.invalidateQueries({ queryKey: ["part-detail"] }),
     ...(input.projectId
       ? [
-          queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.project(input.projectId) }),
-          queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.projectJobs(input.projectId) }),
-          queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.projectAssignees(input.projectId) }),
+          queryClient.invalidateQueries({
+            queryKey: ["project", input.projectId],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["project-jobs", input.projectId],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["project-assignees", input.projectId],
+          }),
           ...(input.includeProjectMemberships
             ? [queryClient.invalidateQueries({ queryKey: ["project-memberships", input.projectId] })]
             : []),
@@ -294,14 +341,20 @@ export async function invalidateClientWorkspaceQueries(
             : []),
         ]
       : []),
-    ...(input.jobId ? [queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.partDetail(input.jobId) })] : []),
+    ...(input.jobId
+      ? [
+          queryClient.invalidateQueries({
+            queryKey: ["part-detail", input.jobId],
+          }),
+        ]
+      : []),
     ...(jobIds.length > 0
       ? [
           queryClient.invalidateQueries({
-            queryKey: workspaceQueryKeys.clientQuoteWorkspace(jobIds),
+            queryKey: ["client-quote-workspace"],
           }),
           queryClient.invalidateQueries({
-            queryKey: workspaceQueryKeys.clientActivity(jobIds),
+            queryKey: ["client-activity"],
           }),
         ]
       : []),

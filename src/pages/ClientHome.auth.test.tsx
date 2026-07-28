@@ -13,7 +13,7 @@ import {
 import { getSupabaseAuthStorageKey } from "@/hooks/use-app-session";
 import ClientHome from "./ClientHome";
 
-const guestLandingHeading = /from part files\s*to vetted quotes\.\s*in one workspace\./i;
+const guestLandingHeading = /parts in\.\s*comparable quotes out\./i;
 
 const fetchAppSessionDataMock = vi.fn<() => Promise<AppSessionData>>();
 const requestPasswordResetMock = vi.fn();
@@ -284,7 +284,7 @@ function createAuthenticatedSession(email: string): AppSessionData {
 }
 
 async function submitPasswordLogin(email: string, password = "Overdrafter123!") {
-  fireEvent.click(screen.getAllByRole("button", { name: /^log in$/i })[0]);
+  fireEvent.click(screen.getByRole("button", { name: /^sign in$/i }));
 
   expect(screen.getByText("Log in to OverDrafter")).toBeInTheDocument();
 
@@ -305,8 +305,9 @@ async function submitPasswordLogin(email: string, password = "Overdrafter123!") 
 
 function expectGuestLandingVisible() {
   expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
-  expect(screen.getByText(/how it works/i)).toBeInTheDocument();
-  expect(screen.getAllByRole("button", { name: /^log in$/i }).length).toBeGreaterThanOrEqual(2);
+  expect(screen.getByRole("button", { name: /^upload a part package$/i })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^sign in$/i })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^create account$/i })).toBeInTheDocument();
   expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
   expect(screen.queryByTestId("sidebar-footer")).not.toBeInTheDocument();
 }
@@ -439,7 +440,7 @@ describe("ClientHome auth flow", () => {
     renderClientHome();
 
     await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: /^log in$/i }).length).toBeGreaterThan(0);
+      expect(screen.getByRole("button", { name: /^sign in$/i })).toBeInTheDocument();
     });
 
     await submitPasswordLogin("client@example.com");
@@ -455,7 +456,7 @@ describe("ClientHome auth flow", () => {
       expect(screen.queryByText("Log in to OverDrafter")).not.toBeInTheDocument();
     });
 
-    expect(screen.queryAllByRole("button", { name: /^log in$/i })).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: /^sign in$/i })).not.toBeInTheDocument();
 
     membershipHydration.resolve({
       user: {
@@ -528,7 +529,7 @@ describe("ClientHome auth flow", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Upload files" })).toBeInTheDocument();
-      expect(screen.queryAllByRole("button", { name: /^log in$/i })).toHaveLength(0);
+      expect(screen.queryByRole("button", { name: /^sign in$/i })).not.toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Log out" }));
@@ -561,7 +562,7 @@ describe("ClientHome auth flow", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Upload files" })).toBeInTheDocument();
-      expect(screen.queryAllByRole("button", { name: /^log in$/i })).toHaveLength(0);
+      expect(screen.queryByRole("button", { name: /^sign in$/i })).not.toBeInTheDocument();
     });
   });
 

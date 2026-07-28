@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
 import ClientPart from "./ClientPart";
 
 const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock, storedFile } = vi.hoisted(() => ({
@@ -829,8 +830,17 @@ describe("ClientPart", () => {
     });
 
     expect(api.fetchPartDetailByJobId).toHaveBeenCalledWith("job-1");
-    expect(queryClient.getQueryState(["part-detail", "part-1"])).toBeUndefined();
-    expect(queryClient.getQueryData(["part-detail", "job-1"])).toEqual(createPartDetail());
+    const accessScope = createWorkspaceAccessScope({
+      userId: "user-1",
+      organizationId: "org-1",
+      role: "client",
+    });
+    expect(
+      queryClient.getQueryState(["part-detail", "part-1", accessScope]),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryData(["part-detail", "job-1", accessScope]),
+    ).toEqual(createPartDetail());
   });
 
   it("passes the collaboration gate through sidebar project prefetch", async () => {
@@ -845,6 +855,11 @@ describe("ClientPart", () => {
     fireEvent.click(screen.getByRole("button", { name: "Prefetch project" }));
 
     expect(prefetchProjectPage).toHaveBeenCalledWith(expect.anything(), "project-2", {
+      accessScope: createWorkspaceAccessScope({
+        userId: "user-1",
+        organizationId: "org-1",
+        role: "client",
+      }),
       enabled: false,
     });
   });

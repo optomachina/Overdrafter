@@ -1,0 +1,14 @@
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
+SWIFT_VERSION = 5.0
+
+MARKETING_VERSION = 1.0
+CURRENT_PROJECT_VERSION = 1
+
+// Keep the production default in one build setting. A scheme or CI job can
+// override OVERDRAFTER_BASE_URL with an HTTPS preview URL. Debug builds may
+// also override it with an explicit localhost URL.
+OVERDRAFTER_URL_SLASH = /
+OVERDRAFTER_BASE_URL = https:$(OVERDRAFTER_URL_SLASH)$(OVERDRAFTER_URL_SLASH)overdrafter.vercel.app
+
+CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES
+ENABLE_USER_SCRIPT_SANDBOXING = YES

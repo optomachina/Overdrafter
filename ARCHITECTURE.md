@@ -1,6 +1,6 @@
 # OverDrafter Architecture
 
-Last updated: March 27, 2026
+Last updated: July 28, 2026
 
 ## Purpose
 
@@ -29,13 +29,29 @@ The intended end state is a multi-agent manufacturing co-pilot: CAD-native intak
 - client auth bootstrap performs one browser-local Supabase session restore before protected-route decisions run, and later session refreshes use live auth reads rather than the memoized startup snapshot
 - route guards must wait for initial auth restoration before treating the user as signed out
 - workspace-facing navigation and application shell
+- client launch navigation presents `Parts | Quotes | Search`; `Project` remains the backing collaboration and
+  commercial container rather than the first navigation decision
 - client intake UI
 - artifact-first client workspaces with contextual intelligence rails and chat as a secondary tool
-- project-first browsing and creation flows
+- project browsing and creation flows remain reachable from part context and legacy routes
 - assembly and part management inside a project
 - internal estimator interfaces
 - quote comparison and package publication surfaces
 - route-local page composition for complex screens, with reusable quote-domain logic staying in `src/features/quotes/`
+
+### 1a. iOS application layer
+
+- the universal SwiftUI target lives under `ios/` and supports iPhone and iPad
+- iPhone uses native Parts, Quotes, and Search tabs; iPad uses the same destinations in a native split view
+- the first release hosts the corresponding access-controlled web workflow in a shared persistent `WKWebView`
+  session so authentication, uploads, and quote mutations retain one implementation
+- production and preview navigation is restricted to the configured HTTPS origin; unsupported or unsafe schemes are
+  blocked and external main-frame HTTPS links leave the app; secure third-party subframes remain embedded for
+  payment elements
+- email/password authentication is the supported first-release path inside the app; social OAuth controls are hidden
+  in `?app=ios` workspaces until a native callback/session handoff exists
+- later fully native feature screens may replace individual web destinations without changing the launch information
+  architecture
 
 ### 2. Backend data and domain layer
 - persistence of workspaces, projects, parts, jobs, files, quotes, packages, and service request records
@@ -112,7 +128,11 @@ None of the following exists in the codebase today. Vendor automation is impleme
 
 ## Domain hierarchy
 
-The top-level customer-facing container is `Project`, not `Assembly`.
+The top-level persisted collaboration and commercial container is `Project`, not `Assembly`.
+
+The client launch information architecture is collection-first: `Parts | Quotes | Search`. This presentation does not
+remove or flatten Project. Project remains the scope that groups collaborators, mixed manufacturing requests, files,
+quote rounds, and later order records; it is revealed from the work that needs that context.
 
 A project is the commercial and workflow scope for mixed manufacturing requests. It can contain:
 
@@ -121,7 +141,21 @@ A project is the commercial and workflow scope for mixed manufacturing requests.
 - drawings, PDFs, spec sheets, and other supporting documents
 - quote rounds, curated quote packages, and downstream review or order records
 
-An assembly remains a technical structure nested inside a project. It should model engineering hierarchy such as subassemblies and parts, but it must not define the top-level information architecture for intake, navigation, or collaboration.
+An assembly remains a technical structure nested inside a project. It should model engineering hierarchy such as
+subassemblies and parts, but it must not define the top-level information architecture for intake, navigation, or
+collaboration. Until immutable assembly/BOM identity ships, `All | Parts | Assemblies` is a truthful collection filter
+and must not fabricate assembly membership.
+
+## Quote launch identity bridge (As-built)
+
+- quote collection/detail routes use a stable six-character display code derived from the already access-controlled
+  job identity
+- the display code is a locator, never an authorization secret; route resolution occurs only across jobs already
+  available to the signed-in workspace
+- collisions fail closed rather than opening an arbitrary quote
+- quote links are currently login-gated; password grants and anyone-with-link grants remain target capabilities
+- the editable customer reference in the first release is browser-local and explicitly labeled as such; a future
+  persisted Quote/Round/Grant schema must replace that bridge without changing the immutable code or access boundary
 
 
 ## North Star canonical workspace/artifact primitives

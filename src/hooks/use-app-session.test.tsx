@@ -66,13 +66,18 @@ function renderProbe() {
     },
   });
 
-  return render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/"]}>
         <SessionProbe />
       </MemoryRouter>
     </QueryClientProvider>,
   );
+
+  return {
+    ...view,
+    queryClient,
+  };
 }
 
 function deferredPromise<T>() {
@@ -405,6 +410,130 @@ describe("useAppSession", () => {
       expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
       expect(screen.getByTestId("auth-state")).toHaveTextContent("authenticated");
       expect(screen.queryByRole("button", { name: "Log in" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("purges subject-bound query data before publishing a different signed-in user", async () => {
+    const userTwoSessionData = deferredPromise<AppSessionData>();
+    fetchAppSessionDataMock
+      .mockResolvedValueOnce({
+        user: {
+          id: "user-1",
+          email: "first@example.com",
+        } as AppSessionData["user"],
+        memberships: [
+          {
+            id: "membership-1",
+            role: "client",
+            organizationId: "org-1",
+            organizationName: "First Org",
+            organizationSlug: "first-org",
+          },
+        ],
+        isVerifiedAuth: true,
+        authState: "authenticated",
+      })
+      .mockReturnValueOnce(userTwoSessionData.promise);
+
+    const { queryClient } = renderProbe();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("email")).toHaveTextContent(
+        "first@example.com",
+      );
+    });
+
+    const userOneJobsKey = ["client-jobs", "user-one-scope"] as const;
+    const userOneQuotesKey = [
+      "client-quote-workspace",
+      "user-one-scope",
+    ] as const;
+    queryClient.setQueryData(userOneJobsKey, [{ id: "job-a" }]);
+    queryClient.setQueryData(userOneQuotesKey, [{ id: "quote-a" }]);
+
+    act(() => {
+      authStateChangeCallbacks.forEach((callback) =>
+        callback("SIGNED_IN", {
+          access_token: "token-2",
+          refresh_token: "refresh-token-2",
+          expires_in: 3600,
+          token_type: "bearer",
+          user: {
+            id: "user-2",
+            email: "second@example.com",
+            app_metadata: {},
+            user_metadata: {},
+            aud: "authenticated",
+            created_at: "2026-03-11T00:00:00.000Z",
+          },
+        } as Session),
+      );
+    });
+
+    expect(queryClient.getQueryData(userOneJobsKey)).toBeUndefined();
+    expect(queryClient.getQueryData(userOneQuotesKey)).toBeUndefined();
+    expect(screen.getByTestId("email")).toHaveTextContent(
+      "second@example.com",
+    );
+
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      userTwoSessionData.resolve({
+        user: {
+          id: "user-2",
+          email: "second@example.com",
+        } as AppSessionData["user"],
+        memberships: [
+          {
+            id: "membership-2",
+            role: "client",
+            organizationId: "org-2",
+            organizationName: "Second Org",
+            organizationSlug: "second-org",
+          },
+        ],
+        isVerifiedAuth: true,
+        authState: "authenticated",
+      });
+    });
+  });
+
+  it("purges subject-bound query data synchronously on sign-out", async () => {
+    fetchAppSessionDataMock.mockResolvedValueOnce({
+      user: {
+        id: "user-1",
+        email: "client@example.com",
+      } as AppSessionData["user"],
+      memberships: [
+        {
+          id: "membership-1",
+          role: "client",
+          organizationId: "org-1",
+          organizationName: "Client Org",
+          organizationSlug: "client-org",
+        },
+      ],
+      isVerifiedAuth: true,
+      authState: "authenticated",
+    });
+
+    const { queryClient } = renderProbe();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
+    });
+
+    const sensitiveKey = ["part-detail", "part-a", "user-one-scope"] as const;
+    queryClient.setQueryData(sensitiveKey, { id: "part-a" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
+
+    expect(queryClient.getQueryData(sensitiveKey)).toBeUndefined();
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
     });
   });
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Archive,
   Bell,
@@ -62,6 +63,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
+import { buildAppAwareHref } from "@/features/quotes/quote-intelligence-view-model";
 import { useClientPartController } from "@/features/quotes/use-client-part-controller";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import { buildScopedPreset, getPresetMode, getPresetScope } from "@/features/quotes/selection";
@@ -143,6 +145,9 @@ function writeStoredSubscribed(storageScopeKey: string, jobId: string, subscribe
 }
 
 const ClientPart = () => {
+  const [searchParams] = useSearchParams();
+  const appMode = searchParams.get("app") === "ios" ? "ios" : null;
+  const appAwareHref = (href: string) => buildAppAwareHref(href, appMode);
   const {
     activeMembership,
     activityEntries,
@@ -241,9 +246,11 @@ const ClientPart = () => {
     user,
     accessibleJobs,
     isAuthInitializing,
+    workspaceAccessScope,
   } = useClientPartController();
 
   const notificationCenter = useWorkspaceNotifications({
+    accessScope: workspaceAccessScope,
     jobIds: accessibleJobs.map((job) => job.id),
     role: activeMembership?.role,
     userId: user?.id,
@@ -254,11 +261,11 @@ const ClientPart = () => {
     const projectId = job ? resolveSidebarProjectIdsForJob(job)[0] ?? null : null;
 
     if (projectId) {
-      navigate(`/projects/${projectId}?part=${nextJobId}`);
+      navigate(appAwareHref(`/projects/${projectId}?part=${nextJobId}`));
       return;
     }
 
-    navigate(`/parts/${nextJobId}`);
+    navigate(appAwareHref(`/parts/${nextJobId}`));
   };
   const storageScopeKey = user?.id ?? "anonymous";
 
@@ -487,7 +494,8 @@ const ClientPart = () => {
         </AlertDialogContent>
       </AlertDialog>
       <ClientWorkspaceShell
-        onLogoClick={() => navigate("/")}
+        showSidebar={appMode !== "ios"}
+        onLogoClick={() => navigate(appAwareHref(appMode === "ios" ? "/parts" : "/"))}
         sidebarRailActions={[
           { label: "New Job", icon: PlusSquare, onClick: newJobFilePicker.openFilePicker },
           { label: "Search", icon: Search, onClick: () => setIsSearchOpen(true) },
@@ -519,7 +527,7 @@ const ClientPart = () => {
             onArchivePart={handleArchivePart}
             onArchiveProject={handleArchiveProject}
             onDissolveProject={handleDissolveProject}
-            onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
+            onSelectProject={(projectId) => navigate(appAwareHref(`/projects/${projectId}`))}
             onSelectPart={navigateToPartDestination}
             onPrefetchProject={prefetchProject}
             onPrefetchPart={prefetchPart}
@@ -561,7 +569,7 @@ const ClientPart = () => {
                           <button
                             type="button"
                             className="rounded-full border border-border bg-muted px-3 py-1 text-foreground/80 transition hover:bg-accent hover:text-foreground"
-                            onClick={() => navigate(`/projects/${breadcrumbProject.id}`)}
+                            onClick={() => navigate(appAwareHref(`/projects/${breadcrumbProject.id}`))}
                           >
                             {breadcrumbProject.name}
                           </button>
@@ -612,7 +620,7 @@ const ClientPart = () => {
                                 (selectedRevisionIndex - 1 + revisionOptions.length) % revisionOptions.length
                               ]?.jobId;
                             if (previousId) {
-                              navigate(`/parts/${previousId}`);
+                              navigate(appAwareHref(`/parts/${previousId}`));
                             }
                           }}
                         >
@@ -626,7 +634,7 @@ const ClientPart = () => {
                             const nextId =
                               revisionOptions[(selectedRevisionIndex + 1) % revisionOptions.length]?.jobId;
                             if (nextId) {
-                              navigate(`/parts/${nextId}`);
+                              navigate(appAwareHref(`/parts/${nextId}`));
                             }
                           }}
                         >
@@ -639,7 +647,7 @@ const ClientPart = () => {
                         type="button"
                         variant="outline"
                         className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
-                        onClick={() => navigate(`/projects/${projectMemberships[0]!.project.id}`)}
+                        onClick={() => navigate(appAwareHref(`/projects/${projectMemberships[0]!.project.id}`))}
                       >
                         Open project
                       </Button>
@@ -812,7 +820,7 @@ const ClientPart = () => {
                       <Button
                         type="button"
                         className="rounded-full shadow-sm"
-                        onClick={() => navigate(`/parts/${jobId}/review`)}
+                        onClick={() => navigate(appAwareHref(`/parts/${jobId}/review`))}
                       >
                         Review order
                         <MoveRight className="ml-2 h-4 w-4" />
@@ -918,7 +926,7 @@ const ClientPart = () => {
         projects={sidebarProjects}
         jobs={accessibleJobs}
         summariesByJobId={summariesByJobId}
-        onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
+        onSelectProject={(projectId) => navigate(appAwareHref(`/projects/${projectId}`))}
         onSelectPart={navigateToPartDestination}
       />
 

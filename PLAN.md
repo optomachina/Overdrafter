@@ -32,7 +32,19 @@ Operational workflow alignment:
 
 ## Active objective
 
-Ship the no-Stripe live-quote MVP for the test user `dmrifles@gmail.com`: sign in, upload real part files, request quotes, and receive live vendor quote results or explicit manual-follow-up states. Billing, card collection, Stripe webhooks, and order placement are deferred until after the quote-request loop is reliable.
+Ship the Quote Intelligence client release across responsive web and iPhone/iPad while preserving the no-Stripe live-quote loop for `dmrifles@gmail.com`: sign in, upload real part files, request quotes, compare returned offers by total price and lead time, and select an option or receive an explicit manual-follow-up state.
+
+The launch navigation is `Parts | Quotes | Search`. Project remains the collaboration/commercial container behind these views. PDM, marketplace publication, customer-visible unvalidated estimates, and supplier benchmarking remain capability-gated.
+
+Release sequence:
+
+1. Ship the responsive Parts, Quotes, Search, and quote-detail surfaces over existing client-safe APIs.
+2. Preserve legacy Project/Part routes and every working upload/request/selection path.
+3. Ship a universal SwiftUI application with the same three native destinations and production workflow parity.
+4. Pass web release-confidence checks plus iPhone/iPad simulator and archive validation.
+5. Publish the website through Vercel and the iOS build through TestFlight.
+
+Implementation and release acceptance is tracked in `docs/quote-intelligence-release.md`.
 
 ### Immediate next steps (MVP — sequenced by dependency)
 
@@ -81,7 +93,8 @@ All previous Phase 1/2 quote-run items are now considered scaffolding that will 
 
 ### Later capabilities (after geometry, review, and pricing-data foundations)
 
-- Feature-level costing heatmap: combine deterministic geometry/DFM features, tolerances, finish, quantity, and observed vendor quantity-price curves into confidence-scored estimate-only explanations that still require live quote verification.
+- Feature-level costing heatmap: combine deterministic geometry/DFM features, tolerances, material, finish, quantity, lead time, origin, and observed vendor quantity-price curves into an estimated range plus ranked approximate cost drivers. Keep uncertainty internal, widen the range when evidence is sparse, expose no customer confidence score, and automatically score each prediction against later firm quotes.
+- Closed-event supplier outcome benchmarking: after data-purpose terms, cohort/privacy safeguards, and competition review are approved, show each participating supplier its anonymized relative price, ready-to-ship lead time, and response latency without revealing competing supplier or buyer identities.
 
 ## Completed milestones
 

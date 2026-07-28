@@ -3,6 +3,7 @@ import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
+import { QuoteIntelligenceLanding } from "@/components/quote-intelligence/QuoteIntelligenceLanding";
 import { SignInDialog } from "@/components/SignInDialog";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
@@ -58,10 +59,12 @@ const ClientHome = () => {
     signOut,
     summariesByJobId,
     user,
+    workspaceAccessScope,
     accessibleJobs,
     accessibleJobsQuery,
   } = useClientHomeController();
   const notificationCenter = useWorkspaceNotifications({
+    accessScope: workspaceAccessScope,
     jobIds: accessibleJobs.map((job) => job.id),
     role: activeMembership?.role,
     userId: user?.id,
@@ -81,6 +84,23 @@ const ClientHome = () => {
 
   if (isAuthInitializing && !user) {
     return <AuthBootstrapScreen message="Restoring your workspace." />;
+  }
+
+  if (!user) {
+    return (
+      <>
+        <QuoteIntelligenceLanding
+          onUpload={newJobFilePicker.openFilePicker}
+          onSignIn={() => openAuth("signin")}
+          onCreateAccount={() => openAuth("signup")}
+        />
+        <SignInDialog
+          open={isAuthDialogOpen}
+          onOpenChange={setIsAuthDialogOpen}
+          initialMode={authDialogMode}
+        />
+      </>
+    );
   }
 
   const renderAnonymousContent = () => {
