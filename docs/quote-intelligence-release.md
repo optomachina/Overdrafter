@@ -112,26 +112,30 @@ ready-to-ship lead time, and response latency only after the legal, cohort, and 
 - [x] Web production build passes.
 - [x] Full repository verification passes or every unrelated baseline failure is documented.
 - [x] Browser smoke covers anonymous landing, authenticated navigation fixture, search, and quote comparison.
-- [ ] Production Vercel deployment is HTTP 200 and matches the release commit.
+- [x] Production Vercel deployment is HTTP 200 and matches the release commit.
 - [ ] TestFlight installation is smoke-tested.
 
 ## Verification evidence
 
-- `npm run verify`: passed July 28, 2026; 1,093 tests passed and two live-environment tests were intentionally skipped.
+- `npm run verify`: passed July 28, 2026; 1,098 tests passed and two live-environment tests were intentionally skipped.
 - iPhone 17 Pro Max simulator: 15 routing, configuration, and security tests passed.
 - iPad Pro 13-inch (M5) simulator: 15 routing, configuration, and security tests passed.
 - Unsigned generic-device Release build: passed store validation and compiled `com.optomachina.overdrafter`.
 - Browser smoke: anonymous landing, signed-out private quote gate, login-path preservation, iOS email-auth mode,
   authenticated fixtures, live engineering search, phone/tablet/desktop responsiveness, and quote scatter comparison.
+- Production: merge commit `de76c3146a6dd2f18955ba751b4134daff415bb9` deployed successfully to
+  `https://overdrafter.vercel.app` and passed desktop/mobile smoke checks with no console warnings or errors.
 
 ## Remaining release authority
 
-- Signed archive is blocked because Xcode reports an invalid saved Apple account and cannot create the provisioning
-  profile for `com.optomachina.overdrafter`.
+- Signed archive is blocked because Xcode reports no signed-in Apple account and cannot create the provisioning profile
+  for `com.optomachina.overdrafter`.
 - App Store Connect has no active browser session on this machine.
 - An internal TestFlight build can proceed after the Apple account is reauthenticated and the app record exists.
 - External/public TestFlight distribution additionally requires finalized privacy disclosures and policy URL,
   in-app account deletion or an approved exception, external-test metadata, and Apple Beta App Review.
+- The dependency-free archive, upload, review, and public-link procedure is recorded in
+  [`docs/ios-testflight-release.md`](ios-testflight-release.md).
 
 ## Complexity report
 
