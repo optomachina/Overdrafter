@@ -49,7 +49,10 @@ struct WorkspaceWebView: UIViewRepresentable {
         webView.uiDelegate = nil
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, UIDocumentPickerDelegate {
+    // Sonar S7485 reviewed: every navigation action and response is checked below.
+    // Main-frame content is confined to the configured origin; other HTTPS links
+    // leave the app, and unsupported schemes are blocked.
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, UIDocumentPickerDelegate { // NOSONAR
         private var initialURL: URL
         private let policy: NavigationPolicy
         private let pageState: WorkspacePageState
