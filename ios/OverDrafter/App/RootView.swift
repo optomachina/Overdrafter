@@ -73,8 +73,15 @@ struct RootView: View {
             .scrollContentBackground(.hidden)
             .background(Color.overDrafterSurface)
         } detail: {
-            NavigationStack {
-                workspace(for: appState.selection)
+            ZStack {
+                ForEach(AppDestination.allCases) { destination in
+                    NavigationStack {
+                        workspace(for: destination)
+                    }
+                    .opacity(appState.selection == destination ? 1 : 0)
+                    .allowsHitTesting(appState.selection == destination)
+                    .accessibilityHidden(appState.selection != destination)
+                }
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -87,7 +94,6 @@ struct RootView: View {
             configuration: appState.configuration,
             pageState: appState.pageState(for: destination)
         )
-        .id(destination)
     }
 }
 

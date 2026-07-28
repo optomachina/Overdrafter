@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobRecord } from "@/features/quotes/types";
@@ -89,7 +89,19 @@ function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
   } as JobRecord;
 }
 
-function renderIndex() {
+function ClientPartsLocationProbe() {
+  const location = useLocation();
+
+  return (
+    <>
+      <div>Parts Collection</div>
+      <div data-testid="parts-location-search">{location.search}</div>
+      <div data-testid="parts-location-hash">{location.hash}</div>
+    </>
+  );
+}
+
+function renderIndex(initialEntry = "/") {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -100,10 +112,10 @@ function renderIndex() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/" element={<Index />} />
-          <Route path="/parts" element={<div>Parts Collection</div>} />
+          <Route path="/parts" element={<ClientPartsLocationProbe />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -188,6 +200,30 @@ describe("Index client home", () => {
     await waitFor(() => {
       expect(screen.getByText("Parts Collection")).toBeInTheDocument();
     });
+  });
+
+  it("preserves the query and hash when redirecting a client to parts", async () => {
+    mockUseAppSession.mockReturnValue({
+      user: { id: "user-1", email: "client@example.com" },
+      activeMembership: {
+        id: "membership-1",
+        role: "client",
+        organizationId: "org-1",
+        organizationName: "Client Org",
+        organizationSlug: "client-org",
+      },
+      isLoading: false,
+      isVerifiedAuth: true,
+      signOut: vi.fn(),
+    });
+
+    renderIndex("/?app=ios&source=native#quote");
+
+    await waitFor(() => {
+      expect(screen.getByText("Parts Collection")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("parts-location-search")).toHaveTextContent("?app=ios&source=native");
+    expect(screen.getByTestId("parts-location-hash")).toHaveTextContent("#quote");
   });
 
   it("holds the shell in auth restoration while auth is still unknown", () => {

@@ -1285,7 +1285,7 @@ const ClientProject = () => {
             activeMembership={activeMembership}
             notificationCenter={notificationCenter}
             onSignOut={signOut}
-            onSignedOut={() => navigate("/", { replace: true })}
+            onSignedOut={() => navigate(appAwareHref("/"), { replace: true })}
             archivedProjects={archivedProjectsQuery.data}
             archivedJobs={archivedJobsQuery.data}
             isArchiveLoading={archivedProjectsQuery.isLoading || archivedJobsQuery.isLoading}

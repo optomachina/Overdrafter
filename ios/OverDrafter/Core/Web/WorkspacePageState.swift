@@ -37,7 +37,12 @@ final class WorkspacePageState: ObservableObject {
 
     func navigationFailed(_ error: Error) {
         let nsError = error as NSError
-        guard nsError.code != NSURLErrorCancelled else {
+
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            return
+        }
+
+        if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
             return
         }
 

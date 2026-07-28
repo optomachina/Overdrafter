@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -1045,6 +1045,20 @@ describe("ClientProject", () => {
     expect(within(inspector).getByRole("heading", { name: "BRKT-001" })).toBeInTheDocument();
     expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-1");
     expect(screen.getByTestId("location-search")).toHaveTextContent("?part=job-1");
+  });
+
+  it("preserves iOS app mode after account sign-out completes", async () => {
+    renderWithClient("/projects/project-1?app=ios");
+
+    await screen.findByText("Account Menu");
+    expect(lastAccountMenuProps?.onSignedOut).toEqual(expect.any(Function));
+
+    act(() => {
+      (lastAccountMenuProps?.onSignedOut as () => void)();
+    });
+
+    expect(screen.getByTestId("location-path")).toHaveTextContent("/");
+    expect(screen.getByTestId("location-search")).toHaveTextContent("?app=ios");
   });
 
   it("falls back to requirement metadata when the summary is missing", async () => {

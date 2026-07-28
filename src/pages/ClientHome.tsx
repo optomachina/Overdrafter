@@ -103,201 +103,6 @@ const ClientHome = () => {
     );
   }
 
-  const renderAnonymousContent = () => {
-    return (
-      <div className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col px-6 pb-20">
-        {/* Section 1: Hero */}
-        <section className="pt-16">
-          <p className="font-mono text-[11px] font-medium tracking-[0.08em] text-muted-foreground mb-5">
-            // manufacturing workspace
-          </p>
-
-          <h1 className="text-[38px] font-bold leading-[1.0] tracking-[-0.04em] text-foreground sm:text-[48px] lg:text-[60px]">
-            From part files
-            <br />
-            to vetted quotes.{' '}
-            <em className="not-italic text-muted-foreground">In one workspace.</em>
-          </h1>
-
-          <p className="text-[17px] leading-[1.65] text-muted-foreground max-w-[520px] mt-5">
-            Upload your CAD and drawing package. OverDrafter extracts specs, dispatches vendor quotes, and keeps parts, projects, and options organized — start to selection.
-          </p>
-
-          <div className="mt-8 flex flex-col items-stretch gap-2.5 sm:flex-row sm:items-center">
-            <Button
-              type="button"
-              className="rounded-full"
-              onClick={() => openAuth("signup")}
-            >
-              Get started free
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
-              onClick={() => openAuth("signin")}
-            >
-              Log in
-            </Button>
-          </div>
-
-          <p className="mt-3 text-[11px] text-muted-foreground">
-            No vendor account needed. Email or social sign-in.
-          </p>
-        </section>
-
-        {/* Section 2: How it works */}
-        <section className="mt-20">
-          <div className="flex items-center gap-4 mb-9">
-            <p className="ws-section-label">How it works</p>
-            <div className="flex-1 h-px bg-accent" />
-          </div>
-
-          <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
-            {/* Card 1: Upload */}
-            <div className="bg-ws-card border border-ws-border-subtle rounded-surface-lg p-6">
-              <p className="text-[10px] font-semibold font-mono tracking-[0.1em] text-muted-foreground mb-2.5">
-                01 / UPLOAD
-              </p>
-              <h3 className="text-[15px] font-semibold mb-2 text-foreground">
-                Drop your part package.
-              </h3>
-              <p className="text-[13px] leading-[1.6] text-muted-foreground mb-4">
-                Upload STEP files and PDF drawings together. Files are matched into parts automatically by filename — CAD and drawing stay paired from the start.
-              </p>
-
-              {/* Mock file list */}
-              <div>
-                <div className="flex items-center justify-between text-[12px] py-1.5 border-b border-border">
-                  <span className="text-foreground">FLT-BRACKET-01.step</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground">STEP · 1.4 MB</span>
-                    <span className="bg-emerald-400/10 border border-emerald-400/20 text-emerald-400 text-[10px] font-semibold px-1.5 py-0.5 rounded-surface-sm">
-                      CAD
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between text-[12px] py-1.5">
-                  <span className="text-foreground">FLT-BRACKET-01.pdf</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground">Drawing · 0.3 MB</span>
-                    <span className="bg-blue-400/10 border border-blue-400/20 text-blue-400 text-[10px] font-semibold px-1.5 py-0.5 rounded-surface-sm">
-                      Drawing
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Success bar */}
-              <div className="bg-emerald-400/10 border border-emerald-400/30 rounded text-[11px] text-emerald-400 px-2.5 py-2 mt-2.5">
-                ✓ 1 CAD/PDF pair matched automatically
-              </div>
-            </div>
-
-            {/* Card 2: Extract */}
-            <div className="bg-ws-card border border-ws-border-subtle rounded-surface-lg p-6">
-              <p className="text-[10px] font-semibold font-mono tracking-[0.1em] text-muted-foreground mb-2.5">
-                02 / EXTRACT
-              </p>
-              <h3 className="text-[15px] font-semibold mb-2 text-foreground">
-                Specs pulled from your drawing.
-              </h3>
-              <p className="text-[13px] leading-[1.6] text-muted-foreground mb-4">
-                Material, finish, tolerances, revision, and thread callouts are extracted from drawing title blocks. Review and correct before quoting — always traceable.
-              </p>
-
-              {/* Mock table */}
-              <div className="space-y-1.5">
-                {[
-                  { label: 'Material', value: '6061-T6 Aluminum' },
-                  { label: 'Finish', value: 'Clear Anodize Type II' },
-                  { label: 'Tolerance', value: '±0.005 in' },
-                  { label: 'Quantity', value: '25 pcs' },
-                  { label: 'Revision', value: 'Rev C' },
-                ].map((row) => (
-                  <div key={row.label} className="flex text-[12px]">
-                    <span className="text-muted-foreground w-[44%]">{row.label}</span>
-                    <span className="text-foreground font-medium">{row.value}</span>
-                  </div>
-                ))}
-              </div>
-
-              <p className="text-[11px] text-muted-foreground mt-2">
-                Source: drawing title block · FLT-BRACKET-01.pdf
-              </p>
-            </div>
-
-            {/* Card 3: Quote */}
-            <div className="bg-ws-card border border-ws-border-subtle rounded-surface-lg p-6">
-              <p className="text-[10px] font-semibold font-mono tracking-[0.1em] text-muted-foreground mb-2.5">
-                03 / QUOTE
-              </p>
-              <h3 className="text-[15px] font-semibold mb-2 text-foreground">
-                Vendor quotes dispatched automatically.
-              </h3>
-              <p className="text-[13px] leading-[1.6] text-muted-foreground mb-4">
-                Click "Request Quote" and OverDrafter routes your validated package to enabled vendors. Track each request in real time — queued, requesting, received, or failed.
-              </p>
-
-              {/* Mock status rows */}
-              <div>
-                <div className="bg-amber-400/10 border border-amber-400/30 rounded px-3 py-2.5 mb-1.5 flex items-center justify-between">
-                  <span className="text-[12px] font-semibold text-amber-400">Requesting</span>
-                  <span className="text-[11px] text-muted-foreground">Xometry · 2 min</span>
-                </div>
-                <div className="bg-emerald-400/10 border border-emerald-400/30 rounded px-3 py-2.5 flex items-center justify-between">
-                  <span className="text-[12px] font-semibold text-emerald-400">Received</span>
-                  <span className="text-[11px] text-muted-foreground">Quote package ready for review</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Card 4: Select */}
-            <div className="bg-ws-card border border-ws-border-subtle rounded-surface-lg p-6">
-              <p className="text-[10px] font-semibold font-mono tracking-[0.1em] text-muted-foreground mb-2.5">
-                04 / SELECT
-              </p>
-              <h3 className="text-[15px] font-semibold mb-2 text-foreground">
-                Compare and choose the best fit.
-              </h3>
-              <p className="text-[13px] leading-[1.6] text-muted-foreground mb-4">
-                Published options appear side by side. Price, lead time, process, and certification — all visible. Select and your choice is recorded in the project workspace.
-              </p>
-
-              {/* Mock quote rows */}
-              <div className="space-y-1.5">
-                {/* Option A */}
-                <div className="flex items-center justify-between border border-ws-border-subtle rounded px-3 py-2.5 bg-accent">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div>
-                      <div className="flex items-center gap-1">
-                        <span className="text-[12px] font-semibold text-foreground">Xometry — CNC Machining</span>
-                        <span className="bg-emerald-400/10 border border-emerald-400/20 text-emerald-400 text-[9px] font-bold uppercase tracking-[0.1em] rounded-surface-sm px-1.5 py-0.5">
-                          Best price
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">12 bd · AS9100</p>
-                    </div>
-                  </div>
-                  <span className="text-[16px] font-bold text-foreground shrink-0">$487</span>
-                </div>
-
-                {/* Option B */}
-                <div className="flex items-center justify-between border border-ws-border-subtle rounded px-3 py-2.5 bg-accent">
-                  <div>
-                    <p className="text-[12px] font-semibold text-foreground">Precision Shop</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">7 bd · Fastest · ISO 9001</p>
-                  </div>
-                  <span className="text-[16px] font-bold text-foreground shrink-0">$612</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-    );
-  };
-
   const renderOnboardContent = () => {
     return (
       <div className="mx-auto flex w-full max-w-[620px] flex-1 flex-col px-6 py-10">
@@ -585,121 +390,61 @@ const ClientHome = () => {
   return (
     <>
       <ClientWorkspaceShell
-        showSidebar={Boolean(user)}
+        showSidebar
         onLogoClick={() => navigate("/")}
-        topRightContent={
-          user ? null : (
-            <>
-              <Button
-                type="button"
-                className="h-10 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-accent"
-                onClick={() => openAuth("signin")}
-              >
-                Log in
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-10 rounded-full border-border bg-transparent px-4 text-sm text-foreground hover:bg-accent"
-                onClick={() => openAuth("signup")}
-              >
-                Sign up for free
-              </Button>
-            </>
-          )
-        }
-        sidebarRailActions={
-          user
-            ? [
-                { label: "New Job", icon: PlusSquare, onClick: newJobFilePicker.openFilePicker },
-                { label: "Search", icon: Search, onClick: () => setIsSearchOpen(true) },
-              ]
-            : [
-                { label: "New Job", icon: PlusSquare, onClick: () => openAuth("signup") },
-                { label: "Search", icon: Search, onClick: () => openAuth("signin") },
-              ]
-        }
+        sidebarRailActions={[
+          { label: "New Job", icon: PlusSquare, onClick: newJobFilePicker.openFilePicker },
+          { label: "Search", icon: Search, onClick: () => setIsSearchOpen(true) },
+        ]}
         sidebarContent={
-          user ? (
-            <WorkspaceSidebar
-              projects={sidebarProjects}
-              jobs={accessibleJobs}
-              summariesByJobId={summariesByJobId}
-              onCreateJob={newJobFilePicker.openFilePicker}
-              onCreateProject={projectCollaborationUnavailable ? undefined : newJobFilePicker.openFilePicker}
-              onSearch={() => setIsSearchOpen(true)}
-              storageScopeKey={user.id}
-              pinnedProjectIds={sidebarPinsQuery.data?.projectIds ?? []}
-              pinnedJobIds={sidebarPinsQuery.data?.jobIds ?? []}
-              onPinProject={handlePinProject}
-              onUnpinProject={handleUnpinProject}
-              onPinPart={handlePinPart}
-              onUnpinPart={handleUnpinPart}
-              onAssignPartToProject={handleAssignPartToProject}
-              onRemovePartFromProject={handleRemovePartFromProject}
-              onCreateProjectFromSelection={projectCollaborationUnavailable ? undefined : handleCreateProjectFromSelection}
-              onRenameProject={handleRenameProject}
-              onArchivePart={handleArchivePart}
-              onArchiveProject={handleArchiveProject}
-              onDissolveProject={handleDissolveProject}
-              onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
-              onSelectPart={navigateToPartDestination}
-              onPrefetchProject={prefetchProject}
-              onPrefetchPart={prefetchPart}
-              resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
-            />
-          ) : (
-            <div className="space-y-1">
-              <Button
-                type="button"
-                variant="ghost"
-                className="w-full justify-start rounded pl-1 pr-3 text-foreground hover:bg-accent hover:text-foreground"
-                onClick={() => openAuth("signup")}
-              >
-                <span className="flex w-5 shrink-0 items-center justify-center text-foreground">
-                  <PlusSquare aria-hidden="true" className="h-4 w-4" />
-                </span>
-                Get started
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="w-full justify-start rounded pl-1 pr-3 text-foreground hover:bg-accent hover:text-foreground"
-                onClick={() => openAuth("signin")}
-              >
-                <span className="flex w-5 shrink-0 items-center justify-center text-foreground">
-                  <Search aria-hidden="true" className="h-4 w-4" />
-                </span>
-                Search
-              </Button>
-            </div>
-          )
+          <WorkspaceSidebar
+            projects={sidebarProjects}
+            jobs={accessibleJobs}
+            summariesByJobId={summariesByJobId}
+            onCreateJob={newJobFilePicker.openFilePicker}
+            onCreateProject={projectCollaborationUnavailable ? undefined : newJobFilePicker.openFilePicker}
+            onSearch={() => setIsSearchOpen(true)}
+            storageScopeKey={user.id}
+            pinnedProjectIds={sidebarPinsQuery.data?.projectIds ?? []}
+            pinnedJobIds={sidebarPinsQuery.data?.jobIds ?? []}
+            onPinProject={handlePinProject}
+            onUnpinProject={handleUnpinProject}
+            onPinPart={handlePinPart}
+            onUnpinPart={handleUnpinPart}
+            onAssignPartToProject={handleAssignPartToProject}
+            onRemovePartFromProject={handleRemovePartFromProject}
+            onCreateProjectFromSelection={projectCollaborationUnavailable ? undefined : handleCreateProjectFromSelection}
+            onRenameProject={handleRenameProject}
+            onArchivePart={handleArchivePart}
+            onArchiveProject={handleArchiveProject}
+            onDissolveProject={handleDissolveProject}
+            onSelectProject={(projectId) => navigate(`/projects/${projectId}`)}
+            onSelectPart={navigateToPartDestination}
+            onPrefetchProject={prefetchProject}
+            onPrefetchPart={prefetchPart}
+            resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
+          />
         }
         sidebarFooter={
-          user ? (
-            <WorkspaceAccountMenu
-              user={user}
-              activeMembership={activeMembership}
-              notificationCenter={notificationCenter}
-              onSignOut={signOut}
-              onSignedOut={() => navigate("/", { replace: true })}
-              archivedProjects={archivedProjectsQuery.data}
-              archivedJobs={archivedJobsQuery.data}
-              isArchiveLoading={archivedProjectsQuery.isLoading || archivedJobsQuery.isLoading}
-              onUnarchivePart={handleUnarchivePart}
-              onDeleteArchivedParts={handleDeleteArchivedParts}
-            />
-          ) : null
+          <WorkspaceAccountMenu
+            user={user}
+            activeMembership={activeMembership}
+            notificationCenter={notificationCenter}
+            onSignOut={signOut}
+            onSignedOut={() => navigate("/", { replace: true })}
+            archivedProjects={archivedProjectsQuery.data}
+            archivedJobs={archivedJobsQuery.data}
+            isArchiveLoading={archivedProjectsQuery.isLoading || archivedJobsQuery.isLoading}
+            onUnarchivePart={handleUnarchivePart}
+            onDeleteArchivedParts={handleDeleteArchivedParts}
+          />
         }
       >
-        {user &&
-        activeMembership &&
+        {activeMembership &&
         accessibleJobsQuery.isLoading === false &&
         sidebarProjects.length === 0
           ? renderOnboardContent()
-          : user
-            ? renderSignedInContent()
-            : renderAnonymousContent()}
+          : renderSignedInContent()}
       </ClientWorkspaceShell>
 
       <input

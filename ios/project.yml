@@ -2,6 +2,7 @@ name: OverDrafter
 
 options:
   createIntermediateGroups: true
+  settingPresets: project
   deploymentTarget:
     iOS: "17.0"
   groupSortPosition: top
@@ -31,8 +32,10 @@ targets:
         CODE_SIGN_ENTITLEMENTS: OverDrafter/Supporting/OverDrafter.entitlements
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: NO
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
         PRODUCT_BUNDLE_IDENTIFIER: com.optomachina.overdrafter
         PRODUCT_NAME: OverDrafter
+        SDKROOT: iphoneos
         SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
         SUPPORTS_MACCATALYST: NO
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -51,8 +54,12 @@ targets:
       - target: OverDrafter
     settings:
       base:
+        BUNDLE_LOADER: "$(TEST_HOST)"
         GENERATE_INFOPLIST_FILE: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
         PRODUCT_BUNDLE_IDENTIFIER: com.optomachina.overdrafter.tests
+        SDKROOT: iphoneos
+        TARGETED_DEVICE_FAMILY: "1,2"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/OverDrafter.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OverDrafter"
 
 schemes:

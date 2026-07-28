@@ -9,11 +9,19 @@ describe("useQuoteReferences", () => {
   });
 
   it("updates only the subscribed quote collection when a reference changes", () => {
-    const { result } = renderHook(() =>
-      useQuoteReferences(["job-1", "job-2"]),
+    const { rerender, result } = renderHook(
+      ({ jobIds }) => useQuoteReferences(jobIds),
+      {
+        initialProps: { jobIds: ["job-1", "job-2"] },
+      },
     );
 
     expect(result.current.size).toBe(0);
+    const initialReferences = result.current;
+
+    rerender({ jobIds: ["job-2", "job-1"] });
+
+    expect(result.current).toBe(initialReferences);
 
     act(() => {
       writeQuoteReference("job-1", "RFQ-1138");
@@ -22,5 +30,6 @@ describe("useQuoteReferences", () => {
 
     expect(result.current.get("job-1")).toBe("RFQ-1138");
     expect(result.current.has("job-outside")).toBe(false);
+    expect(result.current).not.toBe(initialReferences);
   });
 });

@@ -142,6 +142,8 @@ cd ios
 xcodegen generate
 xcodebuild -project OverDrafter.xcodeproj -scheme OverDrafter \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' test
+xcodebuild -project OverDrafter.xcodeproj -scheme OverDrafter \
+  -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5)' test
 ```
 
 The default app origin is `https://overdrafter.vercel.app`. Debug builds may override it with the

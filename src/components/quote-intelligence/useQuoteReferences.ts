@@ -10,7 +10,7 @@ export function useQuoteReferences(jobIds: readonly string[]): ReadonlyMap<strin
     () => (jobIdsKey.length > 0 ? jobIdsKey.split("|") : []),
     [jobIdsKey],
   );
-  const [, setVersion] = useState(0);
+  const [version, setVersion] = useState(0);
 
   useEffect(
     () =>
@@ -22,14 +22,18 @@ export function useQuoteReferences(jobIds: readonly string[]): ReadonlyMap<strin
     [stableJobIds],
   );
 
-  const references = new Map<string, string>();
+  return useMemo(() => {
+    // Re-read browser-local references whenever the subscription advances.
+    void version;
+    const references = new Map<string, string>();
 
-  stableJobIds.forEach((jobId) => {
-    const reference = readQuoteReference(jobId);
-    if (reference) {
-      references.set(jobId, reference);
-    }
-  });
+    stableJobIds.forEach((jobId) => {
+      const reference = readQuoteReference(jobId);
+      if (reference) {
+        references.set(jobId, reference);
+      }
+    });
 
-  return references;
+    return references;
+  }, [stableJobIds, version]);
 }

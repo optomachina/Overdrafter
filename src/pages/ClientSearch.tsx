@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Box, FileText, FolderKanban, Search, Upload } from "lucide-react";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
@@ -22,10 +22,18 @@ const RESULT_LABELS = {
   quote: "Quote",
 } as const;
 
+const RESULT_ICONS = {
+  part: Box,
+  project: FolderKanban,
+  quote: FileText,
+} as const;
+
 export default function ClientSearch() {
   const controller = useClientHomeController();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
+  const searchParamsKey = searchParams.toString();
+  const [query, setQuery] = useState(() => searchParams.get("q")?.trim() ?? "");
+  const lastWrittenSearchParamsRef = useRef<string | null>(null);
   const parsedQuery = useMemo(() => parseEngineeringQuery(query), [query]);
   const appMode = searchParams.get("app") === "ios" ? "ios" : null;
   const jobIds = useMemo(() => controller.accessibleJobs.map((job) => job.id), [controller.accessibleJobs]);
@@ -91,16 +99,52 @@ export default function ClientSearch() {
   );
 
   useEffect(() => {
-    const next = new URLSearchParams(searchParams);
-    if (query.trim()) {
-      next.set("q", query);
+    if (lastWrittenSearchParamsRef.current === searchParamsKey) {
+      lastWrittenSearchParamsRef.current = null;
+      return;
+    }
+
+    const currentSearchParams = new URLSearchParams(searchParamsKey);
+    const urlQuery = currentSearchParams.get("q") ?? "";
+    const normalizedUrlQuery = urlQuery.trim();
+    setQuery(normalizedUrlQuery);
+
+    if (urlQuery === normalizedUrlQuery) {
+      return;
+    }
+
+    if (normalizedUrlQuery) {
+      currentSearchParams.set("q", normalizedUrlQuery);
     } else {
-      next.delete("q");
+      currentSearchParams.delete("q");
     }
-    if (next.toString() !== searchParams.toString()) {
-      setSearchParams(next, { replace: true });
-    }
-  }, [query, searchParams, setSearchParams]);
+
+    lastWrittenSearchParamsRef.current = currentSearchParams.toString();
+    setSearchParams(currentSearchParams, { replace: true });
+  }, [searchParamsKey, setSearchParams]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      const nextSearchParams = new URLSearchParams(searchParamsKey);
+      const normalizedQuery = query.trim();
+
+      if (normalizedQuery) {
+        nextSearchParams.set("q", normalizedQuery);
+      } else {
+        nextSearchParams.delete("q");
+      }
+
+      const nextSearchParamsKey = nextSearchParams.toString();
+      if (nextSearchParamsKey === searchParamsKey) {
+        return;
+      }
+
+      lastWrittenSearchParamsRef.current = nextSearchParamsKey;
+      setSearchParams(nextSearchParams, { replace: true });
+    }, 150);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [query, searchParamsKey, setSearchParams]);
 
   if (controller.isAuthInitializing && !controller.user) {
     return <AuthBootstrapScreen message="Restoring global search." />;
@@ -120,6 +164,92 @@ export default function ClientSearch() {
           initialMode={controller.authDialogMode}
         />
       </>
+    );
+  }
+
+  function renderResults() {
+    const isLoading =
+      controller.accessibleJobsQuery.isLoading ||
+      (jobIds.length > 0 && quoteWorkspace.workspaceQuery.isLoading);
+
+    if (isLoading) {
+      return (
+        <p className="border-b border-paper-hairline py-12 text-center text-body-sm text-paper-muted" role="status">
+          Building your accessible index…
+        </p>
+      );
+    }
+
+    if (controller.accessibleJobsQuery.isError) {
+      return (
+        <div className="border-b border-paper-hairline py-12 text-center" role="alert">
+          <p className="text-body-sm">Search data could not be loaded.</p>
+          <button
+            type="button"
+            onClick={() => void controller.accessibleJobsQuery.refetch()}
+            className="mt-4 min-h-11 border border-paper-ink px-4 text-[12px] font-semibold"
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+
+    if (!query.trim()) {
+      return (
+        <div className="border-b border-paper-hairline py-14 text-center">
+          <p className="font-display text-subsection">Search the working record</p>
+          <p className="mx-auto mt-2 max-w-lg text-body-sm text-paper-muted">
+            Explicit dimensions and units are interpreted from your query. No geometry is inferred from filenames or placeholder projections.
+          </p>
+        </div>
+      );
+    }
+
+    if (results.length === 0) {
+      return (
+        <div className="border-b border-paper-hairline py-14 text-center" aria-live="polite">
+          <p className="font-display text-subsection">No accessible matches</p>
+          <p className="mt-2 text-body-sm text-paper-muted">Try a part reference, project name, quote code, material, finish, service, or explicit dimension.</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="border-b border-paper-hairline" aria-live="polite">
+        <p className="border-b border-paper-hairline py-3 font-mono text-[10px] uppercase text-paper-muted">
+          {results.length} {results.length === 1 ? "result" : "results"}
+        </p>
+        {results.map((result) => {
+          const Icon = RESULT_ICONS[result.kind];
+
+          return (
+            <Link
+              key={`${result.kind}:${result.id}`}
+              to={result.href}
+              className="grid min-h-[76px] grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-4 border-b border-paper-hairline py-3 transition-colors last:border-b-0 hover:bg-paper-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red"
+            >
+              <span className="flex h-11 w-11 items-center justify-center rounded-[2px] border border-paper-hairline bg-paper-surface text-paper-muted">
+                <Icon className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate font-display text-[15px] font-bold">{result.title}</span>
+                <span className="mt-1 block truncate text-[11px] text-paper-muted">{result.context}</span>
+                {result.explanations.length > 0 ? (
+                  <span className="mt-2 flex flex-wrap gap-2">
+                    {result.explanations.map((explanation) => (
+                      <span key={`${explanation.label}:${explanation.value ?? ""}`} className="rounded-[2px] border border-paper-hairline px-2 py-1 text-[10px] text-paper-muted">
+                        {explanation.label}{explanation.value ? ` · ${explanation.value}` : ""}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
+              </span>
+              <span className="pr-2 font-mono text-[10px] uppercase text-paper-red">{RESULT_LABELS[result.kind]}</span>
+            </Link>
+          );
+        })}
+      </div>
     );
   }
 
@@ -183,66 +313,7 @@ export default function ClientSearch() {
         </div>
       ) : null}
 
-      {controller.accessibleJobsQuery.isLoading ||
-      (jobIds.length > 0 && quoteWorkspace.workspaceQuery.isLoading) ? (
-        <p className="border-b border-paper-hairline py-12 text-center text-body-sm text-paper-muted" role="status">
-          Building your accessible index…
-        </p>
-      ) : controller.accessibleJobsQuery.isError ? (
-        <div className="border-b border-paper-hairline py-12 text-center" role="alert">
-          <p className="text-body-sm">Search data could not be loaded.</p>
-          <button type="button" onClick={() => void controller.accessibleJobsQuery.refetch()} className="mt-4 min-h-11 border border-paper-ink px-4 text-[12px] font-semibold">
-            Try again
-          </button>
-        </div>
-      ) : !query.trim() ? (
-        <div className="border-b border-paper-hairline py-14 text-center">
-          <p className="font-display text-subsection">Search the working record</p>
-          <p className="mx-auto mt-2 max-w-lg text-body-sm text-paper-muted">
-            Explicit dimensions and units are interpreted from your query. No geometry is inferred from filenames or placeholder projections.
-          </p>
-        </div>
-      ) : results.length === 0 ? (
-        <div className="border-b border-paper-hairline py-14 text-center" aria-live="polite">
-          <p className="font-display text-subsection">No accessible matches</p>
-          <p className="mt-2 text-body-sm text-paper-muted">Try a part reference, project name, quote code, material, finish, service, or explicit dimension.</p>
-        </div>
-      ) : (
-        <div className="border-b border-paper-hairline" aria-live="polite">
-          <p className="border-b border-paper-hairline py-3 font-mono text-[10px] uppercase text-paper-muted">
-            {results.length} {results.length === 1 ? "result" : "results"}
-          </p>
-          {results.map((result) => {
-            const Icon = result.kind === "part" ? Box : result.kind === "project" ? FolderKanban : FileText;
-
-            return (
-              <Link
-                key={`${result.kind}:${result.id}`}
-                to={result.href}
-                className="grid min-h-[76px] grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-4 border-b border-paper-hairline py-3 transition-colors last:border-b-0 hover:bg-paper-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red"
-              >
-                <span className="flex h-11 w-11 items-center justify-center rounded-[2px] border border-paper-hairline bg-paper-surface text-paper-muted">
-                  <Icon className="h-5 w-5" aria-hidden="true" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate font-display text-[15px] font-bold">{result.title}</span>
-                  <span className="mt-1 block truncate text-[11px] text-paper-muted">{result.context}</span>
-                  {result.explanations.length > 0 ? (
-                    <span className="mt-2 flex flex-wrap gap-2">
-                      {result.explanations.map((explanation) => (
-                        <span key={`${explanation.label}:${explanation.value ?? ""}`} className="rounded-[2px] border border-paper-hairline px-2 py-1 text-[10px] text-paper-muted">
-                          {explanation.label}{explanation.value ? ` · ${explanation.value}` : ""}
-                        </span>
-                      ))}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="pr-2 font-mono text-[10px] uppercase text-paper-red">{RESULT_LABELS[result.kind]}</span>
-              </Link>
-            );
-          })}
-        </div>
-      )}
+      {renderResults()}
     </QuoteIntelligenceShell>
   );
 }

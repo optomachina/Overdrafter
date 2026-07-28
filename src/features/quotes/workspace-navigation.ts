@@ -31,14 +31,6 @@ export function createWorkspaceAccessScope({
   ]);
 }
 
-const ANONYMOUS_WORKSPACE_ACCESS_SCOPE = createWorkspaceAccessScope({});
-
-function normalizeWorkspaceAccessScope(
-  accessScope?: WorkspaceAccessScope,
-): WorkspaceAccessScope {
-  return accessScope || ANONYMOUS_WORKSPACE_ACCESS_SCOPE;
-}
-
 export function stableJobIds(jobIds: string[]): string[] {
   return [...new Set(jobIds)].sort((left, right) => left.localeCompare(right));
 }
@@ -48,64 +40,64 @@ export function isVirtualProjectId(projectId: string): boolean {
 }
 
 export const workspaceQueryKeys = {
-  clientProjects: (accessScope?: WorkspaceAccessScope) =>
-    ["client-projects", normalizeWorkspaceAccessScope(accessScope)] as const,
-  clientJobs: (accessScope?: WorkspaceAccessScope) =>
-    ["client-jobs", normalizeWorkspaceAccessScope(accessScope)] as const,
-  clientPartSummaries: (jobIds: string[], accessScope?: WorkspaceAccessScope) =>
+  clientProjects: (accessScope: WorkspaceAccessScope) =>
+    ["client-projects", accessScope] as const,
+  clientJobs: (accessScope: WorkspaceAccessScope) =>
+    ["client-jobs", accessScope] as const,
+  clientPartSummaries: (jobIds: string[], accessScope: WorkspaceAccessScope) =>
     [
       "client-part-summaries",
-      normalizeWorkspaceAccessScope(accessScope),
+      accessScope,
       stableJobIds(jobIds),
     ] as const,
   clientProjectJobMemberships: (
     jobIds: string[],
-    accessScope?: WorkspaceAccessScope,
+    accessScope: WorkspaceAccessScope,
   ) =>
     [
       "client-project-job-memberships",
-      normalizeWorkspaceAccessScope(accessScope),
+      accessScope,
       stableJobIds(jobIds),
     ] as const,
-  sidebarPins: (accessScope?: WorkspaceAccessScope) =>
-    ["sidebar-pins", normalizeWorkspaceAccessScope(accessScope)] as const,
-  archivedProjects: (accessScope?: WorkspaceAccessScope) =>
-    ["archived-projects", normalizeWorkspaceAccessScope(accessScope)] as const,
-  archivedJobs: (accessScope?: WorkspaceAccessScope) =>
-    ["archived-jobs", normalizeWorkspaceAccessScope(accessScope)] as const,
-  project: (projectId: string, accessScope?: WorkspaceAccessScope) =>
-    ["project", projectId, normalizeWorkspaceAccessScope(accessScope)] as const,
-  projectJobs: (projectId: string, accessScope?: WorkspaceAccessScope) =>
-    ["project-jobs", projectId, normalizeWorkspaceAccessScope(accessScope)] as const,
-  projectAssignees: (projectId: string, accessScope?: WorkspaceAccessScope) =>
+  sidebarPins: (accessScope: WorkspaceAccessScope) =>
+    ["sidebar-pins", accessScope] as const,
+  archivedProjects: (accessScope: WorkspaceAccessScope) =>
+    ["archived-projects", accessScope] as const,
+  archivedJobs: (accessScope: WorkspaceAccessScope) =>
+    ["archived-jobs", accessScope] as const,
+  project: (projectId: string, accessScope: WorkspaceAccessScope) =>
+    ["project", projectId, accessScope] as const,
+  projectJobs: (projectId: string, accessScope: WorkspaceAccessScope) =>
+    ["project-jobs", projectId, accessScope] as const,
+  projectAssignees: (projectId: string, accessScope: WorkspaceAccessScope) =>
     [
       "project-assignees",
       projectId,
-      normalizeWorkspaceAccessScope(accessScope),
+      accessScope,
     ] as const,
   clientQuoteWorkspace: (
     jobIds: string[],
-    accessScope?: WorkspaceAccessScope,
+    accessScope: WorkspaceAccessScope,
   ) =>
     [
       "client-quote-workspace",
-      normalizeWorkspaceAccessScope(accessScope),
+      accessScope,
       stableJobIds(jobIds),
     ] as const,
-  clientActivity: (jobIds: string[], accessScope?: WorkspaceAccessScope) =>
+  clientActivity: (jobIds: string[], accessScope: WorkspaceAccessScope) =>
     [
       "client-activity",
-      normalizeWorkspaceAccessScope(accessScope),
+      accessScope,
       stableJobIds(jobIds),
     ] as const,
-  partDetailRoute: (routeId: string, accessScope?: WorkspaceAccessScope) =>
+  partDetailRoute: (routeId: string, accessScope: WorkspaceAccessScope) =>
     [
       "part-detail-route",
       routeId,
-      normalizeWorkspaceAccessScope(accessScope),
+      accessScope,
     ] as const,
-  partDetail: (jobId: string, accessScope?: WorkspaceAccessScope) =>
-    ["part-detail", jobId, normalizeWorkspaceAccessScope(accessScope)] as const,
+  partDetail: (jobId: string, accessScope: WorkspaceAccessScope) =>
+    ["part-detail", jobId, accessScope] as const,
 };
 
 function shouldPrefetchQuery(
@@ -157,8 +149,8 @@ export async function prefetchProjectPage(
   projectId: string,
   options: {
     enabled?: boolean;
-    accessScope?: WorkspaceAccessScope;
-  } = {},
+    accessScope: WorkspaceAccessScope;
+  },
 ): Promise<void> {
   if (options.enabled === false || isVirtualProjectId(projectId)) {
     return;
@@ -220,7 +212,7 @@ export async function prefetchProjectPage(
 export async function prefetchPartPage(
   queryClient: QueryClient,
   routeId: string,
-  options: { accessScope?: WorkspaceAccessScope } = {},
+  options: { accessScope: WorkspaceAccessScope },
 ): Promise<void> {
   const resolvedRoute = await maybePrefetchQuery(queryClient, {
     queryKey: workspaceQueryKeys.partDetailRoute(routeId, options.accessScope),

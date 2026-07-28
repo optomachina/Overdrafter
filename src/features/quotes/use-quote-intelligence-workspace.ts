@@ -13,6 +13,17 @@ import {
   WORKSPACE_GC_TIME_MS,
 } from "@/features/quotes/workspace-navigation";
 
+function firstNonBlank(
+  ...values: readonly (string | null | undefined)[]
+): string | null {
+  return (
+    values.find(
+      (value): value is string =>
+        typeof value === "string" && value.trim().length > 0,
+    ) ?? null
+  );
+}
+
 export function useQuoteIntelligenceWorkspace(
   jobIds: readonly string[],
   enabled: boolean,
@@ -44,10 +55,10 @@ export function useQuoteIntelligenceWorkspace(
         typeof approvedSnapshot?.threads === "string" ? approvedSnapshot.threads : null;
 
       metadata.set(item.job.id, {
-        material: requirement?.material || approved?.material || null,
-        finish: requirement?.finish ?? approved?.finish ?? null,
-        process: requirement?.process ?? snapshotProcess,
-        threads: requirement?.threads ?? snapshotThreads,
+        material: firstNonBlank(requirement?.material, approved?.material),
+        finish: firstNonBlank(requirement?.finish, approved?.finish),
+        process: firstNonBlank(requirement?.process, snapshotProcess),
+        threads: firstNonBlank(requirement?.threads, snapshotThreads),
         tightestToleranceInch:
           requirement?.tightestToleranceInch ??
           approved?.tightest_tolerance_inch ??

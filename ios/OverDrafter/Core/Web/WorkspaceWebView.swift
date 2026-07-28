@@ -59,7 +59,8 @@ struct WorkspaceWebView: UIViewRepresentable {
         private var activeDownloads: [ObjectIdentifier: WKDownload] = [:]
         private var downloadDestinations: [ObjectIdentifier: URL] = [:]
         private weak var exportPicker: UIDocumentPickerViewController?
-        private var exportedTemporaryURLs: [URL] = []
+        private var activeExportURL: URL?
+        private var pendingExportURLs: [URL] = []
 
         init(
             initialURL: URL,
@@ -120,6 +121,7 @@ struct WorkspaceWebView: UIViewRepresentable {
             cleanupExportedFiles()
             for download in activeDownloads.values {
                 download.delegate = nil
+                // Resume data is intentionally discarded; downloads cannot resume after teardown.
                 download.cancel { _ in }
             }
             for destination in downloadDestinations.values {
@@ -197,7 +199,7 @@ struct WorkspaceWebView: UIViewRepresentable {
                 openExternalURL(url)
             case .blocked:
                 decisionHandler(.cancel)
-                pageState.alertMessage = "Blocked an unsafe or unsupported link: \(url.absoluteString)"
+                pageState.alertMessage = blockedLinkMessage(for: url)
             }
         }
 
@@ -264,7 +266,7 @@ struct WorkspaceWebView: UIViewRepresentable {
             case .external:
                 openExternalURL(url)
             case .blocked:
-                pageState.alertMessage = "Blocked an unsafe or unsupported link: \(url.absoluteString)"
+                pageState.alertMessage = blockedLinkMessage(for: url)
             }
 
             return nil
@@ -311,15 +313,16 @@ struct WorkspaceWebView: UIViewRepresentable {
 
         func download(
             _ download: WKDownload,
-            didFailWithError error: Error,
-            resumeData: Data?
+            didFailWithError _: Error,
+            resumeData _: Data?
         ) {
             let identifier = ObjectIdentifier(download)
             if let destination = downloadDestinations.removeValue(forKey: identifier) {
                 try? FileManager.default.removeItem(at: destination)
             }
             release(download)
-            pageState.alertMessage = "Download failed: \(error.localizedDescription)"
+            // Resume data is intentionally discarded because downloads are not persisted by the app.
+            pageState.alertMessage = "The download failed. Please try again."
         }
 
         func documentPicker(
@@ -327,15 +330,13 @@ struct WorkspaceWebView: UIViewRepresentable {
             didPickDocumentsAt urls: [URL]
         ) {
             if controller === exportPicker {
-                exportPicker = nil
-                cleanupExportedFiles()
+                finishExport(using: controller)
             }
         }
 
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
             if controller === exportPicker {
-                exportPicker = nil
-                cleanupExportedFiles()
+                finishExport(using: controller)
             }
         }
 
@@ -361,27 +362,65 @@ struct WorkspaceWebView: UIViewRepresentable {
         }
 
         private func presentExporter(for url: URL) {
-            exportedTemporaryURLs = [url]
+            pendingExportURLs.append(url)
+            presentNextExporterIfNeeded()
+        }
+
+        private func presentNextExporterIfNeeded() {
+            guard exportPicker == nil, activeExportURL == nil else {
+                return
+            }
+
+            guard !pendingExportURLs.isEmpty else {
+                return
+            }
+
+            let url = pendingExportURLs.removeFirst()
             let picker = UIDocumentPickerViewController(
                 forExporting: [url],
                 asCopy: true
             )
             picker.delegate = self
+            activeExportURL = url
             exportPicker = picker
 
             guard present(picker) else {
                 exportPicker = nil
+                activeExportURL = nil
+                try? FileManager.default.removeItem(at: url)
                 cleanupExportedFiles()
                 pageState.alertMessage = "The downloaded file could not be exported."
                 return
             }
         }
 
+        private func finishExport(using picker: UIDocumentPickerViewController) {
+            exportPicker = nil
+            if let activeExportURL {
+                try? FileManager.default.removeItem(at: activeExportURL)
+            }
+            activeExportURL = nil
+
+            picker.dismiss(animated: true) { [weak self] in
+                self?.presentNextExporterIfNeeded()
+            }
+        }
+
         private func cleanupExportedFiles() {
-            for url in exportedTemporaryURLs {
+            if let activeExportURL {
+                try? FileManager.default.removeItem(at: activeExportURL)
+            }
+            activeExportURL = nil
+
+            for url in pendingExportURLs {
                 try? FileManager.default.removeItem(at: url)
             }
-            exportedTemporaryURLs.removeAll()
+            pendingExportURLs.removeAll()
+        }
+
+        private func blockedLinkMessage(for url: URL) -> String {
+            let host = url.host ?? "unknown host"
+            return "Blocked an unsafe or unsupported link to \(host)."
         }
 
         private func openExternalURL(_ url: URL) {

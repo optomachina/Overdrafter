@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -421,16 +421,9 @@ function renderWithClient(initialEntry: string) {
     ...render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={[initialEntry]}>
+          <LocationEcho />
           <Routes>
-            <Route
-              path="/parts/:jobId"
-              element={
-                <>
-                  <ClientPart />
-                  <LocationEcho />
-                </>
-              }
-            />
+            <Route path="/parts/:jobId" element={<ClientPart />} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,
@@ -500,7 +493,12 @@ function createDeferredPromise<T>() {
 
 function LocationEcho() {
   const location = useLocation();
-  return <div data-testid="location-path">{location.pathname}</div>;
+  return (
+    <>
+      <div data-testid="location-path">{location.pathname}</div>
+      <div data-testid="location-search">{location.search}</div>
+    </>
+  );
 }
 
 function createPartDetail(overrides: Record<string, unknown> = {}) {
@@ -1901,5 +1899,19 @@ describe("ClientPart", () => {
 
     expect(screen.getByText("Restoring your part workspace.")).toBeInTheDocument();
     expect(screen.getByTestId("location-path")).toHaveTextContent("/parts/job-1");
+  });
+
+  it("preserves iOS app mode after account sign-out completes", async () => {
+    renderWithClient("/parts/job-1?app=ios");
+
+    await screen.findByText("Account Menu");
+    expect(lastAccountMenuProps?.onSignedOut).toEqual(expect.any(Function));
+
+    act(() => {
+      (lastAccountMenuProps?.onSignedOut as () => void)();
+    });
+
+    expect(screen.getByTestId("location-path")).toHaveTextContent("/");
+    expect(screen.getByTestId("location-search")).toHaveTextContent("?app=ios");
   });
 });

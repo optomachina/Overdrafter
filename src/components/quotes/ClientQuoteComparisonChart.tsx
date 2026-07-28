@@ -164,10 +164,11 @@ function CustomTooltipContent({ active, payload }: { active?: boolean; payload?:
   }
 
   const point = payload[0].payload;
-  const leadDisplay =
-    point.leadTimeDays !== null
-      ? `${point.leadTimeDays} working ${point.leadTimeDays === 1 ? "day" : "days"}`
-      : "Not quoted";
+  let leadDisplay = "Not quoted";
+  if (point.leadTimeDays !== null) {
+    const dayLabel = point.leadTimeDays === 1 ? "day" : "days";
+    leadDisplay = `${point.leadTimeDays} working ${dayLabel}`;
+  }
 
   return (
     <div className="rounded border border-border bg-ws-raised px-3 py-2.5">

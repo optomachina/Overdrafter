@@ -129,6 +129,97 @@ export default function ClientParts() {
     />
   );
 
+  function renderParts() {
+    const isLoading =
+      controller.accessibleJobsQuery.isLoading ||
+      (jobIds.length > 0 && quoteWorkspace.workspaceQuery.isLoading);
+
+    if (isLoading) {
+      return (
+        <p className="border-b border-paper-hairline py-12 text-center text-body-sm text-paper-muted" role="status">
+          Loading accessible parts…
+        </p>
+      );
+    }
+
+    if (controller.accessibleJobsQuery.isError) {
+      return (
+        <div className="border-b border-paper-hairline py-12 text-center" role="alert">
+          <p className="text-body-sm">Parts could not be loaded.</p>
+          <button
+            type="button"
+            onClick={() => void controller.accessibleJobsQuery.refetch()}
+            className="mt-4 min-h-11 border border-paper-ink px-4 text-[12px] font-semibold"
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+
+    if (rows.length === 0) {
+      const isAssembliesFilter = filter === "assemblies";
+
+      return (
+        <div className="border-b border-paper-hairline py-14 text-center">
+          <p className="font-display text-subsection">
+            {isAssembliesFilter ? "No released assemblies yet" : "No matching parts"}
+          </p>
+          <p className="mx-auto mt-2 max-w-lg text-body-sm text-paper-muted">
+            {isAssembliesFilter
+              ? "Project groups are not treated as assemblies. Assemblies will appear only when immutable BOM and revision data exists."
+              : "Change the search or upload a part package to add accessible artifacts."}
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="border-b border-paper-hairline" aria-live="polite">
+        {rows.map((row) => (
+          <Link
+            key={`${row.kind}:${row.id}`}
+            to={row.href}
+            className="group grid min-h-[92px] grid-cols-[64px_minmax(0,1fr)] gap-4 border-t border-paper-hairline py-4 transition-colors hover:bg-paper-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red sm:grid-cols-[72px_minmax(0,1fr)_auto]"
+          >
+            <span className="flex h-16 w-16 items-center justify-center rounded-[2px] border border-paper-hairline bg-paper-surface text-paper-muted sm:h-[72px] sm:w-[72px]">
+              {row.kind === "project_group" ? <FolderKanban className="h-7 w-7" aria-hidden="true" /> : <Box className="h-7 w-7" aria-hidden="true" />}
+              <span className="sr-only">{row.kind === "project_group" ? "Project group" : "Part preview unavailable"}</span>
+            </span>
+            <span className="min-w-0">
+              <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="truncate font-display text-[16px] font-bold">{row.title}</span>
+                <span className="font-mono text-[10px] uppercase text-paper-red">{row.statusLabel}</span>
+              </span>
+              <span className="mt-1 line-clamp-2 block text-[12px] text-paper-muted">{row.description}</span>
+              <span className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] uppercase text-paper-muted">
+                {row.reference ? <span>{row.reference}{row.revision ? ` · Rev ${row.revision}` : ""}</span> : null}
+                {row.quantity ? <span>Qty {row.quantity}</span> : null}
+                {row.partCount !== null ? <span>{row.partCount} parts</span> : null}
+                {row.material ? <span>{row.material}</span> : null}
+                {row.finish ? <span>{row.finish}</span> : null}
+                {row.process ? <span>{row.process}</span> : null}
+                {row.projectNames.length > 0 ? <span>{row.projectNames.join(", ")}</span> : null}
+              </span>
+              {row.matchExplanations.length > 0 ? (
+                <span className="mt-2 flex flex-wrap gap-2">
+                  {row.matchExplanations.map((explanation) => (
+                    <span key={`${explanation.label}:${explanation.value ?? ""}`} className="rounded-[2px] border border-paper-hairline px-2 py-1 text-[10px] text-paper-muted">
+                      {explanation.label}{explanation.value ? ` · ${explanation.value}` : ""}
+                    </span>
+                  ))}
+                </span>
+              ) : null}
+            </span>
+            <span className="hidden self-center pr-3 font-mono text-[10px] uppercase text-paper-muted sm:block">
+              {formatUpdatedAt(row.updatedAt)}
+            </span>
+          </Link>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <QuoteIntelligenceShell
       title="Parts"
@@ -179,77 +270,7 @@ export default function ClientParts() {
         </div>
       ) : null}
 
-      {controller.accessibleJobsQuery.isLoading ||
-      (jobIds.length > 0 && quoteWorkspace.workspaceQuery.isLoading) ? (
-        <p className="border-b border-paper-hairline py-12 text-center text-body-sm text-paper-muted" role="status">
-          Loading accessible parts…
-        </p>
-      ) : controller.accessibleJobsQuery.isError ? (
-        <div className="border-b border-paper-hairline py-12 text-center" role="alert">
-          <p className="text-body-sm">Parts could not be loaded.</p>
-          <button
-            type="button"
-            onClick={() => void controller.accessibleJobsQuery.refetch()}
-            className="mt-4 min-h-11 border border-paper-ink px-4 text-[12px] font-semibold"
-          >
-            Try again
-          </button>
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="border-b border-paper-hairline py-14 text-center">
-          <p className="font-display text-subsection">
-            {filter === "assemblies" ? "No released assemblies yet" : "No matching parts"}
-          </p>
-          <p className="mx-auto mt-2 max-w-lg text-body-sm text-paper-muted">
-            {filter === "assemblies"
-              ? "Project groups are not treated as assemblies. Assemblies will appear only when immutable BOM and revision data exists."
-              : "Change the search or upload a part package to add accessible artifacts."}
-          </p>
-        </div>
-      ) : (
-        <div className="border-b border-paper-hairline" aria-live="polite">
-          {rows.map((row) => (
-            <Link
-              key={`${row.kind}:${row.id}`}
-              to={row.href}
-              className="group grid min-h-[92px] grid-cols-[64px_minmax(0,1fr)] gap-4 border-t border-paper-hairline py-4 transition-colors hover:bg-paper-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red sm:grid-cols-[72px_minmax(0,1fr)_auto]"
-            >
-              <span className="flex h-16 w-16 items-center justify-center rounded-[2px] border border-paper-hairline bg-paper-surface text-paper-muted sm:h-[72px] sm:w-[72px]">
-                {row.kind === "project_group" ? <FolderKanban className="h-7 w-7" aria-hidden="true" /> : <Box className="h-7 w-7" aria-hidden="true" />}
-                <span className="sr-only">{row.kind === "project_group" ? "Project group" : "Part preview unavailable"}</span>
-              </span>
-              <span className="min-w-0">
-                <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                  <span className="truncate font-display text-[16px] font-bold">{row.title}</span>
-                  <span className="font-mono text-[10px] uppercase text-paper-red">{row.statusLabel}</span>
-                </span>
-                <span className="mt-1 line-clamp-2 block text-[12px] text-paper-muted">{row.description}</span>
-                <span className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] uppercase text-paper-muted">
-                  {row.reference ? <span>{row.reference}{row.revision ? ` · Rev ${row.revision}` : ""}</span> : null}
-                  {row.quantity ? <span>Qty {row.quantity}</span> : null}
-                  {row.partCount !== null ? <span>{row.partCount} parts</span> : null}
-                  {row.material ? <span>{row.material}</span> : null}
-                  {row.finish ? <span>{row.finish}</span> : null}
-                  {row.process ? <span>{row.process}</span> : null}
-                  {row.projectNames.length > 0 ? <span>{row.projectNames.join(", ")}</span> : null}
-                </span>
-                {row.matchExplanations.length > 0 ? (
-                  <span className="mt-2 flex flex-wrap gap-2">
-                    {row.matchExplanations.map((explanation) => (
-                      <span key={`${explanation.label}:${explanation.value ?? ""}`} className="rounded-[2px] border border-paper-hairline px-2 py-1 text-[10px] text-paper-muted">
-                        {explanation.label}{explanation.value ? ` · ${explanation.value}` : ""}
-                      </span>
-                    ))}
-                  </span>
-                ) : null}
-              </span>
-              <span className="hidden self-center pr-3 font-mono text-[10px] uppercase text-paper-muted sm:block">
-                {formatUpdatedAt(row.updatedAt)}
-              </span>
-            </Link>
-          ))}
-        </div>
-      )}
+      {renderParts()}
     </QuoteIntelligenceShell>
   );
 }
