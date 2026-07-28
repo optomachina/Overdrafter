@@ -38,25 +38,19 @@ contents in command output.
 
 ## Archive and upload
 
-Regenerate the checked-in Xcode project and confirm it has no unexpected diff:
+Run this complete block from the repository root. It regenerates the checked-in Xcode project, confirms it has no
+unexpected diff, creates a fresh release directory, archives the app, and uploads it:
 
 ```sh
 cd ios
 xcodegen generate
 git diff --exit-code -- OverDrafter.xcodeproj
-```
 
-Create a fresh release directory:
-
-```sh
-release_root=$(mktemp -d "${TMPDIR%/}/overdrafter-ios.XXXXXX")
+release_base="${TMPDIR:-/tmp}"
+release_root=$(mktemp -d "${release_base%/}/overdrafter-ios.XXXXXX")
 archive_path="$release_root/OverDrafter.xcarchive"
 export_path="$release_root/export"
-```
 
-Archive using automatic signing:
-
-```sh
 xcodebuild \
   -project OverDrafter.xcodeproj \
   -scheme OverDrafter \
@@ -66,11 +60,7 @@ xcodebuild \
   -allowProvisioningUpdates \
   DEVELOPMENT_TEAM=CNCDUB33GL \
   archive
-```
 
-Validate and upload the archive:
-
-```sh
 xcodebuild \
   -exportArchive \
   -archivePath "$archive_path" \

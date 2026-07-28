@@ -131,9 +131,11 @@ ready-to-ship lead time, and response latency only after the legal, cohort, and 
 - Signed archive is blocked because Xcode reports no signed-in Apple account and cannot create the provisioning profile
   for `com.optomachina.overdrafter`.
 - App Store Connect has no active browser session on this machine.
-- An internal TestFlight build can proceed after the Apple account is reauthenticated and the app record exists.
+- An internal TestFlight build can proceed after the Apple account is reauthenticated, membership and agreements are
+  active, the explicit App ID and app record exist, signing/provisioning assets are valid, and the build number is unused.
 - External/public TestFlight distribution additionally requires finalized privacy disclosures and policy URL,
-  in-app account deletion or an approved exception, external-test metadata, and Apple Beta App Review.
+  in-app account deletion, a direct link to the exact website deletion page, or an approved exception, plus external-test
+  metadata and Apple Beta App Review.
 - The dependency-free archive, upload, review, and public-link procedure is recorded in
   [`docs/ios-testflight-release.md`](ios-testflight-release.md).
 
