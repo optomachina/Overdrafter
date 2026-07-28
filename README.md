@@ -153,6 +153,8 @@ The first build supports detail-preserving `overdrafter://` deep links. Universa
 production associated-domain file and Apple capability are deployed together.
 The embedded workspace uses email/password authentication for the first beta; web social-auth controls are suppressed
 in iOS app mode until a native OAuth callback and session handoff are available.
+Use the [iOS TestFlight release runbook](docs/ios-testflight-release.md) for signing, upload, external-review, and
+public-link requirements. Credentials and reviewer accounts must never be committed.
 
 ### Supabase
 
