@@ -69,32 +69,49 @@ The intended end state is a multi-agent manufacturing co-pilot: CAD-native intak
 - later fully native feature screens may replace individual web destinations
   without changing their domain routes or authorization boundaries
 
-### 1b. Mobile browser-auth bridge (Target)
+### 1b. Mobile browser-auth bridge (As-built server boundary)
 
 The iOS browser and the app `WKWebView` are intentionally separate security and
-storage contexts. The target bridge connects them without placing Supabase
+storage contexts. The implemented website bridge connects them without placing Supabase
 credentials in a callback URL or native persistence:
 
 - `GET /auth/mobile/start` validates version, state, PKCE S256 challenge, and an
   allowlisted relative return route
 - the website creates a ceremony-scoped, transfer-only Supabase session; social
   OAuth uses separate provider state/nonce/PKCE and a dedicated provider
-  callback backed by namespaced `sessionStorage`
-- browser completion verifies that session, stores it in a short-lived
-  encrypted server envelope, and redirects to the exact claimed HTTPS callback
+  callback bound to the unpredictable browser transaction; only its PKCE
+  verifier persists in namespaced `sessionStorage`
+- browser completion atomically claims the transaction before refresh-token
+  rotation, verifies that session, stores it in a short-lived encrypted server
+  envelope, and redirects to the exact claimed HTTPS callback
 - the callback fragment contains only opaque `code` and `state` values
 - `POST /auth/mobile/bootstrap` verifies PKCE, atomically consumes the handoff,
-  and runs `supabase.auth.setSession(...)` in the shared app website data store
+  requires the fixed native request marker and host before session persistence,
+  and runs `supabase.auth.setSession(...)` plus a server-backed
+  `supabase.auth.getUser()` check in the shared app website data store
 - handoff material is at least 256 bits, expires within two minutes, and is
   single-use under concurrent redemption
 - logout, relaunch, revocation, and account switching clear subject-bound
   caches before a different session can be published
 
+The public boundary is one same-origin Vercel Function at
+`api/mobile-auth.ts`. Dedicated ceremony and bootstrap bundles are emitted at
+stable first-party asset paths; neither ceremony imports the normal application
+bundle. Credential-adjacent state is isolated in forced-RLS `private` tables and
+is reachable only through fixed-search-path, service-role-only RPCs. The
+database owns the atomic `authenticating -> verifying -> completed -> consumed`
+transitions, source `auth.sessions` check, envelope clearing, persistent rate
+counters, and bounded cleanup. Vercel Cron invokes cleanup daily with
+`CRON_SECRET`; terminal rows are retained for seven days and safe audit metadata
+for thirty days.
+
 The versioned endpoint, storage, failure, lifecycle, and threat contracts are
 canonical in
 [`docs/mobile-authentication-contract.md`](docs/mobile-authentication-contract.md).
-This section remains Target until `OVD-219` and `OVD-221` are implemented and
-verified.
+The server/browser half is implemented by `OVD-219`. The native welcome,
+claimed-HTTPS callback capture, shared-store bootstrap host, local-scope logout,
+and account switching remain the `OVD-221` target and must pass the physical
+device release gate before this flow replaces the current embedded sign-in.
 
 ### 2. Backend data and domain layer
 - persistence of workspaces, projects, parts, jobs, files, quotes, packages, and service request records
