@@ -74,8 +74,10 @@ contracts before any agent write or external action is enabled. `OVD-225`
 separately defines the licensing, edition, and citation boundary for
 engineering-standards content. Neither guardrail is satisfied by a chat UI.
 
-The first active slice is the documentation-only `OVD-220` contract in
+`OVD-220` established the approved contract in
 [`docs/mobile-authentication-contract.md`](docs/mobile-authentication-contract.md).
+The server/browser implementation is the dependency-ordered `OVD-219` slice;
+native adoption remains isolated to `OVD-221`.
 
 ### Immediate next steps (MVP — sequenced by dependency)
 

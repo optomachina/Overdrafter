@@ -1,8 +1,8 @@
 # Mobile Browser Authentication Contract
 
-- Status: Approved target contract; runtime not implemented
-- Issue: `OVD-220`
-- Last updated: July 28, 2026
+- Status: Approved contract; OVD-219 server/browser runtime implemented
+- Issues: `OVD-220` contract, `OVD-219` runtime, `OVD-221` native adoption
+- Last updated: July 29, 2026
 
 ## Decision
 
@@ -12,6 +12,12 @@ The browser flow will return only an opaque, single-use handoff code and
 transaction state. A dedicated bootstrap page will redeem that handoff inside
 OverDrafter's persistent `WKWebsiteDataStore` and establish the existing
 Supabase JavaScript session there.
+
+OVD-219 implements the website, same-origin Vercel Function, private
+persistence, single-use bootstrap, isolated browser bundles, rate limits,
+audit boundary, and scheduled cleanup described here. OVD-221 still owns native
+callback capture, bootstrap hosting, relaunch, local-scope logout, account
+switching, and the physical-device release gate.
 
 This is a website-mediated native sign-in flow, not OAuth inside `WKWebView`,
 not a native password form, and not a token-bearing deep link.
@@ -47,6 +53,7 @@ inside the shared app web store.
 - [RFC 8252: OAuth 2.0 for Native Apps](https://www.rfc-editor.org/rfc/rfc8252.html)
 - [RFC 9700: OAuth 2.0 Security Best Current Practice](https://www.rfc-editor.org/rfc/rfc9700.html)
 - [Supabase: JavaScript `setSession`](https://supabase.com/docs/reference/javascript/auth-setsession)
+- [Supabase: JavaScript `getUser`](https://supabase.com/docs/reference/javascript/auth-getuser)
 - [Supabase: User sessions](https://supabase.com/docs/guides/auth/sessions)
 - [Supabase: JavaScript `signOut`](https://supabase.com/docs/reference/javascript/auth-signout)
 
@@ -205,6 +212,8 @@ sequenceDiagram
     Bridge-->>Bootstrap: No-store bootstrap document
     Bootstrap->>Auth: supabase.auth.setSession(...)
     Auth-->>Bootstrap: Session verified/refreshed
+    Bootstrap->>Auth: supabase.auth.getUser()
+    Auth-->>Bootstrap: Authenticated subject confirmed
     Bootstrap->>Bootstrap: Persist session in shared WKWebsiteDataStore
     Bootstrap-->>App: Versioned ready message without credentials
     App->>App: Create authenticated workspace destinations
@@ -275,13 +284,18 @@ written into the external browser's OverDrafter `localStorage`.
 
 This same-origin browser route completes social-provider OAuth inside the
 active `ASWebAuthenticationSession`. It is not the claimed native callback.
-Its exact HTTPS URL MUST be allowlisted in Supabase Auth for that environment;
-wildcard production provider callbacks are forbidden.
+Its origin MUST be the Supabase Auth Site URL origin for that environment, its
+path is fixed, and its server-generated `cb` query value MUST equal the active
+transaction ID. This allows the transaction-specific redirect without a
+production wildcard and prevents an unrelated cross-site top-level navigation
+from cancelling the active browser transaction.
 
 The route MUST:
 
 - use only the transaction-namespaced ceremony Supabase client
 - reject a transaction that does not match the browser-bound mobile-auth cookie
+- reject a missing, malformed, duplicated, or nonmatching `cb` transaction
+  binding before processing either provider success or provider failure
 - accept exactly one Supabase authorization code or an allowlisted provider
   error response; reject duplicated or unexpected callback parameters
 - copy the code into page memory and remove it from browser history with
@@ -388,6 +402,7 @@ The native app loads an HTTPS POST request in that web view:
 POST /auth/mobile/bootstrap
 Content-Type: application/x-www-form-urlencoded
 Accept: text/html
+X-OverDrafter-Mobile-Auth: bootstrap-v1
 
 v=1&code=<opaque-code>&state=<state>&code_verifier=<verifier>
 ```
@@ -395,6 +410,14 @@ v=1&code=<opaque-code>&state=<state>&code_verifier=<verifier>
 The code, state, and verifier MUST be in the request body. They MUST NOT be
 copied into a navigation URL, custom header likely to be logged, page title,
 JavaScript console message, or native diagnostic.
+
+The fixed nonsecret `X-OverDrafter-Mobile-Auth` marker is required so an
+ordinary cross-site HTML form cannot trigger bootstrap. The bridge MUST reject
+missing markers, cross-site `Origin`, or cross-site Fetch Metadata before
+parsing the request body and return a script-free response. The bootstrap
+document MUST also confirm that the fixed native `mobileAuth` message handler
+exists before calling `setSession`; opening it in an ordinary browser cannot
+replace that browser's current account.
 
 The bridge MUST:
 
@@ -421,10 +444,13 @@ The bootstrap document MUST:
 
 - use `supabase.auth.setSession(...)` against the existing configured web client
 - wait for Supabase to validate or refresh the session
+- confirm the persisted subject with server-backed `supabase.auth.getUser()`
 - persist only through the existing Supabase storage adapter in the shared
   `WKWebsiteDataStore`
 - erase temporary JavaScript variables and any partially written auth storage
   on failure
+- preserve an existing app session when the server rejects bootstrap before
+  `setSession` starts
 - contain no user-supplied HTML
 - load no analytics, fonts, images, ads, or third-party application scripts
 - send native code only a versioned status object without credentials
@@ -455,8 +481,8 @@ Failure message:
 The native message is UI coordination, not authentication authority. Native
 code MUST validate its version, shape, state, and sending frame/origin. A
 `ready` message is accepted only after the bootstrap document reports that
-`setSession` completed. Workspace routes then perform their normal server-side
-membership and authorization checks.
+`setSession` and the server-backed subject check completed. Workspace routes
+then perform their normal server-side membership and authorization checks.
 
 Required response headers:
 
@@ -489,7 +515,7 @@ The runtime storage name is implementation-defined, but its contract is:
 | contract version | Exact supported version |
 | state binding | Keyed digest plus encrypted echo copy; echo copy is deleted when callback is constructed |
 | PKCE challenge | S256 challenge and method |
-| Supabase ceremony binding | Expected provider callback and transaction-namespaced browser-storage identifier; never an upstream provider state or nonce |
+| Supabase ceremony binding | Fixed provider callback path, unpredictable transaction binding, and transaction-namespaced browser-storage identifier; never an upstream provider state or nonce |
 | callback | Server-derived environment host and exact path |
 | return route | Parsed allowlisted relative route |
 | browser binding | Digest of server cookie/CSRF binding |
@@ -511,11 +537,14 @@ metadata may be retained under the normal security-event retention policy.
 
 ```text
 created -> authenticating
-authenticating -> completed
+created -> verifying
+authenticating -> verifying
+verifying -> completed
 completed -> consumed
 
 created -> failed | expired | cancelled
 authenticating -> failed | expired | cancelled
+verifying -> failed | expired | cancelled
 completed -> expired | revoked
 
 consumed -> terminal
@@ -525,9 +554,10 @@ cancelled -> terminal
 revoked -> terminal
 ```
 
-Only `completed -> consumed` releases a session envelope. Every other state
-fails closed. No transition returns to `created`, `authenticating`, or
-`completed`.
+Only `completed -> consumed` releases a session envelope. Only the request that
+wins `created | authenticating -> verifying` may rotate the transfer session
+and construct the encrypted handoff. Every other state fails closed. No
+transition returns to `created`, `authenticating`, `verifying`, or `completed`.
 
 ## Stable error contract
 
@@ -550,6 +580,16 @@ operational telemetry.
 | `mobile_auth_logout_failed` | Current-session revocation could not be confirmed | Clear protected local state, report unconfirmed revocation, and require sign-in |
 | `mobile_auth_rate_limited` | Start or redemption limit exceeded | Keep signed out and retry after server delay |
 | `mobile_auth_service_unavailable` | Auth bridge or Supabase dependency unavailable | Keep signed out and retry later |
+
+The public bootstrap endpoint intentionally collapses every no-match lookup
+(including a wrong state, wrong verifier, callback mismatch, expired handoff,
+or serial replay) into `mobile_auth_expired`. That prevents the endpoint from
+becoming an oracle for which secret proof was correct. Native may report
+`mobile_auth_state_mismatch` before bootstrap when the returned state differs
+from its active in-memory attempt. `mobile_auth_replayed` is returned only when
+a request found and verified the same live transaction but then lost the
+atomic consume race. The remaining codes stay reserved for failures the
+responsible layer can classify without disclosing transaction existence.
 
 The UI SHOULD translate these codes into short user-facing copy. It MUST NOT
 display raw provider messages, HTTP bodies, stack traces, user IDs, session IDs,
@@ -698,9 +738,9 @@ eventual `localStorage` propagation.
 | Callback interception | Claimed HTTPS callback, exact host/path match, Associated Domains, AASA |
 | Authorization-code or handoff interception | PKCE S256, transaction state, 120-second maximum, single use |
 | Provider/native transaction confusion | Supabase-owned upstream-provider validation, a dedicated browser PKCE callback/storage namespace, and independent native state/PKCE |
-| CSRF/login swapping | Native state plus server browser cookie/CSRF binding; server verifies session subject |
+| CSRF/login swapping | Native state, native-only bootstrap marker, server browser cookie/CSRF binding, transaction-bound provider callback, and server-verified session subject |
 | PKCE downgrade | Reject every method except exact `S256`; never accept a verifier without a stored challenge |
-| Replay and concurrent redemption | Keyed code digest plus one atomic `completed -> consumed` transition |
+| Replay and concurrent completion/redemption | Atomic claim before refresh rotation, keyed code digest, and one atomic `completed -> consumed` transition |
 | Open redirect | Server-derived callback and parsed allowlist for relative return routes |
 | Token leakage through URLs/history/referrers | No access/refresh token in any URL; app handoff values use a fragment; provider code is PKCE-bound; bootstrap uses POST; no-referrer and no-store |
 | Token leakage through logs/analytics/crash reports | Body/header redaction, no third-party bootstrap scripts, structured safe events |
@@ -767,12 +807,15 @@ sent in the HTTP request or reverse-proxy access log.
 - provider callback validates the browser transaction before exchanging the
   Supabase code with its ceremony-scoped PKCE verifier; Supabase owns upstream
   provider state/nonce validation
+- missing or mismatched provider callback transaction binding cannot cancel an
+  active ceremony
 - malformed and unsupported start requests
 - disallowed, encoded, and protocol-relative return routes
 - provider failure and browser cancellation
 - exact 120-second handoff boundary
 - wrong state, wrong verifier, and wrong callback configuration
-- first redemption succeeds; serial and concurrent replay fail
+- concurrent browser completion rotates exactly one transfer session; first
+  redemption succeeds and serial/concurrent replay fails
 - source session revoked between completion and bootstrap
 - bootstrap network loss before and after atomic consume
 - process death during browser auth, provider return, app callback, and
