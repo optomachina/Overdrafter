@@ -175,11 +175,11 @@ export function escapeMobileAuthInertJson(value: unknown): string {
   }
 
   return serialized
-    .replaceAll(/&/g, String.raw`\u0026`)
-    .replaceAll(/</g, String.raw`\u003c`)
-    .replaceAll(/>/g, String.raw`\u003e`)
-    .replaceAll(/\u2028/g, String.raw`\u2028`)
-    .replaceAll(/\u2029/g, String.raw`\u2029`);
+    .replaceAll("&", String.raw`\u0026`)
+    .replaceAll("<", String.raw`\u003c`)
+    .replaceAll(">", String.raw`\u003e`)
+    .replaceAll("\u2028", String.raw`\u2028`)
+    .replaceAll("\u2029", String.raw`\u2029`);
 }
 
 function createScriptedDocument(

@@ -396,7 +396,7 @@ export function readCeremonyConfig(
   }
 
   const candidate = parseJsonRecord(serializedConfig);
-  if (!candidate || candidate.version !== 1) {
+  if (candidate?.version !== 1) {
     return null;
   }
 
@@ -514,6 +514,14 @@ type ProviderCallbackAnalysis = {
   hasBoundProviderErrorParameters: boolean;
 };
 
+type CallbackResolution =
+  | { authorizationCode: string }
+  | {
+      failureCode:
+        | "mobile_auth_invalid_request"
+        | "mobile_auth_provider_failed";
+    };
+
 function readExpectedCallbackBinding(expectedUrl: URL): string | null {
   const bindings = expectedUrl.searchParams.getAll("cb");
   const binding = bindings.length === 1 ? bindings[0] : null;
@@ -584,6 +592,69 @@ function analyzeProviderCallback(
       codeValues.length === 0 &&
       parameterNames.every((name) => PROVIDER_ERROR_PARAMETERS.has(name)),
   };
+}
+
+function resolveConfiguredErrorCallback(
+  callback: Extract<CeremonyProviderCallback, { mode: "error" }>,
+  analysis: ProviderCallbackAnalysis,
+): CallbackResolution {
+  const hasMatchingProviderError =
+    analysis.hasBoundProviderErrorParameters &&
+    analysis.errorValues[0] === callback.error;
+
+  return {
+    failureCode:
+      analysis.hasNoUrlParameters || hasMatchingProviderError
+        ? "mobile_auth_provider_failed"
+        : "mobile_auth_invalid_request",
+  };
+}
+
+function resolveConfiguredCodeCallback(
+  callback: Extract<CeremonyProviderCallback, { mode: "code" }>,
+  analysis: ProviderCallbackAnalysis,
+): CallbackResolution {
+  const hasMatchingCodeParameter =
+    analysis.hasBoundCodeParameters &&
+    analysis.codeValues[0] === callback.code;
+  if (
+    analysis.callbackUrl.hash ||
+    (!analysis.hasNoUrlParameters && !hasMatchingCodeParameter)
+  ) {
+    return { failureCode: "mobile_auth_invalid_request" };
+  }
+
+  return { authorizationCode: callback.code };
+}
+
+function resolveUnconfiguredCallback(
+  analysis: ProviderCallbackAnalysis,
+): CallbackResolution {
+  if (analysis.hasBoundProviderErrorParameters) {
+    return { failureCode: "mobile_auth_provider_failed" };
+  }
+
+  const code = analysis.codeValues[0];
+  if (!analysis.hasBoundCodeParameters || !isBoundedString(code, 4_096)) {
+    return { failureCode: "mobile_auth_invalid_request" };
+  }
+
+  return { authorizationCode: code };
+}
+
+function resolveProviderCallback(
+  callback: CeremonyProviderCallback | undefined,
+  analysis: ProviderCallbackAnalysis,
+): CallbackResolution {
+  if (callback?.mode === "error") {
+    return resolveConfiguredErrorCallback(callback, analysis);
+  }
+
+  if (callback?.mode === "code") {
+    return resolveConfiguredCodeCallback(callback, analysis);
+  }
+
+  return resolveUnconfiguredCallback(analysis);
 }
 
 /**
@@ -768,72 +839,17 @@ export function createCeremonyController(
       };
     }
 
-    const {
-      callbackUrl,
-      codeValues,
-      errorValues,
-      hasNoUrlParameters,
-      hasBoundCodeParameters,
-      hasBoundProviderErrorParameters,
-    } = analysis;
-
     sourceHistory.replaceState(null, "", expectedUrl.pathname);
-
-    if (config.callback?.mode === "error") {
-      const hasMatchingProviderError =
-        hasBoundProviderErrorParameters && errorValues[0] === config.callback.error;
-      if (!hasNoUrlParameters && !hasMatchingProviderError) {
-        clearCeremonyStorage();
-        return {
-          status: "error",
-          code: "mobile_auth_invalid_request",
-        };
-      }
-
+    const resolution = resolveProviderCallback(config.callback, analysis);
+    if ("failureCode" in resolution) {
       clearCeremonyStorage();
       return {
         status: "error",
-        code: "mobile_auth_provider_failed",
+        code: resolution.failureCode,
       };
     }
 
-    if (config.callback?.mode === "code") {
-      const hasMatchingCodeParameter =
-        hasBoundCodeParameters && codeValues[0] === config.callback.code;
-      if (callbackUrl.hash || (!hasNoUrlParameters && !hasMatchingCodeParameter)) {
-        clearCeremonyStorage();
-        return {
-          status: "error",
-          code: "mobile_auth_invalid_request",
-        };
-      }
-    }
-
-    if (config.callback === undefined && hasBoundProviderErrorParameters) {
-      clearCeremonyStorage();
-      return {
-        status: "error",
-        code: "mobile_auth_provider_failed",
-      };
-    }
-
-    if (config.callback === undefined && !hasBoundCodeParameters) {
-      clearCeremonyStorage();
-      return {
-        status: "error",
-        code: "mobile_auth_invalid_request",
-      };
-    }
-
-    const code = config.callback?.mode === "code" ? config.callback.code : codeValues[0];
-    if (!isBoundedString(code, 4_096)) {
-      clearCeremonyStorage();
-      return {
-        status: "error",
-        code: "mobile_auth_invalid_request",
-      };
-    }
-
+    const code = resolution.authorizationCode;
     const verifier = storage.getItem(`${authStorageKey}${PKCE_CODE_VERIFIER_SUFFIX}`);
     if (!isBoundedString(verifier, 4_096)) {
       clearCeremonyStorage();
