@@ -11,6 +11,7 @@ const CEREMONY_AUTH_STORAGE_KEY = "session";
 const PROVIDER_CALLBACK_PATH = "/auth/mobile/provider-callback";
 const COMPLETE_PATH = "/auth/mobile/complete";
 const PKCE_CODE_VERIFIER_SUFFIX = "-code-verifier";
+const STORAGE_NAMESPACE_PATTERN = /^[A-Za-z0-9.:-]{1,160}$/;
 const TRANSACTION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const PROVIDER_ERROR_PARAMETERS = new Set([
@@ -146,6 +147,10 @@ function parseJsonRecord(serialized: string): Record<string, unknown> | null {
 
 function isBoundedString(value: unknown, maximumLength: number): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= maximumLength;
+}
+
+function isStorageNamespace(value: unknown): value is string {
+  return typeof value === "string" && STORAGE_NAMESPACE_PATTERN.test(value);
 }
 
 function isLoopbackHostname(hostname: string) {
@@ -302,7 +307,7 @@ export function createNamespacedSessionStorage(
   namespace: string,
   storage: Storage,
 ): NamespacedSessionStorage {
-  if (!/^[A-Za-z0-9.:-]{1,160}$/.test(namespace)) {
+  if (!isStorageNamespace(namespace)) {
     throw new Error("Invalid mobile authentication storage namespace.");
   }
 
@@ -401,10 +406,7 @@ export function readCeremonyConfig(
   );
   const completeUrl = parseSameOriginEndpoint(candidate.completeUrl, documentOrigin, COMPLETE_PATH);
 
-  if (
-    typeof candidate.storageNamespace !== "string" ||
-    !/^[A-Za-z0-9.:-]{1,160}$/.test(candidate.storageNamespace)
-  ) {
+  if (!isStorageNamespace(candidate.storageNamespace)) {
     return null;
   }
 
