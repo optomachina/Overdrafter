@@ -475,8 +475,9 @@ describe("mobile authentication HTTP bridge", () => {
     expect(repository.consumeCount).toBe(0);
 
     if (repository.transaction?.handoffExpiresAt) {
-      repository.transaction.handoffExpiresAt =
-        repository.transaction.handoffExpiresAt.replace(".000Z", ".500Z");
+      repository.transaction.handoffExpiresAt = new Date(
+        Date.parse(repository.transaction.handoffExpiresAt) + 500,
+      ).toISOString();
     }
 
     const bootstrapResponse = await flow.handler(
