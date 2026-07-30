@@ -243,6 +243,12 @@ For the STEP-only normalization slice (`OVD-142`), the worker canonical contract
 
 This slice is intentionally pure and independently testable before PDF extraction or artifact persistence is layered on top.
 
+## Manufacturing corpus contract
+
+`worker/src/benchmarks/manufacturingCorpusContract.ts` defines the versioned, purpose-neutral metadata boundary for manufacturing benchmark packages. It records process coverage, qualification targets, protected annotations, classification and redaction state, redistribution limits, retention and deletion lifecycle, and independent permission grants that default to denied. Consented customer records require hashed rights evidence and a single-tenant, no-cross-tenant scope.
+
+The module is intentionally pure: it validates in-memory records but does not read files, resolve roots, verify hashes, select cases, run extraction, or estimate prices. Those operational checks belong to the sequenced integrity, blind-plan, fixture, and intake slices so importing the schema cannot make data eligible for use.
+
 ## Request-model boundary
 
 - projects are the grouping and collaboration boundary, not the only place where service intent lives
