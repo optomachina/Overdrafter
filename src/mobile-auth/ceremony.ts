@@ -539,9 +539,11 @@ function readExpectedCallbackBinding(expectedUrl: URL): string | null {
 /**
  * Validates a provider callback against its configured origin, path, and binding.
  *
- * The returned flags are true only for mutually exclusive, duplicate-free code
- * or allowlisted provider-error payloads. Callers still compare the returned
- * code or error value with the callback material stored in the ceremony config.
+ * `hasNoUrlParameters` reports the empty-query case independently.
+ * `hasBoundCodeParameters` and `hasBoundProviderErrorParameters` are true only
+ * for mutually exclusive, duplicate-free code or allowlisted provider-error
+ * payloads. Callers still compare the returned code or error value with the
+ * callback material stored in the ceremony config.
  */
 function analyzeProviderCallback(
   value: string,
