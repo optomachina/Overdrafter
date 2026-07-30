@@ -7,8 +7,8 @@ create table public.supplier_companies (
   legal_name text,
   display_name text not null check (btrim(display_name) <> ''),
   website_domain text,
-  lifecycle_status text not null default 'candidate'
-    check (lifecycle_status in ('candidate', 'verified', 'inactive', 'merged', 'rejected')),
+  lifecycle_status text not null default 'candidate' -- NOSONAR: shared supplier lifecycle vocabulary
+    check (lifecycle_status in ('candidate', 'verified', 'inactive', 'merged', 'rejected')), -- NOSONAR: repeated deliberately across company and facility boundaries
   origin text not null
     check (origin in ('imported', 'internal', 'customer_suggested')),
   suggested_by uuid references auth.users(id) on delete set null,
@@ -160,8 +160,8 @@ create table public.supplier_facility_capability_claims (
   observed_at date,
   effective_from date,
   effective_to date,
-  verification_status text not null default 'unverified'
-    check (verification_status in ('unverified', 'verified', 'disputed', 'expired')),
+  verification_status text not null default 'unverified' -- NOSONAR: shared claim verification vocabulary
+    check (verification_status in ('unverified', 'verified', 'disputed', 'expired')), -- NOSONAR: repeated deliberately across claim boundaries
   details jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),

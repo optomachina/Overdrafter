@@ -12,8 +12,8 @@ select has_table(
 
 insert into auth.users (id, aud, role, email)
 values
-  ('11111111-1111-4111-8111-111111111111', 'authenticated', 'authenticated', 'supplier-client@example.test'),
-  ('22222222-2222-4222-8222-222222222222', 'authenticated', 'authenticated', 'supplier-internal@example.test');
+  ('11111111-1111-4111-8111-111111111111', 'authenticated', 'authenticated', 'supplier-client@example.test'), -- NOSONAR: deterministic RLS fixture
+  ('22222222-2222-4222-8222-222222222222', 'authenticated', 'authenticated', 'supplier-internal@example.test'); -- NOSONAR: deterministic RLS fixture
 
 insert into public.organizations (id, name, slug)
 values ('33333333-3333-4333-8333-333333333333', 'Supplier RLS Test', 'supplier-rls-test');
@@ -27,7 +27,7 @@ values (
 
 insert into public.supplier_companies (id, display_name, origin, lifecycle_status)
 values
-  ('44444444-4444-4444-8444-444444444444', 'Canonical Supplier', 'internal', 'verified'),
+  ('44444444-4444-4444-8444-444444444444', 'Canonical Supplier', 'internal', 'verified'), -- NOSONAR: deterministic provenance fixture
   ('44444444-4444-4444-8444-444444444445', 'Other Supplier', 'internal', 'verified');
 
 insert into public.supplier_facilities (
@@ -42,7 +42,7 @@ values (
   'Canonical Facility',
   'verified'
 ), (
-  '55555555-5555-4555-8555-555555555556',
+  '55555555-5555-4555-8555-555555555556', -- NOSONAR: deterministic facility deletion fixture
   '44444444-4444-4444-8444-444444444444',
   'Disposable Facility',
   'candidate'
@@ -50,7 +50,7 @@ values (
 
 insert into public.supplier_capabilities (id, code, name, category)
 values (
-  '66666666-6666-4666-8666-666666666666',
+  '66666666-6666-4666-8666-666666666666', -- NOSONAR: deterministic vocabulary fixture
   'cnc_milling',
   'CNC Milling',
   'machining'
@@ -58,7 +58,7 @@ values (
 
 insert into public.supplier_sources (id, source_kind, title)
 values (
-  '77777777-7777-4777-8777-777777777777',
+  '77777777-7777-4777-8777-777777777777', -- NOSONAR: deterministic source fixture
   'internal_research',
   'Supplier RLS fixture'
 );
