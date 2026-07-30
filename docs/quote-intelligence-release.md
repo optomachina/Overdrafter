@@ -39,6 +39,13 @@ OverDrafter’s working client quote path is hidden inside a Project-first deskt
   session handoff support exists.
 - iPhone and iPad simulator builds pass before archive/upload.
 
+The bullets above describe the first-beta release boundary. The approved
+follow-on replaces embedded authentication with a native welcome screen,
+website-mediated `ASWebAuthenticationSession`, and a one-time bootstrap into
+the shared app web store. That later work is dependency-ordered as `OVD-220`,
+`OVD-219`, and `OVD-221`; its canonical security contract is
+[`mobile-authentication-contract.md`](mobile-authentication-contract.md).
+
 ### Release
 
 - Website changes pass release-confidence verification and browser smoke checks.

@@ -153,6 +153,11 @@ The first build supports detail-preserving `overdrafter://` deep links. Universa
 production associated-domain file and Apple capability are deployed together.
 The embedded workspace uses email/password authentication for the first beta; web social-auth controls are suppressed
 in iOS app mode until a native OAuth callback and session handoff are available.
+The server/browser half of that handoff is now implemented at the versioned
+`/auth/mobile/*` boundary. Native callback capture and shared-web-store
+bootstrap remain gated on OVD-221; see the
+[mobile authentication deployment runbook](docs/mobile-authentication-deployment.md)
+before enabling the flow on a signed device build.
 Use the [iOS TestFlight release runbook](docs/ios-testflight-release.md) for signing, upload, external-review, and
 public-link requirements. Credentials and reviewer accounts must never be committed.
 
