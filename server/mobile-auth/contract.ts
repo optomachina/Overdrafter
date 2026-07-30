@@ -137,11 +137,10 @@ export interface MobileAuthEncryptedEnvelope {
   readonly authenticationTag: string;
 }
 
-export type MobileAuthProviderError =
-  | "access_denied"
-  | "invalid_request"
-  | "server_error"
-  | "temporarily_unavailable";
+export {
+  MOBILE_AUTH_PROVIDER_ERRORS,
+  type MobileAuthProviderError,
+} from "../../shared/mobile-auth-provider-errors";
 
 export interface MobileAuthReadyMessage {
   readonly version: typeof MOBILE_AUTH_MESSAGE_VERSION;

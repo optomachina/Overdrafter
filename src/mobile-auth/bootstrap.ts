@@ -136,6 +136,7 @@ function isCanonicalState(value: unknown): value is string {
 function isAllowedReturnRoute(value: unknown): value is string {
   if (
     !isBoundedString(value, RETURN_ROUTE_MAX_CHARACTERS) ||
+    !value.startsWith("/") ||
     value.includes("%") ||
     value.includes("\\")
   ) {

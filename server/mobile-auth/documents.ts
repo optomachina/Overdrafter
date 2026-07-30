@@ -17,6 +17,7 @@ import {
   createMobileAuthDocumentHeaders,
 } from "./headers";
 import { parseMobileReturnRoute } from "./return-routes";
+import { isMobileAuthProviderError } from "../../shared/mobile-auth-provider-errors";
 
 const MOBILE_AUTH_CONFIG_ELEMENT_ID = "overdrafter-mobile-auth-config";
 const MOBILE_AUTH_BOOTSTRAP_CONFIG_ELEMENT_ID =
@@ -29,12 +30,6 @@ const ERROR_CODE_SET = new Set<MobileAuthErrorCode>(MOBILE_AUTH_ERROR_CODES);
 const RETRY_INSTRUCTION_SET = new Set<MobileAuthRetryInstruction>(
   MOBILE_AUTH_RETRY_INSTRUCTIONS,
 );
-const PROVIDER_ERROR_SET = new Set<MobileAuthProviderError>([
-  "access_denied",
-  "invalid_request",
-  "server_error",
-  "temporarily_unavailable",
-]);
 
 export interface MobileAuthHtmlDocument {
   readonly body: string;
@@ -311,7 +306,7 @@ export function renderMobileAuthProviderCallbackDocument(
       callback.code,
       MOBILE_AUTH_LIMITS.providerAuthorizationCodeBytes,
     );
-  } else if (!PROVIDER_ERROR_SET.has(callback.error)) {
+  } else if (!isMobileAuthProviderError(callback.error)) {
     throw new MobileAuthDocumentError();
   }
 

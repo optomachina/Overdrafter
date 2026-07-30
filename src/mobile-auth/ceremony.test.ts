@@ -222,6 +222,29 @@ describe("mobile authentication ceremony", () => {
     }
   });
 
+  it.each([
+    "access_denied",
+    "invalid_request",
+    "server_error",
+    "temporarily_unavailable",
+  ] as const)("accepts the shared provider error %s in ceremony config", (error) => {
+    const validConfig = createConfig();
+    mountConfig({
+      ...validConfig,
+      mode: "error",
+      error,
+    });
+
+    expect(readCeremonyConfig(document)).toEqual({
+      ...validConfig,
+      supabaseUrl: "https://example.supabase.co",
+      callback: {
+        mode: "error",
+        error,
+      },
+    });
+  });
+
   it("scrubs a provider code before one exchange and submits only completion fields", async () => {
     const events: string[] = [];
     const config = createConfig();

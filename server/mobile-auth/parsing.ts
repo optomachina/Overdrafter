@@ -8,6 +8,7 @@ import {
 } from "./contract";
 import { decodeCanonicalBase64Url } from "./crypto";
 import { parseMobileReturnRoute } from "./return-routes";
+import { isMobileAuthProviderError } from "../../shared/mobile-auth-provider-errors";
 
 const FORM_CONTENT_TYPE = "application/x-www-form-urlencoded";
 const FIELD_NAME_PATTERN = /^[a-z_]+$/;
@@ -17,12 +18,6 @@ const REQUEST_BODY_READ_TIMEOUT_MILLISECONDS = 10_000;
 const TRANSACTION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const MALFORMED_PERCENT_ENCODING_PATTERN = /%(?![0-9A-Fa-f]{2})/;
-const PROVIDER_ERRORS = new Set<MobileAuthProviderError>([
-  "access_denied",
-  "invalid_request",
-  "server_error",
-  "temporarily_unavailable",
-]);
 
 export class MobileAuthInputError extends Error {
   readonly code = "mobile_auth_invalid_request" as const;
@@ -305,7 +300,7 @@ export function parseProviderCallbackRequest(
 
   if (
     error === undefined ||
-    !PROVIDER_ERRORS.has(error as MobileAuthProviderError) ||
+    !isMobileAuthProviderError(error) ||
     (fields.get("error_code") !== undefined &&
       !PROVIDER_ERROR_PATTERN.test(fields.get("error_code") ?? "")) ||
     (fields.get("error_description") !== undefined &&
@@ -318,7 +313,7 @@ export function parseProviderCallbackRequest(
   return Object.freeze({
     callbackBinding,
     kind: "error",
-    providerError: error as MobileAuthProviderError,
+    providerError: error,
   });
 }
 
@@ -358,6 +353,13 @@ function readExpectedBodyLength(request: Request, maximumBytes: number): number 
   return expectedLength;
 }
 
+/**
+ * Reads a request body within both a byte ceiling and a hard ten-second deadline.
+ *
+ * The reader is cancelled after a timeout or size violation, its lock is always
+ * released, and transport failures are normalized to `MobileAuthInputError`.
+ * Successful reads return the original chunks plus their verified total size.
+ */
 async function readBodyChunks(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   maximumBytes: number,

@@ -1,4 +1,8 @@
 import { createClient, type Session } from "@supabase/supabase-js";
+import {
+  isMobileAuthProviderError,
+  type MobileAuthProviderError,
+} from "../../shared/mobile-auth-provider-errors";
 
 export const CEREMONY_CONFIG_ELEMENT_ID = "overdrafter-mobile-auth-config";
 export const CEREMONY_STORAGE_PREFIX = "overdrafter.mobile-auth.v1";
@@ -15,19 +19,8 @@ const PROVIDER_ERROR_PARAMETERS = new Set([
   "error_code",
   "error_description",
 ]);
-const PROVIDER_ERRORS = new Set([
-  "access_denied",
-  "invalid_request",
-  "server_error",
-  "temporarily_unavailable",
-]);
-
 export type MobileAuthProvider = "google" | "azure" | "apple";
-export type MobileAuthProviderError =
-  | "access_denied"
-  | "invalid_request"
-  | "server_error"
-  | "temporarily_unavailable";
+export type { MobileAuthProviderError } from "../../shared/mobile-auth-provider-errors";
 
 export type CeremonyProviderCallback =
   | {
@@ -442,10 +435,7 @@ export function readCeremonyConfig(
       };
     } else if (
       candidate.mode === "error" &&
-      (candidate.error === "access_denied" ||
-        candidate.error === "invalid_request" ||
-        candidate.error === "server_error" ||
-        candidate.error === "temporarily_unavailable")
+      isMobileAuthProviderError(candidate.error)
     ) {
       callback = {
         mode: "error",
@@ -522,6 +512,13 @@ type CallbackResolution =
         | "mobile_auth_provider_failed";
     };
 
+/**
+ * Returns the sole canonical transaction binding from the configured callback URL.
+ *
+ * Rejects credentials, fragments, extra parameters, duplicate bindings, and
+ * non-canonical transaction identifiers so later callback comparisons can rely
+ * on an exact prevalidated binding.
+ */
 function readExpectedCallbackBinding(expectedUrl: URL): string | null {
   const bindings = expectedUrl.searchParams.getAll("cb");
   const binding = bindings.length === 1 ? bindings[0] : null;
@@ -539,6 +536,15 @@ function readExpectedCallbackBinding(expectedUrl: URL): string | null {
   return binding;
 }
 
+/**
+ * Validates a provider callback against its configured origin, path, and binding.
+ *
+ * `hasNoUrlParameters` reports the empty-query case independently.
+ * `hasBoundCodeParameters` and `hasBoundProviderErrorParameters` are true only
+ * for mutually exclusive, duplicate-free code or allowlisted provider-error
+ * payloads. Callers still compare the returned code or error value with the
+ * callback material stored in the ceremony config.
+ */
 function analyzeProviderCallback(
   value: string,
   expectedProviderCallbackUrl: string,
@@ -588,7 +594,7 @@ function analyzeProviderCallback(
     hasBoundProviderErrorParameters:
       hasSharedRequirements &&
       errorValues.length === 1 &&
-      PROVIDER_ERRORS.has(errorValues[0]) &&
+      isMobileAuthProviderError(errorValues[0]) &&
       codeValues.length === 0 &&
       parameterNames.every((name) => PROVIDER_ERROR_PARAMETERS.has(name)),
   };

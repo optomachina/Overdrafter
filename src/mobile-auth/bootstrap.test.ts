@@ -193,6 +193,33 @@ describe("mobile authentication bootstrap", () => {
     expect(clearPersistedSession).not.toHaveBeenCalled();
   });
 
+  it.each(["9parts", "Xparts/123"])(
+    "rejects a server payload whose return route lacks a leading slash: %s",
+    async (returnTo) => {
+      const client = createClient();
+      const reportStatus = vi.fn();
+      const clearPersistedSession = vi.fn();
+      mountConfig({
+        ...successConfig(),
+        returnTo,
+      });
+
+      await expect(
+        runBootstrapEntry({
+          document,
+          client,
+          reportStatus,
+          clearPersistedSession,
+          hasNativeHost: () => true,
+        }),
+      ).resolves.toBeNull();
+
+      expect(client.auth.setSession).not.toHaveBeenCalled();
+      expect(reportStatus).not.toHaveBeenCalled();
+      expect(clearPersistedSession).not.toHaveBeenCalled();
+    },
+  );
+
   it("clears partial auth state and redacts errors when session persistence fails", async () => {
     const client = createClient({
       data: { session: null },
