@@ -102,6 +102,10 @@ create table public.supplier_facilities (
   check (merged_into_id is null or merged_into_id <> id)
 );
 
+alter table public.supplier_facilities
+add constraint supplier_facilities_company_id_id_unique
+unique (supplier_company_id, id);
+
 create index supplier_facilities_company_idx
 on public.supplier_facilities (supplier_company_id);
 
@@ -113,7 +117,17 @@ on public.supplier_facilities (latitude, longitude)
 where latitude is not null and longitude is not null;
 
 alter table public.supplier_source_records
-add column supplier_facility_id uuid references public.supplier_facilities(id) on delete set null;
+add column supplier_facility_id uuid;
+
+alter table public.supplier_source_records
+add constraint supplier_source_records_facility_requires_company
+check (supplier_facility_id is null or supplier_company_id is not null);
+
+alter table public.supplier_source_records
+add constraint supplier_source_records_company_facility_fk
+foreign key (supplier_company_id, supplier_facility_id)
+references public.supplier_facilities (supplier_company_id, id)
+on delete set null;
 
 create index supplier_source_records_facility_idx
 on public.supplier_source_records (supplier_facility_id);
@@ -187,10 +201,10 @@ on public.supplier_facility_certification_claims (
 
 create table public.supplier_verification_events (
   id uuid primary key default gen_random_uuid(),
-  supplier_company_id uuid references public.supplier_companies(id) on delete cascade,
-  supplier_facility_id uuid references public.supplier_facilities(id) on delete cascade,
-  capability_claim_id uuid references public.supplier_facility_capability_claims(id) on delete cascade,
-  certification_claim_id uuid references public.supplier_facility_certification_claims(id) on delete cascade,
+  supplier_company_id uuid references public.supplier_companies(id) on delete restrict,
+  supplier_facility_id uuid references public.supplier_facilities(id) on delete restrict,
+  capability_claim_id uuid references public.supplier_facility_capability_claims(id) on delete restrict,
+  certification_claim_id uuid references public.supplier_facility_certification_claims(id) on delete restrict,
   source_record_id uuid references public.supplier_source_records(id) on delete set null,
   verification_status text not null
     check (verification_status in ('verified', 'disputed', 'expired', 'unreachable')),

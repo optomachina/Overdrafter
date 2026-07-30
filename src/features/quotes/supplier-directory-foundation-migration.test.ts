@@ -46,6 +46,18 @@ describe("supplier directory foundation migration", () => {
     expect(normalizedSql).toContain("unique (source_id, record_sha256)");
   });
 
+  it("enforces a consistent company and facility on matched source records", () => {
+    expect(normalizedSql).toContain(
+      "supplier_source_records_facility_requires_company",
+    );
+    expect(normalizedSql).toContain(
+      "foreign key (supplier_company_id, supplier_facility_id)",
+    );
+    expect(normalizedSql).toContain(
+      "references public.supplier_facilities (supplier_company_id, id)",
+    );
+  });
+
   it("models capability and certification claims with verification state", () => {
     expect(normalizedSql).toContain(
       "verification_status text not null default 'unverified'",
@@ -63,6 +75,21 @@ describe("supplier directory foundation migration", () => {
     expect(normalizedSql).toContain("capability_claim_id");
     expect(normalizedSql).toContain("certification_claim_id");
     expect(normalizedSql).toContain(") = 1");
+  });
+
+  it("prevents verified targets from deleting their audit history", () => {
+    expect(normalizedSql).toContain(
+      "supplier_company_id uuid references public.supplier_companies(id) on delete restrict",
+    );
+    expect(normalizedSql).toContain(
+      "supplier_facility_id uuid references public.supplier_facilities(id) on delete restrict",
+    );
+    expect(normalizedSql).toContain(
+      "capability_claim_id uuid references public.supplier_facility_capability_claims(id) on delete restrict",
+    );
+    expect(normalizedSql).toContain(
+      "certification_claim_id uuid references public.supplier_facility_certification_claims(id) on delete restrict",
+    );
   });
 
   it("distinguishes customer suggestions without opening canonical client writes", () => {
