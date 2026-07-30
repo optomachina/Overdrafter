@@ -2,6 +2,31 @@ begin;
 
 select plan(36);
 
+create function pg_temp.set_ovd234_request_identity(
+  p_user_id uuid,
+  p_aal text
+)
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+declare
+  v_claims jsonb;
+begin
+  v_claims := pg_catalog.jsonb_build_object(
+    'sub', p_user_id,
+    'role', 'authenticated'
+  );
+
+  if p_aal is not null then
+    v_claims := v_claims || pg_catalog.jsonb_build_object('aal', p_aal);
+  end if;
+
+  perform pg_catalog.set_config('request.jwt.claims', v_claims::text, true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', p_user_id::text, true);
+end;
+$$;
+
 -- Keep the mutation probe transaction-local to this test. Production ships only
 -- the reusable guard and audit primitives, not an inert public test endpoint.
 create table private.commercial_admin_mutation_probes (
@@ -390,19 +415,9 @@ values
   );
 
 set local role authenticated;
-select set_config(
-  'request.jwt.claims',
-  jsonb_build_object(
-    'sub', (select org_admin_user_id from ovd234_test_context),
-    'role', 'authenticated',
-    'aal', 'aal2'
-  )::text,
-  true
-);
-select set_config(
-  'request.jwt.claim.sub',
-  (select org_admin_user_id::text from ovd234_test_context),
-  true
+select pg_temp.set_ovd234_request_identity(
+  (select org_admin_user_id from ovd234_test_context),
+  'aal2'
 );
 
 select throws_ok(
@@ -423,19 +438,9 @@ select throws_ok(
 reset role;
 
 set local role authenticated;
-select set_config(
-  'request.jwt.claims',
-  jsonb_build_object(
-    'sub', (select platform_viewer_user_id from ovd234_test_context),
-    'role', 'authenticated',
-    'aal', 'aal2'
-  )::text,
-  true
-);
-select set_config(
-  'request.jwt.claim.sub',
-  (select platform_viewer_user_id::text from ovd234_test_context),
-  true
+select pg_temp.set_ovd234_request_identity(
+  (select platform_viewer_user_id from ovd234_test_context),
+  'aal2'
 );
 
 select ok(
@@ -461,19 +466,9 @@ select throws_ok(
 reset role;
 
 set local role authenticated;
-select set_config(
-  'request.jwt.claims',
-  jsonb_build_object(
-    'sub', (select billing_admin_user_id from ovd234_test_context),
-    'role', 'authenticated',
-    'aal', 'aal1'
-  )::text,
-  true
-);
-select set_config(
-  'request.jwt.claim.sub',
-  (select billing_admin_user_id::text from ovd234_test_context),
-  true
+select pg_temp.set_ovd234_request_identity(
+  (select billing_admin_user_id from ovd234_test_context),
+  'aal1'
 );
 
 select throws_ok(
@@ -491,13 +486,9 @@ select throws_ok(
   'matching capability at AAL1 is denied'
 );
 
-select set_config(
-  'request.jwt.claims',
-  jsonb_build_object(
-    'sub', (select billing_admin_user_id from ovd234_test_context),
-    'role', 'authenticated'
-  )::text,
-  true
+select pg_temp.set_ovd234_request_identity(
+  (select billing_admin_user_id from ovd234_test_context),
+  null
 );
 
 select throws_ok(
@@ -515,19 +506,9 @@ select throws_ok(
   'missing AAL claims fail closed'
 );
 
-select set_config(
-  'request.jwt.claims',
-  jsonb_build_object(
-    'sub', '00000000-0000-4000-8000-000000002347',
-    'role', 'authenticated',
-    'aal', 'aal2'
-  )::text,
-  true
-);
-select set_config(
-  'request.jwt.claim.sub',
+select pg_temp.set_ovd234_request_identity(
   '00000000-0000-4000-8000-000000002347',
-  true
+  'aal2'
 );
 
 select throws_ok(
@@ -545,19 +526,9 @@ select throws_ok(
   'expired capabilities cannot mutate commercial state'
 );
 
-select set_config(
-  'request.jwt.claims',
-  jsonb_build_object(
-    'sub', '00000000-0000-4000-8000-000000002348',
-    'role', 'authenticated',
-    'aal', 'aal2'
-  )::text,
-  true
-);
-select set_config(
-  'request.jwt.claim.sub',
+select pg_temp.set_ovd234_request_identity(
   '00000000-0000-4000-8000-000000002348',
-  true
+  'aal2'
 );
 
 select throws_ok(
@@ -575,19 +546,9 @@ select throws_ok(
   'revoked capabilities cannot mutate commercial state'
 );
 
-select set_config(
-  'request.jwt.claims',
-  jsonb_build_object(
-    'sub', (select billing_admin_user_id from ovd234_test_context),
-    'role', 'authenticated',
-    'aal', 'aal2'
-  )::text,
-  true
-);
-select set_config(
-  'request.jwt.claim.sub',
-  (select billing_admin_user_id::text from ovd234_test_context),
-  true
+select pg_temp.set_ovd234_request_identity(
+  (select billing_admin_user_id from ovd234_test_context),
+  'aal2'
 );
 
 select is(
@@ -732,153 +693,114 @@ select throws_ok(
 );
 
 select throws_ok(
-  $$
-    select public.api_test_billing_admin_mutation(
-      '00000000-0000-4000-8000-000000002345',
+  format(
+    $query$
+      select public.api_test_billing_admin_mutation(
+        '00000000-0000-4000-8000-000000002345',
+        %L,
+        %L,
+        %L,
+        %L::jsonb
+      )
+    $query$,
+    test_case.target_key,
+    test_case.reason,
+    test_case.idempotency_key,
+    test_case.request_metadata::text
+  ),
+  'P0001',
+  test_case.expected_message,
+  test_case.description
+)
+from (
+  values
+    (
       'sensitive-key',
       'Sensitive keys must be rejected',
       'billing-sensitive-key',
-      '{"payment":{"client_secret":"sentinel-secret"}}'::jsonb
-    )
-  $$,
-  'P0001',
-  'Sensitive payment or credential data cannot be written to commercial audit records.',
-  'credential and payment keys are rejected recursively'
-);
-
-select throws_ok(
-  $$
-    select public.api_test_billing_admin_mutation(
-      '00000000-0000-4000-8000-000000002345',
+      '{"payment":{"client_secret":"sentinel-secret"}}'::jsonb,
+      'Sensitive payment or credential data cannot be written to commercial audit records.',
+      'credential and payment keys are rejected recursively'
+    ),
+    (
       'sensitive-api-key',
       'API keys must be rejected',
       'billing-sensitive-api-key',
-      '{"integration":{"api_key":"sentinel-api-key"}}'::jsonb
-    )
-  $$,
-  'P0001',
-  'Sensitive payment or credential data cannot be written to commercial audit records.',
-  'common API-key fields are rejected recursively'
-);
-
-select throws_ok(
-  $$
-    select public.api_test_billing_admin_mutation(
-      '00000000-0000-4000-8000-000000002345',
+      '{"integration":{"api_key":"sentinel-api-key"}}'::jsonb,
+      'Sensitive payment or credential data cannot be written to commercial audit records.',
+      'common API-key fields are rejected recursively'
+    ),
+    (
       'sensitive-pan',
       'Potential card values must be rejected',
       'billing-sensitive-pan',
-      '{"note":"4242 4242 4242 4242"}'::jsonb
-    )
-  $$,
-  'P0001',
-  'Potential card data cannot be written to commercial audit records.',
-  'potential card numbers are rejected even under neutral keys'
-);
-
-select throws_ok(
-  $$
-    select public.api_test_billing_admin_mutation(
-      '00000000-0000-4000-8000-000000002345',
+      '{"note":"4242 4242 4242 4242"}'::jsonb,
+      'Potential card data cannot be written to commercial audit records.',
+      'potential card numbers are rejected even under neutral keys'
+    ),
+    (
       'sensitive-reason',
       'Support pasted sk_live_1234567890 into the reason',
       'billing-sensitive-reason',
-      '{}'::jsonb
-    )
-  $$,
-  'P0001',
-  'Potential credential data cannot be written to commercial audit records.',
-  'credential-like values are rejected in scalar audit fields'
-);
-
-select throws_ok(
-  $$
-    select public.api_test_billing_admin_mutation(
-      '00000000-0000-4000-8000-000000002345',
+      '{}'::jsonb,
+      'Potential credential data cannot be written to commercial audit records.',
+      'credential-like values are rejected in scalar audit fields'
+    ),
+    (
       'stripe-webhook-secret',
       'Reject webhook secret patterns',
       'billing-stripe-secret',
-      '{"note":"whsec_1234567890abcdef"}'::jsonb
-    )
-  $$,
-  'P0001',
-  'Potential credential data cannot be written to commercial audit records.',
-  'Stripe webhook-secret patterns are rejected'
-);
-
-select throws_ok(
-  $$
-    select public.api_test_billing_admin_mutation(
-      '00000000-0000-4000-8000-000000002345',
+      '{"note":"whsec_1234567890abcdef"}'::jsonb,
+      'Potential credential data cannot be written to commercial audit records.',
+      'Stripe webhook-secret patterns are rejected'
+    ),
+    (
       'github-token',
       'Reject GitHub token patterns',
       'billing-github-token',
-      '{"note":"ghp_1234567890abcdef"}'::jsonb
-    )
-  $$,
-  'P0001',
-  'Potential credential data cannot be written to commercial audit records.',
-  'GitHub token patterns are rejected'
-);
-
-select throws_ok(
-  $$
-    select public.api_test_billing_admin_mutation(
-      '00000000-0000-4000-8000-000000002345',
+      '{"note":"ghp_1234567890abcdef"}'::jsonb,
+      'Potential credential data cannot be written to commercial audit records.',
+      'GitHub token patterns are rejected'
+    ),
+    (
       'slack-token',
       'Reject Slack token patterns',
       'billing-slack-token',
-      '{"note":"xoxb-1234567890-abcdef"}'::jsonb
-    )
-  $$,
-  'P0001',
-  'Potential credential data cannot be written to commercial audit records.',
-  'Slack token patterns are rejected'
-);
-
-select throws_ok(
-  $$
-    select public.api_test_billing_admin_mutation(
-      '00000000-0000-4000-8000-000000002345',
+      '{"note":"xoxb-1234567890-abcdef"}'::jsonb,
+      'Potential credential data cannot be written to commercial audit records.',
+      'Slack token patterns are rejected'
+    ),
+    (
       'jwt-token',
       'Reject JWT patterns',
       'billing-jwt-token',
-      '{"note":"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature123"}'::jsonb
-    )
-  $$,
-  'P0001',
-  'Potential credential data cannot be written to commercial audit records.',
-  'JWT patterns are rejected'
-);
-
-select throws_ok(
-  $$
-    select public.api_test_billing_admin_mutation(
-      '00000000-0000-4000-8000-000000002345',
+      '{"note":"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature123"}'::jsonb,
+      'Potential credential data cannot be written to commercial audit records.',
+      'JWT patterns are rejected'
+    ),
+    (
       'cloud-key',
       'Reject cloud access-key patterns',
       'billing-cloud-key',
-      '{"note":"AKIA1234567890ABCDEF"}'::jsonb
-    )
-  $$,
-  'P0001',
-  'Potential credential data cannot be written to commercial audit records.',
-  'cloud access-key patterns are rejected'
-);
-
-select throws_ok(
-  $$
-    select public.api_test_billing_admin_mutation(
-      '00000000-0000-4000-8000-000000002345',
+      '{"note":"AKIA1234567890ABCDEF"}'::jsonb,
+      'Potential credential data cannot be written to commercial audit records.',
+      'cloud access-key patterns are rejected'
+    ),
+    (
       'sensitive-numeric-pan',
       'Numeric card values must be rejected',
       'billing-sensitive-numeric-pan',
-      '{"reference":4242424242424242}'::jsonb
+      '{"reference":4242424242424242}'::jsonb,
+      'Potential card data cannot be written to commercial audit records.',
+      'potential card numbers are rejected when represented as JSON numbers'
     )
-  $$,
-  'P0001',
-  'Potential card data cannot be written to commercial audit records.',
-  'potential card numbers are rejected when represented as JSON numbers'
+) as test_case(
+  target_key,
+  reason,
+  idempotency_key,
+  request_metadata,
+  expected_message,
+  description
 );
 
 reset role;
@@ -955,19 +877,9 @@ set email = 'ovd234-billing-renamed@example.com'
 where id = (select billing_admin_user_id from ovd234_test_context);
 
 set local role authenticated;
-select set_config(
-  'request.jwt.claims',
-  jsonb_build_object(
-    'sub', (select billing_admin_user_id from ovd234_test_context),
-    'role', 'authenticated',
-    'aal', 'aal2'
-  )::text,
-  true
-);
-select set_config(
-  'request.jwt.claim.sub',
-  (select billing_admin_user_id::text from ovd234_test_context),
-  true
+select pg_temp.set_ovd234_request_identity(
+  (select billing_admin_user_id from ovd234_test_context),
+  'aal2'
 );
 
 select ok(
@@ -987,19 +899,9 @@ select is(
 reset role;
 
 set local role authenticated;
-select set_config(
-  'request.jwt.claims',
-  jsonb_build_object(
-    'sub', (select order_admin_user_id from ovd234_test_context),
-    'role', 'authenticated',
-    'aal', 'aal2'
-  )::text,
-  true
-);
-select set_config(
-  'request.jwt.claim.sub',
-  (select order_admin_user_id::text from ovd234_test_context),
-  true
+select pg_temp.set_ovd234_request_identity(
+  (select order_admin_user_id from ovd234_test_context),
+  'aal2'
 );
 
 select is(
