@@ -1,5 +1,9 @@
 # OverDrafter UI Integration Plan
 
+Last updated: July 29, 2026
+
+> Historical integration note: this plan predates the commercial account program in `OVD-227`. Its page-integration guidance remains useful, but checkout/payment wording is superseded. The next approved direction is a manual procurement review and order-record flow; account subscription billing stays separate. `OVD-232` owns the required comparison board and Figma exploration before that flow is implemented.
+
 ## Current State Audit
 - Active app: Vite + React Router under `src/`.
 - Protected shell/sidebar surfaces:
@@ -23,8 +27,9 @@
 - Current project view:
   - `ClientProject` already owns project membership, add-part flow, filters, focus state, and project actions.
   - it does not yet have quote options for every line item, bulk preset selection, or a right-side procurement drawer.
-- Current review/checkout state:
-  - there is no pre-checkout review route between selection and payment/PO.
+- Current review/procurement state:
+  - dedicated part and project review routes collect client-side procurement-handoff details between selection and manual release coordination.
+  - the handoff is not yet persisted as an explicit order record.
   - `ClientPackage` remains the legacy published package flow and should stay intact.
 - Current state/data wiring:
   - React Query is the primary client state layer.

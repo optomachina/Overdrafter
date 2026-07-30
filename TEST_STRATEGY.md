@@ -103,6 +103,17 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - validate worker- or queue-adjacent state transitions where the request lifecycle depends on asynchronous vendor updates
 - run `npm run verify:worker` when worker payload or queue integration changes
 
+### Commercial plans, entitlements, and quote-mode changes
+- treat organization plan resolution, automatic-quote access, grants, billing-admin authorization, Stripe synchronization, and order administration as release-confidence, high-risk work
+- verify that uploads and manual quote requests remain available to Free organizations without customer-facing quota state
+- verify automatic quote enforcement at both UI and server/RPC boundaries, including a bypassed-client `pro_required` result
+- cover effective-entitlement precedence, trial expiration, complimentary-grant revocation/review dates, subscription cancellation, and the seven-day delinquency grace period
+- cover platform viewer, organization admin, billing admin, and order admin access at AAL1 and AAL2
+- verify privileged mutations are idempotent and produce append-only audit records
+- validate signed Stripe events for duplicate, concurrent, delayed, reordered, failed, and replayed delivery
+- verify manual order snapshot immutability, legal transition rules, external-reference requirements, and cross-organization isolation
+- use the production-realistic auth/RLS lane, targeted integration/E2E coverage, migration validation, and the full repository gate
+
 ### Bug fixes
 - reproduce the bug or define the failure clearly
 - add or update a failing automated test where practical

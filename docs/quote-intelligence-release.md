@@ -14,7 +14,7 @@ OverDrafter’s working client quote path is hidden inside a Project-first deskt
 ### Responsive web
 
 - Launch navigation: Parts, Quotes, Search.
-- Existing Project remains the backend collaboration/commercial container.
+- Existing Project remains the backend collaboration/procurement-workflow container; Organization is the commercial account boundary.
 - Parts collection includes an `All | Parts | Assemblies` filter without inventing unsupported assembly data.
 - Search reranks while typing and parses explicit engineering aliases and units where source metadata exists.
 - Quotes collection exposes quote state, part/project context, offer count, and a short display code.

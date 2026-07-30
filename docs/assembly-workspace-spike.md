@@ -204,7 +204,7 @@ This is deliberately not a separate assembly page. The project page stays primar
 
 ## Decisions this spike makes
 
-- Project remains the commercial container.
+- Project remains the procurement-workflow container; Organization is the separate commercial account boundary.
 - Assembly-aware behavior should be implemented as a hierarchy layer inside a project.
 - Current part reconciliation should remain the part-pairing primitive, not the assembly model.
 - Assembly tree display should live inside the current project workspace, not in a separate top-level information architecture.

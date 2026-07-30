@@ -1,6 +1,6 @@
 # OverDrafter Architecture
 
-Last updated: July 28, 2026
+Last updated: July 29, 2026
 
 ## Purpose
 
@@ -30,7 +30,7 @@ The intended end state is a multi-agent manufacturing co-pilot: CAD-native intak
 - route guards must wait for initial auth restoration before treating the user as signed out
 - workspace-facing navigation and application shell
 - client launch navigation presents `Parts | Quotes | Search`; `Project` remains the backing collaboration and
-  commercial container rather than the first navigation decision
+  procurement-workflow container rather than the first navigation decision
 - client intake UI
 - artifact-first client workspaces with contextual intelligence rails and chat as a secondary tool
 - project browsing and creation flows remain reachable from part context and legacy routes
@@ -84,12 +84,22 @@ The intended end state is a multi-agent manufacturing co-pilot: CAD-native intak
 
 ### 6. Quote orchestration layer
 - validating whether a client-facing part package is ready for quote collection
-- recording quote request intent separately from quote run execution
+- recording quote request intent and collection mode separately from quote run execution
+- accepting manual quote requests for Free and Pro organizations without automated vendor dispatch
+- resolving the organization-level `automatic_quote_collection` entitlement before automatic vendor work is queued
 - initiating automated quote retrieval where supported
 - supporting manual quote entry or imported quote paths
 - normalizing quote outputs into a canonical internal model
 - materializing spreadsheet or manual lane data into `vendor_quote_results` and canonical per-lane `vendor_quote_offers`
 - exposing client-safe quote comparison data through `public.api_list_client_quote_workspace`, rather than direct client reads from internal-only quote tables
+
+Manual and automatic collection are separate target contracts:
+
+- `manual` creates durable quote-request and quote-run visibility, enters an internal fulfillment inbox, and does not enqueue vendor adapter work
+- `automatic` retains vendor fan-out and requires a server-resolved Pro entitlement
+- client UI may explain or upsell Pro, but UI state is never the enforcement boundary
+- entitlement lookup failures fail closed for automatic execution without blocking uploads or manual quote requests
+- operational rate limits and pending-cost ceilings continue to protect automatic execution but are not customer quotas
 
 `quote_requests` is intentional Phase 1 scaffolding, not the permanent home for service intent. It exists to cleanly separate client-safe request intent from quote-run execution records, which is a necessary boundary even in the final model. However, the authoritative unit of requested work in the next phase is the service request line item described in `docs/service-request-taxonomy.md`. Future schema and feature work should treat `quote_requests` as a `manufacturing_quote`-scoped specialization that will coexist with, not be replaced by, the broader line-item model once that model ships. Do not build general service-intent fields into `quote_requests`; those belong on the future service request line item entity.
 
@@ -113,7 +123,22 @@ Internal review implementation boundary:
 - project-level navigation that does not treat assemblies as the umbrella container
 - current project-ledger assignee bubbles derive from `project_jobs.created_by` joined to auth user profile metadata; this is the minimum safe source of truth until a dedicated part-assignee relation exists because each ledger row is still a project-job row owned by its creator
 
-### 9. Multi-agent orchestration & CAD-native layer (Target — not implemented)
+### 9. Commercial access and operations layer (Target — not implemented)
+
+- organization is the commercial account, Stripe Customer, subscription, and entitlement boundary
+- membership roles remain authorization roles and do not encode Free or Pro
+- local billing-account and subscription projections retain Stripe object identifiers and synchronized lifecycle state
+- effective product access is resolved server-side from active manual grants, eligible synchronized subscription state, the seven-day delinquency grace period, and the Free fallback
+- trial and complimentary grants are explicit, revocable, time-aware records rather than synthetic Stripe subscriptions or mutable `paid` flags
+- Stripe owns economic subscription, invoice, coupon, and promotion-code facts
+- the local projection plus audited manual grants is authoritative for application access decisions
+- subscription webhooks are signature-verified, durably deduplicated by Stripe Event ID, replayable, and reconciled
+- platform viewers remain read-only; billing and order mutations require separately granted stable-ID capabilities, AAL2, server-side authorization, idempotency, and append-only audit
+- subscription promotion codes never adjust manufacturing quote or order totals
+- explicit orders are distinct from projects and retain immutable selected-offer, quantity, vendor, price, currency, and procurement-handoff snapshots
+- the first order-administration slice records manual or externally confirmed state and does not authorize cards, issue POs, or place supplier orders
+
+### 10. Multi-agent orchestration & CAD-native layer (Target — not implemented)
 
 None of the following exists in the codebase today. Vendor automation is implemented as per-vendor Playwright adapters under `worker/src/adapters/`, not as an agent harness.
 
@@ -128,7 +153,7 @@ None of the following exists in the codebase today. Vendor automation is impleme
 
 ## Domain hierarchy
 
-The top-level persisted collaboration and commercial container is `Project`, not `Assembly`.
+The top-level persisted collaboration and procurement-workflow container is `Project`, not `Assembly`. The organization is the separate commercial account, subscription, and entitlement boundary.
 
 The client launch information architecture is collection-first: `Parts | Quotes | Search`. This presentation does not
 remove or flatten Project. Project remains the scope that groups collaborators, mixed manufacturing requests, files,
@@ -206,6 +231,14 @@ The current client-triggered request flow keeps the existing queue and worker pa
 - vendor result transitions roll up into both request lifecycle state and existing job lifecycle state
 - client UI reads the latest quote request, with quote-run fallback for pre-existing data, to show request status
 - client-visible failed request reasons are allowlisted and sanitized; raw worker exception text stays in internal logs or internal-only records
+
+The commercial quote-mode target extends that lifecycle without replacing it:
+
+- Free and Pro organizations may submit `manual` requests
+- manual requests create request/run records and internal follow-up visibility but do not seed vendor lanes or `run_vendor_quote` work
+- only organizations with the effective `automatic_quote_collection` entitlement may submit `automatic` requests
+- the database/RPC boundary enforces automatic access even when a client bypasses the UI
+- Free clients receive a stable `pro_required` result that the UI renders as an upgrade dialog
 
 Request lifecycle meanings:
 

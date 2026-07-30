@@ -5,9 +5,9 @@
 - Project review: `/projects/:projectId/review`
 
 ## Purpose
-- Inserts a distinct review step between quote selection and payment / PO / order placement.
+- Inserts a distinct review step between quote selection and manual procurement coordination.
 - Keeps the rest of the client app untouched and avoids reusing the legacy published-package route.
-- Captures structured procurement handoff state without pretending the product owns checkout or direct ordering.
+- Captures structured procurement handoff state without pretending the product collects manufacturing payment or places supplier orders.
 
 ## Part Review
 - Loads the selected line item through `fetchClientQuoteWorkspaceByJobIds([jobId])`.
@@ -47,4 +47,6 @@
 - The route now holds structured client-side state for shipping, billing, contact, PO, and special-instruction details.
 - The handoff summary explicitly reports what details are still missing before manual release coordination.
 - This review layer is the intended entry point to the future downstream lifecycle defined in `docs/fulfillment-state-model.md`.
-- The route still stops short of payment collection, PO submission, or direct order placement.
+- The planned order foundation will persist this handoff and an immutable selected-offer snapshot before manual review.
+- The route still stops short of manufacturing payment collection, PO submission, or supplier order placement.
+- Organization subscription billing is a separate account-access flow and must not appear as order payment on this route.

@@ -1,19 +1,19 @@
 # Fulfillment State Model
 
-Last updated: March 13, 2026
+Last updated: July 29, 2026
 
 ## Purpose
 
 This document defines the downstream fulfillment-aware state taxonomy for OverDrafter after quote selection.
 
-It exists because the product direction includes post-selection review, procurement handoff, and later shipment visibility, while the current implementation intentionally stops short of direct ordering or fulfillment execution.
+It exists because the product direction includes post-selection review, procurement handoff, a manual order ledger, and later shipment visibility, while the product intentionally stops short of manufacturing payment collection or automated supplier-order execution.
 
 Use this document when:
 
 - planning downstream lifecycle work after quote selection
 - deciding whether a future status is a visibility state or an execution surface
 - scoping follow-on schema, UI, or audit work for procurement and shipment visibility
-- preventing roadmap drift into unsupported ordering, billing, or shipping ownership
+- preventing roadmap drift from manual visibility into unsupported payment, supplier-execution, or shipping ownership
 
 ## Current transition model
 
@@ -21,7 +21,8 @@ The active product surface already establishes the entry point to this lifecycle
 
 - `src/pages/ClientPartReview.tsx` captures selected-quote review plus shipping, billing, and PO handoff details for a single line item
 - `src/pages/ClientProjectReview.tsx` captures the same procurement handoff model at the project level
-- both routes explicitly stop before payment collection, direct order placement, or fulfillment execution
+- both routes explicitly stop before manufacturing payment collection, supplier order placement, or fulfillment execution
+- the planned order foundation persists the handoff and selected-offer snapshot, then lets authorized operators record externally confirmed lifecycle state
 - `docs/review-page.md` documents those routes as a review layer before manual release coordination
 
 This means the current system already models a pre-procurement review stage, even though later downstream statuses are not yet first-class product states.
@@ -34,7 +35,7 @@ Entry condition: a client or internal operator has finalized quote selection for
 |---|---|---|
 | review / procurement handoff | Final confirmation of the selected quote plus shipping, billing, and PO handoff details before external procurement follow-up | Active foundation now through the review routes and procurement handoff model |
 | approved | The handoff package is complete and ready for manual procurement release or internal release coordination | First non-placeholder follow-on state once review-route and metadata maturity are sufficient; does not mean an order was placed |
-| ordered | External procurement has placed or confirmed the order with the supplier | Placeholder-only visibility state at first; any update is manual or imported, not executed by OverDrafter |
+| ordered | External procurement has placed or confirmed the order with the supplier and recorded an external order reference | Manual or imported visibility state; not executed by OverDrafter |
 | in production | The supplier has acknowledged or started production | Placeholder-only visibility state |
 | inspecting | The ordered work is in inspection, QA, or release verification | Placeholder-only visibility state |
 | shipped | Shipment has been released or is in transit | Placeholder-only visibility state |
@@ -60,7 +61,7 @@ Those behaviors require separate product decisions and separate implementation w
 
 ### 3. Placeholder states may start as manual or externally confirmed updates
 
-If `ordered` or later states appear before direct integrations exist, treat them as:
+Treat `ordered` and later states as:
 
 - manual internal updates
 - imported status confirmations
@@ -91,28 +92,29 @@ Those remain separate workflow concerns.
 
 ## Near-term planning boundary
 
-The near-term backlog should stay focused on:
+The active staged backlog should stay focused on:
 
 - maturing the review and procurement handoff foundation
+- persisting immutable selected-offer and handoff snapshots on explicit order records
 - clarifying what makes a handoff package `approved`
-- defining auditability and visibility for downstream states without claiming execution ownership
+- requiring an external reference before an order is marked `ordered`
+- defining audited manual visibility for downstream states without claiming execution ownership
 
-The near-term backlog should not require:
+The backlog should not require:
 
 - PO submission
 - payment capture
-- billing-service integration
+- manufacturing payment integration
 - shipping-carrier integration
 - supplier portal automation
 - ERP or CRM synchronization
 
-`ordered` and later states should remain placeholder-only until review handoff and metadata work are mature enough to support coherent status semantics.
-
-This should remain an epic-level planning surface until the review handoff workflow and downstream metadata boundary are ready to support smaller implementation issues cleanly.
+Account subscription billing is a separate commercial-access subsystem. It does not change manufacturing order totals or imply payment collection for an order.
 
 ## Suggested sequencing for follow-on work
 
 1. Mature the review-route handoff data model and release-readiness rules.
 2. Define the persisted `approved` boundary and related audit events.
-3. Add downstream status display and rollup affordances using manual or externally confirmed visibility updates.
-4. Evaluate fulfillment-system integrations only as separate follow-on work, not as part of the state-model epic itself.
+3. Persist an explicit order and immutable commercial snapshot when the handoff enters review.
+4. Add downstream status display and rollup affordances using audited manual or externally confirmed visibility updates.
+5. Evaluate fulfillment-system integrations only as separate follow-on work, not as part of the state-model epic itself.

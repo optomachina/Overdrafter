@@ -1,7 +1,7 @@
 <!-- /autoplan restore point: /Users/blainewilson/.gstack/projects/optomachina-Overdrafter/claude-quizzical-williams-autoplan-restore-20260331-213648.md -->
 # OverDrafter Execution Plan
 
-Last updated: May 12, 2026
+Last updated: July 29, 2026
 
 ## Purpose
 
@@ -34,7 +34,7 @@ Operational workflow alignment:
 
 Ship the Quote Intelligence client release across responsive web and iPhone/iPad while preserving the no-Stripe live-quote loop for `dmrifles@gmail.com`: sign in, upload real part files, request quotes, compare returned offers by total price and lead time, and select an option or receive an explicit manual-follow-up state.
 
-The launch navigation is `Parts | Quotes | Search`. Project remains the collaboration/commercial container behind these views. PDM, marketplace publication, customer-visible unvalidated estimates, and supplier benchmarking remain capability-gated.
+The launch navigation is `Parts | Quotes | Search`. Project remains the collaboration/procurement-workflow container behind these views; Organization is the commercial account and entitlement boundary. PDM, marketplace publication, customer-visible unvalidated estimates, and supplier benchmarking remain capability-gated.
 
 Release sequence:
 
@@ -45,6 +45,34 @@ Release sequence:
 5. Publish the website through Vercel and the iOS build through TestFlight.
 
 Implementation and release acceptance is tracked in `docs/quote-intelligence-release.md`.
+
+## Commercial account administration track
+
+Build commercial access around the organization boundary without adding customer-facing usage anxiety or coupling account subscriptions to manufacturing orders.
+
+Locked product behavior:
+- Free organizations can upload parts without a customer-facing quota and can always request manual quote follow-up.
+- Pro organizations can enable automatic vendor quote collection.
+- The automatic-quote toggle remains visible to Free users; attempting to enable it opens an upgrade dialog and leaves it off.
+- Existing request throttles and organization cost ceilings remain invisible operational safeguards rather than plan quotas.
+- Billing admins may issue audited trial and complimentary Pro grants under step-up authentication.
+- Self-service Pro subscriptions use monthly and annual Stripe prices, webhook-synchronized local state, and a seven-day payment-failure grace period.
+- Promotion codes apply to subscriptions only.
+- Order administration starts as a manual visibility ledger. Manufacturing card collection and automated supplier order placement remain deferred.
+
+Execution sequence:
+1. Align the commercial product contract across canonical and downstream documentation.
+2. Disable the historical project-payment prototype by default.
+3. Complete matching comparison-board and Figma exploration, select a direction, and validate the phone prototype.
+4. Add stable-ID billing/order admin capabilities, AAL2 enforcement, and append-only commercial audit.
+5. Add organization plans, effective entitlements, and audited trial/complimentary grants.
+6. Add manual quote requests and enforce automatic collection as a Pro capability at the server boundary.
+7. Ship customer account administration and manual Pro grants.
+8. Add replay-safe Stripe subscription synchronization, Checkout, Billing Portal, and subscription promotion codes.
+9. Persist procurement handoffs and explicit orders, then add manual order administration.
+10. Add reconciliation, monitoring, kill switches, pilot provisioning, and staged rollout.
+
+The Commercial Account Administration initiative is tracked by Linear parent `OVD-227`. The parent remains High complexity and is executed only through its bounded child issues.
 
 ### Immediate next steps (MVP — sequenced by dependency)
 
@@ -72,9 +100,11 @@ Implementation and release acceptance is tracked in `docs/quote-intelligence-rel
 - Keep hidden extended vendor candidates (`oshcut`, `fabworks`, `ponoko`, `quickparts`, `rapiddirect`, `geomiq`, `weerg`, `protolabsnetwork`) out of default client fan-out until authenticated smoke runs prove the individual workflows. They are enum/capability registered for internal validation only and require explicit `WORKER_LIVE_ADAPTERS` opt-in.
 - For controlled demos, a local live worker is acceptable. For unattended use, OVD-202 remains required: host the live worker on a long-lived platform.
 
-**Deferred: Stripe and ordering**
-- Stripe, payment authorization/capture, billing, and order placement are not required for this MVP.
-- `ClientProjectReview` / `ProcurementHandoffPanel` remains a manual handoff surface that does not collect payment or place orders inside the app.
+**Commercial boundary after the no-Stripe MVP**
+- The delivered live-quote MVP did not require Stripe or in-app ordering.
+- Organization-level subscription billing is now an active, separately sequenced product track.
+- `ClientProjectReview` / `ProcurementHandoffPanel` remains a manual handoff surface and must not collect manufacturing payment or place supplier orders.
+- A future manual order ledger records externally confirmed procurement state; it does not execute payment, PO submission, or supplier placement.
 
 ### Phase 2 (following immediate steps)
 
@@ -105,7 +135,7 @@ Recent merged PRs changed the live-quote baseline:
 - PR #235: Fictiv live automation was repaired against the current portal and validated with real quote data; quantity sweep tooling now exists.
 - PR #236: Xometry live automation gained `XOMETRY_BROWSER_ENGINE=camoufox` and persistent profile support; a real Xometry quote was validated at `$194.13` / 8 business days.
 
-Older planning notes below that describe Fictiv as a stub, Xometry as blocked by Patchright/storage-state behavior, or Stripe as pre-Frank blocking are historical and superseded by the current active objective above.
+Older planning notes below that describe Fictiv as a stub, Xometry as blocked by Patchright/storage-state behavior, or manufacturing-payment Stripe work as pre-Frank blocking are historical and superseded by the active objectives above.
 
 ### Milestone 7 — Client-triggered quote requests ✓
 Single-part and project-bulk quote request RPCs (`api_request_quote`, `api_request_quotes`). Phase 1 shipped the request lifecycle scaffolding, and Phase 2 now expands request fan-out across org-enabled applicable vendors while preserving one request and one run per client action. Lifecycle states: `not_requested`, `queued`, `requesting`, `received`, `failed`, `canceled`. Client cancel + retry. Rate limiting and org cost ceiling guardrails. Failure reason sanitization. Double-submit protection. Accessibility (aria-live, role=alert, aria-disabled). TODO-014 shipped; remaining Phase 2 work is comparison UI and per-job vendor preferences.
@@ -247,7 +277,7 @@ Same root cause: the system has multiple paths where "looks like live data" and 
 
 1. **[RESOLVED/SUPERSEDED] Fictiv/Protolabs/SendCutSend silently return simulated prices in live mode.** The original finding applied to the March 31 code state. Current state: Fictiv live automation was repaired in PR #235; Protolabs and SendCutSend now throw `VendorAutomationError("not_implemented")` in live mode and route to manual follow-up.
 
-2. **[RESOLVED] Single WORKER_MODE toggle gates all 4 adapters.** `WORKER_LIVE_ADAPTERS` now exists and should be used for narrow rollout. The no-Stripe MVP starts with `WORKER_LIVE_ADAPTERS=xometry`.
+2. **[RESOLVED] Single WORKER_MODE toggle gates all 4 adapters.** `WORKER_LIVE_ADAPTERS` now exists and should be used for narrow rollout. The historical no-Stripe MVP started with `WORKER_LIVE_ADAPTERS=xometry`.
 
 3. **[HIGH] Session file permissions not hardened** (`runtimeSecrets.ts:44-57`). `XOMETRY_STORAGE_STATE_JSON` written with default umask permissions. Fix: `fs.writeFile(path, data, { mode: 0o600 })`. **Required before production deployment.**
 
@@ -299,4 +329,4 @@ Same root cause: the system has multiple paths where "looks like live data" and 
 | Eng Review | `/plan-eng-review` | Architecture & tests (required) | 4 | partially_superseded | Original stub findings were resolved/superseded by PRs #235 and #236. Remaining risks are operational hardening, live worker hosting, and app-triggered live-flow validation. |
 | Design Review | `/plan-design-review` | UI/UX gaps | 1 | clean | DR-001 through DR-006 + DR-001b all shipped. No UI scope in current plan. |
 
-**VERDICT UPDATED 2026-05-12:** PHASE 1 COMPLETE. The current execution plan is the no-Stripe live-quote MVP: sync the merged live-adapter PRs, run an app-triggered Xometry quote as `dmrifles@gmail.com`, then expand to Fictiv/two-vendor validation after the single-vendor path is stable. Stripe is deferred. Long-lived worker hosting remains required for unattended use.
+**HISTORICAL VERDICT — 2026-05-12:** PHASE 1 COMPLETE. At that date the execution plan was the no-Stripe live-quote MVP: sync the merged live-adapter PRs, run an app-triggered Xometry quote as `dmrifles@gmail.com`, then expand to Fictiv/two-vendor validation after the single-vendor path was stable. Account subscription billing is now sequenced separately under `OVD-227`; manufacturing payments remain deferred. Long-lived worker hosting remains required for unattended use.

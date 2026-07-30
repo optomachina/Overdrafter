@@ -1,6 +1,6 @@
 # OverDrafter Capability Map
 
-Last updated: July 14, 2026
+Last updated: July 29, 2026
 
 ## Purpose
 
@@ -26,14 +26,20 @@ This document classifies OverDrafter capabilities by planning horizon so future 
 | part workspace redesign | Next | direct continuation of current work |
 | project workspace redesign | Next | direct continuation of current work |
 | quote preset selection | Next | directly adjacent to existing compare flow |
-| review routes before checkout | Next | already conceptually defined |
+| review routes before manual procurement | Now | existing part/project review routes with client-side handoff state |
+| organization Free/Pro entitlements | Next | Free preserves unlimited uploads/manual quoting; Pro unlocks automatic collection |
+| commercial account administration | Next | separately authorized, AAL2-protected grants and account inspection |
+| Stripe subscription synchronization | Next | account billing sidecar; not manufacturing-order payment |
+| subscription promotion codes | Next | subscription-only discounts, separate from quote/order totals |
+| persisted procurement handoffs | Next | promote existing client-side handoff state into an authenticated durable record |
+| manual order ledger | Next | explicit order snapshots and externally confirmed visibility without native payment/placement |
 | browser notifications | Next | useful extension of current web product |
 | richer RFQ metadata | Next | directly supports better quoting and review |
 | canonical manufacturing-process classification | Next | user-confirmable classification should normalize drawing/CAD evidence and drive vendor eligibility |
 | service request taxonomy | Next | adjacent product expansion |
 | assembly-aware project workflow | Later | project-scoped assembly context only; does not replace `Project` as the top-level container |
 | DFM / DFA status model | Later | product target is defined now in `docs/manufacturing-review-status-model.md`, but implementation still depends on richer RFQ metadata and service-line-item foundations |
-| fulfillment state tracking | Later | define the visibility-first taxonomy now, but delay implementation until review-route and metadata maturity exist |
+| fulfillment state tracking | Later | the manual ledger establishes reviewed/ordered visibility; deeper fulfillment remains later |
 | immutable version history | Later | start of PDM foundation |
 | official revisions | Later | part of PDM foundation |
 | part/assembly relationship graph | Later | follows the assembly workspace foundation and depends on a stronger revision model |
