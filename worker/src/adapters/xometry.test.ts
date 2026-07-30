@@ -21,9 +21,11 @@ import { VendorAutomationError, type VendorQuoteAdapterInput, type WorkerConfig 
 import {
   XometryAdapter,
   detectBlockingStateSignal,
+  hasVisibleFilename,
   isManualReviewText,
   parseFirstCurrency,
   parseLeadTime,
+  selectToleranceTier,
 } from "./xometry";
 import { XOMETRY_LOCATORS, XOMETRY_URLS, buildFinishSearchTerms, buildMaterialSearchTerms } from "./xometryConstraints";
 
@@ -116,10 +118,14 @@ type LocatorBehavior = {
 
 type FakePageOptions = {
   bodyText: string;
+  postSaveBodyText?: string;
   url?: string;
   selectorBehaviors?: Record<string, LocatorBehavior>;
   optionTexts?: string[];
   redirectUrl?: string;
+  saveRedirectUrl?: string;
+  saveNavigationFails?: boolean;
+  visibleFilenames?: string[];
 };
 
 function makeLocator(behavior: LocatorBehavior = {}) {
@@ -167,19 +173,33 @@ function makeLocator(behavior: LocatorBehavior = {}) {
 function createFakePage(options: FakePageOptions) {
   const selectorBehaviors = options.selectorBehaviors ?? {};
   let currentUrl = options.url ?? XOMETRY_URLS.quoteHome;
+  let saved = false;
+  const currentBodyText = () =>
+    saved ? (options.postSaveBodyText ?? options.bodyText) : options.bodyText;
+  const waitForURL = vi.fn(async (target: unknown) => {
+    if (typeof target !== "function") return undefined;
+    if (options.saveNavigationFails) {
+      throw new Error("save navigation timed out");
+    }
+    saved = true;
+    currentUrl =
+      options.saveRedirectUrl ??
+      "https://www.xometry.com/quoting/quote/Q00-TEST-0001#part-part-1";
+    return undefined;
+  });
 
   return {
     async screenshot(input: { path: string }) {
       await fs.writeFile(input.path, "");
     },
     async content() {
-      return `<html><body>${options.bodyText}</body></html>`;
+      return `<html><body>${currentBodyText()}</body></html>`;
     },
     locator(selector: string) {
       if (selector === "body") {
         return makeLocator({
           count: 1,
-          text: options.bodyText,
+          text: currentBodyText(),
         });
       }
 
@@ -198,7 +218,16 @@ function createFakePage(options: FakePageOptions) {
         text: optionText,
       });
     },
-    async waitForFunction() {
+    async waitForFunction(_callback: unknown, argument?: unknown) {
+      if (
+        typeof argument === "string" &&
+        !currentBodyText().toLocaleLowerCase().includes(argument.toLocaleLowerCase()) &&
+        !options.visibleFilenames?.some(
+          (filename) => filename.toLocaleLowerCase() === argument.toLocaleLowerCase(),
+        )
+      ) {
+        throw new Error("expected filename did not appear");
+      }
       return undefined;
     },
     async waitForLoadState() {
@@ -207,9 +236,7 @@ function createFakePage(options: FakePageOptions) {
     async waitForTimeout() {
       return undefined;
     },
-    async waitForURL() {
-      return undefined;
-    },
+    waitForURL,
     async waitForEvent() {
       return undefined;
     },
@@ -270,7 +297,7 @@ describe("Xometry helpers", () => {
   it("maps explicit materials and finishes, and rejects unknown ones", () => {
     expect(buildMaterialSearchTerms("6061 aluminum")).toEqual(["6061-T6", "6061"]);
     expect(buildMaterialSearchTerms("mystery alloy")).toBeNull();
-    expect(buildFinishSearchTerms("Type II black anodize")).toEqual(["Type II", "Black"]);
+    expect(buildFinishSearchTerms("Type II black anodize")).toEqual(["Black Anodize"]);
     expect(buildFinishSearchTerms("as machined")).toEqual([]);
     expect(buildFinishSearchTerms("custom dipped coating")).toBeNull();
   });
@@ -278,6 +305,42 @@ describe("Xometry helpers", () => {
   it("parses values and detects blocking/manual-review signals", () => {
     expect(parseFirstCurrency("Total price $1,250.75")).toBe(1250.75);
     expect(parseLeadTime("Ships in 7 business days")).toBe(7);
+    expect(
+      parseLeadTime("Least Expensive Arrives by Aug 18 $428.12", new Date("2026-07-25T00:00:00Z")),
+    ).toBe(17);
+    expect(
+      parseLeadTime("Least Expensive Arrives by Jul 25 $428.12", new Date("2026-07-25T00:00:00Z")),
+    ).toBe(0);
+    expect(
+      parseLeadTime(
+        "Least Expensive Arrives by Jul 20, 2026 $428.12",
+        new Date("2026-07-25T00:00:00Z"),
+      ),
+    ).toBeNull();
+    expect(
+      parseLeadTime("Least Expensive Arrives by Jul 20 $428.12", new Date("2026-07-25T00:00:00Z")),
+    ).toBeNull();
+    expect(
+      parseLeadTime("Least Expensive Arrives by Jan 5 $428.12", new Date("2026-12-30T00:00:00Z")),
+    ).toBe(3);
+    expect(
+      parseLeadTime(
+        "Least Expensive Arrives by Sep 8, 2026 $428.12",
+        new Date("2026-09-04T00:00:00Z"),
+      ),
+    ).toBe(1);
+    expect(
+      parseLeadTime(
+        "Least Expensive Arrives by Jan 3, 2022 $428.12",
+        new Date("2021-12-30T00:00:00Z"),
+      ),
+    ).toBe(1);
+    expect(selectToleranceTier(0.01).tier).toBe("looser");
+    expect(selectToleranceTier(0.006).tier).toBe("standard");
+    expect(selectToleranceTier(0.005).tier).toBe("standard");
+    expect(selectToleranceTier(0.004).tier).toBe("tighter");
+    expect(selectToleranceTier(null).tier).toBeNull();
+    expect(hasVisibleFilename("Attached: PART.PDF", "part.pdf")).toBe(true);
     expect(isManualReviewText("Manual review required after upload.")).toBe(true);
     expect(
       detectBlockingStateSignal({
@@ -342,9 +405,19 @@ describe("XometryAdapter", () => {
 
   it("captures a live instant quote with stable raw payload fields", async () => {
     const workerTempDir = await makeTempDir();
+    const saveConfiguration = vi.fn();
+    const setTolerance = vi.fn();
     const page = createFakePage({
-      bodyText: "Configure part Total price $120.00 Lead time 5 business days",
-      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001",
+      bodyText: "Configure part",
+      postSaveBodyText: [
+        "Quantity 2",
+        "Material: Aluminum 6061-T6x",
+        "Finish: Black Anodize",
+        "Precision Tolerance: ±.005",
+        "Least Expensive $120.00 Lead time 5 business days",
+      ].join(" "),
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001/part-1",
+      saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001#part-part-1",
       selectorBehaviors: {
         [XOMETRY_LOCATORS.uploadInputs[1]]: {
           count: 1,
@@ -365,14 +438,18 @@ describe("XometryAdapter", () => {
         },
         [XOMETRY_LOCATORS.priceText[0]]: {
           count: 1,
-          text: "$120.00",
+          text: "Least Expensive 5 business days $120.00",
         },
-        [XOMETRY_LOCATORS.leadTimeText[0]]: {
+        [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: {
           count: 1,
-          text: "5 business days",
+          click: saveConfiguration,
+        },
+        [XOMETRY_LOCATORS.toleranceOptions.standard]: {
+          count: 1,
+          click: setTolerance,
         },
       },
-      optionTexts: ["6061-T6", "Type II"],
+      optionTexts: ["6061-T6", "Black Anodize"],
     });
     launchMock.mockResolvedValue(createFakeBrowser(page));
 
@@ -391,16 +468,24 @@ describe("XometryAdapter", () => {
       uploadSelector: XOMETRY_LOCATORS.uploadInputs[1],
       drawingUploadMode: "not_provided",
       selectedMaterial: "6061-T6",
-      selectedFinish: "Type II",
+      selectedFinish: "Black Anodize",
+      selectedTolerance: "standard",
+      toleranceSelector: XOMETRY_LOCATORS.toleranceOptions.standard,
+      requirementsVerified: true,
+      saveConfigurationSelector: XOMETRY_LOCATORS.saveConfigurationButtons[0],
       priceSource: "selector",
       leadTimeSource: "selector",
-      url: "https://www.xometry.com/quoting/quote/Q00-TEST-0001",
+      url: "https://www.xometry.com/quoting/quote/Q00-TEST-0001#part-part-1",
     });
+    expect(saveConfiguration).toHaveBeenCalledTimes(1);
+    expect(setTolerance).toHaveBeenCalledTimes(1);
+    expect(page.waitForURL).toHaveBeenCalled();
     expect(result.artifacts).toHaveLength(8);
   });
 
   it("falls back to a separate drawing upload and reports manual review", { timeout: 30_000 }, async () => {
     const workerTempDir = await makeTempDir();
+    const saveConfiguration = vi.fn();
     const uploadFilesMock = vi.fn(async (files: string[]) => {
       if (files.length > 1) {
         throw new Error("drawing must be uploaded separately");
@@ -409,7 +494,17 @@ describe("XometryAdapter", () => {
     const fallbackUploadMock = vi.fn();
     const page = createFakePage({
       bodyText: "Manual review required. Drawing required for this quote.",
-      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002",
+      postSaveBodyText: [
+        "part.pdf",
+        "Quantity 2",
+        "Material: Aluminum 7075-T6",
+        "Finish: Standard",
+        "Precision Tolerance: ±.005",
+        "Manual review required. Drawing required for this quote.",
+      ].join(" "),
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002/part-1",
+      saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002#part-part-1",
+      visibleFilenames: ["part.pdf"],
       selectorBehaviors: {
         [XOMETRY_LOCATORS.uploadInputs[1]]: {
           count: 1,
@@ -423,6 +518,14 @@ describe("XometryAdapter", () => {
         [XOMETRY_LOCATORS.materialButtons[0]]: {
           count: 1,
           click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.toleranceOptions.standard]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: {
+          count: 1,
+          click: saveConfiguration,
         },
         [XOMETRY_LOCATORS.drawingInputs[0]]: {
           count: 1,
@@ -472,13 +575,118 @@ describe("XometryAdapter", () => {
 
     expect(uploadFilesMock).toHaveBeenCalledTimes(1);
     expect(fallbackUploadMock).toHaveBeenCalledTimes(1);
+    expect(saveConfiguration).toHaveBeenCalledTimes(1);
     expect(result.status).toBe("manual_review_pending");
     expect(result.rawPayload).toMatchObject({
       detectedFlow: "manual_review",
       drawingUploadMode: "fallback",
       selectedMaterial: "7075-T6",
       selectedFinish: null,
+      selectedTolerance: "standard",
+      requirementsVerified: true,
       priceSource: "none",
+    });
+  });
+
+  it("fails closed when Save Configuration is absent", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Configure part",
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0003/part-1",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[1]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          fill: vi.fn(),
+          press: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.materialButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.finishButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.toleranceOptions.standard]: {
+          count: 1,
+          click: vi.fn(),
+        },
+      },
+      optionTexts: ["6061-T6", "Black Anodize"],
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "selector_failure",
+      payload: {
+        field: "save_configuration",
+      },
+    });
+  });
+
+  it("fails closed when the saved summary does not match requested requirements", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Configure part",
+      postSaveBodyText: [
+        "Quantity 1",
+        "Material: Aluminum 6061-T6x",
+        "Finish: Standard",
+        "Precision Tolerance: ±.010",
+        "Least Expensive $25.00 Lead time 5 business days",
+      ].join(" "),
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0004/part-1",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[1]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          fill: vi.fn(),
+          press: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.materialButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.finishButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.toleranceOptions.standard]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+      },
+      optionTexts: ["6061-T6", "Black Anodize"],
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "unexpected_ui_state",
+      payload: {
+        reason: "saved_requirement_mismatch",
+        requirementMismatches: expect.arrayContaining(["quantity", "finish", "tolerance"]),
+      },
     });
   });
 
@@ -529,6 +737,34 @@ describe("XometryAdapter", () => {
       payload: {
         failedSelector: XOMETRY_LOCATORS.uploadInputs[0],
         attemptedSelectors: XOMETRY_LOCATORS.uploadInputs,
+      },
+    });
+  });
+
+  it("fails closed when the requested quantity cannot be configured", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Configure part",
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0003",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[1]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+      },
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      name: "VendorAutomationError",
+      code: "selector_failure",
+      payload: {
+        failedSelector: XOMETRY_LOCATORS.quantityInputs[0],
       },
     });
   });

@@ -96,6 +96,7 @@ export const XOMETRY_LOCATORS = {
     /process[:\s]+cnc/i,
   ],
   quantityInputs: [
+    'input[aria-label="Quantity"]',
     'input[type="number"][pattern]',
     '[data-testid*="quantity"] input',
     'input[name*="quantity"]',
@@ -103,12 +104,10 @@ export const XOMETRY_LOCATORS = {
     'input[type="number"][pattern="^[0-9]*$"]',
     'input[type="number"]',
   ],
-  // Material/finish are read-only on the summary page where price tiers live.
-  // Editing them requires navigating to the Configure tab (which hides tier
-  // pricing). Keep these selectors so the adapter still records what it
-  // attempted, but they intentionally do NOT navigate to the Configure tab —
-  // the gate only needs price + lead time, not requirement enforcement.
+  // Current configuration controls. Material and finish are required inputs;
+  // the adapter fails closed when it cannot apply the requested requirement.
   materialButtons: [
+    '#material-multiselect-combobox',
     '[data-testid="requirement-Material"]',
     '[data-testid*="material" i]:not([data-testid*="navigate" i])',
     '[aria-label*="material" i]',
@@ -121,6 +120,7 @@ export const XOMETRY_LOCATORS = {
     '[data-testid*="material" i] button',
   ],
   finishButtons: [
+    '#finish-multiselect-combobox',
     '[data-testid="requirement-Finish"]',
     '[data-testid*="finish" i]',
     '[aria-label*="finish" i]',
@@ -133,9 +133,19 @@ export const XOMETRY_LOCATORS = {
     '[role="option"]',
     '[data-testid*="option" i]',
   ],
-  // Configuration-page price tier. `[data-testid=part-discount]` exposes the tier
-  // total (e.g. "$252.97 (Save $59.81)"). `.price-tier` is the wrapping container.
+  toleranceOptions: {
+    looser: "#tolerances-looser-metal",
+    standard: "#tolerances-false-metal",
+    tighter: "#tolerances-true-metal",
+  },
+  saveConfigurationButtons: [
+    'button:has-text("Save Configuration")',
+    'button[type="submit"]:has-text("Save")',
+  ],
+  // Summary-page price tier after Save Configuration. `[data-testid=part-discount]`
+  // exposes the tier total (e.g. "$252.97 (Save $59.81)").
   priceText: [
+    'button:has-text("Least Expensive")',
     '[data-testid="part-discount"]',
     '.price-tier',
     '[data-testid*="price" i]',
@@ -147,6 +157,7 @@ export const XOMETRY_LOCATORS = {
     '[data-testid="tierAndLeadTime"]',
   ],
   leadTimeText: [
+    'button:has-text("Least Expensive")',
     '[data-testid="tierAndLeadTime"]',
     '.price-tier',
     '[data-testid*="lead" i]',
@@ -162,9 +173,10 @@ export const XOMETRY_LOCATORS = {
     '[class*="review" i]',
   ],
   drawingInputs: [
+    'input[type="file"][accept*="application/pdf" i]',
+    'input[type="file"][accept*=".pdf" i]',
     '[data-testid*="drawing" i] input[type="file"]',
     '[aria-label*="drawing" i] input[type="file"]',
-    'input[type="file"]',
   ],
 } as const;
 
@@ -201,7 +213,7 @@ export function buildFinishSearchTerms(finish: string | null) {
   if (!source.trim() || /as.?machined|none|no finish/.test(source)) return [];
 
   if (source.includes("type iii")) return ["Type III", "Hard Anodize"];
-  if (source.includes("type ii") && source.includes("black")) return ["Type II", "Black"];
+  if (source.includes("type ii") && source.includes("black")) return ["Black Anodize"];
   if (source.includes("type ii")) return ["Type II"];
   if (source.includes("bead")) return ["Bead Blast"];
   if (source.includes("chem")) return ["Chromate", "Chem Film"];

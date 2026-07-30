@@ -67,12 +67,128 @@ export function parseFirstCurrency(text: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function parseLeadTime(text: string): number | null {
-  const match = text.match(/(\d+)\s+(?:business\s+)?days?/i);
-  if (!match) return null;
+function observedUsFederalHoliday(date: Date) {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  const day = date.getUTCDate();
+  const weekday = date.getUTCDay();
 
-  const parsed = Number.parseInt(match[1], 10);
-  return Number.isFinite(parsed) ? parsed : null;
+  const observedFixedDate = (holidayMonth: number, holidayDay: number) => {
+    return [year - 1, year, year + 1].some((holidayYear) => {
+      const holiday = new Date(Date.UTC(holidayYear, holidayMonth, holidayDay));
+      const holidayWeekday = holiday.getUTCDay();
+      if (holidayWeekday === 6) {
+        holiday.setUTCDate(holiday.getUTCDate() - 1);
+      } else if (holidayWeekday === 0) {
+        holiday.setUTCDate(holiday.getUTCDate() + 1);
+      }
+      return (
+        year === holiday.getUTCFullYear() &&
+        month === holiday.getUTCMonth() &&
+        day === holiday.getUTCDate()
+      );
+    });
+  };
+
+  const nthWeekday = (holidayMonth: number, holidayWeekday: number, occurrence: number) => {
+    if (month !== holidayMonth || weekday !== holidayWeekday) return false;
+    return Math.ceil(day / 7) === occurrence;
+  };
+
+  const lastWeekday = (holidayMonth: number, holidayWeekday: number) => {
+    if (month !== holidayMonth || weekday !== holidayWeekday) return false;
+    const nextWeek = new Date(Date.UTC(year, month, day + 7));
+    return nextWeek.getUTCMonth() !== holidayMonth;
+  };
+
+  return (
+    observedFixedDate(0, 1) ||
+    nthWeekday(0, 1, 3) ||
+    nthWeekday(1, 1, 3) ||
+    lastWeekday(4, 1) ||
+    observedFixedDate(5, 19) ||
+    observedFixedDate(6, 4) ||
+    nthWeekday(8, 1, 1) ||
+    nthWeekday(9, 1, 2) ||
+    observedFixedDate(10, 11) ||
+    nthWeekday(10, 4, 4) ||
+    observedFixedDate(11, 25)
+  );
+}
+
+/**
+ * Parses an explicit business-day duration or approximates an arrival date
+ * using the US federal business calendar. Ambiguous stale yearless dates are
+ * rejected except for a bounded November/December-to-January/February rollover.
+ */
+export function parseLeadTime(text: string, now = new Date()): number | null {
+  const match = text.match(/(\d+)\s+(?:business\s+)?days?/i);
+  if (match) {
+    const parsed = Number.parseInt(match[1], 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  const arrivalMatch = text.match(
+    /arrives?\s+by\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2})(?:,\s*(\d{4}))?/i,
+  );
+  if (!arrivalMatch) return null;
+
+  const monthNames = [
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "may",
+    "jun",
+    "jul",
+    "aug",
+    "sep",
+    "oct",
+    "nov",
+    "dec",
+  ];
+  const month = monthNames.findIndex((candidate) =>
+    arrivalMatch[1].toLowerCase().startsWith(candidate),
+  );
+  const day = Number.parseInt(arrivalMatch[2], 10);
+  let year = arrivalMatch[3] ? Number.parseInt(arrivalMatch[3], 10) : now.getUTCFullYear();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  let arrival = new Date(Date.UTC(year, month, day));
+
+  if (
+    month < 0 ||
+    arrival.getUTCFullYear() !== year ||
+    arrival.getUTCMonth() !== month ||
+    arrival.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  if (arrivalMatch[3] && arrival.getTime() < today.getTime()) {
+    return null;
+  }
+
+  if (!arrivalMatch[3] && arrival.getTime() < today.getTime()) {
+    const boundedYearEndRollover =
+      today.getUTCMonth() >= 10 && month <= 1;
+    if (!boundedYearEndRollover) {
+      return null;
+    }
+    year += 1;
+    arrival = new Date(Date.UTC(year, month, day));
+  }
+
+  let businessDays = 0;
+  const cursor = new Date(today);
+  while (cursor.getTime() < arrival.getTime()) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    const weekday = cursor.getUTCDay();
+    if (weekday !== 0 && weekday !== 6 && !observedUsFederalHoliday(cursor)) {
+      businessDays += 1;
+    }
+  }
+
+  return businessDays;
 }
 
 function isSignalPresent(text: string, patterns: readonly RegExp[]) {
@@ -477,6 +593,84 @@ async function chooseOptionByTerms(
   );
 }
 
+async function configureRequiredOption(
+  page: Page,
+  terms: string[],
+  controlSelectors: readonly string[],
+  optionSelectors: readonly string[],
+  field: "material" | "finish",
+) {
+  await findButtonAndOpen(page, controlSelectors, field);
+  return chooseOptionByTerms(page, terms, optionSelectors, field);
+}
+
+async function saveConfiguration(page: Page, timeoutMs: number) {
+  for (const selector of XOMETRY_LOCATORS.saveConfigurationButtons) {
+    const button = page.locator(selector).first();
+    if ((await button.count().catch(() => 0)) < 1) {
+      continue;
+    }
+    if (!(await button.isVisible().catch(() => false))) {
+      continue;
+    }
+
+    const configurationUrl = page.url();
+    await button.click();
+    const navigated = await page
+      .waitForURL((url) => url.toString() !== configurationUrl, {
+        timeout: Math.max(timeoutMs, 120_000),
+      })
+      .then(() => true)
+      .catch(() => false);
+
+    if (!navigated) {
+      const bodyText = await readBodyText(page);
+      throw new VendorAutomationError(
+        "Xometry did not leave the configuration page after Save Configuration.",
+        "navigation_failure",
+        {
+          vendor: "xometry",
+          field: "save_configuration",
+          configurationUrl,
+          url: page.url(),
+          bodyExcerpt: excerptText(bodyText),
+        },
+      );
+    }
+
+    await page
+      .waitForFunction(
+        () => {
+          const text = document.body?.innerText ?? "";
+          const priceAvailable =
+            /least expensive/i.test(text) && /\$\d[\d,]*\.\d{2}/.test(text);
+          const manualReviewAvailable =
+            /manual review|manually quoted|manually-quoted|requires review|drawing required/i.test(
+              text,
+            );
+          return priceAvailable || manualReviewAvailable;
+        },
+        undefined,
+        { timeout: Math.max(timeoutMs, 120_000) },
+      );
+    return selector;
+  }
+
+  const bodyText = await readBodyText(page);
+  throw new VendorAutomationError(
+    "Xometry Save Configuration control was not found.",
+    "selector_failure",
+    {
+      vendor: "xometry",
+      field: "save_configuration",
+      failedSelector: XOMETRY_LOCATORS.saveConfigurationButtons[0],
+      attemptedSelectors: [...XOMETRY_LOCATORS.saveConfigurationButtons],
+      url: page.url(),
+      bodyExcerpt: excerptText(bodyText),
+    },
+  );
+}
+
 async function setQuantity(page: Page, quantity: number) {
   const match = await firstWorkingLocator(page, XOMETRY_LOCATORS.quantityInputs);
 
@@ -498,7 +692,88 @@ async function setQuantity(page: Page, quantity: number) {
   await match.locator.press("Enter");
 }
 
-async function attachDrawingFallback(page: Page, drawingPath: string) {
+/**
+ * Chooses the least-cost Xometry tier that is at least as tight as the
+ * approved maximum tolerance.
+ */
+export function selectToleranceTier(toleranceInch: number | null) {
+  if (toleranceInch === null) {
+    return { selector: null, tier: null };
+  }
+
+  if (toleranceInch < 0.005) {
+    return {
+      selector: XOMETRY_LOCATORS.toleranceOptions.tighter,
+      tier: "tighter",
+    };
+  }
+
+  if (toleranceInch < 0.01) {
+    return {
+      selector: XOMETRY_LOCATORS.toleranceOptions.standard,
+      tier: "standard",
+    };
+  }
+
+  return {
+    selector: XOMETRY_LOCATORS.toleranceOptions.looser,
+    tier: "looser",
+  };
+}
+
+async function setTolerance(page: Page, toleranceInch: number | null) {
+  const selection = selectToleranceTier(toleranceInch);
+  if (selection.selector === null) {
+    return selection;
+  }
+
+  const radio = page.locator(selection.selector).first();
+  if ((await radio.count().catch(() => 0)) < 1) {
+    const bodyText = await readBodyText(page);
+    throw new VendorAutomationError(
+      `Xometry tolerance control was not found for ±${toleranceInch} in.`,
+      "selector_failure",
+      {
+        vendor: "xometry",
+        field: "tolerance",
+        failedSelector: selection.selector,
+        requestedToleranceInch: toleranceInch,
+        url: page.url(),
+        bodyExcerpt: excerptText(bodyText),
+      },
+    );
+  }
+
+  await radio.click();
+  return selection;
+}
+
+async function waitForVisibleFilename(
+  page: Page,
+  filename: string,
+  timeoutMs: number,
+) {
+  const visible = await page
+    .waitForFunction(
+      (expectedFilename) =>
+        (document.body?.innerText ?? "")
+          .toLocaleLowerCase()
+          .includes(expectedFilename.toLocaleLowerCase()),
+      filename,
+      { timeout: timeoutMs },
+    )
+    .then(() => true)
+    .catch(() => false);
+
+  return visible;
+}
+
+async function attachDrawingFallback(
+  page: Page,
+  drawingPath: string,
+  drawingName: string,
+  timeoutMs: number,
+) {
   for (const selector of XOMETRY_LOCATORS.drawingInputs) {
     const locator = page.locator(selector).first();
     const count = await locator.count().catch(() => 0);
@@ -507,13 +782,78 @@ async function attachDrawingFallback(page: Page, drawingPath: string) {
 
     try {
       await locator.setInputFiles(drawingPath);
-      return selector;
+      if (await waitForVisibleFilename(page, drawingName, timeoutMs)) {
+        return selector;
+      }
     } catch {
       // Try the next drawing-specific input.
     }
   }
 
   return null;
+}
+
+type SavedRequirementCheck = {
+  quantity: number;
+  materialTerms: string[];
+  finishTerms: string[];
+  toleranceTier: string | null;
+  drawingName: string | null;
+};
+
+function includesAnyTerm(text: string, terms: string[]) {
+  const normalized = text.toLocaleLowerCase();
+  return terms.some((term) => normalized.includes(term.toLocaleLowerCase()));
+}
+
+export function hasVisibleFilename(text: string, filename: string) {
+  return text.toLocaleLowerCase().includes(filename.toLocaleLowerCase());
+}
+
+function verifySavedRequirements(
+  bodyText: string,
+  expected: SavedRequirementCheck,
+) {
+  const mismatches: string[] = [];
+  const quantityPattern = new RegExp(`\\bQuantity\\s*:?\\s*${expected.quantity}\\b`, "i");
+
+  if (!quantityPattern.test(bodyText)) {
+    mismatches.push("quantity");
+  }
+  if (!includesAnyTerm(bodyText, expected.materialTerms)) {
+    mismatches.push("material");
+  }
+  if (expected.finishTerms.length > 0 && !includesAnyTerm(bodyText, expected.finishTerms)) {
+    mismatches.push("finish");
+  } else if (
+    expected.finishTerms.length === 0 &&
+    !/Finish:\s*(?:Standard|As Machined|None)\b/i.test(bodyText)
+  ) {
+    mismatches.push("finish");
+  }
+
+  if (expected.toleranceTier === "looser" && !/Precision Tolerance:\s*±?\.010/i.test(bodyText)) {
+    mismatches.push("tolerance");
+  } else if (
+    expected.toleranceTier === "standard" &&
+    !/Precision Tolerance:\s*±?\.005/i.test(bodyText)
+  ) {
+    mismatches.push("tolerance");
+  } else if (
+    expected.toleranceTier === "tighter" &&
+    !/Precision Tolerance:.*(?:tighter than|<)\s*±?\.005/i.test(bodyText)
+  ) {
+    mismatches.push("tolerance");
+  }
+
+  if (
+    expected.drawingName &&
+    !hasVisibleFilename(bodyText, expected.drawingName)
+  ) {
+    mismatches.push("drawing");
+  }
+
+  return mismatches;
 }
 
 async function detectBlockingState(page: Page, runDir: string) {
@@ -711,6 +1051,8 @@ export class XometryAdapter extends VendorAdapter {
     let uploadSelector: string | null = null;
     let selectedMaterial: string | null = null;
     let selectedFinish: string | null = null;
+    let selectedTolerance: string | null = null;
+    let toleranceSelector: string | null = null;
     let drawingUploadMode: XometryDrawingUploadMode =
       input.stagedDrawingFile ? "bundled" : "not_provided";
     let priceSource: XometryValueSource = "none";
@@ -835,67 +1177,74 @@ export class XometryAdapter extends VendorAdapter {
       detectedFlow = "upload_complete";
       await appendArtifacts(artifacts, page, runDir, "uploaded");
 
-      // Quantity / material / finish are best-effort on the configuration page.
-      // Xometry instant-quote pages already display tier prices for the default
-      // quantity + auto-detected material, which satisfies the gate. If the
-      // edit controls are present we apply requested overrides; if absent we
-      // proceed with displayed defaults rather than failing the run.
-      try {
-        await setQuantity(page, normalizedQuantity(input));
-      } catch (error) {
-        if (error instanceof VendorAutomationError && error.code !== "selector_failure") {
-          throw error;
-        }
-      }
+      await setQuantity(page, normalizedQuantity(input));
 
-      try {
-        await findButtonAndOpen(page, XOMETRY_LOCATORS.materialButtons, "material");
-        selectedMaterial = await chooseOptionByTerms(
-          page,
-          materialTerms,
-          XOMETRY_LOCATORS.materialOptions,
-          "material",
-        );
-      } catch (error) {
-        if (error instanceof VendorAutomationError && error.code !== "selector_failure") {
-          throw error;
-        }
-      }
+      selectedMaterial = await configureRequiredOption(
+        page,
+        materialTerms,
+        XOMETRY_LOCATORS.materialButtons,
+        XOMETRY_LOCATORS.materialOptions,
+        "material",
+      );
 
       if (finishTerms && finishTerms.length > 0) {
-        try {
-          await findButtonAndOpen(page, XOMETRY_LOCATORS.finishButtons, "finish");
-          selectedFinish = await chooseOptionByTerms(
-            page,
-            finishTerms,
-            XOMETRY_LOCATORS.finishOptions,
-            "finish",
-          );
-        } catch (error) {
-          if (error instanceof VendorAutomationError && error.code !== "selector_failure") {
-            throw error;
-          }
-        }
+        selectedFinish = await configureRequiredOption(
+          page,
+          finishTerms,
+          XOMETRY_LOCATORS.finishButtons,
+          XOMETRY_LOCATORS.finishOptions,
+          "finish",
+        );
       }
 
+      const toleranceSelection = await setTolerance(
+        page,
+        input.requirement.tightest_tolerance_inch,
+      );
+      selectedTolerance = toleranceSelection.tier;
+      toleranceSelector = toleranceSelection.selector;
+
       const postConfigText = await readBodyText(page);
+      const drawingAlreadyAttached =
+        Boolean(input.stagedDrawingFile) &&
+        hasVisibleFilename(
+          postConfigText,
+          input.stagedDrawingFile?.originalName ?? "",
+        );
 
       if (
         input.stagedDrawingFile &&
-        (drawingUploadMode === "not_needed" || /drawing required|upload drawing|add drawing/i.test(postConfigText))
+        !drawingAlreadyAttached
       ) {
         const drawingFallbackSelector = await attachDrawingFallback(
           page,
           input.stagedDrawingFile.localPath,
+          input.stagedDrawingFile.originalName,
+          this.config.browserTimeoutMs,
         );
-        if (drawingFallbackSelector) {
-          drawingUploadMode = "fallback";
+        if (!drawingFallbackSelector) {
+          throw new VendorAutomationError(
+            "Xometry drawing could not be attached or verified before pricing.",
+            "upload_failure",
+            {
+              vendor: "xometry",
+              reason: "drawing_attachment_missing",
+              drawingName: input.stagedDrawingFile.originalName,
+              url: page.url(),
+              bodyExcerpt: excerptText(postConfigText),
+            },
+          );
         }
+        drawingUploadMode = "fallback";
       }
 
       await page.waitForLoadState("networkidle").catch(() => undefined);
       await detectBlockingState(page, runDir);
       detectedFlow = "configuration_complete";
+      const saveConfigurationSelector = await saveConfiguration(
+        page,
+        this.config.browserTimeoutMs,
+      );
 
       // Xometry recomputes prices after quantity changes; the tierAndLeadTime
       // labels render before their $X.XX siblings finish populating. Wait until
@@ -911,12 +1260,39 @@ export class XometryAdapter extends VendorAdapter {
             }
             return /\$\d[\d,]*\.\d{2}/.test(document.body.innerText ?? "");
           },
+          undefined,
           { timeout: this.config.browserTimeoutMs },
         )
         .catch(() => undefined);
       await appendArtifacts(artifacts, page, runDir, "configured");
 
       const bodyText = await readBodyText(page);
+      const requirementMismatches = verifySavedRequirements(bodyText, {
+        quantity: normalizedQuantity(input),
+        materialTerms,
+        finishTerms: finishTerms ?? [],
+        toleranceTier: selectedTolerance,
+        drawingName: input.stagedDrawingFile?.originalName ?? null,
+      });
+      if (requirementMismatches.length > 0) {
+        throw new VendorAutomationError(
+          `Xometry saved quote did not confirm: ${requirementMismatches.join(", ")}.`,
+          "unexpected_ui_state",
+          {
+            vendor: "xometry",
+            reason: "saved_requirement_mismatch",
+            requirementMismatches,
+            requestedQuantity: normalizedQuantity(input),
+            requestedMaterialTerms: materialTerms,
+            requestedFinishTerms: finishTerms ?? [],
+            requestedToleranceInch: input.requirement.tightest_tolerance_inch,
+            drawingName: input.stagedDrawingFile?.originalName ?? null,
+            url: page.url(),
+            bodyExcerpt: excerptText(bodyText),
+          },
+          await capturePageArtifacts(page, runDir, "requirement-mismatch"),
+        );
+      }
       const priceResult = await extractParsedValue(
         page,
         XOMETRY_LOCATORS.priceText,
@@ -951,11 +1327,13 @@ export class XometryAdapter extends VendorAdapter {
             drawingUploadMode,
             selectedMaterial,
             selectedFinish,
+            selectedTolerance,
             priceSource,
             leadTimeSource,
             manualReviewSelector: manualReviewResult.selector,
             url: page.url(),
             detectedFlow,
+            bodyExcerpt: excerptText(bodyText),
           },
           await capturePageArtifacts(page, runDir, "missing-price"),
         );
@@ -1002,6 +1380,10 @@ export class XometryAdapter extends VendorAdapter {
           drawingUploadMode,
           selectedMaterial,
           selectedFinish,
+          selectedTolerance,
+          toleranceSelector,
+          requirementsVerified: true,
+          saveConfigurationSelector,
           priceSource,
           leadTimeSource,
           bodyExcerpt: excerptText(bodyText),
