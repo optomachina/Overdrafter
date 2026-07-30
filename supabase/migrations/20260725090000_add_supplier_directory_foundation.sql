@@ -127,7 +127,7 @@ alter table public.supplier_source_records
 add constraint supplier_source_records_company_facility_fk
 foreign key (supplier_company_id, supplier_facility_id)
 references public.supplier_facilities (supplier_company_id, id)
-on delete set null;
+on delete set null (supplier_facility_id);
 
 create index supplier_source_records_facility_idx
 on public.supplier_source_records (supplier_facility_id);

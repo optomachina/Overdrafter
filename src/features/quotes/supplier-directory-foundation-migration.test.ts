@@ -56,6 +56,9 @@ describe("supplier directory foundation migration", () => {
     expect(normalizedSql).toContain(
       "references public.supplier_facilities (supplier_company_id, id)",
     );
+    expect(normalizedSql).toContain(
+      "on delete set null (supplier_facility_id)",
+    );
   });
 
   it("models capability and certification claims with verification state", () => {

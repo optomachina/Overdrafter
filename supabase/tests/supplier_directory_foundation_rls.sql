@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(9);
+select plan(11);
 
 select has_table(
   'public',
@@ -41,6 +41,11 @@ values (
   '44444444-4444-4444-8444-444444444444',
   'Canonical Facility',
   'verified'
+), (
+  '55555555-5555-4555-8555-555555555556',
+  '44444444-4444-4444-8444-444444444444',
+  'Disposable Facility',
+  'candidate'
 );
 
 insert into public.supplier_capabilities (id, code, name, category)
@@ -174,6 +179,44 @@ select throws_ok(
   '23503',
   null,
   'source records cannot link a company to another company facility'
+);
+
+insert into public.supplier_source_records (
+  source_id,
+  record_sha256,
+  raw_record,
+  supplier_company_id,
+  supplier_facility_id
+)
+values (
+  '77777777-7777-4777-8777-777777777777',
+  repeat('b', 64),
+  '{}'::jsonb,
+  '44444444-4444-4444-8444-444444444444',
+  '55555555-5555-4555-8555-555555555556'
+);
+
+delete from public.supplier_facilities
+where id = '55555555-5555-4555-8555-555555555556';
+
+select is(
+  (
+    select supplier_company_id
+    from public.supplier_source_records
+    where record_sha256 = repeat('b', 64)
+  ),
+  '44444444-4444-4444-8444-444444444444'::uuid,
+  'deleting a facility preserves the source record company match'
+);
+
+select is(
+  (
+    select supplier_facility_id
+    from public.supplier_source_records
+    where record_sha256 = repeat('b', 64)
+  ),
+  null::uuid,
+  'deleting a facility clears only the source record facility match'
 );
 
 select * from finish();
