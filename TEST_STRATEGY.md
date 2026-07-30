@@ -1,6 +1,6 @@
 # OverDrafter Test Strategy
 
-Last updated: March 19, 2026
+Last updated: July 28, 2026
 
 ## Purpose
 
@@ -79,6 +79,48 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - targeted automated tests where practical
 - smoke verification of the affected flow
 - when refactoring a large route into route-local modules, add focused tests for extracted view-model hooks or pure selectors so derived state stays covered outside JSX
+- for Quote Intelligence navigation, verify Parts/Quotes/Search at phone, tablet, and desktop widths
+- for buyer quote comparison, assert total-price Y values, working-day X values, fixed independent points, and synchronized table/chart selection
+- keep noncomparable offers visible with explicit reasons, render missing-lead offers in the chart's unavailable zone, and prevent ineligible options from being selected
+- for authenticated workspace caches, verify account and access-scope changes synchronously clear prior rendered lists and remove prior subject-bound queries before the next session is published
+
+### iOS application changes
+
+- generate the Xcode project from the committed project definition
+- run Swift unit tests for route mapping and navigation policy
+- build and test an iPhone simulator destination
+- build and test an iPad simulator destination
+- verify auth-session persistence, file upload, external-link handoff, offline/retry behavior, and deep-link routing
+- validate a generic-device archive before TestFlight upload
+- install and smoke-test the uploaded TestFlight build before release completion
+
+### Mobile browser-authentication changes
+
+- treat browser auth, callback validation, session handoff, logout, and account
+  switching as high-risk auth work even when native UI changes are small
+- use the production-realistic lane for the backend bridge, Supabase session
+  verification, membership resolution, revocation, and subject-cache clearing
+- assert PKCE S256, exact claimed-HTTPS callback matching, state validation,
+  allowlisted return routes, two-minute expiry, and atomic single use
+- verify Supabase owns upstream provider state/nonce validation and the website
+  callback validates its browser transaction before exchanging the Supabase
+  code with a ceremony-scoped PKCE verifier independent from the native handoff
+- test serial and concurrent replay, wrong verifier, wrong state, provider
+  failure, cancellation, network loss before/after consume, and partial
+  bootstrap cleanup
+- test that callback URLs, logs, analytics, crash reports, and proxy traces
+  contain no access token, refresh token, verifier, or session envelope
+- mock `ASWebAuthenticationSession` for native unit/UI tests, then verify every
+  enabled provider, shared/ephemeral browser modes, relaunch, logout, and
+  account switching on a physical iPhone
+- verify process death invalidates the in-memory ceremony, external email
+  confirmation/recovery restarts sign-in, and iOS logout uses local session
+  scope without revoking other devices
+- verify the signed Associated Domains entitlement and production AASA file
+  together; simulator-only callback tests are insufficient
+- use the response, lifecycle, and threat matrix in
+  [`docs/mobile-authentication-contract.md`](docs/mobile-authentication-contract.md)
+  as the minimum verification set for `OVD-219` and `OVD-221`
 
 ### Client-triggered quote request changes
 - validate request gating and lifecycle rendering in client part and project workspace tests

@@ -15,6 +15,9 @@ import {
   type ParsedModelResponse,
   serializeParserContext,
 } from "./modelFallback.js";
+import { combineUsage } from "./callModel.js";
+import { estimateCost, type ExtractionModelProvider } from "./modelRegistry.js";
+import { isModelAttemptSufficient } from "./policy.js";
 import { buildStoredExtractionPayload, currentExtractorVersion, summarizeExtractionOutcome } from "./sharedResult.js";
 import { runHybridExtraction } from "./hybridExtraction.js";
 import { cleanupPaths, createRunDir, stageStorageObject } from "../files.js";
@@ -30,7 +33,9 @@ import {
   type EvalProvider,
 } from "../tools/extractEvalProviders.js";
 
-export type ExtractionModelProvider = "openai" | "anthropic" | "openrouter";
+// Provider identity comes from the shared registry so the lab, the worker,
+// and the web extraction lab cannot disagree about model routing.
+export type { ExtractionModelProvider };
 
 export type DiscoveredExtractionModel = {
   provider: ExtractionModelProvider;
@@ -91,7 +96,6 @@ type StoredCatalogState = {
 };
 
 const MODEL_CATALOG_TTL_MS = 1000 * 60 * 60 * 6;
-const SUFFICIENT_FIELDS = ["partNumber", "revision", "description", "material", "finish"] as const;
 
 const OPENAI_FALLBACK_MODELS = ["gpt-5.4", "gpt-5.4-mini", "gpt-4.1-mini"];
 const ANTHROPIC_FALLBACK_MODELS = ["claude-sonnet-4-6", "claude-3-7-sonnet-latest"];
@@ -360,13 +364,6 @@ export class ExtractionModelCatalogManager {
   }
 }
 
-function isAttemptSufficient(parsed: ParsedModelResponse) {
-  return SUFFICIENT_FIELDS.every((fieldName) => {
-    const field = parsed[fieldName];
-    return Boolean(field.value) && field.confidence >= 0.8 && field.fieldSource !== "unknown";
-  });
-}
-
 async function runPreviewModelAttempts(input: {
   config: WorkerConfig;
   modelId: string;
@@ -428,7 +425,7 @@ async function runPreviewModelAttempts(input: {
   let finalOutput = cropOutput;
   let usedFullPage = false;
 
-  if ((!cropOutput.fields.titleBlockSufficient || !isAttemptSufficient(cropOutput.fields)) && input.fullPagePath) {
+  if ((!cropOutput.fields.titleBlockSufficient || !isModelAttemptSufficient(cropOutput.fields)) && input.fullPagePath) {
     const fullPageOutput = await request("full_page", provider);
     attempts.push({
       attempt: "full_page",
@@ -439,6 +436,24 @@ async function runPreviewModelAttempts(input: {
     finalOutput = fullPageOutput;
     usedFullPage = true;
   }
+
+  // Cost falls back to the shared registry table when the provider does not
+  // report one, so the lab prices every model rather than only OpenRouter's.
+  const usage = combineUsage(
+    attempts.map((attempt) => ({
+      provider: providerName,
+      modelName: attempt.output.modelName,
+      inputTokens: attempt.output.inputTokens,
+      outputTokens: attempt.output.outputTokens,
+      durationMs: attempt.output.durationMs,
+      estimatedCostUsd:
+        attempt.output.estimatedCostUsd ??
+        estimateCost(attempt.output.modelName, attempt.output.inputTokens, attempt.output.outputTokens)
+          ?.costUsd ??
+        null,
+      attempts: 1,
+    })),
+  );
 
   const modelResult: DrawingModelExtractionResult = {
     fields: {
@@ -465,21 +480,16 @@ async function runPreviewModelAttempts(input: {
     promptVersion: MODEL_FALLBACK_PROMPT_VERSION,
     usedTitleBlockCrop: Boolean(input.cropPath),
     usedFullPage,
+    usage,
   };
 
   return {
     provider: providerName,
     parserContext: serializeParserContext(input.drawingSignals),
-    durationMs: attempts.reduce((sum, attempt) => sum + attempt.output.durationMs, 0),
-    inputTokens: attempts.reduce((sum, attempt) => sum + attempt.output.inputTokens, 0),
-    outputTokens: attempts.reduce((sum, attempt) => sum + attempt.output.outputTokens, 0),
-    estimatedCostUsd: attempts.reduce<number | null>((sum, attempt) => {
-      if (attempt.output.estimatedCostUsd === null) {
-        return sum;
-      }
-
-      return (sum ?? 0) + attempt.output.estimatedCostUsd;
-    }, null),
+    durationMs: usage?.durationMs ?? 0,
+    inputTokens: usage?.inputTokens ?? 0,
+    outputTokens: usage?.outputTokens ?? 0,
+    estimatedCostUsd: usage?.estimatedCostUsd ?? null,
     modelAttempts: attempts.map((attempt) => ({
       attempt: attempt.attempt,
       titleBlockSufficient: attempt.titleBlockSufficient,

@@ -450,6 +450,84 @@ describe("FictivAdapter", () => {
     expect(result.artifacts.length).toBeGreaterThan(0);
   });
 
+  it("withholds a price when every declared price locator misses", async () => {
+    const workerTempDir = await makeTempDir();
+    let cncSelected = false;
+    const page = createFakePage({
+      bodyTextSequence: [
+        "Select process to continue",
+        "Uploading your parts. Active quotes",
+        "Analyzing your geometry",
+        // No price locator matches below, so the only currency the whole-page
+        // scan can find is an unrelated promotional banner.
+        "Active quotes Refer a friend and get $50.00 credit Lead time 5 business days",
+      ],
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.uploadInputs[1]]: {
+          count: () => (cncSelected ? 1 : 0),
+          setInputFiles: vi.fn(),
+        },
+        [FICTIV_LOCATORS.processButtons[0]]: {
+          count: 1,
+          text: () => (cncSelected ? "CNC" : "Process"),
+          click: vi.fn(() => {
+            cncSelected = true;
+          }),
+        },
+        [FICTIV_LOCATORS.configurationDrawerButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [FICTIV_LOCATORS.endUseButtons[0]]: {
+          count: 1,
+          text: "End use",
+          click: vi.fn(),
+        },
+        [FICTIV_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          fill: vi.fn(),
+          press: vi.fn(),
+        },
+        [FICTIV_LOCATORS.materialButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [FICTIV_LOCATORS.finishButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [FICTIV_LOCATORS.quoteLinkAnchors[0]]: {
+          count: 1,
+          href: "/quotes/abc123",
+        },
+      },
+      optionTexts: ["CNC", "6061", "Type II", "Prototype"],
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    expect(result.status).toBe("manual_review_pending");
+    expect(result.totalPriceUsd).toBeNull();
+    expect(result.unitPriceUsd).toBeNull();
+    expect(result.leadTimeBusinessDays).toBeNull();
+    expect(result.rawPayload).toMatchObject({
+      priceSource: "body_text",
+      priceTrusted: false,
+      priceGateReason: "unanchored_price",
+      locatorDriftDetected: true,
+      unanchoredPriceObservedUsd: 50,
+    });
+  });
+
   it("returns manual_review_pending with configuration_required classification when configuration is incomplete", async () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({

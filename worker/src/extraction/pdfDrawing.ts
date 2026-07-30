@@ -112,7 +112,12 @@ const FIELD_LABEL_PATTERN =
 const PART_NUMBER_PATTERN = /\b\d{3,5}-\d{4,6}(?:-[A-Z0-9]{1,4})?\b/;
 const SPEC_PATTERN = /\b(?:MIL|ASTM|AMS|QQ|ASME|SAE|ISO|DIN)[-\s/]*[A-Z0-9.]+/i;
 const DATE_PATTERN = /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|SEPT|OCT|NOV|DEC)\b/i;
-const SIGNATURE_PATTERN = /\b(?:engineer|checker|checked|approvals|approved|date|ec\/date|ecn|tim)\b/i;
+const SIGNATURE_PATTERN = /\b(?:engineer|checker|checked|approvals|approved|date|ec\/date|ecn)\b/i;
+// Boilerplate that appears in a proprietary notice regardless of whose name
+// is on it. Naming a specific company here would tie the parser to one
+// customer and break the moment a drawing is anonymised.
+const PROPRIETARY_NOTICE_PATTERN =
+  /\b(?:PROPRIETARY|CONFIDENTIAL|APPROVALS|SOLE PROPERTY|REPRODUCTION IN PART|WRITTEN PERMISSION)\b/i;
 const FINISH_KEYWORD_PATTERN = /\b(?:anodize|anodized|paint|painted|plate|plated|passivate|passivated|coat|coated|powder|oxide|chromate|mil-|ams|astm|type\s*[ivx0-9]+|class\s*\d+)\b/i;
 
 function clamp(value: number, min: number, max: number) {
@@ -403,7 +408,26 @@ function buildAnchoredCandidates(
         break;
       }
 
-      const boundedValue = cleanCapturedValue(nextLine.raw.slice(lowerRowStart, cellEnd));
+      // The cell's right edge is the next label on the anchor line, if there
+      // is one. When there is not, the cell runs to the end of the line being
+      // read — not to the end of the *anchor* line, which is often much
+      // shorter when a label sits alone above its value. Clipping to the
+      // anchor line's width truncated values like "6061 Alloy" to "6061".
+      const continuationCellEnd = nextAnchor?.start ?? nextLine.raw.length;
+      const boundedValue = cleanCapturedValue(nextLine.raw.slice(lowerRowStart, continuationCellEnd));
+      // Column-bounded fields may fall back to the whole line only while we
+      // have captured nothing yet — that covers a label sitting alone above
+      // its value. Once chunks are accumulating, an empty cell means this
+      // field's column has ended, and reading the whole line would splice in
+      // text from a neighbouring title-block cell. (A FINISH of
+      // "ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2" used to pick up the
+      // adjacent "THIRD ANGLE PROJECTION" block this way.)
+      const columnEnded = chunks.length > 0 && !boundedValue;
+
+      if (columnEnded) {
+        break;
+      }
+
       const lineValue =
         field === "description"
           ? nextLine.normalized
@@ -638,9 +662,14 @@ function rescueOcrTitleBlockFields(input: {
   }
 
   const descriptionValue = input.fields.description.value ?? "";
+  // A title never contains a date. One in the captured description means the
+  // capture ran into the approvals or revisions block, which is a
+  // customer-agnostic signal — unlike the engineer's first name this used to
+  // key on.
   const descriptionHasApprovalMetadata =
     SIGNATURE_PATTERN.test(descriptionValue) ||
-    /\b(?:PROPRIETARY|CONFIDENTIAL|4D TECHNOLOGY CORPORATION|APPROVALS)\b/i.test(descriptionValue);
+    DATE_PATTERN.test(descriptionValue) ||
+    PROPRIETARY_NOTICE_PATTERN.test(descriptionValue);
 
   if (
     (!descriptionValue || input.fields.description.reviewNeeded || descriptionHasApprovalMetadata) &&

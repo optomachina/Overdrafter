@@ -483,6 +483,59 @@ describe("XometryAdapter", () => {
     expect(result.artifacts).toHaveLength(8);
   });
 
+  it("withholds a price when every declared price locator misses", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      // No priceText/leadTimeText selector behavior: every declared locator
+      // misses, so the only currency on the page is an unrelated banner.
+      bodyText: "Spring sale! Orders over $19.99 ship free. Lead time 5 business days",
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[1]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          fill: vi.fn(),
+          press: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.materialButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.finishButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+      },
+      optionTexts: ["6061-T6", "Type II"],
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    // The banner price must not reach the customer in any field.
+    expect(result.status).toBe("manual_review_pending");
+    expect(result.totalPriceUsd).toBeNull();
+    expect(result.unitPriceUsd).toBeNull();
+    expect(result.leadTimeBusinessDays).toBeNull();
+    expect(result.rawPayload).toMatchObject({
+      detectedFlow: "locator_drift",
+      priceSource: "body_text",
+      priceTrusted: false,
+      priceGateReason: "unanchored_price",
+      locatorDriftDetected: true,
+      // Retained as evidence for re-anchoring, under a non-quote key.
+      unanchoredPriceObservedUsd: 19.99,
+    });
+  });
+
   it("falls back to a separate drawing upload and reports manual review", { timeout: 30_000 }, async () => {
     const workerTempDir = await makeTempDir();
     const saveConfiguration = vi.fn();

@@ -1,16 +1,26 @@
 # OverDrafter Architecture
 
-Last updated: March 27, 2026
+Last updated: July 28, 2026
 
 ## Purpose
 
 This document defines the major architectural boundaries in OverDrafter. It exists to keep product, engineering, and workflow discussions grounded in the same system model.
 
-## System overview
+## How to read this document
 
-OverDrafter is a multi-agent manufacturing co-pilot. The system connects CAD-native intake, invisible specialist agents, asynchronous orchestration, and curated output while keeping all complexity hidden until it adds value.
+Sections marked **As-built** describe what is deployed and must be verifiable against the tree. Sections marked **Target** describe intended direction and are not implemented.
 
-The primary canvas is the user’s CAD tool (plugins) or a live 3D viewer. Natural language is the sole control surface. OpenClaw browser automation runs server-side and is never visible to the user. Specialist agents (DFM, extraction, quoting swarm, modeling/drafting, assembly/fulfillment, PDM) negotiate on an internal blackboard and execute in parallel. On-demand visualizations (heatmaps, diffs, scatters) are summoned only when needed and collapse immediately afterward.
+Keep the two labelled and separate. When the two were written in the same voice, the document stopped functioning as a check on the code: two separate drawing-extraction implementations coexisted for months, with the eval harness measuring the one production never ran, and nothing in these pages made that visible. If you cannot point at the code for a paragraph in an As-built section, it belongs under Target.
+
+## System overview (As-built)
+
+OverDrafter turns CAD and drawing uploads into comparable manufacturing quotes.
+
+Clients upload STEP and PDF files into project-scoped workspaces. An asynchronous worker extracts structured part requirements from those files, preferring deterministic label-anchored parsing and calling a vision model only when critical fields are missing, weak, or contested. Extraction output carries per-field confidence, evidence, and provenance, and fails closed into human review rather than guessing. Approved requirements drive quote collection: server-side browser automation drives vendor portals, and results normalize into a canonical internal quote model that estimators curate and publish to clients.
+
+## System overview (Target)
+
+The intended end state is a multi-agent manufacturing co-pilot: CAD-native intake through plugins, natural language as the primary control surface, specialist agents (DFM, extraction, quoting swarm, modeling/drafting, assembly/fulfillment, PDM) negotiating on an internal blackboard and executing in parallel, and on-demand visualizations summoned only when needed. None of this is implemented; see the Target section below for the components involved.
 
 ## Subsystems
 
@@ -19,13 +29,89 @@ The primary canvas is the user’s CAD tool (plugins) or a live 3D viewer. Natur
 - client auth bootstrap performs one browser-local Supabase session restore before protected-route decisions run, and later session refreshes use live auth reads rather than the memoized startup snapshot
 - route guards must wait for initial auth restoration before treating the user as signed out
 - workspace-facing navigation and application shell
+- client launch navigation presents `Parts | Quotes | Search`; `Project` remains the backing collaboration and
+  commercial container rather than the first navigation decision
 - client intake UI
 - artifact-first client workspaces with contextual intelligence rails and chat as a secondary tool
-- project-first browsing and creation flows
+- project browsing and creation flows remain reachable from part context and legacy routes
 - assembly and part management inside a project
 - internal estimator interfaces
 - quote comparison and package publication surfaces
 - route-local page composition for complex screens, with reusable quote-domain logic staying in `src/features/quotes/`
+
+### 1a. iOS application layer
+
+**As-built**
+
+- the universal SwiftUI target lives under `ios/` and supports iPhone and iPad
+- iPhone uses native Parts, Quotes, and Search tabs; iPad uses the same destinations in a native split view
+- the first release hosts the corresponding access-controlled web workflow in a shared persistent `WKWebView`
+  session so authentication, uploads, and quote mutations retain one implementation
+- production and preview navigation is restricted to the configured HTTPS origin; unsupported or unsafe schemes are
+  blocked and external main-frame HTTPS links leave the app; secure third-party subframes remain embedded for
+  payment elements
+- email/password authentication is the supported first-release path inside the app; social OAuth controls are hidden
+  in `?app=ios` workspaces
+
+**Approved target**
+
+- signed-out launch is a native welcome surface that authenticates through the
+  OverDrafter website in `ASWebAuthenticationSession`
+- the production browser callback is a claimed, exact HTTPS route and contains
+  only an opaque single-use handoff code and transaction state
+- a dedicated bootstrap web view redeems the handoff through an HTTPS POST and
+  establishes the Supabase session in the same persistent
+  `WKWebsiteDataStore` used by workspace destinations
+- workspace destinations are not created until bootstrap or cold-launch
+  session restoration succeeds
+- the native shell grows to `Inbox | Parts | Quotes | More` with a separate,
+  capability-gated Ask action
+- later fully native feature screens may replace individual web destinations
+  without changing their domain routes or authorization boundaries
+
+### 1b. Mobile browser-auth bridge (As-built server boundary)
+
+The iOS browser and the app `WKWebView` are intentionally separate security and
+storage contexts. The implemented website bridge connects them without placing Supabase
+credentials in a callback URL or native persistence:
+
+- `GET /auth/mobile/start` validates version, state, PKCE S256 challenge, and an
+  allowlisted relative return route
+- the website creates a ceremony-scoped, transfer-only Supabase session; social
+  OAuth uses separate provider state/nonce/PKCE and a dedicated provider
+  callback bound to the unpredictable browser transaction; only its PKCE
+  verifier persists in namespaced `sessionStorage`
+- browser completion atomically claims the transaction before refresh-token
+  rotation, verifies that session, stores it in a short-lived encrypted server
+  envelope, and redirects to the exact claimed HTTPS callback
+- the callback fragment contains only opaque `code` and `state` values
+- `POST /auth/mobile/bootstrap` verifies PKCE, atomically consumes the handoff,
+  requires the fixed native request marker and host before session persistence,
+  and runs `supabase.auth.setSession(...)` plus a server-backed
+  `supabase.auth.getUser()` check in the shared app website data store
+- handoff material is at least 256 bits, expires within two minutes, and is
+  single-use under concurrent redemption
+- logout, relaunch, revocation, and account switching clear subject-bound
+  caches before a different session can be published
+
+The public boundary is one same-origin Vercel Function at
+`api/mobile-auth.ts`. Dedicated ceremony and bootstrap bundles are emitted at
+stable first-party asset paths; neither ceremony imports the normal application
+bundle. Credential-adjacent state is isolated in forced-RLS `private` tables and
+is reachable only through fixed-search-path, service-role-only RPCs. The
+database owns the atomic `authenticating -> verifying -> completed -> consumed`
+transitions, source `auth.sessions` check, envelope clearing, persistent rate
+counters, and bounded cleanup. Vercel Cron invokes cleanup daily with
+`CRON_SECRET`; terminal rows are retained for seven days and safe audit metadata
+for thirty days.
+
+The versioned endpoint, storage, failure, lifecycle, and threat contracts are
+canonical in
+[`docs/mobile-authentication-contract.md`](docs/mobile-authentication-contract.md).
+The server/browser half is implemented by `OVD-219`. The native welcome,
+claimed-HTTPS callback capture, shared-store bootstrap host, local-scope logout,
+and account switching remain the `OVD-221` target and must pass the physical
+device release gate before this flow replaces the current embedded sign-in.
 
 ### 2. Backend data and domain layer
 - persistence of workspaces, projects, parts, jobs, files, quotes, packages, and service request records
@@ -87,7 +173,9 @@ Internal review implementation boundary:
 - project-level navigation that does not treat assemblies as the umbrella container
 - current project-ledger assignee bubbles derive from `project_jobs.created_by` joined to auth user profile metadata; this is the minimum safe source of truth until a dedicated part-assignee relation exists because each ledger row is still a project-job row owned by its creator
 
-### 9. Multi-agent orchestration & CAD-native layer (new)
+### 9. Multi-agent orchestration & CAD-native layer (Target — not implemented)
+
+None of the following exists in the codebase today. Vendor automation is implemented as per-vendor Playwright adapters under `worker/src/adapters/`, not as an agent harness.
 
 - CAD plugins (thin clients that inject into SolidWorks/Fusion/Onshape/etc.)
 - Live 3D STEP viewer as web fallback
@@ -100,7 +188,14 @@ Internal review implementation boundary:
 
 ## Domain hierarchy
 
-The top-level customer-facing container is `Project`, not `Assembly`.
+The top-level persisted collaboration and commercial container is `Project`, not `Assembly`.
+
+The client launch information architecture is collection-first. Responsive web
+uses `Parts | Quotes | Search`; the approved iOS target uses
+`Inbox | Parts | Quotes | More` and maps Search/Projects contextually. Neither
+presentation removes or flattens Project. Project remains the scope that groups
+collaborators, mixed manufacturing requests, files, quote rounds, and later
+order records; it is revealed from the work that needs that context.
 
 A project is the commercial and workflow scope for mixed manufacturing requests. It can contain:
 
@@ -109,7 +204,21 @@ A project is the commercial and workflow scope for mixed manufacturing requests.
 - drawings, PDFs, spec sheets, and other supporting documents
 - quote rounds, curated quote packages, and downstream review or order records
 
-An assembly remains a technical structure nested inside a project. It should model engineering hierarchy such as subassemblies and parts, but it must not define the top-level information architecture for intake, navigation, or collaboration.
+An assembly remains a technical structure nested inside a project. It should model engineering hierarchy such as
+subassemblies and parts, but it must not define the top-level information architecture for intake, navigation, or
+collaboration. Until immutable assembly/BOM identity ships, `All | Parts | Assemblies` is a truthful collection filter
+and must not fabricate assembly membership.
+
+## Quote launch identity bridge (As-built)
+
+- quote collection/detail routes use a stable six-character display code derived from the already access-controlled
+  job identity
+- the display code is a locator, never an authorization secret; route resolution occurs only across jobs already
+  available to the signed-in workspace
+- collisions fail closed rather than opening an arbitrary quote
+- quote links are currently login-gated; password grants and anyone-with-link grants remain target capabilities
+- the editable customer reference in the first release is browser-local and explicitly labeled as such; a future
+  persisted Quote/Round/Grant schema must replace that bridge without changing the immutable code or access boundary
 
 
 ## North Star canonical workspace/artifact primitives
@@ -191,6 +300,32 @@ Bridge ownership during the service-line-item migration:
 - auditability
 - observability
 - data separation
+
+## Untrusted-input contract (As-built)
+
+Anything the system does not compute deterministically — model output, and equally the DOM of a vendor portal we do not control — carries its provenance, and one policy decides what that provenance is permitted to do.
+
+- `worker/src/extractedValue.ts` defines `ValueSource` (`selector` | `body_text` | `none`) and the gate applied to scraped vendor values.
+- A vendor price is publishable only when anchored to a locator the adapter declares for that vendor. An unanchored price means every declared locator missed, so the adapter's contract with the vendor UI is broken; the lane routes to `manual_review_pending`, the observed number is retained under `unanchoredPriceObservedUsd` as evidence, and `locatorDriftDetected` is set for alerting. Lead time inherits the price's trust decision.
+- Drawing extraction expresses the same idea through per-field confidence, evidence, and `reviewNeeded` in `drawing_extractions`, and fails closed on parser/model disagreement.
+
+Do not add a new reader of untrusted input that returns a bare value. Return the provenance with it and route the decision through the shared policy.
+
+## Extraction model contract (As-built)
+
+One implementation serves production, the eval harness, and the debug lab. When they were separate, the harness ran with deterministic sampling and full usage accounting while production ran with neither, so eval numbers described a configuration no customer received.
+
+- `worker/src/extraction/schema.ts` — prompt and response schema.
+- `worker/src/extraction/policy.ts` — confidence thresholds, sufficiency rules, and prompt versioning. Prompt version is a content hash of the prompt and schema in the build, not a hand-maintained string.
+- `worker/src/extraction/modelRegistry.ts` — provider inference, capability flags, and the cost table. Single source of truth for model identity; the web extraction lab mirrors it in `src/features/quotes/extraction-models.ts` for the degraded path only.
+- `worker/src/extraction/modelProvider.ts` — the OpenAI, Anthropic, and OpenRouter implementations. All three are production-reachable.
+- `worker/src/extraction/callModel.ts` — the only entry point for a model request. Owns the deadline, retry with full jitter, and token/latency/cost accounting. SDK-level retries are disabled so provider behavior is uniform.
+
+Extraction completion events carry provider, prompt version, tokens, latency, cost, and attempt count, so `extraction_quality_summary` can attribute cost and speed changes rather than only accuracy drift.
+
+## Extraction quality gate (As-built)
+
+`worker/src/tools/extractEvalGate.ts` runs the production extraction path over a checked-in corpus and fails below per-field accuracy floors. The CI job reports skipped when no corpus or provider key is present, so an empty corpus never reads as a passing quality signal. Corpus layout and the intended coverage are documented in `worker/eval-corpus/README.md`.
 
 ## Extraction boundary
 

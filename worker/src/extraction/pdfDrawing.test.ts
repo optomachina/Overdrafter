@@ -45,7 +45,7 @@ const PRIMARY_REGRESSION_FIXTURE = {
         "MATERIAL      6061 ALLOY",
         "FINISH        ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2",
         "",
-        "                                                          4D Technology Corporation",
+        "                                                          ACME Mfg Co.",
         "                                                          TITLE:",
         "                                                          ROUND, CARBON FIBER END ATTACHMENTS",
         "                                                          BONDED",
@@ -238,6 +238,74 @@ describe("pdfDrawing", () => {
     expect(result.reviewFields).not.toContain("process");
   });
 
+  // The two cases below reproduce defects found by running the real
+  // 1093-05589-02 fixture through the gate, which the idealized synthetic
+  // layout above does not expose.
+
+  it("stops a column-bounded value at the end of its own cell", () => {
+    // FINISH wraps onto the next row, and the row after that belongs to the
+    // adjacent THIRD ANGLE PROJECTION cell, which starts past the FINISH
+    // cell's right edge. Falling back to the whole line once the cell had
+    // ended used to append "PROJECTION" to the finish.
+    const cellEdge = 58;
+    const at = (column: number, text: string) => " ".repeat(column) + text;
+
+    const result = inferDrawingSignalsFromPdf({
+      baseName: "column-bleed",
+      pdfText: {
+        pageCount: 1,
+        pages: [
+          {
+            page: 1,
+            text: [
+              at(50, "ACME Mfg Co."),
+              at(50, "TITLE:   MOUNT PLATE"),
+              "MATERIAL      6061 ALLOY",
+              // SIZE bounds the FINISH cell on the right.
+              `${at(0, "FINISH        ANODIZE, BLACK, MIL-A-8625F, TYPE II").padEnd(cellEdge)}SIZE   B`,
+              at(28, "CLASS 2"),
+              at(cellEdge, "THIRD ANGLE PROJECTION"),
+              at(48, "DWG. NO.              REV"),
+              at(48, "1093-05589             02"),
+              at(48, "SCALE: 1:1                         SHEET 1 OF 1"),
+            ].join("\n"),
+          },
+        ],
+      },
+    });
+
+    expect(result.finish.value).toBe("ANODIZE, BLACK, MIL-A-8625F, TYPE II CLASS 2");
+    expect(result.finish.value).not.toContain("PROJECTION");
+  });
+
+  it("reads a full value when its label sits alone on a shorter line", () => {
+    // The MATERIAL label is alone above its value. Clipping the value row to
+    // the label row's width used to truncate "6061 Alloy" to "6061".
+    const result = inferDrawingSignalsFromPdf({
+      baseName: "label-above-value",
+      pdfText: {
+        pageCount: 1,
+        pages: [
+          {
+            page: 1,
+            text: [
+              "                                                          ACME Mfg Co.",
+              "                                                          TITLE:   MOUNT PLATE",
+              "          MATERIAL",
+              "              6061 Alloy",
+              "FINISH        ANODIZE, BLACK, TYPE II",
+              "                                                SIZE      B     DWG. NO.              REV",
+              "                                                              1093-05589             02",
+              "                                                SCALE: 1:1                         SHEET 1 OF 1",
+            ].join("\n"),
+          },
+        ],
+      },
+    });
+
+    expect(result.material.value).toBe("6061 Alloy");
+  });
+
   it("rejects finish specs and approval text as part number and finish winners", () => {
     const result = inferDrawingSignalsFromPdf({
       baseName: "1093-05589-02",
@@ -309,9 +377,9 @@ describe("pdfDrawing", () => {
               "——",
               "c",
               "—S",
-              "PROPRIETARY AND CONFIDENTIAL UNLESS OTHERWISE SPECIFIED: APPROVALS NAME DATE 4D Technology Corporation",
+              "PROPRIETARY AND CONFIDENTIAL UNLESS OTHERWISE SPECIFIED: APPROVALS NAME DATE ACME Mfg Co.",
               "PREUWING WHE SOLE DRObEENY OF DIMENSIONS ARE IN INCHES SURFACE FINSH NS ENGINEER TIM 10/29/2013 TITLE:",
-              "4D TECHNOLOGY CORPORATION. ANY Oe each 5° BEND+2° INTERPRET GEOMETRIC DRAWN TIM 10/29/2013 * ROUND, CARBON FIBER END ATTACHMENTS",
+              "ACME MFG CO. ANY Oe each 5° BEND+2° INTERPRET GEOMETRIC DRAWN TIM 10/29/2013 * ROUND, CARBON FIBER END ATTACHMENTS",
               "REPRODUCTION IN PART OR AS A WHOLE * AL £01 TOLERANCING PER: ~ ~ BONDED",
               "WITHOUT THE WRITTEN PERMISSION OF TWO PLACE DECIMAL 2.01 ANSI Y14.5 1994 CHECKED",
               "AD TECHNOLOGY CORPORATION IS THREE PLACE DECIMAL #.005 MFG",
@@ -319,7 +387,7 @@ describe("pdfDrawing", () => {
               "QA.",
               "MATERIAL FINISH ANODIZE, BLACK, MIL-A-8625F, TYPE II B",
               "6061 Alloy CLASS 2 THIRD ANGLE 0093-05589 02",
-              "Project: 8002 REFERENCE OPTICS - File Name: 1093-05589",
+              "Project: SAMPLE - File Name: SAMPLE",
             ].join("\n"),
           },
         ],

@@ -30,6 +30,7 @@ import {
   normalizeDebugExtractionRun,
   normalizeDrawingExtraction,
 } from "@/features/quotes/utils";
+import { inferExtractionModelProvider } from "@/features/quotes/extraction-models";
 import { downloadStoredFileBlob } from "@/lib/stored-file";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -329,7 +330,7 @@ export function ExtractionLabCard({
 
     const fallback = workerReadinessQuery.data?.drawingExtractionDebugAllowedModels ?? [];
     return fallback.map((modelId, index) => ({
-      provider: modelId.includes("/") ? "openrouter" : modelId.startsWith("claude-") ? "anthropic" : "openai",
+      provider: inferExtractionModelProvider(modelId),
       modelId,
       displayLabel: modelId,
       sourceFreshness: "fallback" as const,

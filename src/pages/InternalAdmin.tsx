@@ -6,6 +6,7 @@ import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { InternalDashboardSidebar } from "@/components/internal/InternalDashboardSidebar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SpendCapCard } from "@/components/admin/SpendCapCard";
 import {
   Table,
   TableBody,
@@ -24,6 +25,7 @@ import {
 } from "@/features/quotes/api/workspace-access";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import { useClientWorkspaceData } from "@/features/quotes/use-client-workspace-data";
+import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
 import { formatStatusLabel } from "@/features/quotes/utils";
 import { useAppSession } from "@/hooks/use-app-session";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
@@ -63,12 +65,18 @@ const InternalAdmin = () => {
   const navigate = useNavigate();
   const { user, activeMembership, isPlatformAdmin, signOut, isAuthInitializing } = useAppSession();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+  const workspaceAccessScope = createWorkspaceAccessScope({
+    userId: user?.id,
+    organizationId: activeMembership?.organizationId,
+    role: activeMembership?.role,
+  });
   const { accessibleJobsQuery, archivedProjectsQuery, archivedJobsQuery } = useClientWorkspaceData({
     enabled: Boolean(user),
-    userId: user?.id,
+    accessScope: workspaceAccessScope,
     projectCollaborationUnavailable,
   });
   const notificationCenter = useWorkspaceNotifications({
+    accessScope: workspaceAccessScope,
     jobIds: (accessibleJobsQuery.data ?? []).map((job) => job.id),
     role: activeMembership?.role,
     userId: user?.id,
@@ -182,6 +190,13 @@ const InternalAdmin = () => {
           </Card>
         ) : (
           <div className="space-y-8">
+            {/* Spend first: it is the control an operator reaches for under
+                pressure, and burying it behind inventory tables costs time
+                exactly when time matters. */}
+            <section>
+              <SpendCapCard />
+            </section>
+
             <section>
               <Card className="border-border bg-muted">
                 <CardHeader>

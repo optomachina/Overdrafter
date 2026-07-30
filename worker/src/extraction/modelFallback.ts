@@ -1,8 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import OpenAI from "openai";
-import { zodTextFormat } from "openai/helpers/zod";
-import { z } from "zod";
 import type { WorkerConfig } from "../types.js";
 import {
   renderPdfTitleBlockCrop,
@@ -10,66 +7,56 @@ import {
   type ExtractedDrawingSignals,
   type ExtractedFieldSignal,
 } from "./pdfDrawing.js";
+import {
+  CRITICAL_MODEL_FIELDS,
+  COMPETING_CANDIDATE_DELTA,
+  isModelAttemptSufficient,
+  MODEL_ACCEPT_CONFIDENCE,
+  MODEL_FIELD_NAMES,
+  MODEL_TRIGGER_CONFIDENCE,
+  PARSER_STRONG_CONFIDENCE,
+  derivePromptVersion,
+  type CriticalModelFieldName,
+  type ModelFieldName,
+} from "./policy.js";
+import {
+  EXTRACTION_SYSTEM_INSTRUCTION,
+  EXTRACTION_USER_INSTRUCTIONS,
+  modelResponseSchema,
+  type ModelFieldResponse,
+  type ParsedModelResponse,
+} from "./schema.js";
+import {
+  EXTRACTION_SCHEMA_SHAPE,
+  resolveProvider,
+  type ExtractionProvider,
+  type ModelAttempt,
+} from "./modelProvider.js";
+import { qualifyForOpenRouter } from "./modelRegistry.js";
+import { callModel, combineUsage, type ModelCallUsage } from "./callModel.js";
+import type { SpendContext, SpendGuard } from "../spendGuard.js";
 
-const MODEL_FIELD_NAMES = [
-  "partNumber",
-  "revision",
-  "description",
-  "material",
-  "finish",
-  "process",
-] as const;
-const CRITICAL_MODEL_FIELDS = [
-  "partNumber",
-  "revision",
-  "description",
-  "material",
-  "finish",
-] as const;
-const MODEL_TRIGGER_CONFIDENCE = 0.78;
-const MODEL_ACCEPT_CONFIDENCE = 0.8;
-const PARSER_STRONG_CONFIDENCE = 0.9;
-const COMPETING_CANDIDATE_DELTA = 0.24;
-export const MODEL_FALLBACK_PROMPT_VERSION = "2026-03-16.v1";
-export const EXTRACTION_SYSTEM_INSTRUCTION =
-  "You extract structured title-block fields from engineering drawings. Return JSON only that matches the schema exactly.";
-export const EXTRACTION_USER_INSTRUCTIONS = [
-  "Extract raw manufacturing metadata from this engineering drawing.",
-  "Return raw drawing truth only. Do not normalize or shorten text for quoting.",
-  "Prefer explicit titled blocks such as DWG. NO., PART NUMBER, REV, TITLE, DESCRIPTION, MATERIAL, FINISH, and PROCESS.",
-  "Reject approval names, dates, signoff blocks, standards/specs as part number, and stray isolated letters for revision.",
-  "If a field is not visible, return null with low confidence.",
-] as const;
+export {
+  EXTRACTION_SYSTEM_INSTRUCTION,
+  EXTRACTION_USER_INSTRUCTIONS,
+  modelResponseSchema,
+  type ParsedModelResponse,
+};
 
-type ModelFieldName = (typeof MODEL_FIELD_NAMES)[number];
-type CriticalModelFieldName = (typeof CRITICAL_MODEL_FIELDS)[number];
-type ModelAttempt = "title_block_crop" | "full_page";
-type ModelFieldSource = "title_block" | "note" | "unknown";
-
-const modelFieldSchema = z.object({
-  value: z.string().nullable(),
-  confidence: z.number().min(0).max(1),
-  fieldSource: z.enum(["title_block", "note", "unknown"]),
-  reasons: z.array(z.string()).max(8).default([]),
-});
-
-export const modelResponseSchema = z.object({
-  partNumber: modelFieldSchema,
-  revision: modelFieldSchema,
-  description: modelFieldSchema,
-  material: modelFieldSchema,
-  finish: modelFieldSchema,
-  process: modelFieldSchema,
-  titleBlockSufficient: z.boolean().default(true),
+/**
+ * Prompt version derived from the prompt and schema actually in the build,
+ * rather than a hand-bumped constant that can silently disagree with them.
+ */
+export const MODEL_FALLBACK_PROMPT_VERSION = derivePromptVersion({
+  systemInstruction: EXTRACTION_SYSTEM_INSTRUCTION,
+  userInstructions: EXTRACTION_USER_INSTRUCTIONS,
+  schemaShape: EXTRACTION_SCHEMA_SHAPE,
 });
 
 const PART_NUMBER_PATTERN = /\b\d{3,5}-\d{4,6}(?:-[A-Z0-9]{1,4})?\b/;
 const SPEC_PATTERN = /\b(?:MIL|ASTM|AMS|QQ|ASME|SAE|ISO|DIN)[-\s/]*[A-Z0-9.]+/i;
 const DATE_PATTERN = /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|SEPT|OCT|NOV|DEC)\b/i;
-const SIGNATURE_PATTERN = /\b(?:engineer|checker|checked|approvals|approved|date|ec\/date|ecn|tim)\b/i;
-
-type ModelFieldResponse = z.infer<typeof modelFieldSchema>;
-export type ParsedModelResponse = z.infer<typeof modelResponseSchema>;
+const SIGNATURE_PATTERN = /\b(?:engineer|checker|checked|approvals|approved|date|ec\/date|ecn)\b/i;
 
 export type DrawingModelExtractionResult = {
   fields: Record<ModelFieldName, ModelFieldResponse>;
@@ -82,6 +69,8 @@ export type DrawingModelExtractionResult = {
   promptVersion: string;
   usedTitleBlockCrop: boolean;
   usedFullPage: boolean;
+  /** Tokens, latency, and cost for the attempts this result was built from. */
+  usage: ModelCallUsage | null;
 };
 
 function normalizeWhitespace(value: string) {
@@ -204,72 +193,50 @@ export function validateModelFieldValue(field: ModelFieldName, value: string | n
 
 type ModelFallbackRuntimeConfig = Pick<
   WorkerConfig,
-  "drawingExtractionModel" | "openAiApiKey" | "openRouterApiKey"
+  "drawingExtractionModel" | "openAiApiKey" | "anthropicApiKey" | "openRouterApiKey"
 >;
 
-function buildModelFallbackClient(
-  config: ModelFallbackRuntimeConfig,
-  dependencies: { client?: OpenAI },
-): { client: OpenAI; provider: "openai" | "openrouter" } | null {
-  if (!config.openAiApiKey && !config.openRouterApiKey) {
-    return null;
-  }
-
-  if (dependencies.client) {
-    return {
-      client: dependencies.client,
-      provider: config.openAiApiKey ? "openai" : "openrouter",
-    };
-  }
-
-  if (config.openAiApiKey) {
-    return {
-      client: new OpenAI({ apiKey: config.openAiApiKey }),
-      provider: "openai",
-    };
-  }
-
-  if (config.openRouterApiKey) {
-    return {
-      client: new OpenAI({
-        apiKey: config.openRouterApiKey,
-        baseURL: "https://openrouter.ai/api/v1",
-      }),
-      provider: "openrouter",
-    };
-  }
-
-  return null;
-}
-
 /**
- * Builds the provider-specific client and exact model identifier used for extraction.
+ * Resolves the provider and exact model identifier used for extraction.
+ *
+ * Anthropic participates here on equal footing with OpenAI and OpenRouter.
+ * It used to be configured but unreachable: `ANTHROPIC_API_KEY` was parsed
+ * and plumbed into `WorkerConfig`, yet the production client builder could
+ * only ever construct OpenAI or OpenRouter, so the deployment appeared to
+ * have cross-provider failover that did not exist.
  */
 export function buildModelFallbackRuntime(
   config: ModelFallbackRuntimeConfig,
-  dependencies: { client?: OpenAI } = {},
-): { client: OpenAI; model: string } | null {
-  const runtime = buildModelFallbackClient(config, dependencies);
-  if (!runtime) {
+  dependencies: { provider?: ExtractionProvider } = {},
+): { provider: ExtractionProvider; model: string } | null {
+  const apiKeys = {
+    openai: config.openAiApiKey ?? undefined,
+    anthropic: config.anthropicApiKey ?? undefined,
+    openrouter: config.openRouterApiKey ?? undefined,
+  };
+
+  if (!apiKeys.openai && !apiKeys.anthropic && !apiKeys.openrouter) {
     return null;
   }
 
   const configuredModel = config.drawingExtractionModel.trim();
-  const usesUnqualifiedOpenRouterModel = runtime.provider === "openrouter" && !configuredModel.includes("/");
 
-  return {
-    client: runtime.client,
-    model: usesUnqualifiedOpenRouterModel
-      ? `openai/${configuredModel}`
-      : configuredModel,
-  };
-}
+  if (dependencies.provider) {
+    return {
+      provider: dependencies.provider,
+      model:
+        dependencies.provider.provider === "openrouter"
+          ? qualifyForOpenRouter(configuredModel)
+          : configuredModel,
+    };
+  }
 
-function isModelAttemptSufficient(parsed: ParsedModelResponse) {
-  return CRITICAL_MODEL_FIELDS.every((fieldName) => {
-    const field = parsed[fieldName];
-    return Boolean(field.value) && field.confidence >= MODEL_ACCEPT_CONFIDENCE && field.fieldSource !== "unknown";
-  });
+  const resolved = resolveProvider(configuredModel, apiKeys);
+  if (!resolved) {
+    return null;
+  }
+
+  return { provider: resolved.provider, model: resolved.modelId };
 }
 
 /**
@@ -309,67 +276,38 @@ export async function imageFileToDataUrl(localPath: string) {
   return `data:image/png;base64,${buffer.toString("base64")}`;
 }
 
+/**
+ * Runs one extraction attempt through the shared provider layer, so the
+ * production path gets the same deterministic sampling, deadline, retry
+ * policy, and usage accounting as the eval harness and the debug lab.
+ */
 async function runModelAttempt(input: {
-  client: OpenAI;
+  provider: ExtractionProvider;
   model: string;
   drawingSignals: ExtractedDrawingSignals;
   baseName: string;
   cropPath: string | null;
   fullPagePath: string | null;
   attempt: ModelAttempt;
-}) {
-  const content: Array<
-    | { type: "input_text"; text: string }
-    | { type: "input_image"; image_url: string; detail: "high" | "auto" | "low" }
-  > = [
+  spend?: { guard: SpendGuard; estimatedUsd: number; context?: SpendContext };
+}): Promise<{ parsed: ParsedModelResponse; usage: ModelCallUsage }> {
+  const { output, usage } = await callModel(
+    input.provider,
     {
-      type: "input_text",
-      text: [
-        ...EXTRACTION_USER_INSTRUCTIONS,
-        `Filename stem: ${input.baseName}`,
-        `Deterministic parser context:\n${serializeParserContext(input.drawingSignals)}`,
-      ].join("\n"),
+      parserContext: serializeParserContext(input.drawingSignals),
+      baseName: input.baseName,
+      titleBlockCropDataUrl: input.cropPath ? await imageFileToDataUrl(input.cropPath) : null,
+      fullPageDataUrl:
+        input.attempt === "full_page" && input.fullPagePath
+          ? await imageFileToDataUrl(input.fullPagePath)
+          : null,
+      attempt: input.attempt,
     },
-  ];
+    input.model,
+    input.spend ? { spend: input.spend } : {},
+  );
 
-  if (input.cropPath) {
-    content.push({
-      type: "input_image",
-      image_url: await imageFileToDataUrl(input.cropPath),
-      detail: "high",
-    });
-  }
-
-  if (input.attempt === "full_page" && input.fullPagePath) {
-    content.push({
-      type: "input_image",
-      image_url: await imageFileToDataUrl(input.fullPagePath),
-      detail: "high",
-    });
-  }
-
-  const response = await input.client.responses.parse({
-    model: input.model,
-    input: [
-      {
-        role: "developer",
-        content: EXTRACTION_SYSTEM_INSTRUCTION,
-      },
-      {
-        role: "user",
-        content,
-      },
-    ],
-    text: {
-      format: zodTextFormat(modelResponseSchema, "drawing_field_extraction"),
-    },
-  });
-
-  if (!response.output_parsed) {
-    throw new Error("Model fallback returned no parsed extraction payload.");
-  }
-
-  return response.output_parsed;
+  return { parsed: output.fields, usage };
 }
 
 export async function extractDrawingFieldsWithModel(
@@ -380,14 +318,18 @@ export async function extractDrawingFieldsWithModel(
     baseName: string;
     drawingSignals: ExtractedDrawingSignals;
     pagePreviewPath: string | null;
+    /** Budget enforcement. Each attempt reserves and settles independently. */
+    spend?: { guard: SpendGuard; estimatedUsd: number; context?: SpendContext };
   },
   dependencies: {
-    client?: OpenAI;
+    provider?: ExtractionProvider;
   } = {},
 ): Promise<DrawingModelExtractionResult | null> {
   if (
     !input.config.drawingExtractionEnableModelFallback ||
-    (!input.config.openAiApiKey && !input.config.openRouterApiKey)
+    (!input.config.openAiApiKey &&
+      !input.config.anthropicApiKey &&
+      !input.config.openRouterApiKey)
   ) {
     return null;
   }
@@ -399,6 +341,7 @@ export async function extractDrawingFieldsWithModel(
   const cropPath = path.join(input.outputDir, "drawing-title-block.png");
   let titleBlockCropPath: string | null = null;
   const attempts: DrawingModelExtractionResult["attempts"] = [];
+  const usages: ModelCallUsage[] = [];
 
   try {
     const cropAsset = await renderPdfTitleBlockCrop(input.drawingPath, cropPath);
@@ -408,15 +351,17 @@ export async function extractDrawingFieldsWithModel(
   }
 
   if (titleBlockCropPath) {
-    const cropAttempt = await runModelAttempt({
-      client: runtime.client,
+    const { parsed: cropAttempt, usage } = await runModelAttempt({
+      provider: runtime.provider,
       model: runtime.model,
       drawingSignals: input.drawingSignals,
       baseName: input.baseName,
       cropPath: titleBlockCropPath,
       fullPagePath: null,
       attempt: "title_block_crop",
+      spend: input.spend,
     });
+    usages.push(usage);
 
     attempts.push({
       attempt: "title_block_crop",
@@ -439,6 +384,7 @@ export async function extractDrawingFieldsWithModel(
         promptVersion: MODEL_FALLBACK_PROMPT_VERSION,
         usedTitleBlockCrop: true,
         usedFullPage: false,
+        usage: combineUsage(usages),
       };
     }
   }
@@ -452,19 +398,22 @@ export async function extractDrawingFieldsWithModel(
           promptVersion: MODEL_FALLBACK_PROMPT_VERSION,
           usedTitleBlockCrop: Boolean(titleBlockCropPath),
           usedFullPage: false,
+          usage: combineUsage(usages),
         }
       : null;
   }
 
-  const fullPageAttempt = await runModelAttempt({
-    client: runtime.client,
+  const { parsed: fullPageAttempt, usage: fullPageUsage } = await runModelAttempt({
+    provider: runtime.provider,
     model: runtime.model,
     drawingSignals: input.drawingSignals,
     baseName: input.baseName,
     cropPath: titleBlockCropPath,
     fullPagePath: input.pagePreviewPath,
     attempt: "full_page",
+    spend: input.spend,
   });
+  usages.push(fullPageUsage);
 
   attempts.push({
     attempt: "full_page",
@@ -486,6 +435,7 @@ export async function extractDrawingFieldsWithModel(
     promptVersion: MODEL_FALLBACK_PROMPT_VERSION,
     usedTitleBlockCrop: Boolean(titleBlockCropPath),
     usedFullPage: true,
+    usage: combineUsage(usages),
   };
 }
 

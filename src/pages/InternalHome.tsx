@@ -37,6 +37,7 @@ import {
 import { fetchOrganizationMemberships } from "@/features/quotes/api/organizations-api";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import { useClientWorkspaceData } from "@/features/quotes/use-client-workspace-data";
+import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
 import { formatStatusLabel, getJobSummaryMetrics } from "@/features/quotes/utils";
 import { useAppSession } from "@/hooks/use-app-session";
 import { supabase } from "@/integrations/supabase/client";
@@ -51,12 +52,18 @@ const InternalHome = () => {
   const queryClient = useQueryClient();
   const { user, activeMembership, isPlatformAdmin, isVerifiedAuth, signOut } = useAppSession();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+  const workspaceAccessScope = createWorkspaceAccessScope({
+    userId: user?.id,
+    organizationId: activeMembership?.organizationId,
+    role: activeMembership?.role,
+  });
   const { accessibleJobsQuery, archivedProjectsQuery, archivedJobsQuery } = useClientWorkspaceData({
     enabled: Boolean(user),
-    userId: user?.id,
+    accessScope: workspaceAccessScope,
     projectCollaborationUnavailable,
   });
   const notificationCenter = useWorkspaceNotifications({
+    accessScope: workspaceAccessScope,
     jobIds: (accessibleJobsQuery.data ?? []).map((job) => job.id),
     role: activeMembership?.role,
     userId: user?.id,

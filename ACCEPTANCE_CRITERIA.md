@@ -1,12 +1,54 @@
 # OverDrafter Acceptance Criteria
 
-Last updated: May 12, 2026
+Last updated: July 28, 2026
 
 ## Purpose
 
 This document defines what it means for the current repository-hardening phase to be complete.
 
 ## Acceptance criteria
+
+### Feature addendum — Quote Intelligence web and iOS release
+
+- Authenticated clients can navigate directly to Parts, Quotes, Search, and quote detail.
+- Project remains the backend collaboration/commercial container and legacy Project/Part links remain compatible.
+- All/Parts/Assemblies is one filter control over the accessible artifact collection.
+- Search updates while typing and explains structured engineering interpretations without using fabricated geometry.
+- Quote detail presents request facts and supplier offers directly.
+- Buyer comparison uses independent fixed-size points with working-day lead time on X and total quoted price on Y.
+- The chart has no connecting, trend, or Pareto line, and chart/table selection remains synchronized.
+- Missing quote validity, response time, estimate, or benchmark data is shown as unavailable or suppressed rather than inferred.
+- Existing sign-in, upload, quote-request, cancel/retry, and offer-selection behavior remains functional.
+- Signing out, switching accounts, or changing organization/role context cannot render cached workspace data from the prior access scope.
+- The universal iPhone/iPad app exposes native Parts, Quotes, and Search destinations and reuses the authorized production workflow without embedding privileged credentials.
+- Responsive web, iPhone, and iPad verification passes before release.
+- Production website and TestFlight install links are smoke-tested against the release build.
+- Product, architecture, design, test, and release documentation reflect the shipped behavior.
+
+### Contract addendum — iOS browser authentication
+
+- The versioned contract defines browser start, provider callback, browser
+  completion, claimed HTTPS app callback, and app-web-store bootstrap.
+- The app callback contains only an opaque handoff code and transaction state;
+  access and refresh tokens never enter a callback URL or native persistence.
+- Transaction-specific native state and PKCE S256 bind the callback and
+  one-time bootstrap to the initiating app instance.
+- Provider OAuth validation remains Supabase-owned; the website callback
+  validates its browser transaction before exchanging the Supabase code with a
+  ceremony-scoped PKCE verifier and never reuses the native handoff values or
+  the website's persistent Supabase client.
+- Handoff material contains at least 256 bits of entropy, expires within two
+  minutes, and is single-use under serial and concurrent redemption.
+- Shared-browser sign-in, ephemeral account switching, process death, external
+  email verification/recovery, relaunch, local-session logout, and revocation
+  behavior are explicit.
+- Cancellation, expiry, replay, state mismatch, provider failure, network loss,
+  and bootstrap failure have stable codes and retry behavior.
+- The threat review covers browser/app storage separation, callback
+  interception, token leakage, replay, CSRF, open redirects, cross-tenant
+  access, stale subject data, and logging boundaries.
+- Runtime, native UI, navigation, Ask OverDrafter, and standards-content
+  acceptance remain with their owning issues rather than `OVD-220`.
 
 ### MVP addendum — no-Stripe live quote path for `dmrifles@gmail.com`
 - The existing `dmrifles@gmail.com` user can sign in to the target environment.

@@ -78,17 +78,37 @@ function createSupabaseUpdateStub() {
   };
 }
 
+function makeQueuedTask(payload: Record<string, unknown> = {}) {
+  return {
+    id: "task-1",
+    organization_id: "org-1",
+    job_id: "job-1",
+    part_id: "part-1",
+    quote_run_id: null,
+    package_id: null,
+    task_type: "run_vendor_quote",
+    status: "running",
+    payload: { vendor: "xometry", requestedQuantity: 25, ...payload },
+    attempts: 1,
+    available_at: new Date().toISOString(),
+    locked_at: new Date().toISOString(),
+    locked_by: "worker-1",
+    last_error: null,
+  } as never;
+}
+
 describe("queue cancellation guards", () => {
   it("does not remark a cancelled task as completed", async () => {
     const stub = createSupabaseUpdateStub();
 
-    await markTaskCompleted(stub.client as never, "task-1", { done: true });
+    await markTaskCompleted(stub.client as never, makeQueuedTask(), { done: true });
 
     expect(stub.client.from).toHaveBeenCalledWith("work_queue");
     expect(stub.update).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "completed",
-        payload: { done: true },
+        // The patch merges over the original inputs rather than replacing them.
+        payload: { vendor: "xometry", requestedQuantity: 25, done: true },
       }),
     );
     expect(stub.eq).toHaveBeenCalledWith("id", "task-1");
@@ -98,16 +118,30 @@ describe("queue cancellation guards", () => {
   it("does not remark a cancelled task as failed", async () => {
     const stub = createSupabaseUpdateStub();
 
-    await markTaskFailed(stub.client as never, "task-1", "boom", { failed: true });
+    await markTaskFailed(stub.client as never, makeQueuedTask(), "boom", { failed: true });
 
     expect(stub.update).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "failed",
-        payload: { failed: true },
+        payload: { vendor: "xometry", requestedQuantity: 25, failed: true },
         last_error: "boom",
       }),
     );
     expect(stub.neq).toHaveBeenCalledWith("status", "cancelled");
+  });
+
+  it("lets a patch override an existing payload key", async () => {
+    const stub = createSupabaseUpdateStub();
+
+    await markTaskCompleted(stub.client as never, makeQueuedTask({ vendorStatus: "pending" }), {
+      vendorStatus: "instant_quote_received",
+    });
+
+    expect(stub.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ vendorStatus: "instant_quote_received" }),
+      }),
+    );
   });
 
   it("marks cancelled tasks explicitly (no neq guard)", async () => {
@@ -119,14 +153,18 @@ describe("queue cancellation guards", () => {
       })),
     };
 
-    await markTaskCancelled(client as never, "task-1", "Canceled by client request.", {
+    await markTaskCancelled(client as never, makeQueuedTask(), "Canceled by client request.", {
       ignoredDueToCanceledRequest: true,
     });
 
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "cancelled",
-        payload: { ignoredDueToCanceledRequest: true },
+        payload: {
+          vendor: "xometry",
+          requestedQuantity: 25,
+          ignoredDueToCanceledRequest: true,
+        },
         last_error: "Canceled by client request.",
       }),
     );

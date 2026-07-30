@@ -144,6 +144,86 @@ jobs:
       - name: Verify worker
         run: npm run verify:worker
 
+  # Pre-merge regression gate on extraction quality. Runs only when a corpus
+  # exists and a provider key is available, and reports "skipped" otherwise so
+  # an empty corpus never reads as a passing quality signal.
+  extraction-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Declared at job level on purpose: a step's own `env` block is not in scope
+    # for that step's `if` condition, so gating on `env.OPENAI_API_KEY` there
+    # always reads empty and the gate silently never runs.
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      # The gate reads PDFs off disk and never contacts Supabase, but the shared
+      # worker config loader validates these, so placeholders keep it runnable
+      # without production credentials.
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://placeholder.supabase.co' }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-service-role-key' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      # The gate only reads PDFs and calls provider HTTP APIs; it never needs a
+      # browser, so lifecycle scripts (which fetch Playwright/Patchright
+      # binaries) are skipped.
+      - name: Install worker dependencies
+        run: npm --prefix worker ci --ignore-scripts
+
+      # The extraction pipeline shells out to pdftotext/pdfinfo/pdftoppm.
+      - name: Install poppler-utils
+        run: sudo apt-get update -qq && sudo apt-get install -y -q poppler-utils
+
+      - name: Check for eval corpus
+        id: corpus
+        run: |
+          if [ -d worker/eval-corpus/cases ] && [ -n "$(ls -A worker/eval-corpus/cases 2>/dev/null)" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No extraction eval corpus checked in; skipping the quality gate. See worker/eval-corpus/README.md."
+          fi
+
+      # Any supported provider enables the production path, not OpenAI alone:
+      # the configured model may route to Anthropic or OpenRouter, and gating on
+      # one vendor's key would silently downgrade those deployments to
+      # parser-only while reporting a full-path run.
+      - name: Detect provider credentials
+        id: creds
+        run: |
+          if [ -n "$OPENAI_API_KEY" ] || [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Without credentials the deterministic parser is still worth gating on —
+      # it produces most title-block values. Fallback is disabled explicitly
+      # rather than left to depend on which secrets happen to be set, so the run
+      # is reproducible.
+      - name: Run extraction gate (parser only)
+        if: ${{ steps.corpus.outputs.present == 'true' && steps.creds.outputs.present == 'false' }}
+        env:
+          DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: "false"
+        run: |
+          echo "::notice::No provider key configured; gating the deterministic parser only. Model-fallback fields are not measured."
+          npm --prefix worker run eval:gate
+
+      - name: Run extraction gate (full production path)
+        if: ${{ steps.corpus.outputs.present == 'true' && steps.creds.outputs.present == 'true' }}
+        run: npm --prefix worker run eval:gate
+
   ci:
     name: ci
     if: ${{ always() }}
@@ -153,6 +233,7 @@ jobs:
       - test
       - build
       - verify-worker
+      - extraction-gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -164,17 +245,25 @@ jobs:
           TEST_RESULT: ${{ needs.test.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           WORKER_RESULT: ${{ needs.verify-worker.result }}
+          EXTRACTION_GATE_RESULT: ${{ needs.extraction-gate.result }}
         run: |
           echo "lint=$LINT_RESULT"
           echo "typecheck=$TYPECHECK_RESULT"
           echo "test=$TEST_RESULT"
           echo "build=$BUILD_RESULT"
           echo "verify-worker=$WORKER_RESULT"
+          echo "extraction-gate=$EXTRACTION_GATE_RESULT"
 
           if [ "$LINT_RESULT" != "success" ] || \
              [ "$TYPECHECK_RESULT" != "success" ] || \
              [ "$TEST_RESULT" != "success" ] || \
              [ "$BUILD_RESULT" != "success" ] || \
              [ "$WORKER_RESULT" != "success" ]; then
+            exit 1
+          fi
+
+          # The gate legitimately skips when no corpus or provider key exists,
+          # but a real failure must block the merge.
+          if [ "$EXTRACTION_GATE_RESULT" = "failure" ]; then
             exit 1
           fi

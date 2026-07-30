@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { SpendContext, SpendGuard } from "../spendGuard.js";
 import { DRAWING_FIELD_NAMES, SUPPORTED_REVIEW_FIELDS } from "../types.js";
 import type {
   DrawingExtractionPayload,
@@ -196,6 +197,7 @@ export async function runHybridExtraction(
     runDir?: string | null;
     config?: WorkerConfig;
     forceModelFallback?: boolean;
+    spend?: { guard: SpendGuard; estimatedUsd: number; context?: SpendContext };
   },
   dependencies: {
     extractWithModel?: typeof extractDrawingFieldsWithModel;
@@ -234,12 +236,23 @@ export async function runHybridExtraction(
         baseName: inferredBase,
         drawingSignals,
         pagePreviewPath: input.previewPagePath ?? null,
+        spend: input.spend,
       });
     } catch (error) {
+      // A budget refusal is not a failure of the extractor, and saying so would
+      // send someone debugging the wrong thing. Either way the pipeline
+      // continues on deterministic parser output alone: fields the parser
+      // cannot resolve fail closed into review rather than the job erroring,
+      // which is what makes a hard spend stop safe to enforce here.
+      const isSpendRefusal =
+        error instanceof Error && error.name === "SpendCapExceededError";
+
       warnings.push(
-        `Model fallback failed for drawing extraction: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        isSpendRefusal
+          ? `Model fallback skipped: spend cap reached (${error.message}). Extraction used deterministic parsing only.`
+          : `Model fallback failed for drawing extraction: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
       );
     }
   }
@@ -329,6 +342,7 @@ export async function runHybridExtraction(
     modelFallbackUsed: Boolean(modelResult),
     modelName: modelResult?.modelName ?? null,
     modelPromptVersion: modelResult ? MODEL_FALLBACK_PROMPT_VERSION : null,
+    modelUsage: modelResult?.usage ?? null,
     fieldSelections,
     extractedDescriptionRaw: {
       value: description,

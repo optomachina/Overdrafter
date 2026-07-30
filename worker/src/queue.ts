@@ -27,22 +27,38 @@ export async function claimNextTask(
   return (data as QueueTaskRecord | null) ?? null;
 }
 
+/**
+ * Merges a patch into a task's existing payload.
+ *
+ * These helpers take a *patch*, not a replacement. Writing the patch straight
+ * into `payload` would drop the task's original inputs — vendor, quantity,
+ * quote request id — leaving a completed row that no longer records what was
+ * asked for. Every call site used to compensate by spreading `task.payload`
+ * itself; merging here makes that impossible to forget.
+ */
+function mergePayload(
+  task: Pick<QueueTaskRecord, "payload"> | null,
+  payloadPatch: Record<string, unknown>,
+) {
+  return { ...(task?.payload ?? {}), ...payloadPatch };
+}
+
 /** Marks a task as completed unless it has already been cancelled. */
 export async function markTaskCompleted(
   supabase: SupabaseClient,
-  taskId: string,
+  task: QueueTaskRecord,
   payloadPatch: Record<string, unknown> = {},
 ) {
   const { error } = await supabase
     .from("work_queue")
     .update({
       status: "completed",
-      payload: payloadPatch,
+      payload: mergePayload(task, payloadPatch),
       locked_at: null,
       locked_by: null,
       last_error: null,
     })
-    .eq("id", taskId)
+    .eq("id", task.id)
     .neq("status", "cancelled");
 
   if (error) {
@@ -53,7 +69,7 @@ export async function markTaskCompleted(
 /** Marks a task as failed unless it has already been cancelled. */
 export async function markTaskFailed(
   supabase: SupabaseClient,
-  taskId: string,
+  task: QueueTaskRecord,
   errorMessage: string,
   payloadPatch: Record<string, unknown> = {},
 ) {
@@ -61,12 +77,12 @@ export async function markTaskFailed(
     .from("work_queue")
     .update({
       status: "failed",
-      payload: payloadPatch,
+      payload: mergePayload(task, payloadPatch),
       locked_at: null,
       locked_by: null,
       last_error: errorMessage,
     })
-    .eq("id", taskId)
+    .eq("id", task.id)
     .neq("status", "cancelled");
 
   if (error) {
@@ -77,7 +93,7 @@ export async function markTaskFailed(
 /** Explicitly marks a task as cancelled and records the cancellation reason. */
 export async function markTaskCancelled(
   supabase: SupabaseClient,
-  taskId: string,
+  task: QueueTaskRecord,
   errorMessage: string,
   payloadPatch: Record<string, unknown> = {},
 ) {
@@ -85,12 +101,12 @@ export async function markTaskCancelled(
     .from("work_queue")
     .update({
       status: "cancelled",
-      payload: payloadPatch,
+      payload: mergePayload(task, payloadPatch),
       locked_at: null,
       locked_by: null,
       last_error: errorMessage,
     })
-    .eq("id", taskId);
+    .eq("id", task.id);
 
   if (error) {
     throw error;
@@ -100,7 +116,7 @@ export async function markTaskCancelled(
 /** Requeues a task for a later retry and clears the current worker lock. */
 export async function markTaskQueuedForRetry(
   supabase: SupabaseClient,
-  taskId: string,
+  task: QueueTaskRecord,
   errorMessage: string,
   availableAt: string,
   payloadPatch: Record<string, unknown> = {},
@@ -109,13 +125,13 @@ export async function markTaskQueuedForRetry(
     .from("work_queue")
     .update({
       status: "queued",
-      payload: payloadPatch,
+      payload: mergePayload(task, payloadPatch),
       available_at: availableAt,
       locked_at: null,
       locked_by: null,
       last_error: errorMessage,
     })
-    .eq("id", taskId);
+    .eq("id", task.id);
 
   if (error) {
     throw error;

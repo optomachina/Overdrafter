@@ -37,6 +37,7 @@ import {
   validateQuoteFiles,
 } from "@/features/quotes/file-validation";
 import { useClientWorkspaceData } from "@/features/quotes/use-client-workspace-data";
+import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
 import { formatStatusLabel } from "@/features/quotes/utils";
 import { useAppSession } from "@/hooks/use-app-session";
 import { supabase } from "@/integrations/supabase/client";
@@ -63,12 +64,18 @@ const JobCreate = () => {
     useAppSession();
   const useInternalShell = activeMembership?.role !== "client";
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+  const workspaceAccessScope = createWorkspaceAccessScope({
+    userId: user?.id,
+    organizationId: activeMembership?.organizationId,
+    role: activeMembership?.role,
+  });
   const { accessibleJobsQuery, archivedProjectsQuery, archivedJobsQuery } = useClientWorkspaceData({
     enabled: Boolean(user) && useInternalShell,
-    userId: user?.id,
+    accessScope: workspaceAccessScope,
     projectCollaborationUnavailable,
   });
   const notificationCenter = useWorkspaceNotifications({
+    accessScope: workspaceAccessScope,
     jobIds: (accessibleJobsQuery.data ?? []).map((job) => job.id),
     role: activeMembership?.role,
     userId: user?.id,

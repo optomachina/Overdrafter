@@ -27,6 +27,10 @@ import AuthCallback from "./pages/AuthCallback";
 import DevLogin from "./pages/DevLogin";
 import ClientProject from "./pages/ClientProject";
 import ClientPart from "./pages/ClientPart";
+import ClientParts from "./pages/ClientParts";
+import ClientQuotes from "./pages/ClientQuotes";
+import ClientQuoteDetail from "./pages/ClientQuoteDetail";
+import ClientSearch from "./pages/ClientSearch";
 import ClientPartReview from "./pages/ClientPartReview";
 import ClientProjectReview from "./pages/ClientProjectReview";
 import SharedInvite from "./pages/SharedInvite";
@@ -91,6 +95,15 @@ const queryClient = new QueryClient({
   }),
 });
 
+function shouldRenderAgentation() {
+  if (!import.meta.env.DEV || typeof window === "undefined") {
+    return false;
+  }
+
+  const searchParams = new URLSearchParams(window.location.search);
+  return searchParams.get("embed") !== "1" && searchParams.get("app") !== "ios";
+}
+
 const App = () => (
   <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
     <QueryClientProvider client={queryClient}>
@@ -101,14 +114,18 @@ const App = () => (
           <DiagnosticsBootstrap />
           <ExtractionLauncher hideFloatingButton />
           <FixturePanel hideFloatingButton />
-          {import.meta.env.DEV && <Agentation />}
+          {shouldRenderAgentation() && <Agentation />}
           <AppErrorBoundary>
             <Routes>
               <Route path="/" element={<Index />} />
+              <Route path="/parts" element={<ClientParts />} />
               <Route path="/projects/:projectId" element={<ClientProject />} />
               <Route path="/projects/:projectId/review" element={<ClientProjectReview />} />
               <Route path="/parts/:jobId" element={<ClientPart />} />
               <Route path="/parts/:jobId/review" element={<ClientPartReview />} />
+              <Route path="/quotes" element={<ClientQuotes />} />
+              <Route path="/quotes/:quoteCode" element={<ClientQuoteDetail />} />
+              <Route path="/search" element={<ClientSearch />} />
               <Route path="/shared/:inviteToken" element={<SharedInvite />} />
               <Route path="/jobs/new" element={<JobCreate />} />
               <Route path="/internal/admin" element={<InternalAdmin />} />

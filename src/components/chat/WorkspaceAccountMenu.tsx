@@ -1486,7 +1486,7 @@ export function WorkspaceAccountMenu({
                         ref={companyNameInputRef}
                         value={orgDetailsDraft.companyName ?? ""}
                         onChange={(e) => patchDraft({ companyName: e.target.value })}
-                        placeholder="4D Technology"
+                        placeholder="ACME Mfg Co."
                         className="border-border bg-accent text-foreground placeholder:text-foreground/80 focus-visible:ring-white/20"
                       />
                     </div>

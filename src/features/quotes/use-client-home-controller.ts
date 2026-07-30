@@ -50,7 +50,11 @@ import {
   useClientWorkspaceData,
   useWarmClientWorkspaceNavigation,
 } from "@/features/quotes/use-client-workspace-data";
-import { prefetchPartPage, prefetchProjectPage } from "@/features/quotes/workspace-navigation";
+import {
+  createWorkspaceAccessScope,
+  prefetchPartPage,
+  prefetchProjectPage,
+} from "@/features/quotes/workspace-navigation";
 import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { buildProjectNameFromLabels } from "@/features/quotes/upload-groups";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
@@ -120,6 +124,11 @@ export function useClientHomeController() {
   const defaultAccountName = useMemo(() => getDefaultAccountName(user), [user]);
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
+  const workspaceAccessScope = createWorkspaceAccessScope({
+    userId: user?.id,
+    organizationId: activeMembership?.organizationId,
+    role: activeMembership?.role,
+  });
   const {
     accessibleProjects,
     accessibleJobs,
@@ -134,7 +143,7 @@ export function useClientHomeController() {
     summariesByJobId,
   } = useClientWorkspaceData({
     enabled: hasWorkspaceAuthContext,
-    userId: user?.id,
+    accessScope: workspaceAccessScope,
     projectCollaborationUnavailable,
   });
 
@@ -530,6 +539,7 @@ export function useClientHomeController() {
 
   useWarmClientWorkspaceNavigation({
     enabled: shouldWarmWorkspaceNavigation,
+    accessScope: workspaceAccessScope,
     canPrefetchProjects: !projectCollaborationUnavailable,
     projects: sidebarProjects,
     jobs: navigationModel.parts,
@@ -833,11 +843,14 @@ export function useClientHomeController() {
   const prefetchProject = (projectId: string) => {
     void prefetchProjectPage(queryClient, projectId, {
       enabled: !projectCollaborationUnavailable,
+      accessScope: workspaceAccessScope,
     });
   };
 
   const prefetchPart = (jobId: string) => {
-    void prefetchPartPage(queryClient, jobId);
+    void prefetchPartPage(queryClient, jobId, {
+      accessScope: workspaceAccessScope,
+    });
   };
   const sidebarJobs = navigationModel.parts;
 
@@ -884,6 +897,7 @@ export function useClientHomeController() {
     signOut,
     summariesByJobId,
     user,
+    workspaceAccessScope,
     accessibleJobs: sidebarJobs,
     accessibleJobsQuery,
   };

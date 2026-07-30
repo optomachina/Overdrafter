@@ -10,8 +10,8 @@ function MockCartesianGrid() {
   return null;
 }
 
-function MockLabel() {
-  return null;
+function MockLabel({ value }: Readonly<{ value?: string }>) {
+  return value ? <span>{value}</span> : null;
 }
 
 const zAxisSpy = vi.fn();
@@ -41,18 +41,25 @@ vi.mock("recharts", () => {
     onMouseEnter,
     onMouseLeave,
     name,
+    line,
   }: Readonly<{
     data?: readonly unknown[];
     onClick?: (point: { payload: unknown }) => void;
     onMouseEnter?: (point: { payload: unknown }) => void;
     onMouseLeave?: () => void;
     name?: string;
+    line?: boolean;
   }>) {
     return (
-      <div data-testid={`scatter-${name ?? "vendor"}`}>
+      <div
+        data-testid={`scatter-${name ?? "vendor"}`}
+        data-line={String(line ?? "")}
+      >
         {(data ?? []).map((point, index) => {
           const pointData = point as {
             key?: string;
+            x?: number;
+            y?: number;
             size?: number;
             fill?: string;
             stroke?: string;
@@ -65,6 +72,8 @@ vi.mock("recharts", () => {
               key={pointKey}
               type="button"
               data-testid={`point-${pointKey}`}
+              data-x={String(pointData.x ?? "")}
+              data-y={String(pointData.y ?? "")}
               data-size={String(pointData.size ?? "")}
               data-fill={pointData.fill ?? ""}
               data-stroke={pointData.stroke ?? ""}
@@ -104,7 +113,7 @@ vi.mock("recharts", () => {
 });
 
 describe("ClientQuoteComparisonChart", () => {
-  it("selects an option when a chart bubble is clicked", () => {
+  it("selects an option when a chart point is clicked", () => {
     zAxisSpy.mockReset();
     const onSelect = vi.fn();
     const onHover = vi.fn();
@@ -187,7 +196,33 @@ describe("ClientQuoteComparisonChart", () => {
     expect(onHover).toHaveBeenLastCalledWith(null);
   });
 
-  it("derives visible bubble sizing and styling from point data", () => {
+  it("plots ready-to-ship working days against quoted total rather than unit price", () => {
+    zAxisSpy.mockReset();
+
+    render(
+      <ClientQuoteComparisonChart
+        options={[
+          makeClientQuoteOption({
+            key: "option-total",
+            unitPriceUsd: 12,
+            totalPriceUsd: 321,
+            leadTimeBusinessDays: 9,
+          }),
+        ]}
+        selectedKey={null}
+        hoveredKey={null}
+        onSelect={vi.fn()}
+        onHover={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("point-option-total")).toHaveAttribute("data-x", "9");
+    expect(screen.getByTestId("point-option-total")).toHaveAttribute("data-y", "321");
+    expect(screen.getByText("Ready-to-ship lead time (working days)")).toBeInTheDocument();
+    expect(screen.getByText("Quoted total")).toBeInTheDocument();
+  });
+
+  it("uses fixed point sizing while preserving selection and vendor styling", () => {
     zAxisSpy.mockReset();
     render(
       <ClientQuoteComparisonChart
@@ -214,22 +249,45 @@ describe("ClientQuoteComparisonChart", () => {
       />,
     );
 
-    expect(zAxisSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        dataKey: "size",
-        domain: [0, expect.any(Number)],
-        range: [0, expect.any(Number)],
-      }),
-    );
-    expect(Number(screen.getByTestId("point-option-selected").dataset.size)).toBeGreaterThan(0);
-    expect(Number(screen.getByTestId("point-option-large").dataset.size)).toBeGreaterThan(
-      Number(screen.getByTestId("point-option-selected").dataset.size),
+    const zAxisProps = zAxisSpy.mock.calls.at(-1)?.[0] as
+      | { dataKey?: string; range?: [number, number] }
+      | undefined;
+    expect(zAxisProps?.dataKey).toBe("size");
+    expect(zAxisProps?.range?.[0]).toBeGreaterThan(0);
+    expect(zAxisProps?.range?.[0]).toBe(zAxisProps?.range?.[1]);
+    expect(screen.getByTestId("point-option-selected").dataset.size).toBe(
+      screen.getByTestId("point-option-large").dataset.size,
     );
     expect(screen.getByTestId("point-option-selected")).toHaveAttribute("data-stroke", "var(--accent-red)");
     expect(screen.getByTestId("point-option-large")).toHaveAttribute(
       "data-fill",
       getVendorColor("infraredlaboratories"),
     );
+  });
+
+  it("renders independent scatter points without connecting line semantics", () => {
+    zAxisSpy.mockReset();
+
+    render(
+      <ClientQuoteComparisonChart
+        options={[
+          makeClientQuoteOption({ key: "option-xometry" }),
+          makeClientQuoteOption({
+            key: "option-fictiv",
+            vendorKey: "fictiv",
+            vendorLabel: "Fictiv",
+            supplier: "Fictiv",
+          }),
+        ]}
+        selectedKey={null}
+        hoveredKey={null}
+        onSelect={vi.fn()}
+        onHover={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("scatter-xometry")).toHaveAttribute("data-line", "false");
+    expect(screen.getByTestId("scatter-fictiv")).toHaveAttribute("data-line", "false");
   });
 
   it("uses explicit vendor fill styling for dark backgrounds", () => {
@@ -269,8 +327,57 @@ describe("ClientQuoteComparisonChart", () => {
     );
 
     expect(screen.getByTestId("point-option-zero-day")).toHaveAttribute(
+      "data-x",
+      "0",
+    );
+    expect(screen.getByTestId("point-option-zero-day")).toHaveAttribute(
       "data-fill",
       getVendorColor("xometry"),
     );
+  });
+
+  it("places missing and negative lead times in distinct N/A positions beyond quoted lead times", () => {
+    zAxisSpy.mockReset();
+
+    render(
+      <ClientQuoteComparisonChart
+        options={[
+          makeClientQuoteOption({
+            key: "option-five-days",
+            leadTimeBusinessDays: 5,
+          }),
+          makeClientQuoteOption({
+            key: "option-missing",
+            leadTimeBusinessDays: null,
+            eligible: false,
+            isSelectable: false,
+          }),
+          makeClientQuoteOption({
+            key: "option-negative",
+            leadTimeBusinessDays: -1,
+            eligible: false,
+            isSelectable: false,
+          }),
+        ]}
+        selectedKey={null}
+        hoveredKey={null}
+        onSelect={vi.fn()}
+        onHover={vi.fn()}
+      />,
+    );
+
+    const quotedX = Number(
+      screen.getByTestId("point-option-five-days").dataset.x,
+    );
+    const missingX = Number(
+      screen.getByTestId("point-option-missing").dataset.x,
+    );
+    const negativeX = Number(
+      screen.getByTestId("point-option-negative").dataset.x,
+    );
+
+    expect(missingX).toBeGreaterThan(quotedX);
+    expect(negativeX).toBeGreaterThan(quotedX);
+    expect(negativeX).not.toBe(missingX);
   });
 });

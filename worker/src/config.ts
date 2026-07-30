@@ -27,14 +27,30 @@ const envBoolean = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
+/**
+ * An optional setting that treats a declared-but-empty variable as absent.
+ *
+ * CI and container runtimes routinely export a variable as `""` when the
+ * underlying secret is unset — GitHub Actions does this for every
+ * `${{ secrets.X }}` reference. A plain `.optional()` sees that empty string as
+ * *present* and fails validation, so a worker with no optional credentials
+ * configured cannot start at all. Empty and whitespace-only both read as unset.
+ */
+function optionalSetting(inner: z.ZodTypeAny = z.string().min(1)) {
+  return z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    inner.optional(),
+  );
+}
+
 const schema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   WORKER_MODE: z.enum(["simulate", "live"]).default("simulate"),
   WORKER_LIVE_ADAPTERS: z.string().optional(),
-  QUOTE_VENDOR_STORAGE_STATE_DIR: z.string().optional(),
-  QUOTE_VENDOR_STORAGE_STATE_PATHS: z.string().optional(),
-  QUOTE_VENDOR_STORAGE_STATE_JSON: z.string().optional(),
+  QUOTE_VENDOR_STORAGE_STATE_DIR: optionalSetting(),
+  QUOTE_VENDOR_STORAGE_STATE_PATHS: optionalSetting(),
+  QUOTE_VENDOR_STORAGE_STATE_JSON: optionalSetting(),
   WORKER_NAME: z.string().default("quote-worker-1"),
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
   WORKER_QUANTITY_PRICING_LADDER: z.string().default(DEFAULT_QUANTITY_PRICING_LADDER.join(",")),
@@ -50,21 +66,21 @@ const schema = z.object({
   PLAYWRIGHT_BROWSER_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
   PLAYWRIGHT_DISABLE_SANDBOX: envBoolean.default(false),
   PLAYWRIGHT_DISABLE_DEV_SHM_USAGE: envBoolean.default(true),
-  XOMETRY_STORAGE_STATE_PATH: z.string().optional(),
-  XOMETRY_STORAGE_STATE_JSON: z.string().optional(),
-  XOMETRY_USER_DATA_DIR: z.string().optional(),
-  XOMETRY_BROWSER_CHANNEL: z.string().optional(),
+  XOMETRY_STORAGE_STATE_PATH: optionalSetting(),
+  XOMETRY_STORAGE_STATE_JSON: optionalSetting(),
+  XOMETRY_USER_DATA_DIR: optionalSetting(),
+  XOMETRY_BROWSER_CHANNEL: optionalSetting(),
   XOMETRY_BROWSER_ENGINE: z.enum(["patchright", "camoufox"]).default("patchright"),
   XOMETRY_PROFILE_LOCK_WAIT_MS: z.coerce.number().int().nonnegative().default(30000),
   XOMETRY_SESSION_FRESHNESS_WARN_DAYS: z.coerce.number().nonnegative().default(7),
-  FICTIV_STORAGE_STATE_PATH: z.string().optional(),
-  FICTIV_STORAGE_STATE_JSON: z.string().optional(),
-  OPENAI_API_KEY: z.string().min(1).optional(),
-  ANTHROPIC_API_KEY: z.string().min(1).optional(),
-  OPENROUTER_API_KEY: z.string().min(1).optional(),
+  FICTIV_STORAGE_STATE_PATH: optionalSetting(),
+  FICTIV_STORAGE_STATE_JSON: optionalSetting(),
+  OPENAI_API_KEY: optionalSetting(),
+  ANTHROPIC_API_KEY: optionalSetting(),
+  OPENROUTER_API_KEY: optionalSetting(),
   WORKER_BUILD_VERSION: z.string().default("dev-local"),
   DRAWING_EXTRACTION_MODEL: z.string().default("gpt-5.4"),
-  DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS: z.string().optional(),
+  DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS: optionalSetting(),
   DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK: envBoolean.optional(),
 });
 
@@ -156,7 +172,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     parsed.QUOTE_VENDOR_STORAGE_STATE_JSON,
     "QUOTE_VENDOR_STORAGE_STATE_JSON",
   );
-  const hasDrawingExtractionModelKey = Boolean(parsed.OPENAI_API_KEY || parsed.OPENROUTER_API_KEY);
+  // Anthropic counts here too: it is a production extraction provider, not
+  // only a debug-lab one, so a deployment holding just an Anthropic key still
+  // has model fallback available.
+  const hasDrawingExtractionModelKey = Boolean(
+    parsed.OPENAI_API_KEY || parsed.ANTHROPIC_API_KEY || parsed.OPENROUTER_API_KEY,
+  );
   const drawingExtractionDebugAllowedModels = parseEnvList(
     parsed.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS,
     parsed.DRAWING_EXTRACTION_MODEL,

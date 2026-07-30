@@ -1,6 +1,6 @@
 # Design System — OverDrafter
 
-Last updated: 2026-05-14
+Last updated: 2026-07-28
 
 > Pretty good design follows pretty good rules. This is the canonical source of truth for OverDrafter's visual system. Read this before any UI or visual decision. If you change anything here, log a row in the Decisions section at the bottom and explain why.
 
@@ -8,7 +8,7 @@ Last updated: 2026-05-14
 
 ## Product context
 
-- **What this is:** OverDrafter is a multi-role CNC quoting platform that turns uploaded CAD files and engineering drawings into client-selectable quote packages. Long-term destination: a manufacturing co-pilot that lives inside the user's CAD environment and disappears until it adds value (see `PRD.md` §63–78).
+- **What this is:** OverDrafter is a multi-role CNC quoting platform that turns uploaded CAD files and engineering drawings into client-selectable quote packages. Long-term destination: a manufacturing co-pilot that lives inside the user's CAD environment and disappears until it adds value (see `PRD.md`, “Long-term product direction (North Star)”).
 - **Who it's for:** Manufacturing engineers (SolidWorks/Fusion/Onshape daily), purchasing professionals, hardware startups, and enthusiasts ordering custom parts.
 - **Project type:** Workflow-dense web app — file upload, 3D STEP viewing, drawing review, dense quote comparison, project ledgers, internal estimator surfaces. Not marketing-led.
 - **Reference class:** Modern defense-tech and engineering tooling (Hadrian, Anduril, Hermeus, professional CAD UIs) — NOT mainstream B2B SaaS (Xometry, Fictiv, Onshape marketing).
@@ -25,7 +25,7 @@ This rejects the two convergence traps in the category:
 - **Cheerful SaaS blue** (Xometry, Fictiv) reads as untrustworthy with a CAD file.
 - **Defense-tech black** (Anduril, SpaceX) is the obvious "go premium" move and would itself be a cliché.
 
-The third path — bone background, hairline title-block grid, single oxidized-red accent — is unclaimed in the category and aligns with the artifact-first principle from `PRD.md` §175–179.
+The third path — bone background, hairline title-block grid, single oxidized-red accent — is unclaimed in the category and aligns with the artifact-first principle from `PRD.md`, “Client workspace surface.”
 
 ---
 
@@ -166,9 +166,40 @@ Composition-first, not component-first. The application is laid out like an engi
 - **Persistent left ledger** (220px). Mono filenames as a parts list, not as nav links. State pills are plain words in mono uppercase.
 - **Top command strip** (44px). Project breadcrumb, customer, due date, current state. Mono uppercase 11px. This is a status bar, not a navbar.
 - **Center workspace** divided into hairline-bordered cells. Each cell has a mono uppercase corner label (`MATERIAL`, `TOLERANCE`, `FINISH`, `LEAD TIME`, `QUANTITY`, `CERTIFICATIONS`).
-- **3D viewer and drawing preview** live inset within the grid, hairline border, never full-bleed. Per `PRD.md` §72: visualizations collapse back to the clean view when not needed.
+- **3D viewer and drawing preview** live inset within the grid, hairline border, never full-bleed. Per `PRD.md`, “Long-term product direction (North Star),” visualizations collapse back to the clean view when not needed.
 - **Quote packages** render as horizontally-arranged spec-sheet columns at the bottom (NOT vertical pricing cards). One column gets a 2px left border in `--accent-red` to mark the selected option.
 - **Right decision ledger** (240px) shows margin delta, lead time delta, supplier confidence, DFM flags, exceptions. Lives only on quote-construction surfaces.
+
+### Quote Intelligence launch shell
+
+The July 28, 2026 launch direction supersedes the persistent left ledger as the default client entry shell while preserving it on legacy/internal construction surfaces.
+
+- Responsive web navigation is `PARTS | QUOTES | SEARCH`.
+- The approved iPhone shell is `INBOX | PARTS | QUOTES | MORE`, with a
+  separate `ASK` action adjacent to the bottom destination bar. iPad may adapt
+  the same destinations to a native sidebar.
+- `MORE` shows only working destinations; unavailable services, PDM, suppliers,
+  and marketplace entries remain hidden.
+- `ASK` is capability-gated and opens a full-screen contextual composer. It is
+  anchored in the same safe-area layout row as navigation, never floats over
+  artifact content, and uses the same flat hairline treatment with no glass,
+  shadow, avatar, or bubble.
+- Ask results prefer native tables, metric rows, entity links, warnings, and
+  quote scatter specifications over chat prose. The conversation controls a
+  structured workspace; it does not replace one.
+- `All | Parts | Assemblies` is one compact segmented filter over a single collection.
+- A part row leads with its isometric thumbnail and artifact identity. The 3D viewer appears only on request.
+- Quote detail uses progressive hierarchy: estimate/request context leads before responses; actual offers lead after responses arrive.
+- Buyer quote scatter uses independent fixed-size points: working-day lead time on X, quoted total on Y. Never draw a connecting, trend, or Pareto line.
+- Chart and table are two views of one selection state.
+- Validity, source URL, and response timing live in the selected-response inspector when the source data exists; they do not permanently widen the core decision table on small screens.
+- In the first beta, `?app=ios` may suppress redundant web navigation because
+  the native shell owns Parts/Quotes/Search. In the approved target it may
+  suppress Inbox/Parts/Quotes/More and Search-under-More navigation. Both
+  versions retain account, upload, and page actions.
+- PDM, marketplace, estimate, and supplier-benchmark controls remain hidden until their data contracts are approved and available.
+- Future estimates show a range and ranked approximate cost drivers for the uploaded design as-is. Sparse evidence widens the range; no customer-facing confidence score is shown.
+- Future supplier outcome comparisons are post-event and anonymized, with minimum-cohort, privacy, data-purpose, and competition-review gates before price, lead-time, or response-latency placement is exposed.
 
 ### Other layouts
 
@@ -185,7 +216,9 @@ Composition-first, not component-first. The application is laid out like an engi
 - Bubbly badges or pill UI
 - Floating action buttons
 - Decorative illustration layers
-- AI assistant chat widgets as primary chrome (per `PRD.md` §175–179, chat is contextual only)
+- AI assistant chat widgets as the primary information surface; the approved
+  anchored Ask control is command entry, while artifacts and structured
+  results remain the workspace
 
 ---
 
@@ -264,7 +297,7 @@ Reject any UI work that includes:
 | 2026-04-25 | Mono = Lab Mono (free) with Letter Gothic Mono on the future-license roadmap | Berkeley Mono rejected (no real ASME heritage). Courier Prime considered (real heritage, free, but slightly looser feel). Lab Mono picked as the modern Letter Gothic homage — same shape, free, ships now. Letter Gothic Mono is the eventual upgrade for authentic mechanical-drafting heritage. |
 | 2026-04-25 | Display = Suisse Int'l Condensed (default) + GT America Mono (alternate) | Both sanctioned. Codex argued for Suisse Condensed (mechanical pressure, brand presence); subagent argued for GT America Mono (part number as protagonist). Default is Suisse; mono allowed where artifact-as-protagonist needs to dominate. |
 | 2026-04-25 | Bone background `#F2EFE8`, oxidized-red accent `#C2410C` | Rejects both category convergence traps (cheerful SaaS blue and defense-tech black). Daylight rigor reads as an actual precision shop. |
-| 2026-04-25 | Filename is the largest type on the workspace | Aligns with `PRD.md` §175–179 artifact-first principle. The user's part number is the subject of the product, not the brand. |
+| 2026-04-25 | Filename is the largest type on the workspace | Aligns with the artifact-first principle in `PRD.md`, “Client workspace surface.” The user's part number is the subject of the product, not the brand. |
 | 2026-05-05 | MVP locked via `/design-shotgun` (9 rounds, 30 mockups, 3 stakeholders) | Drafting-paper aesthetic survives stakeholder review. Locked surfaces: Part Workspace, Project Workspace (with assemblies + flat-parts modes), Editable Specs interaction, Order Confirmation. See `## MVP locked patterns` below. |
 | 2026-05-05 | Default to **imperial**, with per-panel `METRIC / IMPERIAL` toggle on editable-specs panels | Engineer/PM stakeholders converged: imperial-first for the US market. The chrome-level metric/imperial toggle (round-5 design) is removed — too noisy at the page-level. Replaced with a per-panel toggle pill at the bottom of any editable-specs panel (Part Info, Project Info), defaulting to IMPERIAL. Lets users see their parts in either system on the panels where it matters, without cluttering the global chrome. |
 | 2026-05-05 | Theme toggle = **single sun/moon icon**, not labeled pill | Round-5 had a `BONE / DARK` pill; round-6 simplified to one click-to-swap icon. Cleaner, follows ChatGPT/Linear/Notion convention. |
@@ -286,6 +319,10 @@ Reject any UI work that includes:
 | 2026-05-05 | Roadmap items rendered as **muted mono uppercase chips** in info-panel footers | DFM Flags, Ask OverDrafter, Tariff Auto-Calc, Hover Part > Highlight in Assembly, Multi-page PDF Nav, etc. Visible-but-parked: signals "we know this is needed, not in MVP." |
 | 2026-05-14 | Dark mode revived as an account-menu toggle using the pre-redesign palette verbatim | Interim revival for users who want the prior clean black look while keeping bone as the default. This does not replace the future deliberate dark redesign described in `### Dark mode`. |
 | 2026-05-14 | GuestAppShell keeps a fixed dark pre-auth marketing shell | Intentional exception to theme-tokenized app surfaces: the signed-out prompt shell keeps the legacy dark gradient (`#1f2024` to `#17181c`, plus the white radial highlight) and white text for brand contrast. AuthPanel remains theme-driven. |
+| 2026-07-28 | Initial client launch shell is `Parts \| Quotes \| Search` on responsive web and the first iOS beta | Project remains backend collaboration scope, but quoting is the universal job. Capabilities attach contextually instead of becoming top-level tabs. The shell supersedes the persistent left ledger for client entry surfaces. |
+| 2026-07-28 | Buyer scatter uses fixed independent dots, X = working-day lead, Y = quoted total | Supplier offers do not form a curve. Bubble-size, connecting-line, trend-line, and Pareto-line metaphors distort the decision. |
+| 2026-07-28 | iOS grows to `Inbox \| Parts \| Quotes \| More` plus an anchored, separate Ask action | Inbox makes unresolved quote work visible; More absorbs low-frequency destinations; Ask stays available without becoming the information architecture. Responsive web retains `Parts \| Quotes \| Search`. |
+| 2026-07-28 | Mobile sign-in begins on a native welcome surface and continues through the OverDrafter website | System-browser authentication reuses trusted web identity flows and provider state. The app receives opaque one-time material and bootstraps its shared web session without token-bearing URLs. |
 
 ---
 
@@ -394,14 +431,20 @@ The mode is data-driven (`assemblies > 0` switches to grouped view). Promotion f
 
 ### Roadmap chips
 
-Visible-but-parked features render as small mono uppercase chips in the right info-panel footer (or on the Order Confirmation page's right rail). Chips have hairline borders, no fill, no interaction. Examples: `DFM FLAGS`, `ASK OVERDRAFTER`, `TARIFF AUTO-CALC`, `HOVER PART > HIGHLIGHT IN ASSEMBLY`, `MULTI-PAGE PDF NAV`, `EXPORT QUOTE`, `METRIC SWAP`, `BOM EXPORT`. The chip pattern signals: "we know this is needed, not in MVP."
+Visible-but-parked features may render as small mono uppercase chips only on
+internal construction surfaces or explicit concept previews. Chips have
+hairline borders, no fill, and no interaction. Examples:
+`TARIFF AUTO-CALC`, `HOVER PART > HIGHLIGHT IN ASSEMBLY`,
+`MULTI-PAGE PDF NAV`, `EXPORT QUOTE`, `METRIC SWAP`, and `BOM EXPORT`.
+Client navigation and action chrome never uses roadmap chips; Ask OverDrafter,
+PDM, marketplace, supplier, and service actions remain hidden until functional.
 
 ---
 
 ## See also
 
-- `PRD.md` §63–78 (north star — manufacturing co-pilot, hide complexity)
-- `PRD.md` §175–179 (artifact-first principle)
+- `PRD.md`, “Long-term product direction (North Star)”
+- `PRD.md`, “Client workspace surface”
 - `horizon1.md` (near-term UX direction — dense quote comparison, project ledger, right-side detail drawer)
 - `.context/design-preview/overdrafter-preview.html` (live HTML preview of the system on three real screens)
 - `.context/design-preview/overdrafter-mono-comparison.html` (mono A/B/C comparison from the consultation session)

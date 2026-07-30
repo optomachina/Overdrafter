@@ -13,6 +13,12 @@ import {
   type XometryQuoteRawPayload,
   type XometryValueSource,
 } from "../types.js";
+import {
+  gateLeadTime,
+  gateVendorPrice,
+  priceGateEvidence,
+  UNANCHORED_PRICE_NOTE,
+} from "../extractedValue.js";
 import { VendorAdapter } from "./base.js";
 import { acquireXometryProfileLock } from "./persistentProfileLock.js";
 import {
@@ -1306,14 +1312,20 @@ export class XometryAdapter extends VendorAdapter {
         bodyText,
       );
       const manualReviewResult = await detectManualReview(page, bodyText);
-      const totalPrice = priceResult.value;
-      const leadTime = leadTimeResult.value;
-      const manualReview = manualReviewResult.manualReview;
+      const priceGate = gateVendorPrice(priceResult);
+      const totalPrice = priceGate.trusted ? priceResult.value : null;
+      const leadTime = gateLeadTime(leadTimeResult, priceGate);
+      // A drifted adapter must never publish a price, so the lane routes to
+      // review instead of quoting whatever currency string the page happened
+      // to contain. See gateVendorPrice for the reasoning.
+      const manualReview = manualReviewResult.manualReview || priceGate.locatorDriftDetected;
 
       priceSource = priceResult.source;
       leadTimeSource = leadTimeResult.source;
 
-      if (manualReview) {
+      if (priceGate.locatorDriftDetected) {
+        detectedFlow = "locator_drift";
+      } else if (manualReview) {
         detectedFlow = "manual_review";
       }
 
@@ -1343,6 +1355,25 @@ export class XometryAdapter extends VendorAdapter {
         detectedFlow = "instant_quote";
       }
 
+      if (priceGate.locatorDriftDetected) {
+        console.warn(
+          JSON.stringify({
+            service: "overdrafter-cad-worker",
+            level: "warn",
+            source: "vendor.locator_drift",
+            message:
+              "Xometry price locators all missed; withheld an unanchored price and routed the lane to manual review.",
+            context: {
+              vendor: "xometry",
+              partId: input.part.id,
+              quoteRunId: input.quoteRunId,
+              unanchoredPriceObservedUsd: priceGate.unanchoredPriceUsd,
+              url: page.url(),
+            },
+          }),
+        );
+      }
+
       await appendArtifacts(artifacts, page, runDir, "result");
 
       if (this.config.playwrightCaptureTrace && browserContext) {
@@ -1369,9 +1400,11 @@ export class XometryAdapter extends VendorAdapter {
         quoteUrl: page.url(),
         dfmIssues: [],
         notes: [
-          manualReview
-            ? "Xometry flagged the part for manual review after upload and configuration."
-            : "Live Xometry quote captured via Playwright.",
+          priceGate.locatorDriftDetected
+            ? UNANCHORED_PRICE_NOTE
+            : manualReview
+              ? "Xometry flagged the part for manual review after upload and configuration."
+              : "Live Xometry quote captured via Playwright.",
         ],
         artifacts,
         rawPayload: buildRawPayload({
@@ -1386,6 +1419,7 @@ export class XometryAdapter extends VendorAdapter {
           saveConfigurationSelector,
           priceSource,
           leadTimeSource,
+          ...priceGateEvidence(priceGate),
           bodyExcerpt: excerptText(bodyText),
           requestedQuantity: input.requestedQuantity,
           url: page.url(),

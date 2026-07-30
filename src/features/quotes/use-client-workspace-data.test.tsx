@@ -8,6 +8,13 @@ import {
   useClientWorkspaceData,
   useWarmClientWorkspaceNavigation,
 } from "@/features/quotes/use-client-workspace-data";
+import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
+
+const USER_ONE_SCOPE = createWorkspaceAccessScope({
+  userId: "user-1",
+  organizationId: "org-1",
+  role: "client",
+});
 
 const {
   fetchAccessibleJobs,
@@ -118,6 +125,7 @@ function makeAccessibleProject(id: string, name: string) {
 function WarmNavigationProbe() {
   useWarmClientWorkspaceNavigation({
     enabled: true,
+    accessScope: USER_ONE_SCOPE,
     canPrefetchProjects: false,
     projects: [{ id: "project-1" }, { id: "seed-qb00001" }],
     jobs: [
@@ -151,6 +159,7 @@ function WarmNavigationProbe() {
 function WarmNavigationWithStalePinsProbe() {
   useWarmClientWorkspaceNavigation({
     enabled: true,
+    accessScope: USER_ONE_SCOPE,
     canPrefetchProjects: true,
     projects: [{ id: "project-1" }],
     pinnedProjectIds: ["project-1", "project-missing"],
@@ -173,7 +182,9 @@ describe("useWarmClientWorkspaceNavigation", () => {
     vi.advanceTimersByTime(200);
 
     expect(prefetchProjectPage).not.toHaveBeenCalled();
-    expect(prefetchPartPage).toHaveBeenCalledWith(expect.anything(), "job-1");
+    expect(prefetchPartPage).toHaveBeenCalledWith(expect.anything(), "job-1", {
+      accessScope: USER_ONE_SCOPE,
+    });
   });
 
   it("ignores pinned project ids that are not in the accessible project list", () => {
@@ -183,7 +194,11 @@ describe("useWarmClientWorkspaceNavigation", () => {
     vi.advanceTimersByTime(200);
 
     expect(prefetchProjectPage).toHaveBeenCalledTimes(1);
-    expect(prefetchProjectPage).toHaveBeenCalledWith(expect.anything(), "project-1");
+    expect(prefetchProjectPage).toHaveBeenCalledWith(
+      expect.anything(),
+      "project-1",
+      { accessScope: USER_ONE_SCOPE },
+    );
   });
 });
 
@@ -236,7 +251,7 @@ describe("useClientWorkspaceData", () => {
       () =>
         useClientWorkspaceData({
           enabled: true,
-          userId: "user-1",
+          accessScope: USER_ONE_SCOPE,
           projectCollaborationUnavailable: false,
         }),
       {
@@ -323,7 +338,7 @@ describe("useClientWorkspaceData", () => {
       () =>
         useClientWorkspaceData({
           enabled: true,
-          userId: "user-1",
+          accessScope: USER_ONE_SCOPE,
           projectCollaborationUnavailable: false,
         }),
       {
@@ -369,6 +384,90 @@ describe("useClientWorkspaceData", () => {
       ]);
     });
   });
+
+  it("clears stable workspace lists synchronously when the access scope changes", async () => {
+    const queryClient = createQueryClient();
+    const userTwoScope = createWorkspaceAccessScope({
+      userId: "user-2",
+      organizationId: "org-2",
+      role: "client",
+    });
+    const userTwoJobs = deferredPromise<ReturnType<typeof makeJob>[]>();
+    const userTwoProjects = deferredPromise<
+      ReturnType<typeof makeAccessibleProject>[]
+    >();
+    let jobsCallCount = 0;
+    let projectsCallCount = 0;
+
+    fetchArchivedJobs.mockResolvedValue([]);
+    fetchArchivedProjects.mockResolvedValue([]);
+    fetchJobPartSummariesByJobIds.mockResolvedValue([]);
+    fetchSidebarPins.mockResolvedValue({ projectIds: [], jobIds: [] });
+    fetchProjectJobMembershipsByJobIds.mockResolvedValue([
+      { job_id: "job-a", project_id: "project-a" },
+    ]);
+    fetchAccessibleJobs.mockImplementation(() => {
+      jobsCallCount += 1;
+      return jobsCallCount === 1
+        ? Promise.resolve([makeJob("job-a", "User A bracket")])
+        : userTwoJobs.promise;
+    });
+    fetchAccessibleProjects.mockImplementation(() => {
+      projectsCallCount += 1;
+      return projectsCallCount === 1
+        ? Promise.resolve([makeAccessibleProject("project-a", "User A project")])
+        : userTwoProjects.promise;
+    });
+
+    const { result, rerender } = renderHook(
+      ({ accessScope }) =>
+        useClientWorkspaceData({
+          enabled: true,
+          accessScope,
+          projectCollaborationUnavailable: false,
+        }),
+      {
+        initialProps: { accessScope: USER_ONE_SCOPE },
+        wrapper: ({ children }) => (
+          <QueryProvider queryClient={queryClient}>{children}</QueryProvider>
+        ),
+      },
+    );
+
+    await waitFor(() => {
+      expect(result.current.accessibleJobs.map((job) => job.id)).toEqual([
+        "job-a",
+      ]);
+      expect(
+        result.current.accessibleProjects.map((project) => project.project.id),
+      ).toEqual(["project-a"]);
+      expect(result.current.projectJobMemberships).toEqual([
+        { job_id: "job-a", project_id: "project-a" },
+      ]);
+    });
+
+    rerender({ accessScope: userTwoScope });
+
+    expect(result.current.accessibleJobs).toEqual([]);
+    expect(result.current.accessibleProjects).toEqual([]);
+    expect(result.current.projectJobMemberships).toEqual([]);
+
+    await act(async () => {
+      userTwoJobs.resolve([makeJob("job-b", "User B plate")]);
+      userTwoProjects.resolve([
+        makeAccessibleProject("project-b", "User B project"),
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(result.current.accessibleJobs.map((job) => job.id)).toEqual([
+        "job-b",
+      ]);
+      expect(
+        result.current.accessibleProjects.map((project) => project.project.id),
+      ).toEqual(["project-b"]);
+    });
+  });
 });
 
 describe("invalidateClientWorkspaceQueries", () => {
@@ -390,7 +489,7 @@ describe("invalidateClientWorkspaceQueries", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["project-invites", "project-1"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["part-detail", "job-2"] });
     expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: ["client-quote-workspace", ["job-1", "job-2"]],
+      queryKey: ["client-quote-workspace"],
     });
   });
 });

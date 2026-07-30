@@ -1,7 +1,7 @@
 <!-- /autoplan restore point: /Users/blainewilson/.gstack/projects/optomachina-Overdrafter/claude-quizzical-williams-autoplan-restore-20260331-213648.md -->
 # OverDrafter Execution Plan
 
-Last updated: May 12, 2026
+Last updated: July 28, 2026
 
 ## Purpose
 
@@ -32,7 +32,52 @@ Operational workflow alignment:
 
 ## Active objective
 
-Ship the no-Stripe live-quote MVP for the test user `dmrifles@gmail.com`: sign in, upload real part files, request quotes, and receive live vendor quote results or explicit manual-follow-up states. Billing, card collection, Stripe webhooks, and order placement are deferred until after the quote-request loop is reliable.
+Ship the Quote Intelligence client release across responsive web and iPhone/iPad while preserving the no-Stripe live-quote loop for `dmrifles@gmail.com`: sign in, upload real part files, request quotes, compare returned offers by total price and lead time, and select an option or receive an explicit manual-follow-up state.
+
+Responsive web and the first iOS beta use `Parts | Quotes | Search`. Project
+remains the collaboration/commercial container behind these views. The approved
+iOS follow-on adds a quote-action Inbox, moves Search under More, and adds a
+separate capability-gated Ask action. PDM, marketplace publication,
+customer-visible unvalidated estimates, supplier benchmarking, and
+consequential agent actions remain capability-gated.
+
+Release sequence:
+
+1. Ship the responsive Parts, Quotes, Search, and quote-detail surfaces over existing client-safe APIs.
+2. Preserve legacy Project/Part routes and every working upload/request/selection path.
+3. Ship a universal SwiftUI application with the same three native destinations and production workflow parity.
+4. Pass web release-confidence checks plus iPhone/iPad simulator and archive validation.
+5. Publish the website through Vercel and the iOS build through TestFlight.
+
+Implementation and release acceptance is tracked in `docs/quote-intelligence-release.md`.
+
+### Approved iOS follow-on sequence
+
+The mobile redesign is High complexity as one unit and must remain split into
+the following bounded Linear issues:
+
+1. `OVD-220` defines the website-mediated browser-auth and one-time session
+   handoff contract.
+2. `OVD-219` implements that authentication bridge only after explicit
+   High-complexity approval and security review.
+3. `OVD-221` adds the native welcome screen, claimed HTTPS
+   `ASWebAuthenticationSession` callback, bootstrap, logout, and account
+   switching.
+4. `OVD-224` changes the native shell to
+   `Inbox | Parts | Quotes | More` plus a separate Ask action.
+5. `OVD-222` makes Inbox a client-safe queue of unresolved quote actions.
+6. `OVD-223` adds contextual, read-only Ask OverDrafter with structured results
+   after the command grammar and validator foundations are ready.
+
+`OVD-226` must define authorization, exact confirmation, idempotency, and audit
+contracts before any agent write or external action is enabled. `OVD-225`
+separately defines the licensing, edition, and citation boundary for
+engineering-standards content. Neither guardrail is satisfied by a chat UI.
+
+`OVD-220` established the approved contract in
+[`docs/mobile-authentication-contract.md`](docs/mobile-authentication-contract.md).
+The server/browser implementation is the dependency-ordered `OVD-219` slice;
+native adoption remains isolated to `OVD-221`.
 
 ### Immediate next steps (MVP — sequenced by dependency)
 
@@ -81,7 +126,8 @@ All previous Phase 1/2 quote-run items are now considered scaffolding that will 
 
 ### Later capabilities (after geometry, review, and pricing-data foundations)
 
-- Feature-level costing heatmap: combine deterministic geometry/DFM features, tolerances, finish, quantity, and observed vendor quantity-price curves into confidence-scored estimate-only explanations that still require live quote verification.
+- Feature-level costing heatmap: combine deterministic geometry/DFM features, tolerances, material, finish, quantity, lead time, origin, and observed vendor quantity-price curves into an estimated range plus ranked approximate cost drivers. Keep uncertainty internal, widen the range when evidence is sparse, expose no customer confidence score, and automatically score each prediction against later firm quotes.
+- Closed-event supplier outcome benchmarking: after data-purpose terms, cohort/privacy safeguards, and competition review are approved, show each participating supplier its anonymized relative price, ready-to-ship lead time, and response latency without revealing competing supplier or buyer identities.
 
 ## Completed milestones
 

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   ArrowRight,
   Filter as FilterIcon,
@@ -32,6 +33,7 @@ import { WorkspaceInlineSearch } from "@/components/workspace/WorkspaceInlineSea
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import { buildProjectAssigneeBadgeModel } from "@/features/quotes/project-assignee";
+import { buildAppAwareHref } from "@/features/quotes/quote-intelligence-view-model";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import { getQuoteRequestStatusBadgeClassName } from "@/features/quotes/quote-request-status-badge";
 import { getVendorDisplayName } from "@/features/quotes/vendor-colors";
@@ -797,6 +799,9 @@ function ProjectInspectorContent({
 }
 
 const ClientProject = () => {
+  const [searchParams] = useSearchParams();
+  const appMode = searchParams.get("app") === "ios" ? "ios" : null;
+  const appAwareHref = (href: string) => buildAppAwareHref(href, appMode);
   const {
     activeFilter,
     activeMembership,
@@ -869,6 +874,7 @@ const ClientProject = () => {
     isAuthInitializing,
     isInspectorOpen,
     workspaceItemsByJobId,
+    workspaceAccessScope,
     projectAssigneeLookupReady,
     projectAssigneesByUserId,
     projectJobMembershipsByCompositeKey,
@@ -885,6 +891,7 @@ const ClientProject = () => {
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
   const notificationCenter = useWorkspaceNotifications({
+    accessScope: workspaceAccessScope,
     jobIds: accessibleJobs.map((job) => job.id),
     role: activeMembership?.role,
     userId: user?.id,
@@ -895,14 +902,14 @@ const ClientProject = () => {
     const projectIdForPart = job ? resolveSidebarProjectIdsForJob(job)[0] ?? null : null;
 
     if (projectIdForPart) {
-      navigate(`/projects/${projectIdForPart}?part=${jobId}`);
+      navigate(appAwareHref(`/projects/${projectIdForPart}?part=${jobId}`));
       return;
     }
 
-    navigate(`/parts/${jobId}`);
+    navigate(appAwareHref(`/parts/${jobId}`));
   };
   const navigateToPartWorkspace = (jobId: string) => {
-    navigate(`/parts/${jobId}`);
+    navigate(appAwareHref(`/parts/${jobId}`));
   };
 
   const quoteRequestViewModelsByJobId = useMemo(
@@ -1212,7 +1219,8 @@ const ClientProject = () => {
   return (
     <>
       <ClientWorkspaceShell
-        onLogoClick={() => navigate("/")}
+        showSidebar={appMode !== "ios"}
+        onLogoClick={() => navigate(appAwareHref(appMode === "ios" ? "/parts" : "/"))}
         headerContent={
           <span className="truncate text-[15px] font-medium tracking-[-0.01em] text-foreground">
             {projectQuery.data?.name ?? "Project"}
@@ -1231,7 +1239,7 @@ const ClientProject = () => {
             jobSearchTextById={jobSearchTextById}
             scopedProject={scopedProject}
             resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
-            onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
+            onSelectProject={(nextProjectId) => navigate(appAwareHref(`/projects/${nextProjectId}`))}
             onSelectPart={navigateToPartDestination}
           />
         }
@@ -1264,7 +1272,7 @@ const ClientProject = () => {
             onArchivePart={handleArchivePart}
             onArchiveProject={handleArchiveProject}
             onDissolveProject={handleDissolveProject}
-            onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
+            onSelectProject={(nextProjectId) => navigate(appAwareHref(`/projects/${nextProjectId}`))}
             onSelectPart={navigateToPartWorkspace}
             onPrefetchProject={prefetchProject}
             onPrefetchPart={prefetchPart}
@@ -1277,7 +1285,7 @@ const ClientProject = () => {
             activeMembership={activeMembership}
             notificationCenter={notificationCenter}
             onSignOut={signOut}
-            onSignedOut={() => navigate("/", { replace: true })}
+            onSignedOut={() => navigate(appAwareHref("/"), { replace: true })}
             archivedProjects={archivedProjectsQuery.data}
             archivedJobs={archivedJobsQuery.data}
             isArchiveLoading={archivedProjectsQuery.isLoading || archivedJobsQuery.isLoading}
@@ -1475,7 +1483,7 @@ const ClientProject = () => {
                               : "hover:bg-muted",
                           )}
                           onClick={() => handleOpenJobDrawer(job.id)}
-                          onDoubleClick={() => navigate(`/parts/${job.id}`)}
+                          onDoubleClick={() => navigate(appAwareHref(`/parts/${job.id}`))}
                         >
                           <TableCell className="w-[18%] max-w-[220px] px-5 py-2.5">
                             <p className="truncate text-[13px] font-medium text-foreground">{partNumber}</p>
@@ -1572,7 +1580,7 @@ const ClientProject = () => {
                   onClear={handleClearFocusedJob}
                   onOpenPartWorkspace={() => {
                     if (focusedJobId) {
-                      navigate(`/parts/${focusedJobId}`);
+                      navigate(appAwareHref(`/parts/${focusedJobId}`));
                     }
                   }}
                 />
@@ -1605,7 +1613,7 @@ const ClientProject = () => {
               onClear={handleClearFocusedJob}
               onOpenPartWorkspace={() => {
                 if (focusedJobId) {
-                  navigate(`/parts/${focusedJobId}`);
+                  navigate(appAwareHref(`/parts/${focusedJobId}`));
                 }
               }}
             />
@@ -1619,7 +1627,7 @@ const ClientProject = () => {
         projects={sidebarProjects}
         jobs={accessibleJobs}
         summariesByJobId={summariesByJobId}
-        onSelectProject={(nextProjectId) => navigate(`/projects/${nextProjectId}`)}
+        onSelectProject={(nextProjectId) => navigate(appAwareHref(`/projects/${nextProjectId}`))}
         onSelectPart={navigateToPartDestination}
       />
 

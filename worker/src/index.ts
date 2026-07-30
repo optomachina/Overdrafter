@@ -58,6 +58,7 @@ import {
   WorkerConfig,
 } from "./types.js";
 import { buildExtractionCompletionPayload } from "./extractionObservability.js";
+import { createSpendGuard, SpendCapExceededError } from "./spendGuard.js";
 import {
   failureCodeForError,
   isRetryableVendorTaskError,
@@ -72,6 +73,19 @@ import { buildVendorQuoteOfferPayload } from "./vendorQuoteOffer.js";
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/**
+ * Booked per model attempt before the call, then replaced by the observed cost.
+ *
+ * Deliberately generous relative to a typical extraction: the reservation has to
+ * be made before token counts are known, and over-booking briefly is the safe
+ * direction. Under-booking would let a burst of concurrent calls collectively
+ * overshoot the ceiling.
+ */
+const MODEL_CALL_SPEND_ESTIMATE_USD = 0.25;
+
+/** Booked per vendor automation lane, covering its browser container time. */
+const VENDOR_RUN_SPEND_ESTIMATE_USD = 0.05;
 
 function buildTaskContext(task: QueueTaskRecord) {
   return {
@@ -560,6 +574,14 @@ async function runDrawingExtractionForTask(
       previewPagePath: firstPagePreviewPath,
       runDir,
       config: extractionConfig,
+      // Budget is enforced here rather than at request admission: a ceiling
+      // checked when a user clicks something cannot stop a retry storm or a
+      // stuck loop, which is the shape a runaway actually takes.
+      spend: {
+        guard: createSpendGuard(supabase, task.organization_id),
+        estimatedUsd: MODEL_CALL_SPEND_ESTIMATE_USD,
+        context: { jobId: task.job_id, partId: task.part_id, taskId: task.id },
+      },
     });
     const extractionOutcome = summarizeExtractionOutcome(extraction);
     const extractorVersion = currentExtractorVersion(Boolean(stagedDrawingFile));
@@ -664,8 +686,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
         ...completionPayload,
       },
     });
-    await markTaskCompleted(supabase, task.id, {
-      ...task.payload,
+    await markTaskCompleted(supabase, task, {
       ...completionPayload,
     });
   } catch (error) {
@@ -792,8 +813,7 @@ async function handleDebugExtractTask(
       },
     });
 
-    await markTaskCompleted(supabase, task.id, {
-      ...task.payload,
+    await markTaskCompleted(supabase, task, {
       debugRunId,
       requestedModel,
       effectiveModel,
@@ -849,8 +869,7 @@ async function handleVendorQuoteTask(
   const requestStatusAtStart = await fetchQuoteRequestStatusForTask(supabase, task);
 
   if (requestStatusAtStart === "canceled") {
-    await markTaskCancelled(supabase, task.id, "Canceled before vendor automation started.", {
-      ...task.payload,
+    await markTaskCancelled(supabase, task, "Canceled before vendor automation started.", {
       ignoredDueToCanceledRequest: true,
     });
     return;
@@ -933,8 +952,7 @@ async function handleVendorQuoteTask(
       .eq("id", currentResult.id);
 
     await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
-    await markTaskCompleted(supabase, task.id, {
-      ...task.payload,
+    await markTaskCompleted(supabase, task, {
       vendorStatus: "manual_vendor_followup",
       manualVendor: true,
       manualReasonCode,
@@ -942,10 +960,75 @@ async function handleVendorQuoteTask(
     return;
   }
 
+  // Browser automation bills as container time, so a lane is reserved before it
+  // starts. Unlike the extraction path there is no degraded mode to fall back
+  // to, so a refusal requeues the lane rather than failing it: the work is still
+  // wanted, just not at this moment's price.
+  const vendorSpendGuard = createSpendGuard(supabase, task.organization_id);
+  let vendorReservation;
+  try {
+    vendorReservation = await vendorSpendGuard.reserve("vendor_automation", VENDOR_RUN_SPEND_ESTIMATE_USD, {
+      jobId: task.job_id,
+      partId: task.part_id,
+      quoteRunId: task.quote_run_id,
+      taskId: task.id,
+    });
+  } catch (error) {
+    if (error instanceof SpendCapExceededError) {
+      const retryAt = nextRetryAt(task.attempts);
+
+      // The result row was set to "running" before this point. Every other
+      // terminal path here moves it on; without this it would sit reporting
+      // "running" forever on a lane that was never going to run -- a
+      // customer-facing quote that silently never resolves.
+      await supabase
+        .from("vendor_quote_results")
+        .update({
+          status: retryAt ? "queued" : "manual_vendor_followup",
+          notes: [
+            retryAt
+              ? `Spend cap reached; this lane will retry. ${error.message}`
+              : `Spend cap reached and retries are exhausted; this lane needs manual vendor follow-up. ${error.message}`,
+          ],
+          raw_payload: {
+            mode: config.workerMode,
+            requiresManualVendorFollowUp: !retryAt,
+            manualFollowUpReason: "spend_cap_reached",
+            spendCapReasonCode: error.reasonCode,
+            requestedQuantity: currentResult.requested_quantity,
+            failureCode: "spend_cap_reached",
+          },
+        })
+        .eq("id", currentResult.id);
+
+      if (retryAt) {
+        await markTaskQueuedForRetry(supabase, task, `Spend cap reached: ${error.message}`, retryAt, {
+          spendCapReasonCode: error.reasonCode,
+        });
+      } else {
+        // Retries are exhausted, but nothing about this lane is broken -- it was
+        // priced out. Cancelling rather than failing keeps the distinction, so it
+        // reads as "not run" instead of "tried and defective" and can simply be
+        // requested again once budget is available.
+        await markTaskCancelled(supabase, task, `Spend cap reached: ${error.message}`, {
+          spendCapReasonCode: error.reasonCode,
+        });
+      }
+      return;
+    }
+    throw error;
+  }
+
+  // Only container time actually consumed should be charged. Staging can fail
+  // before the browser ever launches, and settling the full estimate for a lane
+  // that never started would hold budget for spend that did not happen.
+  let vendorAutomationStarted = false;
+
   try {
     stageDir = await createRunDir(config, ["staging", task.quote_run_id, task.part_id]);
     const stagedCadFile = await stageStorageObject(supabase, context.cadFile, stageDir);
     const stagedDrawingFile = await stageStorageObject(supabase, context.drawingFile, stageDir);
+    vendorAutomationStarted = true;
     const result = await adapter.quote({
       organizationId: task.organization_id,
       quoteRunId: task.quote_run_id,
@@ -1052,9 +1135,8 @@ async function handleVendorQuoteTask(
     const requestStatusAfterResult = await fetchQuoteRequestStatusForTask(supabase, task);
 
     if (requestStatusAfterResult === "canceled") {
-      await markTaskCancelled(supabase, task.id, "Canceled while vendor automation was in flight.", {
-        ...task.payload,
-        vendorStatus: result.status,
+      await markTaskCancelled(supabase, task, "Canceled while vendor automation was in flight.", {
+          vendorStatus: result.status,
         artifactCount: artifactStoragePaths.length,
         ignoredDueToCanceledRequest: true,
       });
@@ -1062,8 +1144,7 @@ async function handleVendorQuoteTask(
     }
 
     await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
-    await markTaskCompleted(supabase, task.id, {
-      ...task.payload,
+    await markTaskCompleted(supabase, task, {
       vendorStatus: result.status,
       artifactCount: artifactStoragePaths.length,
     });
@@ -1133,9 +1214,8 @@ async function handleVendorQuoteTask(
     await syncJobStatusAfterVendorUpdate(supabase, task.job_id, task.quote_run_id);
 
     if (requiresManualVendorFollowUp) {
-      await markTaskCompleted(supabase, task.id, {
-        ...task.payload,
-        vendorStatus: "manual_vendor_followup",
+      await markTaskCompleted(supabase, task, {
+          vendorStatus: "manual_vendor_followup",
         manualVendor: true,
         manualReasonCode,
         failureCode,
@@ -1145,6 +1225,12 @@ async function handleVendorQuoteTask(
 
     throw error;
   } finally {
+    // Settle regardless of outcome: an estimate left booked for a lane that
+    // never ran would hold budget for the rest of the window.
+    await vendorSpendGuard.settle(
+      vendorReservation,
+      vendorAutomationStarted ? VENDOR_RUN_SPEND_ESTIMATE_USD : 0,
+    );
     await cleanupPaths([stageDir, ...artifactDirs]);
   }
 }
@@ -1229,8 +1315,7 @@ async function handlePublishTask(supabase: SupabaseClient, task: QueueTaskRecord
     throw error;
   }
 
-  await markTaskCompleted(supabase, task.id, {
-    ...task.payload,
+  await markTaskCompleted(supabase, task, {
     published: true,
   });
 }
@@ -1244,8 +1329,7 @@ async function handleRepairTask(supabase: SupabaseClient, task: QueueTaskRecord)
       : [],
   });
 
-  await markTaskCompleted(supabase, task.id, {
-    ...task.payload,
+  await markTaskCompleted(supabase, task, {
     repairSuggestion: suggestion,
   });
 }
@@ -1272,9 +1356,8 @@ async function processTask(
       await handleRepairTask(supabase, task);
       return;
     case "poll_vendor_quote":
-      await markTaskCompleted(supabase, task.id, {
-        ...task.payload,
-        pollSkipped: true,
+      await markTaskCompleted(supabase, task, {
+          pollSkipped: true,
       });
       return;
     default:
@@ -1509,17 +1592,15 @@ async function main() {
       const retryCount = retryCountForAttempts(task.attempts);
 
       if (retryAt) {
-        await markTaskQueuedForRetry(supabase, task.id, message, retryAt, {
-          ...task.payload,
-          failureMessage: message,
+        await markTaskQueuedForRetry(supabase, task, message, retryAt, {
+              failureMessage: message,
           failureCode: failureCodeForError(error),
           retryCount,
           nextRetryAt: retryAt,
         });
       } else {
-        await markTaskFailed(supabase, task.id, message, {
-          ...task.payload,
-          failureMessage: message,
+        await markTaskFailed(supabase, task, message, {
+              failureMessage: message,
           failureCode: failureCodeForError(error),
           retryCount,
         });
