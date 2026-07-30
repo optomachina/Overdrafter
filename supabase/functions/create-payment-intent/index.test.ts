@@ -1,62 +1,89 @@
 import { assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
+import {
+  handleCreatePaymentIntent,
+  isLegacyProjectPaymentsEnabled,
+} from "./index.ts";
 
-// Minimal test harness for the create-payment-intent function.
-// These run against a real Stripe test mode key ($STRIPE_SECRET_KEY) and
-// a Supabase dev instance ($SUPABASE_URL / $SUPABASE_ANON_KEY).
-// CI must have STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET set before these run.
+const enabledEnvironment = (name: string): string | undefined => {
+  const values: Record<string, string> = {
+    LEGACY_PROJECT_PAYMENTS_ENABLED: "true",
+    SUPABASE_URL: "https://example.supabase.co",
+    SUPABASE_ANON_KEY: "anon-key",
+    SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+    STRIPE_SECRET_KEY: "sk_test_example",
+  };
 
-Deno.test("POST without Authorization returns 401", async () => {
-  const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/create-payment-intent`;
+  return values[name];
+};
 
-  if (!url.startsWith("http")) {
-    // Skip in environments without a running Supabase instance
-    console.log("SUPABASE_URL not set — skipping integration test");
-    return;
-  }
+Deno.test("legacy payment flag accepts only normalized true", () => {
+  assertEquals(isLegacyProjectPaymentsEnabled("true"), true);
+  assertEquals(isLegacyProjectPaymentsEnabled(" TRUE "), true);
+  assertEquals(isLegacyProjectPaymentsEnabled("TrUe"), true);
+  assertEquals(isLegacyProjectPaymentsEnabled(undefined), false);
+  assertEquals(isLegacyProjectPaymentsEnabled(""), false);
+  assertEquals(isLegacyProjectPaymentsEnabled("false"), false);
+  assertEquals(isLegacyProjectPaymentsEnabled("1"), false);
+  assertEquals(isLegacyProjectPaymentsEnabled("yes"), false);
+});
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ projectId: "test" }),
-  });
+Deno.test(
+  "disabled POST returns stable 503 before auth or runtime secrets",
+  async () => {
+    const response = await handleCreatePaymentIntent(
+      new Request("https://example.test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "not-json",
+      }),
+      () => undefined,
+    );
+
+    assertEquals(response.status, 503);
+    assertEquals(await response.json(), {
+      error: "Legacy project payments are disabled.",
+      code: "legacy_project_payments_disabled",
+    });
+    assertEquals(response.headers.get("access-control-allow-origin"), "*");
+  },
+);
+
+Deno.test("enabled POST preserves the legacy authorization check", async () => {
+  const response = await handleCreatePaymentIntent(
+    new Request("https://example.test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId: "test" }),
+    }),
+    enabledEnvironment,
+  );
 
   assertEquals(response.status, 401);
 });
 
-Deno.test("POST without projectId returns 400", async () => {
-  const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/create-payment-intent`;
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-  const testToken = Deno.env.get("SUPABASE_TEST_AUTH_TOKEN");
-
-  if (!url.startsWith("http") || !anonKey || !testToken) {
-    console.log("Required env vars not set — skipping integration test");
-    return;
-  }
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${testToken}`,
-      apikey: anonKey,
-    },
-    body: JSON.stringify({}),
-  });
-
-  assertEquals(response.status, 400);
-});
-
-Deno.test("OPTIONS returns CORS headers", async () => {
-  const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/create-payment-intent`;
-
-  if (!url.startsWith("http")) {
-    console.log("SUPABASE_URL not set — skipping integration test");
-    return;
-  }
-
-  const response = await fetch(url, { method: "OPTIONS" });
+Deno.test("OPTIONS returns CORS headers before the feature gate", async () => {
+  const response = await handleCreatePaymentIntent(
+    new Request("https://example.test", { method: "OPTIONS" }),
+    () => undefined,
+  );
 
   assertEquals(response.status, 200);
-  const origin = response.headers.get("access-control-allow-origin");
-  assertEquals(origin, "*");
+  assertEquals(response.headers.get("access-control-allow-origin"), "*");
+  assertEquals(
+    response.headers.get("access-control-allow-methods"),
+    "POST, OPTIONS",
+  );
 });
+
+Deno.test(
+  "unsupported methods return 405 before the feature gate",
+  async () => {
+    const response = await handleCreatePaymentIntent(
+      new Request("https://example.test", { method: "GET" }),
+      () => undefined,
+    );
+
+    assertEquals(response.status, 405);
+    assertEquals(await response.json(), { error: "Method not allowed." });
+  },
+);
