@@ -126,6 +126,44 @@ $$;
 revoke all on function private.require_commercial_admin_capability(text)
   from public, anon, authenticated, service_role;
 
+create or replace function private.is_luhn_valid(
+  p_digits text
+)
+returns boolean
+language plpgsql
+immutable
+set search_path = pg_catalog
+as $$
+declare
+  v_sum integer := 0;
+  v_digit integer;
+  v_index integer;
+begin
+  if p_digits is null
+    or p_digits !~ '^[0-9]{13,19}$'
+  then
+    return false;
+  end if;
+
+  for v_index in 1..pg_catalog.length(p_digits)
+  loop
+    v_digit := pg_catalog.substr(p_digits, v_index, 1)::integer;
+    if mod(pg_catalog.length(p_digits) - v_index, 2) = 1 then
+      v_digit := v_digit * 2;
+      if v_digit > 9 then
+        v_digit := v_digit - 9;
+      end if;
+    end if;
+    v_sum := v_sum + v_digit;
+  end loop;
+
+  return mod(v_sum, 10) = 0;
+end;
+$$;
+
+revoke all on function private.is_luhn_valid(text)
+  from public, anon, authenticated, service_role;
+
 create or replace function private.assert_safe_commercial_audit_value(
   p_value jsonb
 )
@@ -182,7 +220,7 @@ begin
 
   if pg_catalog.jsonb_typeof(p_value) = 'number' then
     v_text := p_value #>> '{}';
-    if v_text ~ '^[0-9]{13,19}$' then
+    if private.is_luhn_valid(v_text) then
       raise exception 'Potential card data cannot be written to commercial audit records.';
     end if;
     return;
@@ -193,6 +231,11 @@ begin
   end if;
 
   v_text := p_value #>> '{}';
+
+  if v_text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+  then
+    return;
+  end if;
 
   if v_text ~* (
     '(bearer[[:space:]]+[a-z0-9._-]{8,}'
@@ -220,7 +263,7 @@ begin
     ) as matched(value)
   loop
     v_digits := pg_catalog.regexp_replace(v_match[1], '[^0-9]+', '', 'g');
-    if pg_catalog.length(v_digits) between 13 and 19 then
+    if private.is_luhn_valid(v_digits) then
       raise exception 'Potential card data cannot be written to commercial audit records.';
     end if;
   end loop;

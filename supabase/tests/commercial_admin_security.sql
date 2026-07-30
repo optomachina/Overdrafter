@@ -1,6 +1,6 @@
 begin;
 
-select plan(35);
+select plan(36);
 
 -- Keep the mutation probe transaction-local to this test. Production ships only
 -- the reusable guard and audit primitives, not an inert public test endpoint.
@@ -882,6 +882,15 @@ select throws_ok(
 );
 
 reset role;
+
+select lives_ok(
+  $$
+    select private.assert_safe_commercial_audit_value(
+      to_jsonb('42424242-4242-4242-8abc-123456789012'::text)
+    )
+  $$,
+  'digit-heavy UUID-like identifiers are not mistaken for valid card numbers'
+);
 
 select ok(
   not has_table_privilege(
