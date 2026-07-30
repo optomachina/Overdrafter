@@ -86,6 +86,11 @@ describe("mobile-auth request parsing", () => {
     ).toThrow(MobileAuthInputError);
     expect(() =>
       parseProviderCallbackRequest(
+        `https://app.example.com/auth/mobile/provider-callback?cb=${callbackBinding}&code=pkce-code&error_description=unexpected`,
+      ),
+    ).toThrow(MobileAuthInputError);
+    expect(() =>
+      parseProviderCallbackRequest(
         `https://app.example.com/auth/mobile/provider-callback?cb=${callbackBinding}&error=internal_debug_value`,
       ),
     ).toThrow(MobileAuthInputError);
@@ -176,6 +181,28 @@ describe("mobile-auth request parsing", () => {
           "/auth/mobile/complete",
           `v=1&csrf=${csrf}&access_token=${"a".repeat(MOBILE_AUTH_LIMITS.completeBodyBytes)}&refresh_token=r`,
         ),
+      ),
+    ).rejects.toThrow(MobileAuthInputError);
+
+    await expect(
+      parseCompleteRequest(
+        formRequest(
+          "/auth/mobile/complete",
+          `v=1&csrf=${csrf}&access_token=${"a".repeat(MOBILE_AUTH_LIMITS.accessTokenBytes + 1)}&refresh_token=r`,
+        ),
+      ),
+    ).rejects.toThrow(MobileAuthInputError);
+
+    await expect(
+      parseBootstrapRequest(
+        new Request("https://app.example.com/auth/mobile/bootstrap", {
+          method: "POST",
+          headers: {
+            "content-length": "1",
+            "content-type": "application/x-www-form-urlencoded; charset=utf-8",
+          },
+          body: `v=1&code=${handoff}&state=${state}&code_verifier=${verifier}`,
+        }),
       ),
     ).rejects.toThrow(MobileAuthInputError);
   });
