@@ -137,7 +137,6 @@ as $$
 declare
   v_sum integer := 0;
   v_digit integer;
-  v_index integer;
 begin
   if p_digits is null
     or p_digits !~ '^[0-9]{13,19}$'
