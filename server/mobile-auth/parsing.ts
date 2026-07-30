@@ -13,6 +13,7 @@ const FORM_CONTENT_TYPE = "application/x-www-form-urlencoded";
 const FIELD_NAME_PATTERN = /^[a-z_]+$/;
 const PRINTABLE_ASCII_PATTERN = /^[\x21-\x7e]+$/;
 const PROVIDER_ERROR_PATTERN = /^[a-z][a-z0-9_]{0,127}$/;
+const REQUEST_BODY_READ_TIMEOUT_MILLISECONDS = 10_000;
 const TRANSACTION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const MALFORMED_PERCENT_ENCODING_PATTERN = /%(?![0-9A-Fa-f]{2})/;
@@ -82,7 +83,7 @@ function decodeFormComponent(value: string): string {
   }
 
   try {
-    const decoded = decodeURIComponent(value.replace(/\+/g, " "));
+    const decoded = decodeURIComponent(value.replaceAll("+", " "));
 
     if (containsAsciiControlCharacters(decoded)) {
       throw new MobileAuthInputError();
@@ -252,6 +253,13 @@ export function parseStartRequest(requestUrl: string | URL): ParsedStartRequest 
   }
 }
 
+/**
+ * Parses a provider callback with exactly one outcome.
+ *
+ * A valid callback contains the transaction binding plus either an
+ * authorization code or an allowlisted provider error. Code callbacks reject
+ * every provider-error field; error callbacks reject authorization codes.
+ */
 export function parseProviderCallbackRequest(
   requestUrl: string | URL,
 ): ParsedProviderCallbackRequest {
@@ -332,34 +340,41 @@ function validateFormContentType(request: Request): void {
   }
 }
 
-async function readBoundedRequestBody(request: Request, maximumBytes: number): Promise<string> {
-  validateFormContentType(request);
+function readExpectedBodyLength(request: Request, maximumBytes: number): number | undefined {
   const contentLength = request.headers.get("content-length");
-  let expectedLength: number | undefined;
-
-  if (contentLength !== null) {
-    if (!/^(0|[1-9][0-9]*)$/.test(contentLength)) {
-      throw new MobileAuthInputError();
-    }
-
-    expectedLength = Number(contentLength);
-
-    if (!Number.isSafeInteger(expectedLength) || expectedLength > maximumBytes) {
-      throw new MobileAuthInputError();
-    }
+  if (contentLength === null) {
+    return undefined;
   }
 
-  if (request.body === null) {
+  if (!/^(0|[1-9]\d*)$/.test(contentLength)) {
     throw new MobileAuthInputError();
   }
 
-  const reader = request.body.getReader();
+  const expectedLength = Number(contentLength);
+  if (!Number.isSafeInteger(expectedLength) || expectedLength > maximumBytes) {
+    throw new MobileAuthInputError();
+  }
+
+  return expectedLength;
+}
+
+async function readBodyChunks(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  maximumBytes: number,
+): Promise<{ chunks: Uint8Array[]; totalBytes: number }> {
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      void reader.cancel().catch(() => undefined);
+      reject(new MobileAuthInputError());
+    }, REQUEST_BODY_READ_TIMEOUT_MILLISECONDS);
+  });
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await Promise.race([reader.read(), timedOut]);
 
       if (done) {
         break;
@@ -380,8 +395,27 @@ async function readBoundedRequestBody(request: Request, maximumBytes: number): P
     }
 
     throw new MobileAuthInputError();
+  } finally {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+    reader.releaseLock();
   }
 
+  return { chunks, totalBytes };
+}
+
+async function readBoundedRequestBody(request: Request, maximumBytes: number): Promise<string> {
+  validateFormContentType(request);
+  const expectedLength = readExpectedBodyLength(request, maximumBytes);
+  if (request.body === null) {
+    throw new MobileAuthInputError();
+  }
+
+  const { chunks, totalBytes } = await readBodyChunks(
+    request.body.getReader(),
+    maximumBytes,
+  );
   if (expectedLength !== undefined && expectedLength !== totalBytes) {
     throw new MobileAuthInputError();
   }

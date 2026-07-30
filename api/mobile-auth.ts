@@ -52,6 +52,7 @@ async function mobileAuth(request: Request): Promise<Response> {
   try {
     return await getHandler()(request);
   } catch {
+    console.error("mobile-auth: request handling failed");
     return serviceUnavailableResponse();
   }
 }

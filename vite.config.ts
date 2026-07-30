@@ -101,12 +101,6 @@ export default defineConfig(({ mode }) => ({
   test: {
     globals: true,
     environment: "jsdom",
-    environmentMatchGlobs: [
-      ["api/**/*.test.ts", "node"],
-      ["server/**/*.test.ts", "node"],
-      ["worker/src/**/*.test.ts", "node"],
-      ["scripts/**/*.test.mjs", "node"],
-    ],
     include: [
       "api/**/*.test.ts",
       "server/**/*.test.ts",

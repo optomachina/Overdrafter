@@ -1,6 +1,6 @@
 begin;
 
-select plan(55);
+select plan(58);
 
 create temporary table mobile_auth_test_flags (
   name text primary key,
@@ -730,6 +730,44 @@ select is(
   ),
   3,
   'the rate-limit counter records the saturated rejection'
+);
+
+select ok(
+  (pg_temp.create_mobile_auth_test_transaction(
+    '00000000-0000-4000-8000-000000000105',
+    '00000000-0000-4000-8000-000000000205',
+    repeat('f', 43),
+    repeat('5', 43)
+  ) ->> 'created')::boolean,
+  'a transaction is available for terminal-state coverage'
+);
+
+select is(
+  public.api_mobile_auth_terminate_transaction(
+    '00000000-0000-4000-8000-000000000105',
+    1,
+    'cancelled',
+    'mobile_auth_cancelled'
+  ),
+  jsonb_build_object(
+    'terminated', true,
+    'transactionId', '00000000-0000-4000-8000-000000000105'::uuid,
+    'traceId', '00000000-0000-4000-8000-000000000205'::uuid,
+    'rowVersion', 2,
+    'status', 'cancelled'
+  ),
+  'termination moves an active transaction to an allowed terminal state'
+);
+
+select is(
+  public.api_mobile_auth_terminate_transaction(
+    '00000000-0000-4000-8000-000000000105',
+    1,
+    'cancelled',
+    'mobile_auth_cancelled'
+  ),
+  jsonb_build_object('terminated', false),
+  'termination rejects a stale row version'
 );
 
 select ok(

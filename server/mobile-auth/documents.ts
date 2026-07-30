@@ -175,11 +175,11 @@ export function escapeMobileAuthInertJson(value: unknown): string {
   }
 
   return serialized
-    .replace(/&/g, "\\u0026")
-    .replace(/</g, "\\u003c")
-    .replace(/>/g, "\\u003e")
-    .replace(/\u2028/g, "\\u2028")
-    .replace(/\u2029/g, "\\u2029");
+    .replaceAll(/&/g, String.raw`\u0026`)
+    .replaceAll(/</g, String.raw`\u003c`)
+    .replaceAll(/>/g, String.raw`\u003e`)
+    .replaceAll(/\u2028/g, String.raw`\u2028`)
+    .replaceAll(/\u2029/g, String.raw`\u2029`);
 }
 
 function createScriptedDocument(
@@ -442,11 +442,7 @@ export function renderMobileAuthRecoveryDocument(): MobileAuthHtmlDocument {
 }
 
 export function createMobileAuthStorageNamespace(transactionId: string): string {
-  if (
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
-      transactionId,
-    )
-  ) {
+  if (!TRANSACTION_ID_PATTERN.test(transactionId)) {
     throw new MobileAuthDocumentError();
   }
 

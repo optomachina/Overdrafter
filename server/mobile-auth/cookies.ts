@@ -72,6 +72,7 @@ function assertCookieSecret(value: string, byteLength: number): void {
   }
 }
 
+/** Creates the transaction and secret that bind a browser ceremony. */
 export function createMobileAuthBrowserBinding(): MobileAuthBrowserBinding {
   return Object.freeze({
     transactionId: randomUUID(),
@@ -80,6 +81,7 @@ export function createMobileAuthBrowserBinding(): MobileAuthBrowserBinding {
   });
 }
 
+/** Serializes the short-lived, host-only browser-binding cookie. */
 export function serializeMobileAuthCookie(
   binding: Pick<MobileAuthBrowserBinding, "transactionId" | "browserSecret">,
 ): string {
@@ -92,6 +94,7 @@ export function serializeMobileAuthCookie(
   return `${MOBILE_AUTH_COOKIE_NAME}=${value}; Path=/; Max-Age=${MOBILE_AUTH_LIFETIMES.browserSeconds}; Secure; HttpOnly; SameSite=Lax`;
 }
 
+/** Serializes a browser-binding cookie deletion. */
 export function serializeExpiredMobileAuthCookie(): string {
   return `${MOBILE_AUTH_COOKIE_NAME}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=Lax`;
 }
@@ -114,6 +117,7 @@ function parseMobileAuthCookieValue(value: string): ParsedMobileAuthCookie {
   });
 }
 
+/** Parses and validates the browser-binding cookie without accepting duplicates. */
 export function readMobileAuthCookie(
   cookieHeader: string | null | undefined,
 ): ParsedMobileAuthCookie {
@@ -188,6 +192,7 @@ function csrfBindingInput(transactionId: string, csrf: string): Uint8Array {
   ]);
 }
 
+/** Derives the persisted browser and CSRF digests for a new transaction. */
 export function createMobileAuthBindingDigests(
   keyring: MobileAuthMasterKeyring,
   binding: MobileAuthBrowserBinding,
@@ -206,6 +211,7 @@ export function createMobileAuthBindingDigests(
   });
 }
 
+/** Derives browser-binding lookup candidates across retained key versions. */
 export function createBrowserBindingLookupCandidates(
   keyring: MobileAuthMasterKeyring,
   cookie: ParsedMobileAuthCookie,
@@ -217,6 +223,7 @@ export function createBrowserBindingLookupCandidates(
   );
 }
 
+/** Verifies a browser binding against a versioned persisted digest. */
 export function verifyMobileAuthBrowserBinding(
   keyring: MobileAuthMasterKeyring,
   expected: MobileAuthKeyedDigest,
@@ -233,6 +240,7 @@ export function verifyMobileAuthBrowserBinding(
   );
 }
 
+/** Verifies a CSRF token against a versioned persisted digest. */
 export function verifyMobileAuthCsrf(
   keyring: MobileAuthMasterKeyring,
   expected: MobileAuthKeyedDigest,
@@ -254,6 +262,7 @@ export function verifyMobileAuthCsrf(
   }
 }
 
+/** Performs a constant-time comparison for canonical CSRF values. */
 export function constantTimeCsrfMatch(expected: string, provided: string): boolean {
   try {
     assertCookieSecret(expected, MOBILE_AUTH_LIMITS.csrfBytes);
@@ -265,6 +274,7 @@ export function constantTimeCsrfMatch(expected: string, provided: string): boole
   return constantTimeEqual(expected, provided);
 }
 
+/** Creates a keyed digest suitable for a rate-limit bucket identifier. */
 export function createRateLimitDigest(
   keyring: MobileAuthMasterKeyring,
   rateLimitInput: string,

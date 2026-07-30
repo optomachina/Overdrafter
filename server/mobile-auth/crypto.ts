@@ -42,10 +42,12 @@ export class MobileAuthCryptoError extends Error {
   }
 }
 
+/** Encodes bytes as unpadded canonical base64url text. */
 export function encodeCanonicalBase64Url(value: Uint8Array): string {
   return Buffer.from(value).toString("base64url");
 }
 
+/** Decodes canonical base64url text while enforcing optional byte bounds. */
 export function decodeCanonicalBase64Url(
   value: string,
   expectedByteLength?: number,
@@ -79,6 +81,7 @@ export function decodeCanonicalBase64Url(
   return Uint8Array.from(decoded);
 }
 
+/** Creates a cryptographically random canonical base64url secret. */
 export function createRandomBase64Url(
   byteLength: number = MOBILE_AUTH_LIMITS.randomSecretBytes,
 ): string {
@@ -89,24 +92,29 @@ export function createRandomBase64Url(
   return randomBytes(byteLength).toString("base64url");
 }
 
+/** Creates the native-app state value used to bind one authentication attempt. */
 export function createMobileAuthState(): string {
   return createRandomBase64Url(MOBILE_AUTH_LIMITS.stateBytes);
 }
 
+/** Creates a PKCE verifier for one mobile authentication attempt. */
 export function createMobileAuthCodeVerifier(): string {
   return createRandomBase64Url(MOBILE_AUTH_LIMITS.codeVerifierBytes);
 }
 
+/** Creates the one-time code used to redeem an authenticated handoff. */
 export function createMobileAuthHandoffCode(): string {
   return createRandomBase64Url(MOBILE_AUTH_LIMITS.handoffCodeBytes);
 }
 
+/** Validates a verifier and derives its RFC 7636 S256 challenge. */
 export function calculateS256CodeChallenge(codeVerifier: string): string {
   decodeCanonicalBase64Url(codeVerifier, MOBILE_AUTH_LIMITS.codeVerifierBytes);
 
   return createHash("sha256").update(codeVerifier, "ascii").digest("base64url");
 }
 
+/** Compares secret values without leaking their shared-prefix length. */
 export function constantTimeEqual(left: string | Uint8Array, right: string | Uint8Array): boolean {
   const leftBytes =
     typeof left === "string" ? Buffer.from(left, "utf8") : Buffer.from(left);
@@ -229,6 +237,7 @@ function computeHmacDigest(
   }
 }
 
+/** Creates a purpose-bound digest with the keyring's current key version. */
 export function createCurrentHmacDigest(
   keyring: MobileAuthMasterKeyring,
   purpose: MobileAuthHmacPurpose,
@@ -244,6 +253,7 @@ export function createCurrentHmacDigest(
   });
 }
 
+/** Creates lookup digests for every retained key version during rotation. */
 export function createHmacLookupCandidates(
   keyring: MobileAuthMasterKeyring,
   purpose: MobileAuthHmacPurpose,
@@ -268,6 +278,7 @@ export function createHmacLookupCandidates(
   );
 }
 
+/** Verifies a purpose-bound digest against its declared key version. */
 export function verifyHmacDigest(
   keyring: MobileAuthMasterKeyring,
   expected: MobileAuthKeyedDigest,
@@ -373,6 +384,7 @@ function createEnvelopeAdditionalData(
   ]);
 }
 
+/** Encrypts a purpose- and context-bound envelope with the current key. */
 export function encryptMobileAuthEnvelope(
   keyring: MobileAuthMasterKeyring,
   purpose: MobileAuthEnvelopePurpose,
@@ -388,6 +400,7 @@ export function encryptMobileAuthEnvelope(
   );
 }
 
+/** Encrypts a purpose-bound envelope using a specific retained key version. */
 export function encryptMobileAuthEnvelopeWithKeyVersion(
   keyring: MobileAuthMasterKeyring,
   keyVersion: number,
@@ -429,6 +442,7 @@ export function encryptMobileAuthEnvelopeWithKeyVersion(
   }
 }
 
+/** Authenticates and decrypts a mobile-auth envelope for its expected context. */
 export function decryptMobileAuthEnvelope(
   keyring: MobileAuthMasterKeyring,
   envelope: MobileAuthEncryptedEnvelope,

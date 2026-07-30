@@ -33,8 +33,10 @@ interface SupabaseRepositoryDependencies {
 export class MobileAuthRepositoryError extends Error {
   readonly code = "mobile_auth_service_unavailable" as const;
 
-  constructor() {
-    super("The mobile authentication persistence boundary is unavailable.");
+  constructor(cause?: unknown) {
+    super("The mobile authentication persistence boundary is unavailable.", {
+      cause,
+    });
     this.name = "MobileAuthRepositoryError";
   }
 }
@@ -113,7 +115,7 @@ async function callRpc(
   try {
     const result = await client.rpc(functionName, parameters);
     if (result.error) {
-      throw new MobileAuthRepositoryError();
+      throw new MobileAuthRepositoryError(result.error);
     }
 
     return result.data;
@@ -122,7 +124,7 @@ async function callRpc(
       throw error;
     }
 
-    throw new MobileAuthRepositoryError();
+    throw new MobileAuthRepositoryError(error);
   }
 }
 

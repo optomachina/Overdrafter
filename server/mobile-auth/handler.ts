@@ -94,6 +94,33 @@ const METHOD_BY_ACTION: Readonly<Record<MobileAuthAction, "GET" | "POST">> = {
 const ZERO_STATE = Buffer.alloc(MOBILE_AUTH_LIMITS.stateBytes).toString("base64url");
 const CLEANUP_BATCH_SIZE = 250;
 const CLEANUP_MAX_BATCHES = 40;
+const CLEANUP_MAX_DURATION_MILLISECONDS = 8_000;
+
+async function cleanupWithinDeadline(
+  repository: MobileAuthRepository,
+  deadline: number,
+): Promise<Awaited<ReturnType<MobileAuthRepository["cleanup"]>> | null> {
+  const remainingMilliseconds = deadline - Date.now();
+  if (remainingMilliseconds <= 0) {
+    return null;
+  }
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadlineReached = new Promise<null>((resolve) => {
+    timeout = setTimeout(() => resolve(null), remainingMilliseconds);
+  });
+
+  try {
+    return await Promise.race([
+      repository.cleanup(CLEANUP_BATCH_SIZE),
+      deadlineReached,
+    ]);
+  } finally {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+  }
+}
 
 function documentResponse(
   document: MobileAuthHtmlDocument,
@@ -220,8 +247,7 @@ async function findBrowserTransaction(
     (candidate) => candidate.digest === transaction.browserBindingDigest,
   );
   if (
-    !matchedCandidate ||
-    matchedCandidate.keyVersion !== transaction.cryptoKeyVersion
+    matchedCandidate?.keyVersion !== transaction.cryptoKeyVersion
   ) {
     return null;
   }
@@ -255,11 +281,11 @@ async function takeRateLimit(
 
 function parseEpochSeconds(value: string): number | null {
   const milliseconds = Date.parse(value);
-  if (!Number.isFinite(milliseconds) || milliseconds % 1_000 !== 0) {
+  if (!Number.isFinite(milliseconds)) {
     return null;
   }
 
-  const seconds = milliseconds / 1_000;
+  const seconds = Math.floor(milliseconds / 1_000);
   return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : null;
 }
 
@@ -286,6 +312,14 @@ function methodFailure(action: MobileAuthAction): Response {
 
 function queryMustBeEmpty(route: ResolvedMobileAuthRoute): boolean {
   return route.publicUrl.search === "";
+}
+
+async function handleCallback(route: ResolvedMobileAuthRoute): Promise<Response> {
+  if (!queryMustBeEmpty(route)) {
+    return recoveryResponse(400);
+  }
+
+  return documentResponse(renderMobileAuthRecoveryDocument());
 }
 
 function isNativeBootstrapRequest(
@@ -845,14 +879,6 @@ export function createMobileAuthHandler(
     }
   }
 
-  async function handleCallback(route: ResolvedMobileAuthRoute): Promise<Response> {
-    if (!queryMustBeEmpty(route)) {
-      return recoveryResponse(400);
-    }
-
-    return documentResponse(renderMobileAuthRecoveryDocument());
-  }
-
   async function handleCleanup(
     request: Request,
     route: ResolvedMobileAuthRoute,
@@ -875,9 +901,13 @@ export function createMobileAuthHandler(
     };
     let batches = 0;
     let drained = false;
+    const deadline = Date.now() + CLEANUP_MAX_DURATION_MILLISECONDS;
 
     for (let index = 0; index < CLEANUP_MAX_BATCHES; index += 1) {
-      const result = await repository.cleanup(CLEANUP_BATCH_SIZE);
+      const result = await cleanupWithinDeadline(repository, deadline);
+      if (!result) {
+        break;
+      }
       batches += 1;
       totals.expiredTransactions += result.expiredTransactions;
       totals.deletedTransactions += result.deletedTransactions;

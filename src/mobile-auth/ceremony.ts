@@ -9,6 +9,18 @@ const COMPLETE_PATH = "/auth/mobile/complete";
 const PKCE_CODE_VERIFIER_SUFFIX = "-code-verifier";
 const TRANSACTION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const PROVIDER_ERROR_PARAMETERS = new Set([
+  "cb",
+  "error",
+  "error_code",
+  "error_description",
+]);
+const PROVIDER_ERRORS = new Set([
+  "access_denied",
+  "invalid_request",
+  "server_error",
+  "temporarily_unavailable",
+]);
 
 export type MobileAuthProvider = "google" | "azure" | "apple";
 export type MobileAuthProviderError =
@@ -55,14 +67,14 @@ type AuthSessionResult = {
   data: {
     session: Session | null;
   } | null;
-  error: unknown | null;
+  error: unknown;
 };
 
 type OAuthResult = {
   data: {
     url?: string | null;
   } | null;
-  error: unknown | null;
+  error: unknown;
 };
 
 export type CeremonyAuthClient = {
@@ -128,6 +140,15 @@ export type CeremonyController = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseJsonRecord(serialized: string): Record<string, unknown> | null {
+  try {
+    const candidate: unknown = JSON.parse(serialized);
+    return isRecord(candidate) ? candidate : null;
+  } catch {
+    return null;
+  }
 }
 
 function isBoundedString(value: unknown, maximumLength: number): value is string {
@@ -374,14 +395,8 @@ export function readCeremonyConfig(
     return null;
   }
 
-  let candidate: unknown;
-  try {
-    candidate = JSON.parse(serializedConfig);
-  } catch {
-    return null;
-  }
-
-  if (!isRecord(candidate) || candidate.version !== 1) {
+  const candidate = parseJsonRecord(serializedConfig);
+  if (!candidate || candidate.version !== 1) {
     return null;
   }
 
@@ -393,7 +408,10 @@ export function readCeremonyConfig(
   );
   const completeUrl = parseSameOriginEndpoint(candidate.completeUrl, documentOrigin, COMPLETE_PATH);
 
-  if (!/^[A-Za-z0-9.:-]{1,160}$/.test(String(candidate.storageNamespace ?? ""))) {
+  if (
+    typeof candidate.storageNamespace !== "string" ||
+    !/^[A-Za-z0-9.:-]{1,160}$/.test(candidate.storageNamespace)
+  ) {
     return null;
   }
 
@@ -440,7 +458,7 @@ export function readCeremonyConfig(
 
   const config: CeremonyConfig = {
     version: 1,
-    storageNamespace: String(candidate.storageNamespace),
+    storageNamespace: candidate.storageNamespace,
     csrf: candidate.csrf,
     supabaseUrl,
     supabasePublishableKey: candidate.supabasePublishableKey,
@@ -485,6 +503,87 @@ function isProvider(value: string): value is MobileAuthProvider {
 
 function validPasswordCredentials(email: string, password: string) {
   return email.length > 0 && email.length <= 320 && password.length > 0 && password.length <= 4_096;
+}
+
+type ProviderCallbackAnalysis = {
+  callbackUrl: URL;
+  codeValues: string[];
+  errorValues: string[];
+  hasNoUrlParameters: boolean;
+  hasBoundCodeParameters: boolean;
+  hasBoundProviderErrorParameters: boolean;
+};
+
+function readExpectedCallbackBinding(expectedUrl: URL): string | null {
+  const bindings = expectedUrl.searchParams.getAll("cb");
+  const binding = bindings.length === 1 ? bindings[0] : null;
+  if (
+    !binding ||
+    !TRANSACTION_ID_PATTERN.test(binding) ||
+    expectedUrl.search !== `?cb=${binding}` ||
+    expectedUrl.username ||
+    expectedUrl.password ||
+    expectedUrl.hash
+  ) {
+    return null;
+  }
+
+  return binding;
+}
+
+function analyzeProviderCallback(
+  value: string,
+  expectedProviderCallbackUrl: string,
+): ProviderCallbackAnalysis | null {
+  const expectedUrl = new URL(expectedProviderCallbackUrl);
+  const expectedCallbackBinding = readExpectedCallbackBinding(expectedUrl);
+  let callbackUrl: URL;
+
+  try {
+    callbackUrl = new URL(value);
+  } catch {
+    return null;
+  }
+
+  if (
+    !expectedCallbackBinding ||
+    callbackUrl.origin !== expectedUrl.origin ||
+    callbackUrl.pathname !== expectedUrl.pathname ||
+    callbackUrl.username ||
+    callbackUrl.password
+  ) {
+    return null;
+  }
+
+  const codeValues = callbackUrl.searchParams.getAll("code");
+  const callbackBindings = callbackUrl.searchParams.getAll("cb");
+  const errorValues = callbackUrl.searchParams.getAll("error");
+  const parameterNames = Array.from(callbackUrl.searchParams.keys());
+  const uniqueParameterNames = new Set(parameterNames);
+  const hasDuplicateParameter = uniqueParameterNames.size !== parameterNames.length;
+  const hasMatchingCallbackBinding =
+    callbackBindings.length === 1 && callbackBindings[0] === expectedCallbackBinding;
+  const hasSharedRequirements =
+    !callbackUrl.hash && !hasDuplicateParameter && hasMatchingCallbackBinding;
+
+  return {
+    callbackUrl,
+    codeValues,
+    errorValues,
+    hasNoUrlParameters: parameterNames.length === 0,
+    hasBoundCodeParameters:
+      hasSharedRequirements &&
+      parameterNames.length === 2 &&
+      codeValues.length === 1 &&
+      isBoundedString(codeValues[0], 4_096) &&
+      parameterNames.every((name) => name === "cb" || name === "code"),
+    hasBoundProviderErrorParameters:
+      hasSharedRequirements &&
+      errorValues.length === 1 &&
+      PROVIDER_ERRORS.has(errorValues[0]) &&
+      codeValues.length === 0 &&
+      parameterNames.every((name) => PROVIDER_ERROR_PARAMETERS.has(name)),
+  };
 }
 
 /**
@@ -660,74 +759,23 @@ export function createCeremonyController(
   };
 
   const processProviderCallback = async (url: string): Promise<CeremonyResult> => {
-    let callbackUrl: URL;
     const expectedUrl = new URL(config.providerCallbackUrl);
-    const expectedCallbackBindings = expectedUrl.searchParams.getAll("cb");
-    const expectedCallbackBinding =
-      expectedCallbackBindings.length === 1 ? expectedCallbackBindings[0] : null;
-
-    try {
-      callbackUrl = new URL(url);
-    } catch {
+    const analysis = analyzeProviderCallback(url, config.providerCallbackUrl);
+    if (!analysis) {
       return {
         status: "error",
         code: "mobile_auth_invalid_request",
       };
     }
 
-    if (
-      !expectedCallbackBinding ||
-      !TRANSACTION_ID_PATTERN.test(expectedCallbackBinding) ||
-      expectedUrl.search !== `?cb=${expectedCallbackBinding}` ||
-      expectedUrl.username ||
-      expectedUrl.password ||
-      expectedUrl.hash ||
-      callbackUrl.origin !== expectedUrl.origin ||
-      callbackUrl.pathname !== expectedUrl.pathname ||
-      callbackUrl.username ||
-      callbackUrl.password
-    ) {
-      return {
-        status: "error",
-        code: "mobile_auth_invalid_request",
-      };
-    }
-
-    const codeValues = callbackUrl.searchParams.getAll("code");
-    const callbackBindings = callbackUrl.searchParams.getAll("cb");
-    const errorValues = callbackUrl.searchParams.getAll("error");
-    const parameterNames = Array.from(callbackUrl.searchParams.keys());
-    const hasDuplicateParameter = parameterNames.some(
-      (name, index) => parameterNames.indexOf(name) !== index,
-    );
-    const hasMatchingCallbackBinding =
-      callbackBindings.length === 1 && callbackBindings[0] === expectedCallbackBinding;
-    const hasNoUrlParameters = parameterNames.length === 0;
-    const hasBoundCodeParameters =
-      !callbackUrl.hash &&
-      !hasDuplicateParameter &&
-      parameterNames.length === 2 &&
-      hasMatchingCallbackBinding &&
-      codeValues.length === 1 &&
-      isBoundedString(codeValues[0], 4_096) &&
-      parameterNames.every((name) => name === "cb" || name === "code");
-    const allowedErrorParameters = new Set([
-      "cb",
-      "error",
-      "error_code",
-      "error_description",
-    ]);
-    const hasBoundProviderErrorParameters =
-      !callbackUrl.hash &&
-      !hasDuplicateParameter &&
-      hasMatchingCallbackBinding &&
-      errorValues.length === 1 &&
-      (errorValues[0] === "access_denied" ||
-        errorValues[0] === "invalid_request" ||
-        errorValues[0] === "server_error" ||
-        errorValues[0] === "temporarily_unavailable") &&
-      codeValues.length === 0 &&
-      parameterNames.every((name) => allowedErrorParameters.has(name));
+    const {
+      callbackUrl,
+      codeValues,
+      errorValues,
+      hasNoUrlParameters,
+      hasBoundCodeParameters,
+      hasBoundProviderErrorParameters,
+    } = analysis;
 
     sourceHistory.replaceState(null, "", expectedUrl.pathname);
 

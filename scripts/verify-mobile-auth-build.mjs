@@ -123,7 +123,9 @@ async function main() {
   console.log("Mobile authentication build artifacts verified.");
 }
 
-main().catch((error) => {
+try {
+  await main();
+} catch (error) {
   console.error(error instanceof Error ? error.message : "Mobile authentication build verification failed.");
   process.exitCode = 1;
-});
+}

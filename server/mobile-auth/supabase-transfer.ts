@@ -146,8 +146,7 @@ export function createTransferSessionVerifier(
       const rotatedUserResult = await client.auth.getUser(rotatedSession.access_token);
       if (
         rotatedUserResult.error ||
-        !rotatedUserResult.data.user ||
-        rotatedUserResult.data.user.id !== rotatedUser.id
+        rotatedUserResult.data.user?.id !== rotatedUser.id
       ) {
         return null;
       }

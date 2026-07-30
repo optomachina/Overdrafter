@@ -9,7 +9,7 @@ import { decodeCanonicalBase64Url } from "./crypto";
 
 const MASTER_KEYRING_ENV = "MOBILE_AUTH_KEYRING";
 const MASTER_KEY_CURRENT_VERSION_ENV = "MOBILE_AUTH_CURRENT_KEY_VERSION";
-const KEY_VERSION_PATTERN = /^[1-9][0-9]{0,8}$/;
+const KEY_VERSION_PATTERN = /^[1-9]\d{0,8}$/;
 const LOCAL_TEST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 export interface MobileAuthServerConfig {
@@ -149,11 +149,17 @@ function parseMasterKeyring(
 
   keys.sort((left, right) => left.version - right.version);
 
-  if (
-    keys.length === 0 ||
-    keys.length > MOBILE_AUTH_LIMITS.retainedKeyVersions ||
-    !keys.some((candidate) => candidate.version === currentVersion)
-  ) {
+  if (keys.length === 0) {
+    throw new MobileAuthConfigError("The mobile-auth master keyring is empty.");
+  }
+
+  if (keys.length > MOBILE_AUTH_LIMITS.retainedKeyVersions) {
+    throw new MobileAuthConfigError(
+      "The mobile-auth master keyring exceeds the retained-version limit.",
+    );
+  }
+
+  if (!keys.some((candidate) => candidate.version === currentVersion)) {
     throw new MobileAuthConfigError("The current mobile-auth master key is not configured.");
   }
 
@@ -163,6 +169,12 @@ function parseMasterKeyring(
   });
 }
 
+/**
+ * Loads and validates the server-side mobile-auth configuration.
+ *
+ * Throws {@link MobileAuthConfigError} when a required value is missing,
+ * malformed, or inconsistent with the browser-visible Supabase project.
+ */
 export function loadMobileAuthConfig(
   environment: Readonly<Record<string, string | undefined>>,
   options: LoadMobileAuthConfigOptions = {},
@@ -214,6 +226,12 @@ export function loadMobileAuthConfig(
   });
 }
 
+/**
+ * Parses a request URL and requires it to use the configured application origin.
+ *
+ * Throws {@link MobileAuthConfigError} when the URL is invalid or crosses the
+ * mobile-auth origin boundary.
+ */
 export function assertRequestMatchesConfiguredOrigin(
   requestUrl: string | URL,
   config: Pick<MobileAuthServerConfig, "appOrigin">,

@@ -65,7 +65,7 @@ type BootstrapAuthClient = {
       data: {
         session: Session | null;
       };
-      error: unknown | null;
+      error: unknown;
     }>;
     getUser(): Promise<{
       data: {
@@ -73,7 +73,7 @@ type BootstrapAuthClient = {
           id: string;
         } | null;
       };
-      error: unknown | null;
+      error: unknown;
     }>;
     signOut(options: { scope: "local" }): Promise<unknown>;
   };
@@ -117,6 +117,9 @@ const MOBILE_AUTH_ERROR_CODES = new Set<MobileAuthErrorCode>([
   "mobile_auth_service_unavailable",
 ]);
 const RETURN_ROUTE_MAX_CHARACTERS = 256;
+const RETURN_ROUTE_SEGMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+const SINGLE_SEGMENT_RETURN_ROUTES = new Set(["parts", "quotes", "search"]);
+const RESOURCE_RETURN_ROUTES = new Set(["parts", "quotes", "projects"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -139,8 +142,15 @@ function isAllowedReturnRoute(value: unknown): value is string {
     return false;
   }
 
-  return /^\/(?:parts(?:\/[A-Za-z0-9][A-Za-z0-9_-]{0,127})?|quotes(?:\/[A-Za-z0-9][A-Za-z0-9_-]{0,127})?|search|projects\/[A-Za-z0-9][A-Za-z0-9_-]{0,127})$/.test(
-    value,
+  const segments = value.slice(1).split("/");
+  if (segments.length === 1) {
+    return SINGLE_SEGMENT_RETURN_ROUTES.has(segments[0]);
+  }
+
+  return (
+    segments.length === 2 &&
+    RESOURCE_RETURN_ROUTES.has(segments[0]) &&
+    RETURN_ROUTE_SEGMENT_PATTERN.test(segments[1])
   );
 }
 

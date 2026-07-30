@@ -5,6 +5,8 @@ import {
 
 const RETURN_ROUTE_SEGMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const ENCODED_OR_AMBIGUOUS_PATH_PATTERN = /[%\\?#]/;
+const SINGLE_SEGMENT_ROUTES = new Set(["parts", "quotes", "search"]);
+const RESOURCE_ROUTES = new Set(["parts", "quotes", "projects"]);
 
 export class MobileAuthReturnRouteError extends Error {
   readonly code = "mobile_auth_invalid_request" as const;
@@ -39,17 +41,21 @@ export function isAllowlistedMobileReturnRoute(value: string): boolean {
   const segments = value.slice(1).split("/");
 
   if (segments.length === 1) {
-    return segments[0] === "parts" || segments[0] === "quotes" || segments[0] === "search";
+    return SINGLE_SEGMENT_ROUTES.has(segments[0]);
   }
 
   if (segments.length !== 2 || !isSafeRouteSegment(segments[1])) {
     return false;
   }
 
-  return segments[0] === "parts" || segments[0] === "quotes" || segments[0] === "projects";
+  return RESOURCE_ROUTES.has(segments[0]);
 }
 
-export function parseMobileReturnRoute(value: string | null | undefined): string {
+/**
+ * Returns an allowlisted in-app destination, defaulting omitted routes to the
+ * quote workspace so authentication can resume the product's primary flow.
+ */
+export function parseMobileReturnRoute(value: string | null = "/quotes"): string {
   const candidate = value ?? "/quotes";
 
   if (!isAllowlistedMobileReturnRoute(candidate)) {

@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MOBILE_AUTH_LIMITS } from "./contract";
 import { encodeCanonicalBase64Url } from "./crypto";
 import {
@@ -17,6 +17,10 @@ const verifier = encodeCanonicalBase64Url(new Uint8Array(32).fill(3));
 const handoff = encodeCanonicalBase64Url(new Uint8Array(32).fill(4));
 const csrf = encodeCanonicalBase64Url(new Uint8Array(32).fill(5));
 const callbackBinding = "018f4d67-89ab-7cde-8abc-0123456789ab";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function formRequest(path: string, body: string): Request {
   return new Request(`https://app.example.com${path}`, {
@@ -174,5 +178,31 @@ describe("mobile-auth request parsing", () => {
         ),
       ),
     ).rejects.toThrow(MobileAuthInputError);
+  });
+
+  it("cancels a request body that stalls while streaming", async () => {
+    vi.useFakeTimers();
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull() {
+        return new Promise(() => undefined);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const request = new Request("https://app.example.com/auth/mobile/complete", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    const parsed = parseCompleteRequest(request);
+    const rejection = expect(parsed).rejects.toThrow(MobileAuthInputError);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await rejection;
+    expect(cancelled).toBe(true);
   });
 });

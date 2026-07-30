@@ -94,8 +94,8 @@ function parseStoredEnvelope(serialized: string): StoredMobileAuthEnvelope {
     parts;
   if (
     versionText !== "1" ||
-    !/^[1-9][0-9]*$/.test(expiryText) ||
-    !/^[1-9][0-9]*$/.test(keyVersionText)
+    !/^[1-9]\d*$/.test(expiryText) ||
+    !/^[1-9]\d*$/.test(keyVersionText)
   ) {
     throw new MobileAuthEnvelopeFormatError();
   }
@@ -142,6 +142,7 @@ function encodePlaintext(value: unknown): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(value));
 }
 
+/** Seals state and CSRF material into an expiring transaction-bound envelope. */
 export function sealStateEnvelope(
   keyring: MobileAuthMasterKeyring,
   state: string,
@@ -167,6 +168,7 @@ export function sealStateEnvelope(
   }
 }
 
+/** Opens and validates an expiring state envelope for its transaction context. */
 export function openStateEnvelope(
   keyring: MobileAuthMasterKeyring,
   serialized: string,
@@ -205,6 +207,7 @@ export function openStateEnvelope(
   };
 }
 
+/** Seals transfer credentials with the transaction's original key version. */
 export function sealSessionEnvelope(
   keyring: MobileAuthMasterKeyring,
   keyVersion: number,
@@ -246,6 +249,7 @@ export function sealSessionEnvelope(
   }
 }
 
+/** Opens transfer credentials only when context and expiry match exactly. */
 export function openSessionEnvelope(
   keyring: MobileAuthMasterKeyring,
   serialized: string,

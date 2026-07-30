@@ -181,8 +181,8 @@ describe("mobile authentication ceremony", () => {
       }),
     );
 
-    expect(window.localStorage.length).toBe(0);
-    expect(window.sessionStorage.length).toBe(1);
+    expect(window.localStorage).toHaveLength(0);
+    expect(window.sessionStorage).toHaveLength(1);
     expect(serializedSessionStorage()).toContain("verifier");
     expect(serializedSessionStorage()).not.toContain(ACCESS_TOKEN);
     expect(serializedSessionStorage()).not.toContain(REFRESH_TOKEN);

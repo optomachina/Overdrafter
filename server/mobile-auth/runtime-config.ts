@@ -37,6 +37,10 @@ function readRuntimeValue(
   return value;
 }
 
+/**
+ * Loads the complete runtime configuration, including the environment label
+ * and the secret required by the authenticated cleanup route.
+ */
 export function loadMobileAuthRuntimeConfig(
   environment: Readonly<Record<string, string | undefined>>,
 ): MobileAuthRuntimeConfig {

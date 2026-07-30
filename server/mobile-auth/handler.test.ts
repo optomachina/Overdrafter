@@ -1,5 +1,7 @@
+// @vitest-environment node
+
 import { randomBytes, randomUUID } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   calculateS256CodeChallenge,
   createMobileAuthCodeVerifier,
@@ -29,6 +31,10 @@ import type {
 const APP_ORIGIN = "https://app.example.com";
 const USER_ID = "0190f3d0-7f34-7e19-8da9-1132a848e042";
 const SESSION_ID = "0190f3d0-81d4-7f5f-9a31-792c0ef7f8b8";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 interface StoredTransaction extends CreateMobileAuthTransaction {
   status:
@@ -468,6 +474,11 @@ describe("mobile authentication HTTP bridge", () => {
     expect(crossSiteBody).not.toContain("rotated-refresh-token");
     expect(repository.consumeCount).toBe(0);
 
+    if (repository.transaction?.handoffExpiresAt) {
+      repository.transaction.handoffExpiresAt =
+        repository.transaction.handoffExpiresAt.replace(".000Z", ".500Z");
+    }
+
     const bootstrapResponse = await flow.handler(
       new Request(`${APP_ORIGIN}/auth/mobile/bootstrap`, {
         method: "POST",
@@ -818,6 +829,40 @@ describe("mobile authentication HTTP bridge", () => {
     });
     expect(cleanup).toHaveBeenCalledTimes(40);
     expect(cleanup).toHaveBeenLastCalledWith(250);
+  });
+
+  it("stops cleanup before the serverless wall-clock budget is exhausted", async () => {
+    vi.useFakeTimers();
+    const repository = new MemoryRepository();
+    const cleanup = vi
+      .spyOn(repository, "cleanup")
+      .mockImplementation(() => new Promise(() => undefined));
+    const config = runtimeConfig();
+    const handler = createMobileAuthHandler({
+      config,
+      repository,
+      transferVerifier: verifier(),
+    });
+
+    const responsePromise = handler(
+      new Request(`${APP_ORIGIN}/api/mobile-auth?action=cleanup`, {
+        headers: { Authorization: `Bearer ${config.cronSecret}` },
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(8_000);
+    const response = await responsePromise;
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      batches: 0,
+      drained: false,
+      expiredTransactions: 0,
+      deletedTransactions: 0,
+      deletedRateLimits: 0,
+      deletedAuditEvents: 0,
+    });
+    expect(cleanup).toHaveBeenCalledOnce();
   });
 
   it("keeps the claimed HTTPS callback script-free when opened normally", async () => {
