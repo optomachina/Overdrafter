@@ -95,6 +95,8 @@ export {
 export {
   enqueueDebugVendorQuote,
   getQuoteRunReadiness,
+  requestManualQuote,
+  requestManualQuotes,
   requestQuote,
   requestQuotes,
   setJobSelectedVendorQuoteOffer,

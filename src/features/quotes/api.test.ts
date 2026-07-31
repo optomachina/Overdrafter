@@ -148,6 +148,7 @@ function buildQuoteRequestRpcResult(overrides: Record<string, unknown> = {}) {
     status: "queued",
     reasonCode: null,
     reason: null,
+    quoteMode: "automatic",
     requestedVendors: ["xometry", "fictiv", "protolabs"],
     ...overrides,
   };
@@ -563,6 +564,8 @@ import {
   pinJob,
   pinProject,
   requestDebugExtraction,
+  requestManualQuote,
+  requestManualQuotes,
   requestQuote,
   requestQuotes,
   resetClientPartPropertyOverrides,
@@ -4013,6 +4016,27 @@ describe("quotes api helpers", () => {
     });
   });
 
+  it("requests a manual quote without changing the automatic RPC contract", async () => {
+    supabaseMock.rpc.mockResolvedValue({
+      data: buildQuoteRequestRpcResult({
+        quoteMode: "manual",
+        requestedVendors: [],
+      }),
+      error: null,
+    });
+
+    await expect(requestManualQuote("job-1")).resolves.toMatchObject({
+      jobId: "job-1",
+      quoteMode: "manual",
+      requestedVendors: [],
+    });
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_manual_quote", {
+      p_job_id: "job-1",
+      p_force_retry: false,
+    });
+  });
+
   it("accepts user-rate-limited quote request responses from the rpc", async () => {
     supabaseMock.rpc.mockResolvedValue({
       data: buildQuoteRequestRpcResult({
@@ -4090,6 +4114,7 @@ describe("quotes api helpers", () => {
         status: "queued",
         reasonCode: null,
         reason: null,
+        quoteMode: "automatic",
         requestedVendors: ["xometry", "fictiv", "protolabs"],
       },
       {
@@ -4103,6 +4128,7 @@ describe("quotes api helpers", () => {
         status: "not_requested",
         reasonCode: "missing_cad",
         reason: "Upload a CAD model before requesting a quote.",
+        quoteMode: "automatic",
         requestedVendors: ["xometry", "fictiv", "protolabs"],
       },
     ]);
@@ -4142,14 +4168,55 @@ describe("quotes api helpers", () => {
         status: "not_requested",
         reasonCode: "org_cost_ceiling_reached",
         reason: "Quote requests are temporarily paused for this workspace while current vendor quote requests are still in flight.",
+        quoteMode: "automatic",
         requestedVendors: ["xometry", "fictiv", "protolabs"],
       },
     ]);
   });
 
+  it("requests manual quotes in bulk and removes duplicate job ids", async () => {
+    supabaseMock.rpc.mockResolvedValue({
+      data: [
+        buildQuoteRequestRpcResult({
+          quoteMode: "manual",
+          requestedVendors: [],
+        }),
+        buildQuoteRequestRpcResult({
+          jobId: "job-2",
+          quoteMode: "manual",
+          requestedVendors: [],
+        }),
+      ],
+      error: null,
+    });
+
+    await expect(requestManualQuotes(["job-1", "job-2", "job-1"])).resolves.toEqual([
+      expect.objectContaining({
+        jobId: "job-1",
+        quoteMode: "manual",
+        requestedVendors: [],
+      }),
+      expect.objectContaining({
+        jobId: "job-2",
+        quoteMode: "manual",
+        requestedVendors: [],
+      }),
+    ]);
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_manual_quotes", {
+      p_job_ids: ["job-1", "job-2"],
+      p_force_retry: false,
+    });
+  });
+
   it("short-circuits empty bulk quote requests without calling the rpc", async () => {
     await expect(requestQuotes([])).resolves.toEqual([]);
     expect(supabaseMock.rpc).not.toHaveBeenCalledWith("api_request_quotes", expect.anything());
+  });
+
+  it("short-circuits empty manual bulk requests without calling the rpc", async () => {
+    await expect(requestManualQuotes([])).resolves.toEqual([]);
+    expect(supabaseMock.rpc).not.toHaveBeenCalledWith("api_request_manual_quotes", expect.anything());
   });
 
   it("keeps raw requested_service_kinds reads confined to the compatibility accessor", () => {

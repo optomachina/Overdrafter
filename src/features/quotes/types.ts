@@ -10,6 +10,7 @@ import type {
   Json,
   ProjectInviteStatus,
   ProjectRole as SupabaseProjectRole,
+  QuoteRequestMode,
   QuoteRequestStatus,
   QueueTaskStatus,
   QueueTaskType,
@@ -767,6 +768,7 @@ export type QuoteRequestSubmissionResult = {
   // client request throttling, or org-level cost circuit-breaker denials.
   reasonCode: string | null;
   reason: string | null;
+  quoteMode: QuoteRequestMode;
   // Phase 2 semantics: this is the actual vendor set requested or blocked for the job.
   requestedVendors: VendorName[];
 };

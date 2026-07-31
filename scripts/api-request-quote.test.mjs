@@ -263,6 +263,23 @@ async function requestQuote(authenticatedClient, jobId, forceRetry = false) {
   return { data, error };
 }
 
+async function requestManualQuote(authenticatedClient, jobId, forceRetry = false) {
+  const { data, error } = await authenticatedClient.rpc("api_request_manual_quote", {
+    p_job_id: jobId,
+    p_force_retry: forceRetry,
+  });
+
+  return { data, error };
+}
+
+async function cancelQuoteRequest(authenticatedClient, requestId) {
+  const { data, error } = await authenticatedClient.rpc("api_cancel_quote_request", {
+    p_request_id: requestId,
+  });
+
+  return { data, error };
+}
+
 async function createForeignOrgUser(admin) {
   const email = `cross-org-${randomUUID()}@overdrafter.local`;
   const password = randomUUID();
@@ -428,6 +445,7 @@ describe("api_request_quote gating paths", () => {
     expect(data.created).toBe(true);
     expect(data.status).toBe("queued");
     expect(data.reasonCode).toBeNull();
+    expect(data.quoteMode).toBe("automatic");
     expect(data.quoteRequestId).toBeTruthy();
     expect(data.quoteRunId).toBeTruthy();
     expect(data.serviceRequestLineItemId).toBeTruthy();
@@ -452,6 +470,162 @@ describe("api_request_quote gating paths", () => {
     expect(second.data.quoteRunId).toBe(first.data.quoteRunId);
     expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(1);
     expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
+  });
+
+  it("creates a trackable manual request without vendor fan-out", async () => {
+    const { jobId } = await buildQuoteReadyJob();
+    testJobId = jobId;
+
+    const { data, error } = await requestManualQuote(client, jobId);
+
+    expect(error).toBeNull();
+    expect(data).toMatchObject({
+      accepted: true,
+      created: true,
+      deduplicated: false,
+      jobId,
+      quoteMode: "manual",
+      requestedVendors: [],
+      status: "queued",
+    });
+
+    const { data: request, error: requestError } = await admin
+      .from("quote_requests")
+      .select("request_mode,requested_vendors,status")
+      .eq("id", data.quoteRequestId)
+      .single();
+    const { data: job, error: jobError } = await admin
+      .from("jobs")
+      .select("status")
+      .eq("id", jobId)
+      .single();
+
+    expect(requestError).toBeNull();
+    expect(jobError).toBeNull();
+    expect(request).toEqual({
+      request_mode: "manual",
+      requested_vendors: [],
+      status: "queued",
+    });
+    expect(job.status).toBe("awaiting_vendor_manual_review");
+    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
+    expect(await countRows(admin, "vendor_quote_results", "quote_run_id", data.quoteRunId)).toBe(0);
+    expect(await countRows(admin, "work_queue", "quote_run_id", data.quoteRunId)).toBe(0);
+  });
+
+  it("deduplicates repeated manual requests under one request and run", async () => {
+    const { jobId } = await buildQuoteReadyJob();
+    testJobId = jobId;
+
+    const first = await requestManualQuote(client, jobId);
+    const second = await requestManualQuote(client, jobId);
+
+    expect(first.error).toBeNull();
+    expect(second.error).toBeNull();
+    expect(second.data).toMatchObject({
+      accepted: true,
+      created: false,
+      deduplicated: true,
+      quoteMode: "manual",
+      reasonCode: "already_in_progress",
+    });
+    expect(second.data.quoteRequestId).toBe(first.data.quoteRequestId);
+    expect(second.data.quoteRunId).toBe(first.data.quoteRunId);
+    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(1);
+    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
+  });
+
+  it("cancels a manual request and restores a requestable job state", async () => {
+    const { jobId } = await buildQuoteReadyJob();
+    testJobId = jobId;
+
+    const requested = await requestManualQuote(client, jobId);
+    const canceled = await cancelQuoteRequest(client, requested.data.quoteRequestId);
+
+    expect(requested.error).toBeNull();
+    expect(canceled.error).toBeNull();
+    expect(canceled.data).toMatchObject({
+      accepted: true,
+      canceled: true,
+      status: "canceled",
+    });
+
+    const { data: request, error: requestError } = await admin
+      .from("quote_requests")
+      .select("status")
+      .eq("id", requested.data.quoteRequestId)
+      .single();
+    const { data: run, error: runError } = await admin
+      .from("quote_runs")
+      .select("status")
+      .eq("id", requested.data.quoteRunId)
+      .single();
+    const { data: job, error: jobError } = await admin
+      .from("jobs")
+      .select("status")
+      .eq("id", jobId)
+      .single();
+
+    expect(requestError).toBeNull();
+    expect(runError).toBeNull();
+    expect(jobError).toBeNull();
+    expect(request.status).toBe("canceled");
+    expect(run.status).toBe("failed");
+    expect(job.status).toBe("ready_to_quote");
+  });
+
+  it("requires an explicit retry after a canceled manual request", async () => {
+    const { jobId } = await buildQuoteReadyJob();
+    testJobId = jobId;
+
+    const requested = await requestManualQuote(client, jobId);
+    await cancelQuoteRequest(client, requested.data.quoteRequestId);
+
+    const blockedRetry = await requestManualQuote(client, jobId);
+    const forcedRetry = await requestManualQuote(client, jobId, true);
+
+    expect(blockedRetry.error).toBeNull();
+    expect(blockedRetry.data).toMatchObject({
+      accepted: false,
+      created: false,
+      quoteMode: "manual",
+      reasonCode: "retry_required",
+    });
+    expect(forcedRetry.error).toBeNull();
+    expect(forcedRetry.data).toMatchObject({
+      accepted: true,
+      created: true,
+      quoteMode: "manual",
+      status: "queued",
+    });
+    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(2);
+    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(2);
+  });
+
+  it("does not reopen a terminal job without prior quote lineage", async () => {
+    const { jobId } = await buildQuoteReadyJob({ status: "published" });
+    testJobId = jobId;
+
+    const { data, error } = await requestManualQuote(client, jobId);
+
+    expect(error).toBeNull();
+    expect(data).toMatchObject({
+      accepted: false,
+      created: false,
+      quoteMode: "manual",
+      reasonCode: "already_received",
+    });
+    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(0);
+    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(0);
+
+    const { data: job, error: jobError } = await admin
+      .from("jobs")
+      .select("status")
+      .eq("id", jobId)
+      .single();
+
+    expect(jobError).toBeNull();
+    expect(job.status).toBe("published");
   });
 
   it("rejects with already_received when the job already has a published quote run", async () => {
@@ -556,6 +730,26 @@ describe("api_request_quote gating paths", () => {
     await signInWithPassword(foreignClient, foreignUser.email, foreignUser.password);
 
     const { data, error } = await requestQuote(foreignClient, jobId);
+
+    expect(data).toBeNull();
+    expect(error).not.toBeNull();
+    expect(error.code).toBe("P0001");
+    expect(error.message).toMatch(/do not have permission/i);
+  });
+
+  it("rejects cross-org manual quote access with a permission exception", async () => {
+    const { jobId } = await buildQuoteReadyJob();
+    testJobId = jobId;
+
+    const foreignUser = await createForeignOrgUser(admin);
+    createdMembershipIds.push(foreignUser.organizationMembershipId);
+    createdOrganizationIds.push(foreignUser.organizationId);
+    createdUserIds.push(foreignUser.userId);
+
+    const foreignClient = createAnonClient(supabaseUrl, anonKey);
+    await signInWithPassword(foreignClient, foreignUser.email, foreignUser.password);
+
+    const { data, error } = await requestManualQuote(foreignClient, jobId);
 
     expect(data).toBeNull();
     expect(error).not.toBeNull();
