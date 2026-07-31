@@ -140,6 +140,7 @@ const ARRIVAL_MONTHS = [
 const MAX_ARRIVAL_SPAN_DAYS = 400;
 const MILLISECONDS_PER_DAY = 86_400_000;
 const XOMETRY_POST_SAVE_TIMEOUT_FLOOR_MS = 120_000;
+const XOMETRY_OPTION_RENDER_TIMEOUT_MS = 10_000;
 
 function parseArrivalDate(text: string, today: Date) {
   const arrivalMatch =
@@ -582,7 +583,12 @@ async function chooseOptionByTerms(
       .getByRole("option", { name: new RegExp(escapeRegex(term), "i") })
       .first();
 
-    if ((await roleOption.count().catch(() => 0)) > 0) {
+    const roleOptionVisible = await roleOption
+      .waitFor({ state: "visible", timeout: XOMETRY_OPTION_RENDER_TIMEOUT_MS })
+      .then(() => true)
+      .catch(() => false);
+
+    if (roleOptionVisible) {
       await roleOption.click();
       return term;
     }
