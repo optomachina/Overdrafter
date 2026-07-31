@@ -1,4 +1,5 @@
 import "@testing-library/jest-dom/vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,9 +10,14 @@ const useAppSessionMock = vi.fn();
 const useInternalJobDetailQueryMock = vi.fn();
 const useInternalJobDetailViewModelMock = vi.fn();
 const useInternalJobDetailMutationsMock = vi.fn();
+const fetchManualQuoteOperatorAccessMock = vi.fn();
 
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => useAppSessionMock(),
+}));
+
+vi.mock("@/features/quotes/api/manual-quote-admin-api", () => ({
+  fetchManualQuoteOperatorAccess: () => fetchManualQuoteOperatorAccessMock(),
 }));
 
 vi.mock("./internal-job-detail/use-internal-job-detail-query", () => ({
@@ -39,8 +45,29 @@ vi.mock("./internal-job-detail/InternalJobWorkerQueueCard", () => ({
 }));
 
 vi.mock("./internal-job-detail/InternalJobDebugSection", () => ({
-  InternalJobDebugSection: ({ disabled }: { disabled: boolean }) => (
-    <div data-testid="debug-section" data-disabled={disabled ? "true" : "false"} />
+  InternalJobDebugSection: ({
+    completionTarget,
+    disabled,
+    manualQuoteDisabled,
+  }: {
+    completionTarget?: {
+      requestId: string;
+      quoteRunId: string | null;
+      isStale: boolean;
+      hasAal2: boolean;
+    } | null;
+    disabled: boolean;
+    manualQuoteDisabled: boolean;
+  }) => (
+    <div
+      data-testid="debug-section"
+      data-disabled={disabled ? "true" : "false"}
+      data-manual-quote-disabled={manualQuoteDisabled ? "true" : "false"}
+      data-request-id={completionTarget?.requestId}
+      data-quote-run-id={completionTarget?.quoteRunId ?? undefined}
+      data-stale={completionTarget?.isStale ? "true" : "false"}
+      data-aal2={completionTarget?.hasAal2 ? "true" : "false"}
+    />
   ),
 }));
 
@@ -108,13 +135,23 @@ function makeMembership(role: AppMembership["role"], organizationId = "org-1"): 
   };
 }
 
-function renderInternalJobDetail() {
+function renderInternalJobDetail(initialEntry = "/internal/jobs/job-1") {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  });
+
   return render(
-    <MemoryRouter initialEntries={["/internal/jobs/job-1"]}>
-      <Routes>
-        <Route path="/internal/jobs/:jobId" element={<InternalJobDetail />} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <Routes>
+          <Route path="/internal/jobs/:jobId" element={<InternalJobDetail />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -173,6 +210,10 @@ describe("InternalJobDetail", () => {
       handleRefreshVerification: vi.fn(),
       handleResendVerification: vi.fn(),
       handleChangeEmail: vi.fn(),
+    });
+    fetchManualQuoteOperatorAccessMock.mockResolvedValue({
+      hasCapability: true,
+      hasAal2: true,
     });
   });
 
@@ -257,5 +298,100 @@ describe("InternalJobDetail", () => {
     expect(screen.getByRole("button", { name: "Publish client package" })).toBeDisabled();
     expect(screen.getByTestId("requirements-section")).toHaveAttribute("data-disabled", "true");
     expect(screen.getByTestId("debug-section")).toHaveAttribute("data-disabled", "true");
+  });
+
+  it("resolves an authorized inbox link to the exact request and quote run", async () => {
+    useInternalJobDetailQueryMock.mockReturnValue({
+      jobQuery: { isLoading: false, error: null },
+      job: {
+        job: {
+          id: "job-1",
+          title: "Widget Block",
+          description: null,
+          organization_id: "org-2",
+          status: "awaiting_vendor_manual_review",
+        },
+        parts: [{ id: "part-1" }],
+        workQueue: [],
+        quoteRequests: [
+          {
+            id: "request-1",
+            job_id: "job-1",
+            request_mode: "manual",
+            status: "queued",
+          },
+        ],
+        quoteRuns: [
+          {
+            id: "run-1",
+            job_id: "job-1",
+            quote_request_id: "request-1",
+            status: "running",
+          },
+        ],
+      },
+      latestQuoteRun: { id: "run-1" },
+      readinessQuery: { data: undefined },
+      showDebugTools: false,
+    });
+
+    renderInternalJobDetail(
+      "/internal/jobs/job-1?quoteRequestId=request-1&quoteRunId=run-1",
+    );
+
+    const debugSection = await screen.findByTestId("debug-section");
+
+    expect(fetchManualQuoteOperatorAccessMock).toHaveBeenCalledTimes(1);
+    expect(debugSection).toHaveAttribute("data-request-id", "request-1");
+    expect(debugSection).toHaveAttribute("data-quote-run-id", "run-1");
+    expect(debugSection).toHaveAttribute("data-stale", "false");
+    expect(debugSection).toHaveAttribute("data-aal2", "true");
+    expect(debugSection).toHaveAttribute("data-disabled", "true");
+    expect(debugSection).toHaveAttribute("data-manual-quote-disabled", "false");
+  });
+
+  it("keeps a mismatched request and quote run stale before evidence upload", async () => {
+    useInternalJobDetailQueryMock.mockReturnValue({
+      jobQuery: { isLoading: false, error: null },
+      job: {
+        job: {
+          id: "job-1",
+          title: "Widget Block",
+          description: null,
+          organization_id: "org-2",
+          status: "awaiting_vendor_manual_review",
+        },
+        parts: [{ id: "part-1" }],
+        workQueue: [],
+        quoteRequests: [
+          {
+            id: "request-1",
+            job_id: "job-1",
+            request_mode: "manual",
+            status: "queued",
+          },
+        ],
+        quoteRuns: [
+          {
+            id: "run-1",
+            job_id: "job-1",
+            quote_request_id: "different-request",
+            status: "running",
+          },
+        ],
+      },
+      latestQuoteRun: { id: "run-1" },
+      readinessQuery: { data: undefined },
+      showDebugTools: false,
+    });
+
+    renderInternalJobDetail(
+      "/internal/jobs/job-1?quoteRequestId=request-1&quoteRunId=run-1",
+    );
+
+    const debugSection = await screen.findByTestId("debug-section");
+
+    expect(debugSection).toHaveAttribute("data-stale", "true");
+    expect(debugSection).toHaveAttribute("data-manual-quote-disabled", "false");
   });
 });

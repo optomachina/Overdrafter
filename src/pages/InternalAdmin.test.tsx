@@ -41,6 +41,9 @@ vi.mock("@/features/quotes/use-client-workspace-data", () => ({
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => useAppSessionMock(),
 }));
+vi.mock("@/components/admin/ManualQuoteRequestInbox", () => ({
+  ManualQuoteRequestInbox: () => <div>Manual request inbox fixture</div>,
+}));
 
 function makeUser(overrides: Partial<User> = {}): User {
   return {
