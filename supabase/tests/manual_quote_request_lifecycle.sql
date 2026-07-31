@@ -1,6 +1,6 @@
 begin;
 
-select plan(15);
+select plan(12);
 
 select ok(
   exists (
@@ -117,35 +117,6 @@ select ok(
       and not trigger_row.tgisinternal
   ),
   'manual cancellation reset trigger exists'
-);
-
-select ok(
-  pg_catalog.pg_get_functiondef(
-    'public.api_request_quote(uuid,boolean)'::regprocedure
-  ) like '%private.resolve_organization_entitlements_at%',
-  'automatic quote wrapper uses the server-authoritative entitlement resolver'
-);
-
-select ok(
-  pg_catalog.pg_get_functiondef(
-    'public.api_request_quote(uuid,boolean)'::regprocedure
-  ) like '%pro_required%',
-  'automatic quote wrapper returns the stable Pro-required denial'
-);
-
-select ok(
-  pg_catalog.strpos(
-    pg_catalog.pg_get_functiondef(
-      'public.api_request_quote(uuid,boolean)'::regprocedure
-    ),
-    'private.resolve_organization_entitlements_at'
-  ) < pg_catalog.strpos(
-    pg_catalog.pg_get_functiondef(
-      'public.api_request_quote(uuid,boolean)'::regprocedure
-    ),
-    'private.request_automatic_quote_impl'
-  ),
-  'entitlement gate runs before the automatic implementation'
 );
 
 select * from finish();

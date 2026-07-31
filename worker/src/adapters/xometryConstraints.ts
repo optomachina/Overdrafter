@@ -107,6 +107,7 @@ export const XOMETRY_LOCATORS = {
   // Current configuration controls. Material and finish are required inputs;
   // the adapter fails closed when it cannot apply the requested requirement.
   materialButtons: [
+    'input[role="combobox"][placeholder="Search Material"]',
     '#material-multiselect-combobox',
     '[data-testid="requirement-Material"]',
     '[data-testid*="material" i]:not([data-testid*="navigate" i])',
@@ -120,6 +121,7 @@ export const XOMETRY_LOCATORS = {
     '[data-testid*="material" i] button',
   ],
   finishButtons: [
+    'input[role="combobox"][placeholder="Search Finish"]',
     '#finish-multiselect-combobox',
     '[data-testid="requirement-Finish"]',
     '[data-testid*="finish" i]',
