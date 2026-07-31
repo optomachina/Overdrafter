@@ -32,13 +32,13 @@ begin
       where organization_row.id = p_organization_id
     )
   then
-    raise exception 'Organization was not found.';
+    raise exception 'Organization was not found.'; -- NOSONAR: stable API error
   end if;
 
   select pg_catalog.jsonb_strip_nulls(
     pg_catalog.jsonb_build_object(
       'stripeCustomerId', billing_account.stripe_customer_id,
-      'createdAt', billing_account.created_at,
+      'createdAt', billing_account.created_at, -- NOSONAR: stable JSON contract key
       'updatedAt', billing_account.updated_at
     )
   )
@@ -100,14 +100,14 @@ begin
   where subscription_row.organization_id = p_organization_id;
 
   return pg_catalog.jsonb_build_object(
-    'billingAccount', v_billing_account,
-    'effective',
+    'billingAccount', v_billing_account, -- NOSONAR: stable JSON contract key
+    'effective', -- NOSONAR: stable JSON contract key
       private.resolve_organization_entitlements_at(
         p_organization_id,
         pg_catalog.now()
       ),
-    'grants', v_grants,
-    'subscriptions', v_subscriptions
+    'grants', v_grants, -- NOSONAR: stable JSON contract key
+    'subscriptions', v_subscriptions -- NOSONAR: stable JSON contract key
   );
 end;
 $$;
@@ -130,8 +130,8 @@ begin
     raise exception 'You must be signed in to view commercial accounts.';
   end if;
 
-  if not public.current_user_has_commercial_capability('billing_admin') then
-    raise exception 'You do not have the required commercial capability.';
+  if not public.current_user_has_commercial_capability('billing_admin') then -- NOSONAR: explicit capability boundary
+    raise exception 'You do not have the required commercial capability.'; -- NOSONAR: stable API error
   end if;
 
   return private.get_commercial_account_entitlement_state(
@@ -204,12 +204,12 @@ begin
 
   if nullif(pg_catalog.btrim(coalesce(p_cursor, '')), '') is not null then
     if pg_catalog.length(p_cursor) > 2000 then
-      raise exception 'Commercial account cursor is invalid.';
+      raise exception 'Commercial account cursor is invalid.'; -- NOSONAR: stable API error
     end if;
 
     begin
       v_cursor_payload := pg_catalog.convert_from(
-        pg_catalog.decode(p_cursor, 'base64'),
+        pg_catalog.decode(p_cursor, 'base64'), -- NOSONAR: stable cursor encoding
         'UTF8'
       )::jsonb;
       v_cursor_created_at :=
@@ -277,7 +277,7 @@ begin
     cross join lateral (
       select
         pg_catalog.count(*) filter (
-          where request_row.request_mode = 'manual'
+          where request_row.request_mode = 'manual' -- NOSONAR: explicit quote mode
         )::integer as manual_request_count,
         pg_catalog.count(*) filter (
           where request_row.request_mode = 'automatic'
@@ -326,7 +326,7 @@ begin
     coalesce(
       pg_catalog.jsonb_agg(
         pg_catalog.jsonb_build_object(
-          'organizationId', numbered.organization_id,
+          'organizationId', numbered.organization_id, -- NOSONAR: stable JSON contract key
           'organizationName', numbered.organization_name,
           'organizationSlug', numbered.organization_slug,
           'createdAt', numbered.created_at,
@@ -576,7 +576,7 @@ begin
 
   if nullif(pg_catalog.btrim(coalesce(p_cursor, '')), '') is not null then
     if pg_catalog.length(p_cursor) > 2000 then
-      raise exception 'Commercial account audit cursor is invalid.';
+      raise exception 'Commercial account audit cursor is invalid.'; -- NOSONAR: stable API error
     end if;
 
     begin

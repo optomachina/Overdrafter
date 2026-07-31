@@ -85,7 +85,7 @@ begin
     'request.jwt.claims',
     pg_catalog.jsonb_build_object(
       'sub', p_user_id,
-      'role', 'authenticated',
+      'role', 'authenticated', -- NOSONAR: repeated pgTAP auth fixture
       'aal', p_aal
     )::text,
     true
@@ -112,7 +112,7 @@ set search_path = pg_catalog
 as $$
 begin
   perform public.api_admin_search_commercial_accounts(
-    'ovd233',
+    'ovd233', -- NOSONAR: deterministic search fixture
     null,
     25
   );
@@ -155,7 +155,7 @@ values
     (select organization_member_user_id from ovd233_context),
     'authenticated',
     'authenticated',
-    'find-member@ovd233.example'
+    'find-member@ovd233.example' -- NOSONAR: deterministic member fixture
   ),
   (
     (select order_admin_user_id from ovd233_context),
@@ -248,7 +248,7 @@ values
   (
     (select primary_organization_id from ovd233_context),
     (select organization_member_user_id from ovd233_context),
-    'client',
+    'client', -- NOSONAR: deterministic membership fixture
     '2026-07-02T11:00:00Z'
   ),
   (
@@ -284,14 +284,14 @@ insert into private.platform_admin_capabilities (
 values
   (
     (select billing_admin_user_id from ovd233_context),
-    'billing_admin',
+    'billing_admin', -- NOSONAR: explicit capability fixture
     (select billing_admin_user_id from ovd233_context),
     'OVD-233 commercial account read tests',
     null,
     null,
     null,
     null,
-    '2026-07-01T00:00:00Z'
+    '2026-07-01T00:00:00Z' -- NOSONAR: deterministic fixture timestamp
   ),
   (
     (select order_admin_user_id from ovd233_context),
@@ -357,7 +357,7 @@ insert into private.organization_entitlement_grants (
 )
 values
   (
-    '00000000-0000-4000-8000-000000002371',
+    '00000000-0000-4000-8000-000000002371', -- NOSONAR: deterministic grant fixture
     (select primary_organization_id from ovd233_context),
     'automatic_quote_collection',
     'trial',
@@ -410,7 +410,7 @@ values
     pg_catalog.now() + interval '30 days',
     null,
     false,
-    '2026-07-10T00:00:00Z',
+    '2026-07-10T00:00:00Z', -- NOSONAR: deterministic fixture timestamp
     '2026-07-10T00:00:00Z',
     '2026-07-10T00:00:00Z'
   ),
@@ -423,7 +423,7 @@ values
     '2026-07-01T00:00:00Z',
     null,
     true,
-    '2026-07-11T00:00:00Z',
+    '2026-07-11T00:00:00Z', -- NOSONAR: deterministic fixture timestamp
     '2026-07-11T00:00:00Z',
     '2026-07-11T00:00:00Z'
   );
@@ -496,7 +496,7 @@ values
     'failed',
     'Fixture failure',
     null,
-    '2026-07-20T11:00:00Z',
+    '2026-07-20T11:00:00Z', -- NOSONAR: deterministic fixture timestamp
     '2026-07-20T11:00:00Z',
     '2026-07-20T11:00:00Z'
   ),
@@ -509,7 +509,7 @@ values
     'automatic',
     'received',
     null,
-    '2026-07-20T12:00:00Z',
+    '2026-07-20T12:00:00Z', -- NOSONAR: deterministic fixture timestamp
     null,
     '2026-07-20T12:00:00Z',
     '2026-07-20T12:00:00Z'
@@ -538,7 +538,7 @@ values
     (select billing_admin_user_id from ovd233_context),
     'billing_admin',
     'commercial.entitlement.grant',
-    'organization_entitlement_grant',
+    'organization_entitlement_grant', -- NOSONAR: stable audit fixture
     '00000000-0000-4000-8000-000000002371',
     'Grant support trial',
     null,
@@ -599,21 +599,21 @@ values
 
 select ok(
   pg_catalog.to_regprocedure(
-    'public.api_admin_search_commercial_accounts(text,text,integer)'
+    'public.api_admin_search_commercial_accounts(text,text,integer)' -- NOSONAR: asserted RPC signature
   ) is not null,
   'commercial account search RPC exists'
 );
 
 select ok(
   pg_catalog.to_regprocedure(
-    'public.api_admin_get_commercial_account(uuid)'
+    'public.api_admin_get_commercial_account(uuid)' -- NOSONAR: asserted RPC signature
   ) is not null,
   'commercial account detail RPC exists'
 );
 
 select ok(
   pg_catalog.to_regprocedure(
-    'public.api_admin_list_commercial_account_audit(uuid,text,integer)'
+    'public.api_admin_list_commercial_account_audit(uuid,text,integer)' -- NOSONAR: asserted RPC signature
   ) is not null,
   'commercial account audit RPC exists'
 );
@@ -622,7 +622,7 @@ select ok(
   pg_catalog.has_function_privilege(
     'authenticated',
     'public.api_admin_search_commercial_accounts(text,text,integer)',
-    'EXECUTE'
+    'EXECUTE' -- NOSONAR: asserted function privilege
   ),
   'authenticated callers may invoke the guarded search RPC'
 );
@@ -682,8 +682,8 @@ select throws_ok(
   $$
     select public.api_admin_search_commercial_accounts('ovd233', null, 25)
   $$,
-  'P0001',
-  'You do not have the required commercial capability.',
+  'P0001', -- NOSONAR: asserted PostgreSQL exception code
+  'You do not have the required commercial capability.', -- NOSONAR: asserted authorization error
   'organization admins cannot search commercial accounts'
 );
 
@@ -866,7 +866,7 @@ select is(
     'acme precision',
     null,
     25
-  ) #>> '{items,0,organizationId}',
+  ) #>> '{items,0,organizationId}', -- NOSONAR: stable JSON contract path
   (select primary_organization_id::text from ovd233_context),
   'search matches organization names case-insensitively'
 );
@@ -893,7 +893,7 @@ select is(
 
 select is(
   pg_catalog.jsonb_array_length(
-    public.api_admin_search_commercial_accounts('%', null, 25) -> 'items'
+    public.api_admin_search_commercial_accounts('%', null, 25) -> 'items' -- NOSONAR: literal wildcard fixture
   ),
   1,
   'percent signs are literal commercial account search input'
@@ -939,7 +939,7 @@ select is(
 select is(
   pg_catalog.jsonb_array_length(
     public.api_admin_search_commercial_accounts(
-      'ovd233-cursor',
+      'ovd233-cursor', -- NOSONAR: deterministic cursor fixture
       null,
       2
     ) -> 'items'
@@ -954,7 +954,7 @@ select ok(
       'ovd233-cursor',
       null,
       2
-    ) ->> 'nextCursor',
+    ) ->> 'nextCursor', -- NOSONAR: stable JSON contract key
     ''
   ) is not null,
   'a full commercial account page returns an opaque cursor'
