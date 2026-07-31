@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
+import { isLegacyProjectPaymentsEnabled } from "../_shared/legacy-project-payments.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -39,12 +40,6 @@ const LEGACY_PROJECT_PAYMENTS_DISABLED_CODE =
   "legacy_project_payments_disabled";
 
 type EnvironmentReader = (name: string) => string | undefined;
-
-export function isLegacyProjectPaymentsEnabled(
-  value: string | undefined,
-): boolean {
-  return value?.trim().toLowerCase() === "true";
-}
 
 async function parsePayload(
   request: Request,
@@ -167,6 +162,19 @@ async function resolveAuthoritativePriceCents(
   return { ok: true, totalCents };
 }
 
+/**
+ * Handles the contained legacy project-payment endpoint.
+ *
+ * The server-only feature flag is evaluated before any payment runtime is
+ * loaded. When enabled, the handler authenticates the caller, derives the
+ * amount from server-side offer data, and creates an idempotent Stripe
+ * PaymentIntent.
+ *
+ * @param request - Incoming HTTP request to authenticate and process.
+ * @param getEnvironmentVariable - Injectable environment reader used by tests
+ * and the Deno runtime.
+ * @returns A JSON response with CORS headers for every handled outcome.
+ */
 export async function handleCreatePaymentIntent(
   request: Request,
   getEnvironmentVariable: EnvironmentReader = (name) => Deno.env.get(name),
@@ -190,31 +198,50 @@ export async function handleCreatePaymentIntent(
     });
   }
 
-  const supabaseUrl = getEnvironmentVariable("SUPABASE_URL");
-  const supabaseAnonKey = getEnvironmentVariable("SUPABASE_ANON_KEY");
-  const supabaseServiceRoleKey =
-    getEnvironmentVariable("SUPABASE_SERVICE_ROLE_KEY") ??
-      getEnvironmentVariable("SERVICE_ROLE_KEY");
-  const stripeSecretKey = getEnvironmentVariable("STRIPE_SECRET_KEY");
+  let supabaseUrl: string;
+  let supabaseAnonKey: string;
+  let supabaseServiceRoleKey: string;
+  let stripe: Stripe;
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Missing Supabase environment configuration.");
+  try {
+    const configuredSupabaseUrl = getEnvironmentVariable("SUPABASE_URL");
+    const configuredSupabaseAnonKey = getEnvironmentVariable(
+      "SUPABASE_ANON_KEY",
+    );
+    const configuredServiceRoleKey =
+      getEnvironmentVariable("SUPABASE_SERVICE_ROLE_KEY") ??
+        getEnvironmentVariable("SERVICE_ROLE_KEY");
+    const stripeSecretKey = getEnvironmentVariable("STRIPE_SECRET_KEY");
+
+    if (!configuredSupabaseUrl || !configuredSupabaseAnonKey) {
+      throw new Error("Missing Supabase environment configuration.");
+    }
+
+    if (!configuredServiceRoleKey) {
+      throw new Error(
+        "Missing SUPABASE_SERVICE_ROLE_KEY environment variable.",
+      );
+    }
+
+    if (!stripeSecretKey) {
+      throw new Error("Missing STRIPE_SECRET_KEY environment variable.");
+    }
+
+    supabaseUrl = configuredSupabaseUrl;
+    supabaseAnonKey = configuredSupabaseAnonKey;
+    supabaseServiceRoleKey = configuredServiceRoleKey;
+    stripe = new Stripe(stripeSecretKey, {
+      // Preserve the legacy endpoint's pinned API version even when the
+      // floating npm:stripe@17 type package advances its latest literal.
+      apiVersion: "2024-11-20.acacia" as Stripe.LatestApiVersion,
+      typescript: true,
+    });
+  } catch (error) {
+    console.error("create-payment-intent: configuration error", error);
+    return json(500, {
+      error: "Payment setup failed. Try again or contact support.",
+    });
   }
-
-  if (!supabaseServiceRoleKey) {
-    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY environment variable.");
-  }
-
-  if (!stripeSecretKey) {
-    throw new Error("Missing STRIPE_SECRET_KEY environment variable.");
-  }
-
-  const stripe = new Stripe(stripeSecretKey, {
-    // Preserve the legacy endpoint's pinned API version even when the
-    // floating npm:stripe@17 type package advances its latest literal.
-    apiVersion: "2024-11-20.acacia" as Stripe.LatestApiVersion,
-    typescript: true,
-  });
 
   const authorization = request.headers.get("Authorization");
 

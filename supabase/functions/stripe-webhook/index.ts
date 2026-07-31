@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
+import { isLegacyProjectPaymentsEnabled } from "../_shared/legacy-project-payments.ts";
 
 function json(status: number, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
@@ -19,12 +20,6 @@ export type StripeWebhookRuntime = {
 type RuntimeLoader = (
   getEnvironmentVariable: EnvironmentReader,
 ) => StripeWebhookRuntime;
-
-export function isLegacyProjectPaymentsEnabled(
-  value: string | undefined,
-): boolean {
-  return value?.trim().toLowerCase() === "true";
-}
 
 let cachedRuntime: StripeWebhookRuntime | undefined;
 
@@ -87,6 +82,19 @@ function projectIdToOrderId(
   return value;
 }
 
+/**
+ * Creates the contained legacy Stripe webhook request handler.
+ *
+ * The handler defaults to a successful no-op while legacy project payments are
+ * disabled. When enabled, it verifies Stripe signatures before applying
+ * idempotent payment-status updates through the service-role client.
+ *
+ * @param getEnvironmentVariable - Injectable reader for the server-only flag
+ * and enabled-path secrets.
+ * @param loadRuntime - Injectable Stripe and Supabase runtime loader used after
+ * the gate is enabled.
+ * @returns An HTTP request handler for the legacy Stripe webhook endpoint.
+ */
 export function createStripeWebhookHandler(
   getEnvironmentVariable: EnvironmentReader = (name) => Deno.env.get(name),
   loadRuntime: RuntimeLoader = loadStripeWebhookRuntime,
