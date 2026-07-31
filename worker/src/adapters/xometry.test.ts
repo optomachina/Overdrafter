@@ -122,7 +122,7 @@ type FakePageOptions = {
   postSaveBodyText?: string;
   url?: string;
   selectorBehaviors?: Record<string, LocatorBehavior>;
-  optionTexts?: string[];
+  optionTexts?: string[] | (() => string[]);
   redirectUrl?: string;
   saveRedirectUrl?: string;
   saveNavigationFails?: boolean;
@@ -211,8 +211,10 @@ function createFakePage(options: FakePageOptions) {
         return makeLocator({ count: 0, text: "" });
       }
 
+      const availableOptionTexts =
+        typeof options.optionTexts === "function" ? options.optionTexts() : options.optionTexts;
       const optionText =
-        options.optionTexts?.find((candidate) => input.name?.test(candidate)) ?? "";
+        availableOptionTexts?.find((candidate) => input.name?.test(candidate)) ?? "";
 
       return makeLocator({
         count: optionText ? 1 : 0,
@@ -322,6 +324,15 @@ afterEach(async () => {
 });
 
 describe("Xometry helpers", () => {
+  it("prefers the current searchable material and finish comboboxes", () => {
+    expect(XOMETRY_LOCATORS.materialButtons[0]).toBe(
+      'input[role="combobox"][placeholder="Search Material"]',
+    );
+    expect(XOMETRY_LOCATORS.finishButtons[0]).toBe(
+      'input[role="combobox"][placeholder="Search Finish"]',
+    );
+  });
+
   it("maps explicit materials and finishes, and rejects unknown ones", () => {
     expect(buildMaterialSearchTerms("6061 aluminum")).toEqual(["6061-T6", "6061"]);
     expect(buildMaterialSearchTerms("mystery alloy")).toBeNull();
@@ -447,6 +458,8 @@ describe("XometryAdapter", () => {
     const workerTempDir = await makeTempDir();
     const saveConfiguration = vi.fn();
     const setTolerance = vi.fn();
+    let materialOptionsOpen = false;
+    let finishOptionsOpen = false;
     const page = createFakePage({
       bodyText: "Configure part",
       postSaveBodyText: [
@@ -470,11 +483,15 @@ describe("XometryAdapter", () => {
         },
         [XOMETRY_LOCATORS.materialButtons[0]]: {
           count: 1,
-          click: vi.fn(),
+          click: vi.fn(() => {
+            materialOptionsOpen = true;
+          }),
         },
         [XOMETRY_LOCATORS.finishButtons[0]]: {
           count: 1,
-          click: vi.fn(),
+          click: vi.fn(() => {
+            finishOptionsOpen = true;
+          }),
         },
         [XOMETRY_LOCATORS.priceText[0]]: {
           count: 1,
@@ -489,7 +506,11 @@ describe("XometryAdapter", () => {
           click: setTolerance,
         },
       },
-      optionTexts: ["6061-T6", "Black Anodize"],
+      optionTexts: () => {
+        if (finishOptionsOpen) return ["Black Anodize"];
+        if (materialOptionsOpen) return ["6061-T6"];
+        return [];
+      },
     });
     launchMock.mockResolvedValue(createFakeBrowser(page));
 
