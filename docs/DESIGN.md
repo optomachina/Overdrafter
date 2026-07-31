@@ -321,6 +321,7 @@ Reject any UI work that includes:
 | 2026-05-14 | GuestAppShell keeps a fixed dark pre-auth marketing shell | Intentional exception to theme-tokenized app surfaces: the signed-out prompt shell keeps the legacy dark gradient (`#1f2024` to `#17181c`, plus the white radial highlight) and white text for brand contrast. AuthPanel remains theme-driven. |
 | 2026-07-28 | Initial client launch shell is `Parts \| Quotes \| Search` on responsive web and the first iOS beta | Project remains backend collaboration scope, but quoting is the universal job. Capabilities attach contextually instead of becoming top-level tabs. The shell supersedes the persistent left ledger for client entry surfaces. |
 | 2026-07-28 | Buyer scatter uses fixed independent dots, X = working-day lead, Y = quoted total | Supplier offers do not form a curve. Bubble-size, connecting-line, trend-line, and Pareto-line metaphors distort the decision. |
+| 2026-07-29 | Commercial account and manual-order UX require a new parity design exploration | The 2026-05-05 `Order Confirmation` concept is retained below as historical exploration, but its payment-method and `PLACE ORDER` contract is superseded. `OVD-232` must compare matching board and Figma directions for Free/Pro gating, upgrade prompts, account administration, subscription billing, promotions, and a manual procurement/order-record flow before production implementation. |
 | 2026-07-28 | iOS grows to `Inbox \| Parts \| Quotes \| More` plus an anchored, separate Ask action | Inbox makes unresolved quote work visible; More absorbs low-frequency destinations; Ask stays available without becoming the information architecture. Responsive web retains `Parts \| Quotes \| Search`. |
 | 2026-07-28 | Mobile sign-in begins on a native welcome surface and continues through the OverDrafter website | System-browser authentication reuses trusted web identity flows and provider state. The app receives opaque one-time material and bootstraps its shared web session without token-bearing URLs. |
 
@@ -328,7 +329,7 @@ Reject any UI work that includes:
 
 ## MVP locked patterns
 
-The following patterns are the locked outcomes of the 2026-05-05 design-shotgun MVP exploration. They sit on top of the visual thesis, palette, typography, spacing, and layout sections above and refine specific interactions.
+The following patterns are the locked outcomes of the 2026-05-05 design-shotgun MVP exploration. They sit on top of the visual thesis, palette, typography, spacing, and layout sections above and refine specific interactions. The `Order Confirmation` material is preserved as historical design evidence only; its payment and direct-placement semantics are superseded by the July 29 commercial boundary and must not be implemented without the `OVD-232` exploration.
 
 ### Slider rails
 
@@ -405,6 +406,8 @@ The Order Confirmation page renders this timeline vertically in its right rail w
 
 ### Order Confirmation surface
 
+> Historical, superseded concept. Preserve the dense review-page lessons, but do not implement payment-method capture or native `PLACE ORDER`. The replacement must model manual procurement handoff and an explicit order record while keeping organization subscription billing separate.
+
 Full page, not modal. Layout:
 
 ```text
@@ -443,8 +446,8 @@ PDM, marketplace, supplier, and service actions remain hidden until functional.
 
 ## See also
 
-- `PRD.md`, “Long-term product direction (North Star)”
-- `PRD.md`, “Client workspace surface”
+- `PRD.md` → `Long-term product direction (North Star)`
+- `PRD.md` → `Client workspace surface` and `Product principles`
 - `horizon1.md` (near-term UX direction — dense quote comparison, project ledger, right-side detail drawer)
 - `.context/design-preview/overdrafter-preview.html` (live HTML preview of the system on three real screens)
 - `.context/design-preview/overdrafter-mono-comparison.html` (mono A/B/C comparison from the consultation session)

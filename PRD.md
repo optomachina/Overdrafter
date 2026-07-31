@@ -1,6 +1,6 @@
 # OverDrafter Product Requirements Document
 
-Last updated: July 28, 2026
+Last updated: July 29, 2026
 
 ## Document purpose
 
@@ -20,12 +20,13 @@ At a high level, the product does four things:
 The primary responsive-web entry model is `Parts | Quotes | Search`. The
 approved iOS growth shell is `Inbox | Parts | Quotes | More` with a separate,
 capability-gated `Ask OverDrafter` action. `Project` remains the collaboration
-and commercial container in the domain; it does not need to be the first
-navigation choice for every customer.
+and procurement-workflow container in the domain; it does not need to be the
+first navigation choice for every customer. `Organization` is the commercial
+account and entitlement boundary.
 
 ## Core terminology and container model
 
-OverDrafter uses `Project` as the top-level persisted collaboration and commercial container. A project is the workflow wrapper for an RFQ, quote package, prototype run, or purchasing request, but it is revealed contextually rather than serving as the primary client navigation.
+OverDrafter uses `Project` as the top-level persisted collaboration and procurement-workflow container. A project is the workflow wrapper for an RFQ, quote package, prototype run, or purchasing request, but it is revealed contextually rather than serving as the primary client navigation. It is not the subscription account.
 
 `Assembly` is a technical object that exists inside a project. It represents an engineering structure when a parent-child mechanical hierarchy is present, but it is not the umbrella object for the overall workflow.
 
@@ -83,13 +84,27 @@ OverDrafter includes an explicit customer-facing `Request Quote` action for uplo
 
 Canonical feature statement:
 
-`Client users can explicitly request quotes for uploaded parts, causing OverDrafter to validate the package, create an idempotent quote request, enqueue work, and dispatch vendor quote generation through the worker pipeline across the organization's enabled vendors that are applicable to the current package.`
+`Client users can explicitly request quotes for uploaded parts. Manual requests are available to Free and Pro organizations and enter an internal follow-up workflow without automated vendor dispatch. Pro organizations may instead enable automatic collection, which validates the package, creates an idempotent quote request, and dispatches vendor quote generation through the worker pipeline across the organization's enabled applicable vendors.`
 
-Current scope:
-- client-triggered quote requests for a single part
-- project-scoped bulk request for ready parts
+Commercial access rules:
+- The commercial plan belongs to the organization, not an individual membership.
+- Free and Pro organizations may upload parts without a customer-facing quota.
+- Free and Pro organizations may request manual quote follow-up for a single part or a ready project batch.
+- Automatic vendor collection is a Pro entitlement enforced by the server before vendor work is queued.
+- The automatic-quote toggle remains visible to Free users. Attempting to enable it opens the Pro upgrade dialog and leaves the toggle off.
+- Existing operational throttles and cost ceilings remain invisible safety controls. They are not customer quotas and must not create upload anxiety.
+
+Current implementation foundation:
+- client-triggered automatic quote requests for a single part
+- project-scoped bulk automatic requests for ready parts
 - multi-vendor dispatch across org-enabled, part-applicable vendor lanes
 - durable quote request lifecycle visibility in the client UI
+
+Planned commercial additions:
+- manual quote-request mode with an internal fulfillment inbox
+- organization-level Free/Pro entitlement resolution
+- visible-but-gated automatic collection for Free organizations
+- audited manual trial and complimentary Pro grants
 
 Current non-goals:
 - client-side vendor choice or multi-vendor comparison at request time
@@ -133,9 +148,9 @@ After quote selection, the intended long-term downstream lifecycle is:
 - shipped
 - delivered
 
-Those states exist to provide shared visibility and explicit workflow modeling after quote selection. They do not mean the current product owns PO issuance, payment collection, vendor communication, shipment booking, billing systems, or ERP synchronization.
+Those states exist to provide shared visibility and explicit workflow modeling after quote selection. They do not mean the current product owns manufacturing PO issuance, manufacturing payment collection, vendor communication, shipment booking, order-billing operations, or ERP synchronization. Organization subscription billing is a separate commercial-access subsystem.
 
-In the near term, the active foundation for this lifecycle is the existing review and procurement handoff route. `approved` is the first meaningful follow-on state once that handoff model and related metadata mature. `ordered` and later fulfillment states should remain visibility-oriented placeholders until the product deliberately expands beyond manual procurement follow-up.
+In the near term, the active foundation for this lifecycle is the existing review and procurement handoff route plus a planned manual order ledger. `approved` is the first meaningful follow-on state once that handoff model and related metadata mature. `ordered` means an authorized operator recorded an externally placed order and its external reference; it does not mean OverDrafter submitted or paid for the order. Later fulfillment states remain visibility-oriented and manually or externally confirmed.
 
 See `docs/fulfillment-state-model.md` for the canonical downstream state meanings and planning boundary.
 
@@ -166,7 +181,8 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 - Organize parts into projects.
 - Create a project before deciding whether the submitted content includes assemblies, standalone parts, or both.
 - Share projects with collaborators.
-- Explicitly request quote collection when an uploaded part package is ready.
+- Explicitly request manual quote follow-up when an uploaded part package is ready.
+- Upgrade the organization to Pro when automatic vendor quote collection is valuable.
 - See whether quote collection has not started, is queued, is requesting, has received a response, or failed.
 - Review published quote options.
 - Select the best quote option for their needs.
@@ -185,6 +201,13 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 - Maintain the integrity of internal operational workflows.
 - Allowlisted platform admins can inspect organizations, memberships, jobs, and projects across the full platform in a read-only oversight mode.
 
+### For commercial operations admins
+- Inspect organization-level Free/Pro status, entitlement source, subscription state, and grant history.
+- Grant or revoke reasoned trial and complimentary Pro access when authorized.
+- Issue and deactivate subscription-only promotion codes.
+- Review manual procurement handoffs and externally confirmed order status.
+- Perform privileged mutations only through separately granted capabilities, step-up authentication, and append-only audit records.
+
 ### For project collaborators
 - Access only the projects they are invited to.
 - View and participate in project-scoped work without seeing unrelated workspace data.
@@ -197,6 +220,8 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 - Centralize vendor comparison in one canonical record of quoting work.
 - Provide a clean client experience for collaboration and quote selection.
 - Maintain secure access boundaries between workspaces, projects, collaborators, and internal-only data.
+- Let users enjoy uploads and manual quote requests without quota anxiety while monetizing cost-bearing automatic quote collection.
+- Give trusted operators safe, auditable controls for commercial access and order visibility.
 
 ### Secondary goals
 - Support mixed sourcing models including browser automation, imported spreadsheets, and manual quote intake.
@@ -236,8 +261,11 @@ Commercial placement may eventually let suppliers pay for additional visibility.
 ## Non-goals
 
 The current product should not be treated as owning:
-- direct ordering or purchase-order issuance
-- subscription billing or payments
+- manufacturing payment authorization, capture, refunds, or disputes
+- automated supplier order placement or purchase-order issuance
+- manufacturing-order discounts
+- per-seat, usage-based, upload-quota, or quote-quota billing
+- tax calculation, multi-currency, or accounting-system ownership
 - ERP/CRM synchronization
 - real-time chat or threaded messaging as a core workflow surface
 - full manufacturing execution
@@ -249,6 +277,23 @@ sign-in. The approved follow-on preserves those workspaces for upload and quote
 mutation parity but moves provider authentication into the system
 web-authentication session. Privileged credentials must never be embedded in
 the application.
+
+## Commercial account and billing boundary
+
+OverDrafter supports an organization-level `Free` plan and a `Pro` plan.
+
+- Free includes unlimited part uploads, project organization, request preparation, and manual quote requests.
+- Pro adds the `automatic_quote_collection` entitlement.
+- Membership roles such as client, estimator, and internal admin remain authorization roles; they are not commercial plans.
+- Trial grants are explicit entitlement grants with actor, reason, effective dates, required expiration, revocation history, and immutable audit.
+- Complimentary grants are explicit entitlement grants with actor, required reason, effective dates, required review date, optional expiration, revocation history, and immutable audit.
+- Self-service Pro subscriptions offer monthly and annual Stripe prices.
+- Eligible past-due Pro subscriptions retain access for a seven-day delinquency grace period before resolving to Free.
+- Stripe is the economic source of truth for Customers, Products, Prices, Subscriptions, Invoices, Coupons, and Promotion Codes.
+- A webhook-synchronized local projection plus active manual grants is the server-side source used for product access decisions.
+- Client redirects, UI state, and client-supplied Stripe identifiers must never grant Pro access.
+- Subscription promotion codes do not change manufacturing quote or order totals.
+- Account subscription billing remains separate from procurement, manufacturing payments, and the manual order ledger.
 
 ## Client workspace surface
 

@@ -1,6 +1,6 @@
 # Horizon 1 — Strengthen the Current Web Platform
 
-Last updated: March 11, 2026
+Last updated: July 29, 2026
 
 ## Purpose
 
@@ -32,11 +32,16 @@ Turn the existing quote workflow into a more complete, user-legible, and high-si
 - vendor exclusion controls
 - clearer selection persistence
 
-### 4. Better review-to-order handoff
+### 4. Commercial access and review-to-order visibility
+- organization-level Free and Pro access
+- unlimited uploads and manual quote requests for Free
+- visible-but-gated automatic quote collection for Pro
+- audited account administration and trial/complimentary grants
 - dedicated review routes
 - selected quote summaries
-- pre-checkout review state
-- placeholder handoff for payment, PO, shipping, and billing information
+- procurement review state
+- structured handoff for PO, shipping, billing-contact, and special-instruction information
+- explicit manual order records and externally confirmed lifecycle visibility
 
 ### 5. Notifications groundwork
 - browser notifications
@@ -66,11 +71,19 @@ Turn the existing quote workflow into a more complete, user-legible, and high-si
 - project-level totals and summary strip
 - bulk preset actions
 
-### Epic: review route and order handoff
+### Epic: commercial account administration
+- server-side Free/Pro entitlement resolution
+- billing/order admin capabilities and step-up authentication
+- manual quote requests and Pro-gated automatic collection
+- customer account detail and audited trial/complimentary grants
+- Stripe subscription synchronization and subscription promotion codes
+
+### Epic: review route and manual order handoff
 - stable part review route
 - stable project review route
 - selected summary and procurement context
-- structured shipping / billing / PO handoff fields without direct checkout ownership
+- structured shipping / billing-contact / PO handoff fields without manufacturing-payment ownership
+- explicit order snapshots and audited manual/external lifecycle updates
 
 ### Epic: quote decision improvements
 - better option normalization
@@ -93,5 +106,7 @@ The initial shared taxonomy and delivery rules for this epic now live in `docs/n
 - mobile apps
 - CAD plugins
 - full revision graph / PDM
-- direct order placement backend
+- manufacturing payment collection
+- automated supplier order placement
+- per-seat, usage, upload-quota, or quote-quota billing
 - full fulfillment automation

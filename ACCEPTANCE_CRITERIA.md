@@ -1,6 +1,6 @@
 # OverDrafter Acceptance Criteria
 
-Last updated: July 28, 2026
+Last updated: July 29, 2026
 
 ## Purpose
 
@@ -11,7 +11,7 @@ This document defines what it means for the current repository-hardening phase t
 ### Feature addendum — Quote Intelligence web and iOS release
 
 - Authenticated clients can navigate directly to Parts, Quotes, Search, and quote detail.
-- Project remains the backend collaboration/commercial container and legacy Project/Part links remain compatible.
+- Project remains the backend collaboration/procurement-workflow container and legacy Project/Part links remain compatible; Organization is the commercial account boundary.
 - All/Parts/Assemblies is one filter control over the accessible artifact collection.
 - Search updates while typing and explains structured engineering interpretations without using fabricated geometry.
 - Quote detail presents request facts and supplier offers directly.
@@ -50,7 +50,8 @@ This document defines what it means for the current repository-hardening phase t
 - Runtime, native UI, navigation, Ask OverDrafter, and standards-content
   acceptance remain with their owning issues rather than `OVD-220`.
 
-### MVP addendum — no-Stripe live quote path for `dmrifles@gmail.com`
+### Historical MVP addendum — no-Stripe live quote path for `dmrifles@gmail.com`
+- This delivered milestone remains regression context but is no longer the complete commercial product boundary.
 - The existing `dmrifles@gmail.com` user can sign in to the target environment.
 - `dmrifles@gmail.com` has a client membership in the target organization.
 - The client user can upload supported CNC part files, including STEP/PDF packages.
@@ -61,6 +62,25 @@ This document defines what it means for the current repository-hardening phase t
 - Xometry live runs use the Camoufox persistent-profile path unless a later validated path replaces it.
 - The client UI shows quote lifecycle state and either a received quote result or explicit manual-follow-up/failure state.
 - No Stripe, billing, card capture, or in-app order placement is required for this MVP.
+
+### Commercial account and quote-mode addendum
+- The commercial plan is owned by the organization, not by an individual user or membership role.
+- Every organization resolves to either Free or Pro through a server-side effective-entitlement contract.
+- Free users may upload parts and create projects without a customer-facing usage quota.
+- Free and Pro users may submit manual quote requests for an individual part or a ready project batch.
+- Manual requests create durable lifecycle visibility and internal follow-up work without automated vendor dispatch.
+- Pro adds the `automatic_quote_collection` entitlement.
+- The automatic-quote toggle remains visible to Free users. Attempting to enable it opens a Pro upgrade dialog and leaves it off.
+- Automatic quote APIs independently enforce Pro and return a stable `pro_required` result when the UI is bypassed.
+- Existing operational throttles and organization cost ceilings remain invisible safeguards, not plan quotas.
+- Authorized billing admins may create and revoke audited trial and complimentary Pro grants under AAL2.
+- Trial grants require an expiration. Complimentary grants require a reason and review date and may optionally expire.
+- Self-service Pro offers monthly and annual subscription intervals.
+- Eligible past-due Pro subscriptions retain Pro access for a seven-day grace period, then resolve to Free without affecting uploads or manual quote requests.
+- Stripe subscription, invoice, coupon, and promotion-code facts are synchronized through signed, replay-safe webhooks before they affect access.
+- Subscription promotion codes do not discount manufacturing quote or order totals.
+- Procurement handoffs and explicit orders may be persisted for manual visibility and externally confirmed lifecycle tracking.
+- Manufacturing payment collection, automated supplier order placement, order discounts, tax automation, and ERP/accounting integration remain excluded.
 
 ### Feature addendum — Client-triggered quote requests
 - A logged-in client user can request a quote from the part workspace for an uploaded part they can edit.

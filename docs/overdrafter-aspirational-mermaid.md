@@ -2,7 +2,7 @@
 
 This diagram shows the product's intended long-term shape from [PRD.md](/Users/blainewilson/Documents/GitHub/Overdrafter/PRD.md), [ARCHITECTURE.md](/Users/blainewilson/Documents/GitHub/Overdrafter/ARCHITECTURE.md), [capabilitymap.md](/Users/blainewilson/Documents/GitHub/Overdrafter/capabilitymap.md), and [docs/fulfillment-state-model.md](/Users/blainewilson/Documents/GitHub/Overdrafter/docs/fulfillment-state-model.md).
 
-It intentionally separates the core manufacturing workspace from optional or later integrations such as Stripe, ERP sync, shipping carriers, and supplier systems.
+It intentionally separates the core manufacturing workspace from account-subscription infrastructure and later manufacturing integrations. Stripe subscription billing is an active staged sidecar; ERP sync, shipping carriers, supplier systems, manufacturing payment collection, and automated supplier placement remain outside the near-term core.
 
 ```mermaid
 flowchart LR
@@ -52,7 +52,7 @@ DFM / DFA / modeling / redrafting"]
     Vendors["Vendor Adapters
 Xometry / Fictiv / Protolabs / SendCutSend"]
     Stripe["Stripe Billing
-workspace subscriptions, invoicing, entitlements"]
+organization subscriptions, invoicing, entitlements"]
     ERP["ERP / CRM / Purchasing Systems"]
     Ship["Shipping / Tracking Providers"]
   end
@@ -105,5 +105,5 @@ workspace subscriptions, invoicing, entitlements"]
 
 - The center spine is `Projects -> Parts / Files / Requests -> Review -> Publication -> Fulfillment Visibility`.
 - `Service Request Line Items` are the future authoritative unit of work; quote requests become one specialized request path, not the whole model.
-- `Stripe` should sit off to the side as account/workspace billing infrastructure, not inside the quoting or procurement lifecycle.
+- `Stripe` should sit off to the side as organization subscription infrastructure, not inside the quoting or procurement lifecycle.
 - `ERP`, shipping, and supplier systems should remain separate integrations until OverDrafter intentionally takes on execution ownership.

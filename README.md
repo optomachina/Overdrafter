@@ -129,7 +129,8 @@ appear in old diffs or stale local artifacts, do not treat them as canonical run
 The current React + Supabase + worker implementation provides the solid foundation (job intake, extraction, quote orchestration, OpenClaw harness) that will now be progressively wrapped and hidden behind the ideal multi-agent UX.
 
 The client launch surface is `Parts | Quotes | Search` on responsive web and in the iOS shell. Projects remain the
-collaboration/commercial container behind those collections. Quote detail keeps request status, source facts, and the
+collaboration/procurement-workflow container behind those collections, while organizations are the commercial account
+and entitlement boundary. Quote detail keeps request status, source facts, and the
 lead-time-versus-total-price comparison together; the current short quote code is a login-gated locator rather than an
 access token.
 
@@ -415,7 +416,7 @@ Use `docs/recurring-workflows.md` instead of relying on pasted handoff snippets.
 
 ## Current State
 
-The portal and Supabase foundation are implemented. The no-Stripe MVP target is a live quote-request loop for `dmrifles@gmail.com`: sign in, upload parts, request quotes, and receive live vendor results or explicit manual-follow-up states.
+The portal and Supabase foundation are implemented. The historical no-Stripe MVP established a live quote-request loop for `dmrifles@gmail.com`: sign in, upload parts, request quotes, and receive live vendor results or explicit manual-follow-up states.
 
 Recent live-adapter status:
 
@@ -423,7 +424,17 @@ Recent live-adapter status:
 - Xometry live automation was validated in PR #236 through `XOMETRY_BROWSER_ENGINE=camoufox` plus a persistent `XOMETRY_USER_DATA_DIR`; the run reached the real Xometry configurator and extracted a real price/lead-time result.
 - Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
 
-Billing, Stripe, card capture, and in-app order placement are deferred. For controlled tests, a local live worker is acceptable; unattended use still requires hosting the live worker on a long-lived platform.
+Commercial account administration is now an active staged program under Linear parent `OVD-227`:
+
+Target contract and sequence:
+
+- Free organizations will keep unlimited uploads and manual quote requests without customer-facing quota messaging.
+- Pro organizations will gain server-enforced automatic vendor quote collection.
+- Free users will continue to see the automatic-quote toggle; attempting to enable it will open the Pro upgrade dialog.
+- Organization-level Stripe subscriptions, audited trial/complimentary grants, and subscription promotion codes are sequenced separately from procurement.
+- The first order-administration slice will be a manual visibility ledger for externally confirmed order state.
+
+Manufacturing card collection, order discounts, automated supplier order placement, tax automation, and ERP/accounting integration remain deferred. For controlled tests, a local live worker is acceptable; unattended use still requires hosting the live worker on a long-lived platform.
 
 ## Favicon Verification
 
