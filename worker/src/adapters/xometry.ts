@@ -189,7 +189,8 @@ function countUsFederalBusinessDays(today: Date, arrival: Date) {
  * rejected except for a bounded November/December-to-January/February rollover.
  */
 export function parseLeadTime(text: string, now = new Date()): number | null {
-  const durationMatch = /(\d+)\s+(?:business\s+)?days?/i.exec(text);
+  const durationMatch =
+    /(\d+)\s+business\s+days?\b/i.exec(text) ?? /(\d+)\s+days?\b/i.exec(text);
   if (durationMatch) {
     const parsed = Number.parseInt(durationMatch[1], 10);
     return Number.isFinite(parsed) ? parsed : null;
