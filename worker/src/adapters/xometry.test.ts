@@ -488,8 +488,16 @@ describe("XometryAdapter", () => {
     const page = createFakePage({
       // No priceText/leadTimeText selector behavior: every declared locator
       // misses, so the only currency on the page is an unrelated banner.
-      bodyText: "Spring sale! Orders over $19.99 ship free. Lead time 5 business days",
-      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002",
+      bodyText: "Configure part",
+      postSaveBodyText: [
+        "Quantity 2",
+        "Material: Aluminum 6061-T6x",
+        "Finish: Black Anodize",
+        "Precision Tolerance: ±.005",
+        "Spring sale! Orders over $19.99 ship free. Lead time 5 business days",
+      ].join(" "),
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002/part-1",
+      saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002#part-part-1",
       selectorBehaviors: {
         [XOMETRY_LOCATORS.uploadInputs[1]]: {
           count: 1,
@@ -508,8 +516,16 @@ describe("XometryAdapter", () => {
           count: 1,
           click: vi.fn(),
         },
+        [XOMETRY_LOCATORS.toleranceOptions.standard]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
       },
-      optionTexts: ["6061-T6", "Type II"],
+      optionTexts: ["6061-T6", "Black Anodize"],
     });
     launchMock.mockResolvedValue(createFakeBrowser(page));
 
