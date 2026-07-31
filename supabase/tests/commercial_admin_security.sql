@@ -714,86 +714,16 @@ select throws_ok(
 )
 from (
   values
-    (
-      'sensitive-key',
-      'Sensitive keys must be rejected',
-      'billing-sensitive-key',
-      '{"payment":{"client_secret":"sentinel-secret"}}'::jsonb,
-      'Sensitive payment or credential data cannot be written to commercial audit records.',
-      'credential and payment keys are rejected recursively'
-    ),
-    (
-      'sensitive-api-key',
-      'API keys must be rejected',
-      'billing-sensitive-api-key',
-      '{"integration":{"api_key":"sentinel-api-key"}}'::jsonb,
-      'Sensitive payment or credential data cannot be written to commercial audit records.',
-      'common API-key fields are rejected recursively'
-    ),
-    (
-      'sensitive-pan',
-      'Potential card values must be rejected',
-      'billing-sensitive-pan',
-      '{"note":"4242 4242 4242 4242"}'::jsonb,
-      'Potential card data cannot be written to commercial audit records.',
-      'potential card numbers are rejected even under neutral keys'
-    ),
-    (
-      'sensitive-reason',
-      'Support pasted sk_live_1234567890 into the reason',
-      'billing-sensitive-reason',
-      '{}'::jsonb,
-      'Potential credential data cannot be written to commercial audit records.',
-      'credential-like values are rejected in scalar audit fields'
-    ),
-    (
-      'stripe-webhook-secret',
-      'Reject webhook secret patterns',
-      'billing-stripe-secret',
-      '{"note":"whsec_1234567890abcdef"}'::jsonb,
-      'Potential credential data cannot be written to commercial audit records.',
-      'Stripe webhook-secret patterns are rejected'
-    ),
-    (
-      'github-token',
-      'Reject GitHub token patterns',
-      'billing-github-token',
-      '{"note":"ghp_1234567890abcdef"}'::jsonb,
-      'Potential credential data cannot be written to commercial audit records.',
-      'GitHub token patterns are rejected'
-    ),
-    (
-      'slack-token',
-      'Reject Slack token patterns',
-      'billing-slack-token',
-      '{"note":"xoxb-1234567890-abcdef"}'::jsonb,
-      'Potential credential data cannot be written to commercial audit records.',
-      'Slack token patterns are rejected'
-    ),
-    (
-      'jwt-token',
-      'Reject JWT patterns',
-      'billing-jwt-token',
-      '{"note":"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature123"}'::jsonb,
-      'Potential credential data cannot be written to commercial audit records.',
-      'JWT patterns are rejected'
-    ),
-    (
-      'cloud-key',
-      'Reject cloud access-key patterns',
-      'billing-cloud-key',
-      '{"note":"AKIA1234567890ABCDEF"}'::jsonb,
-      'Potential credential data cannot be written to commercial audit records.',
-      'cloud access-key patterns are rejected'
-    ),
-    (
-      'sensitive-numeric-pan',
-      'Numeric card values must be rejected',
-      'billing-sensitive-numeric-pan',
-      '{"reference":4242424242424242}'::jsonb,
-      'Potential card data cannot be written to commercial audit records.',
-      'potential card numbers are rejected when represented as JSON numbers'
-    )
+    ('sensitive-key', 'Sensitive keys must be rejected', 'billing-sensitive-key', '{"payment":{"client_secret":"sentinel-secret"}}'::jsonb, 'Sensitive payment or credential data cannot be written to commercial audit records.', 'credential and payment keys are rejected recursively'),
+    ('sensitive-api-key', 'API keys must be rejected', 'billing-sensitive-api-key', '{"integration":{"api_key":"sentinel-api-key"}}'::jsonb, 'Sensitive payment or credential data cannot be written to commercial audit records.', 'common API-key fields are rejected recursively'),
+    ('sensitive-pan', 'Potential card values must be rejected', 'billing-sensitive-pan', '{"note":"4242 4242 4242 4242"}'::jsonb, 'Potential card data cannot be written to commercial audit records.', 'potential card numbers are rejected even under neutral keys'),
+    ('sensitive-reason', 'Support pasted sk_live_1234567890 into the reason', 'billing-sensitive-reason', '{}'::jsonb, 'Potential credential data cannot be written to commercial audit records.', 'credential-like values are rejected in scalar audit fields'),
+    ('stripe-webhook-secret', 'Reject webhook secret patterns', 'billing-stripe-secret', '{"note":"whsec_1234567890abcdef"}'::jsonb, 'Potential credential data cannot be written to commercial audit records.', 'Stripe webhook-secret patterns are rejected'),
+    ('github-token', 'Reject GitHub token patterns', 'billing-github-token', '{"note":"ghp_1234567890abcdef"}'::jsonb, 'Potential credential data cannot be written to commercial audit records.', 'GitHub token patterns are rejected'),
+    ('slack-token', 'Reject Slack token patterns', 'billing-slack-token', '{"note":"xoxb-1234567890-abcdef"}'::jsonb, 'Potential credential data cannot be written to commercial audit records.', 'Slack token patterns are rejected'),
+    ('jwt-token', 'Reject JWT patterns', 'billing-jwt-token', '{"note":"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature123"}'::jsonb, 'Potential credential data cannot be written to commercial audit records.', 'JWT patterns are rejected'),
+    ('cloud-key', 'Reject cloud access-key patterns', 'billing-cloud-key', '{"note":"AKIA1234567890ABCDEF"}'::jsonb, 'Potential credential data cannot be written to commercial audit records.', 'cloud access-key patterns are rejected'),
+    ('sensitive-numeric-pan', 'Numeric card values must be rejected', 'billing-sensitive-numeric-pan', '{"reference":4242424242424242}'::jsonb, 'Potential card data cannot be written to commercial audit records.', 'potential card numbers are rejected when represented as JSON numbers')
 ) as test_case(
   target_key,
   reason,
