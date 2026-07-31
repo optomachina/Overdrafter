@@ -190,7 +190,8 @@ function countUsFederalBusinessDays(today: Date, arrival: Date) {
  */
 export function parseLeadTime(text: string, now = new Date()): number | null {
   const durationMatch =
-    /(\d+)\s+business\s+days?\b/i.exec(text) ?? /(\d+)\s+days?\b/i.exec(text);
+    /\b(\d{1,4})\s+business\s+days?\b/i.exec(text) ??
+    /\b(\d{1,4})\s+days?\b/i.exec(text);
   if (durationMatch) {
     const parsed = Number.parseInt(durationMatch[1], 10);
     return Number.isFinite(parsed) ? parsed : null;
