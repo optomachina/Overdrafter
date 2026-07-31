@@ -178,6 +178,7 @@ type FakePageOptions = {
   saveNavigationFails?: boolean;
   reloadFails?: boolean;
   responseWaitDelayMs?: number;
+  fileChooserSetFiles?: (files: string[]) => Promise<void> | void;
   visibleFilenames?: string[];
   responses?: Array<{
     method: string;
@@ -400,8 +401,16 @@ function createFakePage(options: FakePageOptions) {
       return undefined;
     },
     waitForURL,
-    async waitForEvent() {
-      return undefined;
+    async waitForEvent(event: string) {
+      if (event !== "filechooser" || !options.fileChooserSetFiles) {
+        throw new Error(`unexpected page event: ${event}`);
+      }
+      return {
+        async setFiles(files: string[]) {
+          await options.fileChooserSetFiles?.(files);
+          currentUrl = options.uploadRedirectUrl ?? currentUrl;
+        },
+      };
     },
     async waitForResponse(
       predicate: (response: {
@@ -493,6 +502,9 @@ describe("Xometry helpers", () => {
   it("prefers the current searchable material and finish comboboxes", () => {
     expect(XOMETRY_LOCATORS.uploadInputs[0]).toContain("Start A New Instant Quote");
     expect(XOMETRY_LOCATORS.uploadInputs).not.toContain('input[type="file"]');
+    expect(XOMETRY_LOCATORS.dashboardUploadButtons).toEqual([
+      'button:text-is("Upload a CAD File")',
+    ]);
     expect(XOMETRY_LOCATORS.materialButtons[0]).toBe(
       'input[role="combobox"][placeholder="Search Material"]',
     );
@@ -936,6 +948,71 @@ describe("XometryAdapter", () => {
     });
     expect(standaloneUpload).toHaveBeenCalledTimes(1);
     expect(genericUpload).not.toHaveBeenCalled();
+  });
+
+  it("uses the authenticated dashboard CAD file chooser without touching the Tool Library input", async () => {
+    const workerTempDir = await makeTempDir();
+    const dashboardUploadClick = vi.fn();
+    const dashboardFileChooserUpload = vi.fn();
+    const toolLibraryUpload = vi.fn();
+    const summaryText = [
+      "Pick Up Where You Left Off",
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      uploadRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-FILECHOOSER-0001",
+      fileChooserSetFiles: dashboardFileChooserUpload,
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 0,
+        },
+        [XOMETRY_LOCATORS.dashboardUploadButtons[0]]: {
+          count: 1,
+          click: dashboardUploadClick,
+        },
+        'input[type="file"]': {
+          count: 1,
+          setInputFiles: toolLibraryUpload,
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: summaryText,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    expect(result.status).toBe("instant_quote_received");
+    expect(result.rawPayload).toMatchObject({
+      uploadSelector: XOMETRY_LOCATORS.dashboardUploadButtons[0],
+      requirementsVerified: true,
+    });
+    expect(dashboardUploadClick).toHaveBeenCalledTimes(1);
+    expect(dashboardFileChooserUpload).toHaveBeenCalledWith([
+      "/tmp/part.step",
+    ]);
+    expect(toolLibraryUpload).not.toHaveBeenCalled();
   });
 
   it("does not let a visible quantity input override a contradictory summary", async () => {
@@ -2033,7 +2110,10 @@ describe("XometryAdapter", () => {
       code: "selector_failure",
       payload: {
         failedSelector: XOMETRY_LOCATORS.uploadInputs[0],
-        attemptedSelectors: XOMETRY_LOCATORS.uploadInputs,
+        attemptedSelectors: [
+          ...XOMETRY_LOCATORS.uploadInputs,
+          ...XOMETRY_LOCATORS.dashboardUploadButtons,
+        ],
       },
     });
   });
