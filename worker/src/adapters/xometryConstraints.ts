@@ -24,6 +24,9 @@ export const XOMETRY_LOCATORS = {
     /requires review/i,
     /drawing required/i,
   ],
+  dashboardUploadPanels: [
+    'div:has(> input[type="file"]):has(button:has-text("Start A New Instant Quote"))',
+  ],
   uploadInputs: [
     'div:has(> input[type="file"]):has(button:has-text("Start A New Instant Quote")) > input[type="file"]',
   ],

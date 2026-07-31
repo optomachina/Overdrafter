@@ -160,6 +160,9 @@ const MILLISECONDS_PER_DAY = 86_400_000;
 const XOMETRY_POST_SAVE_TIMEOUT_FLOOR_MS = 120_000;
 const XOMETRY_CONTROL_RENDER_TIMEOUT_MS = 10_000;
 const XOMETRY_OPTION_RENDER_TIMEOUT_MS = 10_000;
+const XOMETRY_UPLOAD_READINESS_POLL_MS = 500;
+const XOMETRY_SUPPORTED_FILE_TYPES_LOADING_PATTERN =
+  /supported file types are still loading/i;
 
 function parseArrivalDate(text: string, today: Date) {
   const arrivalMatch =
@@ -683,6 +686,198 @@ async function tryKnownUploadInputs(
   return null;
 }
 
+/**
+ * Returns whether Xometry's loaded accept list explicitly supports a staged file.
+ * An empty list is treated as not ready rather than permissive.
+ */
+export function uploadInputAcceptsFile(
+  accept: string | null,
+  filePath: string,
+) {
+  if (!accept) return false;
+
+  const extension = path.extname(filePath).toLocaleLowerCase();
+  if (!extension) return false;
+
+  const acceptedTypes = new Set(
+    accept
+      .split(",")
+      .map((candidate) => candidate.trim().toLocaleLowerCase())
+      .filter(Boolean),
+  );
+
+  return acceptedTypes.has(extension) || acceptedTypes.has("*/*");
+}
+
+async function waitForDashboardUploadReadiness(
+  page: Page,
+  uploadInput: Locator,
+  files: string[],
+) {
+  const attempts = Math.max(
+    1,
+    Math.ceil(
+      XOMETRY_CONTROL_RENDER_TIMEOUT_MS / XOMETRY_UPLOAD_READINESS_POLL_MS,
+    ),
+  );
+  let observedAccept: string | null = null;
+  let loadingErrorVisible = false;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    observedAccept = await uploadInput
+      .getAttribute("accept", {
+        timeout: XOMETRY_UPLOAD_READINESS_POLL_MS,
+      })
+      .catch(() => null);
+    const bodyText = await readBodyText(page);
+    loadingErrorVisible =
+      XOMETRY_SUPPORTED_FILE_TYPES_LOADING_PATTERN.test(bodyText);
+    const acceptsEveryFile = files.every((filePath) =>
+      uploadInputAcceptsFile(observedAccept, filePath),
+    );
+
+    if (acceptsEveryFile && !loadingErrorVisible) {
+      return observedAccept;
+    }
+    if (observedAccept?.trim() && !loadingErrorVisible) {
+      throw new VendorAutomationError(
+        "Xometry does not support the staged CAD file type.",
+        "upload_failure",
+        {
+          vendor: "xometry",
+          reason: "unsupported_file_type",
+          accept: observedAccept,
+          requestedExtensions: files.map((filePath) =>
+            path.extname(filePath).toLocaleLowerCase(),
+          ),
+          url: page.url(),
+        },
+      );
+    }
+
+    await page
+      .waitForTimeout(XOMETRY_UPLOAD_READINESS_POLL_MS)
+      .catch(() => undefined);
+  }
+
+  throw new VendorAutomationError(
+    "Xometry's supported upload file types were not ready.",
+    "upload_failure",
+    {
+      vendor: "xometry",
+      reason: "supported_file_types_not_ready",
+      accept: observedAccept,
+      loadingErrorVisible,
+      requestedExtensions: files.map((filePath) =>
+        path.extname(filePath).toLocaleLowerCase(),
+      ),
+      url: page.url(),
+    },
+  );
+}
+
+async function waitForDashboardUploadProgress(
+  page: Page,
+  uploadPanel: Locator,
+  files: string[],
+) {
+  const attempts = Math.max(
+    1,
+    Math.ceil(
+      XOMETRY_CONTROL_RENDER_TIMEOUT_MS / XOMETRY_UPLOAD_READINESS_POLL_MS,
+    ),
+  );
+  const filenames = files.map((filePath) => path.basename(filePath));
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (XOMETRY_LOCATORS.quotePagePathPattern.test(page.url())) {
+      return;
+    }
+
+    const panelText = await uploadPanel
+      .innerText({
+        timeout: XOMETRY_UPLOAD_READINESS_POLL_MS,
+      })
+      .catch(() => "");
+    if (XOMETRY_SUPPORTED_FILE_TYPES_LOADING_PATTERN.test(panelText)) {
+      throw new VendorAutomationError(
+        "Xometry rejected the upload before supported file types were ready.",
+        "upload_failure",
+        {
+          vendor: "xometry",
+          reason: "supported_file_types_not_ready",
+          filenames,
+          url: page.url(),
+        },
+      );
+    }
+
+    if (
+      filenames.every((filename) => hasVisibleFilename(panelText, filename))
+    ) {
+      return;
+    }
+
+    for (const selector of XOMETRY_LOCATORS.exportControlContinue) {
+      const visible = await page
+        .locator(selector)
+        .first()
+        .isVisible()
+        .catch(() => false);
+      if (visible) return;
+    }
+
+    await page
+      .waitForTimeout(XOMETRY_UPLOAD_READINESS_POLL_MS)
+      .catch(() => undefined);
+  }
+}
+
+async function uploadFilesThroughDashboardPanel(
+  page: Page,
+  files: string[],
+) {
+  const uploadSelector = XOMETRY_LOCATORS.uploadInputs[0];
+  const uploadInput = page.locator(uploadSelector).first();
+  await uploadInput.waitFor({
+    state: "attached",
+    timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
+  });
+  const uploadPanel = page
+    .locator(XOMETRY_LOCATORS.dashboardUploadPanels[0])
+    .first();
+  await waitForDashboardUploadReadiness(page, uploadInput, files);
+  await uploadInput.setInputFiles(files);
+  await waitForDashboardUploadProgress(page, uploadPanel, files);
+  return { selector: uploadSelector };
+}
+
+async function tryMountedDashboardUpload(
+  page: Page,
+  files: string[],
+  attemptedSelectors: string[],
+  uploadErrors: Error[],
+) {
+  const uploadSelector = XOMETRY_LOCATORS.uploadInputs[0];
+  attemptedSelectors.push(uploadSelector);
+  const uploadInput = page.locator(uploadSelector).first();
+  const count = await uploadInput.count().catch(() => 0);
+  if (count < 1) return null;
+
+  try {
+    const result = await uploadFilesThroughDashboardPanel(page, files);
+    return { ...result, attemptedSelectors };
+  } catch (error) {
+    if (error instanceof VendorAutomationError) {
+      throw error;
+    }
+    if (error instanceof Error) {
+      uploadErrors.push(error);
+    }
+    return null;
+  }
+}
+
 /** Opens Xometry's quote uploader and waits for its scoped input to mount. */
 async function tryDashboardUploadButton(
   page: Page,
@@ -700,15 +895,12 @@ async function tryDashboardUploadButton(
       await button.click({
         timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
       });
-      const uploadSelector = XOMETRY_LOCATORS.uploadInputs[0];
-      const uploadInput = page.locator(uploadSelector).first();
-      await uploadInput.waitFor({
-        state: "attached",
-        timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
-      });
-      await uploadInput.setInputFiles(files);
-      return { selector: uploadSelector, attemptedSelectors };
+      const result = await uploadFilesThroughDashboardPanel(page, files);
+      return { ...result, attemptedSelectors };
     } catch (error) {
+      if (error instanceof VendorAutomationError) {
+        throw error;
+      }
       if (error instanceof Error) {
         uploadErrors.push(error);
       }
@@ -745,13 +937,20 @@ async function setFilesOnUpload(page: Page, files: string[]) {
     })
     .catch(() => undefined);
 
-  const knownInputResult = await tryKnownUploadInputs(
-    page,
-    files,
-    eligibleSelectors,
-    attemptedSelectors,
-    uploadErrors,
-  );
+  const knownInputResult = isQuoteHome
+    ? await tryMountedDashboardUpload(
+        page,
+        files,
+        attemptedSelectors,
+        uploadErrors,
+      )
+    : await tryKnownUploadInputs(
+        page,
+        files,
+        eligibleSelectors,
+        attemptedSelectors,
+        uploadErrors,
+      );
   if (knownInputResult) return knownInputResult;
 
   const dashboardResult = isQuoteHome
