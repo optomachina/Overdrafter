@@ -421,7 +421,7 @@ The portal and Supabase foundation are implemented. The historical no-Stripe MVP
 Recent live-adapter status:
 
 - Fictiv live automation was repaired in PR #235 and validated against the current Fictiv portal.
-- Xometry live automation was validated in PR #236 through `XOMETRY_BROWSER_ENGINE=camoufox` plus a persistent `XOMETRY_USER_DATA_DIR`; the run reached the real Xometry configurator and extracted a real price/lead-time result.
+- Xometry live automation uses standard Playwright Chromium by default. This matches Xometry's current authenticated configurator behavior; Patchright can cause the material-options API to return `401` and render `No options` despite a valid session. `XOMETRY_BROWSER_ENGINE=patchright` and `XOMETRY_BROWSER_ENGINE=camoufox` remain explicit rollback options, with Camoufox requiring a persistent `XOMETRY_USER_DATA_DIR`.
 - Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
 
 Commercial account administration is now an active staged program under Linear parent `OVD-227`:

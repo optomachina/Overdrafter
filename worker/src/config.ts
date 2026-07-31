@@ -70,7 +70,7 @@ const schema = z.object({
   XOMETRY_STORAGE_STATE_JSON: optionalSetting(),
   XOMETRY_USER_DATA_DIR: optionalSetting(),
   XOMETRY_BROWSER_CHANNEL: optionalSetting(),
-  XOMETRY_BROWSER_ENGINE: z.enum(["patchright", "camoufox"]).default("patchright"),
+  XOMETRY_BROWSER_ENGINE: z.enum(["patchright", "playwright", "camoufox"]).default("playwright"),
   XOMETRY_PROFILE_LOCK_WAIT_MS: z.coerce.number().int().nonnegative().default(30000),
   XOMETRY_SESSION_FRESHNESS_WARN_DAYS: z.coerce.number().nonnegative().default(7),
   FICTIV_STORAGE_STATE_PATH: optionalSetting(),

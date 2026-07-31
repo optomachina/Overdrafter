@@ -44,6 +44,20 @@ function parseQuantitiesArg(): number[] {
   return parsed.length > 0 ? parsed : DEFAULT_QUANTITIES;
 }
 
+function xometryBrowserEngine(): WorkerConfig["xometryBrowserEngine"] {
+  const configuredEngine = process.env.XOMETRY_BROWSER_ENGINE;
+  if (configuredEngine === undefined || configuredEngine === "playwright") {
+    return "playwright";
+  }
+  if (configuredEngine === "camoufox") {
+    return "camoufox";
+  }
+  if (configuredEngine === "patchright") {
+    return "patchright";
+  }
+  throw new Error(`Unsupported XOMETRY_BROWSER_ENGINE: ${configuredEngine}`);
+}
+
 function makeConfig(): WorkerConfig {
   return {
     supabaseUrl: "https://example.supabase.co",
@@ -72,7 +86,7 @@ function makeConfig(): WorkerConfig {
     xometryStorageStateJson: process.env.XOMETRY_STORAGE_STATE_JSON ?? null,
     xometryUserDataDir: process.env.XOMETRY_USER_DATA_DIR ?? null,
     xometryBrowserChannel: process.env.XOMETRY_BROWSER_CHANNEL ?? null,
-    xometryBrowserEngine: process.env.XOMETRY_BROWSER_ENGINE === "camoufox" ? "camoufox" : "patchright",
+    xometryBrowserEngine: xometryBrowserEngine(),
     xometryProfileLockWaitMs: 30_000,
     xometrySessionFreshnessWarnDays: 14,
     fictivStorageStatePath: null,

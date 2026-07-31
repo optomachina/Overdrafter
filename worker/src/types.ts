@@ -358,7 +358,7 @@ export type WorkerConfig = {
   xometryStorageStateJson: string | null;
   xometryUserDataDir: string | null;
   xometryBrowserChannel: string | null;
-  xometryBrowserEngine: "patchright" | "camoufox";
+  xometryBrowserEngine: "patchright" | "playwright" | "camoufox";
   xometryProfileLockWaitMs: number;
   xometrySessionFreshnessWarnDays: number;
   fictivStorageStatePath: string | null;

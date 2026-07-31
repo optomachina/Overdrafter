@@ -21,7 +21,8 @@ RUN apt-get update \
 
 COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/node_modules ./node_modules
-RUN ./node_modules/.bin/patchright install chromium
+RUN ./node_modules/.bin/playwright install chromium \
+  && ./node_modules/.bin/patchright install chromium
 COPY --from=build /app/dist ./dist
 
 EXPOSE 8080
