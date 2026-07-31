@@ -657,24 +657,83 @@ async function navigateToQuoteConfigurationPage(
   }
 }
 
+/** Attempts only upload inputs that are explicitly approved for the current Xometry surface. */
+async function tryKnownUploadInputs(
+  page: Page,
+  files: string[],
+  selectors: readonly string[],
+  attemptedSelectors: string[],
+  uploadErrors: Error[],
+) {
+  for (const selector of selectors) {
+    attemptedSelectors.push(selector);
+    const locator = page.locator(selector).first();
+    const count = await locator.count().catch(() => 0);
+    if (count < 1) continue;
+    try {
+      await locator.setInputFiles(files);
+      return { selector, attemptedSelectors };
+    } catch (error) {
+      if (error instanceof Error) {
+        uploadErrors.push(error);
+      }
+    }
+  }
+
+  return null;
+}
+
+/** Uses Xometry's authenticated dashboard button without touching unrelated hidden inputs. */
+async function tryDashboardFileChooser(
+  page: Page,
+  files: string[],
+  attemptedSelectors: string[],
+  uploadErrors: Error[],
+) {
+  for (const selector of XOMETRY_LOCATORS.dashboardUploadButtons) {
+    attemptedSelectors.push(selector);
+    const button = page.locator(`${selector}:visible`).first();
+    const visible = await button.isVisible().catch(() => false);
+    if (!visible) continue;
+
+    try {
+      const [fileChooser] = await Promise.all([
+        page.waitForEvent("filechooser", {
+          timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
+        }),
+        button.click({
+          timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
+        }),
+      ]);
+      await fileChooser.setFiles(files);
+      return { selector, attemptedSelectors };
+    } catch (error) {
+      if (error instanceof Error) {
+        uploadErrors.push(error);
+      }
+    }
+  }
+
+  return null;
+}
+
 async function setFilesOnUpload(page: Page, files: string[]) {
   const attemptedSelectors: string[] = [];
-  const setInputErrors: Error[] = [];
+  const uploadErrors: Error[] = [];
   const quoteHomePath = trimTrailingSlashes(
     new URL(XOMETRY_URLS.quoteHome).pathname,
   );
   const currentPath = trimTrailingSlashes(new URL(page.url()).pathname);
-  const eligibleSelectors =
-    currentPath === quoteHomePath
-      ? XOMETRY_LOCATORS.uploadInputs
-      : [
-          ...XOMETRY_LOCATORS.uploadInputs,
-          ...XOMETRY_LOCATORS.standaloneUploadInputs,
-        ];
-  const eligibleUploadSurfaces = [
-    ...eligibleSelectors,
-    ...XOMETRY_LOCATORS.dashboardUploadButtons,
-  ];
+  const isQuoteHome = currentPath === quoteHomePath;
+  const eligibleSelectors = isQuoteHome
+    ? XOMETRY_LOCATORS.uploadInputs
+    : [
+        ...XOMETRY_LOCATORS.uploadInputs,
+        ...XOMETRY_LOCATORS.standaloneUploadInputs,
+      ];
+  const eligibleUploadSurfaces = isQuoteHome
+    ? [...eligibleSelectors, ...XOMETRY_LOCATORS.dashboardUploadButtons]
+    : [...eligibleSelectors];
 
   await page
     .locator(eligibleUploadSurfaces.join(", "))
@@ -685,46 +744,24 @@ async function setFilesOnUpload(page: Page, files: string[]) {
     })
     .catch(() => undefined);
 
-  for (const selector of eligibleSelectors) {
-    attemptedSelectors.push(selector);
-    const locator = page.locator(selector).first();
-    const count = await locator.count().catch(() => 0);
-    if (count < 1) continue;
-    try {
-      await locator.setInputFiles(files);
-      return { selector, attemptedSelectors };
-    } catch (error) {
-      if (error instanceof Error) {
-        setInputErrors.push(error);
-      }
-    }
-  }
+  const knownInputResult = await tryKnownUploadInputs(
+    page,
+    files,
+    eligibleSelectors,
+    attemptedSelectors,
+    uploadErrors,
+  );
+  if (knownInputResult) return knownInputResult;
 
-  if (currentPath === quoteHomePath) {
-    for (const selector of XOMETRY_LOCATORS.dashboardUploadButtons) {
-      attemptedSelectors.push(selector);
-      const button = page.locator(`${selector}:visible`).first();
-      const visible = await button.isVisible().catch(() => false);
-      if (!visible) continue;
-
-      try {
-        const [fileChooser] = await Promise.all([
-          page.waitForEvent("filechooser", {
-            timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
-          }),
-          button.click({
-            timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
-          }),
-        ]);
-        await fileChooser.setFiles(files);
-        return { selector, attemptedSelectors };
-      } catch (error) {
-        if (error instanceof Error) {
-          setInputErrors.push(error);
-        }
-      }
-    }
-  }
+  const dashboardResult = isQuoteHome
+    ? await tryDashboardFileChooser(
+        page,
+        files,
+        attemptedSelectors,
+        uploadErrors,
+      )
+    : null;
+  if (dashboardResult) return dashboardResult;
 
   throw new VendorAutomationError(
     "Xometry upload input was not found.",
@@ -735,7 +772,7 @@ async function setFilesOnUpload(page: Page, files: string[]) {
       attemptedSelectors,
       nearbyAttributes: eligibleUploadSurfaces,
       url: page.url(),
-      setInputErrorCount: setInputErrors.length,
+      setInputErrorCount: uploadErrors.length,
     },
   );
 }
