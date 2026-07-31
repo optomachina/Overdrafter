@@ -95,10 +95,10 @@ function InboxUnauthorizedState() {
 function InboxRequestError({
   error,
   onRetry,
-}: {
+}: Readonly<{
   error: Error | null;
   onRetry: () => void;
-}) {
+}>) {
   const message =
     error?.message ?? "Manual quote requests could not be loaded.";
 
@@ -130,9 +130,9 @@ function InboxEmptyState() {
 
 function RequestLifecycle({
   request,
-}: {
+}: Readonly<{
   request: AdminManualQuoteRequest;
-}) {
+}>) {
   return (
     <>
       <div className="flex max-w-72 flex-wrap gap-2">
@@ -161,10 +161,10 @@ function RequestLifecycle({
 function RequestAction({
   request,
   fullWidth = false,
-}: {
+}: Readonly<{
   request: AdminManualQuoteRequest;
   fullWidth?: boolean;
-}) {
+}>) {
   return (
     <Button
       asChild
@@ -182,9 +182,9 @@ function RequestAction({
 
 function InboxRequestTable({
   requests,
-}: {
-  requests: AdminManualQuoteRequest[];
-}) {
+}: Readonly<{
+  requests: readonly AdminManualQuoteRequest[];
+}>) {
   return (
     <div className="hidden overflow-x-auto md:block">
       <Table>
@@ -240,9 +240,9 @@ function InboxRequestTable({
 
 function InboxRequestCards({
   requests,
-}: {
-  requests: AdminManualQuoteRequest[];
-}) {
+}: Readonly<{
+  requests: readonly AdminManualQuoteRequest[];
+}>) {
   return (
     <ul
       aria-label="Manual quote requests"
@@ -301,12 +301,12 @@ function InboxPagination({
   isFetching,
   nextCursor,
   setCursorHistory,
-}: {
-  cursorHistory: Array<string | null>;
+}: Readonly<{
+  cursorHistory: ReadonlyArray<string | null>;
   isFetching: boolean;
   nextCursor: string | null;
   setCursorHistory: Dispatch<SetStateAction<Array<string | null>>>;
-}) {
+}>) {
   return (
     <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-4">
       <Button
@@ -347,12 +347,12 @@ function InboxContent({
   cursorHistory,
   requestsQuery,
   setCursorHistory,
-}: {
+}: Readonly<{
   accessQuery: UseQueryResult<ManualQuoteOperatorAccess>;
-  cursorHistory: Array<string | null>;
+  cursorHistory: ReadonlyArray<string | null>;
   requestsQuery: UseQueryResult<AdminManualQuoteRequestPage>;
   setCursorHistory: Dispatch<SetStateAction<Array<string | null>>>;
-}) {
+}>) {
   if (accessQuery.isLoading) {
     return <InboxLoadingState />;
   }

@@ -159,9 +159,9 @@ function buildOfferPayloads(offers: OfferDraft[]): ManualQuoteOfferInput[] {
 
 function ManualQuoteIntakeHeader({
   completionTarget,
-}: {
+}: Readonly<{
   completionTarget: ManualQuoteCompletionTarget | null;
-}) {
+}>) {
   if (completionTarget) {
     return (
       <CardHeader>
@@ -189,9 +189,9 @@ function ManualQuoteIntakeHeader({
 
 function CompletionTargetNotice({
   completionTarget,
-}: {
+}: Readonly<{
   completionTarget: ManualQuoteCompletionTarget | null;
-}) {
+}>) {
   if (!completionTarget) {
     return null;
   }
@@ -232,9 +232,9 @@ function CompletionTargetNotice({
 
 function SelectedPartSummary({
   selectedPart,
-}: {
+}: Readonly<{
   selectedPart: PartAggregate | null;
-}) {
+}>) {
   if (!selectedPart) {
     return null;
   }
