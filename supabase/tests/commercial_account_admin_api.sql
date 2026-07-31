@@ -337,7 +337,7 @@ values
   (
     (select primary_organization_id from ovd233_context),
     'cus_OVD233Primary',
-    '2026-07-03T00:00:00Z',
+    '2026-07-03T00:00:00Z', -- NOSONAR: deterministic fixture timestamp
     '2026-07-03T00:00:00Z'
   ),
   (
@@ -443,7 +443,7 @@ values
     pg_catalog.now() + interval '1 year',
     null,
     false,
-    '2026-07-12T00:00:00Z',
+    '2026-07-12T00:00:00Z', -- NOSONAR: deterministic fixture timestamp
     '2026-07-12T00:00:00Z',
     '2026-07-12T00:00:00Z'
   );

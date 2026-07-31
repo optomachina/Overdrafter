@@ -106,7 +106,7 @@ begin
     pg_catalog.now()
   );
   v_effective := v_effective || pg_catalog.jsonb_build_object(
-    'reviewDue',
+    'reviewDue', -- NOSONAR: stable JSON contract key
     coalesce((v_effective ->> 'reviewDue')::boolean, false)
   );
 
