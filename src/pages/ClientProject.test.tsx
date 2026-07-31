@@ -343,6 +343,7 @@ function createQuoteRequestFixture(overrides: Partial<QuoteRequestRecord> = {}):
     job_id: "job-1",
     requested_by: "user-1",
     requested_vendors: ["xometry"],
+    request_mode: "automatic",
     service_request_line_item_id: null,
     status: "queued",
     failure_reason: null,

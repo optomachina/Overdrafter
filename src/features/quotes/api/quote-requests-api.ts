@@ -46,6 +46,23 @@ export async function requestQuote(
     p_force_retry: forceRetry,
   });
 
+  const result = ensureData(data, error) as QuoteRequestSubmissionResult;
+
+  return {
+    ...result,
+    quoteMode: result.quoteMode ?? "automatic",
+  };
+}
+
+export async function requestManualQuote(
+  jobId: string,
+  forceRetry = false,
+): Promise<QuoteRequestSubmissionResult> {
+  const { data, error } = await callRpc("api_request_manual_quote", {
+    p_job_id: jobId,
+    p_force_retry: forceRetry,
+  });
+
   return ensureData(data, error) as QuoteRequestSubmissionResult;
 }
 
@@ -68,6 +85,33 @@ export async function requestQuotes(
 
   if (!Array.isArray(results)) {
     throw new Error("Expected quote request results to be returned as an array.");
+  }
+
+  return results.map((result) => ({
+    ...(result as QuoteRequestSubmissionResult),
+    quoteMode: (result as QuoteRequestSubmissionResult).quoteMode ?? "automatic",
+  }));
+}
+
+export async function requestManualQuotes(
+  jobIds: string[],
+  forceRetry = false,
+): Promise<QuoteRequestSubmissionResult[]> {
+  const distinctJobIds = [...new Set(jobIds.filter(Boolean))];
+
+  if (distinctJobIds.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await callRpc("api_request_manual_quotes", {
+    p_job_ids: distinctJobIds,
+    p_force_retry: forceRetry,
+  });
+
+  const results = ensureData(data, error);
+
+  if (!Array.isArray(results)) {
+    throw new Error("Expected manual quote request results to be returned as an array.");
   }
 
   return results as QuoteRequestSubmissionResult[];

@@ -1268,6 +1268,7 @@ export type Database = {
           job_id: string
           organization_id: string
           received_at: string | null
+          request_mode: Database["public"]["Enums"]["quote_request_mode"]
           requested_by: string
           requested_vendors: Database["public"]["Enums"]["vendor_name"][]
           service_request_line_item_id: string | null
@@ -1283,6 +1284,7 @@ export type Database = {
           job_id: string
           organization_id: string
           received_at?: string | null
+          request_mode?: Database["public"]["Enums"]["quote_request_mode"]
           requested_by: string
           requested_vendors?: Database["public"]["Enums"]["vendor_name"][]
           service_request_line_item_id?: string | null
@@ -1298,6 +1300,7 @@ export type Database = {
           job_id?: string
           organization_id?: string
           received_at?: string | null
+          request_mode?: Database["public"]["Enums"]["quote_request_mode"]
           requested_by?: string
           requested_vendors?: Database["public"]["Enums"]["vendor_name"][]
           service_request_line_item_id?: string | null
@@ -2180,6 +2183,14 @@ export type Database = {
         Args: { p_force_retry?: boolean; p_job_id: string }
         Returns: Json
       }
+      api_request_manual_quote: {
+        Args: { p_force_retry?: boolean; p_job_id: string }
+        Returns: Json
+      }
+      api_request_manual_quotes: {
+        Args: { p_force_retry?: boolean; p_job_ids: string[] }
+        Returns: Json
+      }
       api_request_quotes: {
         Args: { p_force_retry?: boolean; p_job_ids: string[] }
         Returns: Json
@@ -2409,6 +2420,7 @@ export type Database = {
         | "received"
         | "failed"
         | "canceled"
+      quote_request_mode: "manual" | "automatic"
       quote_run_status:
         | "queued"
         | "running"
@@ -2611,6 +2623,7 @@ export const Constants = {
         "failed",
         "canceled",
       ],
+      quote_request_mode: ["manual", "automatic"],
       quote_run_status: [
         "queued",
         "running",
@@ -2660,6 +2673,7 @@ export type ProjectInviteStatus = Enums<"project_invite_status">
 export type ProjectRole = Enums<"project_role">
 export type QueueTaskStatus = Enums<"queue_task_status">
 export type QueueTaskType = Enums<"queue_task_type">
+export type QuoteRequestMode = Enums<"quote_request_mode">
 export type QuoteRequestStatus = Enums<"quote_request_status">
 export type QuoteRunStatus = Enums<"quote_run_status">
 export type VendorName = Enums<"vendor_name">
