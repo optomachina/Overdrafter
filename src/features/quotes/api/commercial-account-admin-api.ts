@@ -53,6 +53,7 @@ export type CommercialBillingAccount = {
 
 export type CommercialEntitlementGrant = {
   id: string;
+  entitlementKey: string;
   type: "trial" | "complimentary";
   startsAt: string;
   expiresAt: string | null;
@@ -190,7 +191,17 @@ function requireNonNegativeInteger(
   key: string,
   label: string,
 ): number {
-  const value = Number(record[key]);
+  const raw = record[key];
+
+  if (typeof raw !== "number" && typeof raw !== "string") {
+    throw new TypeError(`${label} has an invalid ${key}.`);
+  }
+
+  if (typeof raw === "string" && raw.trim().length === 0) {
+    throw new TypeError(`${label} has an invalid ${key}.`);
+  }
+
+  const value = Number(raw);
 
   if (!Number.isInteger(value) || value < 0) {
     throw new TypeError(`${label} has an invalid ${key}.`);
@@ -369,6 +380,11 @@ function normalizeGrant(value: unknown): CommercialEntitlementGrant {
 
   return {
     id: requireString(record, "id", "Commercial entitlement grant"),
+    entitlementKey: requireString(
+      record,
+      "entitlementKey",
+      "Commercial entitlement grant",
+    ),
     type,
     startsAt: requireString(
       record,
@@ -402,7 +418,7 @@ function normalizeSubscription(
   value: unknown,
 ): CommercialSubscriptionProjection {
   const record = requireRecord(value, "commercial subscription projection");
-  const billingInterval = nullableString(record.billingInterval);
+  const billingInterval = record.billingInterval;
   let normalizedBillingInterval: "month" | "year" | null = null;
 
   if (billingInterval === "month" || billingInterval === "year") {

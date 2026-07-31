@@ -142,6 +142,7 @@ describe("commercial-account-admin-api", () => {
         grants: [
           {
             id: "grant-1",
+            entitlementKey: "automatic_quote_collection",
             type: "complimentary",
             startsAt: "2026-07-01T10:00:00Z",
             expiresAt: null,
@@ -237,6 +238,7 @@ describe("commercial-account-admin-api", () => {
       grants: [
         {
           id: "grant-1",
+          entitlementKey: "automatic_quote_collection",
           type: "complimentary",
           startsAt: "2026-07-01T10:00:00Z",
           expiresAt: null,
@@ -333,6 +335,27 @@ describe("commercial-account-admin-api", () => {
         lastRequestAt: null,
       },
     });
+  });
+
+  it("uses null cursors and the bounded default page size", async () => {
+    callUntypedRpcMock.mockResolvedValue({
+      data: {
+        items: [],
+        nextCursor: null,
+      },
+      error: null,
+    });
+
+    await searchCommercialAccounts();
+
+    expect(callUntypedRpcMock).toHaveBeenCalledWith(
+      "api_admin_search_commercial_accounts",
+      {
+        p_search: null,
+        p_cursor: null,
+        p_limit: 25,
+      },
+    );
   });
 
   it("loads and normalizes an organization-bound opaque-cursor audit page", async () => {
@@ -489,6 +512,109 @@ describe("commercial-account-admin-api", () => {
   ])("fails closed for an invalid %s response", async (_label, call, response) => {
     callUntypedRpcMock.mockResolvedValue(response);
 
-    await expect(call()).rejects.toThrow();
+    await expect(call()).rejects.toThrow(TypeError);
+  });
+
+  it.each([null, false, true, [], "", "  "])(
+    "rejects a non-numeric quote count instead of coercing %j",
+    async (manualRequestCount) => {
+      callUntypedRpcMock.mockResolvedValue({
+        data: {
+          items: [
+            {
+              organizationId: "org-1",
+              organizationName: "Apex Manufacturing",
+              organizationSlug: "apex-manufacturing",
+              createdAt: "2026-07-01T10:00:00Z",
+              memberCount: 1,
+              matchingMemberEmails: [],
+              effective: {
+                plan: "free",
+                source: "default",
+                sourceId: null,
+                automaticQuoteCollection: false,
+                validUntil: null,
+                reviewAt: null,
+                reviewDue: false,
+                graceEndsAt: null,
+                organizationExists: true,
+              },
+              quoteActivity: {
+                manualRequestCount,
+                automaticRequestCount: 0,
+                activeManualRequestCount: 0,
+                lastRequestAt: null,
+              },
+            },
+          ],
+          nextCursor: null,
+        },
+        error: null,
+      });
+
+      await expect(searchCommercialAccounts()).rejects.toThrow(TypeError);
+    },
+  );
+
+  it("rejects a non-string billing interval", async () => {
+    callUntypedRpcMock.mockResolvedValue({
+      data: {
+        organization: {
+          id: "org-1",
+          name: "Apex Manufacturing",
+          slug: "apex-manufacturing",
+          createdAt: "2026-07-01T10:00:00Z",
+        },
+        members: [],
+        billingAccount: null,
+        effective: {
+          plan: "pro",
+          source: "subscription_active",
+          sourceId: "subscription-1",
+          automaticQuoteCollection: true,
+          validUntil: "2026-08-01T10:00:00Z",
+          reviewAt: null,
+          reviewDue: false,
+          graceEndsAt: null,
+          organizationExists: true,
+        },
+        grants: [],
+        subscriptions: [
+          {
+            id: "subscription-1",
+            stripeSubscriptionId: "sub_OverDrafter1",
+            status: "active",
+            billingInterval: 42,
+            currentPeriodEnd: "2026-08-01T10:00:00Z",
+            pastDueSince: null,
+            cancelAtPeriodEnd: false,
+            stripeEventCreatedAt: "2026-07-29T10:00:00Z",
+            updatedAt: "2026-07-29T10:00:00Z",
+          },
+        ],
+        quoteActivity: {
+          manualRequestCount: 0,
+          automaticRequestCount: 0,
+          activeManualRequestCount: 0,
+          receivedRequestCount: 0,
+          failedRequestCount: 0,
+          lastRequestAt: null,
+          recentRequests: [],
+        },
+      },
+      error: null,
+    });
+
+    await expect(getCommercialAccount("org-1")).rejects.toThrow(TypeError);
+  });
+
+  it("propagates an RPC error without attempting to normalize data", async () => {
+    const rpcError = { message: "Commercial account access denied." };
+    callUntypedRpcMock.mockResolvedValue({
+      data: null,
+      error: rpcError,
+    });
+
+    await expect(searchCommercialAccounts()).rejects.toBe(rpcError);
   });
 });

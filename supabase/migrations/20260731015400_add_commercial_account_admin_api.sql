@@ -22,6 +22,7 @@ set search_path = pg_catalog
 as $$
 declare
   v_billing_account jsonb;
+  v_effective jsonb;
   v_grants jsonb;
   v_subscriptions jsonb;
 begin
@@ -51,6 +52,7 @@ begin
       pg_catalog.jsonb_strip_nulls(
         pg_catalog.jsonb_build_object(
           'id', grant_row.id,
+          'entitlementKey', grant_row.entitlement_key,
           'type', grant_row.grant_type,
           'startsAt', grant_row.starts_at,
           'expiresAt', grant_row.expires_at,
@@ -99,13 +101,18 @@ begin
   from private.organization_subscription_projections subscription_row
   where subscription_row.organization_id = p_organization_id;
 
+  v_effective := private.resolve_organization_entitlements_at(
+    p_organization_id,
+    pg_catalog.now()
+  );
+  v_effective := v_effective || pg_catalog.jsonb_build_object(
+    'reviewDue',
+    coalesce((v_effective ->> 'reviewDue')::boolean, false)
+  );
+
   return pg_catalog.jsonb_build_object(
     'billingAccount', v_billing_account, -- NOSONAR: stable JSON contract key
-    'effective', -- NOSONAR: stable JSON contract key
-      private.resolve_organization_entitlements_at(
-        p_organization_id,
-        pg_catalog.now()
-      ),
+    'effective', v_effective, -- NOSONAR: stable JSON contract key
     'grants', v_grants, -- NOSONAR: stable JSON contract key
     'subscriptions', v_subscriptions -- NOSONAR: stable JSON contract key
   );
@@ -230,7 +237,36 @@ begin
     end if;
   end if;
 
-  with candidates as (
+  with page_keys as (
+    select
+      organization_row.id as organization_id,
+      organization_row.created_at
+    from public.organizations organization_row
+    where (
+      v_search = ''
+      or pg_catalog.lower(organization_row.name)
+        ilike v_search_pattern escape E'\\'
+      or pg_catalog.lower(organization_row.slug)
+        ilike v_search_pattern escape E'\\'
+      or exists (
+        select 1
+        from public.organization_memberships matching_membership
+        join auth.users matching_user
+          on matching_user.id = matching_membership.user_id
+        where matching_membership.organization_id = organization_row.id
+          and pg_catalog.lower(matching_user.email)
+            ilike v_search_pattern escape E'\\'
+      )
+    )
+      and (
+        v_cursor_created_at is null
+        or (organization_row.created_at, organization_row.id)
+          > (v_cursor_created_at, v_cursor_id)
+      )
+    order by organization_row.created_at asc, organization_row.id asc
+    limit p_limit + 1
+  ),
+  projected as materialized (
     select
       organization_row.id as organization_id,
       organization_row.name as organization_name,
@@ -246,7 +282,9 @@ begin
       quote_summary.automatic_request_count,
       quote_summary.active_manual_request_count,
       quote_summary.last_request_at
-    from public.organizations organization_row
+    from page_keys page_key
+    join public.organizations organization_row
+      on organization_row.id = page_key.organization_id
     cross join lateral (
       select
         pg_catalog.count(*)::integer as member_count,
@@ -290,29 +328,25 @@ begin
       from public.quote_requests request_row
       where request_row.organization_id = organization_row.id
     ) quote_summary
-    where (
-      v_search = ''
-      or pg_catalog.lower(organization_row.name)
-        ilike v_search_pattern escape E'\\'
-      or pg_catalog.lower(organization_row.slug)
-        ilike v_search_pattern escape E'\\'
-      or exists (
-        select 1
-        from public.organization_memberships matching_membership
-        join auth.users matching_user
-          on matching_user.id = matching_membership.user_id
-        where matching_membership.organization_id = organization_row.id
-          and pg_catalog.lower(matching_user.email)
-            ilike v_search_pattern escape E'\\'
-      )
-    )
-      and (
-        v_cursor_created_at is null
-        or (organization_row.created_at, organization_row.id)
-          > (v_cursor_created_at, v_cursor_id)
-      )
-    order by organization_row.created_at asc, organization_row.id asc
-    limit p_limit + 1
+    order by page_key.created_at asc, page_key.organization_id asc
+  ),
+  candidates as (
+    select
+      projected.organization_id,
+      projected.organization_name,
+      projected.organization_slug,
+      projected.created_at,
+      projected.member_count,
+      projected.matching_member_emails,
+      projected.effective || pg_catalog.jsonb_build_object(
+        'reviewDue',
+        coalesce((projected.effective ->> 'reviewDue')::boolean, false)
+      ) as effective,
+      projected.manual_request_count,
+      projected.automatic_request_count,
+      projected.active_manual_request_count,
+      projected.last_request_at
+    from projected
   ),
   numbered as (
     select
@@ -350,9 +384,9 @@ begin
     pg_catalog.max(numbered.created_at)
       filter (where numbered.row_number = p_limit),
     (
-      pg_catalog.max(numbered.organization_id::text)
+      pg_catalog.array_agg(numbered.organization_id)
         filter (where numbered.row_number = p_limit)
-    )::uuid
+    )[1]
   into
     v_items,
     v_has_more,

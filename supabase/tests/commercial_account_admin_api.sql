@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(72);
+select plan(75);
 
 create temporary table ovd233_context (
   billing_admin_user_id uuid not null,
@@ -333,12 +333,19 @@ insert into private.organization_billing_accounts (
   created_at,
   updated_at
 )
-values (
-  (select primary_organization_id from ovd233_context),
-  'cus_OVD233Primary',
-  '2026-07-03T00:00:00Z',
-  '2026-07-03T00:00:00Z'
-);
+values
+  (
+    (select primary_organization_id from ovd233_context),
+    'cus_OVD233Primary',
+    '2026-07-03T00:00:00Z',
+    '2026-07-03T00:00:00Z'
+  ),
+  (
+    (select cursor_a_organization_id from ovd233_context),
+    'cus_OVD233CursorA',
+    '2026-07-03T00:00:00Z',
+    '2026-07-03T00:00:00Z'
+  );
 
 insert into private.organization_entitlement_grants (
   id,
@@ -426,6 +433,19 @@ values
     '2026-07-11T00:00:00Z', -- NOSONAR: deterministic fixture timestamp
     '2026-07-11T00:00:00Z',
     '2026-07-11T00:00:00Z'
+  ),
+  (
+    '00000000-0000-4000-8000-000000002375',
+    (select cursor_a_organization_id from ovd233_context),
+    'sub_OVD233CursorActive',
+    'active',
+    'year',
+    pg_catalog.now() + interval '1 year',
+    null,
+    false,
+    '2026-07-12T00:00:00Z',
+    '2026-07-12T00:00:00Z',
+    '2026-07-12T00:00:00Z'
   );
 
 insert into public.jobs (
@@ -907,6 +927,13 @@ select is(
 );
 
 select is(
+  public.api_admin_search_commercial_accounts('%', null, 25)
+    #>> '{items,0,effective,reviewDue}',
+  'false',
+  'free commercial account projections always include reviewDue'
+);
+
+select is(
   pg_catalog.jsonb_array_length(
     public.api_admin_search_commercial_accounts('_', null, 25) -> 'items'
   ),
@@ -1142,6 +1169,14 @@ select is(
   'commercial account detail includes active and historical grants'
 );
 
+select ok(
+  public.api_admin_get_commercial_account(
+    (select primary_organization_id from ovd233_context)
+  ) -> 'grants'
+    @> '[{"entitlementKey":"automatic_quote_collection"}]'::jsonb,
+  'commercial account grants include their entitlement key'
+);
+
 select is(
   pg_catalog.jsonb_array_length(
     public.api_admin_get_commercial_account(
@@ -1150,6 +1185,14 @@ select is(
   ),
   2,
   'commercial account detail includes active and historical subscriptions'
+);
+
+select is(
+  public.api_admin_get_commercial_account(
+    (select cursor_a_organization_id from ovd233_context)
+  ) #>> '{effective,reviewDue}',
+  'false',
+  'subscription commercial account projections always include reviewDue'
 );
 
 select is(
