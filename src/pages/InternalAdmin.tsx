@@ -7,6 +7,7 @@ import { InternalDashboardSidebar } from "@/components/internal/InternalDashboar
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SpendCapCard } from "@/components/admin/SpendCapCard";
+import { ManualQuoteRequestInbox } from "@/components/admin/ManualQuoteRequestInbox";
 import {
   Table,
   TableBody,
@@ -175,9 +176,14 @@ const InternalAdmin = () => {
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
             Inspect organizations, memberships, jobs, and shared projects across the platform
-            without switching accounts. Cross-organization access stays read-only.
+            without switching accounts. Commercial capabilities allow only explicitly authorized
+            actions; all other cross-organization access stays read-only.
           </p>
         </div>
+
+        <section className="mb-8">
+          <ManualQuoteRequestInbox />
+        </section>
 
         {!isPlatformAdmin ? (
           <Card className="border-border bg-muted">

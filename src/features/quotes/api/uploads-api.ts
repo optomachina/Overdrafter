@@ -236,11 +236,25 @@ export async function uploadFilesToJob(jobId: string, files: File[]): Promise<Up
 export async function uploadManualQuoteEvidence(
   jobId: string,
   files: File[],
+  completionScope?: {
+    quoteRequestId: string;
+    quoteRunId: string;
+  },
 ): Promise<ManualQuoteArtifactInput[]> {
   const uploadedArtifacts: ManualQuoteArtifactInput[] = [];
 
   for (const file of files) {
-    const storagePath = `manual-quotes/${jobId}/${Date.now()}-${crypto.randomUUID()}-${sanitizeStorageFileName(file.name)}`;
+    const uniqueFileName =
+      `${Date.now()}-${crypto.randomUUID()}-${sanitizeStorageFileName(file.name)}`;
+    const storagePath = completionScope
+      ? [
+          "manual-completions",
+          completionScope.quoteRequestId,
+          completionScope.quoteRunId,
+          jobId,
+          uniqueFileName,
+        ].join("/")
+      : `manual-quotes/${jobId}/${uniqueFileName}`;
 
     const { error: storageError } = await supabase.storage
       .from("quote-artifacts")
@@ -250,6 +264,15 @@ export async function uploadManualQuoteEvidence(
       });
 
     if (storageError) {
+      if (completionScope && uploadedArtifacts.length > 0) {
+        try {
+          await removeUnregisteredManualQuoteEvidence(uploadedArtifacts);
+        } catch {
+          // Preserve the upload failure. The short-lived orphan cleanup policy
+          // remains the final server-side boundary for any partial upload.
+        }
+      }
+
       throw storageError;
     }
 
@@ -267,4 +290,24 @@ export async function uploadManualQuoteEvidence(
   }
 
   return uploadedArtifacts;
+}
+
+export async function removeUnregisteredManualQuoteEvidence(
+  artifacts: ManualQuoteArtifactInput[],
+): Promise<void> {
+  const storagePaths = artifacts
+    .filter((artifact) => artifact.storageBucket === "quote-artifacts")
+    .map((artifact) => artifact.storagePath);
+
+  if (storagePaths.length === 0) {
+    return;
+  }
+
+  const { error } = await supabase.storage
+    .from("quote-artifacts")
+    .remove(storagePaths);
+
+  if (error) {
+    throw error;
+  }
 }

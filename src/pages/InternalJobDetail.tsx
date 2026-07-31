@@ -1,10 +1,14 @@
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AppShell } from "@/components/app/AppShell";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { fetchManualQuoteOperatorAccess } from "@/features/quotes/api/manual-quote-admin-api";
 import { useAppSession } from "@/hooks/use-app-session";
+import type { ManualQuoteCompletionTarget } from "@/components/quotes/ManualQuoteIntakeCard";
 import { InternalJobDebugSection } from "./internal-job-detail/InternalJobDebugSection";
 import { InternalJobHeaderActions } from "./internal-job-detail/InternalJobHeaderActions";
 import { InternalJobOverviewSection } from "./internal-job-detail/InternalJobOverviewSection";
@@ -19,6 +23,10 @@ import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagno
 const InternalJobDetail = () => {
   const navigate = useNavigate();
   const { jobId = "" } = useParams();
+  const [searchParams] = useSearchParams();
+  const targetRequestId = searchParams.get("quoteRequestId");
+  const targetQuoteRunId = searchParams.get("quoteRunId");
+  const hasCompletionIntent = Boolean(targetRequestId || targetQuoteRunId);
   const { user, activeMembership, isPlatformAdmin, isVerifiedAuth, signOut, isAuthInitializing } =
     useAppSession();
   const queryState = useInternalJobDetailQuery({
@@ -43,6 +51,11 @@ const InternalJobDetail = () => {
     signOut,
     userEmail: user?.email ?? null,
   });
+  const manualQuoteAccessQuery = useQuery({
+    queryKey: ["manual-quote-admin-access"],
+    queryFn: fetchManualQuoteOperatorAccess,
+    enabled: Boolean(user) && hasCompletionIntent,
+  });
   const anyWritePending =
     mutations.requestExtractionMutation.isPending ||
     mutations.saveRequirementsMutation.isPending ||
@@ -56,6 +69,70 @@ const InternalJobDetail = () => {
   );
   const writeActionsDisabled = !isVerifiedAuth || anyWritePending || isCrossOrgReadOnlyView;
   const fullyWriteActionsDisabled = writeActionsDisabled || isDiagnosticReadOnlyView;
+  const completionTarget = useMemo<ManualQuoteCompletionTarget | null>(() => {
+    if (!hasCompletionIntent) {
+      return null;
+    }
+
+    const request = queryState.job?.quoteRequests?.find(
+      (candidate) => candidate.id === targetRequestId,
+    );
+    const quoteRun = queryState.job?.quoteRuns.find(
+      (candidate) => candidate.id === targetQuoteRunId,
+    );
+    const access = manualQuoteAccessQuery.data;
+    let staleReason: string | null = null;
+
+    if (!targetRequestId || !targetQuoteRunId) {
+      staleReason = "This inbox link is incomplete. Return to the queue and open the request again.";
+    } else if (manualQuoteAccessQuery.isLoading) {
+      staleReason = "Checking manual-request authorization.";
+    } else if (manualQuoteAccessQuery.isError || !access?.hasCapability) {
+      staleReason = "You are not authorized to complete manual quote requests.";
+    } else if (!request) {
+      staleReason = "This manual request is no longer available on the selected job.";
+    } else if (!quoteRun) {
+      staleReason = "The linked quote run is no longer available on the selected job.";
+    } else if (
+      request.request_mode !== "manual" ||
+      request.job_id !== jobId ||
+      quoteRun.job_id !== jobId ||
+      quoteRun.quote_request_id !== request.id
+    ) {
+      staleReason = "The request, quote run, and job lineage no longer match.";
+    } else if (!["queued", "requesting"].includes(request.status)) {
+      staleReason = `This request is already ${request.status}.`;
+    } else if (!["queued", "running"].includes(quoteRun.status)) {
+      staleReason = `The linked quote run is already ${quoteRun.status}.`;
+    } else if (queryState.job?.job.status !== "awaiting_vendor_manual_review") {
+      staleReason = `This job is already ${queryState.job?.job.status ?? "unavailable"}.`;
+    }
+
+    return {
+      requestId: targetRequestId ?? "missing-request",
+      quoteRunId: targetQuoteRunId,
+      jobId,
+      requestStatus: request?.status ?? null,
+      quoteRunStatus: quoteRun?.status ?? null,
+      jobStatus: queryState.job?.job.status ?? null,
+      partIds: queryState.job?.parts.map((part) => part.id) ?? [],
+      isStale: staleReason !== null,
+      staleReason,
+      hasAal2: access?.hasAal2 === true,
+    };
+  }, [
+    hasCompletionIntent,
+    jobId,
+    manualQuoteAccessQuery.data,
+    manualQuoteAccessQuery.isError,
+    manualQuoteAccessQuery.isLoading,
+    queryState.job,
+    targetQuoteRunId,
+    targetRequestId,
+  ]);
+  const manualQuoteIntakeDisabled = completionTarget
+    ? !isVerifiedAuth || anyWritePending || isDiagnosticReadOnlyView
+    : fullyWriteActionsDisabled;
 
   if (isAuthInitializing) {
     return <AuthBootstrapScreen message="Restoring your internal review session." />;
@@ -190,10 +267,12 @@ const InternalJobDetail = () => {
 
         <div className="space-y-6">
           <InternalJobDebugSection
+            completionTarget={completionTarget}
             disabled={fullyWriteActionsDisabled}
             job={queryState.job}
             jobId={jobId}
             latestQuoteRun={queryState.latestQuoteRun}
+            manualQuoteDisabled={manualQuoteIntakeDisabled}
             showDebugTools={queryState.showDebugTools}
           />
           <InternalJobPublicationCard

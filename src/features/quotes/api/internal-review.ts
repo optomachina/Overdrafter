@@ -20,6 +20,7 @@ export {
 } from "./quote-requests-api";
 
 export {
+  removeUnregisteredManualQuoteEvidence,
   uploadManualQuoteEvidence,
 } from "./uploads-api";
 
