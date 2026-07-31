@@ -520,17 +520,22 @@ describe("WorkspaceAccountMenu", () => {
     expect(screen.queryByText("Role")).not.toBeInTheDocument();
   });
 
-  it("keeps automatic quotes visible for Free and uses Nope in the Pro prompt", async () => {
+  it("explains the Free sourcing preview and opens the Pro upgrade prompt", async () => {
     render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
 
     await openMainMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
 
-    const automaticQuotes = await screen.findByRole("switch", { name: "Automatic quotes" });
-    await waitFor(() => expect(automaticQuotes).not.toBeDisabled());
-    expect(automaticQuotes).not.toBeChecked();
+    expect(await screen.findByText("Provider recommendations")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Free includes reviewed provider recommendations and official RFQ links. Upgrade to Pro to collect vendor quotes automatically.",
+      ),
+    ).toBeInTheDocument();
 
-    fireEvent.click(automaticQuotes);
+    const upgradeButton = screen.getByRole("button", { name: "Upgrade to Pro" });
+    await waitFor(() => expect(upgradeButton).not.toBeDisabled());
+    fireEvent.click(upgradeButton);
 
     expect(await screen.findByText("Let OverDrafter collect quotes automatically")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Nope" })).toBeInTheDocument();

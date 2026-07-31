@@ -34,7 +34,6 @@ import {
 import { reconcileJobParts, requestExtraction } from "@/features/quotes/api/extraction-api";
 import {
   cancelQuoteRequest,
-  requestManualQuotes,
   requestQuotes,
   setJobSelectedVendorQuoteOffer,
 } from "@/features/quotes/api/quote-requests-api";
@@ -670,10 +669,13 @@ export function useClientProjectController() {
   });
 
   const requestProjectQuotesMutation = useMutation({
-    mutationFn: ({ jobIds, forceRetry = false }: { jobIds: string[]; forceRetry?: boolean }) =>
-      quoteCollectionMode.automaticEnabled
-        ? requestQuotes(jobIds, forceRetry)
-        : requestManualQuotes(jobIds, forceRetry),
+    mutationFn: ({ jobIds, forceRetry = false }: { jobIds: string[]; forceRetry?: boolean }) => {
+      if (!quoteCollectionMode.automaticEnabled) {
+        throw new Error("Automatic quote collection requires Pro.");
+      }
+
+      return requestQuotes(jobIds, forceRetry);
+    },
     onSuccess: async (results, variables) => {
       const jobIds = variables.jobIds;
       await invalidateClientWorkspaceQueries(queryClient, {

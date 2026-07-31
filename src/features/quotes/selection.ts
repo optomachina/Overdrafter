@@ -37,6 +37,8 @@ export type ClientQuoteSelectionOption = {
   dueDate: string | null;
   quoteDateIso: string | null;
   quoteUrl?: string | null;
+  quoteResultUpdatedAt?: string;
+  quoteResultRawPayload?: Json;
   sourcing: string | null;
   tier: string | null;
   laneLabel: string | null;
@@ -732,6 +734,8 @@ function buildOptionRecords(input: NormalizedOfferInput): QuoteOptionBuildResult
       dueDate: offer.dueDate,
       quoteDateIso: offer.quoteDateIso,
       quoteUrl: quote.quote_url,
+      quoteResultUpdatedAt: quote.updated_at,
+      quoteResultRawPayload: quote.raw_payload,
       sourcing: offer.sourcing,
       tier: offer.tier,
       laneLabel: offer.laneLabel,

@@ -25,6 +25,7 @@ import type {
   QuoteRequestRecord,
   QuoteRunRecord,
   PublishedQuotePackageRecord,
+  VendorCapabilityProfileRecord,
   VendorQuoteAggregate,
 } from "@/features/quotes/types";
 import type {
@@ -307,6 +308,7 @@ export type ClientWorkspaceGateway = {
   fetchPartDetail: (jobId: string) => Promise<PartDetailAggregate>;
   fetchClientQuoteWorkspaceByJobIds: (jobIds: string[]) => Promise<ClientQuoteWorkspaceItem[]>;
   fetchClientActivityEventsByJobIds: (jobIds: string[], limitPerJob?: number) => Promise<ClientActivityEvent[]>;
+  fetchVendorCapabilityProfiles: () => Promise<VendorCapabilityProfileRecord[]>;
   createProject: (input: { name: string; description?: string }) => Promise<string>;
   updateProject: (input: { projectId: string; name: string; description?: string }) => Promise<string>;
   archiveProject: (projectId: string) => Promise<string>;
@@ -350,6 +352,59 @@ type FixtureState = {
 const FIXTURE_ORGANIZATION_ID = "fixture-org-1";
 const FIXTURE_TIMESTAMP = "2026-03-10T17:00:00.000Z";
 const FIXTURE_PASSWORD_LABEL = "Overdrafter123!";
+const FIXTURE_VENDOR_CAPABILITY_PROFILES: VendorCapabilityProfileRecord[] = [
+  {
+    vendor_name: "xometry",
+    process_types: ["cnc_milling", "cnc_turning"],
+    materials: ["6061 aluminum", "7075 aluminum"],
+    tolerance_min_mm: 0.01,
+    tolerance_max_mm: 0.25,
+    max_part_size_mm: 1000,
+    min_quantity: 1,
+    max_quantity: null,
+    geographic_region: "US",
+    certifications: ["ISO 9001"],
+    quality_score: 88,
+    lead_time_reliability: 84,
+    cost_competitiveness: 82,
+    domestic_us: true,
+    updated_at: FIXTURE_TIMESTAMP,
+  },
+  {
+    vendor_name: "fictiv",
+    process_types: ["cnc_milling", "cnc_turning"],
+    materials: ["6061 aluminum", "7075 aluminum"],
+    tolerance_min_mm: 0.01,
+    tolerance_max_mm: 0.2,
+    max_part_size_mm: 800,
+    min_quantity: 1,
+    max_quantity: null,
+    geographic_region: "US",
+    certifications: ["ISO 9001"],
+    quality_score: 86,
+    lead_time_reliability: 86,
+    cost_competitiveness: 78,
+    domestic_us: true,
+    updated_at: FIXTURE_TIMESTAMP,
+  },
+  {
+    vendor_name: "protolabs",
+    process_types: ["cnc_milling", "cnc_turning"],
+    materials: ["6061 aluminum", "7075 aluminum"],
+    tolerance_min_mm: 0.02,
+    tolerance_max_mm: 0.25,
+    max_part_size_mm: 900,
+    min_quantity: 1,
+    max_quantity: 1000,
+    geographic_region: "US",
+    certifications: ["ISO 9001"],
+    quality_score: 90,
+    lead_time_reliability: 88,
+    cost_competitiveness: 72,
+    domestic_us: true,
+    updated_at: FIXTURE_TIMESTAMP,
+  },
+];
 
 const scenarioStateCache = new Map<FixtureScenarioId, FixtureState>();
 
@@ -1802,6 +1857,8 @@ export function getActiveClientWorkspaceGateway(): ClientWorkspaceGateway | null
           }, []),
       );
     },
+    fetchVendorCapabilityProfiles: async () =>
+      cloneValue(FIXTURE_VENDOR_CAPABILITY_PROFILES),
     createProject: async (input) => {
       const state = getState(scenarioId);
       const projectId = `fixture-project-${Date.now().toString(36)}`;

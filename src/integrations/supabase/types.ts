@@ -1508,6 +1508,60 @@ export type Database = {
           },
         ]
       }
+      vendor_capability_profiles: {
+        Row: {
+          certifications: string[]
+          cost_competitiveness: number | null
+          domestic_us: boolean
+          geographic_region: string | null
+          lead_time_reliability: number | null
+          materials: string[]
+          max_part_size_mm: number | null
+          max_quantity: number | null
+          min_quantity: number
+          process_types: string[]
+          quality_score: number | null
+          tolerance_max_mm: number | null
+          tolerance_min_mm: number | null
+          updated_at: string
+          vendor_name: Database["public"]["Enums"]["vendor_name"]
+        }
+        Insert: {
+          certifications?: string[]
+          cost_competitiveness?: number | null
+          domestic_us?: boolean
+          geographic_region?: string | null
+          lead_time_reliability?: number | null
+          materials?: string[]
+          max_part_size_mm?: number | null
+          max_quantity?: number | null
+          min_quantity?: number
+          process_types?: string[]
+          quality_score?: number | null
+          tolerance_max_mm?: number | null
+          tolerance_min_mm?: number | null
+          updated_at?: string
+          vendor_name: Database["public"]["Enums"]["vendor_name"]
+        }
+        Update: {
+          certifications?: string[]
+          cost_competitiveness?: number | null
+          domestic_us?: boolean
+          geographic_region?: string | null
+          lead_time_reliability?: number | null
+          materials?: string[]
+          max_part_size_mm?: number | null
+          max_quantity?: number | null
+          min_quantity?: number
+          process_types?: string[]
+          quality_score?: number | null
+          tolerance_max_mm?: number | null
+          tolerance_min_mm?: number | null
+          updated_at?: string
+          vendor_name?: Database["public"]["Enums"]["vendor_name"]
+        }
+        Relationships: []
+      }
       vendor_quote_artifacts: {
         Row: {
           artifact_type: string

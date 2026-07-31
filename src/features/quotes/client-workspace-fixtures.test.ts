@@ -72,6 +72,20 @@ describe("client workspace fixtures", () => {
     expect(session?.memberships[0]?.role).toBe("client");
   });
 
+  it("provides reviewed capability profiles for unattended sourcing demos", async () => {
+    const gateway = activateQuotedFixtureGateway();
+    const profiles = await gateway.fetchVendorCapabilityProfiles();
+
+    expect(profiles.map((profile) => profile.vendor_name)).toEqual([
+      "xometry",
+      "fictiv",
+      "protolabs",
+    ]);
+    expect(
+      profiles.every((profile) => profile.materials.includes("6061 aluminum")),
+    ).toBe(true);
+  });
+
   it("serves the quoted fixture workspace through the active gateway", async () => {
     const gateway = activateQuotedFixtureGateway();
     const jobs = await gateway.fetchAccessibleJobs();

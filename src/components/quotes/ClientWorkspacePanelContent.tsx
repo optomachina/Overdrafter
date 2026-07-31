@@ -26,6 +26,7 @@ type ClientQuoteRequestStatusCardProps = {
   isBusy?: boolean;
   onAction?: (() => void) | null;
   className?: string;
+  heading?: string;
 };
 
 type MetadataValue = {
@@ -77,6 +78,7 @@ export function ClientQuoteRequestStatusCard({
   isBusy = false,
   onAction,
   className,
+  heading = "Automatic quote status",
 }: ClientQuoteRequestStatusCardProps) {
   const isActionUnavailable = isBusy || actionDisabled;
 
@@ -98,7 +100,7 @@ export function ClientQuoteRequestStatusCard({
             <Badge className={cn(getQuoteRequestStatusBadgeClassName(status), "tracking-normal normal-case")}>
               Quote {label}
             </Badge>
-            <p className="text-sm font-medium text-foreground">Xometry request status</p>
+            <p className="text-sm font-medium text-foreground">{heading}</p>
           </div>
           {isBusy ? (
             <div aria-label="Submitting…" className="flex flex-col gap-2">

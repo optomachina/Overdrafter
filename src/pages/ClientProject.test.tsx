@@ -16,7 +16,15 @@ import { createClientQuoteWorkspaceItemFixture } from "@/features/quotes/client-
 import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
 import ClientProject from "./ClientProject";
 
-const { api, mockUseAppSession, mockUseIsMobile, prefetchProjectPage, prefetchPartPage, toastMock } = vi.hoisted(() => ({
+const {
+  api,
+  mockQuoteCollectionMode,
+  mockUseAppSession,
+  mockUseIsMobile,
+  prefetchProjectPage,
+  prefetchPartPage,
+  toastMock,
+} = vi.hoisted(() => ({
   api: {
     archiveJob: vi.fn(),
     archiveProject: vi.fn(),
@@ -64,6 +72,13 @@ const { api, mockUseAppSession, mockUseIsMobile, prefetchProjectPage, prefetchPa
     updateProject: vi.fn(),
     uploadFilesToJob: vi.fn(),
   },
+  mockQuoteCollectionMode: vi.fn(() => ({
+    automaticEnabled: true,
+    hasAutomaticEntitlement: true,
+    isLoading: false,
+    plan: "pro" as "free" | "pro" | null,
+    setAutomaticEnabled: vi.fn(),
+  })),
   mockUseAppSession: vi.fn(),
   mockUseIsMobile: vi.fn(() => false),
   prefetchProjectPage: vi.fn(),
@@ -114,13 +129,7 @@ vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
 }));
 vi.mock("@/features/quotes/organization-entitlements", () => ({
-  useOrganizationQuoteCollectionMode: () => ({
-    automaticEnabled: false,
-    hasAutomaticEntitlement: false,
-    isLoading: false,
-    plan: "free",
-    setAutomaticEnabled: vi.fn(),
-  }),
+  useOrganizationQuoteCollectionMode: () => mockQuoteCollectionMode(),
 }));
 vi.mock("@/features/quotes/api/vendor-preferences-api", () => ({
   fetchJobVendorPreferenceContext: api.fetchJobVendorPreferenceContext,
@@ -607,6 +616,13 @@ describe("ClientProject", () => {
   beforeEach(() => {
     lastAccountMenuProps = null;
     vi.clearAllMocks();
+    mockQuoteCollectionMode.mockReturnValue({
+      automaticEnabled: true,
+      hasAutomaticEntitlement: true,
+      isLoading: false,
+      plan: "pro",
+      setAutomaticEnabled: vi.fn(),
+    });
     class ResizeObserverMock {
       observe() {}
       unobserve() {}
@@ -1328,6 +1344,46 @@ describe("ClientProject", () => {
     await waitFor(() => {
       expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
     });
+  });
+
+  it("keeps automatic project quotes unavailable on the Free plan", async () => {
+    mockQuoteCollectionMode.mockReturnValue({
+      automaticEnabled: false,
+      hasAutomaticEntitlement: false,
+      isLoading: false,
+      plan: "free",
+      setAutomaticEnabled: vi.fn(),
+    });
+
+    renderWithClient("/projects/project-1");
+
+    const quoteButton = await screen.findByRole("button", {
+      name: "Pro required for automatic quotes",
+    });
+    expect(quoteButton).toBeDisabled();
+
+    fireEvent.click(quoteButton);
+    expect(api.requestQuotes).not.toHaveBeenCalled();
+  });
+
+  it("keeps automatic project quotes disabled while entitlement access loads", async () => {
+    mockQuoteCollectionMode.mockReturnValue({
+      automaticEnabled: false,
+      hasAutomaticEntitlement: false,
+      isLoading: true,
+      plan: null,
+      setAutomaticEnabled: vi.fn(),
+    });
+
+    renderWithClient("/projects/project-1");
+
+    const quoteButton = await screen.findByRole("button", {
+      name: "Loading quote access…",
+    });
+    expect(quoteButton).toBeDisabled();
+
+    fireEvent.click(quoteButton);
+    expect(api.requestQuotes).not.toHaveBeenCalled();
   });
 
   it("shows a mixed-result success toast when some project quote requests are blocked by the cost ceiling", async () => {

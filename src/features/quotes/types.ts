@@ -48,7 +48,7 @@ export type ClientSelectionRecord = Database["public"]["Tables"]["client_selecti
 export type AuditEventRecord = Database["public"]["Tables"]["audit_events"]["Row"];
 export type WorkQueueRecord = Database["public"]["Tables"]["work_queue"]["Row"];
 export type VendorCapabilityProfileRecord = {
-  vendor_name: string;
+  vendor_name: VendorName;
   process_types: string[];
   materials: string[];
   tolerance_min_mm: number | null;

@@ -32,6 +32,7 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       fetchArchivedProjects: vi.fn(),
       fetchClientActivityEventsByJobIds: vi.fn(),
       fetchClientQuoteWorkspaceByJobIds: vi.fn(),
+      fetchVendorCapabilityProfiles: vi.fn(),
       fetchPartDetailByJobId: vi.fn(),
       fetchJobPartSummariesByJobIds: vi.fn(),
       fetchJobsByProject: vi.fn(),
@@ -134,6 +135,7 @@ vi.mock("@/features/quotes/api/workspace-access", () => ({
   fetchArchivedProjects: api.fetchArchivedProjects,
   fetchClientActivityEventsByJobIds: api.fetchClientActivityEventsByJobIds,
   fetchClientQuoteWorkspaceByJobIds: api.fetchClientQuoteWorkspaceByJobIds,
+  fetchVendorCapabilityProfiles: api.fetchVendorCapabilityProfiles,
   fetchJobPartSummariesByJobIds: api.fetchJobPartSummariesByJobIds,
   fetchJobsByProject: api.fetchJobsByProject,
   fetchPartDetailByJobId: api.fetchPartDetailByJobId,
@@ -462,6 +464,7 @@ describe("top-level create actions", () => {
     ]);
     api.fetchAccessibleJobs.mockResolvedValue([makeJob()]);
     api.fetchClientActivityEventsByJobIds.mockResolvedValue([]);
+    api.fetchVendorCapabilityProfiles.mockResolvedValue([]);
     api.fetchArchivedProjects.mockResolvedValue([]);
     api.fetchArchivedJobs.mockResolvedValue([]);
     api.fetchJobPartSummariesByJobIds.mockResolvedValue([makeSummary()]);

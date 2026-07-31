@@ -7,7 +7,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
 import ClientPart from "./ClientPart";
 
-const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock, storedFile } = vi.hoisted(() => ({
+const {
+  api,
+  mockQuoteCollectionMode,
+  mockUseAppSession,
+  prefetchProjectPage,
+  prefetchPartPage,
+  toastMock,
+  storedFile,
+} = vi.hoisted(() => ({
   api: {
     archiveJob: vi.fn(),
     archiveProject: vi.fn(),
@@ -22,6 +30,7 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
     fetchArchivedJobs: vi.fn(),
     fetchArchivedProjects: vi.fn(),
     fetchClientActivityEventsByJobIds: vi.fn(),
+    fetchVendorCapabilityProfiles: vi.fn(),
     fetchPartDetailByJobId: vi.fn(),
     fetchJobPartSummariesByJobIds: vi.fn(),
     fetchProjectJobMembershipsByJobIds: vi.fn(),
@@ -44,6 +53,13 @@ const { api, mockUseAppSession, prefetchProjectPage, prefetchPartPage, toastMock
     updateClientPartRequest: vi.fn(),
     updateProject: vi.fn(),
     uploadFilesToJob: vi.fn(),
+  },
+  mockQuoteCollectionMode: {
+    automaticEnabled: true,
+    hasAutomaticEntitlement: true,
+    isLoading: false,
+    plan: "pro",
+    setAutomaticEnabled: vi.fn(),
   },
   mockUseAppSession: vi.fn(),
   prefetchProjectPage: vi.fn(),
@@ -98,13 +114,7 @@ vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
 }));
 vi.mock("@/features/quotes/organization-entitlements", () => ({
-  useOrganizationQuoteCollectionMode: () => ({
-    automaticEnabled: false,
-    hasAutomaticEntitlement: false,
-    isLoading: false,
-    plan: "free",
-    setAutomaticEnabled: vi.fn(),
-  }),
+  useOrganizationQuoteCollectionMode: () => mockQuoteCollectionMode,
 }));
 vi.mock("@/features/quotes/api/shared/schema-runtime", () => ({
   isProjectCollaborationSchemaUnavailable: api.isProjectCollaborationSchemaUnavailable,
@@ -119,6 +129,7 @@ vi.mock("@/features/quotes/api/workspace-access", () => ({
   fetchArchivedJobs: api.fetchArchivedJobs,
   fetchArchivedProjects: api.fetchArchivedProjects,
   fetchClientActivityEventsByJobIds: api.fetchClientActivityEventsByJobIds,
+  fetchVendorCapabilityProfiles: api.fetchVendorCapabilityProfiles,
   fetchJobPartSummariesByJobIds: api.fetchJobPartSummariesByJobIds,
   fetchPartDetailByJobId: api.fetchPartDetailByJobId,
   fetchProjectJobMembershipsByJobIds: api.fetchProjectJobMembershipsByJobIds,
@@ -310,19 +321,28 @@ vi.mock("@/components/quotes/ClientWorkspacePanelContent", () => ({
   ClientQuoteRequestStatusCard: ({
     actionLabel,
     actionDisabled,
+    detail,
+    heading,
     isBusy,
     onAction,
   }: {
     actionLabel?: string;
     actionDisabled?: boolean;
+    detail?: string;
+    heading?: string;
     isBusy?: boolean;
     onAction?: (() => void) | null;
-  }) =>
-    onAction ? (
-      <button type="button" disabled={Boolean(actionDisabled || isBusy)} onClick={() => onAction()}>
-        {actionLabel ?? "Request Quote"}
-      </button>
-    ) : null,
+  }) => (
+    <div>
+      {heading ? <div>{heading}</div> : null}
+      {detail ? <div>{detail}</div> : null}
+      {onAction ? (
+        <button type="button" disabled={Boolean(actionDisabled || isBusy)} onClick={() => onAction()}>
+          {actionLabel ?? "Request Quote"}
+        </button>
+      ) : null}
+    </div>
+  ),
 }));
 
 vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
@@ -588,6 +608,9 @@ describe("ClientPart", () => {
     lastQuoteDecisionPanelProps = null;
     lastSidebarProps = null;
     vi.resetAllMocks();
+    mockQuoteCollectionMode.automaticEnabled = true;
+    mockQuoteCollectionMode.hasAutomaticEntitlement = true;
+    mockQuoteCollectionMode.plan = "pro";
     Object.defineProperty(window, "localStorage", {
       configurable: true,
       writable: true,
@@ -628,6 +651,7 @@ describe("ClientPart", () => {
     storedFile.loadStoredDrawingPreviewPages.mockResolvedValue([]);
     storedFile.loadStoredPdfObjectUrl.mockResolvedValue("blob:part-drawing-pdf");
     api.fetchClientActivityEventsByJobIds.mockResolvedValue([]);
+    api.fetchVendorCapabilityProfiles.mockResolvedValue([]);
     api.fetchAccessibleProjects.mockResolvedValue([]);
     api.fetchAccessibleJobs.mockResolvedValue([
       {
@@ -740,6 +764,19 @@ describe("ClientPart", () => {
     await screen.findByLabelText("Leave a comment");
   });
 
+  it("shows Free sourcing guidance without exposing the manual quote path", async () => {
+    mockQuoteCollectionMode.automaticEnabled = false;
+    mockQuoteCollectionMode.hasAutomaticEntitlement = false;
+    mockQuoteCollectionMode.plan = "free";
+
+    renderWithClient("/parts/job-1");
+
+    expect(await screen.findByText("Free sourcing preview")).toBeInTheDocument();
+    expect(screen.getByText(/Pro enables automatic vendor quote collection/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /request manual quote/i })).not.toBeInTheDocument();
+    expect(api.requestQuote).not.toHaveBeenCalled();
+  });
+
   it("renders PartInfoPanel in the right rail and omits the old workspace badge cluster", async () => {
     await renderClientPartOnTab("Request");
     expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
@@ -750,6 +787,7 @@ describe("ClientPart", () => {
   });
 
   it("renders real vendor quote options instead of the empty comparison state", async () => {
+    api.fetchVendorCapabilityProfiles.mockReturnValue(new Promise(() => undefined));
     api.fetchPartDetailByJobId.mockResolvedValue(
       createPartDetail({
         summary: {
@@ -758,6 +796,43 @@ describe("ClientPart", () => {
         },
         part: {
           ...createPartDetail().part,
+          cadFile: {
+            id: "cad-file-1",
+            job_id: "job-1",
+            organization_id: "org-1",
+            file_kind: "cad",
+            blob_id: "blob-1",
+            storage_bucket: "job-files",
+            storage_path: "org-1/job-1/bracket.step",
+            normalized_name: "bracket.step",
+            original_name: "bracket.step",
+            mime_type: "application/step",
+            size_bytes: 1024,
+            content_sha256: "hash",
+            matched_part_key: null,
+            uploaded_by: "user-1",
+            created_at: "2026-03-01T00:00:00Z",
+          },
+          approvedRequirement: {
+            id: "requirement-1",
+            part_id: "part-1",
+            organization_id: "org-1",
+            description: "Bracket",
+            part_number: "BRKT-001",
+            revision: "A",
+            material: "6061-T6 aluminum",
+            finish: "Black anodize",
+            tightest_tolerance_inch: 0.005,
+            quantity: 10,
+            quote_quantities: [10],
+            requested_by_date: "2026-04-15",
+            applicable_vendors: ["xometry"],
+            spec_snapshot: { process: "CNC milling" },
+            approved_by: "user-1",
+            approved_at: "2026-03-01T00:00:00Z",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
           vendorQuotes: [
             {
               id: "quote-1",
@@ -770,12 +845,15 @@ describe("ClientPart", () => {
               unit_price_usd: 10,
               total_price_usd: 100,
               lead_time_business_days: 7,
-              quote_url: null,
+              quote_url: "https://www.xometry.com/quoting/home/quote-1",
               dfm_issues: [],
               notes: [],
-              raw_payload: {},
+              raw_payload: {
+                automationVersion: "xometry-worker-v1",
+                detectedFlow: "quote_ready",
+              },
               created_at: "2026-03-01T00:00:00Z",
-              updated_at: "2026-03-01T00:00:00Z",
+              updated_at: "2026-07-30T00:00:00Z",
               offers: [
                 {
                   id: "offer-1",
@@ -787,7 +865,7 @@ describe("ClientPart", () => {
                   sourcing: "USA",
                   tier: "Standard",
                   quote_ref: "Q-1",
-                  quote_date: "2026-03-01",
+                  quote_date: "2026-07-30",
                   unit_price_usd: 10,
                   total_price_usd: 100,
                   lead_time_business_days: 7,
