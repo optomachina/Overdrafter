@@ -134,7 +134,7 @@ function normalizeManualQuoteRequestPage(value: unknown): AdminManualQuoteReques
   const record = requireRecord(value, "manual quote request page");
 
   if (!Array.isArray(record.items)) {
-    throw new Error("Manual quote request page is missing items.");
+    throw new TypeError("Manual quote request page is missing items.");
   }
 
   return {
