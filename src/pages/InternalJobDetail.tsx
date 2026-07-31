@@ -20,6 +20,21 @@ import { useInternalJobDetailQuery } from "./internal-job-detail/use-internal-jo
 import { useInternalJobDetailMutations } from "./internal-job-detail/use-internal-job-detail-mutations";
 import { useInternalJobDetailViewModel } from "./internal-job-detail/internal-job-detail-view-model";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
+
+function getManualQuoteIntakeDisabled(
+  completionTarget: ManualQuoteCompletionTarget | null,
+  isVerifiedAuth: boolean,
+  anyWritePending: boolean,
+  isDiagnosticReadOnlyView: boolean,
+  fullyWriteActionsDisabled: boolean,
+): boolean {
+  if (!completionTarget) {
+    return fullyWriteActionsDisabled;
+  }
+
+  return !isVerifiedAuth || anyWritePending || isDiagnosticReadOnlyView;
+}
+
 const InternalJobDetail = () => {
   const navigate = useNavigate();
   const { jobId = "" } = useParams();
@@ -130,9 +145,13 @@ const InternalJobDetail = () => {
     targetQuoteRunId,
     targetRequestId,
   ]);
-  const manualQuoteIntakeDisabled = completionTarget
-    ? !isVerifiedAuth || anyWritePending || isDiagnosticReadOnlyView
-    : fullyWriteActionsDisabled;
+  const manualQuoteIntakeDisabled = getManualQuoteIntakeDisabled(
+    completionTarget,
+    isVerifiedAuth,
+    anyWritePending,
+    isDiagnosticReadOnlyView,
+    fullyWriteActionsDisabled,
+  );
 
   if (isAuthInitializing) {
     return <AuthBootstrapScreen message="Restoring your internal review session." />;

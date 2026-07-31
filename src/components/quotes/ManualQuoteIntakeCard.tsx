@@ -157,6 +157,111 @@ function buildOfferPayloads(offers: OfferDraft[]): ManualQuoteOfferInput[] {
   });
 }
 
+function ManualQuoteIntakeHeader({
+  completionTarget,
+}: {
+  completionTarget: ManualQuoteCompletionTarget | null;
+}) {
+  if (completionTarget) {
+    return (
+      <CardHeader>
+        <CardTitle>Complete manual quote request</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Record the supplier response against this exact customer request. The
+          server will atomically complete the request and run, then move the job
+          into internal review.
+        </p>
+      </CardHeader>
+    );
+  }
+
+  return (
+    <CardHeader>
+      <CardTitle>Manual quote intake</CardTitle>
+      <p className="text-sm text-muted-foreground">
+        Record a quote from pasted email text, screenshot/PDF evidence, or a
+        forwarded manual supplier reply. This writes normalized offer lanes
+        directly into the compare view without using browser automation.
+      </p>
+    </CardHeader>
+  );
+}
+
+function CompletionTargetNotice({
+  completionTarget,
+}: {
+  completionTarget: ManualQuoteCompletionTarget | null;
+}) {
+  if (!completionTarget) {
+    return null;
+  }
+
+  let followUpMessage = null;
+
+  if (completionTarget.staleReason) {
+    followUpMessage = <p className="mt-2">{completionTarget.staleReason}</p>;
+  } else if (!completionTarget.hasAal2) {
+    followUpMessage = (
+      <p className="mt-2 text-amber-700 dark:text-amber-200">
+        MFA is required before this completion can be submitted.
+      </p>
+    );
+  }
+
+  const stateClassName = completionTarget.isStale
+    ? "border-destructive/30 bg-destructive/10 text-destructive"
+    : "border-border bg-muted text-muted-foreground";
+
+  return (
+    <div
+      className={`rounded-2xl border p-4 text-sm ${stateClassName}`}
+      role={completionTarget.isStale ? "alert" : undefined}
+    >
+      <p className="font-medium text-foreground">
+        Exact request {completionTarget.requestId.slice(0, 8)}
+      </p>
+      <p className="mt-1">
+        Request {formatStatusLabel(completionTarget.requestStatus ?? "missing")}{" "}
+        · Run {formatStatusLabel(completionTarget.quoteRunStatus ?? "missing")}{" "}
+        · Job {formatStatusLabel(completionTarget.jobStatus ?? "missing")}
+      </p>
+      {followUpMessage}
+    </div>
+  );
+}
+
+function SelectedPartSummary({
+  selectedPart,
+}: {
+  selectedPart: PartAggregate | null;
+}) {
+  if (!selectedPart) {
+    return null;
+  }
+
+  const details: string[] = [];
+
+  if (selectedPart.approvedRequirement?.part_number) {
+    details.push(selectedPart.approvedRequirement.part_number);
+  }
+
+  if (selectedPart.approvedRequirement?.revision) {
+    details.push(`Rev ${selectedPart.approvedRequirement.revision}`);
+  }
+
+  const detailText = details.length > 0 ? ` • ${details.join(" • ")}` : "";
+
+  return (
+    <div className="rounded-2xl border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
+      <p className="font-medium text-foreground">Target part</p>
+      <p className="mt-1">
+        {selectedPart.name}
+        {detailText}
+      </p>
+    </div>
+  );
+}
+
 export function ManualQuoteIntakeCard({
   jobId,
   parts,
@@ -347,43 +452,9 @@ export function ManualQuoteIntakeCard({
 
   return (
     <Card className="border-border bg-accent">
-      <CardHeader>
-        <CardTitle>
-          {completionTarget ? "Complete manual quote request" : "Manual quote intake"}
-        </CardTitle>
-        <p className="text-sm text-muted-foreground">
-          {completionTarget
-            ? "Record the supplier response against this exact customer request. The server will atomically complete the request and run, then move the job into internal review."
-            : "Record a quote from pasted email text, screenshot/PDF evidence, or a forwarded manual supplier reply. This writes normalized offer lanes directly into the compare view without using browser automation."}
-        </p>
-      </CardHeader>
+      <ManualQuoteIntakeHeader completionTarget={completionTarget} />
       <CardContent className="space-y-5">
-        {completionTarget ? (
-          <div
-            className={`rounded-2xl border p-4 text-sm ${
-              completionTarget.isStale
-                ? "border-destructive/30 bg-destructive/10 text-destructive"
-                : "border-border bg-muted text-muted-foreground"
-            }`}
-            role={completionTarget.isStale ? "alert" : undefined}
-          >
-            <p className="font-medium text-foreground">
-              Exact request {completionTarget.requestId.slice(0, 8)}
-            </p>
-            <p className="mt-1">
-              Request {formatStatusLabel(completionTarget.requestStatus ?? "missing")} · Run{" "}
-              {formatStatusLabel(completionTarget.quoteRunStatus ?? "missing")} · Job{" "}
-              {formatStatusLabel(completionTarget.jobStatus ?? "missing")}
-            </p>
-            {completionTarget.staleReason ? (
-              <p className="mt-2">{completionTarget.staleReason}</p>
-            ) : !completionTarget.hasAal2 ? (
-              <p className="mt-2 text-amber-700 dark:text-amber-200">
-                MFA is required before this completion can be submitted.
-              </p>
-            ) : null}
-          </div>
-        ) : null}
+        <CompletionTargetNotice completionTarget={completionTarget} />
 
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2 md:col-span-1">
@@ -459,20 +530,7 @@ export function ManualQuoteIntakeCard({
           </div>
         ) : null}
 
-        {selectedPart ? (
-          <div className="rounded-2xl border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">Target part</p>
-            <p className="mt-1">
-              {selectedPart.name}
-              {selectedPart.approvedRequirement?.part_number
-                ? ` • ${selectedPart.approvedRequirement.part_number}`
-                : ""}
-              {selectedPart.approvedRequirement?.revision
-                ? ` • Rev ${selectedPart.approvedRequirement.revision}`
-                : ""}
-            </p>
-          </div>
-        ) : null}
+        <SelectedPartSummary selectedPart={selectedPart} />
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
