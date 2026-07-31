@@ -357,12 +357,23 @@ reset role;
 
 insert into private.organization_billing_accounts (
   organization_id,
-  stripe_customer_id
+  stripe_customer_id,
+  stripe_livemode
 )
 values (
   (select organization_id from ovd229_context),
-  'cus_OVD229'
+  'cus_OVD229',
+  false
 );
+
+do $$
+begin
+  perform public.api_configure_stripe_pro_price(
+    'price_OVD229Pro',
+    false
+  );
+end;
+$$;
 
 insert into private.organization_subscription_projections (
   organization_id,
@@ -370,7 +381,10 @@ insert into private.organization_subscription_projections (
   status,
   billing_interval,
   current_period_end,
-  stripe_event_created_at
+  stripe_event_created_at,
+  stripe_event_id,
+  stripe_livemode,
+  stripe_price_id
 )
 values (
   (select organization_id from ovd229_context),
@@ -378,7 +392,10 @@ values (
   'active',
   'month',
   '2026-10-01T00:00:00Z',
-  '2026-07-15T00:00:00Z'
+  '2026-07-15T00:00:00Z',
+  'evt_OVD229',
+  false,
+  'price_OVD229Pro'
 );
 
 select is(

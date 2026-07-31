@@ -1,0 +1,9 @@
+{
+  "imports": {
+    "@std/assert": "https://deno.land/std@0.220.0/assert/mod.ts",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2",
+    "stripe": "npm:stripe@17"
+  },
+  "lock": "deno.lock",
+  "nodeModulesDir": "auto"
+}
