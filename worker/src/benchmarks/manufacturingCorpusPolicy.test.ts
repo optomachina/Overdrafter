@@ -422,7 +422,11 @@ describe("manufacturing corpus policy report", () => {
         {
           caseId: "case-failed",
           state: "failed",
-          diagnosticCodes: ["z_failure", "a_failure", "a_failure"],
+          diagnosticCodes: [
+            "artifact_size_mismatch",
+            "artifact_sha256_mismatch",
+            "artifact_size_mismatch",
+          ],
         },
       ],
       [
@@ -443,7 +447,10 @@ describe("manufacturing corpus policy report", () => {
       {
         caseId: "case-failed",
         integrityState: "failed",
-        integrityDiagnosticCodes: ["a_failure", "z_failure"],
+        integrityDiagnosticCodes: [
+          "artifact_sha256_mismatch",
+          "artifact_size_mismatch",
+        ],
         annotationState: "not_evaluated",
         annotationEvaluationCodes: [],
       },
@@ -464,7 +471,7 @@ describe("manufacturing corpus policy report", () => {
         {
           caseId: "case-1",
           state: "passed",
-          diagnosticCodes: ["unexpected_diagnostic"],
+          diagnosticCodes: ["artifact_size_mismatch"],
         },
       ],
       [verified("case-1")],
@@ -479,6 +486,35 @@ describe("manufacturing corpus policy report", () => {
       countedForCoverage: false,
     });
   });
+
+  it.each(["unknown_stable_code", "/private/path?token=secret"])(
+    "rejects non-canonical filesystem diagnostic %s",
+    (diagnosticCode) => {
+      const report = evaluate(
+        makeManifest(),
+        [
+          {
+            caseId: "case-1",
+            state: "failed",
+            diagnosticCodes: [
+              diagnosticCode as DeclaredCaseIntegrityResult["diagnosticCodes"][number],
+            ],
+          },
+        ],
+        [verified("case-1")],
+      );
+
+      expect(report.caseResults[0]).toMatchObject({
+        integrityState: "failed",
+        integrityEvaluationCodes: ["integrity_diagnostic_invalid"],
+        integrityDiagnosticCodes: [],
+        annotationState: "not_evaluated",
+      });
+      expect(serializeManufacturingCorpusPolicyReport(report)).not.toContain(
+        diagnosticCode,
+      );
+    },
+  );
 
   it("distinguishes every passed-integrity annotation outcome", () => {
     const caseIds = [
@@ -612,9 +648,9 @@ describe("manufacturing corpus policy report", () => {
           caseId: "case-1",
           state: "failed",
           diagnosticCodes: [
-            "safe_code",
-            oversizedCode,
-            "/private/path?token=secret",
+            "artifact_read_failed",
+            oversizedCode as DeclaredCaseIntegrityResult["diagnosticCodes"][number],
+            "/private/path?token=secret" as DeclaredCaseIntegrityResult["diagnosticCodes"][number],
           ],
         },
       ],
@@ -635,7 +671,7 @@ describe("manufacturing corpus policy report", () => {
     expect(report.caseResults[0]).toMatchObject({
       integrityState: "failed",
       integrityEvaluationCodes: ["integrity_diagnostic_invalid"],
-      integrityDiagnosticCodes: ["safe_code"],
+      integrityDiagnosticCodes: ["artifact_read_failed"],
       annotationState: "not_evaluated",
       countedForCoverage: false,
     });

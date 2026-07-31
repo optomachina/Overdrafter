@@ -25,6 +25,7 @@
     "sweep:xometry-quantity": "tsx src/tools/xometryQuantitySweep.ts",
     "smoke:vendor-workflow": "tsx src/tools/vendorWorkflowSmoke.ts",
     "validate:openclaw-gate": "tsx src/tools/validateOpenclawGate.ts",
+    "validate:manufacturing-corpus": "tsx src/tools/validateManufacturingCorpus.ts",
     "cleanup:dmrifles-demo": "tsx src/tools/cleanupDmriflesDemoData.ts",
     "extract:smoke": "tsx src/tools/extractDrawingSmoke.ts",
     "import:dmrifles-quotes": "tsx src/tools/importDmriflesQuotes.ts",

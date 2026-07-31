@@ -5,6 +5,10 @@ import type {
   ManufacturingQualificationTarget,
 } from "./manufacturingCorpusContract.js";
 import {
+  MANUFACTURING_CORPUS_FILESYSTEM_DIAGNOSTIC_CODES,
+  type ManufacturingCorpusFilesystemDiagnosticCode,
+} from "./manufacturingCorpusFilesystemDiagnostics.js";
+import {
   MANUFACTURING_CORPUS_VALIDATOR_PROCESSOR_ID,
   type ManufacturingCorpusInvalidCode,
   type ManufacturingCorpusPolicyBlockerCode,
@@ -47,7 +51,7 @@ export type ManufacturingCorpusAnnotationState =
 export type DeclaredCaseIntegrityResult = {
   caseId: string;
   state: "passed" | "failed";
-  diagnosticCodes: string[];
+  diagnosticCodes: ManufacturingCorpusFilesystemDiagnosticCode[];
 };
 export type VerifiedManufacturingCorpusAnnotation = {
   caseId: string;
@@ -68,7 +72,7 @@ export type ManufacturingCorpusPolicyCaseResult = {
   corpusInvalidCodes: ManufacturingCorpusInvalidCode[];
   integrityState: ManufacturingCorpusIntegrityState;
   integrityEvaluationCodes: ManufacturingCorpusIntegrityEvaluationCode[];
-  integrityDiagnosticCodes: string[];
+  integrityDiagnosticCodes: ManufacturingCorpusFilesystemDiagnosticCode[];
   annotationState: ManufacturingCorpusAnnotationState;
   annotationEvaluationCodes: ManufacturingCorpusAnnotationEvaluationCode[];
   countedForCoverage: boolean;
@@ -103,7 +107,9 @@ export type ManufacturingCorpusPolicyReport = {
   coverage: ManufacturingCorpusCoverageResult[];
 };
 
-const SAFE_DIAGNOSTIC_CODE = /^[a-z0-9][a-z0-9._-]{0,127}$/;
+const FILESYSTEM_DIAGNOSTIC_CODE_SET = new Set<string>(
+  MANUFACTURING_CORPUS_FILESYSTEM_DIAGNOSTIC_CODES,
+);
 
 function stableCompare(left: string, right: string) {
   if (left < right) {
@@ -120,12 +126,16 @@ function sortedUnique<T extends string>(values: readonly T[]): T[] {
 }
 
 function normalizeIntegrityDiagnostics(
-  values: readonly string[],
+  values: readonly ManufacturingCorpusFilesystemDiagnosticCode[],
 ): {
-  diagnosticCodes: string[];
+  diagnosticCodes: ManufacturingCorpusFilesystemDiagnosticCode[];
   evaluationCodes: ManufacturingCorpusIntegrityEvaluationCode[];
 } {
-  const valid = values.filter((value) => SAFE_DIAGNOSTIC_CODE.test(value));
+  const valid = values.filter(
+    (value): value is ManufacturingCorpusFilesystemDiagnosticCode =>
+      typeof value === "string" &&
+      FILESYSTEM_DIAGNOSTIC_CODE_SET.has(value),
+  );
   return {
     diagnosticCodes: sortedUnique(valid),
     evaluationCodes:
