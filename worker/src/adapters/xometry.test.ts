@@ -116,6 +116,7 @@ type LocatorBehavior = {
   fill?: (value: string) => Promise<void> | void;
   press?: (value: string) => Promise<void> | void;
   waitFor?: () => Promise<void> | void;
+  getAttribute?: (name: string) => Promise<string | null> | string | null;
 };
 
 type FakePageOptions = {
@@ -165,6 +166,9 @@ function makeLocator(behavior: LocatorBehavior = {}) {
     },
     async press(value: string) {
       await behavior.press?.(value);
+    },
+    async getAttribute(name: string) {
+      return (await behavior.getAttribute?.(name)) ?? null;
     },
     filter(options: { hasText?: RegExp }) {
       if (!options.hasText) {
@@ -474,7 +478,7 @@ describe("XometryAdapter", () => {
     const setTolerance = vi.fn();
     let materialControlRendered = false;
     let finishControlRendered = false;
-    let materialOptionsOpen = false;
+    let materialOptionsOpen = true;
     let finishOptionsOpen = false;
     let materialOptionsRendered = false;
     let finishOptionsRendered = false;
@@ -510,6 +514,7 @@ describe("XometryAdapter", () => {
           waitFor: () => {
             materialControlRendered = true;
           },
+          getAttribute: (name) => (name === "aria-expanded" ? "true" : null),
           click: openMaterialOptions,
         },
         [XOMETRY_LOCATORS.finishButtons[0]]: {
@@ -570,7 +575,7 @@ describe("XometryAdapter", () => {
     });
     expect(saveConfiguration).toHaveBeenCalledTimes(1);
     expect(setTolerance).toHaveBeenCalledTimes(1);
-    expect(openMaterialOptions).toHaveBeenCalledTimes(1);
+    expect(openMaterialOptions).not.toHaveBeenCalled();
     expect(openFinishOptions).toHaveBeenCalledTimes(1);
     expect(page.waitForURL).toHaveBeenCalled();
     expect(result.artifacts).toHaveLength(8);

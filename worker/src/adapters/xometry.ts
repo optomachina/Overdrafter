@@ -577,7 +577,13 @@ async function findButtonAndOpen(
     );
   }
 
-  await match.locator.click();
+  const alreadyExpanded = await match.locator
+    .getAttribute("aria-expanded")
+    .then((value) => value === "true")
+    .catch(() => false);
+  if (!alreadyExpanded) {
+    await match.locator.click();
+  }
   return match.selector;
 }
 
