@@ -73,6 +73,10 @@ import { openFixturePanel } from "@/components/debug/FixturePanel";
 import { isFixtureModeAvailable } from "@/features/quotes/client-workspace-fixtures";
 import { cn } from "@/lib/utils";
 import { useOrganizationQuoteCollectionMode } from "@/features/quotes/organization-entitlements";
+import {
+  openHostedBillingSession,
+  type HostedBillingAction,
+} from "@/features/quotes/billing-sessions";
 
 type WorkspaceAccountMenuProps = {
   user: User;
@@ -423,10 +427,15 @@ export function WorkspaceAccountMenu({
   const [pendingDeleteJobIds, setPendingDeleteJobIds] = useState<string[]>([]);
   const [deleteConfirmation, setDeleteConfirmation] = useState<ArchiveDeleteConfirmationState | null>(null);
   const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
+  const [billingAction, setBillingAction] = useState<HostedBillingAction | null>(null);
+  const [billingError, setBillingError] = useState<string | null>(null);
   const quoteCollectionMode = useOrganizationQuoteCollectionMode(
     activeMembership?.organizationId,
     activePanel === "settings",
   );
+  const hasAutomaticEntitlement =
+    quoteCollectionMode.hasAutomaticEntitlement;
+  const refreshQuoteCollectionMode = quoteCollectionMode.refresh;
 
   // --- Organization details (company/billing/shipping) ---
   const emptyOrgDetails = useCallback(
@@ -646,6 +655,30 @@ export function WorkspaceAccountMenu({
   const hasPendingDelete = pendingDeleteJobIds.length > 0;
   const bulkDeleteJobIds = deleteConfirmation?.kind === "bulk" ? deleteConfirmation.jobs.map((job) => job.job.id) : [];
   const deleteAllDisabled = isArchiveLoading || archivedPartCount === 0 || hasPendingDelete;
+  const billingReturnState =
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("billing");
+
+  useEffect(() => {
+    if (
+      activePanel !== "settings" ||
+      billingReturnState !== "success" ||
+      hasAutomaticEntitlement
+    ) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      refreshQuoteCollectionMode();
+    }, 3_000);
+    return () => window.clearInterval(intervalId);
+  }, [
+    activePanel,
+    billingReturnState,
+    hasAutomaticEntitlement,
+    refreshQuoteCollectionMode,
+  ]);
 
   const openPanel = (panelId: AccountPanelId) => {
     setMenuOpen(false);
@@ -675,6 +708,30 @@ export function WorkspaceAccountMenu({
       onSignedOut?.();
     } finally {
       setIsSigningOut(false);
+    }
+  };
+
+  const handleBillingAction = async (action: HostedBillingAction) => {
+    const organizationId = activeMembership?.organizationId;
+    if (!organizationId || !quoteCollectionMode.canManageBilling) {
+      setBillingError(
+        "Only the organization billing owner can manage this subscription.",
+      );
+      return;
+    }
+
+    setBillingAction(action);
+    setBillingError(null);
+    try {
+      await openHostedBillingSession(organizationId, action);
+    } catch (error) {
+      setBillingError(
+        error instanceof Error
+          ? error.message
+          : "Billing could not be opened. Free sourcing remains available.",
+      );
+    } finally {
+      setBillingAction(null);
     }
   };
 
@@ -954,19 +1011,76 @@ export function WorkspaceAccountMenu({
               <p className="mt-1 text-sm leading-6 text-foreground/80">
                 {sourcingPlanPresentation.description}
               </p>
-              {!quoteCollectionMode.isLoading
+              {!quoteCollectionMode.isLoading ? (
+                <p className="mt-3 text-sm font-medium text-foreground">
+                  Pro is $49/month. Cancel anytime in the Stripe Billing Portal.
+                </p>
+              ) : null}
+              {billingReturnState === "success"
                 && !quoteCollectionMode.hasAutomaticEntitlement ? (
+                <p
+                  className="mt-3 rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm leading-5 text-emerald-200"
+                  role="status"
+                >
+                  Checkout complete. Pro will activate automatically as soon as Stripe confirms the subscription.
+                </p>
+              ) : null}
+              {billingReturnState === "cancelled" ? (
+                <p
+                  className="mt-3 rounded border border-border bg-accent px-3 py-2 text-sm leading-5 text-foreground/80"
+                  role="status"
+                >
+                  Checkout was canceled. Your Free sourcing access is unchanged.
+                </p>
+              ) : null}
+              {!quoteCollectionMode.isLoading
+                && !quoteCollectionMode.hasAutomaticEntitlement
+                && quoteCollectionMode.canManageBilling ? (
                 <Button
                   type="button"
                   variant="outline"
                   className="mt-4 rounded-full border-border bg-transparent"
                   onClick={() => {
+                    setBillingError(null);
                     setActivePanel(null);
                     setUpgradeDialogOpen(true);
                   }}
                 >
                   Upgrade to Pro
                 </Button>
+              ) : null}
+              {!quoteCollectionMode.isLoading
+                && quoteCollectionMode.hasAutomaticEntitlement
+                && quoteCollectionMode.canManageBilling ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-4 rounded-full border-border bg-transparent"
+                  disabled={billingAction !== null}
+                  onClick={() => {
+                    void handleBillingAction("portal");
+                  }}
+                >
+                  {billingAction === "portal" ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Opening billing
+                    </>
+                  ) : (
+                    "Manage billing"
+                  )}
+                </Button>
+              ) : null}
+              {!quoteCollectionMode.isLoading
+                && !quoteCollectionMode.canManageBilling ? (
+                <p className="mt-3 text-xs leading-5 text-foreground/80">
+                  Ask your organization billing owner to change this plan.
+                </p>
+              ) : null}
+              {billingError && !upgradeDialogOpen ? (
+                <p className="mt-3 text-sm leading-5 text-red-300" role="alert">
+                  {billingError}
+                </p>
               ) : null}
             </div>
 
@@ -1861,16 +1975,38 @@ export function WorkspaceAccountMenu({
           <AlertDialogHeader>
             <AlertDialogTitle>Let OverDrafter collect quotes automatically</AlertDialogTitle>
             <AlertDialogDescription className="text-muted-foreground">
-              Upgrade to Pro to automatically send eligible parts to supported quote providers. Reviewed
-              recommendations and official RFQ links remain available on Free.
+              Pro is $49/month and automatically sends eligible parts to supported quote providers.
+              Reviewed recommendations and official RFQ links remain available on Free.
             </AlertDialogDescription>
+            {billingError ? (
+              <p className="text-sm leading-5 text-red-300" role="alert">
+                {billingError}
+              </p>
+            ) : null}
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-border bg-transparent text-foreground hover:bg-accent hover:text-foreground">
-              Nope
+            <AlertDialogCancel
+              className="border-border bg-transparent text-foreground hover:bg-accent hover:text-foreground"
+              disabled={billingAction !== null}
+            >
+              Keep Free
             </AlertDialogCancel>
-            <AlertDialogAction className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">
-              Upgrade to Pro
+            <AlertDialogAction
+              className="bg-emerald-500 text-slate-950 hover:bg-emerald-400"
+              disabled={billingAction !== null}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleBillingAction("checkout");
+              }}
+            >
+              {billingAction === "checkout" ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Opening secure checkout
+                </>
+              ) : (
+                "Upgrade to Pro — $49/month"
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

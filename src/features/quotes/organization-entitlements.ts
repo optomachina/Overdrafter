@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { callUntypedRpc } from "@/features/quotes/api/shared/rpc";
 import { ensureData } from "@/features/quotes/api/shared/response";
 import { isFixtureModeEnabled } from "@/features/quotes/client-workspace-fixtures";
@@ -7,6 +7,7 @@ export type OrganizationEntitlements = {
   plan: "free" | "pro";
   source: string;
   automaticQuoteCollection: boolean;
+  canManageBilling: boolean;
 };
 
 async function fetchOrganizationEntitlements(
@@ -25,6 +26,10 @@ export function useOrganizationQuoteCollectionMode(
 ) {
   const [entitlements, setEntitlements] = useState<OrganizationEntitlements | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const refresh = useCallback(() => {
+    setRefreshVersion((current) => current + 1);
+  }, []);
 
   useEffect(() => {
     if (!organizationId || !enabled) {
@@ -36,6 +41,7 @@ export function useOrganizationQuoteCollectionMode(
         plan: "free",
         source: "fixture",
         automaticQuoteCollection: false,
+        canManageBilling: true,
       });
       setIsLoading(false);
       return;
@@ -63,15 +69,17 @@ export function useOrganizationQuoteCollectionMode(
     return () => {
       cancelled = true;
     };
-  }, [enabled, organizationId]);
+  }, [enabled, organizationId, refreshVersion]);
 
   const hasAutomaticEntitlement =
     entitlements?.automaticQuoteCollection === true;
 
   return {
     automaticEnabled: hasAutomaticEntitlement,
+    canManageBilling: entitlements?.canManageBilling === true,
     hasAutomaticEntitlement,
     isLoading,
     plan: entitlements?.plan ?? "free",
+    refresh,
   };
 }

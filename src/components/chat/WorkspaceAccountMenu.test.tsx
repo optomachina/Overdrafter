@@ -18,6 +18,18 @@ const themeMocks = vi.hoisted(() => ({
   setTheme: vi.fn(),
 }));
 
+const billingMocks = vi.hoisted(() => ({
+  openHostedBillingSession: vi.fn().mockResolvedValue(undefined),
+  quoteMode: {
+    automaticEnabled: false,
+    canManageBilling: true,
+    hasAutomaticEntitlement: false,
+    isLoading: false,
+    plan: "free" as "free" | "pro",
+    refresh: vi.fn(),
+  },
+}));
+
 vi.mock("@/lib/diagnostics", async () => {
   const actual = await vi.importActual<typeof import("@/lib/diagnostics")>("@/lib/diagnostics");
   return {
@@ -36,13 +48,11 @@ vi.mock("next-themes", () => ({
 }));
 
 vi.mock("@/features/quotes/organization-entitlements", () => ({
-  useOrganizationQuoteCollectionMode: () => ({
-    automaticEnabled: false,
-    hasAutomaticEntitlement: false,
-    isLoading: false,
-    plan: "free",
-    setAutomaticEnabled: vi.fn(),
-  }),
+  useOrganizationQuoteCollectionMode: () => billingMocks.quoteMode,
+}));
+
+vi.mock("@/features/quotes/billing-sessions", () => ({
+  openHostedBillingSession: billingMocks.openHostedBillingSession,
 }));
 
 function makeUser(overrides: Partial<User> = {}): User {
@@ -277,6 +287,18 @@ describe("WorkspaceAccountMenu", () => {
         disconnect() {}
       },
     );
+    billingMocks.openHostedBillingSession.mockReset();
+    billingMocks.openHostedBillingSession.mockResolvedValue(undefined);
+    billingMocks.quoteMode.refresh.mockReset();
+    billingMocks.quoteMode = {
+      automaticEnabled: false,
+      canManageBilling: true,
+      hasAutomaticEntitlement: false,
+      isLoading: false,
+      plan: "free",
+      refresh: vi.fn(),
+    };
+    window.history.replaceState({}, "", "/");
   });
 
   afterEach(() => {
@@ -548,8 +570,78 @@ describe("WorkspaceAccountMenu", () => {
     fireEvent.click(upgradeButton);
 
     expect(await screen.findByText("Let OverDrafter collect quotes automatically")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Nope" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Upgrade to Pro" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Keep Free" })).toBeInTheDocument();
+    const confirmUpgrade = screen.getByRole("button", {
+      name: "Upgrade to Pro — $49/month",
+    });
+    fireEvent.click(confirmUpgrade);
+
+    await waitFor(() => {
+      expect(billingMocks.openHostedBillingSession).toHaveBeenCalledWith(
+        "org-1",
+        "checkout",
+      );
+    });
+  });
+
+  it("opens the Stripe Billing Portal for a Pro billing owner", async () => {
+    billingMocks.quoteMode = {
+      automaticEnabled: true,
+      canManageBilling: true,
+      hasAutomaticEntitlement: true,
+      isLoading: false,
+      plan: "pro",
+      refresh: vi.fn(),
+    };
+
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Manage billing" }));
+
+    await waitFor(() => {
+      expect(billingMocks.openHostedBillingSession).toHaveBeenCalledWith(
+        "org-1",
+        "portal",
+      );
+    });
+  });
+
+  it("does not offer billing mutations to a non-owner organization member", async () => {
+    billingMocks.quoteMode = {
+      automaticEnabled: false,
+      canManageBilling: false,
+      hasAutomaticEntitlement: false,
+      isLoading: false,
+      plan: "free",
+      refresh: vi.fn(),
+    };
+
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+
+    expect(await screen.findByText("Ask your organization billing owner to change this plan.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upgrade to Pro" })).not.toBeInTheDocument();
+  });
+
+  it("keeps Pro pending after the Checkout redirect until the webhook confirms it", async () => {
+    window.history.replaceState({}, "", "/?billing=success");
+
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+
+    expect(
+      await screen.findByText(
+        "Checkout complete. Pro will activate automatically as soon as Stripe confirms the subscription.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Provider recommendations")).toBeInTheDocument();
+    expect(screen.queryByText("Automatic quote collection")).not.toBeInTheDocument();
   });
 
   it("opens the notifications panel and marks current items seen", async () => {

@@ -30,3 +30,6 @@ verify_enabled = true
 
 [functions.stripe-events]
 verify_jwt = false
+
+[functions.billing-sessions]
+verify_jwt = true

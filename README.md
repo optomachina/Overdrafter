@@ -195,6 +195,14 @@ Required frontend environment variables:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 
+Hosted Pro billing also requires the authenticated `billing-sessions` Supabase
+Edge Function. Configure its server-only `OVERDRAFTER_APP_URL`,
+`STRIPE_EXPECTED_LIVEMODE`, `STRIPE_PRO_MONTHLY_PRICE_ID`, and
+`STRIPE_SECRET_KEY` values. Keep `BILLING_SELF_SERVICE_ENABLED=false` until the
+single $49/month Stripe catalog entry and signed `stripe-events` webhook have
+been verified in the same test/live mode. Checkout redirects never activate
+Pro; the synchronized Stripe webhook does.
+
 If you replace `src/assets/logo.png`, regenerate the favicon assets before committing:
 
 ```bash
