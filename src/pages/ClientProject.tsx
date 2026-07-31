@@ -849,6 +849,8 @@ const ClientProject = () => {
     projectPartCount,
     resolveSidebarProjectIdsForJob,
     requestProjectQuotesMutation,
+    automaticQuoteCollectionEnabled,
+    isQuoteCollectionModeLoading,
     setActiveFilter,
     isSearchOpen,
     setIsSearchOpen,
@@ -1337,15 +1339,21 @@ const ClientProject = () => {
               <Button
                 type="button"
                 className="rounded-full"
-                disabled={requestProjectQuotesMutation.isPending || projectRequestableJobIds.length === 0}
+                disabled={
+                  requestProjectQuotesMutation.isPending
+                  || isQuoteCollectionModeLoading
+                  || projectRequestableJobIds.length === 0
+                }
                 onClick={() => {
                   void handleRequestProjectQuotes(projectRequestableJobIds);
                 }}
               >
                 {requestProjectQuotesMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 {projectRequestableJobIds.length > 0
-                  ? `Request ${projectRequestableJobIds.length} quote${projectRequestableJobIds.length === 1 ? "" : "s"}`
-                  : "Request quotes"}
+                  ? `${automaticQuoteCollectionEnabled ? "Request" : "Request manual"} ${projectRequestableJobIds.length} quote${projectRequestableJobIds.length === 1 ? "" : "s"}`
+                  : automaticQuoteCollectionEnabled
+                    ? "Request quotes"
+                    : "Request manual quotes"}
               </Button>
               <Button
                 type="button"
