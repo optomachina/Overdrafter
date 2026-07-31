@@ -219,17 +219,44 @@ function createFakePage(options: FakePageOptions) {
         text: optionText,
       });
     },
-    async waitForFunction(_callback: unknown, argument?: unknown) {
-      if (
-        typeof argument === "string" &&
-        !currentBodyText().toLocaleLowerCase().includes(argument.toLocaleLowerCase()) &&
-        !options.visibleFilenames?.some(
-          (filename) => filename.toLocaleLowerCase() === argument.toLocaleLowerCase(),
-        )
-      ) {
-        throw new Error("expected filename did not appear");
+    async waitForFunction(callback: unknown, argument?: unknown) {
+      if (typeof callback !== "function") {
+        throw new Error("expected a wait predicate");
       }
-      return undefined;
+
+      const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document");
+      const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+      const visibleText = [currentBodyText(), ...(options.visibleFilenames ?? [])].join(" ");
+      Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: {
+          body: { innerText: visibleText },
+          querySelectorAll: () => [],
+        },
+      });
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: { location: { href: currentUrl } },
+      });
+
+      try {
+        const result = (callback as (value?: unknown) => unknown)(argument);
+        if (!result) {
+          throw new Error("wait predicate did not match");
+        }
+        return undefined;
+      } finally {
+        if (documentDescriptor) {
+          Object.defineProperty(globalThis, "document", documentDescriptor);
+        } else {
+          Reflect.deleteProperty(globalThis, "document");
+        }
+        if (windowDescriptor) {
+          Object.defineProperty(globalThis, "window", windowDescriptor);
+        } else {
+          Reflect.deleteProperty(globalThis, "window");
+        }
+      }
     },
     async waitForLoadState() {
       return undefined;
@@ -336,6 +363,12 @@ describe("Xometry helpers", () => {
         new Date("2021-12-30T00:00:00Z"),
       ),
     ).toBe(1);
+    expect(
+      parseLeadTime(
+        "Least Expensive Arrives by Jan 1, 2999 $428.12",
+        new Date("2026-07-25T00:00:00Z"),
+      ),
+    ).toBeNull();
     expect(selectToleranceTier(0.01).tier).toBe("looser");
     expect(selectToleranceTier(0.006).tier).toBe("standard");
     expect(selectToleranceTier(0.005).tier).toBe("standard");
@@ -494,14 +527,14 @@ describe("XometryAdapter", () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({
       // No priceText/leadTimeText selector behavior: every declared locator
-      // misses, so the only currency on the page is an unrelated banner.
+      // misses, so the body-level tier currency remains untrusted.
       bodyText: "Configure part",
       postSaveBodyText: [
         "Quantity 2",
         "Material: Aluminum 6061-T6x",
         "Finish: Black Anodize",
         "Precision Tolerance: ±.005",
-        "Spring sale! Orders over $19.99 ship free. Lead time 5 business days",
+        "Least Expensive Spring sale! Orders over $19.99 ship free. Lead time 5 business days",
       ].join(" "),
       redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002/part-1",
       saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002#part-part-1",
@@ -661,6 +694,113 @@ describe("XometryAdapter", () => {
       selectedTolerance: "standard",
       requirementsVerified: true,
       priceSource: "none",
+    });
+  });
+
+  it("routes a summary-less saved page to manual review", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Configure part",
+      postSaveBodyText: "Manual review required. A Xometry engineer will confirm this quote.",
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0003/part-1",
+      saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0003#part-part-1",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[1]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          fill: vi.fn(),
+          press: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.materialButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.finishButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.toleranceOptions.standard]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.manualReviewText[0]]: {
+          count: 1,
+          text: "Manual review required",
+        },
+      },
+      optionTexts: ["6061-T6", "Black Anodize"],
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    expect(result.status).toBe("manual_review_pending");
+    expect(result.rawPayload).toMatchObject({
+      detectedFlow: "manual_review",
+      requirementsVerified: false,
+    });
+  });
+
+  it("fails closed when the saved page never renders a quote signal", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Configure part",
+      postSaveBodyText: "Your configuration was saved.",
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0004/part-1",
+      saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0004#part-part-1",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[1]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          fill: vi.fn(),
+          press: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.materialButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.finishButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.toleranceOptions.standard]: {
+          count: 1,
+          click: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+      },
+      optionTexts: ["6061-T6", "Black Anodize"],
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "unexpected_ui_state",
+      payload: {
+        field: "save_configuration",
+      },
     });
   });
 

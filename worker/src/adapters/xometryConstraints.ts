@@ -205,6 +205,11 @@ export function buildMaterialSearchTerms(material: string) {
   return null;
 }
 
+/**
+ * Maps an extracted finish to Xometry search terms. Type II black finishes map
+ * to "Black Anodize"; null, blank, as-machined, none, and no-finish values map
+ * to an empty list, while an unknown non-empty finish returns null.
+ */
 export function buildFinishSearchTerms(finish: string | null) {
   if (!finish) return [];
 

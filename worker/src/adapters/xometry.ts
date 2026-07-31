@@ -137,6 +137,10 @@ const ARRIVAL_MONTHS = [
   "dec",
 ] as const;
 
+const MAX_ARRIVAL_SPAN_DAYS = 400;
+const MILLISECONDS_PER_DAY = 86_400_000;
+const XOMETRY_POST_SAVE_TIMEOUT_FLOOR_MS = 120_000;
+
 function parseArrivalDate(text: string, today: Date) {
   const arrivalMatch =
     /arrives?\s+by\s+([a-z]+)\s+(\d{1,2})(?:,\s*(\d{4}))?/i.exec(text);
@@ -199,7 +203,14 @@ export function parseLeadTime(text: string, now = new Date()): number | null {
 
   const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const arrival = parseArrivalDate(text, today);
-  return arrival ? countUsFederalBusinessDays(today, arrival) : null;
+  if (!arrival) return null;
+
+  const arrivalSpanDays = Math.ceil(
+    (arrival.getTime() - today.getTime()) / MILLISECONDS_PER_DAY,
+  );
+  if (arrivalSpanDays > MAX_ARRIVAL_SPAN_DAYS) return null;
+
+  return countUsFederalBusinessDays(today, arrival);
 }
 
 function isSignalPresent(text: string, patterns: readonly RegExp[]) {
@@ -616,6 +627,10 @@ async function configureRequiredOption(
 }
 
 async function saveConfiguration(page: Page, timeoutMs: number) {
+  // Xometry can take longer than the general browser timeout to recalculate a
+  // configured quote. Keep this vendor-specific floor explicit and bounded.
+  const postSaveTimeoutMs = Math.max(timeoutMs, XOMETRY_POST_SAVE_TIMEOUT_FLOOR_MS);
+
   for (const selector of XOMETRY_LOCATORS.saveConfigurationButtons) {
     const button = page.locator(selector).first();
     if ((await button.count().catch(() => 0)) < 1) {
@@ -629,7 +644,7 @@ async function saveConfiguration(page: Page, timeoutMs: number) {
     await button.click();
     const navigated = await page
       .waitForURL((url) => url.toString() !== configurationUrl, {
-        timeout: Math.max(timeoutMs, 120_000),
+        timeout: postSaveTimeoutMs,
       })
       .then(() => true)
       .catch(() => false);
@@ -649,7 +664,7 @@ async function saveConfiguration(page: Page, timeoutMs: number) {
       );
     }
 
-    await page
+    const settled = await page
       .waitForFunction(
         () => {
           const text = document.body?.innerText ?? "";
@@ -662,8 +677,24 @@ async function saveConfiguration(page: Page, timeoutMs: number) {
           return priceAvailable || manualReviewAvailable;
         },
         undefined,
-        { timeout: Math.max(timeoutMs, 120_000) },
+        { timeout: postSaveTimeoutMs },
+      )
+      .then(() => true)
+      .catch(() => false);
+
+    if (!settled) {
+      const bodyText = await readBodyText(page);
+      throw new VendorAutomationError(
+        "Xometry did not render a price or manual-review signal after Save Configuration.",
+        "unexpected_ui_state",
+        {
+          vendor: "xometry",
+          field: "save_configuration",
+          url: page.url(),
+          bodyExcerpt: excerptText(bodyText),
+        },
       );
+    }
     return selector;
   }
 
@@ -821,6 +852,11 @@ export function hasVisibleFilename(text: string, filename: string) {
   return text.toLocaleLowerCase().includes(filename.toLocaleLowerCase());
 }
 
+/**
+ * Matches Xometry's rendered Precision Tolerance summary against a selected
+ * looser, standard, or tighter tier. A null tier means no configured tolerance
+ * and therefore always matches.
+ */
 export function toleranceSummaryMatches(bodyText: string, tier: string | null) {
   const summary = bodyText.replace(/\s+/g, " ");
   switch (tier) {
@@ -1286,6 +1322,7 @@ export class XometryAdapter extends VendorAdapter {
       await appendArtifacts(artifacts, page, runDir, "configured");
 
       const bodyText = await readBodyText(page);
+      const manualReviewResult = await detectManualReview(page, bodyText);
       const requirementMismatches = verifySavedRequirements(bodyText, {
         quantity: normalizedQuantity(input),
         materialTerms,
@@ -1293,7 +1330,8 @@ export class XometryAdapter extends VendorAdapter {
         toleranceTier: selectedTolerance,
         drawingName: input.stagedDrawingFile?.originalName ?? null,
       });
-      if (requirementMismatches.length > 0) {
+      const requirementsVerified = requirementMismatches.length === 0;
+      if (!manualReviewResult.manualReview && !requirementsVerified) {
         throw new VendorAutomationError(
           `Xometry saved quote did not confirm: ${requirementMismatches.join(", ")}.`,
           "unexpected_ui_state",
@@ -1324,7 +1362,6 @@ export class XometryAdapter extends VendorAdapter {
         parseLeadTime,
         bodyText,
       );
-      const manualReviewResult = await detectManualReview(page, bodyText);
       const priceGate = gateVendorPrice(priceResult);
       const totalPrice = priceGate.trusted ? priceResult.value : null;
       const leadTime = gateLeadTime(leadTimeResult, priceGate);
@@ -1428,7 +1465,7 @@ export class XometryAdapter extends VendorAdapter {
           selectedFinish,
           selectedTolerance,
           toleranceSelector,
-          requirementsVerified: true,
+          requirementsVerified,
           saveConfigurationSelector,
           priceSource,
           leadTimeSource,
