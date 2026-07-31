@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 /**
  * Integration tests for the api_request_quote Postgres RPC.
  *

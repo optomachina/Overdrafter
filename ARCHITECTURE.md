@@ -41,6 +41,8 @@ The intended end state is a multi-agent manufacturing co-pilot: CAD-native intak
 
 ### 1a. iOS application layer
 
+**As-built**
+
 - the universal SwiftUI target lives under `ios/` and supports iPhone and iPad
 - iPhone uses native Parts, Quotes, and Search tabs; iPad uses the same destinations in a native split view
 - the first release hosts the corresponding access-controlled web workflow in a shared persistent `WKWebView`
@@ -49,9 +51,67 @@ The intended end state is a multi-agent manufacturing co-pilot: CAD-native intak
   blocked and external main-frame HTTPS links leave the app; secure third-party subframes remain embedded for
   payment elements
 - email/password authentication is the supported first-release path inside the app; social OAuth controls are hidden
-  in `?app=ios` workspaces until a native callback/session handoff exists
-- later fully native feature screens may replace individual web destinations without changing the launch information
-  architecture
+  in `?app=ios` workspaces
+
+**Approved target**
+
+- signed-out launch is a native welcome surface that authenticates through the
+  OverDrafter website in `ASWebAuthenticationSession`
+- the production browser callback is a claimed, exact HTTPS route and contains
+  only an opaque single-use handoff code and transaction state
+- a dedicated bootstrap web view redeems the handoff through an HTTPS POST and
+  establishes the Supabase session in the same persistent
+  `WKWebsiteDataStore` used by workspace destinations
+- workspace destinations are not created until bootstrap or cold-launch
+  session restoration succeeds
+- the native shell grows to `Inbox | Parts | Quotes | More` with a separate,
+  capability-gated Ask action
+- later fully native feature screens may replace individual web destinations
+  without changing their domain routes or authorization boundaries
+
+### 1b. Mobile browser-auth bridge (As-built server boundary)
+
+The iOS browser and the app `WKWebView` are intentionally separate security and
+storage contexts. The implemented website bridge connects them without placing Supabase
+credentials in a callback URL or native persistence:
+
+- `GET /auth/mobile/start` validates version, state, PKCE S256 challenge, and an
+  allowlisted relative return route
+- the website creates a ceremony-scoped, transfer-only Supabase session; social
+  OAuth uses separate provider state/nonce/PKCE and a dedicated provider
+  callback bound to the unpredictable browser transaction; only its PKCE
+  verifier persists in namespaced `sessionStorage`
+- browser completion atomically claims the transaction before refresh-token
+  rotation, verifies that session, stores it in a short-lived encrypted server
+  envelope, and redirects to the exact claimed HTTPS callback
+- the callback fragment contains only opaque `code` and `state` values
+- `POST /auth/mobile/bootstrap` verifies PKCE, atomically consumes the handoff,
+  requires the fixed native request marker and host before session persistence,
+  and runs `supabase.auth.setSession(...)` plus a server-backed
+  `supabase.auth.getUser()` check in the shared app website data store
+- handoff material is at least 256 bits, expires within two minutes, and is
+  single-use under concurrent redemption
+- logout, relaunch, revocation, and account switching clear subject-bound
+  caches before a different session can be published
+
+The public boundary is one same-origin Vercel Function at
+`api/mobile-auth.ts`. Dedicated ceremony and bootstrap bundles are emitted at
+stable first-party asset paths; neither ceremony imports the normal application
+bundle. Credential-adjacent state is isolated in forced-RLS `private` tables and
+is reachable only through fixed-search-path, service-role-only RPCs. The
+database owns the atomic `authenticating -> verifying -> completed -> consumed`
+transitions, source `auth.sessions` check, envelope clearing, persistent rate
+counters, and bounded cleanup. Vercel Cron invokes cleanup daily with
+`CRON_SECRET`; terminal rows are retained for seven days and safe audit metadata
+for thirty days.
+
+The versioned endpoint, storage, failure, lifecycle, and threat contracts are
+canonical in
+[`docs/mobile-authentication-contract.md`](docs/mobile-authentication-contract.md).
+The server/browser half is implemented by `OVD-219`. The native welcome,
+claimed-HTTPS callback capture, shared-store bootstrap host, local-scope logout,
+and account switching remain the `OVD-221` target and must pass the physical
+device release gate before this flow replaces the current embedded sign-in.
 
 ### 2. Backend data and domain layer
 - persistence of workspaces, projects, parts, jobs, files, quotes, packages, and service request records
@@ -151,13 +211,28 @@ None of the following exists in the codebase today. Vendor automation is impleme
 - OpenClaw harness (invisible browser automation)
 - PDM graph and revision sandboxing
 
+### 10. Supplier directory and assisted-RFQ layer
+
+- canonical supplier companies remain separate from physical supplier facilities
+- facility records carry location and service-area data used for geographic search
+- normalized capabilities and certifications are many-to-many claims with source provenance and verification history
+- source records preserve imported or contributed evidence without overwriting canonical reviewed values
+- customer-suggested suppliers enter a candidate workflow and are deduplicated before publication
+- instant-quote vendor adapters remain separate from directory suppliers; a supplier may later link to an adapter without becoming one by default
+- assisted RFQ workflows may use a directory supplier without claiming automated price or lead-time availability
+- sponsored placement is stored and rendered separately from organic eligibility and match scoring
+- technical eligibility, capability matching, proximity, and verification confidence are computed without paid-placement influence
+
 ## Domain hierarchy
 
 The top-level persisted collaboration and procurement-workflow container is `Project`, not `Assembly`. The organization is the separate commercial account, subscription, and entitlement boundary.
 
-The client launch information architecture is collection-first: `Parts | Quotes | Search`. This presentation does not
-remove or flatten Project. Project remains the scope that groups collaborators, mixed manufacturing requests, files,
-quote rounds, and later order records; it is revealed from the work that needs that context.
+The client launch information architecture is collection-first. Responsive web
+uses `Parts | Quotes | Search`; the approved iOS target uses
+`Inbox | Parts | Quotes | More` and maps Search/Projects contextually. Neither
+presentation removes or flattens Project. Project remains the scope that groups
+collaborators, mixed manufacturing requests, files, quote rounds, and later
+order records; it is revealed from the work that needs that context.
 
 A project is the commercial and workflow scope for mixed manufacturing requests. It can contain:
 
@@ -214,6 +289,8 @@ This slice is intentionally pure and independently testable before PDF extractio
 - quote requests record user intent and lifecycle for starting quote collection
 - quote runs record execution instances launched from a quote request or an internal-only kickoff
 - vendor quote records remain vendor-specific execution output attached to a quote run
+- supplier directory matches are sourcing candidates and do not become vendor quote results until an actual quote is received or entered
+- instant quote execution and assisted supplier discovery may coexist for the same manufacturing request without sharing lifecycle state
 
 See `docs/service-request-taxonomy.md` for the canonical service types and mixed-service modeling rules.
 
