@@ -25,6 +25,31 @@ This document defines what it means for the current repository-hardening phase t
 - Production website and TestFlight install links are smoke-tested against the release build.
 - Product, architecture, design, test, and release documentation reflect the shipped behavior.
 
+### Contract addendum — iOS browser authentication
+
+- The versioned contract defines browser start, provider callback, browser
+  completion, claimed HTTPS app callback, and app-web-store bootstrap.
+- The app callback contains only an opaque handoff code and transaction state;
+  access and refresh tokens never enter a callback URL or native persistence.
+- Transaction-specific native state and PKCE S256 bind the callback and
+  one-time bootstrap to the initiating app instance.
+- Provider OAuth validation remains Supabase-owned; the website callback
+  validates its browser transaction before exchanging the Supabase code with a
+  ceremony-scoped PKCE verifier and never reuses the native handoff values or
+  the website's persistent Supabase client.
+- Handoff material contains at least 256 bits of entropy, expires within two
+  minutes, and is single-use under serial and concurrent redemption.
+- Shared-browser sign-in, ephemeral account switching, process death, external
+  email verification/recovery, relaunch, local-session logout, and revocation
+  behavior are explicit.
+- Cancellation, expiry, replay, state mismatch, provider failure, network loss,
+  and bootstrap failure have stable codes and retry behavior.
+- The threat review covers browser/app storage separation, callback
+  interception, token leakage, replay, CSRF, open redirects, cross-tenant
+  access, stale subject data, and logging boundaries.
+- Runtime, native UI, navigation, Ask OverDrafter, and standards-content
+  acceptance remain with their owning issues rather than `OVD-220`.
+
 ### Historical MVP addendum — no-Stripe live quote path for `dmrifles@gmail.com`
 - This delivered milestone remains regression context but is no longer the complete commercial product boundary.
 - The existing `dmrifles@gmail.com` user can sign in to the target environment.
@@ -68,6 +93,16 @@ This document defines what it means for the current repository-hardening phase t
 - The client UI clearly shows quote request lifecycle state: `not requested`, `queued`, `requesting`, `received`, `failed`, or `canceled`.
 - Cross-org users cannot request or inspect quote request state for jobs they do not own or cannot access.
 - Relevant product, planning, architecture, and test documents are updated in the same change.
+
+### Feature addendum — Supplier discovery foundation
+
+- Instant-quote vendor adapters remain distinct from supplier-directory companies and facilities.
+- Supplier records can preserve multiple facilities, capabilities, certifications, aliases, source records, and verification events.
+- Geographic search is facility-based and does not assume a company has only one location.
+- Imported historical records retain source and effective-date provenance and are not represented as currently verified by default.
+- Customer-suggested suppliers can enter a candidate state without becoming published or verified automatically.
+- Organic technical eligibility and match scoring are independent of paid placement.
+- Any future paid placement is explicitly labeled and cannot make an ineligible supplier appear qualified.
 
 ### 1. Canonical root documentation
 - `PRD.md` exists at repo root.

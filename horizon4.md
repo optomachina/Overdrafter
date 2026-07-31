@@ -1,6 +1,6 @@
 # Horizon 4 — Add Cross-Platform Clients and Notifications
 
-Last updated: March 11, 2026
+Last updated: July 28, 2026
 
 ## Purpose
 
@@ -28,9 +28,12 @@ Allow users to review, monitor, approve, and coordinate work across browser, des
 ### 3. Mobile clients
 - iPhone app
 - Android app
-- review and approval surfaces
-- status visibility
-- quote and order monitoring
+- website-mediated system-browser authentication
+- quote-action Inbox
+- parts and quote review
+- contextual project/search access
+- status visibility and quote monitoring
+- capability-gated read-only Ask OverDrafter
 
 ### 4. Shared design language across surfaces
 - common navigation primitives
@@ -55,11 +58,17 @@ The cross-surface notification taxonomy for browser, center, desktop, and mobile
 - support system notifications
 - support better file handling
 
-### Epic: mobile review app
-- quote review
-- project status
-- revision awareness
-- shipment visibility
+### Epic: quoting-first mobile app
+- native welcome and secure website-mediated sign-in
+- `Inbox | Parts | Quotes | More` shell with a separate Ask action
+- unresolved quote decisions and recoverable quote-request failures
+- parts, quote comparison, and contextual project/search access
+- read-only contextual questions with structured results
+- later revision, approval, order, and shipment visibility as their domain
+  contracts become real
+
+The browser-auth and shared-web-session boundary is defined in
+[`docs/mobile-authentication-contract.md`](docs/mobile-authentication-contract.md).
 
 ### Epic: session and sync continuity
 - notification routing
@@ -71,3 +80,6 @@ The cross-surface notification taxonomy for browser, center, desktop, and mobile
 - full native modeling capability
 - deep local PDM vault sync
 - CAD authoring inside mobile or desktop clients
+- consequential agent actions without explicit authorization, confirmation,
+  idempotency, and audit contracts
+- standards-backed answers without content rights and edition-aware citations
