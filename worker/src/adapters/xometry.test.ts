@@ -109,12 +109,13 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
 }
 
 type LocatorBehavior = {
-  count?: number;
+  count?: number | (() => number);
   text?: string;
   setInputFiles?: (files: string[]) => Promise<void> | void;
   click?: () => Promise<void> | void;
   fill?: (value: string) => Promise<void> | void;
   press?: (value: string) => Promise<void> | void;
+  waitFor?: () => Promise<void> | void;
 };
 
 type FakePageOptions = {
@@ -123,6 +124,7 @@ type FakePageOptions = {
   url?: string;
   selectorBehaviors?: Record<string, LocatorBehavior>;
   optionTexts?: string[] | (() => string[]);
+  onOptionWait?: (name?: RegExp) => Promise<void> | void;
   redirectUrl?: string;
   saveRedirectUrl?: string;
   saveNavigationFails?: boolean;
@@ -130,15 +132,24 @@ type FakePageOptions = {
 };
 
 function makeLocator(behavior: LocatorBehavior = {}) {
+  const currentCount = () =>
+    typeof behavior.count === "function" ? behavior.count() : (behavior.count ?? 0);
+
   return {
     first() {
       return this;
     },
     async count() {
-      return behavior.count ?? 0;
+      return currentCount();
     },
     async isVisible() {
-      return (behavior.count ?? 0) > 0;
+      return currentCount() > 0;
+    },
+    async waitFor() {
+      await behavior.waitFor?.();
+      if (currentCount() < 1) {
+        throw new Error("locator did not become visible");
+      }
     },
     async innerText() {
       return behavior.text ?? "";
@@ -211,14 +222,17 @@ function createFakePage(options: FakePageOptions) {
         return makeLocator({ count: 0, text: "" });
       }
 
-      const availableOptionTexts =
-        typeof options.optionTexts === "function" ? options.optionTexts() : options.optionTexts;
-      const optionText =
-        availableOptionTexts?.find((candidate) => input.name?.test(candidate)) ?? "";
+      const findOptionText = () => {
+        const availableOptionTexts =
+          typeof options.optionTexts === "function" ? options.optionTexts() : options.optionTexts;
+        return availableOptionTexts?.find((candidate) => input.name?.test(candidate)) ?? "";
+      };
 
       return makeLocator({
-        count: optionText ? 1 : 0,
-        text: optionText,
+        count: () => (findOptionText() ? 1 : 0),
+        waitFor: async () => {
+          await options.onOptionWait?.(input.name);
+        },
       });
     },
     async waitForFunction(callback: unknown, argument?: unknown) {
@@ -460,6 +474,14 @@ describe("XometryAdapter", () => {
     const setTolerance = vi.fn();
     let materialOptionsOpen = false;
     let finishOptionsOpen = false;
+    let materialOptionsRendered = false;
+    let finishOptionsRendered = false;
+    const openMaterialOptions = vi.fn(() => {
+      materialOptionsOpen = true;
+    });
+    const openFinishOptions = vi.fn(() => {
+      finishOptionsOpen = true;
+    });
     const page = createFakePage({
       bodyText: "Configure part",
       postSaveBodyText: [
@@ -483,15 +505,11 @@ describe("XometryAdapter", () => {
         },
         [XOMETRY_LOCATORS.materialButtons[0]]: {
           count: 1,
-          click: vi.fn(() => {
-            materialOptionsOpen = true;
-          }),
+          click: openMaterialOptions,
         },
         [XOMETRY_LOCATORS.finishButtons[0]]: {
           count: 1,
-          click: vi.fn(() => {
-            finishOptionsOpen = true;
-          }),
+          click: openFinishOptions,
         },
         [XOMETRY_LOCATORS.priceText[0]]: {
           count: 1,
@@ -507,9 +525,13 @@ describe("XometryAdapter", () => {
         },
       },
       optionTexts: () => {
-        if (finishOptionsOpen) return ["Black Anodize"];
-        if (materialOptionsOpen) return ["6061-T6"];
+        if (finishOptionsOpen && finishOptionsRendered) return ["Black Anodize"];
+        if (materialOptionsOpen && materialOptionsRendered) return ["6061-T6"];
         return [];
+      },
+      onOptionWait: (name) => {
+        if (name?.test("6061-T6")) materialOptionsRendered = true;
+        if (name?.test("Black Anodize")) finishOptionsRendered = true;
       },
     });
     launchMock.mockResolvedValue(createFakeBrowser(page));
@@ -540,6 +562,8 @@ describe("XometryAdapter", () => {
     });
     expect(saveConfiguration).toHaveBeenCalledTimes(1);
     expect(setTolerance).toHaveBeenCalledTimes(1);
+    expect(openMaterialOptions).toHaveBeenCalledTimes(1);
+    expect(openFinishOptions).toHaveBeenCalledTimes(1);
     expect(page.waitForURL).toHaveBeenCalled();
     expect(result.artifacts).toHaveLength(8);
   });
