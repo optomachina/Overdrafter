@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:login": "open 'http://localhost:8080/dev-login?redirect=/'",
-    "build": "vite build",
+    "build": "vite build && node scripts/verify-mobile-auth-build.mjs",
     "build:dev": "vite build --mode development",
     "db:start": "supabase start",
     "db:reset": "supabase db reset",
@@ -15,7 +15,7 @@
     "seed:dev": "node ./scripts/seed-dev.mjs",
     "generate:favicon": "node scripts/generate-favicons.mjs",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.server.json",
     "typecheck:worker": "npm --prefix worker run typecheck",
     "preview": "vite preview",
     "e2e": "playwright test",

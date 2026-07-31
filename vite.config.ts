@@ -80,14 +80,35 @@ export default defineConfig(({ mode }) => ({
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
   },
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        "mobile-auth": path.resolve(__dirname, "src/mobile-auth/ceremony-entry.ts"),
+        "mobile-bootstrap": path.resolve(__dirname, "src/mobile-auth/bootstrap-entry.ts"),
+      },
+      output: {
+        entryFileNames(chunkInfo) {
+          if (chunkInfo.name === "mobile-auth" || chunkInfo.name === "mobile-bootstrap") {
+            return `assets/${chunkInfo.name}.js`;
+          }
+
+          return "assets/[name]-[hash].js";
+        },
+      },
+    },
+  },
   test: {
     globals: true,
     environment: "jsdom",
-    environmentMatchGlobs: [
-      ["worker/src/**/*.test.ts", "node"],
-      ["scripts/**/*.test.mjs", "node"],
+    include: [
+      "api/**/*.test.ts",
+      "server/**/*.test.ts",
+      "src/**/*.test.ts",
+      "src/**/*.test.tsx",
+      "worker/src/**/*.test.ts",
+      "scripts/**/*.test.mjs",
     ],
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "worker/src/**/*.test.ts", "scripts/**/*.test.mjs"],
     clearMocks: true,
     mockReset: true,
     restoreMocks: true,
