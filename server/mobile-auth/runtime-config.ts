@@ -1,8 +1,8 @@
 import {
   loadMobileAuthConfig,
   type MobileAuthServerConfig,
-} from "./config";
-import { containsAsciiControlCharacters } from "./contract";
+} from "./config.js";
+import { containsAsciiControlCharacters } from "./contract.js";
 
 export type MobileAuthEnvironment = "test" | "local" | "preview" | "production";
 

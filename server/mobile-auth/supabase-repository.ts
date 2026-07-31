@@ -3,7 +3,7 @@ import {
   MOBILE_AUTH_LIFETIMES,
   MOBILE_AUTH_LIMITS,
   MOBILE_AUTH_PKCE_METHOD,
-} from "./contract";
+} from "./contract.js";
 import type {
   BrowserMobileAuthTransaction,
   MobileAuthAuditEvent,
@@ -12,8 +12,8 @@ import type {
   MobileAuthRateLimitInput,
   MobileAuthRepository,
   PreparedMobileAuthBootstrap,
-} from "./repository";
-import { createMobileAuthUpstreamFetch } from "./upstream-fetch";
+} from "./repository.js";
+import { createMobileAuthUpstreamFetch } from "./upstream-fetch.js";
 
 interface RpcError {
   readonly message?: string;

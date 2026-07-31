@@ -7,7 +7,7 @@ import {
   containsAsciiControlCharacters,
   type MobileAuthKeyedDigest,
   type MobileAuthMasterKeyring,
-} from "./contract";
+} from "./contract.js";
 import {
   constantTimeEqual,
   createCurrentHmacDigest,
@@ -15,7 +15,7 @@ import {
   createRandomBase64Url,
   decodeCanonicalBase64Url,
   verifyHmacDigest,
-} from "./crypto";
+} from "./crypto.js";
 
 const COOKIE_VALUE_PREFIX = `v${MOBILE_AUTH_CONTRACT_VERSION}`;
 const SAFE_RATE_LIMIT_INPUT_PATTERN = /^[\x20-\x7e]{1,512}$/;

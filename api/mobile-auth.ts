@@ -1,7 +1,7 @@
-import { createMobileAuthHandler } from "../server/mobile-auth/handler";
-import { loadMobileAuthRuntimeConfig } from "../server/mobile-auth/runtime-config";
-import { createSupabaseMobileAuthRepository } from "../server/mobile-auth/supabase-repository";
-import { createTransferSessionVerifier } from "../server/mobile-auth/supabase-transfer";
+import { createMobileAuthHandler } from "../server/mobile-auth/handler.js";
+import { loadMobileAuthRuntimeConfig } from "../server/mobile-auth/runtime-config.js";
+import { createSupabaseMobileAuthRepository } from "../server/mobile-auth/supabase-repository.js";
+import { createTransferSessionVerifier } from "../server/mobile-auth/supabase-transfer.js";
 
 type MobileAuthHandler = (request: Request) => Promise<Response>;
 

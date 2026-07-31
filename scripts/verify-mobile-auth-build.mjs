@@ -5,13 +5,15 @@
  * hashed SPA entry, and the mobile-auth module graph for server-secret markers.
  */
 
-import { readFile, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const distributionRoot = path.join(repositoryRoot, "dist");
+const mobileAuthSourceRoot = path.join(repositoryRoot, "server", "mobile-auth");
+const mobileAuthApiSource = path.join(repositoryRoot, "api", "mobile-auth.ts");
 const stableMobileAuthAssets = [
   path.join(distributionRoot, "assets", "mobile-auth.js"),
   path.join(distributionRoot, "assets", "mobile-bootstrap.js"),
@@ -85,6 +87,25 @@ async function verifyStableEntryAssets() {
   }
 }
 
+async function verifyNodeEsmSourceImports() {
+  const serverSourceFiles = (await readdir(mobileAuthSourceRoot))
+    .filter((fileName) => fileName.endsWith(".ts") && !fileName.endsWith(".test.ts"))
+    .map((fileName) => path.join(mobileAuthSourceRoot, fileName));
+
+  for (const filePath of [mobileAuthApiSource, ...serverSourceFiles]) {
+    const contents = await readFile(filePath, "utf8");
+    const invalidSpecifier = readRelativeModuleImports(contents).find(
+      (specifier) => !specifier.endsWith(".js"),
+    );
+
+    if (invalidSpecifier) {
+      throw new Error(
+        `Node ESM import ${invalidSpecifier} in ${path.relative(repositoryRoot, filePath)} must use a .js extension.`,
+      );
+    }
+  }
+}
+
 async function verifyHashedSpaEntry() {
   const indexPath = path.join(distributionRoot, "index.html");
   const indexHtml = await readFile(indexPath, "utf8");
@@ -117,6 +138,7 @@ async function verifyServerSecretsAreAbsent() {
 }
 
 async function main() {
+  await verifyNodeEsmSourceImports();
   await verifyStableEntryAssets();
   await verifyHashedSpaEntry();
   await verifyServerSecretsAreAbsent();

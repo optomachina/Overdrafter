@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { MOBILE_AUTH_LIMITS } from "./contract";
-import { createMobileAuthUpstreamFetch } from "./upstream-fetch";
+import { MOBILE_AUTH_LIMITS } from "./contract.js";
+import { createMobileAuthUpstreamFetch } from "./upstream-fetch.js";
 
 export interface TransferSessionMaterial {
   accessToken: string;

@@ -140,7 +140,7 @@ export interface MobileAuthEncryptedEnvelope {
 export {
   MOBILE_AUTH_PROVIDER_ERRORS,
   type MobileAuthProviderError,
-} from "../../shared/mobile-auth-provider-errors";
+} from "../../shared/mobile-auth-provider-errors.js";
 
 export interface MobileAuthReadyMessage {
   readonly version: typeof MOBILE_AUTH_MESSAGE_VERSION;

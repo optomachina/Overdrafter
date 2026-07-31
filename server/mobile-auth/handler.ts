@@ -10,7 +10,7 @@ import {
   type MobileAuthErrorCode,
   type MobileAuthKeyedDigest,
   type MobileAuthRetryInstruction,
-} from "./contract";
+} from "./contract.js";
 import {
   createBrowserBindingLookupCandidates,
   createMobileAuthBindingDigests,
@@ -20,14 +20,14 @@ import {
   serializeExpiredMobileAuthCookie,
   serializeMobileAuthCookie,
   verifyMobileAuthCsrf,
-} from "./cookies";
+} from "./cookies.js";
 import {
   calculateS256CodeChallenge,
   constantTimeEqual,
   createCurrentHmacDigest,
   createHmacLookupCandidates,
   createMobileAuthHandoffCode,
-} from "./crypto";
+} from "./crypto.js";
 import {
   createMobileAuthStorageNamespace,
   renderMobileAuthBootstrapFailureDocument,
@@ -36,37 +36,37 @@ import {
   renderMobileAuthProviderCallbackDocument,
   renderMobileAuthRecoveryDocument,
   type MobileAuthHtmlDocument,
-} from "./documents";
+} from "./documents.js";
 import {
   openSessionEnvelope,
   openStateEnvelope,
   sealSessionEnvelope,
   sealStateEnvelope,
-} from "./envelopes";
+} from "./envelopes.js";
 import {
   parseBootstrapRequest,
   parseCompleteRequest,
   parseProviderCallbackRequest,
   parseStartRequest,
   type ParsedBootstrapRequest,
-} from "./parsing";
+} from "./parsing.js";
 import type {
   BrowserMobileAuthTransaction,
   MobileAuthAuditEvent,
   MobileAuthRepository,
   PreparedMobileAuthBootstrap,
-} from "./repository";
+} from "./repository.js";
 import {
   readTrustedClientIp,
   resolveMobileAuthRoute,
   type MobileAuthAction,
   type ResolvedMobileAuthRoute,
-} from "./request-routing";
-import type { MobileAuthRuntimeConfig } from "./runtime-config";
+} from "./request-routing.js";
+import type { MobileAuthRuntimeConfig } from "./runtime-config.js";
 import type {
   TransferSessionVerifier,
   VerifiedTransferSession,
-} from "./supabase-transfer";
+} from "./supabase-transfer.js";
 
 export interface MobileAuthHandlerDependencies {
   readonly config: MobileAuthRuntimeConfig;

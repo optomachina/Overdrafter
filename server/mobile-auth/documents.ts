@@ -10,14 +10,14 @@ import {
   type MobileAuthFailureMessage,
   type MobileAuthProviderError,
   type MobileAuthRetryInstruction,
-} from "./contract";
-import { decodeCanonicalBase64Url } from "./crypto";
+} from "./contract.js";
+import { decodeCanonicalBase64Url } from "./crypto.js";
 import {
   createMobileAuthCspNonce,
   createMobileAuthDocumentHeaders,
-} from "./headers";
-import { parseMobileReturnRoute } from "./return-routes";
-import { isMobileAuthProviderError } from "../../shared/mobile-auth-provider-errors";
+} from "./headers.js";
+import { parseMobileReturnRoute } from "./return-routes.js";
+import { isMobileAuthProviderError } from "../../shared/mobile-auth-provider-errors.js";
 
 const MOBILE_AUTH_CONFIG_ELEMENT_ID = "overdrafter-mobile-auth-config";
 const MOBILE_AUTH_BOOTSTRAP_CONFIG_ELEMENT_ID =

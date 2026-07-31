@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import { MOBILE_AUTH_PATHS } from "./contract";
+import { MOBILE_AUTH_PATHS } from "./contract.js";
 
 export type MobileAuthAction =
   | "start"

@@ -1,8 +1,8 @@
-import { MOBILE_AUTH_LIMITS } from "./contract";
+import { MOBILE_AUTH_LIMITS } from "./contract.js";
 import {
   createRandomBase64Url,
   decodeCanonicalBase64Url,
-} from "./crypto";
+} from "./crypto.js";
 
 export type MobileAuthDocumentKind =
   | "ceremony"

@@ -1,7 +1,7 @@
 import {
   MOBILE_AUTH_LIMITS,
   containsAsciiControlCharacters,
-} from "./contract";
+} from "./contract.js";
 
 const RETURN_ROUTE_SEGMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const ENCODED_OR_AMBIGUOUS_PATH_PATTERN = /[%\\?#]/;

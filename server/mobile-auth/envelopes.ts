@@ -3,14 +3,14 @@ import {
   type MobileAuthEncryptedEnvelope,
   type MobileAuthEnvelopeContext,
   type MobileAuthMasterKeyring,
-} from "./contract";
+} from "./contract.js";
 import {
   decodeCanonicalBase64Url,
   decryptMobileAuthEnvelope,
   encryptMobileAuthEnvelope,
   encryptMobileAuthEnvelopeWithKeyVersion,
-} from "./crypto";
-import type { TransferSessionMaterial } from "./supabase-transfer";
+} from "./crypto.js";
+import type { TransferSessionMaterial } from "./supabase-transfer.js";
 
 interface StoredMobileAuthEnvelope {
   readonly version: 1;

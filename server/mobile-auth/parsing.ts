@@ -5,10 +5,10 @@ import {
   MOBILE_AUTH_PKCE_METHOD,
   containsAsciiControlCharacters,
   type MobileAuthProviderError,
-} from "./contract";
-import { decodeCanonicalBase64Url } from "./crypto";
-import { parseMobileReturnRoute } from "./return-routes";
-import { isMobileAuthProviderError } from "../../shared/mobile-auth-provider-errors";
+} from "./contract.js";
+import { decodeCanonicalBase64Url } from "./crypto.js";
+import { parseMobileReturnRoute } from "./return-routes.js";
+import { isMobileAuthProviderError } from "../../shared/mobile-auth-provider-errors.js";
 
 const FORM_CONTENT_TYPE = "application/x-www-form-urlencoded";
 const FIELD_NAME_PATTERN = /^[a-z_]+$/;

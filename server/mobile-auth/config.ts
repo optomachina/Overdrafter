@@ -4,8 +4,8 @@ import {
   containsAsciiControlCharacters,
   type MobileAuthMasterKey,
   type MobileAuthMasterKeyring,
-} from "./contract";
-import { decodeCanonicalBase64Url } from "./crypto";
+} from "./contract.js";
+import { decodeCanonicalBase64Url } from "./crypto.js";
 
 const MASTER_KEYRING_ENV = "MOBILE_AUTH_KEYRING";
 const MASTER_KEY_CURRENT_VERSION_ENV = "MOBILE_AUTH_CURRENT_KEY_VERSION";

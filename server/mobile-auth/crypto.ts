@@ -19,8 +19,8 @@ import {
   type MobileAuthKeyedDigest,
   type MobileAuthMasterKey,
   type MobileAuthMasterKeyring,
-} from "./contract";
-import { parseMobileReturnRoute } from "./return-routes";
+} from "./contract.js";
+import { parseMobileReturnRoute } from "./return-routes.js";
 
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const AES_GCM_IV_BYTES = 12;
