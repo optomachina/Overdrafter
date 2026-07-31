@@ -80,6 +80,16 @@ function renderProbe() {
   };
 }
 
+function renderProbeWithQueryClient(queryClient: QueryClient) {
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/internal/jobs/job-1"]}>
+        <SessionProbe />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
 function deferredPromise<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -288,6 +298,63 @@ describe("useAppSession", () => {
     await waitFor(() => {
       expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
     });
+  });
+
+  it("finishes restoration from a fresh cached projection after a route remount", async () => {
+    const tokenKey = getSupabaseAuthStorageKey();
+    const localSession = {
+      access_token: "token-1",
+      refresh_token: "refresh-token-1",
+      expires_in: 3600,
+      token_type: "bearer",
+      user: {
+        id: "user-1",
+        email: "client@example.com",
+        app_metadata: {},
+        user_metadata: {},
+        aud: "authenticated",
+        created_at: "2026-03-11T00:00:00.000Z",
+      },
+    } as Session;
+    const cachedSession: AppSessionData = {
+      user: localSession.user as AppSessionData["user"],
+      memberships: [
+        {
+          id: "membership-1",
+          role: "internal_admin",
+          organizationId: "org-1",
+          organizationName: "Client Org",
+          organizationSlug: "client-org",
+        },
+      ],
+      isVerifiedAuth: true,
+      isPlatformAdmin: true,
+      authState: "authenticated",
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    storageMock.setItem(tokenKey, JSON.stringify({ access_token: "token-1" }));
+    getSessionMock.mockResolvedValueOnce({
+      data: { session: localSession },
+      error: null,
+    });
+    queryClient.setQueryData(["app-session"], cachedSession);
+
+    renderProbeWithQueryClient(queryClient);
+
+    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+      expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    });
+    expect(fetchAppSessionDataMock).not.toHaveBeenCalled();
   });
 
   it("does not clear local storage when a stored-token startup read times out", async () => {

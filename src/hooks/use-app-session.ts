@@ -216,7 +216,14 @@ export function useAppSession() {
           return;
         }
 
-        pendingAuthTransitionRef.current = true;
+        const cachedSession =
+          queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
+        const hasResolvedCachedProjection =
+          cachedSession?.authState === "authenticated" &&
+          cachedSession.user?.id === bootstrap.session.user.id &&
+          !cachedSession.membershipError;
+
+        pendingAuthTransitionRef.current = !hasResolvedCachedProjection;
         updateInitialAuthCheck("present");
         seedSessionFromSupabaseSession(
           bootstrap.session,
@@ -224,6 +231,16 @@ export function useAppSession() {
             ? "use-app-session.initial-check.seed-session-error"
             : "use-app-session.initial-check.seed",
         );
+
+        if (hasResolvedCachedProjection) {
+          markInitialRestoreResolved(
+            "use-app-session.initial-check.cached-projection",
+            {
+              userId: bootstrap.session.user.id,
+              membershipCount: cachedSession.memberships.length,
+            },
+          );
+        }
       })
       .catch((error: unknown) => {
         if (cancelled) {
@@ -240,7 +257,13 @@ export function useAppSession() {
     return () => {
       cancelled = true;
     };
-  }, [isFixtureSession, markInitialRestoreResolved, seedSessionFromSupabaseSession, updateInitialAuthCheck]);
+  }, [
+    isFixtureSession,
+    markInitialRestoreResolved,
+    queryClient,
+    seedSessionFromSupabaseSession,
+    updateInitialAuthCheck,
+  ]);
 
   useEffect(() => {
     if (isFixtureSession) {
