@@ -58,7 +58,7 @@ begin
     'request.jwt.claims',
     pg_catalog.jsonb_build_object(
       'sub', p_user_id,
-      'role', 'authenticated',
+      'role', 'authenticated', -- NOSONAR: repeated pgTAP auth fixture
       'aal', p_aal
     )::text,
     true
@@ -164,8 +164,8 @@ values
     (select project_id from ovd262_context),
     (select requester_user_id from ovd262_context),
     'First bracket',
-    'awaiting_vendor_manual_review',
-    '2026-07-30T10:00:00Z'
+    'awaiting_vendor_manual_review', -- NOSONAR: repeated lifecycle fixture
+    '2026-07-30T10:00:00Z' -- NOSONAR: deterministic fixture timestamp
   ),
   (
     (select second_job_id from ovd262_context),
@@ -174,7 +174,7 @@ values
     (select requester_user_id from ovd262_context),
     'Second bracket',
     'awaiting_vendor_manual_review',
-    '2026-07-30T11:00:00Z'
+    '2026-07-30T11:00:00Z' -- NOSONAR: deterministic fixture timestamp
   ),
   (
     (select third_job_id from ovd262_context),
@@ -183,7 +183,7 @@ values
     (select requester_user_id from ovd262_context),
     'Third bracket',
     'awaiting_vendor_manual_review',
-    '2026-07-30T12:00:00Z'
+    '2026-07-30T12:00:00Z' -- NOSONAR: deterministic fixture timestamp
   );
 
 insert into public.parts (
@@ -238,8 +238,8 @@ values
     (select first_job_id from ovd262_context),
     (select requester_user_id from ovd262_context),
     '{}'::public.vendor_name[],
-    'manual',
-    'queued',
+    'manual', -- NOSONAR: repeated lifecycle fixture
+    'queued', -- NOSONAR: repeated lifecycle fixture
     '2026-07-30T10:00:00Z',
     '2026-07-30T10:00:00Z'
   ),
@@ -353,7 +353,7 @@ select throws_ok(
   $$
     select public.api_admin_list_manual_quote_requests(null, 25)
   $$,
-  'P0001',
+  'P0001', -- NOSONAR: asserted PostgreSQL exception code
   'You do not have the required commercial capability.',
   'order admins cannot read the billing-admin manual quote inbox'
 );
@@ -381,7 +381,7 @@ select is(
 select ok(
   nullif(
     public.api_admin_list_manual_quote_requests(null, 2)
-      ->> 'nextCursor',
+      ->> 'nextCursor', -- NOSONAR: stable JSON contract key
     ''
   ) is not null,
   'a full page returns an opaque continuation cursor'
@@ -450,10 +450,10 @@ select throws_ok(
       (select first_run_id from ovd262_context),
       (select first_job_id from ovd262_context),
       (select first_part_id from ovd262_context),
-      'xometry',
-      'Record the manually sourced quote',
-      'complete-first',
-      'official_quote_received',
+      'xometry', -- NOSONAR: deterministic offer fixture
+      'Record the manually sourced quote', -- NOSONAR: deterministic audit fixture
+      'complete-first', -- NOSONAR: deterministic idempotency fixture
+      'official_quote_received', -- NOSONAR: deterministic completion fixture
       null,
       null,
       null,
@@ -498,8 +498,8 @@ select throws_ok(
   $$
     insert into storage.objects (bucket_id, name, owner_id)
     values (
-      'quote-artifacts',
-      'manual-completions/'
+      'quote-artifacts', -- NOSONAR: stable storage bucket contract
+      'manual-completions/' -- NOSONAR: stable storage lineage contract
         || (select first_request_id::text from ovd262_context)
         || '/'
         || (select first_run_id::text from ovd262_context)
@@ -507,8 +507,8 @@ select throws_ok(
       (select billing_admin_user_id::text from ovd262_context)
     )
   $$,
-  '42501',
-  'new row violates row-level security policy for table "objects"',
+  '42501', -- NOSONAR: asserted PostgreSQL authorization code
+  'new row violates row-level security policy for table "objects"', -- NOSONAR: asserted authorization error
   'billing admins cannot upload evidence beneath an arbitrary job'
 );
 
@@ -563,7 +563,7 @@ select lives_ok(
         || (select first_run_id::text from ovd262_context)
         || '/'
         || (select first_job_id::text from ovd262_context)
-        || '/active-request.pdf',
+        || '/active-request.pdf', -- NOSONAR: deterministic storage fixture
       (select billing_admin_user_id::text from ovd262_context)
     )
   $$,
@@ -614,7 +614,7 @@ select throws_ok(
       null,
       null,
       null,
-      '[
+      /* NOSONAR: readable multi-line malformed-offer fixture */ '[
         {"offerId":"valid-lane","totalPriceUsd":"100.00","leadTimeBusinessDays":"5"},
         {"offerId":"missing-total","leadTimeBusinessDays":"7"}
       ]'::jsonb,
@@ -640,7 +640,7 @@ select throws_ok(
       null,
       null,
       null,
-      '[
+      /* NOSONAR: readable multi-line malformed-offer fixture */ '[
         {"offerId":"duplicate-lane","totalPriceUsd":"100.00"},
         {"offerId":"duplicate-lane","totalPriceUsd":"120.00"}
       ]'::jsonb,
@@ -707,7 +707,7 @@ select is(
             || (select first_run_id::text from ovd262_context)
             || '/'
             || (select first_job_id::text from ovd262_context)
-            || '/supplier-quote.pdf',
+            || '/supplier-quote.pdf', -- NOSONAR: deterministic storage fixture
           'metadata',
             pg_catalog.jsonb_build_object(
               'originalName', 'supplier-quote.pdf'
@@ -925,8 +925,8 @@ select ok(
   exists (
     select 1
     from pg_catalog.pg_policies policy_row
-    where policy_row.schemaname = 'storage'
-      and policy_row.tablename = 'objects'
+    where policy_row.schemaname = 'storage' -- NOSONAR: asserted catalog fixture
+      and policy_row.tablename = 'objects' -- NOSONAR: asserted catalog fixture
       and policy_row.policyname =
         'quote_artifacts_storage_insert_billing_admin'
       and policy_row.with_check like
