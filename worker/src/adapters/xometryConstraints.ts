@@ -25,8 +25,10 @@ export const XOMETRY_LOCATORS = {
     /drawing required/i,
   ],
   uploadInputs: [
+    'div:has(> input[type="file"]):has(button:has-text("Start A New Instant Quote")) > input[type="file"]',
+  ],
+  standaloneUploadInputs: [
     '[data-testid="file-upload"] input[type="file"]',
-    'input[type="file"]',
   ],
   uploadTriggers: [
     'text=/^Choose File$/i',
@@ -41,6 +43,10 @@ export const XOMETRY_LOCATORS = {
     'button:has-text("Start a new Instant Quote")',
     'button:has-text("Start An Instant Quote")',
     'button:has-text("Start a New")',
+  ],
+  editConfigurationButtons: [
+    '[data-testid="navigate-to-configuration-button"]',
+    'button:has-text("Edit Configuration")',
   ],
   dashboardSignals: [
     /welcome back/i,
@@ -175,6 +181,7 @@ export const XOMETRY_LOCATORS = {
     '[class*="review" i]',
   ],
   drawingInputs: [
+    'div:has(> #uploadFileButton) input#file-handler',
     'input[type="file"][accept*="application/pdf" i]',
     'input[type="file"][accept*=".pdf" i]',
     '[data-testid*="drawing" i] input[type="file"]',
@@ -203,6 +210,39 @@ export function buildMaterialSearchTerms(material: string) {
   if (source.includes("nylon")) return ["Nylon 6/6", "Nylon"];
   if (source.includes("abs")) return ["ABS"];
   if (source.includes("delrin") || source.includes("acetal")) return ["Delrin", "Acetal"];
+
+  return null;
+}
+
+/**
+ * Returns the exact material tokens accepted from Xometry's saved summary.
+ * Search aliases are intentionally broader than these verification values:
+ * aluminum summaries must preserve the requested temper, while grade-only
+ * tokens remain sufficient for materials without a temper designation.
+ */
+export function buildMaterialSummaryTerms(material: string) {
+  const source = material.toLowerCase();
+
+  if (source.includes("6061")) return ["6061-T6x", "6061-T6"];
+  if (source.includes("7075")) return ["7075-T6x", "7075-T6"];
+  if (source.includes("2024")) return ["2024-T3"];
+  if (source.includes("303")) return ["Stainless Steel 303"];
+  if (source.includes("304")) return ["Stainless Steel 304/304L"];
+  if (source.includes("316")) return ["Stainless Steel 316/316L"];
+  if (source.includes("17-4")) return ["Stainless Steel 17-4"];
+  if (source.includes("1018")) return ["Steel 1018"];
+  if (source.includes("4140")) return ["Steel 4140"];
+  if (source.includes("brass")) return ["Copper C360 (Brass)"];
+  if (source.includes("copper")) return ["Copper 101"];
+  if (source.includes("titanium") || source.includes("6al-4v") || source.includes("ti-6al-4v")) {
+    return ["Titanium Grade 5", "Ti 6Al-4V"];
+  }
+  if (source.includes("peek")) return ["PEEK"];
+  if (source.includes("nylon")) return ["Nylon 6/6"];
+  if (source.includes("abs")) return ["ABS"];
+  if (source.includes("delrin") || source.includes("acetal")) {
+    return ["Delrin", "Acetal"];
+  }
 
   return null;
 }

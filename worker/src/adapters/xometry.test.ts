@@ -41,7 +41,13 @@ import {
   selectToleranceTier,
   toleranceSummaryMatches,
 } from "./xometry";
-import { XOMETRY_LOCATORS, XOMETRY_URLS, buildFinishSearchTerms, buildMaterialSearchTerms } from "./xometryConstraints";
+import {
+  XOMETRY_LOCATORS,
+  XOMETRY_URLS,
+  buildFinishSearchTerms,
+  buildMaterialSearchTerms,
+  buildMaterialSummaryTerms,
+} from "./xometryConstraints";
 
 const tempDirs: string[] = [];
 
@@ -121,6 +127,30 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
   };
 }
 
+function makeInputWithDrawing() {
+  const baseInput = makeInput();
+  return makeInput({
+    part: {
+      ...baseInput.part,
+      drawing_file_id: "drawing-1",
+    },
+    drawingFile: {
+      id: "drawing-1",
+      job_id: "job-1",
+      storage_bucket: "job-files",
+      storage_path: "drawings/part.pdf",
+      original_name: "part.pdf",
+      file_kind: "drawing",
+    },
+    stagedDrawingFile: {
+      originalName: "part.pdf",
+      localPath: "/tmp/part.pdf",
+      storageBucket: "job-files",
+      storagePath: "drawings/part.pdf",
+    },
+  });
+}
+
 type LocatorBehavior = {
   count?: number | (() => number);
   text?: string;
@@ -128,21 +158,33 @@ type LocatorBehavior = {
   click?: () => Promise<void> | void;
   fill?: (value: string) => Promise<void> | void;
   press?: (value: string) => Promise<void> | void;
+  inputValue?: () => Promise<string> | string;
   waitFor?: () => Promise<void> | void;
   getAttribute?: (name: string) => Promise<string | null> | string | null;
 };
 
 type FakePageOptions = {
   bodyText: string;
-  postSaveBodyText?: string;
+  postSaveBodyText?: string | (() => string);
   url?: string;
   selectorBehaviors?: Record<string, LocatorBehavior>;
   optionTexts?: string[] | (() => string[]);
   onOptionWait?: (name?: RegExp) => Promise<void> | void;
   redirectUrl?: string;
+  dashboardRedirectUrl?: string;
+  uploadRedirectUrl?: string;
   saveRedirectUrl?: string;
+  quoteNavigationFails?: boolean;
   saveNavigationFails?: boolean;
+  reloadFails?: boolean;
+  responseWaitDelayMs?: number;
   visibleFilenames?: string[];
+  responses?: Array<{
+    method: string;
+    url: string;
+    status: number;
+    body?: unknown;
+  }>;
 };
 
 function makeLocator(behavior: LocatorBehavior = {}) {
@@ -180,6 +222,9 @@ function makeLocator(behavior: LocatorBehavior = {}) {
     async press(value: string) {
       await behavior.press?.(value);
     },
+    async inputValue() {
+      return (await behavior.inputValue?.()) ?? "";
+    },
     async getAttribute(name: string) {
       return (await behavior.getAttribute?.(name)) ?? null;
     },
@@ -201,12 +246,34 @@ function makeLocator(behavior: LocatorBehavior = {}) {
 
 function createFakePage(options: FakePageOptions) {
   const selectorBehaviors = options.selectorBehaviors ?? {};
+  const responseQueue = [...(options.responses ?? [])];
   let currentUrl = options.url ?? XOMETRY_URLS.quoteHome;
   let saved = false;
-  const currentBodyText = () =>
-    saved ? (options.postSaveBodyText ?? options.bodyText) : options.bodyText;
+  const currentBodyText = () => {
+    if (!saved) return options.bodyText;
+    if (typeof options.postSaveBodyText === "function") {
+      return options.postSaveBodyText();
+    }
+    return options.postSaveBodyText ?? options.bodyText;
+  };
   const waitForURL = vi.fn(async (target: unknown) => {
-    if (typeof target !== "function") return undefined;
+    if (target instanceof RegExp) {
+      if (options.quoteNavigationFails) {
+        throw new Error("quote navigation timed out");
+      }
+      return undefined;
+    }
+    if (
+      typeof target === "function" &&
+      options.dashboardRedirectUrl &&
+      !saved
+    ) {
+      currentUrl = options.dashboardRedirectUrl;
+      if ((target as (url: URL) => boolean)(new URL(currentUrl))) {
+        return undefined;
+      }
+      throw new Error("dashboard navigation timed out");
+    }
     if (options.saveNavigationFails) {
       throw new Error("save navigation timed out");
     }
@@ -235,7 +302,33 @@ function createFakePage(options: FakePageOptions) {
       const normalizedSelector = selector.endsWith(":visible")
         ? selector.slice(0, -":visible".length)
         : selector;
-      return makeLocator(selectorBehaviors[selector] ?? selectorBehaviors[normalizedSelector]);
+      const behavior =
+        selectorBehaviors[selector] ?? selectorBehaviors[normalizedSelector];
+      if (
+        XOMETRY_LOCATORS.startNewQuoteButtons.includes(selector) &&
+        options.dashboardRedirectUrl
+      ) {
+        return makeLocator({
+          ...behavior,
+          click: async () => {
+            await behavior?.click?.();
+            currentUrl = options.dashboardRedirectUrl ?? currentUrl;
+          },
+        });
+      }
+      if (
+        XOMETRY_LOCATORS.standaloneUploadInputs.includes(selector) &&
+        options.uploadRedirectUrl
+      ) {
+        return makeLocator({
+          ...behavior,
+          setInputFiles: async (files) => {
+            await behavior?.setInputFiles?.(files);
+            currentUrl = options.uploadRedirectUrl ?? currentUrl;
+          },
+        });
+      }
+      return makeLocator(behavior);
     },
     getByRole(role: string, input: { name?: RegExp }) {
       if (role !== "option") {
@@ -297,12 +390,45 @@ function createFakePage(options: FakePageOptions) {
     async waitForLoadState() {
       return undefined;
     },
+    async reload() {
+      if (options.reloadFails) {
+        throw new Error("reload failed");
+      }
+      return undefined;
+    },
     async waitForTimeout() {
       return undefined;
     },
     waitForURL,
     async waitForEvent() {
       return undefined;
+    },
+    async waitForResponse(
+      predicate: (response: {
+        request: () => { method: () => string };
+        status: () => number;
+        url: () => string;
+      }) => boolean,
+    ) {
+      for (let index = 0; index < responseQueue.length; index += 1) {
+        const candidate = responseQueue[index];
+        const response = {
+          request: () => ({ method: () => candidate.method }),
+          status: () => candidate.status,
+          url: () => candidate.url,
+          json: async () => candidate.body,
+        };
+        if (predicate(response)) {
+          responseQueue.splice(index, 1);
+          return response;
+        }
+      }
+      if (options.responseWaitDelayMs) {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, options.responseWaitDelayMs);
+        });
+      }
+      throw new Error("response timed out");
     },
     on() {
       return undefined;
@@ -365,6 +491,8 @@ afterEach(async () => {
 
 describe("Xometry helpers", () => {
   it("prefers the current searchable material and finish comboboxes", () => {
+    expect(XOMETRY_LOCATORS.uploadInputs[0]).toContain("Start A New Instant Quote");
+    expect(XOMETRY_LOCATORS.uploadInputs).not.toContain('input[type="file"]');
     expect(XOMETRY_LOCATORS.materialButtons[0]).toBe(
       'input[role="combobox"][placeholder="Search Material"]',
     );
@@ -375,6 +503,22 @@ describe("Xometry helpers", () => {
 
   it("maps explicit materials and finishes, and rejects unknown ones", () => {
     expect(buildMaterialSearchTerms("6061 aluminum")).toEqual(["6061-T6", "6061"]);
+    expect(buildMaterialSummaryTerms("6061 aluminum")).toEqual([
+      "6061-T6x",
+      "6061-T6",
+    ]);
+    expect(buildMaterialSearchTerms("Copper 101")).toEqual([
+      "Copper 101",
+      "Copper",
+    ]);
+    expect(buildMaterialSummaryTerms("Copper 101")).toEqual(["Copper 101"]);
+    expect(buildMaterialSummaryTerms("Nylon 6/6")).toEqual(["Nylon 6/6"]);
+    expect(buildMaterialSummaryTerms("303 stainless")).toEqual([
+      "Stainless Steel 303",
+    ]);
+    expect(buildMaterialSummaryTerms("brass")).toEqual([
+      "Copper C360 (Brass)",
+    ]);
     expect(buildMaterialSearchTerms("mystery alloy")).toBeNull();
     expect(buildFinishSearchTerms("Type II black anodize")).toEqual(["Black Anodize"]);
     expect(buildFinishSearchTerms("as machined")).toEqual([]);
@@ -539,8 +683,15 @@ describe("XometryAdapter", () => {
     const clickFinishControl = vi.fn();
     const hiddenMaterialControl = vi.fn();
     const hiddenFinishControl = vi.fn();
+    const startNewQuote = vi.fn();
+    const instantQuoteUpload = vi.fn();
+    const toolLibraryUpload = vi.fn();
+    let instantQuoteUploadReady = false;
+    startNewQuote.mockImplementation(() => {
+      instantQuoteUploadReady = true;
+    });
     const page = createFakePage({
-      bodyText: "Configure part",
+      bodyText: "Upload a CAD File Start from Recent Configure part",
       postSaveBodyText: [
         "Quantity 2",
         "Material: Aluminum 6061-T6x",
@@ -551,9 +702,17 @@ describe("XometryAdapter", () => {
       redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001/part-1",
       saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001#part-part-1",
       selectorBehaviors: {
-        [XOMETRY_LOCATORS.uploadInputs[1]]: {
+        [XOMETRY_LOCATORS.startNewQuoteButtons[0]]: {
           count: 1,
-          setInputFiles: vi.fn(),
+          click: startNewQuote,
+        },
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: () => (instantQuoteUploadReady ? 1 : 0),
+          setInputFiles: instantQuoteUpload,
+        },
+        'input[type="file"]': {
+          count: 1,
+          setInputFiles: toolLibraryUpload,
         },
         [XOMETRY_LOCATORS.quantityInputs[0]]: {
           count: 1,
@@ -630,7 +789,7 @@ describe("XometryAdapter", () => {
     expect(result.leadTimeBusinessDays).toBe(5);
     expect(result.rawPayload).toMatchObject({
       detectedFlow: "instant_quote",
-      uploadSelector: XOMETRY_LOCATORS.uploadInputs[1],
+      uploadSelector: XOMETRY_LOCATORS.uploadInputs[0],
       drawingUploadMode: "not_provided",
       selectedMaterial: "6061-T6",
       selectedFinish: "Black Anodize",
@@ -643,6 +802,9 @@ describe("XometryAdapter", () => {
       url: "https://www.xometry.com/quoting/quote/Q00-TEST-0001#part-part-1",
     });
     expect(saveConfiguration).toHaveBeenCalledTimes(1);
+    expect(startNewQuote).toHaveBeenCalledTimes(1);
+    expect(instantQuoteUpload).toHaveBeenCalledTimes(1);
+    expect(toolLibraryUpload).not.toHaveBeenCalled();
     expect(setTolerance).toHaveBeenCalledTimes(1);
     expect(openMaterialOptions).toHaveBeenCalledTimes(1);
     expect(openFinishOptions).toHaveBeenCalledTimes(1);
@@ -655,7 +817,782 @@ describe("XometryAdapter", () => {
     expect(hiddenMaterialControl).not.toHaveBeenCalled();
     expect(hiddenFinishControl).not.toHaveBeenCalled();
     expect(page.waitForURL).toHaveBeenCalled();
-    expect(result.artifacts).toHaveLength(8);
+    expect(result.artifacts).toHaveLength(10);
+  });
+
+  it("uses a verified auto-configured quote summary without reopening material options", async () => {
+    const workerTempDir = await makeTempDir();
+    const uploadCad = vi.fn();
+    const summaryText = [
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-SUMMARY-0001",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: uploadCad,
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: summaryText,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    expect(uploadCad).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("instant_quote_received");
+    expect(result.totalPriceUsd).toBe(120);
+    expect(result.rawPayload).toMatchObject({
+      selectedMaterial: "6061-T6x",
+      selectedFinish: "Black Anodize",
+      selectedTolerance: "standard",
+      toleranceSelector: null,
+      requirementsVerified: true,
+      saveConfigurationSelector: null,
+    });
+  });
+
+  it("uses only the approved standalone uploader after dashboard navigation", async () => {
+    const workerTempDir = await makeTempDir();
+    const standaloneUpload = vi.fn();
+    const genericUpload = vi.fn();
+    const summaryText = [
+      "Welcome back",
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      dashboardRedirectUrl: "https://www.xometry.com/quoting/new",
+      uploadRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-STANDALONE-0001",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.startNewQuoteButtons[0]]: {
+          count: 1,
+        },
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 0,
+        },
+        [XOMETRY_LOCATORS.standaloneUploadInputs[0]]: {
+          count: 1,
+          setInputFiles: standaloneUpload,
+        },
+        'input[type="file"]': {
+          count: 1,
+          setInputFiles: genericUpload,
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: summaryText,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    expect(result.status).toBe("instant_quote_received");
+    expect(result.rawPayload).toMatchObject({
+      uploadSelector: XOMETRY_LOCATORS.standaloneUploadInputs[0],
+      requirementsVerified: true,
+    });
+    expect(standaloneUpload).toHaveBeenCalledTimes(1);
+    expect(genericUpload).not.toHaveBeenCalled();
+  });
+
+  it("does not let a visible quantity input override a contradictory summary", async () => {
+    const workerTempDir = await makeTempDir();
+    const summaryText = [
+      "Quantity: 1",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-QUANTITY-0001",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+          fill: vi.fn(),
+          press: vi.fn(),
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "selector_failure",
+      payload: {
+        field: "material",
+      },
+    });
+  });
+
+  it("fails closed when an upload never reaches the new quote URL", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Upload a CAD File",
+      redirectUrl: XOMETRY_URLS.quoteHome,
+      quoteNavigationFails: true,
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.exportControlContinue[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    try {
+      await adapter.quote(makeInput());
+      throw new Error("expected navigation failure");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "navigation_failure",
+        payload: {
+          reason: "modal_no_redirect",
+          url: XOMETRY_URLS.quoteHome,
+        },
+      });
+      expect((error as VendorAutomationError).artifacts.map((artifact) => artifact.label)).toEqual([
+        "landing-screenshot",
+        "landing-dom",
+        "post-modal-poll-screenshot",
+        "post-modal-poll-dom",
+        "wait-for-url-timeout-screenshot",
+        "wait-for-url-timeout-dom",
+      ]);
+    }
+  });
+
+  it("does not accept lookalike values outside their exact summary fields", async () => {
+    const workerTempDir = await makeTempDir();
+    const summaryText = [
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Type III Hard Anodize",
+      "Precision Tolerance: ±.005",
+      "Unrelated note: Black Anodize",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-FIELD-0001",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "selector_failure",
+      payload: {
+        field: "material",
+      },
+    });
+  });
+
+  it("does not accept a material token that appears outside the material field", async () => {
+    const workerTempDir = await makeTempDir();
+    const summaryText = [
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Unrelated note: supplier code 303",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-FIELD-0002",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+    const baseInput = makeInput();
+
+    await expect(
+      adapter.quote(
+        makeInput({
+          requirement: {
+            ...baseInput.requirement,
+            material: "303 stainless",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: "selector_failure",
+      payload: {
+        field: "material",
+      },
+    });
+  });
+
+  it("does not accept a sibling aluminum temper from the saved summary", async () => {
+    const workerTempDir = await makeTempDir();
+    const summaryText = [
+      "Quantity: 2",
+      "Material: Aluminum 6061-T651",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEMPER-0001",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "selector_failure",
+      payload: {
+        field: "material",
+      },
+    });
+  });
+
+  it("accepts a verified summary only after the drawing upload is acknowledged and refreshed", async () => {
+    const workerTempDir = await makeTempDir();
+    const uploadDrawing = vi.fn();
+    const summaryText = [
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-DRAWING-0001",
+      responses: [
+        {
+          method: "POST",
+          url: "https://api.xometry.com/v2/quotes/parts/PART-1/upload_drawings",
+          status: 200,
+        },
+        {
+          method: "GET",
+          url: "https://api.xometry.com/v2/quotes/Q00-DRAWING-0001",
+          status: 200,
+          body: {
+            parts: {
+              "quote-part-1": {
+                part: {
+                  _id: "PART-1",
+                  revisions: [
+                    {
+                      drawings: [
+                        {
+                          original_filename: "part.pdf",
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      ],
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.drawingInputs[0]]: {
+          count: 1,
+          setInputFiles: uploadDrawing,
+        },
+        [XOMETRY_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: summaryText,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const input = makeInput({
+      part: {
+        ...makeInput().part,
+        drawing_file_id: "drawing-1",
+      },
+      drawingFile: {
+        id: "drawing-1",
+        job_id: "job-1",
+        storage_bucket: "job-files",
+        storage_path: "drawings/part.pdf",
+        original_name: "part.pdf",
+        file_kind: "drawing",
+      },
+      stagedDrawingFile: {
+        originalName: "part.pdf",
+        localPath: "/tmp/part.pdf",
+        storageBucket: "job-files",
+        storagePath: "drawings/part.pdf",
+      },
+    });
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    const result = await adapter.quote(input);
+
+    expect(uploadDrawing).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("instant_quote_received");
+    expect(result.totalPriceUsd).toBe(120);
+    expect(result.rawPayload).toMatchObject({
+      drawingUploadMode: "fallback",
+      drawingUploadSelector: XOMETRY_LOCATORS.drawingInputs[0],
+      drawingUploadVerification: "upload_acknowledged_and_drawing_confirmed",
+      requirementsVerified: true,
+    });
+  });
+
+  it("polls a successful drawing upload until the exact quote part contains it", async () => {
+    const workerTempDir = await makeTempDir();
+    const summaryText = [
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-DRAWING-ASYNC",
+      responses: [
+        {
+          method: "POST",
+          url: "https://api.xometry.com/v2/quotes/parts/PART-1/upload_drawings",
+          status: 200,
+        },
+        {
+          method: "GET",
+          url: "https://api.xometry.com/v2/quotes/Q00-DRAWING-ASYNC",
+          status: 200,
+          body: {
+            parts: {
+              stale: {
+                part: {
+                  _id: "PART-1",
+                  revisions: [
+                    {
+                      drawings: [{ original_filename: "part.pdf" }],
+                    },
+                    { drawings: [] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        {
+          method: "GET",
+          url: "https://api.xometry.com/v2/quotes/Q00-DRAWING-ASYNC",
+          status: 200,
+          body: {
+            parts: {
+              refreshed: {
+                part: {
+                  _id: "PART-1",
+                  revisions: [
+                    {
+                      drawings: [{ original_filename: "part.pdf" }],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      ],
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.drawingInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: summaryText,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    const result = await adapter.quote(makeInputWithDrawing());
+
+    expect(result.status).toBe("instant_quote_received");
+    expect(result.rawPayload).toMatchObject({
+      drawingUploadVerification:
+        "upload_acknowledged_and_drawing_confirmed",
+      requirementsVerified: true,
+    });
+  });
+
+  it("rejects an explicit drawing upload failure despite a visible filename", async () => {
+    const workerTempDir = await makeTempDir();
+    const summaryText = [
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-DRAWING-FAILED",
+      visibleFilenames: ["part.pdf"],
+      responses: [
+        {
+          method: "POST",
+          url: "https://api.xometry.com/v2/quotes/parts/PART-1/upload_drawings",
+          status: 422,
+        },
+      ],
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.drawingInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInputWithDrawing())).rejects.toMatchObject({
+      code: "upload_failure",
+      payload: {
+        reason: "drawing_attachment_missing",
+      },
+    });
+  });
+
+  it("does not retry a weaker drawing selector after an acknowledged upload cannot be confirmed", async () => {
+    const workerTempDir = await makeTempDir();
+    const weakerUpload = vi.fn();
+    const summaryText = [
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-DRAWING-RELOAD",
+      reloadFails: true,
+      visibleFilenames: ["part.pdf"],
+      responses: [
+        {
+          method: "POST",
+          url: "https://api.xometry.com/v2/quotes/parts/PART-1/upload_drawings",
+          status: 200,
+        },
+      ],
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.drawingInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.drawingInputs[1]]: {
+          count: 1,
+          setInputFiles: weakerUpload,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+        browserTimeoutMs: 25,
+      }),
+    );
+
+    await expect(adapter.quote(makeInputWithDrawing())).rejects.toMatchObject({
+      code: "upload_failure",
+      payload: {
+        reason: "drawing_attachment_missing",
+      },
+    });
+    expect(weakerUpload).not.toHaveBeenCalled();
+  });
+
+  it("rejects a drawing upload that is absent from the refreshed quote payload", async () => {
+    const workerTempDir = await makeTempDir();
+    const summaryText = [
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      redirectUrl: "https://www.xometry.com/quoting/quote/Q00-DRAWING-0002",
+      visibleFilenames: ["part.pdf"],
+      responses: [
+        {
+          method: "POST",
+          url: "https://api.xometry.com/v2/quotes/parts/PART-1/upload_drawings",
+          status: 202,
+        },
+        {
+          method: "GET",
+          url: "https://api.xometry.com/v2/quotes/Q00-DRAWING-0002",
+          status: 200,
+          body: {
+            parts: {
+              "quote-part-1": {
+                part: {
+                  _id: "PART-1",
+                  revisions: [{ drawings: [] }],
+                },
+              },
+              "quote-part-2": {
+                part: {
+                  _id: "PART-2",
+                  revisions: [
+                    {
+                      drawings: [
+                        {
+                          original_filename: "part.pdf",
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      ],
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.drawingInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const baseInput = makeInput();
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+        browserTimeoutMs: 25,
+      }),
+    );
+
+    await expect(
+      adapter.quote(
+        makeInput({
+          part: {
+            ...baseInput.part,
+            drawing_file_id: "drawing-1",
+          },
+          drawingFile: {
+            id: "drawing-1",
+            job_id: "job-1",
+            storage_bucket: "job-files",
+            storage_path: "drawings/part.pdf",
+            original_name: "part.pdf",
+            file_kind: "drawing",
+          },
+          stagedDrawingFile: {
+            originalName: "part.pdf",
+            localPath: "/tmp/part.pdf",
+            storageBucket: "job-files",
+            storagePath: "drawings/part.pdf",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: "upload_failure",
+      payload: {
+        reason: "drawing_attachment_missing",
+      },
+    });
   });
 
   it("withholds a price when every declared price locator misses", async () => {
@@ -674,7 +1611,7 @@ describe("XometryAdapter", () => {
       redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002/part-1",
       saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002#part-part-1",
       selectorBehaviors: {
-        [XOMETRY_LOCATORS.uploadInputs[1]]: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
           count: 1,
           setInputFiles: vi.fn(),
         },
@@ -730,27 +1667,35 @@ describe("XometryAdapter", () => {
   it("falls back to a separate drawing upload and reports manual review", { timeout: 30_000 }, async () => {
     const workerTempDir = await makeTempDir();
     const saveConfiguration = vi.fn();
+    let drawingVisible = false;
     const uploadFilesMock = vi.fn(async (files: string[]) => {
       if (files.length > 1) {
         throw new Error("drawing must be uploaded separately");
       }
     });
-    const fallbackUploadMock = vi.fn();
+    const fallbackUploadMock = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 20);
+      });
+      drawingVisible = true;
+    });
     const page = createFakePage({
       bodyText: "Manual review required. Drawing required for this quote.",
-      postSaveBodyText: [
-        "part.pdf",
-        "Quantity 2",
-        "Material: Aluminum 7075-T6",
-        "Finish: Standard",
-        "Precision Tolerance: ±.005",
-        "Manual review required. Drawing required for this quote.",
-      ].join(" "),
+      postSaveBodyText: () =>
+        [
+          drawingVisible ? "part.pdf" : "",
+          "Quantity 2",
+          "Material: Aluminum 7075-T6",
+          "Finish: Standard",
+          "Precision Tolerance: ±.005",
+          "Manual review required. Drawing required for this quote.",
+        ].join(" "),
       redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002/part-1",
       saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002#part-part-1",
       visibleFilenames: ["part.pdf"],
+      responseWaitDelayMs: 20,
       selectorBehaviors: {
-        [XOMETRY_LOCATORS.uploadInputs[1]]: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
           count: 1,
           setInputFiles: uploadFilesMock,
         },
@@ -786,7 +1731,11 @@ describe("XometryAdapter", () => {
 
     const adapter = new XometryAdapter(
       "xometry",
-      makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        browserTimeoutMs: 50,
+      }),
     );
 
     const result = await adapter.quote(
@@ -840,7 +1789,7 @@ describe("XometryAdapter", () => {
       redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0003/part-1",
       saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0003#part-part-1",
       selectorBehaviors: {
-        [XOMETRY_LOCATORS.uploadInputs[1]]: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
           count: 1,
           setInputFiles: vi.fn(),
         },
@@ -896,7 +1845,7 @@ describe("XometryAdapter", () => {
       redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0004/part-1",
       saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0004#part-part-1",
       selectorBehaviors: {
-        [XOMETRY_LOCATORS.uploadInputs[1]]: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
           count: 1,
           setInputFiles: vi.fn(),
         },
@@ -945,7 +1894,7 @@ describe("XometryAdapter", () => {
       bodyText: "Configure part",
       redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0003/part-1",
       selectorBehaviors: {
-        [XOMETRY_LOCATORS.uploadInputs[1]]: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
           count: 1,
           setInputFiles: vi.fn(),
         },
@@ -997,7 +1946,7 @@ describe("XometryAdapter", () => {
       ].join(" "),
       redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0004/part-1",
       selectorBehaviors: {
-        [XOMETRY_LOCATORS.uploadInputs[1]]: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
           count: 1,
           setInputFiles: vi.fn(),
         },
@@ -1095,7 +2044,7 @@ describe("XometryAdapter", () => {
       bodyText: "Configure part",
       redirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0003",
       selectorBehaviors: {
-        [XOMETRY_LOCATORS.uploadInputs[1]]: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
           count: 1,
           setInputFiles: vi.fn(),
         },
