@@ -25,8 +25,10 @@ export const XOMETRY_LOCATORS = {
     /drawing required/i,
   ],
   uploadInputs: [
+    'div:has(> input[type="file"]):has(button:has-text("Start A New Instant Quote")) > input[type="file"]',
+  ],
+  standaloneUploadInputs: [
     '[data-testid="file-upload"] input[type="file"]',
-    'input[type="file"]',
   ],
   uploadTriggers: [
     'text=/^Choose File$/i',
@@ -41,6 +43,10 @@ export const XOMETRY_LOCATORS = {
     'button:has-text("Start a new Instant Quote")',
     'button:has-text("Start An Instant Quote")',
     'button:has-text("Start a New")',
+  ],
+  editConfigurationButtons: [
+    '[data-testid="navigate-to-configuration-button"]',
+    'button:has-text("Edit Configuration")',
   ],
   dashboardSignals: [
     /welcome back/i,
@@ -175,6 +181,7 @@ export const XOMETRY_LOCATORS = {
     '[class*="review" i]',
   ],
   drawingInputs: [
+    'div:has(> #uploadFileButton) input#file-handler',
     'input[type="file"][accept*="application/pdf" i]',
     'input[type="file"][accept*=".pdf" i]',
     '[data-testid*="drawing" i] input[type="file"]',
@@ -205,6 +212,45 @@ export function buildMaterialSearchTerms(material: string) {
   if (source.includes("delrin") || source.includes("acetal")) return ["Delrin", "Acetal"];
 
   return null;
+}
+
+/**
+ * Returns the exact material tokens accepted from Xometry's saved summary.
+ * Search aliases are intentionally broader than these verification values:
+ * aluminum summaries must preserve the requested temper, while grade-only
+ * tokens remain sufficient for materials without a temper designation.
+ */
+const MATERIAL_SUMMARY_MAPPINGS: Array<{
+  needles: string[];
+  terms: string[];
+}> = [
+  { needles: ["6061"], terms: ["6061-T6x", "6061-T6"] },
+  { needles: ["7075"], terms: ["7075-T6x", "7075-T6"] },
+  { needles: ["2024"], terms: ["2024-T3"] },
+  { needles: ["303"], terms: ["Stainless Steel 303"] },
+  { needles: ["304"], terms: ["Stainless Steel 304/304L"] },
+  { needles: ["316"], terms: ["Stainless Steel 316/316L"] },
+  { needles: ["17-4"], terms: ["Stainless Steel 17-4"] },
+  { needles: ["1018"], terms: ["Steel 1018"] },
+  { needles: ["4140"], terms: ["Steel 4140"] },
+  { needles: ["brass"], terms: ["Copper C360 (Brass)"] },
+  { needles: ["copper"], terms: ["Copper 101"] },
+  {
+    needles: ["titanium", "6al-4v", "ti-6al-4v"],
+    terms: ["Titanium Grade 5", "Ti 6Al-4V"],
+  },
+  { needles: ["peek"], terms: ["PEEK"] },
+  { needles: ["nylon"], terms: ["Nylon 6/6"] },
+  { needles: ["abs"], terms: ["ABS"] },
+  { needles: ["delrin", "acetal"], terms: ["Delrin", "Acetal"] },
+];
+
+export function buildMaterialSummaryTerms(material: string) {
+  const source = material.toLowerCase();
+  const mapping = MATERIAL_SUMMARY_MAPPINGS.find(({ needles }) =>
+    needles.some((needle) => source.includes(needle)),
+  );
+  return mapping?.terms ?? null;
 }
 
 /**

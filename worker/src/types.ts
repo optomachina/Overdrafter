@@ -290,8 +290,9 @@ export type XometryQuoteRawPayload = Record<string, unknown> & {
   detectedFlow: XometryDetectedFlow;
   uploadSelector?: string | null;
   drawingUploadMode?: XometryDrawingUploadMode | null;
-  // Search term matched in the live Xometry control; saved values are
-  // independently confirmed before `requirementsVerified` becomes true.
+  // Search term matched in the live Xometry control or exact quote-summary
+  // field; saved values are independently confirmed before
+  // `requirementsVerified` becomes true.
   selectedMaterial?: string | null;
   selectedFinish?: string | null;
   selectedTolerance?: string | null;
