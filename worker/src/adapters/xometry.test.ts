@@ -40,6 +40,7 @@ import {
   parseLeadTime,
   selectToleranceTier,
   toleranceSummaryMatches,
+  uploadInputAcceptsFile,
 } from "./xometry";
 import {
   XOMETRY_LOCATORS,
@@ -153,7 +154,7 @@ function makeInputWithDrawing() {
 
 type LocatorBehavior = {
   count?: number | (() => number);
-  text?: string;
+  text?: string | (() => string);
   setInputFiles?: (files: string[]) => Promise<void> | void;
   click?: () => Promise<void> | void;
   fill?: (value: string) => Promise<void> | void;
@@ -173,6 +174,8 @@ type FakePageOptions = {
   redirectUrl?: string;
   dashboardRedirectUrl?: string;
   uploadRedirectUrl?: string;
+  delayedUploadRedirectUrl?: string;
+  delayedUploadRedirectAfterTimeouts?: number;
   saveRedirectUrl?: string;
   quoteNavigationFails?: boolean;
   saveNavigationFails?: boolean;
@@ -190,6 +193,8 @@ type FakePageOptions = {
 function makeLocator(behavior: LocatorBehavior = {}) {
   const currentCount = () =>
     typeof behavior.count === "function" ? behavior.count() : (behavior.count ?? 0);
+  const currentText = () =>
+    typeof behavior.text === "function" ? behavior.text() : (behavior.text ?? "");
 
   return {
     first() {
@@ -208,7 +213,7 @@ function makeLocator(behavior: LocatorBehavior = {}) {
       }
     },
     async innerText() {
-      return behavior.text ?? "";
+      return currentText();
     },
     async setInputFiles(files: string[]) {
       await behavior.setInputFiles?.(files);
@@ -233,7 +238,7 @@ function makeLocator(behavior: LocatorBehavior = {}) {
         return makeLocator(behavior);
       }
 
-      const text = behavior.text ?? "";
+      const text = currentText();
       return options.hasText.test(text)
         ? makeLocator(behavior)
         : makeLocator({ count: 0, text: "" });
@@ -249,6 +254,7 @@ function createFakePage(options: FakePageOptions) {
   const responseQueue = [...(options.responses ?? [])];
   let currentUrl = options.url ?? XOMETRY_URLS.quoteHome;
   let saved = false;
+  let waitForTimeoutCount = 0;
   const currentBodyText = () => {
     if (!saved) return options.bodyText;
     if (typeof options.postSaveBodyText === "function") {
@@ -400,6 +406,14 @@ function createFakePage(options: FakePageOptions) {
       return undefined;
     },
     async waitForTimeout() {
+      waitForTimeoutCount += 1;
+      if (
+        options.delayedUploadRedirectUrl &&
+        options.delayedUploadRedirectAfterTimeouts &&
+        waitForTimeoutCount >= options.delayedUploadRedirectAfterTimeouts
+      ) {
+        currentUrl = options.delayedUploadRedirectUrl;
+      }
       return undefined;
     },
     waitForURL,
@@ -499,12 +513,25 @@ describe("Xometry helpers", () => {
     expect(XOMETRY_LOCATORS.dashboardUploadButtons).toEqual([
       'button:text-is("Upload a CAD File")',
     ]);
+    expect(XOMETRY_LOCATORS.dashboardUploadPanels).toEqual([
+      'div:has(> input[type="file"]):has(button:has-text("Start A New Instant Quote"))',
+    ]);
     expect(XOMETRY_LOCATORS.materialButtons[0]).toBe(
       'input[role="combobox"][placeholder="Search Material"]',
     );
     expect(XOMETRY_LOCATORS.finishButtons[0]).toBe(
       'input[role="combobox"][placeholder="Search Finish"]',
     );
+  });
+
+  it("matches staged CAD extensions against Xometry's loaded accept list", () => {
+    expect(
+      uploadInputAcceptsFile(".step,.stp,.sldprt", "/tmp/part.step"),
+    ).toBe(true);
+    expect(
+      uploadInputAcceptsFile(".step,.stp,.sldprt", "/tmp/part.iges"),
+    ).toBe(false);
+    expect(uploadInputAcceptsFile(null, "/tmp/part.step")).toBe(false);
   });
 
   it("maps explicit materials and finishes, and rejects unknown ones", () => {
@@ -968,6 +995,8 @@ describe("XometryAdapter", () => {
       selectorBehaviors: {
         [XOMETRY_LOCATORS.uploadInputs[0]]: {
           count: () => (dashboardInputReady ? 1 : 0),
+          getAttribute: (name) =>
+            name === "accept" ? ".step,.stp,.sldprt" : null,
           setInputFiles: async (files) => {
             await dashboardCadUpload(files);
           },
@@ -1013,6 +1042,307 @@ describe("XometryAdapter", () => {
       "/tmp/part.step",
     ]);
     expect(toolLibraryUpload).not.toHaveBeenCalled();
+  });
+
+  it("waits for the dashboard uploader's supported file types before selecting CAD", async () => {
+    const workerTempDir = await makeTempDir();
+    const dashboardCadUpload = vi.fn();
+    let dashboardInputReady = false;
+    let acceptReads = 0;
+    const page = createFakePage({
+      bodyText: "Pick Up Where You Left Off",
+      uploadRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-READY-0001",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: () => (dashboardInputReady ? 1 : 0),
+          getAttribute: (name) => {
+            if (name !== "accept") return null;
+            acceptReads += 1;
+            return acceptReads >= 3 ? ".step,.stp" : null;
+          },
+          setInputFiles: dashboardCadUpload,
+        },
+        [XOMETRY_LOCATORS.dashboardUploadButtons[0]]: {
+          count: 1,
+          click: () => {
+            dashboardInputReady = true;
+          },
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: [
+            "Quantity: 2",
+            "Material: Aluminum 6061-T6x (Best Available)",
+            "Finish: Black Anodize",
+            "Precision Tolerance: ±.005",
+            "Least Expensive 5 business days $120.00",
+          ].join(" "),
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "selector_failure",
+      payload: {
+        url: "https://www.xometry.com/quoting/quote/Q00-READY-0001",
+      },
+    });
+    expect(acceptReads).toBe(3);
+    expect(dashboardCadUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
+  });
+
+  it("applies readiness checks when the dashboard upload panel is already mounted", async () => {
+    const workerTempDir = await makeTempDir();
+    const dashboardCadUpload = vi.fn();
+    const dashboardUploadClick = vi.fn();
+    let acceptReads = 0;
+    const page = createFakePage({
+      bodyText: "Start A New Instant Quote",
+      uploadRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-MOUNTED-0001",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          getAttribute: (name) => {
+            if (name !== "accept") return null;
+            acceptReads += 1;
+            return acceptReads >= 3 ? ".step,.stp" : null;
+          },
+          setInputFiles: dashboardCadUpload,
+        },
+        [XOMETRY_LOCATORS.dashboardUploadButtons[0]]: {
+          count: 1,
+          click: dashboardUploadClick,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "selector_failure",
+      payload: {
+        url: "https://www.xometry.com/quoting/quote/Q00-MOUNTED-0001",
+      },
+    });
+    expect(acceptReads).toBe(3);
+    expect(dashboardCadUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
+    expect(dashboardUploadClick).not.toHaveBeenCalled();
+  });
+
+  it("fails fast when the dashboard upload input mounts before file types are ready", async () => {
+    const workerTempDir = await makeTempDir();
+    const dashboardCadUpload = vi.fn();
+    let dashboardInputReady = false;
+    const page = createFakePage({
+      bodyText:
+        "Supported file types are still loading. Wait a moment and try again.",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: () => (dashboardInputReady ? 1 : 0),
+          getAttribute: () => null,
+          setInputFiles: dashboardCadUpload,
+        },
+        [XOMETRY_LOCATORS.dashboardUploadButtons[0]]: {
+          count: 1,
+          click: () => {
+            dashboardInputReady = true;
+          },
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      name: "VendorAutomationError",
+      code: "upload_failure",
+      payload: {
+        reason: "supported_file_types_not_ready",
+        accept: null,
+        loadingErrorVisible: true,
+        requestedExtensions: [".step"],
+      },
+    });
+    expect(dashboardCadUpload).not.toHaveBeenCalled();
+  });
+
+  it("fails without retrying when Xometry's loaded list excludes the CAD type", async () => {
+    const workerTempDir = await makeTempDir();
+    const dashboardCadUpload = vi.fn();
+    let dashboardInputReady = false;
+    const page = createFakePage({
+      bodyText: "Start A New Instant Quote",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: () => (dashboardInputReady ? 1 : 0),
+          getAttribute: (name) => (name === "accept" ? ".step,.stp" : null),
+          setInputFiles: dashboardCadUpload,
+        },
+        [XOMETRY_LOCATORS.dashboardUploadButtons[0]]: {
+          count: 1,
+          click: () => {
+            dashboardInputReady = true;
+          },
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+    const input = makeInput();
+
+    await expect(
+      adapter.quote(
+        makeInput({
+          stagedCadFile: {
+            ...input.stagedCadFile!,
+            originalName: "part.iges",
+            localPath: "/tmp/part.iges",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "VendorAutomationError",
+      code: "upload_failure",
+      payload: {
+        reason: "unsupported_file_type",
+        accept: ".step,.stp",
+        requestedExtensions: [".iges"],
+      },
+    });
+    expect(dashboardCadUpload).not.toHaveBeenCalled();
+  });
+
+  it("allows a slow dashboard upload to continue into quote navigation", async () => {
+    const workerTempDir = await makeTempDir();
+    const dashboardCadUpload = vi.fn();
+    let dashboardInputReady = false;
+    const page = createFakePage({
+      bodyText: "Upload at least 1 CAD file to get started.",
+      delayedUploadRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-SLOW-0001",
+      delayedUploadRedirectAfterTimeouts: 25,
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.dashboardUploadPanels[0]]: {
+          count: () => (dashboardInputReady ? 1 : 0),
+          text: "Upload at least 1 CAD file to get started.",
+        },
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: () => (dashboardInputReady ? 1 : 0),
+          getAttribute: (name) => (name === "accept" ? ".step,.stp" : null),
+          setInputFiles: dashboardCadUpload,
+        },
+        [XOMETRY_LOCATORS.dashboardUploadButtons[0]]: {
+          count: 1,
+          click: () => {
+            dashboardInputReady = true;
+          },
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "selector_failure",
+      payload: {
+        url: "https://www.xometry.com/quoting/quote/Q00-SLOW-0001",
+      },
+    });
+    expect(dashboardCadUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
+  });
+
+  it("does not use a matching filename in dashboard history as upload progress", async () => {
+    const workerTempDir = await makeTempDir();
+    const dashboardCadUpload = vi.fn();
+    let dashboardInputReady = false;
+    let uploadPanelReads = 0;
+    const page = createFakePage({
+      bodyText: "Recent CAD Files part.step",
+      delayedUploadRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-HISTORY-0001",
+      delayedUploadRedirectAfterTimeouts: 25,
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.dashboardUploadPanels[0]]: {
+          count: () => (dashboardInputReady ? 1 : 0),
+          text: () => {
+            uploadPanelReads += 1;
+            return "Upload at least 1 CAD file to get started.";
+          },
+        },
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: () => (dashboardInputReady ? 1 : 0),
+          getAttribute: (name) => (name === "accept" ? ".step,.stp" : null),
+          setInputFiles: dashboardCadUpload,
+        },
+        [XOMETRY_LOCATORS.dashboardUploadButtons[0]]: {
+          count: 1,
+          click: () => {
+            dashboardInputReady = true;
+          },
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "selector_failure",
+      payload: {
+        url: "https://www.xometry.com/quoting/quote/Q00-HISTORY-0001",
+      },
+    });
+    expect(uploadPanelReads).toBe(20);
+    expect(dashboardCadUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
   });
 
   it("fails closed when the dashboard button does not mount the approved uploader", async () => {
@@ -1077,6 +1407,7 @@ describe("XometryAdapter", () => {
       selectorBehaviors: {
         [XOMETRY_LOCATORS.uploadInputs[0]]: {
           count: 1,
+          getAttribute: (name) => (name === "accept" ? ".step,.stp" : null),
           setInputFiles: vi.fn(),
         },
         [XOMETRY_LOCATORS.quantityInputs[0]]: {
@@ -1115,6 +1446,7 @@ describe("XometryAdapter", () => {
       selectorBehaviors: {
         [XOMETRY_LOCATORS.uploadInputs[0]]: {
           count: 1,
+          getAttribute: (name) => (name === "accept" ? ".step,.stp" : null),
           setInputFiles: vi.fn(),
         },
         [XOMETRY_LOCATORS.exportControlContinue[0]]: {

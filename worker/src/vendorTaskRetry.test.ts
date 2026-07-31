@@ -32,6 +32,13 @@ describe("vendorTaskRetry", () => {
     ).toBe(false);
     expect(
       isRetryableVendorTaskError(
+        new VendorAutomationError("unsupported cad", "upload_failure", {
+          reason: "unsupported_file_type",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isRetryableVendorTaskError(
         new VendorAutomationError("login required", "login_required"),
       ),
     ).toBe(false);

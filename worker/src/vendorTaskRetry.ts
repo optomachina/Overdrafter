@@ -36,7 +36,9 @@ export function isRetryableVendorTaskError(error: unknown) {
       case "navigation_failure":
         return true;
       case "upload_failure":
-        return error.payload.reason !== "missing_cad_file";
+        return !["missing_cad_file", "unsupported_file_type"].includes(
+          String(error.payload.reason),
+        );
       case "login_required":
       case "captcha":
       case "selector_failure":
