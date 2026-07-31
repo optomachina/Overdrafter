@@ -130,6 +130,22 @@ export type CommercialAccountAuditPage = {
   nextCursor: string | null;
 };
 
+export type CommercialEntitlementGrantResult = {
+  grantId: string;
+  supersededGrantIds: string[];
+  effective: CommercialEffectiveEntitlement;
+  eventId: string;
+  replayed: boolean;
+};
+
+export type CommercialEntitlementRevokeResult = {
+  grantId: string;
+  revokedAt: string;
+  effective: CommercialEffectiveEntitlement;
+  eventId: string;
+  replayed: boolean;
+};
+
 function requireRecord(value: unknown, label: string): UnknownRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new TypeError(`Expected ${label} to be an object.`);
@@ -170,6 +186,10 @@ function requireString(
 
 function nullableString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function canonicalUuidIdentity(value: string): string {
+  return value.trim().replace(/[-{}]/g, "").toLowerCase();
 }
 
 function requireBoolean(
@@ -504,12 +524,30 @@ function normalizeRecentRequest(value: unknown): CommercialRecentQuoteRequest {
   };
 }
 
-function normalizeAccountDetail(value: unknown): CommercialAccountDetail {
+function normalizeAccountDetail(
+  value: unknown,
+  expectedOrganizationId: string,
+): CommercialAccountDetail {
   const record = requireRecord(value, "commercial account detail");
   const organization = requireRecord(
     record.organization,
     "commercial account organization",
   );
+  const organizationId = requireString(
+    organization,
+    "id",
+    "Commercial account organization",
+  );
+
+  if (
+    canonicalUuidIdentity(organizationId)
+    !== canonicalUuidIdentity(expectedOrganizationId)
+  ) {
+    throw new TypeError(
+      "Commercial account detail returned an unexpected organization.",
+    );
+  }
+
   const quoteActivityRecord = requireRecord(
     record.quoteActivity,
     "commercial account quote activity",
@@ -521,11 +559,7 @@ function normalizeAccountDetail(value: unknown): CommercialAccountDetail {
 
   return {
     organization: {
-      id: requireString(
-        organization,
-        "id",
-        "Commercial account organization",
-      ),
+      id: organizationId,
       name: requireString(
         organization,
         "name",
@@ -574,8 +608,25 @@ function normalizeAccountDetail(value: unknown): CommercialAccountDetail {
   };
 }
 
-function normalizeAuditEvent(value: unknown): CommercialAccountAuditEvent {
+function normalizeAuditEvent(
+  value: unknown,
+  expectedOrganizationId: string,
+): CommercialAccountAuditEvent {
   const record = requireRecord(value, "commercial account audit event");
+  const organizationId = requireString(
+    record,
+    "organizationId",
+    "Commercial account audit event",
+  );
+
+  if (
+    canonicalUuidIdentity(organizationId)
+    !== canonicalUuidIdentity(expectedOrganizationId)
+  ) {
+    throw new TypeError(
+      "Commercial account audit returned an unexpected organization.",
+    );
+  }
 
   return {
     eventId: requireString(
@@ -583,11 +634,7 @@ function normalizeAuditEvent(value: unknown): CommercialAccountAuditEvent {
       "eventId",
       "Commercial account audit event",
     ),
-    organizationId: requireString(
-      record,
-      "organizationId",
-      "Commercial account audit event",
-    ),
+    organizationId,
     actorUserId: requireString(
       record,
       "actorUserId",
@@ -639,14 +686,81 @@ function normalizeAuditEvent(value: unknown): CommercialAccountAuditEvent {
   };
 }
 
-function normalizeAuditPage(value: unknown): CommercialAccountAuditPage {
+function normalizeAuditPage(
+  value: unknown,
+  expectedOrganizationId: string,
+): CommercialAccountAuditPage {
   const record = requireRecord(value, "commercial account audit page");
 
   return {
     items: requireArray(record.items, "commercial account audit items").map(
-      normalizeAuditEvent,
+      (item) => normalizeAuditEvent(item, expectedOrganizationId),
     ),
     nextCursor: nullableString(record.nextCursor),
+  };
+}
+
+function normalizeGrantResult(value: unknown): CommercialEntitlementGrantResult {
+  const record = requireRecord(value, "commercial entitlement grant result");
+  const supersededGrantIds = requireArray(
+    record.supersededGrantIds,
+    "commercial entitlement superseded grant ids",
+  );
+
+  if (!supersededGrantIds.every((grantId) => typeof grantId === "string")) {
+    throw new TypeError(
+      "Commercial entitlement grant result has invalid superseded grant ids.",
+    );
+  }
+
+  return {
+    grantId: requireString(
+      record,
+      "grantId",
+      "Commercial entitlement grant result",
+    ),
+    supersededGrantIds,
+    effective: normalizeEffectiveEntitlement(record.effective),
+    eventId: requireString(
+      record,
+      "eventId",
+      "Commercial entitlement grant result",
+    ),
+    replayed: requireBoolean(
+      record,
+      "replayed",
+      "Commercial entitlement grant result",
+    ),
+  };
+}
+
+function normalizeRevokeResult(
+  value: unknown,
+): CommercialEntitlementRevokeResult {
+  const record = requireRecord(value, "commercial entitlement revoke result");
+
+  return {
+    grantId: requireString(
+      record,
+      "grantId",
+      "Commercial entitlement revoke result",
+    ),
+    revokedAt: requireString(
+      record,
+      "revokedAt",
+      "Commercial entitlement revoke result",
+    ),
+    effective: normalizeEffectiveEntitlement(record.effective),
+    eventId: requireString(
+      record,
+      "eventId",
+      "Commercial entitlement revoke result",
+    ),
+    replayed: requireBoolean(
+      record,
+      "replayed",
+      "Commercial entitlement revoke result",
+    ),
   };
 }
 
@@ -686,7 +800,7 @@ export async function getCommercialAccount(
     },
   );
 
-  return normalizeAccountDetail(ensureData(data, error));
+  return normalizeAccountDetail(ensureData(data, error), organizationId);
 }
 
 /**
@@ -706,5 +820,55 @@ export async function listCommercialAccountAudit(input: {
     },
   );
 
-  return normalizeAuditPage(ensureData(data, error));
+  return normalizeAuditPage(ensureData(data, error), input.organizationId);
+}
+
+/**
+ * Grants trial or complimentary Pro access through the AAL2 billing-admin
+ * mutation boundary.
+ */
+export async function grantCommercialEntitlement(input: {
+  organizationId: string;
+  grantType: "trial" | "complimentary";
+  startsAt: string;
+  expiresAt: string | null;
+  reviewAt: string | null;
+  reason: string;
+  idempotencyKey: string;
+}): Promise<CommercialEntitlementGrantResult> {
+  const { data, error } = await callUntypedRpc(
+    "api_admin_grant_organization_entitlement",
+    {
+      p_organization_id: input.organizationId,
+      p_grant_type: input.grantType,
+      p_starts_at: input.startsAt,
+      p_expires_at: input.expiresAt,
+      p_review_at: input.reviewAt,
+      p_reason: input.reason,
+      p_idempotency_key: input.idempotencyKey,
+    },
+  );
+
+  return normalizeGrantResult(ensureData(data, error));
+}
+
+/**
+ * Revokes one exact entitlement grant through the AAL2 billing-admin mutation
+ * boundary.
+ */
+export async function revokeCommercialEntitlement(input: {
+  grantId: string;
+  reason: string;
+  idempotencyKey: string;
+}): Promise<CommercialEntitlementRevokeResult> {
+  const { data, error } = await callUntypedRpc(
+    "api_admin_revoke_organization_entitlement",
+    {
+      p_grant_id: input.grantId,
+      p_reason: input.reason,
+      p_idempotency_key: input.idempotencyKey,
+    },
+  );
+
+  return normalizeRevokeResult(ensureData(data, error));
 }

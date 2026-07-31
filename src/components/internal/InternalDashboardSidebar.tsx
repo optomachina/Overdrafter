@@ -1,16 +1,24 @@
-import { LayoutDashboard, PlusSquare, ShieldAlert, ShieldCheck } from "lucide-react";
+import {
+  Building2,
+  LayoutDashboard,
+  PlusSquare,
+  ShieldAlert,
+  ShieldCheck,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatStatusLabel } from "@/features/quotes/utils";
 import type { AppRole } from "@/integrations/supabase/types";
 import { cn } from "@/lib/utils";
 
 type InternalDashboardSidebarProps = {
-  activeItem: "dashboard" | "new-job" | "admin" | null;
+  activeItem: "dashboard" | "new-job" | "admin" | "commercial-accounts" | null;
   role?: AppRole | null;
   isPlatformAdmin?: boolean;
+  hasCommercialAdminAccess?: boolean;
   onNavigateDashboard: () => void;
   onNavigateNewJob: () => void;
   onNavigateAdmin?: () => void;
+  onNavigateCommercial?: () => void;
 };
 
 type SidebarActionButtonProps = {
@@ -48,9 +56,11 @@ export function InternalDashboardSidebar({
   activeItem,
   role,
   isPlatformAdmin = false,
+  hasCommercialAdminAccess = false,
   onNavigateDashboard,
   onNavigateNewJob,
   onNavigateAdmin,
+  onNavigateCommercial,
 }: InternalDashboardSidebarProps) {
   return (
     <div className="space-y-5">
@@ -83,6 +93,14 @@ export function InternalDashboardSidebar({
           label="New Job"
           onClick={onNavigateNewJob}
         />
+        {hasCommercialAdminAccess && onNavigateCommercial ? (
+          <SidebarActionButton
+            active={activeItem === "commercial-accounts"}
+            icon={Building2}
+            label="Commercial accounts"
+            onClick={onNavigateCommercial}
+          />
+        ) : null}
         {isPlatformAdmin && onNavigateAdmin ? (
           <SidebarActionButton
             active={activeItem === "admin"}

@@ -12,6 +12,7 @@ const fetchAdminOrganizationsMock = vi.fn();
 const fetchAdminAllUsersMock = vi.fn();
 const fetchAdminAllJobsMock = vi.fn();
 const fetchAdminAllProjectsMock = vi.fn();
+const fetchCommercialAdminAccessMock = vi.fn();
 const useWorkspaceNotificationsMock = vi.fn();
 const useClientWorkspaceDataMock = vi.fn();
 const useAppSessionMock = vi.fn();
@@ -25,6 +26,10 @@ vi.mock("@/features/quotes/api/workspace-access", () => ({
   fetchAdminAllUsers: (...args: unknown[]) => fetchAdminAllUsersMock(...args),
   fetchAdminAllJobs: (...args: unknown[]) => fetchAdminAllJobsMock(...args),
   fetchAdminAllProjects: (...args: unknown[]) => fetchAdminAllProjectsMock(...args),
+}));
+vi.mock("@/features/quotes/api/commercial-admin-access-api", () => ({
+  fetchCommercialAdminAccess: (...args: unknown[]) =>
+    fetchCommercialAdminAccessMock(...args),
 }));
 vi.mock("@/features/notifications/use-workspace-notifications", async (importOriginal) => {
   const actual =
@@ -109,6 +114,10 @@ function renderInternalAdmin() {
         retry: false,
       },
     },
+  });
+  queryClient.setQueryData(["commercial-admin-access"], {
+    hasCapability: false,
+    hasAal2: false,
   });
 
   return render(
@@ -200,6 +209,10 @@ describe("InternalAdmin", () => {
         createdAt: "2026-03-04T00:00:00.000Z",
       },
     ]);
+    fetchCommercialAdminAccessMock.mockResolvedValue({
+      hasCapability: false,
+      hasAal2: false,
+    });
     useWorkspaceNotificationsMock.mockReturnValue(makeNotificationCenter());
     useClientWorkspaceDataMock.mockReturnValue({
       accessibleJobsQuery: { data: [{ id: "job-1" }], isLoading: false },

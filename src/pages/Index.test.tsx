@@ -12,6 +12,7 @@ const guestLandingBody =
   /keep part files, supplier responses, and manufacturing decisions in one traceable workspace/i;
 
 const mockUseAppSession = vi.fn();
+const mockFetchCommercialAdminAccess = vi.hoisted(() => vi.fn());
 const mockFetchAccessibleProjects = vi.fn();
 const mockFetchAccessibleJobs = vi.fn();
 const mockFetchArchivedJobs = vi.fn();
@@ -24,6 +25,10 @@ const mockIsProjectNotFoundError = vi.fn<(error: unknown) => boolean>(() => fals
 
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => mockUseAppSession(),
+}));
+
+vi.mock("@/features/quotes/api/commercial-admin-access-api", () => ({
+  fetchCommercialAdminAccess: mockFetchCommercialAdminAccess,
 }));
 
 vi.mock("@/components/SignInDialog", () => ({
@@ -116,6 +121,10 @@ function renderIndex(initialEntry = "/") {
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/parts" element={<ClientPartsLocationProbe />} />
+          <Route
+            path="/internal/commercial"
+            element={<div>Commercial Accounts</div>}
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -124,6 +133,10 @@ function renderIndex(initialEntry = "/") {
 
 describe("Index client home", () => {
   beforeEach(() => {
+    mockFetchCommercialAdminAccess.mockResolvedValue({
+      hasCapability: false,
+      hasAal2: false,
+    });
     mockFetchAccessibleProjects.mockResolvedValue([]);
     mockFetchAccessibleJobs.mockResolvedValue([]);
     mockFetchArchivedJobs.mockResolvedValue([]);
@@ -258,6 +271,27 @@ describe("Index client home", () => {
     await waitFor(() => {
       expect(screen.getByText("Keep projects moving with the next highest-impact action.")).toBeInTheDocument();
     });
+  });
+
+  it("routes a capability-only administrator into commercial operations", async () => {
+    mockUseAppSession.mockReturnValue({
+      user: { id: "billing-admin", email: "admin@example.com" },
+      activeMembership: null,
+      isLoading: false,
+      isVerifiedAuth: true,
+      isAuthInitializing: false,
+      signOut: vi.fn(),
+    });
+    mockFetchCommercialAdminAccess.mockResolvedValue({
+      hasCapability: true,
+      hasAal2: false,
+    });
+
+    renderIndex();
+
+    expect(
+      await screen.findByText("Commercial Accounts"),
+    ).toBeInTheDocument();
   });
 
   it("holds the route on auth restoration while a restorable session is still initializing", () => {

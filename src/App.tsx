@@ -22,6 +22,8 @@ import NotFound from "./pages/NotFound";
 import JobCreate from "./pages/JobCreate";
 import InternalAdmin from "./pages/InternalAdmin";
 import InternalJobDetail from "./pages/InternalJobDetail";
+import CommercialAccounts from "./pages/CommercialAccounts";
+import CommercialAccountDetail from "./pages/CommercialAccountDetail";
 import ClientPackage from "./pages/ClientPackage";
 import AuthCallback from "./pages/AuthCallback";
 import DevLogin from "./pages/DevLogin";
@@ -129,6 +131,11 @@ const App = () => (
               <Route path="/shared/:inviteToken" element={<SharedInvite />} />
               <Route path="/jobs/new" element={<JobCreate />} />
               <Route path="/internal/admin" element={<InternalAdmin />} />
+              <Route path="/internal/commercial" element={<CommercialAccounts />} />
+              <Route
+                path="/internal/commercial/:organizationId"
+                element={<CommercialAccountDetail />}
+              />
               <Route path="/internal/jobs/:jobId" element={<InternalJobDetail />} />
               <Route path="/client/packages/:packageId" element={<ClientPackage />} />
               <Route path="/signin" element={<SignIn />} />

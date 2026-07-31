@@ -24,6 +24,7 @@ import {
   fetchAdminAllUsers,
   fetchAdminOrganizations,
 } from "@/features/quotes/api/workspace-access";
+import { fetchCommercialAdminAccess } from "@/features/quotes/api/commercial-admin-access-api";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import { useClientWorkspaceData } from "@/features/quotes/use-client-workspace-data";
 import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
@@ -102,6 +103,12 @@ const InternalAdmin = () => {
     queryFn: fetchAdminAllProjects,
     enabled: isPlatformAdmin,
   });
+  const commercialAccessQuery = useQuery({
+    queryKey: ["commercial-admin-access"],
+    queryFn: fetchCommercialAdminAccess,
+    enabled: Boolean(user),
+    staleTime: 30_000,
+  });
 
   if (isAuthInitializing) {
     return <AuthBootstrapScreen message="Restoring your platform admin session." />;
@@ -151,9 +158,13 @@ const InternalAdmin = () => {
           activeItem="admin"
           role={activeMembership?.role}
           isPlatformAdmin={isPlatformAdmin}
+          hasCommercialAdminAccess={
+            commercialAccessQuery.data?.hasCapability === true
+          }
           onNavigateDashboard={() => navigate("/")}
           onNavigateNewJob={() => navigate("/jobs/new")}
           onNavigateAdmin={() => navigate("/internal/admin")}
+          onNavigateCommercial={() => navigate("/internal/commercial")}
         />
       }
       sidebarFooter={
