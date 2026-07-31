@@ -1,46 +1,93 @@
 import { assertEquals } from "https://deno.land/std@0.220.0/assert/mod.ts";
+import {
+  createStripeWebhookHandler,
+  type StripeWebhookRuntime,
+} from "./index.ts";
 
-// Integration tests for the stripe-webhook function.
-// Requires STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, SUPABASE_URL set in CI.
+Deno.test("disabled POST returns a no-op 200 before secrets or runtime loading", async () => {
+  const environmentReads: string[] = [];
+  let runtimeLoaded = false;
+  const handler = createStripeWebhookHandler(
+    (name) => {
+      environmentReads.push(name);
+      return undefined;
+    },
+    () => {
+      runtimeLoaded = true;
+      throw new Error("disabled requests must not load the payment runtime");
+    },
+  );
+  const response = await handler(
+    new Request("https://example.test", {
+      method: "POST",
+      body: "not-a-stripe-event",
+    }),
+  );
 
-Deno.test("POST without Stripe-Signature header returns 400", async () => {
-  const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/stripe-webhook`;
-
-  if (!url.startsWith("http")) {
-    console.log("SUPABASE_URL not set — skipping integration test");
-    return;
-  }
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type: "payment_intent.succeeded" }),
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), {
+    received: true,
+    ignored: true,
+    reason: "legacy_project_payments_disabled",
   });
-
-  assertEquals(response.status, 400);
-  const body = await response.json();
-  assertEquals(typeof body.error, "string");
+  assertEquals(environmentReads, ["LEGACY_PROJECT_PAYMENTS_ENABLED"]);
+  assertEquals(runtimeLoaded, false);
 });
 
-Deno.test("POST with invalid Stripe-Signature returns 400", async () => {
-  const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/stripe-webhook`;
-
-  if (!url.startsWith("http")) {
-    console.log("SUPABASE_URL not set — skipping integration test");
-    return;
-  }
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "stripe-signature": "t=1234,v1=invalidsignature",
+Deno.test("enabled POST without Stripe-Signature header returns 400 before runtime loading", async () => {
+  let runtimeLoaded = false;
+  const handler = createStripeWebhookHandler(
+    () => " TRUE ",
+    () => {
+      runtimeLoaded = true;
+      throw new Error("missing signatures must not load the payment runtime");
     },
-    body: JSON.stringify({ type: "payment_intent.succeeded" }),
-  });
+  );
+  const response = await handler(
+    new Request("https://example.test", {
+      method: "POST",
+      body: JSON.stringify({ type: "payment_intent.succeeded" }),
+    }),
+  );
 
-  // Signature verification must fail — reject unsigned requests
   assertEquals(response.status, 400);
+  assertEquals(await response.json(), { error: "Missing Stripe signature." });
+  assertEquals(runtimeLoaded, false);
+});
+
+Deno.test("enabled POST with invalid Stripe-Signature returns 400", async () => {
+  const runtime = {
+    stripe: {
+      webhooks: {
+        constructEventAsync: () => {
+          throw new Error("invalid signature");
+        },
+      },
+    },
+    stripeWebhookSecret: "whsec_test",
+    serviceClient: {},
+  } as unknown as StripeWebhookRuntime;
+  const handler = createStripeWebhookHandler(() => "true", () => runtime);
+  const response = await handler(
+    new Request("https://example.test", {
+      method: "POST",
+      headers: { "stripe-signature": "t=1234,v1=invalidsignature" },
+      body: JSON.stringify({ type: "payment_intent.succeeded" }),
+    }),
+  );
+
+  assertEquals(response.status, 400);
+  assertEquals(await response.json(), { error: "Invalid webhook signature." });
+});
+
+Deno.test("unsupported methods return 405 before the feature gate", async () => {
+  const handler = createStripeWebhookHandler(() => undefined);
+  const response = await handler(
+    new Request("https://example.test", { method: "GET" }),
+  );
+
+  assertEquals(response.status, 405);
+  assertEquals(await response.json(), { error: "Method not allowed." });
 });
 
 // Idempotency test: a valid payment_intent.succeeded for a pi_id that has
@@ -50,13 +97,15 @@ Deno.test("POST with invalid Stripe-Signature returns 400", async () => {
 // To run manually:
 //   STRIPE_SECRET_KEY=sk_test_... STRIPE_WEBHOOK_SECRET=whsec_... \
 //   SUPABASE_URL=http://localhost:54321 deno test --allow-env --allow-net index.test.ts
-Deno.test("duplicate payment_intent.succeeded is idempotent", async () => {
+Deno.test("duplicate payment_intent.succeeded is idempotent", () => {
   const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
   const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
 
   if (!stripeKey || !webhookSecret || !supabaseUrl?.startsWith("http")) {
-    console.log("Stripe/Supabase env vars not set — skipping idempotency integration test");
+    console.log(
+      "Stripe/Supabase env vars not set — skipping idempotency integration test",
+    );
     return;
   }
 

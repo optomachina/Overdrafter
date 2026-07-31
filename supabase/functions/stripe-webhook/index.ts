@@ -1,5 +1,6 @@
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
+import { isLegacyProjectPaymentsEnabled } from "../_shared/legacy-project-payments.ts";
 
 function json(status: number, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
@@ -8,33 +9,67 @@ function json(status: number, body: Record<string, unknown>) {
   });
 }
 
-const supabaseUrl = Deno.env.get("SUPABASE_URL");
-const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
-const stripeWebhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
+type EnvironmentReader = (name: string) => string | undefined;
 
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error("Missing Supabase environment configuration.");
+export type StripeWebhookRuntime = {
+  stripe: Stripe;
+  stripeWebhookSecret: string;
+  serviceClient: SupabaseClient;
+};
+
+type RuntimeLoader = (
+  getEnvironmentVariable: EnvironmentReader,
+) => StripeWebhookRuntime;
+
+let cachedRuntime: StripeWebhookRuntime | undefined;
+
+function loadStripeWebhookRuntime(
+  getEnvironmentVariable: EnvironmentReader,
+): StripeWebhookRuntime {
+  if (cachedRuntime) {
+    return cachedRuntime;
+  }
+
+  const supabaseUrl = getEnvironmentVariable("SUPABASE_URL");
+  const supabaseServiceKey = getEnvironmentVariable(
+    "SUPABASE_SERVICE_ROLE_KEY",
+  );
+  const stripeSecretKey = getEnvironmentVariable("STRIPE_SECRET_KEY");
+  const stripeWebhookSecret = getEnvironmentVariable("STRIPE_WEBHOOK_SECRET");
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error("Missing Supabase environment configuration.");
+  }
+
+  if (!stripeSecretKey || !stripeWebhookSecret) {
+    throw new Error("Missing Stripe environment configuration.");
+  }
+
+  cachedRuntime = {
+    stripe: new Stripe(stripeSecretKey, {
+      // The SDK type accepts only its bundled latest literal. Keep this
+      // contained legacy integration pinned to the API version it used before
+      // the feature gate was added.
+      apiVersion: "2024-11-20.acacia" as Stripe.LatestApiVersion,
+      typescript: true,
+    }),
+    stripeWebhookSecret,
+    serviceClient: createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    }),
+  };
+
+  return cachedRuntime;
 }
 
-if (!stripeSecretKey || !stripeWebhookSecret) {
-  throw new Error("Missing Stripe environment configuration.");
-}
-
-const stripe = new Stripe(stripeSecretKey, {
-  apiVersion: "2024-11-20.acacia",
-  typescript: true,
-});
-
-const serviceClient = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // payments.order_id is a UUID FK; malformed metadata (or metadata from
 // intents created before validation tightened) must not break webhook writes.
-function projectIdToOrderId(paymentIntent: Stripe.PaymentIntent): string | null {
+function projectIdToOrderId(
+  paymentIntent: Stripe.PaymentIntent,
+): string | null {
   const value = paymentIntent.metadata?.projectId;
   if (typeof value !== "string" || !UUID_RE.test(value)) {
     if (value) {
@@ -47,43 +82,101 @@ function projectIdToOrderId(paymentIntent: Stripe.PaymentIntent): string | null 
   return value;
 }
 
-Deno.serve(async (request) => {
-  if (request.method !== "POST") {
-    return json(405, { error: "Method not allowed." });
-  }
-
-  const signature = request.headers.get("stripe-signature");
-
-  if (!signature) {
-    return json(400, { error: "Missing Stripe signature." });
-  }
-
-  const body = await request.text();
-
-  let event: Stripe.Event;
-
-  try {
-    event = await stripe.webhooks.constructEventAsync(body, signature, stripeWebhookSecret);
-  } catch (error) {
-    console.error("stripe-webhook: signature verification failed", error);
-    return json(400, { error: "Invalid webhook signature." });
-  }
-
-  try {
-    if (event.type === "payment_intent.succeeded") {
-      await handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent);
-    } else if (event.type === "payment_intent.payment_failed") {
-      await handlePaymentIntentFailed(event.data.object as Stripe.PaymentIntent);
+/**
+ * Creates the contained legacy Stripe webhook request handler.
+ *
+ * The handler defaults to a successful no-op while legacy project payments are
+ * disabled. When enabled, it verifies Stripe signatures before applying
+ * idempotent payment-status updates through the service-role client.
+ *
+ * @param getEnvironmentVariable - Injectable reader for the server-only flag
+ * and enabled-path secrets.
+ * @param loadRuntime - Injectable Stripe and Supabase runtime loader used after
+ * the gate is enabled.
+ * @returns An HTTP request handler for the legacy Stripe webhook endpoint.
+ */
+export function createStripeWebhookHandler(
+  getEnvironmentVariable: EnvironmentReader = (name) => Deno.env.get(name),
+  loadRuntime: RuntimeLoader = loadStripeWebhookRuntime,
+) {
+  return async (request: Request): Promise<Response> => {
+    if (request.method !== "POST") {
+      return json(405, { error: "Method not allowed." });
     }
-  } catch (error) {
-    console.error(`stripe-webhook: error handling event ${event.type}`, error);
-    return json(500, { error: "Internal error processing webhook." });
-  }
 
-  return json(200, { received: true });
-});
+    if (
+      !isLegacyProjectPaymentsEnabled(
+        getEnvironmentVariable("LEGACY_PROJECT_PAYMENTS_ENABLED"),
+      )
+    ) {
+      return json(200, {
+        received: true,
+        ignored: true,
+        reason: "legacy_project_payments_disabled",
+      });
+    }
 
-async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent) {
+    const signature = request.headers.get("stripe-signature");
+
+    if (!signature) {
+      return json(400, { error: "Missing Stripe signature." });
+    }
+
+    let runtime: StripeWebhookRuntime;
+
+    try {
+      runtime = loadRuntime(getEnvironmentVariable);
+    } catch (error) {
+      console.error("stripe-webhook: runtime configuration failed", error);
+      return json(500, { error: "Webhook configuration error." });
+    }
+
+    const body = await request.text();
+    let event: Stripe.Event;
+
+    try {
+      event = await runtime.stripe.webhooks.constructEventAsync(
+        body,
+        signature,
+        runtime.stripeWebhookSecret,
+      );
+    } catch (error) {
+      console.error("stripe-webhook: signature verification failed", error);
+      return json(400, { error: "Invalid webhook signature." });
+    }
+
+    try {
+      if (event.type === "payment_intent.succeeded") {
+        await handlePaymentIntentSucceeded(
+          event.data.object as Stripe.PaymentIntent,
+          runtime.serviceClient,
+        );
+      } else if (event.type === "payment_intent.payment_failed") {
+        await handlePaymentIntentFailed(
+          event.data.object as Stripe.PaymentIntent,
+          runtime.serviceClient,
+        );
+      }
+    } catch (error) {
+      console.error(
+        `stripe-webhook: error handling event ${event.type}`,
+        error,
+      );
+      return json(500, { error: "Internal error processing webhook." });
+    }
+
+    return json(200, { received: true });
+  };
+}
+
+if (import.meta.main) {
+  Deno.serve(createStripeWebhookHandler());
+}
+
+async function handlePaymentIntentSucceeded(
+  paymentIntent: Stripe.PaymentIntent,
+  serviceClient: SupabaseClient,
+) {
   const stripePaymentIntentId = paymentIntent.id;
 
   // Idempotency: check if we've already processed this payment_intent
@@ -100,7 +193,9 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
   if (existing) {
     if (existing.status === "captured") {
       // Already processed — idempotent delivery, safe to ignore
-      console.log(`stripe-webhook: duplicate delivery for ${stripePaymentIntentId}, already captured`);
+      console.log(
+        `stripe-webhook: duplicate delivery for ${stripePaymentIntentId}, already captured`,
+      );
       return;
     }
 
@@ -111,7 +206,9 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
       .eq("stripe_payment_intent_id", stripePaymentIntentId);
 
     if (updateError) {
-      throw new Error(`payments update to captured failed: ${updateError.message}`);
+      throw new Error(
+        `payments update to captured failed: ${updateError.message}`,
+      );
     }
   } else {
     // Insert new payment record
@@ -127,7 +224,9 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
     if (insertError) {
       // Unique constraint violation means a concurrent handler already inserted — safe to ignore
       if (insertError.code === "23505") {
-        console.log(`stripe-webhook: concurrent insert for ${stripePaymentIntentId}, already handled`);
+        console.log(
+          `stripe-webhook: concurrent insert for ${stripePaymentIntentId}, already handled`,
+        );
         return;
       }
 
@@ -136,10 +235,15 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
   }
 
   // TODO: enqueue Xometry order placement task
-  console.log(`stripe-webhook: payment captured for ${stripePaymentIntentId}, order placement enqueue pending`);
+  console.log(
+    `stripe-webhook: payment captured for ${stripePaymentIntentId}, order placement enqueue pending`,
+  );
 }
 
-async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
+async function handlePaymentIntentFailed(
+  paymentIntent: Stripe.PaymentIntent,
+  serviceClient: SupabaseClient,
+) {
   const stripePaymentIntentId = paymentIntent.id;
 
   const { data: existing, error: lookupError } = await serviceClient
@@ -168,7 +272,9 @@ async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
       .eq("stripe_payment_intent_id", stripePaymentIntentId);
 
     if (updateError) {
-      throw new Error(`payments update to failed failed: ${updateError.message}`);
+      throw new Error(
+        `payments update to failed failed: ${updateError.message}`,
+      );
     }
   } else {
     const { error: insertError } = await serviceClient.from("payments").insert({

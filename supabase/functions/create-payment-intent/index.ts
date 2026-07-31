@@ -1,9 +1,11 @@
 import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
+import { isLegacyProjectPaymentsEnabled } from "../_shared/legacy-project-payments.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -16,29 +18,6 @@ function json(status: number, body: Record<string, unknown>) {
     },
   });
 }
-
-const supabaseUrl = Deno.env.get("SUPABASE_URL");
-const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
-const supabaseServiceRoleKey =
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SERVICE_ROLE_KEY");
-const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("Missing Supabase environment configuration.");
-}
-
-if (!supabaseServiceRoleKey) {
-  throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY environment variable.");
-}
-
-if (!stripeSecretKey) {
-  throw new Error("Missing STRIPE_SECRET_KEY environment variable.");
-}
-
-const stripe = new Stripe(stripeSecretKey, {
-  apiVersion: "2024-11-20.acacia",
-  typescript: true,
-});
 
 type CreatePaymentIntentPayload = {
   projectId: string;
@@ -57,8 +36,14 @@ type PriceResult =
   | { ok: false; status: number; error: string };
 
 const STRIPE_MIN_AMOUNT_CENTS = 50;
+const LEGACY_PROJECT_PAYMENTS_DISABLED_CODE =
+  "legacy_project_payments_disabled";
 
-async function parsePayload(request: Request): Promise<CreatePaymentIntentPayload | null> {
+type EnvironmentReader = (name: string) => string | undefined;
+
+async function parsePayload(
+  request: Request,
+): Promise<CreatePaymentIntentPayload | null> {
   try {
     return (await request.json()) as CreatePaymentIntentPayload;
   } catch {
@@ -78,11 +63,19 @@ async function verifyProjectAccess(
 
   if (error) {
     console.error("create-payment-intent: project lookup failed", error);
-    return { ok: false, status: 500, error: "Payment setup failed. Try again or contact support." };
+    return {
+      ok: false,
+      status: 500,
+      error: "Payment setup failed. Try again or contact support.",
+    };
   }
 
   if (!data) {
-    return { ok: false, status: 403, error: "You do not have access to this project." };
+    return {
+      ok: false,
+      status: 403,
+      error: "You do not have access to this project.",
+    };
   }
 
   return { ok: true };
@@ -95,7 +88,9 @@ function toFiniteNumber(value: number | string | null | undefined): number {
   return typeof value === "string" ? Number(value) : value;
 }
 
-function sumOfferCents(rows: OfferRow[]): { totalCents: number; hasUnpricedJob: boolean } {
+function sumOfferCents(
+  rows: OfferRow[],
+): { totalCents: number; hasUnpricedJob: boolean } {
   let totalCents = 0;
   let hasUnpricedJob = false;
 
@@ -136,7 +131,11 @@ async function resolveAuthoritativePriceCents(
 
   if (error) {
     console.error("create-payment-intent: offer lookup failed", error);
-    return { ok: false, status: 500, error: "Payment setup failed. Try again or contact support." };
+    return {
+      ok: false,
+      status: 500,
+      error: "Payment setup failed. Try again or contact support.",
+    };
   }
 
   const rows = (data ?? []) as unknown as OfferRow[];
@@ -146,7 +145,8 @@ async function resolveAuthoritativePriceCents(
     return {
       ok: false,
       status: 400,
-      error: "This project has no priced selection yet. Choose a vendor quote before paying.",
+      error:
+        "This project has no priced selection yet. Choose a vendor quote before paying.",
     };
   }
 
@@ -154,20 +154,93 @@ async function resolveAuthoritativePriceCents(
     return {
       ok: false,
       status: 400,
-      error: `Payment amount must be at least ${STRIPE_MIN_AMOUNT_CENTS} cents.`,
+      error:
+        `Payment amount must be at least ${STRIPE_MIN_AMOUNT_CENTS} cents.`,
     };
   }
 
   return { ok: true, totalCents };
 }
 
-Deno.serve(async (request) => {
+/**
+ * Handles the contained legacy project-payment endpoint.
+ *
+ * The server-only feature flag is evaluated before any payment runtime is
+ * loaded. When enabled, the handler authenticates the caller, derives the
+ * amount from server-side offer data, and creates an idempotent Stripe
+ * PaymentIntent.
+ *
+ * @param request - Incoming HTTP request to authenticate and process.
+ * @param getEnvironmentVariable - Injectable environment reader used by tests
+ * and the Deno runtime.
+ * @returns A JSON response with CORS headers for every handled outcome.
+ */
+export async function handleCreatePaymentIntent(
+  request: Request,
+  getEnvironmentVariable: EnvironmentReader = (name) => Deno.env.get(name),
+): Promise<Response> {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   if (request.method !== "POST") {
     return json(405, { error: "Method not allowed." });
+  }
+
+  if (
+    !isLegacyProjectPaymentsEnabled(
+      getEnvironmentVariable("LEGACY_PROJECT_PAYMENTS_ENABLED"),
+    )
+  ) {
+    return json(503, {
+      error: "Legacy project payments are disabled.",
+      code: LEGACY_PROJECT_PAYMENTS_DISABLED_CODE,
+    });
+  }
+
+  let supabaseUrl: string;
+  let supabaseAnonKey: string;
+  let supabaseServiceRoleKey: string;
+  let stripe: Stripe;
+
+  try {
+    const configuredSupabaseUrl = getEnvironmentVariable("SUPABASE_URL");
+    const configuredSupabaseAnonKey = getEnvironmentVariable(
+      "SUPABASE_ANON_KEY",
+    );
+    const configuredServiceRoleKey =
+      getEnvironmentVariable("SUPABASE_SERVICE_ROLE_KEY") ??
+        getEnvironmentVariable("SERVICE_ROLE_KEY");
+    const stripeSecretKey = getEnvironmentVariable("STRIPE_SECRET_KEY");
+
+    if (!configuredSupabaseUrl || !configuredSupabaseAnonKey) {
+      throw new Error("Missing Supabase environment configuration.");
+    }
+
+    if (!configuredServiceRoleKey) {
+      throw new Error(
+        "Missing SUPABASE_SERVICE_ROLE_KEY environment variable.",
+      );
+    }
+
+    if (!stripeSecretKey) {
+      throw new Error("Missing STRIPE_SECRET_KEY environment variable.");
+    }
+
+    supabaseUrl = configuredSupabaseUrl;
+    supabaseAnonKey = configuredSupabaseAnonKey;
+    supabaseServiceRoleKey = configuredServiceRoleKey;
+    stripe = new Stripe(stripeSecretKey, {
+      // Preserve the legacy endpoint's pinned API version even when the
+      // floating npm:stripe@17 type package advances its latest literal.
+      apiVersion: "2024-11-20.acacia" as Stripe.LatestApiVersion,
+      typescript: true,
+    });
+  } catch (error) {
+    console.error("create-payment-intent: configuration error", error);
+    return json(500, {
+      error: "Payment setup failed. Try again or contact support.",
+    });
   }
 
   const authorization = request.headers.get("Authorization");
@@ -189,7 +262,9 @@ Deno.serve(async (request) => {
   } = await userClient.auth.getUser();
 
   if (userError || !user) {
-    return json(401, { error: userError?.message ?? "You must be signed in to continue." });
+    return json(401, {
+      error: userError?.message ?? "You must be signed in to continue.",
+    });
   }
 
   const payload = await parsePayload(request);
@@ -216,7 +291,10 @@ Deno.serve(async (request) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const priceResult = await resolveAuthoritativePriceCents(serviceClient, projectId);
+  const priceResult = await resolveAuthoritativePriceCents(
+    serviceClient,
+    projectId,
+  );
   if (!priceResult.ok) {
     return json(priceResult.status, { error: priceResult.error });
   }
@@ -225,7 +303,8 @@ Deno.serve(async (request) => {
     // Stable idempotency key keyed on (project, user, amount) so retries,
     // duplicate clicks, or remounts reuse the same PaymentIntent instead of
     // authorizing the card multiple times.
-    const idempotencyKey = `create-payment-intent:${projectId}:${user.id}:${priceResult.totalCents}`;
+    const idempotencyKey =
+      `create-payment-intent:${projectId}:${user.id}:${priceResult.totalCents}`;
     const paymentIntent = await stripe.paymentIntents.create(
       {
         amount: priceResult.totalCents,
@@ -248,4 +327,8 @@ Deno.serve(async (request) => {
       error: "Payment setup failed. Try again or contact support.",
     });
   }
-});
+}
+
+if (import.meta.main) {
+  Deno.serve((request) => handleCreatePaymentIntent(request));
+}

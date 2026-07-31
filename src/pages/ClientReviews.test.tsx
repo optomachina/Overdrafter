@@ -268,6 +268,25 @@ describe("client review pages", () => {
       screen.getByText(/captures shipping, billing, and PO context for OverDrafter follow-up/i),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Placeholder surface for shipping method, billing, and purchase-order collection/i)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/ship-to contact/i), {
+      target: { value: "Jamie Buyer" },
+    });
+    fireEvent.change(screen.getByLabelText(/ship-to location/i), {
+      target: { value: "Phoenix, AZ" },
+    });
+    fireEvent.change(screen.getByLabelText(/billing contact name/i), {
+      target: { value: "Jordan Procure" },
+    });
+    fireEvent.change(screen.getByLabelText(/billing contact email/i), {
+      target: { value: "buyer@example.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /review handoff/i }));
+
+    expect(await screen.findByText(/ready for manual release coordination/i)).toBeInTheDocument();
+    expect(screen.getByText(/no manufacturing payment is collected here/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /proceed to payment/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/authorize a card payment/i)).not.toBeInTheDocument();
   });
 
   it("holds the protected review route during auth initialization instead of redirecting", () => {

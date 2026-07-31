@@ -50,3 +50,9 @@
 - The planned order foundation will persist this handoff and an immutable selected-offer snapshot before manual review.
 - The route still stops short of manufacturing payment collection, PO submission, or supplier order placement.
 - Organization subscription billing is a separate account-access flow and must not appear as order payment on this route.
+
+## Legacy project-payment containment
+- Project review does not render the historical Stripe card-payment component.
+- `create-payment-intent` and the legacy `stripe-webhook` are disabled unless the server-only `LEGACY_PROJECT_PAYMENTS_ENABLED` value normalizes exactly to `true`.
+- Keep that flag unset or false in normal environments. It exists only to preserve a controlled rollback/test path for historical code and data; it is not a supported customer checkout.
+- While disabled, PaymentIntent creation returns `legacy_project_payments_disabled` without loading Stripe or writing payment data, and legacy webhook POSTs are acknowledged without signature processing or payment mutation.
