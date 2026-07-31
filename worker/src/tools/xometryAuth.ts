@@ -3,10 +3,20 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import readline from "node:readline/promises";
-import { chromium } from "patchright";
+import { chromium as patchrightChromium } from "patchright";
 import { Camoufox, launchOptions as camoufoxLaunchOptions } from "camoufox-js";
-import { firefox as playwrightFirefox } from "playwright";
+import { chromium as playwrightChromium, firefox as playwrightFirefox } from "playwright";
 import { acquireXometryProfileLock } from "../adapters/persistentProfileLock.js";
+
+type ChromiumEngineName = "patchright" | "playwright";
+
+function resolveChromium(engine: ChromiumEngineName) {
+  return (engine === "playwright" ? playwrightChromium : patchrightChromium) as unknown as typeof patchrightChromium;
+}
+
+function engineLabel(engine: ChromiumEngineName) {
+  return engine === "playwright" ? "Playwright" : "Patchright";
+}
 
 function resolveStorageStatePath() {
   const cliArg = process.argv[2];
@@ -23,7 +33,7 @@ function resolveUserDataDir() {
 }
 
 function resolveChannel() {
-  return process.env.XOMETRY_BROWSER_CHANNEL ?? "chrome";
+  return process.env.XOMETRY_BROWSER_CHANNEL ?? null;
 }
 
 async function ensureParentDir(filePath: string) {
@@ -34,8 +44,9 @@ async function ensureDir(dirPath: string) {
   await fs.mkdir(dirPath, { recursive: true });
 }
 
-async function bootstrapPersistent(userDataDir: string) {
+async function bootstrapPersistent(userDataDir: string, engine: ChromiumEngineName) {
   const channel = resolveChannel();
+  const chromium = resolveChromium(engine);
   await ensureDir(userDataDir);
   await acquireXometryProfileLock(userDataDir, { vendor: "xometry-auth" });
 
@@ -45,21 +56,28 @@ async function bootstrapPersistent(userDataDir: string) {
   });
 
   console.log("");
-  console.log("Xometry Patchright Auth Bootstrap (persistent context)");
+  console.log(`Xometry ${engineLabel(engine)} Auth Bootstrap (persistent context)`);
   console.log(`User data dir: ${userDataDir}`);
-  console.log(`Browser channel: ${channel}`);
+  console.log(`Browser channel: ${channel ?? "bundled Chromium"}`);
   console.log("");
   console.log("What to do:");
-  console.log(`1. A ${channel} window will open.`);
+  console.log(`1. A ${channel ?? "Chromium"} window will open.`);
   console.log("2. Log in to Xometry manually.");
   console.log("3. Open the instant quoting page and confirm you are authenticated.");
   console.log("4. Return here and press Enter.");
   console.log("");
 
-  const context = await chromium.launchPersistentContext(userDataDir, {
+  const persistentLaunchOptions: Record<string, unknown> = {
     headless: false,
-    channel,
-  });
+  };
+  if (channel) {
+    persistentLaunchOptions.channel = channel;
+  }
+
+  const context = await chromium.launchPersistentContext(
+    userDataDir,
+    persistentLaunchOptions as never,
+  );
 
   const [existingPage] = context.pages();
   const page = existingPage ?? (await context.newPage());
@@ -81,17 +99,20 @@ async function bootstrapPersistent(userDataDir: string) {
   console.log("");
   console.log("Next step:");
   console.log(`Export XOMETRY_USER_DATA_DIR="${userDataDir}" before running the worker in live mode.`);
-  console.log(`(Optional) Export XOMETRY_BROWSER_CHANNEL="${channel}" to override the browser channel.`);
+  if (channel) {
+    console.log(`Export XOMETRY_BROWSER_CHANNEL="${channel}" before running the worker.`);
+  }
 }
 
-async function bootstrapStorageState(outputPath: string) {
+async function bootstrapStorageState(outputPath: string, engine: ChromiumEngineName) {
+  const chromium = resolveChromium(engine);
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
   });
 
   console.log("");
-  console.log("Xometry Patchright Auth Bootstrap (storage-state fallback)");
+  console.log(`Xometry ${engineLabel(engine)} Auth Bootstrap (storage-state fallback)`);
   console.log(`Storage state output: ${outputPath}`);
   console.log("");
   console.log("Hint: set XOMETRY_USER_DATA_DIR to use a persistent Chrome profile, which is");
@@ -233,17 +254,24 @@ async function bootstrapCamoufox(outputPath: string) {
 }
 
 async function main() {
-  const engine = process.env.XOMETRY_BROWSER_ENGINE ?? "patchright";
+  const engine = process.env.XOMETRY_BROWSER_ENGINE ?? "playwright";
   const userDataDir = resolveUserDataDir();
 
   if (engine === "camoufox") {
     const outputPath = resolveStorageStatePath();
     await bootstrapCamoufox(outputPath);
-  } else if (userDataDir) {
-    await bootstrapPersistent(userDataDir);
+    return;
+  }
+
+  if (engine !== "patchright" && engine !== "playwright") {
+    throw new Error(`Unsupported XOMETRY_BROWSER_ENGINE: ${engine}`);
+  }
+
+  if (userDataDir) {
+    await bootstrapPersistent(userDataDir, engine);
   } else {
     const outputPath = resolveStorageStatePath();
-    await bootstrapStorageState(outputPath);
+    await bootstrapStorageState(outputPath, engine);
   }
 }
 

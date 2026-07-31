@@ -5,15 +5,28 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { launchMock, launchPersistentContextMock } = vi.hoisted(() => ({
-  launchMock: vi.fn(),
-  launchPersistentContextMock: vi.fn(),
-}));
+const { launchMock, launchPersistentContextMock, playwrightLaunchMock, playwrightLaunchPersistentContextMock } =
+  vi.hoisted(() => ({
+    launchMock: vi.fn(),
+    launchPersistentContextMock: vi.fn(),
+    playwrightLaunchMock: vi.fn(),
+    playwrightLaunchPersistentContextMock: vi.fn(),
+  }));
 
 vi.mock("patchright", () => ({
   chromium: {
     launch: launchMock,
     launchPersistentContext: launchPersistentContextMock,
+  },
+}));
+
+vi.mock("playwright", () => ({
+  chromium: {
+    launch: playwrightLaunchMock,
+    launchPersistentContext: playwrightLaunchPersistentContextMock,
+  },
+  firefox: {
+    launch: launchMock,
   },
 }));
 
@@ -304,7 +317,20 @@ function createFakePage(options: FakePageOptions) {
 }
 
 function createFakeBrowser(page: ReturnType<typeof createFakePage>) {
-  const context = {
+  const context = createFakeContext(page);
+
+  return {
+    async newContext() {
+      return context;
+    },
+    async close() {
+      return undefined;
+    },
+  };
+}
+
+function createFakeContext(page: ReturnType<typeof createFakePage>) {
+  return {
     setDefaultTimeout: vi.fn(),
     setDefaultNavigationTimeout: vi.fn(),
     tracing: {
@@ -313,15 +339,6 @@ function createFakeBrowser(page: ReturnType<typeof createFakePage>) {
     },
     async newPage() {
       return page;
-    },
-    async close() {
-      return undefined;
-    },
-  };
-
-  return {
-    async newContext() {
-      return context;
     },
     async close() {
       return undefined;
@@ -338,6 +355,8 @@ async function makeTempDir() {
 beforeEach(() => {
   launchMock.mockReset();
   launchPersistentContextMock.mockReset();
+  playwrightLaunchMock.mockReset();
+  playwrightLaunchPersistentContextMock.mockReset();
 });
 
 afterEach(async () => {
@@ -467,12 +486,37 @@ describe("XometryAdapter", () => {
     );
 
     expect(launchMock).not.toHaveBeenCalled();
+    expect(playwrightLaunchMock).not.toHaveBeenCalled();
     expect(result.status).toBe("manual_vendor_followup");
     expect(result.rawPayload).toMatchObject({
       detectedFlow: "manual_vendor_followup",
       unmappedField: "material",
       selectedMaterial: null,
     });
+  });
+
+  it.each([
+    ["playwright", playwrightLaunchPersistentContextMock],
+    ["patchright", launchPersistentContextMock],
+  ] as const)("uses the %s engine for persistent contexts", async (engine, persistentContextMock) => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({ bodyText: "Configure part" });
+    persistentContextMock.mockResolvedValue(createFakeContext(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryBrowserEngine: engine,
+        xometryUserDataDir: path.join(workerTempDir, "profile"),
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "selector_failure",
+    });
+
+    expect(persistentContextMock).toHaveBeenCalledTimes(1);
   });
 
   it("captures a live instant quote with stable raw payload fields", async () => {
@@ -568,11 +612,15 @@ describe("XometryAdapter", () => {
         if (name?.test("Black Anodize")) finishOptionsRendered = true;
       },
     });
-    launchMock.mockResolvedValue(createFakeBrowser(page));
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
 
     const adapter = new XometryAdapter(
       "xometry",
-      makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
     );
 
     const result = await adapter.quote(makeInput());
@@ -600,6 +648,8 @@ describe("XometryAdapter", () => {
     expect(openFinishOptions).toHaveBeenCalledTimes(1);
     expect(openMaterialOptions).toHaveBeenCalledWith("ArrowDown");
     expect(openFinishOptions).toHaveBeenCalledWith("ArrowDown");
+    expect(playwrightLaunchMock).toHaveBeenCalledTimes(1);
+    expect(launchMock).not.toHaveBeenCalled();
     expect(clickMaterialControl).not.toHaveBeenCalled();
     expect(clickFinishControl).not.toHaveBeenCalled();
     expect(hiddenMaterialControl).not.toHaveBeenCalled();
@@ -1006,10 +1056,7 @@ describe("XometryAdapter", () => {
 
       const adapter = new XometryAdapter(
         "xometry",
-        makeConfig({
-          workerTempDir,
-          xometryStorageStatePath: path.join(workerTempDir, "state.json"),
-        }),
+        makeConfig({ workerTempDir, xometryStorageStatePath: path.join(workerTempDir, "state.json") }),
       );
 
       await expect(adapter.quote(makeInput())).rejects.toMatchObject({

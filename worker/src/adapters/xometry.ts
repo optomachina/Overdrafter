@@ -1,8 +1,16 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { chromium, type Browser, type BrowserContext, type Page } from "patchright";
+import {
+  chromium as patchrightChromium,
+  type Browser,
+  type BrowserContext,
+  type Page,
+} from "patchright";
 import { Camoufox, launchOptions as camoufoxLaunchOptions } from "camoufox-js";
-import { firefox as playwrightFirefox } from "playwright";
+import {
+  chromium as playwrightChromium,
+  firefox as playwrightFirefox,
+} from "playwright";
 import { createRunDir, uniqueName } from "../files.js";
 import {
   VendorAutomationError,
@@ -1185,6 +1193,10 @@ export class XometryAdapter extends VendorAdapter {
           })) as unknown as BrowserContext;
         }
       } else if (this.config.xometryUserDataDir) {
+        const chromiumEngine =
+          this.config.xometryBrowserEngine === "playwright"
+            ? playwrightChromium
+            : patchrightChromium;
         await fs.mkdir(this.config.xometryUserDataDir, { recursive: true });
         await acquireXometryProfileLock(this.config.xometryUserDataDir, {
           waitMs: this.config.xometryProfileLockWaitMs,
@@ -1199,15 +1211,19 @@ export class XometryAdapter extends VendorAdapter {
           persistentLaunchOptions.channel = this.config.xometryBrowserChannel;
         }
 
-        browserContext = await chromium.launchPersistentContext(
+        browserContext = (await chromiumEngine.launchPersistentContext(
           this.config.xometryUserDataDir,
-          persistentLaunchOptions,
-        );
+          persistentLaunchOptions as never,
+        )) as unknown as BrowserContext;
       } else {
-        browser = await chromium.launch({
+        const chromiumEngine =
+          this.config.xometryBrowserEngine === "playwright"
+            ? playwrightChromium
+            : patchrightChromium;
+        browser = (await chromiumEngine.launch({
           headless: this.config.playwrightHeadless,
           args: launchArgs,
-        });
+        })) as unknown as Browser;
 
         browserContext = await browser.newContext({
           storageState: this.config.xometryStorageStatePath ?? undefined,
