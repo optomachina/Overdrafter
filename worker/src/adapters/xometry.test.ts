@@ -178,7 +178,6 @@ type FakePageOptions = {
   saveNavigationFails?: boolean;
   reloadFails?: boolean;
   responseWaitDelayMs?: number;
-  fileChooserSetFiles?: (files: string[]) => Promise<void> | void;
   visibleFilenames?: string[];
   responses?: Array<{
     method: string;
@@ -318,7 +317,10 @@ function createFakePage(options: FakePageOptions) {
         });
       }
       if (
-        XOMETRY_LOCATORS.standaloneUploadInputs.includes(selector) &&
+        [
+          ...XOMETRY_LOCATORS.uploadInputs,
+          ...XOMETRY_LOCATORS.standaloneUploadInputs,
+        ].includes(selector) &&
         options.uploadRedirectUrl
       ) {
         return makeLocator({
@@ -401,16 +403,8 @@ function createFakePage(options: FakePageOptions) {
       return undefined;
     },
     waitForURL,
-    async waitForEvent(event: string) {
-      if (event !== "filechooser" || !options.fileChooserSetFiles) {
-        throw new Error(`unexpected page event: ${event}`);
-      }
-      return {
-        async setFiles(files: string[]) {
-          await options.fileChooserSetFiles?.(files);
-          currentUrl = options.uploadRedirectUrl ?? currentUrl;
-        },
-      };
+    async waitForEvent() {
+      return undefined;
     },
     async waitForResponse(
       predicate: (response: {
@@ -950,11 +944,15 @@ describe("XometryAdapter", () => {
     expect(genericUpload).not.toHaveBeenCalled();
   });
 
-  it("uses the authenticated dashboard CAD file chooser without touching the Tool Library input", async () => {
+  it("opens the authenticated dashboard CAD uploader without touching the Tool Library input", async () => {
     const workerTempDir = await makeTempDir();
     const dashboardUploadClick = vi.fn();
-    const dashboardFileChooserUpload = vi.fn();
+    const dashboardCadUpload = vi.fn();
     const toolLibraryUpload = vi.fn();
+    let dashboardInputReady = false;
+    dashboardUploadClick.mockImplementation(() => {
+      dashboardInputReady = true;
+    });
     const summaryText = [
       "Pick Up Where You Left Off",
       "Quantity: 2",
@@ -967,10 +965,12 @@ describe("XometryAdapter", () => {
       bodyText: summaryText,
       uploadRedirectUrl:
         "https://www.xometry.com/quoting/quote/Q00-FILECHOOSER-0001",
-      fileChooserSetFiles: dashboardFileChooserUpload,
       selectorBehaviors: {
         [XOMETRY_LOCATORS.uploadInputs[0]]: {
-          count: 0,
+          count: () => (dashboardInputReady ? 1 : 0),
+          setInputFiles: async (files) => {
+            await dashboardCadUpload(files);
+          },
         },
         [XOMETRY_LOCATORS.dashboardUploadButtons[0]]: {
           count: 1,
@@ -1005,13 +1005,60 @@ describe("XometryAdapter", () => {
 
     expect(result.status).toBe("instant_quote_received");
     expect(result.rawPayload).toMatchObject({
-      uploadSelector: XOMETRY_LOCATORS.dashboardUploadButtons[0],
+      uploadSelector: XOMETRY_LOCATORS.uploadInputs[0],
       requirementsVerified: true,
     });
     expect(dashboardUploadClick).toHaveBeenCalledTimes(1);
-    expect(dashboardFileChooserUpload).toHaveBeenCalledWith([
+    expect(dashboardCadUpload).toHaveBeenCalledWith([
       "/tmp/part.step",
     ]);
+    expect(toolLibraryUpload).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the dashboard button does not mount the approved uploader", async () => {
+    const workerTempDir = await makeTempDir();
+    const dashboardUploadClick = vi.fn();
+    const toolLibraryUpload = vi.fn();
+    const page = createFakePage({
+      bodyText: "Pick Up Where You Left Off Upload a CAD File",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 0,
+        },
+        [XOMETRY_LOCATORS.dashboardUploadButtons[0]]: {
+          count: 1,
+          click: dashboardUploadClick,
+        },
+        'input[type="file"]': {
+          count: 1,
+          setInputFiles: toolLibraryUpload,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      name: "VendorAutomationError",
+      code: "selector_failure",
+      payload: {
+        failedSelector: XOMETRY_LOCATORS.uploadInputs[0],
+        attemptedSelectors: [
+          XOMETRY_LOCATORS.uploadInputs[0],
+          XOMETRY_LOCATORS.dashboardUploadButtons[0],
+        ],
+        setInputErrorCount: 1,
+      },
+    });
+    expect(dashboardUploadClick).toHaveBeenCalledTimes(1);
     expect(toolLibraryUpload).not.toHaveBeenCalled();
   });
 

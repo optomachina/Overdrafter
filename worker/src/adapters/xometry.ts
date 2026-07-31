@@ -683,8 +683,8 @@ async function tryKnownUploadInputs(
   return null;
 }
 
-/** Uses Xometry's authenticated dashboard button without touching unrelated hidden inputs. */
-async function tryDashboardFileChooser(
+/** Opens Xometry's quote uploader and waits for its scoped input to mount. */
+async function tryDashboardUploadButton(
   page: Page,
   files: string[],
   attemptedSelectors: string[],
@@ -697,16 +697,17 @@ async function tryDashboardFileChooser(
     if (!visible) continue;
 
     try {
-      const [fileChooser] = await Promise.all([
-        page.waitForEvent("filechooser", {
-          timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
-        }),
-        button.click({
-          timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
-        }),
-      ]);
-      await fileChooser.setFiles(files);
-      return { selector, attemptedSelectors };
+      await button.click({
+        timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
+      });
+      const uploadSelector = XOMETRY_LOCATORS.uploadInputs[0];
+      const uploadInput = page.locator(uploadSelector).first();
+      await uploadInput.waitFor({
+        state: "attached",
+        timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
+      });
+      await uploadInput.setInputFiles(files);
+      return { selector: uploadSelector, attemptedSelectors };
     } catch (error) {
       if (error instanceof Error) {
         uploadErrors.push(error);
@@ -754,7 +755,7 @@ async function setFilesOnUpload(page: Page, files: string[]) {
   if (knownInputResult) return knownInputResult;
 
   const dashboardResult = isQuoteHome
-    ? await tryDashboardFileChooser(
+    ? await tryDashboardUploadButton(
         page,
         files,
         attemptedSelectors,
