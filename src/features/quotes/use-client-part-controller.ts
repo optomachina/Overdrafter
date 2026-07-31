@@ -26,9 +26,11 @@ import {
 import { reconcileJobParts, requestExtraction } from "@/features/quotes/api/extraction-api";
 import {
   cancelQuoteRequest,
+  requestManualQuote,
   requestQuote,
   setJobSelectedVendorQuoteOffer,
 } from "@/features/quotes/api/quote-requests-api";
+import { useOrganizationQuoteCollectionMode } from "@/features/quotes/organization-entitlements";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import { createJobsFromUploadFiles, uploadFilesToJob } from "@/features/quotes/api/uploads-api";
 import {
@@ -131,6 +133,9 @@ export function useClientPartController(
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user, activeMembership, signOut, isAuthInitializing } = useAppSession();
+  const quoteCollectionMode = useOrganizationQuoteCollectionMode(
+    activeMembership?.organizationId,
+  );
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [showDrawingPreview, setShowDrawingPreview] = useState(false);
   const [drawingPdfUrl, setDrawingPdfUrl] = useState<string | null>(null);
@@ -379,7 +384,10 @@ export function useClientPartController(
   });
 
   const requestQuoteMutation = useMutation({
-    mutationFn: ({ forceRetry = false }: { forceRetry?: boolean }) => requestQuote(canonicalJobId, forceRetry),
+    mutationFn: ({ forceRetry = false }: { forceRetry?: boolean }) =>
+      quoteCollectionMode.automaticEnabled
+        ? requestQuote(canonicalJobId, forceRetry)
+        : requestManualQuote(canonicalJobId, forceRetry),
     onSuccess: async (result, variables) => {
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
 
@@ -1217,6 +1225,8 @@ export function useClientPartController(
     accessibleJobs: sidebarJobs,
     accessibleJobsQuery,
     activeMembership,
+    automaticQuoteCollectionEnabled: quoteCollectionMode.automaticEnabled,
+    isQuoteCollectionModeLoading: quoteCollectionMode.isLoading,
     activePreset,
     activityEntries,
     archivedJobsQuery,

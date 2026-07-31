@@ -93,8 +93,18 @@ vi.mock("@/features/quotes/api/projects-api", () => ({
 }));
 vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   cancelQuoteRequest: api.cancelQuoteRequest,
+  requestManualQuote: api.requestQuote,
   requestQuote: api.requestQuote,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
+}));
+vi.mock("@/features/quotes/organization-entitlements", () => ({
+  useOrganizationQuoteCollectionMode: () => ({
+    automaticEnabled: false,
+    hasAutomaticEntitlement: false,
+    isLoading: false,
+    plan: "free",
+    setAutomaticEnabled: vi.fn(),
+  }),
 }));
 vi.mock("@/features/quotes/api/shared/schema-runtime", () => ({
   isProjectCollaborationSchemaUnavailable: api.isProjectCollaborationSchemaUnavailable,
@@ -456,7 +466,7 @@ async function findRequestButton(name: string | RegExp) {
 }
 
 async function findRequestQuoteButton() {
-  return findRequestButton(/request quote/i);
+  return findRequestButton(/request (manual )?quote/i);
 }
 
 async function clickRequestQuoteButton() {

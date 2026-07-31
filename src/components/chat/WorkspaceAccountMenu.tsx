@@ -72,6 +72,7 @@ import { openExtractionLauncher } from "@/components/debug/ExtractionLauncher";
 import { openFixturePanel } from "@/components/debug/FixturePanel";
 import { isFixtureModeAvailable } from "@/features/quotes/client-workspace-fixtures";
 import { cn } from "@/lib/utils";
+import { useOrganizationQuoteCollectionMode } from "@/features/quotes/organization-entitlements";
 
 type WorkspaceAccountMenuProps = {
   user: User;
@@ -392,6 +393,11 @@ export function WorkspaceAccountMenu({
   const [pendingUnarchiveJobIds, setPendingUnarchiveJobIds] = useState<string[]>([]);
   const [pendingDeleteJobIds, setPendingDeleteJobIds] = useState<string[]>([]);
   const [deleteConfirmation, setDeleteConfirmation] = useState<ArchiveDeleteConfirmationState | null>(null);
+  const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
+  const quoteCollectionMode = useOrganizationQuoteCollectionMode(
+    activeMembership?.organizationId,
+    activePanel === "settings",
+  );
 
   // --- Organization details (company/billing/shipping) ---
   const emptyOrgDetails = useCallback(
@@ -899,6 +905,41 @@ export function WorkspaceAccountMenu({
                   value={activeMembership?.organizationName ?? "Personal workspace"}
                 />
               </dl>
+            </div>
+
+            <div className={PANEL_CARD_CLASS}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <PanelSectionTitle>Quote collection</PanelSectionTitle>
+                    <span className="rounded-full border border-border bg-accent px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground/80">
+                      {quoteCollectionMode.hasAutomaticEntitlement ? "Pro" : "Free"}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-[17px] font-medium text-foreground">Automatic quotes</p>
+                  <p className="mt-1 text-sm leading-6 text-foreground/80">
+                    {quoteCollectionMode.hasAutomaticEntitlement
+                      ? "Automatically send eligible parts to supported quote providers. Turn this off anytime to request a manual quote instead."
+                      : "Manual quotes are included with your account. Automatic quote collection is available with Pro."}
+                  </p>
+                </div>
+                <div className="flex min-h-11 shrink-0 items-center">
+                  <Switch
+                    aria-label="Automatic quotes"
+                    checked={quoteCollectionMode.automaticEnabled}
+                    disabled={quoteCollectionMode.isLoading}
+                    onCheckedChange={(checked) => {
+                      if (checked && !quoteCollectionMode.hasAutomaticEntitlement) {
+                        setUpgradeDialogOpen(true);
+                        return;
+                      }
+
+                      quoteCollectionMode.setAutomaticEnabled(checked);
+                    }}
+                    className="data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-accent"
+                  />
+                </div>
+              </div>
             </div>
 
             {activeMembership?.organizationId && orgDetailsLoaded && (
@@ -1782,6 +1823,26 @@ export function WorkspaceAccountMenu({
               ) : (
                 deleteConfirmation?.kind === "bulk" ? "Delete all" : "Delete"
               )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={upgradeDialogOpen} onOpenChange={setUpgradeDialogOpen}>
+        <AlertDialogContent className="workspace-shell border-border bg-ws-raised text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Let OverDrafter collect quotes automatically</AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              Upgrade to Pro to automatically send eligible parts to supported quote providers. You can keep
+              requesting manual quotes for free.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-border bg-transparent text-foreground hover:bg-accent hover:text-foreground">
+              Nope
+            </AlertDialogCancel>
+            <AlertDialogAction className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">
+              Upgrade to Pro
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

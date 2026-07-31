@@ -34,9 +34,11 @@ import {
 import { reconcileJobParts, requestExtraction } from "@/features/quotes/api/extraction-api";
 import {
   cancelQuoteRequest,
+  requestManualQuotes,
   requestQuotes,
   setJobSelectedVendorQuoteOffer,
 } from "@/features/quotes/api/quote-requests-api";
+import { useOrganizationQuoteCollectionMode } from "@/features/quotes/organization-entitlements";
 import {
   fetchJobVendorPreferenceContext,
   setJobVendorPreferences,
@@ -155,6 +157,9 @@ export function useClientProjectController() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { user, activeMembership, signOut, isAuthInitializing } = useAppSession();
+  const quoteCollectionMode = useOrganizationQuoteCollectionMode(
+    activeMembership?.organizationId,
+  );
   const [activeFilter, setActiveFilter] = useState<JobFilter>("all");
   const [focusedJobId, setFocusedJobId] = useState<string | null>(null);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
@@ -666,7 +671,9 @@ export function useClientProjectController() {
 
   const requestProjectQuotesMutation = useMutation({
     mutationFn: ({ jobIds, forceRetry = false }: { jobIds: string[]; forceRetry?: boolean }) =>
-      requestQuotes(jobIds, forceRetry),
+      quoteCollectionMode.automaticEnabled
+        ? requestQuotes(jobIds, forceRetry)
+        : requestManualQuotes(jobIds, forceRetry),
     onSuccess: async (results, variables) => {
       const jobIds = variables.jobIds;
       await invalidateClientWorkspaceQueries(queryClient, {
@@ -1567,6 +1574,8 @@ export function useClientProjectController() {
     optionsByJobId,
     selectedOptionsByJobId,
     requestProjectQuotesMutation,
+    automaticQuoteCollectionEnabled: quoteCollectionMode.automaticEnabled,
+    isQuoteCollectionModeLoading: quoteCollectionMode.isLoading,
     cancelQuoteRequestMutation,
     setActiveFilter,
     setIsSearchOpen,

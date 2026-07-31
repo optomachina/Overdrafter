@@ -150,6 +150,8 @@ const ClientPart = () => {
   const appAwareHref = (href: string) => buildAppAwareHref(href, appMode);
   const {
     activeMembership,
+    automaticQuoteCollectionEnabled,
+    isQuoteCollectionModeLoading,
     activityEntries,
     activePreset,
     archivedJobsQuery,
@@ -451,8 +453,16 @@ const ClientPart = () => {
                 tone={quoteRequestViewModel.tone}
                 label={quoteRequestViewModel.label}
                 detail={quoteRequestViewModel.detail}
-                actionLabel={quoteRequestViewModel.action.label}
-                actionDisabled={quoteRequestViewModel.action.disabled || isCancelingQuoteRequest}
+                actionLabel={
+                  quoteRequestViewModel.action.kind === "request" && !automaticQuoteCollectionEnabled
+                    ? "Request manual quote"
+                    : quoteRequestViewModel.action.label
+                }
+                actionDisabled={
+                  quoteRequestViewModel.action.disabled
+                  || isCancelingQuoteRequest
+                  || isQuoteCollectionModeLoading
+                }
                 blockerReasons={quoteRequestViewModel.blockerReasons}
                 isBusy={isRequestingQuote || isCancelingQuoteRequest}
                 onAction={quoteRequestViewModel.action.kind === "none" ? null : handleQuoteRequestAction}

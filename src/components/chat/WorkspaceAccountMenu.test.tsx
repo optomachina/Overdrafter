@@ -520,6 +520,23 @@ describe("WorkspaceAccountMenu", () => {
     expect(screen.queryByText("Role")).not.toBeInTheDocument();
   });
 
+  it("keeps automatic quotes visible for Free and uses Nope in the Pro prompt", async () => {
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+
+    const automaticQuotes = await screen.findByRole("switch", { name: "Automatic quotes" });
+    await waitFor(() => expect(automaticQuotes).not.toBeDisabled());
+    expect(automaticQuotes).not.toBeChecked();
+
+    fireEvent.click(automaticQuotes);
+
+    expect(await screen.findByText("Let OverDrafter collect quotes automatically")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Nope" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upgrade to Pro" })).toBeInTheDocument();
+  });
+
   it("opens the notifications panel and marks current items seen", async () => {
     const notificationCenter = makeNotificationCenter();
     render(

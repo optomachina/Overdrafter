@@ -109,8 +109,18 @@ vi.mock("@/features/quotes/api/projects-api", () => ({
 }));
 vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   cancelQuoteRequest: api.cancelQuoteRequest,
+  requestManualQuotes: api.requestQuotes,
   requestQuotes: api.requestQuotes,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
+}));
+vi.mock("@/features/quotes/organization-entitlements", () => ({
+  useOrganizationQuoteCollectionMode: () => ({
+    automaticEnabled: false,
+    hasAutomaticEntitlement: false,
+    isLoading: false,
+    plan: "free",
+    setAutomaticEnabled: vi.fn(),
+  }),
 }));
 vi.mock("@/features/quotes/api/vendor-preferences-api", () => ({
   fetchJobVendorPreferenceContext: api.fetchJobVendorPreferenceContext,
@@ -1310,10 +1320,10 @@ describe("ClientProject", () => {
     renderWithClient("/projects/project-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /request 1 quote/i })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /request (manual )?1 quote/i })).toBeEnabled();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /request 1 quote/i }));
+    fireEvent.click(screen.getByRole("button", { name: /request (manual )?1 quote/i }));
 
     await waitFor(() => {
       expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
@@ -1353,10 +1363,10 @@ describe("ClientProject", () => {
     renderWithClient("/projects/project-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /request 1 quote/i })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /request (manual )?1 quote/i })).toBeEnabled();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /request 1 quote/i }));
+    fireEvent.click(screen.getByRole("button", { name: /request (manual )?1 quote/i }));
 
     await waitFor(() => {
       expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
@@ -1385,7 +1395,7 @@ describe("ClientProject", () => {
 
     renderWithClient("/projects/project-1");
 
-    const headerButton = await screen.findByRole("button", { name: /request 1 quote/i });
+    const headerButton = await screen.findByRole("button", { name: /request (manual )?1 quote/i });
 
     expect(headerButton).toBeEnabled();
 
