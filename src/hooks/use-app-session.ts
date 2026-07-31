@@ -218,7 +218,16 @@ export function useAppSession() {
 
         const cachedSession =
           queryClient.getQueryData<AppSessionData>(APP_SESSION_QUERY_KEY);
+        const cachedQueryState =
+          queryClient.getQueryState<AppSessionData>(APP_SESSION_QUERY_KEY);
+        const hasFreshIdleCachedQuery =
+          cachedQueryState?.status === "success" &&
+          cachedQueryState.fetchStatus === "idle" &&
+          !cachedQueryState.isInvalidated &&
+          Date.now() - cachedQueryState.dataUpdatedAt <
+            WORKSPACE_SHARED_STALE_TIME_MS;
         const hasResolvedCachedProjection =
+          hasFreshIdleCachedQuery &&
           cachedSession?.authState === "authenticated" &&
           cachedSession.user?.id === bootstrap.session.user.id &&
           !cachedSession.membershipError;

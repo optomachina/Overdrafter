@@ -357,6 +357,71 @@ describe("useAppSession", () => {
     expect(fetchAppSessionDataMock).not.toHaveBeenCalled();
   });
 
+  it("keeps restoration gated while a stale cached projection revalidates", async () => {
+    const deferred = deferredPromise<AppSessionData>();
+    const tokenKey = getSupabaseAuthStorageKey();
+    const localSession = {
+      access_token: "token-1",
+      refresh_token: "refresh-token-1",
+      expires_in: 3600,
+      token_type: "bearer",
+      user: {
+        id: "user-1",
+        email: "client@example.com",
+        app_metadata: {},
+        user_metadata: {},
+        aud: "authenticated",
+        created_at: "2026-03-11T00:00:00.000Z",
+      },
+    } as Session;
+    const cachedSession: AppSessionData = {
+      user: localSession.user as AppSessionData["user"],
+      memberships: [
+        {
+          id: "membership-1",
+          role: "internal_admin",
+          organizationId: "org-1",
+          organizationName: "Client Org",
+          organizationSlug: "client-org",
+        },
+      ],
+      isVerifiedAuth: true,
+      isPlatformAdmin: true,
+      authState: "authenticated",
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    storageMock.setItem(tokenKey, JSON.stringify({ access_token: "token-1" }));
+    getSessionMock.mockResolvedValueOnce({
+      data: { session: localSession },
+      error: null,
+    });
+    fetchAppSessionDataMock.mockReturnValueOnce(deferred.promise);
+    queryClient.setQueryData(["app-session"], cachedSession, {
+      updatedAt: Date.now() - 60_000,
+    });
+
+    renderProbeWithQueryClient(queryClient);
+
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+    });
+
+    deferred.resolve(cachedSession);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+      expect(screen.getByTestId("membership-count")).toHaveTextContent("1");
+    });
+  });
+
   it("does not clear local storage when a stored-token startup read times out", async () => {
     vi.useFakeTimers();
     const deferred = deferredPromise<AppSessionData>();
