@@ -4,6 +4,7 @@ import {
   chromium as patchrightChromium,
   type Browser,
   type BrowserContext,
+  type Locator,
   type Page,
 } from "patchright";
 import { Camoufox, launchOptions as camoufoxLaunchOptions } from "camoufox-js";
@@ -49,6 +50,14 @@ function escapeRegex(value: string) {
 
 function excerptText(text: string) {
   return text.slice(0, 2000);
+}
+
+function trimTrailingSlashes(value: string) {
+  let normalized = value;
+  while (normalized.endsWith("/")) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
 }
 
 function normalizedQuantity(input: VendorQuoteAdapterInput) {
@@ -371,6 +380,29 @@ async function readBodyText(page: Page) {
   return page.locator("body").innerText().catch(() => "");
 }
 
+async function waitForStandaloneQuoteUploader(
+  page: Page,
+  deadline: number,
+) {
+  const uploaderTimeoutMs = Math.max(0, deadline - Date.now());
+  if (uploaderTimeoutMs === 0) return false;
+  const uploaderReady = await page
+    .locator(XOMETRY_LOCATORS.standaloneUploadInputs.join(", "))
+    .first()
+    .waitFor({ state: "attached", timeout: uploaderTimeoutMs })
+    .then(() => true)
+    .catch(() => false);
+  if (!uploaderReady) return false;
+
+  const networkIdleTimeoutMs = Math.max(0, deadline - Date.now());
+  if (networkIdleTimeoutMs > 0) {
+    await page
+      .waitForLoadState("networkidle", { timeout: networkIdleTimeoutMs })
+      .catch(() => undefined);
+  }
+  return true;
+}
+
 /**
  * Waits until clicking "Start a New Instant Quote" either attaches the
  * same-page instant-quote uploader or navigates away from the starting URL.
@@ -393,22 +425,7 @@ async function waitForNewQuoteSurface(
   }
 
   if (page.url() !== startingUrl) {
-    const remainingMs = Math.max(0, deadline - Date.now());
-    if (remainingMs === 0) return false;
-    const uploaderReady = await page
-      .locator(XOMETRY_LOCATORS.standaloneUploadInputs.join(", "))
-      .first()
-      .waitFor({ state: "attached", timeout: remainingMs })
-      .then(() => true)
-      .catch(() => false);
-    if (!uploaderReady) return false;
-    const networkIdleTimeoutMs = Math.max(0, deadline - Date.now());
-    if (networkIdleTimeoutMs > 0) {
-      await page
-        .waitForLoadState("networkidle", { timeout: networkIdleTimeoutMs })
-        .catch(() => undefined);
-    }
-    return true;
+    return waitForStandaloneQuoteUploader(page, deadline);
   }
 
   const remainingMs = Math.max(0, deadline - Date.now());
@@ -422,51 +439,24 @@ async function waitForNewQuoteSurface(
     .then(() => true)
     .catch(() => false);
   if (navigated) {
-    const uploaderTimeoutMs = Math.max(0, deadline - Date.now());
-    if (uploaderTimeoutMs === 0) return false;
-    const uploaderReady = await page
-      .locator(XOMETRY_LOCATORS.standaloneUploadInputs.join(", "))
-      .first()
-      .waitFor({ state: "attached", timeout: uploaderTimeoutMs })
-      .then(() => true)
-      .catch(() => false);
-    if (!uploaderReady) return false;
-    const networkIdleTimeoutMs = Math.max(0, deadline - Date.now());
-    if (networkIdleTimeoutMs > 0) {
-      await page
-        .waitForLoadState("networkidle", {
-          timeout: networkIdleTimeoutMs,
-        })
-        .catch(() => undefined);
-    }
-    return true;
+    return waitForStandaloneQuoteUploader(page, deadline);
   }
   return false;
 }
 
-async function escapeDashboardIfNeeded(page: Page, timeoutMs: number) {
-  const deadline = Date.now() + timeoutMs;
-  const bodyText = await page
-    .locator("body")
-    .innerText({ timeout: Math.max(1, deadline - Date.now()) })
-    .catch(() => "");
-  const hasDashboardCopy = XOMETRY_LOCATORS.dashboardSignals.some((pattern) => pattern.test(bodyText));
-  let hasStartNewQuoteButton = false;
+async function hasVisibleStartNewQuoteButton(page: Page) {
   for (const selector of XOMETRY_LOCATORS.startNewQuoteButtons) {
-    const button = page.locator(selector).first();
-    if (await button.isVisible().catch(() => false)) {
-      hasStartNewQuoteButton = true;
-      break;
+    if (await page.locator(selector).first().isVisible().catch(() => false)) {
+      return true;
     }
   }
-  const isDashboard = hasDashboardCopy || hasStartNewQuoteButton;
-  if (!isDashboard) {
-    return false;
-  }
+  return false;
+}
 
-  const startingUrl = page.url();
-
-  // First try: Playwright synthetic click
+async function clickVisibleStartNewQuoteButton(
+  page: Page,
+  deadline: number,
+) {
   for (const selector of XOMETRY_LOCATORS.startNewQuoteButtons) {
     const button = page.locator(selector).first();
     if ((await button.count().catch(() => 0)) === 0) continue;
@@ -481,8 +471,46 @@ async function escapeDashboardIfNeeded(page: Page, timeoutMs: number) {
       .click({ timeout: clickTimeoutMs })
       .then(() => true)
       .catch(() => false);
-    if (!clicked) continue;
+    if (clicked) return true;
+  }
+  return false;
+}
 
+async function clickNativeStartNewQuoteButton(page: Page) {
+  return page
+    .evaluate(() => {
+      const button = Array.from(
+        document.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((candidate) =>
+        /start\s+a\s+new\s+Instant\s+Quote/i.test(
+          candidate.textContent ?? "",
+        ),
+      );
+      if (!button) return false;
+      button.click();
+      return true;
+    })
+    .catch(() => false);
+}
+
+async function escapeDashboardIfNeeded(page: Page, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs;
+  const bodyText = await page
+    .locator("body")
+    .innerText({ timeout: Math.max(1, deadline - Date.now()) })
+    .catch(() => "");
+  const hasDashboardCopy = XOMETRY_LOCATORS.dashboardSignals.some((pattern) => pattern.test(bodyText));
+  const hasStartNewQuoteButton = await hasVisibleStartNewQuoteButton(page);
+  const isDashboard = hasDashboardCopy || hasStartNewQuoteButton;
+  if (!isDashboard) {
+    return false;
+  }
+
+  const startingUrl = page.url();
+
+  // First try: Playwright synthetic click
+  const clicked = await clickVisibleStartNewQuoteButton(page, deadline);
+  if (clicked) {
     const remainingMs = Math.max(0, deadline - Date.now());
     if (
       remainingMs > 0 &&
@@ -494,7 +522,6 @@ async function escapeDashboardIfNeeded(page: Page, timeoutMs: number) {
     ) {
       return true;
     }
-    break;
   }
 
   // Fallback: in-page JS click. React onClick handlers sometimes don't fire from Playwright's
@@ -502,18 +529,7 @@ async function escapeDashboardIfNeeded(page: Page, timeoutMs: number) {
   if (Date.now() >= deadline) {
     return false;
   }
-  const jsClicked = await page
-    .evaluate(() => {
-      const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) =>
-        /start\s+a\s+new\s+Instant\s+Quote/i.test(b.textContent ?? ""),
-      );
-      if (button) {
-        button.click();
-        return true;
-      }
-      return false;
-    })
-    .catch(() => false);
+  const jsClicked = await clickNativeStartNewQuoteButton(page);
 
   if (jsClicked) {
     const remainingMs = Math.max(0, deadline - Date.now());
@@ -626,8 +642,10 @@ async function navigateToQuoteConfigurationPage(
 async function setFilesOnUpload(page: Page, files: string[]) {
   const attemptedSelectors: string[] = [];
   const setInputErrors: Error[] = [];
-  const quoteHomePath = new URL(XOMETRY_URLS.quoteHome).pathname.replace(/\/+$/, "");
-  const currentPath = new URL(page.url()).pathname.replace(/\/+$/, "");
+  const quoteHomePath = trimTrailingSlashes(
+    new URL(XOMETRY_URLS.quoteHome).pathname,
+  );
+  const currentPath = trimTrailingSlashes(new URL(page.url()).pathname);
   const eligibleSelectors =
     currentPath === quoteHomePath
       ? XOMETRY_LOCATORS.uploadInputs
@@ -894,7 +912,7 @@ async function setQuantity(page: Page, quantity: number) {
 async function readQuoteSummaryText(page: Page) {
   const bodyText = await readBodyText(page);
   const explicitQuantities = Array.from(
-    bodyText.matchAll(/\bQuantity\s*:?\s*(\d+)\b/gi),
+    bodyText.matchAll(/\bQuantity[\s:]*(\d+)\b/gi),
   );
   if (explicitQuantities.length > 0) {
     return bodyText;
@@ -1139,16 +1157,111 @@ async function confirmUploadedDrawing(
   return false;
 }
 
+type DrawingAttachmentResult = {
+  selector: string;
+  verification:
+    | "upload_acknowledged_and_drawing_confirmed"
+    | "visible_filename";
+};
+
+type DrawingAttachmentAttempt =
+  | { outcome: "verified"; result: DrawingAttachmentResult }
+  | { outcome: "terminal_failure" }
+  | { outcome: "try_next" };
+
+async function attemptDrawingAttachment(
+  page: Page,
+  locator: Locator,
+  selector: string,
+  drawingPath: string,
+  drawingName: string,
+  timeoutMs: number,
+): Promise<DrawingAttachmentAttempt> {
+  const pageWithResponseWait = page as Page & {
+    waitForResponse?: Page["waitForResponse"];
+  };
+  const deadline = Date.now() + timeoutMs;
+  const acknowledgementTimeoutMs = Math.min(
+    10_000,
+    Math.max(1, Math.floor((deadline - Date.now()) / 2)),
+  );
+  const uploadAcknowledgement =
+    typeof pageWithResponseWait.waitForResponse === "function"
+      ? pageWithResponseWait
+          .waitForResponse(
+            (response) =>
+              response.request().method() === "POST" &&
+              /\/v2\/quotes\/parts\/[^/]+\/upload_drawings(?:[/?#]|$)/i.test(
+                response.url(),
+              ),
+            { timeout: acknowledgementTimeoutMs },
+          )
+          .catch(() => null)
+      : Promise.resolve(null);
+
+  await locator.setInputFiles(drawingPath, {
+    timeout: acknowledgementTimeoutMs,
+  });
+  const uploadResponse = await uploadAcknowledgement;
+  if (uploadResponse) {
+    if (uploadResponse.status() < 200 || uploadResponse.status() >= 300) {
+      return { outcome: "terminal_failure" };
+    }
+    const uploadedPartId =
+      /\/v2\/quotes\/parts\/([^/?#]+)\/upload_drawings(?:[/?#]|$)/i.exec(
+        uploadResponse.url(),
+      )?.[1] ?? null;
+    const quoteId = /\/quoting\/quote\/(Q\d{2}-[^/?#]+)/i.exec(
+      page.url(),
+    )?.[1];
+    const confirmationTimeoutMs = Math.max(0, deadline - Date.now());
+    const drawingPersisted =
+      confirmationTimeoutMs > 0 &&
+      Boolean(quoteId) &&
+      Boolean(uploadedPartId) &&
+      await confirmUploadedDrawing(
+        page,
+        quoteId ?? "",
+        uploadedPartId ?? "",
+        drawingName,
+        confirmationTimeoutMs,
+      ).catch(() => false);
+    if (!drawingPersisted) {
+      return { outcome: "terminal_failure" };
+    }
+    return {
+      outcome: "verified",
+      result: {
+        selector,
+        verification: "upload_acknowledged_and_drawing_confirmed",
+      },
+    };
+  }
+
+  const visibleFilenameTimeoutMs = Math.max(0, deadline - Date.now());
+  const filenameVisible =
+    visibleFilenameTimeoutMs > 0 &&
+    await waitForVisibleFilename(
+      page,
+      drawingName,
+      visibleFilenameTimeoutMs,
+    );
+  if (!filenameVisible) return { outcome: "try_next" };
+  return {
+    outcome: "verified",
+    result: {
+      selector,
+      verification: "visible_filename",
+    },
+  };
+}
+
 async function attachDrawingFallback(
   page: Page,
   drawingPath: string,
   drawingName: string,
   timeoutMs: number,
 ) {
-  const pageWithOptionalResponseWait = page as Page & {
-    waitForResponse?: Page["waitForResponse"];
-  };
-
   for (const selector of XOMETRY_LOCATORS.drawingInputs) {
     const locator = page.locator(selector).first();
     const count = await locator.count().catch(() => 0);
@@ -1156,80 +1269,16 @@ async function attachDrawingFallback(
     if (count < 1) continue;
 
     try {
-      const deadline = Date.now() + timeoutMs;
-      const acknowledgementTimeoutMs = Math.min(
-        10_000,
-        Math.max(1, Math.floor((deadline - Date.now()) / 2)),
+      const attempt = await attemptDrawingAttachment(
+        page,
+        locator,
+        selector,
+        drawingPath,
+        drawingName,
+        timeoutMs,
       );
-      const uploadAcknowledgement =
-        typeof pageWithOptionalResponseWait.waitForResponse === "function"
-          ? pageWithOptionalResponseWait
-              .waitForResponse(
-                (response) =>
-                  response.request().method() === "POST" &&
-                  /\/v2\/quotes\/parts\/[^/]+\/upload_drawings(?:[/?#]|$)/i.test(
-                    response.url(),
-                  ),
-                { timeout: acknowledgementTimeoutMs },
-              )
-              .catch(() => null)
-          : Promise.resolve(null);
-
-      await locator.setInputFiles(drawingPath, {
-        timeout: acknowledgementTimeoutMs,
-      });
-      const uploadResponse = await uploadAcknowledgement;
-      const uploadedPartId = uploadResponse
-        ? /\/v2\/quotes\/parts\/([^/?#]+)\/upload_drawings(?:[/?#]|$)/i.exec(
-            uploadResponse.url(),
-          )?.[1] ?? null
-        : null;
-      const uploadPersisted =
-        uploadResponse !== null &&
-        uploadResponse.status() >= 200 &&
-        uploadResponse.status() < 300;
-
-      if (uploadResponse !== null && !uploadPersisted) {
-        return null;
-      }
-      if (uploadPersisted) {
-        const quoteId = /\/quoting\/quote\/(Q\d{2}-[^/?#]+)/i.exec(
-          page.url(),
-        )?.[1];
-        const confirmationTimeoutMs = Math.max(0, deadline - Date.now());
-        const drawingPersisted =
-          confirmationTimeoutMs > 0 &&
-          Boolean(quoteId) &&
-          Boolean(uploadedPartId) &&
-          await confirmUploadedDrawing(
-            page,
-            quoteId ?? "",
-            uploadedPartId ?? "",
-            drawingName,
-            confirmationTimeoutMs,
-          ).catch(() => false);
-        if (drawingPersisted) {
-          return {
-            selector,
-            verification: "upload_acknowledged_and_drawing_confirmed",
-          } as const;
-        }
-        return null;
-      }
-      const visibleFilenameTimeoutMs = Math.max(0, deadline - Date.now());
-      if (
-        visibleFilenameTimeoutMs > 0 &&
-        await waitForVisibleFilename(
-          page,
-          drawingName,
-          visibleFilenameTimeoutMs,
-        )
-      ) {
-        return {
-          selector,
-          verification: "visible_filename",
-        } as const;
-      }
+      if (attempt.outcome === "verified") return attempt.result;
+      if (attempt.outcome === "terminal_failure") return null;
     } catch {
       // Try the next drawing-specific input.
     }
@@ -1267,7 +1316,7 @@ function readQuoteSummaryField(bodyText: string, label: string) {
     .map((candidate) => escapeRegex(candidate))
     .join("|");
   const match = new RegExp(
-    `\\b${escapeRegex(label)}\\s*:\\s*(.*?)(?=\\s+(?:${followingLabels})\\s*:|\\s+Least Expensive\\b|$)`,
+    String.raw`\b${escapeRegex(label)}\s*:\s*(.*?)(?=\s+(?:${followingLabels})\s*:|\s+Least Expensive\b|$)`,
     "i",
   ).exec(summary);
   return match?.[1]?.trim() ?? null;
@@ -1315,7 +1364,7 @@ function verifySavedRequirements(
 ) {
   const mismatches: string[] = [];
   const observedQuantities = Array.from(
-    bodyText.matchAll(/\bQuantity\s*:?\s*(\d+)\b/gi),
+    bodyText.matchAll(/\bQuantity[\s:]*(\d+)\b/gi),
     (match) => Number.parseInt(match[1], 10),
   );
 
@@ -1729,7 +1778,6 @@ export class XometryAdapter extends VendorAdapter {
             ? findExactTermMatch(observedFinish, finishTerms)
             : null;
         selectedTolerance = requestedTolerance.tier;
-        toleranceSelector = null;
       } else {
         await openPartConfigurationIfNeeded(
           page,

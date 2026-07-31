@@ -220,31 +220,37 @@ export function buildMaterialSearchTerms(material: string) {
  * aluminum summaries must preserve the requested temper, while grade-only
  * tokens remain sufficient for materials without a temper designation.
  */
+const MATERIAL_SUMMARY_MAPPINGS: Array<{
+  needles: string[];
+  terms: string[];
+}> = [
+  { needles: ["6061"], terms: ["6061-T6x", "6061-T6"] },
+  { needles: ["7075"], terms: ["7075-T6x", "7075-T6"] },
+  { needles: ["2024"], terms: ["2024-T3"] },
+  { needles: ["303"], terms: ["Stainless Steel 303"] },
+  { needles: ["304"], terms: ["Stainless Steel 304/304L"] },
+  { needles: ["316"], terms: ["Stainless Steel 316/316L"] },
+  { needles: ["17-4"], terms: ["Stainless Steel 17-4"] },
+  { needles: ["1018"], terms: ["Steel 1018"] },
+  { needles: ["4140"], terms: ["Steel 4140"] },
+  { needles: ["brass"], terms: ["Copper C360 (Brass)"] },
+  { needles: ["copper"], terms: ["Copper 101"] },
+  {
+    needles: ["titanium", "6al-4v", "ti-6al-4v"],
+    terms: ["Titanium Grade 5", "Ti 6Al-4V"],
+  },
+  { needles: ["peek"], terms: ["PEEK"] },
+  { needles: ["nylon"], terms: ["Nylon 6/6"] },
+  { needles: ["abs"], terms: ["ABS"] },
+  { needles: ["delrin", "acetal"], terms: ["Delrin", "Acetal"] },
+];
+
 export function buildMaterialSummaryTerms(material: string) {
   const source = material.toLowerCase();
-
-  if (source.includes("6061")) return ["6061-T6x", "6061-T6"];
-  if (source.includes("7075")) return ["7075-T6x", "7075-T6"];
-  if (source.includes("2024")) return ["2024-T3"];
-  if (source.includes("303")) return ["Stainless Steel 303"];
-  if (source.includes("304")) return ["Stainless Steel 304/304L"];
-  if (source.includes("316")) return ["Stainless Steel 316/316L"];
-  if (source.includes("17-4")) return ["Stainless Steel 17-4"];
-  if (source.includes("1018")) return ["Steel 1018"];
-  if (source.includes("4140")) return ["Steel 4140"];
-  if (source.includes("brass")) return ["Copper C360 (Brass)"];
-  if (source.includes("copper")) return ["Copper 101"];
-  if (source.includes("titanium") || source.includes("6al-4v") || source.includes("ti-6al-4v")) {
-    return ["Titanium Grade 5", "Ti 6Al-4V"];
-  }
-  if (source.includes("peek")) return ["PEEK"];
-  if (source.includes("nylon")) return ["Nylon 6/6"];
-  if (source.includes("abs")) return ["ABS"];
-  if (source.includes("delrin") || source.includes("acetal")) {
-    return ["Delrin", "Acetal"];
-  }
-
-  return null;
+  const mapping = MATERIAL_SUMMARY_MAPPINGS.find(({ needles }) =>
+    needles.some((needle) => source.includes(needle)),
+  );
+  return mapping?.terms ?? null;
 }
 
 /**

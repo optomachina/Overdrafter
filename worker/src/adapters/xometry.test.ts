@@ -1734,7 +1734,7 @@ describe("XometryAdapter", () => {
       makeConfig({
         workerTempDir,
         xometryStorageStatePath: path.join(workerTempDir, "state.json"),
-        browserTimeoutMs: 50,
+        browserTimeoutMs: 200,
       }),
     );
 
