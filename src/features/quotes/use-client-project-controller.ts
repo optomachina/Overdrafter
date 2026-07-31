@@ -108,6 +108,7 @@ import {
 import {
   buildRequirementDraft,
 } from "@/features/quotes/utils";
+import { clientWorkspaceItemsNeedPolling } from "@/features/quotes/client-workspace-polling";
 import type { ActivityLogEntry } from "@/components/quotes/ActivityLog";
 import type { VendorName } from "@/integrations/supabase/types";
 
@@ -128,13 +129,6 @@ export const clientFilterOptions: { id: JobFilter; label: string }[] = [
   { id: "quoting", label: "Quoting" },
   { id: "published", label: "Published" },
 ];
-
-function workspaceItemsNeedExtractionPolling(items: ClientQuoteWorkspaceItem[] | undefined) {
-  return (items ?? []).some((item) => {
-    const lifecycle = item.part?.clientExtraction?.lifecycle ?? null;
-    return lifecycle === "queued" || lifecycle === "extracting" || lifecycle === "uploaded";
-  });
-}
 
 function matchesJobFilter(status: string, filter: JobFilter) {
   switch (filter) {
@@ -309,7 +303,7 @@ export function useClientProjectController() {
     queryFn: () => fetchClientQuoteWorkspaceByJobIds(projectJobIds),
     enabled: Boolean(user) && projectJobIds.length > 0,
     refetchInterval: (query) =>
-      workspaceItemsNeedExtractionPolling(query.state.data as ClientQuoteWorkspaceItem[] | undefined)
+      clientWorkspaceItemsNeedPolling(query.state.data as ClientQuoteWorkspaceItem[] | undefined)
         ? 5000
         : false,
     ...workspaceDetailQueryOptions,
@@ -322,7 +316,7 @@ export function useClientProjectController() {
     queryFn: () => fetchClientActivityEventsByJobIds(projectJobIds),
     enabled: Boolean(user) && projectJobIds.length > 0,
     refetchInterval: () =>
-      workspaceItemsNeedExtractionPolling(projectWorkspaceItemsQuery.data) ? 5000 : false,
+      clientWorkspaceItemsNeedPolling(projectWorkspaceItemsQuery.data) ? 5000 : false,
     ...workspaceDetailQueryOptions,
   });
   const workspaceItemsByJobId = useMemo(

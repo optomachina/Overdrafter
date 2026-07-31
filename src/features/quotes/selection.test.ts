@@ -316,6 +316,28 @@ describe("selection helpers", () => {
     expect(pickPresetOption(options, "fastest")?.persistedOfferId).toBe("offer-expedite");
   });
 
+  it("preserves the immutable offer creation time for live quote freshness checks", () => {
+    const options = buildClientQuoteSelectionOptions({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              quote_date: null,
+              created_at: "2026-07-31T10:25:42.683626Z",
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(options[0]).toMatchObject({
+      quoteDateIso: null,
+      offerCreatedAt: "2026-07-31T10:25:42.683626Z",
+      quoteResultCreatedAt: "2026-03-01T00:00:00.000Z",
+    });
+  });
+
   it("reverts only rows still on the bulk-applied offer", () => {
     const bulkResult = applyBulkPresetSelection({
       optionsByJobId: {

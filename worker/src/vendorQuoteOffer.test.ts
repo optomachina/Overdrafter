@@ -20,6 +20,7 @@ const requirement: ApprovedRequirementRecord = {
   quote_quantities: [10],
   requested_by_date: null,
   applicable_vendors: ["xometry"],
+  updated_at: "2026-07-30T11:55:00.000Z",
   spec_snapshot: { process: "  CNC Machining  " },
 };
 
@@ -44,6 +45,7 @@ describe("buildVendorQuoteOfferPayload", () => {
       vendor: "xometry",
       requestedQuantity: 10,
       requirement,
+      requirementCapturedAt: "2026-07-30T11:55:00.000Z",
       result,
     })).toEqual({
       vendor_quote_result_id: "result-1",
@@ -65,6 +67,7 @@ describe("buildVendorQuoteOfferPayload", () => {
         source: "simulate",
         quoteUrl: "https://example.com/quote/1",
         requestedQuantity: 10,
+        requirementCapturedAt: "2026-07-30T11:55:00.000Z",
       },
     });
   });
@@ -80,6 +83,7 @@ describe("buildVendorQuoteOfferPayload", () => {
           ...requirement,
           spec_snapshot: { process: "  " },
         },
+        requirementCapturedAt: "2026-07-30T11:55:00.000Z",
         result,
       }).process,
     ).toBeNull();

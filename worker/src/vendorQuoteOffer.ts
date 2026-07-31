@@ -11,11 +11,13 @@ type VendorQuoteOfferPayloadInput = {
   vendor: VendorName;
   requestedQuantity: number;
   requirement: ApprovedRequirementRecord;
+  requirementCapturedAt: string;
   result: VendorQuoteAdapterOutput;
 };
 
 /**
- * Builds the normalized offer row while preserving the approved requested process.
+ * Builds the normalized offer row while preserving the approved requested process
+ * and the requirement capture timestamp used to validate offer freshness.
  */
 export function buildVendorQuoteOfferPayload(input: VendorQuoteOfferPayloadInput) {
   return {
@@ -39,6 +41,7 @@ export function buildVendorQuoteOfferPayload(input: VendorQuoteOfferPayloadInput
       ...input.result.rawPayload,
       quoteUrl: input.result.quoteUrl,
       requestedQuantity: input.requestedQuantity,
+      requirementCapturedAt: input.requirementCapturedAt,
     },
   };
 }

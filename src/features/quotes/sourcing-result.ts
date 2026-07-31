@@ -25,7 +25,9 @@ export type SourcingLiveOfferCandidate = {
   vendorStatus?: VendorStatus;
   requestedQuantity: number;
   quoteDateIso: string | null;
+  offerCreatedAt?: string;
   quoteUrl?: string | null;
+  quoteResultCreatedAt?: string;
   quoteResultUpdatedAt?: string;
   quoteResultRawPayload?: Json;
 };
@@ -172,12 +174,13 @@ function isCurrentLiveOffer(
     return false;
   }
 
-  const timestamp = offer.quoteDateIso;
-  if (!timestamp) {
+  const collectionTimestamp =
+    offer.quoteDateIso ?? offer.offerCreatedAt ?? offer.quoteResultCreatedAt;
+  if (!collectionTimestamp) {
     return false;
   }
 
-  const quotedAt = new Date(timestamp).getTime();
+  const quotedAt = new Date(collectionTimestamp).getTime();
   const ageMs = now.getTime() - quotedAt;
   if (
     !Number.isFinite(quotedAt) ||
@@ -192,8 +195,22 @@ function isCurrentLiveOffer(
     return true;
   }
 
+  const payload = asRecord(offer.quoteResultRawPayload);
+  const capturedAt =
+    typeof payload?.requirementCapturedAt === "string"
+      ? payload.requirementCapturedAt
+      : offer.quoteResultCreatedAt;
+  if (!capturedAt) {
+    return false;
+  }
+
   const reviewedAt = new Date(requirement.reviewedAt).getTime();
-  return Number.isFinite(reviewedAt) && quotedAt >= reviewedAt;
+  const requirementCapturedAt = new Date(capturedAt).getTime();
+  return (
+    Number.isFinite(reviewedAt) &&
+    Number.isFinite(requirementCapturedAt) &&
+    requirementCapturedAt >= reviewedAt
+  );
 }
 
 function resolveSupportedRequirement(

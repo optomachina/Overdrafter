@@ -36,7 +36,9 @@ export type ClientQuoteSelectionOption = {
   shipReceiveBy: string | null;
   dueDate: string | null;
   quoteDateIso: string | null;
+  offerCreatedAt?: string;
   quoteUrl?: string | null;
+  quoteResultCreatedAt?: string;
   quoteResultUpdatedAt?: string;
   quoteResultRawPayload?: Json;
   sourcing: string | null;
@@ -688,8 +690,8 @@ function buildOptionRecords(input: NormalizedOfferInput): QuoteOptionBuildResult
       return;
     }
 
-    const rawPayload =
-      rawOfferRecords?.find((record) => record.id === offer.id)?.raw_payload ?? quote.raw_payload;
+    const rawOfferRecord = rawOfferRecords?.find((record) => record.id === offer.id);
+    const rawPayload = rawOfferRecord?.raw_payload ?? quote.raw_payload;
     const resolvedDeliveryDate = resolveOfferDeliveryDate({
       shipReceiveBy: offer.shipReceiveBy,
       dueDate: offer.dueDate,
@@ -733,7 +735,11 @@ function buildOptionRecords(input: NormalizedOfferInput): QuoteOptionBuildResult
       shipReceiveBy: offer.shipReceiveBy,
       dueDate: offer.dueDate,
       quoteDateIso: offer.quoteDateIso,
+      ...(rawOfferRecord?.created_at
+        ? { offerCreatedAt: rawOfferRecord.created_at }
+        : {}),
       quoteUrl: quote.quote_url,
+      quoteResultCreatedAt: quote.created_at,
       quoteResultUpdatedAt: quote.updated_at,
       quoteResultRawPayload: quote.raw_payload,
       sourcing: offer.sourcing,

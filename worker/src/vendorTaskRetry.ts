@@ -30,10 +30,16 @@ export function failureCodeForError(error: unknown) {
   return "task_failure";
 }
 
+/**
+ * Retries transient navigation and persistence failures, plus upload failures that
+ * are not caused by missing or unsupported CAD input. Authentication, captcha,
+ * selector, and unexpected-UI failures require intervention and remain terminal.
+ */
 export function isRetryableVendorTaskError(error: unknown) {
   if (error instanceof VendorAutomationError) {
     switch (error.code) {
       case "navigation_failure":
+      case "persistence_failure":
         return true;
       case "upload_failure":
         return !["missing_cad_file", "unsupported_file_type"].includes(
