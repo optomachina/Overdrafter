@@ -222,6 +222,57 @@ export type Database = {
           },
         ]
       }
+      commercial_admin_audit_events: {
+        Row: {
+          action: string
+          actor_user_id: string
+          after_state: Json | null
+          before_state: Json | null
+          created_at: string
+          id: string
+          idempotency_key: string
+          idempotency_scope: string
+          organization_id: string | null
+          reason: string
+          request_metadata: Json
+          required_capability: string
+          target_id: string
+          target_type: string
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          after_state?: Json | null
+          before_state?: Json | null
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          idempotency_scope: string
+          organization_id?: string | null
+          reason: string
+          request_metadata?: Json
+          required_capability: string
+          target_id: string
+          target_type: string
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          after_state?: Json | null
+          before_state?: Json | null
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          idempotency_scope?: string
+          organization_id?: string | null
+          reason?: string
+          request_metadata?: Json
+          required_capability?: string
+          target_id?: string
+          target_type?: string
+        }
+        Relationships: []
+      }
       debug_extraction_runs: {
         Row: {
           completed_at: string | null
@@ -528,6 +579,38 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      job_vendor_preferences: {
+        Row: {
+          created_at: string
+          excluded_vendors: Database["public"]["Enums"]["vendor_name"][]
+          included_vendors: Database["public"]["Enums"]["vendor_name"][]
+          job_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          excluded_vendors?: Database["public"]["Enums"]["vendor_name"][]
+          included_vendors?: Database["public"]["Enums"]["vendor_name"][]
+          job_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          excluded_vendors?: Database["public"]["Enums"]["vendor_name"][]
+          included_vendors?: Database["public"]["Enums"]["vendor_name"][]
+          job_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_vendor_preferences_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: true
+            referencedRelation: "jobs"
             referencedColumns: ["id"]
           },
         ]
@@ -866,6 +949,56 @@ export type Database = {
           },
         ]
       }
+      payments: {
+        Row: {
+          amount_cents: number
+          authorized_at: string | null
+          canceled_at: string | null
+          captured_at: string | null
+          created_at: string
+          failed_at: string | null
+          id: string
+          manual_followup_reason: string | null
+          order_id: string | null
+          status: string
+          stripe_payment_intent_id: string
+        }
+        Insert: {
+          amount_cents: number
+          authorized_at?: string | null
+          canceled_at?: string | null
+          captured_at?: string | null
+          created_at?: string
+          failed_at?: string | null
+          id?: string
+          manual_followup_reason?: string | null
+          order_id?: string | null
+          status: string
+          stripe_payment_intent_id: string
+        }
+        Update: {
+          amount_cents?: number
+          authorized_at?: string | null
+          canceled_at?: string | null
+          captured_at?: string | null
+          created_at?: string
+          failed_at?: string | null
+          id?: string
+          manual_followup_reason?: string | null
+          order_id?: string | null
+          status?: string
+          stripe_payment_intent_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pricing_policies: {
         Row: {
           created_at: string
@@ -1026,6 +1159,38 @@ export type Database = {
             foreignKeyName: "project_memberships_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_vendor_preferences: {
+        Row: {
+          created_at: string
+          excluded_vendors: Database["public"]["Enums"]["vendor_name"][]
+          included_vendors: Database["public"]["Enums"]["vendor_name"][]
+          project_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          excluded_vendors?: Database["public"]["Enums"]["vendor_name"][]
+          included_vendors?: Database["public"]["Enums"]["vendor_name"][]
+          project_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          excluded_vendors?: Database["public"]["Enums"]["vendor_name"][]
+          included_vendors?: Database["public"]["Enums"]["vendor_name"][]
+          project_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_vendor_preferences_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -1450,6 +1615,645 @@ export type Database = {
           },
         ]
       }
+      spend_caps: {
+        Row: {
+          created_at: string
+          daily_ceiling_usd: number
+          enabled: boolean
+          id: string
+          kill_switch: boolean
+          notes: string | null
+          organization_id: string | null
+          per_run_ceiling_usd: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          daily_ceiling_usd: number
+          enabled?: boolean
+          id?: string
+          kill_switch?: boolean
+          notes?: string | null
+          organization_id?: string | null
+          per_run_ceiling_usd?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          daily_ceiling_usd?: number
+          enabled?: boolean
+          id?: string
+          kill_switch?: boolean
+          notes?: string | null
+          organization_id?: string | null
+          per_run_ceiling_usd?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "spend_caps_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      spend_ledger: {
+        Row: {
+          amount_usd: number
+          category: string
+          id: string
+          job_id: string | null
+          metadata: Json
+          model_name: string | null
+          occurred_at: string
+          organization_id: string | null
+          part_id: string | null
+          provider: string | null
+          quote_run_id: string | null
+          settled: boolean
+          settled_at: string | null
+          task_id: string | null
+        }
+        Insert: {
+          amount_usd?: number
+          category: string
+          id?: string
+          job_id?: string | null
+          metadata?: Json
+          model_name?: string | null
+          occurred_at?: string
+          organization_id?: string | null
+          part_id?: string | null
+          provider?: string | null
+          quote_run_id?: string | null
+          settled?: boolean
+          settled_at?: string | null
+          task_id?: string | null
+        }
+        Update: {
+          amount_usd?: number
+          category?: string
+          id?: string
+          job_id?: string | null
+          metadata?: Json
+          model_name?: string | null
+          occurred_at?: string
+          organization_id?: string | null
+          part_id?: string | null
+          provider?: string | null
+          quote_run_id?: string | null
+          settled?: boolean
+          settled_at?: string | null
+          task_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "spend_ledger_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supplier_capabilities: {
+        Row: {
+          category: string
+          code: string
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          code: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          code?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      supplier_certifications: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          is_active: boolean
+          issuing_body: string | null
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          issuing_body?: string | null
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          issuing_body?: string | null
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      supplier_companies: {
+        Row: {
+          created_at: string
+          display_name: string
+          id: string
+          legal_name: string | null
+          lifecycle_status: string
+          merged_into_id: string | null
+          origin: string
+          suggested_by: string | null
+          updated_at: string
+          website_domain: string | null
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          id?: string
+          legal_name?: string | null
+          lifecycle_status?: string
+          merged_into_id?: string | null
+          origin: string
+          suggested_by?: string | null
+          updated_at?: string
+          website_domain?: string | null
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          id?: string
+          legal_name?: string | null
+          lifecycle_status?: string
+          merged_into_id?: string | null
+          origin?: string
+          suggested_by?: string | null
+          updated_at?: string
+          website_domain?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_companies_merged_into_id_fkey"
+            columns: ["merged_into_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supplier_company_aliases: {
+        Row: {
+          alias: string
+          created_at: string
+          id: string
+          source_record_id: string | null
+          supplier_company_id: string
+        }
+        Insert: {
+          alias: string
+          created_at?: string
+          id?: string
+          source_record_id?: string | null
+          supplier_company_id: string
+        }
+        Update: {
+          alias?: string
+          created_at?: string
+          id?: string
+          source_record_id?: string | null
+          supplier_company_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_company_aliases_source_record_id_fkey"
+            columns: ["source_record_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_source_records"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_company_aliases_supplier_company_id_fkey"
+            columns: ["supplier_company_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supplier_facilities: {
+        Row: {
+          address_line_1: string | null
+          address_line_2: string | null
+          city: string | null
+          commercial_availability: string
+          country_code: string
+          created_at: string
+          facility_name: string | null
+          id: string
+          latitude: number | null
+          lifecycle_status: string
+          longitude: number | null
+          merged_into_id: string | null
+          postal_code: string | null
+          region_code: string | null
+          suggested_by: string | null
+          supplier_company_id: string
+          updated_at: string
+        }
+        Insert: {
+          address_line_1?: string | null
+          address_line_2?: string | null
+          city?: string | null
+          commercial_availability?: string
+          country_code?: string
+          created_at?: string
+          facility_name?: string | null
+          id?: string
+          latitude?: number | null
+          lifecycle_status?: string
+          longitude?: number | null
+          merged_into_id?: string | null
+          postal_code?: string | null
+          region_code?: string | null
+          suggested_by?: string | null
+          supplier_company_id: string
+          updated_at?: string
+        }
+        Update: {
+          address_line_1?: string | null
+          address_line_2?: string | null
+          city?: string | null
+          commercial_availability?: string
+          country_code?: string
+          created_at?: string
+          facility_name?: string | null
+          id?: string
+          latitude?: number | null
+          lifecycle_status?: string
+          longitude?: number | null
+          merged_into_id?: string | null
+          postal_code?: string | null
+          region_code?: string | null
+          suggested_by?: string | null
+          supplier_company_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_facilities_merged_into_id_fkey"
+            columns: ["merged_into_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_facilities_supplier_company_id_fkey"
+            columns: ["supplier_company_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supplier_facility_capability_claims: {
+        Row: {
+          capability_id: string
+          created_at: string
+          details: Json
+          effective_from: string | null
+          effective_to: string | null
+          id: string
+          observed_at: string | null
+          source_record_id: string | null
+          supplier_facility_id: string
+          updated_at: string
+          verification_status: string
+        }
+        Insert: {
+          capability_id: string
+          created_at?: string
+          details?: Json
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          observed_at?: string | null
+          source_record_id?: string | null
+          supplier_facility_id: string
+          updated_at?: string
+          verification_status?: string
+        }
+        Update: {
+          capability_id?: string
+          created_at?: string
+          details?: Json
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          observed_at?: string | null
+          source_record_id?: string | null
+          supplier_facility_id?: string
+          updated_at?: string
+          verification_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_facility_capability_claims_capability_id_fkey"
+            columns: ["capability_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_capabilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_facility_capability_claims_source_record_id_fkey"
+            columns: ["source_record_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_source_records"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_facility_capability_claims_supplier_facility_id_fkey"
+            columns: ["supplier_facility_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supplier_facility_certification_claims: {
+        Row: {
+          certificate_identifier: string | null
+          certification_id: string
+          created_at: string
+          details: Json
+          effective_from: string | null
+          effective_to: string | null
+          id: string
+          observed_at: string | null
+          source_record_id: string | null
+          supplier_facility_id: string
+          updated_at: string
+          verification_status: string
+        }
+        Insert: {
+          certificate_identifier?: string | null
+          certification_id: string
+          created_at?: string
+          details?: Json
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          observed_at?: string | null
+          source_record_id?: string | null
+          supplier_facility_id: string
+          updated_at?: string
+          verification_status?: string
+        }
+        Update: {
+          certificate_identifier?: string | null
+          certification_id?: string
+          created_at?: string
+          details?: Json
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          observed_at?: string | null
+          source_record_id?: string | null
+          supplier_facility_id?: string
+          updated_at?: string
+          verification_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_facility_certification_claim_supplier_facility_id_fkey"
+            columns: ["supplier_facility_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_facilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_facility_certification_claims_certification_id_fkey"
+            columns: ["certification_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_certifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_facility_certification_claims_source_record_id_fkey"
+            columns: ["source_record_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_source_records"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supplier_source_records: {
+        Row: {
+          external_key: string | null
+          id: string
+          import_status: string
+          imported_at: string
+          raw_record: Json
+          record_sha256: string
+          rejection_reason: string | null
+          source_id: string
+          supplier_company_id: string | null
+          supplier_facility_id: string | null
+        }
+        Insert: {
+          external_key?: string | null
+          id?: string
+          import_status?: string
+          imported_at?: string
+          raw_record: Json
+          record_sha256: string
+          rejection_reason?: string | null
+          source_id: string
+          supplier_company_id?: string | null
+          supplier_facility_id?: string | null
+        }
+        Update: {
+          external_key?: string | null
+          id?: string
+          import_status?: string
+          imported_at?: string
+          raw_record?: Json
+          record_sha256?: string
+          rejection_reason?: string | null
+          source_id?: string
+          supplier_company_id?: string | null
+          supplier_facility_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_source_records_company_facility_fk"
+            columns: ["supplier_company_id", "supplier_facility_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_facilities"
+            referencedColumns: ["supplier_company_id", "id"]
+          },
+          {
+            foreignKeyName: "supplier_source_records_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_sources"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_source_records_supplier_company_id_fkey"
+            columns: ["supplier_company_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supplier_sources: {
+        Row: {
+          content_sha256: string | null
+          created_at: string
+          effective_date: string | null
+          id: string
+          metadata: Json
+          publisher: string | null
+          retrieved_at: string | null
+          source_kind: string
+          source_uri: string | null
+          title: string
+        }
+        Insert: {
+          content_sha256?: string | null
+          created_at?: string
+          effective_date?: string | null
+          id?: string
+          metadata?: Json
+          publisher?: string | null
+          retrieved_at?: string | null
+          source_kind: string
+          source_uri?: string | null
+          title: string
+        }
+        Update: {
+          content_sha256?: string | null
+          created_at?: string
+          effective_date?: string | null
+          id?: string
+          metadata?: Json
+          publisher?: string | null
+          retrieved_at?: string | null
+          source_kind?: string
+          source_uri?: string | null
+          title?: string
+        }
+        Relationships: []
+      }
+      supplier_verification_events: {
+        Row: {
+          capability_claim_id: string | null
+          certification_claim_id: string | null
+          created_at: string
+          field_name: string | null
+          id: string
+          notes: string | null
+          source_record_id: string | null
+          supplier_company_id: string | null
+          supplier_facility_id: string | null
+          verification_status: string
+          verified_at: string
+          verified_by: string | null
+        }
+        Insert: {
+          capability_claim_id?: string | null
+          certification_claim_id?: string | null
+          created_at?: string
+          field_name?: string | null
+          id?: string
+          notes?: string | null
+          source_record_id?: string | null
+          supplier_company_id?: string | null
+          supplier_facility_id?: string | null
+          verification_status: string
+          verified_at?: string
+          verified_by?: string | null
+        }
+        Update: {
+          capability_claim_id?: string | null
+          certification_claim_id?: string | null
+          created_at?: string
+          field_name?: string | null
+          id?: string
+          notes?: string | null
+          source_record_id?: string | null
+          supplier_company_id?: string | null
+          supplier_facility_id?: string | null
+          verification_status?: string
+          verified_at?: string
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_verification_events_capability_claim_id_fkey"
+            columns: ["capability_claim_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_facility_capability_claims"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_verification_events_certification_claim_id_fkey"
+            columns: ["certification_claim_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_facility_certification_claims"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_verification_events_source_record_id_fkey"
+            columns: ["source_record_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_source_records"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_verification_events_supplier_company_id_fkey"
+            columns: ["supplier_company_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_verification_events_supplier_facility_id_fkey"
+            columns: ["supplier_facility_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_facilities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_pinned_jobs: {
         Row: {
           created_at: string
@@ -1519,7 +2323,7 @@ export type Database = {
           max_part_size_mm: number | null
           max_quantity: number | null
           min_quantity: number
-          process_types: string[]
+          process_types: Database["public"]["Enums"]["process_types"][]
           quality_score: number | null
           tolerance_max_mm: number | null
           tolerance_min_mm: number | null
@@ -1536,7 +2340,7 @@ export type Database = {
           max_part_size_mm?: number | null
           max_quantity?: number | null
           min_quantity?: number
-          process_types?: string[]
+          process_types?: Database["public"]["Enums"]["process_types"][]
           quality_score?: number | null
           tolerance_max_mm?: number | null
           tolerance_min_mm?: number | null
@@ -1553,7 +2357,7 @@ export type Database = {
           max_part_size_mm?: number | null
           max_quantity?: number | null
           min_quantity?: number
-          process_types?: string[]
+          process_types?: Database["public"]["Enums"]["process_types"][]
           quality_score?: number | null
           tolerance_max_mm?: number | null
           tolerance_min_mm?: number | null
@@ -1794,6 +2598,66 @@ export type Database = {
           },
         ]
       }
+      vendor_routing_scores: {
+        Row: {
+          capability_match_score: number
+          computed_at: string
+          domestic_score: number
+          id: string
+          lead_time_score: number
+          organization_id: string
+          overall_score: number
+          price_score: number
+          quality_score: number
+          quote_run_id: string
+          score_breakdown: Json
+          vendor_name: Database["public"]["Enums"]["vendor_name"]
+        }
+        Insert: {
+          capability_match_score: number
+          computed_at?: string
+          domestic_score: number
+          id?: string
+          lead_time_score: number
+          organization_id: string
+          overall_score: number
+          price_score: number
+          quality_score: number
+          quote_run_id: string
+          score_breakdown?: Json
+          vendor_name: Database["public"]["Enums"]["vendor_name"]
+        }
+        Update: {
+          capability_match_score?: number
+          computed_at?: string
+          domestic_score?: number
+          id?: string
+          lead_time_score?: number
+          organization_id?: string
+          overall_score?: number
+          price_score?: number
+          quality_score?: number
+          quote_run_id?: string
+          score_breakdown?: Json
+          vendor_name?: Database["public"]["Enums"]["vendor_name"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_routing_scores_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_routing_scores_quote_run_id_fkey"
+            columns: ["quote_run_id"]
+            isOneToOne: false
+            referencedRelation: "quote_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_queue: {
         Row: {
           attempts: number
@@ -1915,10 +2779,68 @@ export type Database = {
     }
     Functions: {
       api_accept_project_invite: { Args: { p_token: string }; Returns: string }
+      api_admin_complete_manual_quote_request: {
+        Args: {
+          p_artifacts?: Json
+          p_idempotency_key: string
+          p_job_id: string
+          p_offers?: Json
+          p_part_id: string
+          p_quote_request_id: string
+          p_quote_run_id: string
+          p_quote_url?: string
+          p_reason: string
+          p_source_text?: string
+          p_status?: Database["public"]["Enums"]["vendor_status"]
+          p_summary_note?: string
+          p_vendor: Database["public"]["Enums"]["vendor_name"]
+        }
+        Returns: Json
+      }
+      api_admin_get_commercial_account: {
+        Args: { p_organization_id: string }
+        Returns: Json
+      }
+      api_admin_get_organization_entitlement_state: {
+        Args: { p_organization_id: string }
+        Returns: Json
+      }
+      api_admin_grant_organization_entitlement: {
+        Args: {
+          p_expires_at: string
+          p_grant_type: string
+          p_idempotency_key: string
+          p_organization_id: string
+          p_reason: string
+          p_review_at: string
+          p_starts_at: string
+        }
+        Returns: Json
+      }
       api_admin_list_all_jobs: { Args: never; Returns: Json }
       api_admin_list_all_projects: { Args: never; Returns: Json }
       api_admin_list_all_users: { Args: never; Returns: Json }
+      api_admin_list_commercial_account_audit: {
+        Args: { p_cursor?: string; p_limit?: number; p_organization_id: string }
+        Returns: Json
+      }
+      api_admin_list_manual_quote_requests: {
+        Args: { p_cursor?: string; p_limit?: number }
+        Returns: Json
+      }
       api_admin_list_organizations: { Args: never; Returns: Json }
+      api_admin_revoke_organization_entitlement: {
+        Args: {
+          p_grant_id: string
+          p_idempotency_key: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      api_admin_search_commercial_accounts: {
+        Args: { p_cursor?: string; p_limit?: number; p_search?: string }
+        Returns: Json
+      }
       api_approve_job_requirements: {
         Args: { p_job_id: string; p_requirements: Json }
         Returns: number
@@ -2019,10 +2941,10 @@ export type Database = {
       api_dissolve_project: { Args: { p_project_id: string }; Returns: string }
       api_enqueue_debug_vendor_quote: {
         Args: {
-          p_quote_run_id: string
           p_part_id: string
-          p_vendor: Database["public"]["Enums"]["vendor_name"]
+          p_quote_run_id: string
           p_requested_quantity: number
+          p_vendor: Database["public"]["Enums"]["vendor_name"]
         }
         Returns: Json
       }
@@ -2041,6 +2963,14 @@ export type Database = {
       }
       api_get_client_intake_compatibility: { Args: never; Returns: Json }
       api_get_is_platform_admin: { Args: never; Returns: boolean }
+      api_get_job_vendor_preferences: {
+        Args: { p_job_id: string }
+        Returns: Json
+      }
+      api_get_organization_entitlements: {
+        Args: { p_organization_id: string }
+        Returns: Json
+      }
       api_get_quote_run_readiness: {
         Args: { p_quote_run_id: string }
         Returns: Json
@@ -2064,10 +2994,6 @@ export type Database = {
       api_list_client_quote_workspace: {
         Args: { p_job_ids: string[] }
         Returns: Json
-      }
-      api_reset_client_part_property_overrides: {
-        Args: { p_fields?: string[]; p_job_id: string }
-        Returns: string
       }
       api_list_organization_memberships: {
         Args: { p_organization_id: string }
@@ -2233,10 +3159,6 @@ export type Database = {
         Returns: string
       }
       api_request_extraction: { Args: { p_job_id: string }; Returns: number }
-      api_request_quote: {
-        Args: { p_force_retry?: boolean; p_job_id: string }
-        Returns: Json
-      }
       api_request_manual_quote: {
         Args: { p_force_retry?: boolean; p_job_id: string }
         Returns: Json
@@ -2245,18 +3167,68 @@ export type Database = {
         Args: { p_force_retry?: boolean; p_job_ids: string[] }
         Returns: Json
       }
+      api_request_quote: {
+        Args: { p_force_retry?: boolean; p_job_id: string }
+        Returns: Json
+      }
       api_request_quotes: {
         Args: { p_force_retry?: boolean; p_job_ids: string[] }
         Returns: Json
+      }
+      api_reserve_spend: {
+        Args: {
+          p_category: string
+          p_context?: Json
+          p_estimated_usd: number
+          p_organization_id: string
+        }
+        Returns: Json
+      }
+      api_reset_client_part_property_overrides: {
+        Args: { p_fields?: string[]; p_job_id: string }
+        Returns: string
       }
       api_select_quote_option: {
         Args: { p_note?: string; p_option_id: string; p_package_id: string }
         Returns: string
       }
+      api_set_global_spend_cap: {
+        Args: {
+          p_daily_ceiling_usd?: number
+          p_kill_switch?: boolean
+          p_per_run_ceiling_usd?: number
+        }
+        Returns: Json
+      }
       api_set_job_selected_vendor_quote_offer: {
         Args: { p_job_id: string; p_vendor_quote_offer_id?: string }
         Returns: string
       }
+      api_set_job_vendor_preferences: {
+        Args: {
+          p_excluded_vendors?: Database["public"]["Enums"]["vendor_name"][]
+          p_included_vendors?: Database["public"]["Enums"]["vendor_name"][]
+          p_job_id: string
+        }
+        Returns: Json
+      }
+      api_set_project_vendor_preferences: {
+        Args: {
+          p_excluded_vendors?: Database["public"]["Enums"]["vendor_name"][]
+          p_included_vendors?: Database["public"]["Enums"]["vendor_name"][]
+          p_project_id: string
+        }
+        Returns: Json
+      }
+      api_settle_spend: {
+        Args: {
+          p_actual_usd: number
+          p_metadata?: Json
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      api_spend_summary: { Args: never; Returns: Json }
       api_start_quote_run: {
         Args: { p_auto_publish_requested?: boolean; p_job_id: string }
         Returns: string
@@ -2283,7 +3255,7 @@ export type Database = {
           p_service_notes?: string
           p_shipping?: Json
           p_sourcing?: Json
-          p_threads?: string | null
+          p_threads?: string
           p_tightest_tolerance_inch?: number
         }
         Returns: string
@@ -2319,6 +3291,73 @@ export type Database = {
         }
         Returns: string
       }
+      build_project_part_property_snapshot:
+        | {
+            Args: {
+              p_created_at: string
+              p_defaults: Json
+              p_description: string
+              p_finish: string
+              p_material: string
+              p_overrides: Json
+              p_part_number: string
+              p_spec_snapshot: Json
+              p_threads: string
+              p_tightest_tolerance_inch: number
+              p_updated_at: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_created_at: string
+              p_defaults: Json
+              p_description: string
+              p_finish: string
+              p_material: string
+              p_overrides: Json
+              p_part_number: string
+              p_process?: string
+              p_revision?: string
+              p_spec_snapshot: Json
+              p_threads: string
+              p_tightest_tolerance_inch: number
+              p_updated_at: string
+            }
+            Returns: Json
+          }
+      build_vendor_preferences_json: {
+        Args: {
+          p_excluded_vendors: Database["public"]["Enums"]["vendor_name"][]
+          p_included_vendors: Database["public"]["Enums"]["vendor_name"][]
+          p_updated_at: string
+        }
+        Returns: Json
+      }
+      current_user_can_access_manual_quote_artifact: {
+        Args: {
+          p_require_aal2: boolean
+          p_require_registered: boolean
+          p_storage_bucket: string
+          p_storage_path: string
+          p_vendor_quote_result_id: string
+        }
+        Returns: boolean
+      }
+      current_user_can_delete_unregistered_manual_quote_upload: {
+        Args: {
+          p_created_at: string
+          p_owner_id: string
+          p_storage_bucket: string
+          p_storage_path: string
+        }
+        Returns: boolean
+      }
+      current_user_has_aal2: { Args: never; Returns: boolean }
+      current_user_has_commercial_capability: {
+        Args: { p_capability: string }
+        Returns: boolean
+      }
       current_user_has_verified_auth: { Args: never; Returns: boolean }
       current_user_home_organization_id: { Args: never; Returns: string }
       evaluate_extraction_quality_alerts: {
@@ -2329,10 +3368,19 @@ export type Database = {
         Args: { p_organization_id: string }
         Returns: string
       }
-      get_enabled_client_quote_vendors: {
-        Args: { p_organization_id: string }
-        Returns: Database["public"]["Enums"]["vendor_name"][]
-      }
+      get_enabled_client_quote_vendors:
+        | {
+            Args: { p_organization_id: string }
+            Returns: Database["public"]["Enums"]["vendor_name"][]
+          }
+        | {
+            Args: {
+              p_job_id: string
+              p_organization_id: string
+              p_project_id: string
+            }
+            Returns: Database["public"]["Enums"]["vendor_name"][]
+          }
       get_quote_request_guardrails: {
         Args: { p_organization_id: string }
         Returns: Json
@@ -2362,6 +3410,7 @@ export type Database = {
         Args: { p_organization_id: string }
         Returns: boolean
       }
+      is_internal_user_any_org: { Args: never; Returns: boolean }
       is_org_admin: { Args: { p_organization_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
       job_part_file_set: {
@@ -2370,6 +3419,15 @@ export type Database = {
           cad_file_id: string
           drawing_file_id: string
           normalized_name: string
+        }[]
+      }
+      load_editable_project_part_context: {
+        Args: { p_job_id: string }
+        Returns: {
+          extraction: Database["public"]["Tables"]["drawing_extractions"]["Row"]
+          job: Database["public"]["Tables"]["jobs"]["Row"]
+          part: Database["public"]["Tables"]["parts"]["Row"]
+          requirement: Database["public"]["Tables"]["approved_part_requirements"]["Row"]
         }[]
       }
       log_audit_event: {
@@ -2394,6 +3452,10 @@ export type Database = {
         }
         Returns: string
       }
+      normalize_project_part_threads: {
+        Args: { p_extraction: Json }
+        Returns: string
+      }
       normalize_requested_service_kinds: {
         Args: {
           p_primary_service_kind?: string
@@ -2401,10 +3463,49 @@ export type Database = {
         }
         Returns: string[]
       }
+      normalize_vendor_name_array: {
+        Args: { p_vendors: Database["public"]["Enums"]["vendor_name"][] }
+        Returns: Database["public"]["Enums"]["vendor_name"][]
+      }
       require_verified_auth: { Args: never; Returns: undefined }
+      resolve_project_part_property_values: {
+        Args: { p_defaults: Json; p_overrides: Json }
+        Returns: {
+          description: string
+          finish: string
+          material: string
+          part_number: string
+          process: string
+          revision: string
+          threads: string
+          tightest_tolerance_inch: number
+        }[]
+      }
+      seed_project_part_property_defaults: {
+        Args: {
+          p_defaults?: Json
+          p_extraction: Json
+          p_requirement: Database["public"]["Tables"]["approved_part_requirements"]["Row"]
+        }
+        Returns: Json
+      }
+      seed_revision_and_process_property_defaults: {
+        Args: {
+          p_defaults: Json
+          p_extraction: Json
+          p_requirement: Database["public"]["Tables"]["approved_part_requirements"]["Row"]
+        }
+        Returns: Json
+      }
+      spend_default_daily_ceiling_usd: { Args: never; Returns: number }
+      spend_default_per_run_ceiling_usd: { Args: never; Returns: number }
       sync_quote_request_status_for_run: {
         Args: { p_failure_reason?: string; p_quote_run_id: string }
         Returns: Database["public"]["Enums"]["quote_request_status"]
+      }
+      sync_service_request_line_item_status: {
+        Args: { p_service_request_line_item_id: string }
+        Returns: undefined
       }
       to_vendor_name_array: {
         Args: { payload: Json }
@@ -2425,6 +3526,10 @@ export type Database = {
       }
       user_can_access_project: {
         Args: { p_project_id: string }
+        Returns: boolean
+      }
+      user_can_destructively_edit_job: {
+        Args: { p_job_id: string }
         Returns: boolean
       }
       user_can_edit_job: { Args: { p_job_id: string }; Returns: boolean }
@@ -2453,6 +3558,13 @@ export type Database = {
         | "published"
         | "client_selected"
         | "closed"
+      process_types:
+        | "cnc_milling"
+        | "cnc_turning"
+        | "laser_cutting"
+        | "sheet_metal"
+        | "injection_molding"
+        | "3d_printing"
       project_invite_status: "pending" | "accepted" | "revoked" | "expired"
       project_role: "owner" | "editor"
       queue_task_status:
@@ -2468,13 +3580,13 @@ export type Database = {
         | "publish_package"
         | "repair_adapter_candidate"
         | "debug_extract_part"
+      quote_request_mode: "manual" | "automatic"
       quote_request_status:
         | "queued"
         | "requesting"
         | "received"
         | "failed"
         | "canceled"
-      quote_request_mode: "manual" | "automatic"
       quote_run_status:
         | "queued"
         | "running"
@@ -2486,6 +3598,10 @@ export type Database = {
         | "fictiv"
         | "protolabs"
         | "sendcutsend"
+        | "partsbadger"
+        | "fastdms"
+        | "devzmanufacturing"
+        | "infraredlaboratories"
         | "oshcut"
         | "fabworks"
         | "ponoko"
@@ -2494,10 +3610,6 @@ export type Database = {
         | "geomiq"
         | "weerg"
         | "protolabsnetwork"
-        | "partsbadger"
-        | "fastdms"
-        | "devzmanufacturing"
-        | "infraredlaboratories"
       vendor_status:
         | "queued"
         | "running"
@@ -2653,6 +3765,14 @@ export const Constants = {
         "client_selected",
         "closed",
       ],
+      process_types: [
+        "cnc_milling",
+        "cnc_turning",
+        "laser_cutting",
+        "sheet_metal",
+        "injection_molding",
+        "3d_printing",
+      ],
       project_invite_status: ["pending", "accepted", "revoked", "expired"],
       project_role: ["owner", "editor"],
       queue_task_status: [
@@ -2670,6 +3790,7 @@ export const Constants = {
         "repair_adapter_candidate",
         "debug_extract_part",
       ],
+      quote_request_mode: ["manual", "automatic"],
       quote_request_status: [
         "queued",
         "requesting",
@@ -2677,7 +3798,6 @@ export const Constants = {
         "failed",
         "canceled",
       ],
-      quote_request_mode: ["manual", "automatic"],
       quote_run_status: [
         "queued",
         "running",
@@ -2690,6 +3810,10 @@ export const Constants = {
         "fictiv",
         "protolabs",
         "sendcutsend",
+        "partsbadger",
+        "fastdms",
+        "devzmanufacturing",
+        "infraredlaboratories",
         "oshcut",
         "fabworks",
         "ponoko",
@@ -2698,10 +3822,6 @@ export const Constants = {
         "geomiq",
         "weerg",
         "protolabsnetwork",
-        "partsbadger",
-        "fastdms",
-        "devzmanufacturing",
-        "infraredlaboratories",
       ],
       vendor_status: [
         "queued",
