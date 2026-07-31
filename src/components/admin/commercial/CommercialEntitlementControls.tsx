@@ -75,14 +75,26 @@ function toIso(value: string): string | null {
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (
+    typeof error === "object"
+    && error !== null
+    && "message" in error
+    && typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+
+  return fallback;
 }
 
 function isAal2RequiredError(error: unknown): boolean {
-  return error instanceof Error
-    && error.message.includes(
-      "Multi-factor authentication is required for this commercial operation.",
-    );
+  return getErrorMessage(error, "").includes(
+    "Multi-factor authentication is required for this commercial operation.",
+  );
 }
 
 export function CommercialEntitlementControls({
@@ -102,10 +114,14 @@ export function CommercialEntitlementControls({
     toLocalDateTime(new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000)),
   );
   const [reason, setReason] = useState("");
+  const [grantValidationError, setGrantValidationError] = useState<string | null>(
+    null,
+  );
   const [grantIntentKey, setGrantIntentKey] = useState(newIntentKey);
   const [mfaOpen, setMfaOpen] = useState(false);
   const [revokeGrant, setRevokeGrant] =
     useState<CommercialEntitlementGrant | null>(null);
+  const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
   const [revokeReason, setRevokeReason] = useState("");
   const [revokeIntentKey, setRevokeIntentKey] = useState(newIntentKey);
   const grantMutation = useMutation({
@@ -113,6 +129,7 @@ export function CommercialEntitlementControls({
     onSuccess: async (result) => {
       await onChanged();
       setReason("");
+      setGrantValidationError(null);
       setGrantIntentKey(newIntentKey());
       let message = "Trial Pro access granted.";
 
@@ -135,6 +152,7 @@ export function CommercialEntitlementControls({
     mutationFn: revokeCommercialEntitlement,
     onSuccess: async (result) => {
       await onChanged();
+      setRevokeDialogOpen(false);
       setRevokeGrant(null);
       setRevokeReason("");
       setRevokeIntentKey(newIntentKey());
@@ -146,6 +164,7 @@ export function CommercialEntitlementControls({
     },
     onError: async (error) => {
       if (isAal2RequiredError(error)) {
+        setRevokeDialogOpen(false);
         await onAccessRefresh();
         setMfaOpen(true);
       }
@@ -155,6 +174,7 @@ export function CommercialEntitlementControls({
   const rotateGrantIntent = () => {
     if (!grantMutation.isPending) {
       setGrantIntentKey(newIntentKey());
+      setGrantValidationError(null);
       grantMutation.reset();
     }
   };
@@ -178,9 +198,33 @@ export function CommercialEntitlementControls({
       || (grantType === "complimentary" && !reviewAtIso)
       || reason.trim().length === 0
     ) {
+      setGrantValidationError(
+        "Enter a valid start, required follow-up date, and reason.",
+      );
       return;
     }
 
+    if (
+      grantType === "trial"
+      && expiresAtIso
+      && new Date(expiresAtIso) <= new Date(startsAtIso)
+    ) {
+      setGrantValidationError("Trial expiration must be after the start time.");
+      return;
+    }
+
+    if (
+      grantType === "complimentary"
+      && reviewAtIso
+      && new Date(reviewAtIso) <= new Date(startsAtIso)
+    ) {
+      setGrantValidationError(
+        "Complimentary review date must be after the start time.",
+      );
+      return;
+    }
+
+    setGrantValidationError(null);
     grantMutation.mutate({
       organizationId,
       grantType,
@@ -276,6 +320,7 @@ export function CommercialEntitlementControls({
                 <Input
                   id="commercial-grant-expiration"
                   type="datetime-local"
+                  min={startsAt}
                   value={expiresAt}
                   onChange={(event) => {
                     setExpiresAt(event.target.value);
@@ -296,6 +341,7 @@ export function CommercialEntitlementControls({
                 <Input
                   id="commercial-grant-review"
                   type="datetime-local"
+                  min={startsAt}
                   value={reviewAt}
                   onChange={(event) => {
                     setReviewAt(event.target.value);
@@ -324,6 +370,11 @@ export function CommercialEntitlementControls({
                 disabled={grantMutation.isPending}
               />
             </div>
+            {grantValidationError ? (
+              <p className="text-sm text-destructive lg:col-span-2" role="alert">
+                {grantValidationError}
+              </p>
+            ) : null}
             {grantMutation.isError ? (
               <p className="text-sm text-destructive lg:col-span-2" role="alert">
                 {getErrorMessage(
@@ -414,6 +465,7 @@ export function CommercialEntitlementControls({
                         setRevokeReason("");
                         setRevokeIntentKey(newIntentKey());
                         revokeMutation.reset();
+                        setRevokeDialogOpen(true);
                       }}
                     >
                       <Trash2 className="mr-2 h-4 w-4" />
@@ -430,13 +482,20 @@ export function CommercialEntitlementControls({
       <MfaStepUpDialog
         open={mfaOpen}
         onOpenChange={setMfaOpen}
-        onVerified={onAccessRefresh}
+        onVerified={async () => {
+          await onAccessRefresh();
+
+          if (revokeGrant) {
+            setRevokeDialogOpen(true);
+          }
+        }}
       />
 
       <AlertDialog
-        open={Boolean(revokeGrant)}
+        open={revokeDialogOpen}
         onOpenChange={(open) => {
           if (!open && !revokeMutation.isPending) {
+            setRevokeDialogOpen(false);
             setRevokeGrant(null);
             setRevokeReason("");
           }

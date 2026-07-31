@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -288,6 +288,38 @@ describe("Index client home", () => {
     });
 
     renderIndex();
+
+    expect(
+      await screen.findByText("Commercial Accounts"),
+    ).toBeInTheDocument();
+  });
+
+  it("fails closed with a retry when commercial access cannot be checked", async () => {
+    mockUseAppSession.mockReturnValue({
+      user: { id: "billing-admin", email: "admin@example.com" },
+      activeMembership: null,
+      isLoading: false,
+      isVerifiedAuth: true,
+      isAuthInitializing: false,
+      signOut: vi.fn(),
+    });
+    mockFetchCommercialAdminAccess
+      .mockRejectedValueOnce(new Error("Network unavailable"))
+      .mockResolvedValue({
+        hasCapability: true,
+        hasAal2: false,
+      });
+
+    renderIndex();
+
+    expect(
+      await screen.findByText("Commercial access could not be checked"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Keep projects moving with the next highest-impact action."),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
     expect(
       await screen.findByText("Commercial Accounts"),

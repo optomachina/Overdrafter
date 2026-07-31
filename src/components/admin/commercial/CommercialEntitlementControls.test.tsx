@@ -191,6 +191,37 @@ describe("CommercialEntitlementControls", () => {
     expect(commercialApiMock.grantCommercialEntitlement).not.toHaveBeenCalled();
   });
 
+  it("requires trial expiration and complimentary review dates after the start", async () => {
+    renderControls();
+
+    fireEvent.change(screen.getByLabelText("Starts"), {
+      target: { value: "2026-08-15T10:00" },
+    });
+    fireEvent.change(screen.getByLabelText("Trial expiration"), {
+      target: { value: "2026-08-15T09:59" },
+    });
+    fireEvent.change(screen.getByLabelText("Reason"), {
+      target: { value: "Pilot access" },
+    });
+    submitGrant();
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Trial expiration must be after the start time.",
+    );
+    expect(commercialApiMock.grantCommercialEntitlement).not.toHaveBeenCalled();
+
+    await selectComplimentary();
+    fireEvent.change(screen.getByLabelText("Complimentary review date"), {
+      target: { value: "2026-08-15T10:00" },
+    });
+    submitGrant();
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Complimentary review date must be after the start time.",
+    );
+    expect(commercialApiMock.grantCommercialEntitlement).not.toHaveBeenCalled();
+  });
+
   it("opens MFA at AAL1 and does not attempt either privileged mutation", async () => {
     const onAccessRefresh = vi.fn().mockResolvedValue(undefined);
     renderControls({
@@ -310,9 +341,10 @@ describe("CommercialEntitlementControls", () => {
 
   it("refreshes expired AAL2 access and reopens step-up without changing intent", async () => {
     commercialApiMock.grantCommercialEntitlement.mockRejectedValue(
-      new Error(
-        "Multi-factor authentication is required for this commercial operation.",
-      ),
+      {
+        message:
+          "Multi-factor authentication is required for this commercial operation.",
+      },
     );
     const onAccessRefresh = vi.fn().mockResolvedValue(undefined);
     renderControls({ onAccessRefresh });
@@ -336,6 +368,42 @@ describe("CommercialEntitlementControls", () => {
     });
     expect(
       commercialApiMock.grantCommercialEntitlement.mock.calls[1][0]
+        .idempotencyKey,
+    ).toBe(firstKey);
+  });
+
+  it("recovers from plain Postgrest AAL2 errors when revoking", async () => {
+    commercialApiMock.revokeCommercialEntitlement.mockRejectedValue({
+      message:
+        "Multi-factor authentication is required for this commercial operation.",
+    });
+    const onAccessRefresh = vi.fn().mockResolvedValue(undefined);
+    renderControls({ grants: [makeGrant()], onAccessRefresh });
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    fireEvent.change(screen.getByLabelText("Revocation reason"), {
+      target: { value: "Access review complete" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Revoke grant" }));
+
+    expect(
+      await screen.findByRole("dialog", { name: "MFA step-up" }),
+    ).toBeInTheDocument();
+    expect(onAccessRefresh).toHaveBeenCalledTimes(1);
+    const firstKey =
+      commercialApiMock.revokeCommercialEntitlement.mock.calls[0][0]
+        .idempotencyKey;
+
+    commercialApiMock.revokeCommercialEntitlement.mockResolvedValue({
+      replayed: false,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Complete MFA" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke grant" }));
+    await waitFor(() => {
+      expect(commercialApiMock.revokeCommercialEntitlement).toHaveBeenCalledTimes(2);
+    });
+    expect(
+      commercialApiMock.revokeCommercialEntitlement.mock.calls[1][0]
         .idempotencyKey,
     ).toBe(firstKey);
   });

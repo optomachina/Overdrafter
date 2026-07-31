@@ -321,6 +321,8 @@ describe("CommercialAccounts", () => {
     });
 
     expect(await screen.findByText("Refreshing…")).toBeInTheDocument();
+    expect(screen.getAllByText("Atlas Manufacturing")).toHaveLength(2);
+    expect(screen.getAllByRole("link", { name: /View/ })).toHaveLength(2);
     await act(async () => {
       refresh.resolve({ items: [account], nextCursor: null });
     });
