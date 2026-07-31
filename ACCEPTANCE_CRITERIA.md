@@ -74,6 +74,16 @@ This document defines what it means for the current repository-hardening phase t
 - Cross-org users cannot request or inspect quote request state for jobs they do not own or cannot access.
 - Relevant product, planning, architecture, and test documents are updated in the same change.
 
+### Feature addendum — Supplier discovery foundation
+
+- Instant-quote vendor adapters remain distinct from supplier-directory companies and facilities.
+- Supplier records can preserve multiple facilities, capabilities, certifications, aliases, source records, and verification events.
+- Geographic search is facility-based and does not assume a company has only one location.
+- Imported historical records retain source and effective-date provenance and are not represented as currently verified by default.
+- Customer-suggested suppliers can enter a candidate state without becoming published or verified automatically.
+- Organic technical eligibility and match scoring are independent of paid placement.
+- Any future paid placement is explicitly labeled and cannot make an ineligible supplier appear qualified.
+
 ### 1. Canonical root documentation
 - `PRD.md` exists at repo root.
 - `PLAN.md` exists at repo root.

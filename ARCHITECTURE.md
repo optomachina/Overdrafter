@@ -186,6 +186,18 @@ None of the following exists in the codebase today. Vendor automation is impleme
 - OpenClaw harness (invisible browser automation)
 - PDM graph and revision sandboxing
 
+### 10. Supplier directory and assisted-RFQ layer
+
+- canonical supplier companies remain separate from physical supplier facilities
+- facility records carry location and service-area data used for geographic search
+- normalized capabilities and certifications are many-to-many claims with source provenance and verification history
+- source records preserve imported or contributed evidence without overwriting canonical reviewed values
+- customer-suggested suppliers enter a candidate workflow and are deduplicated before publication
+- instant-quote vendor adapters remain separate from directory suppliers; a supplier may later link to an adapter without becoming one by default
+- assisted RFQ workflows may use a directory supplier without claiming automated price or lead-time availability
+- sponsored placement is stored and rendered separately from organic eligibility and match scoring
+- technical eligibility, capability matching, proximity, and verification confidence are computed without paid-placement influence
+
 ## Domain hierarchy
 
 The top-level persisted collaboration and commercial container is `Project`, not `Assembly`.
@@ -252,6 +264,8 @@ This slice is intentionally pure and independently testable before PDF extractio
 - quote requests record user intent and lifecycle for starting quote collection
 - quote runs record execution instances launched from a quote request or an internal-only kickoff
 - vendor quote records remain vendor-specific execution output attached to a quote run
+- supplier directory matches are sourcing candidates and do not become vendor quote results until an actual quote is received or entered
+- instant quote execution and assisted supplier discovery may coexist for the same manufacturing request without sharing lifecycle state
 
 See `docs/service-request-taxonomy.md` for the canonical service types and mixed-service modeling rules.
 
