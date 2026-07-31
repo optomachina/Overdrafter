@@ -243,6 +243,19 @@ For the STEP-only normalization slice (`OVD-142`), the worker canonical contract
 
 This slice is intentionally pure and independently testable before PDF extraction or artifact persistence is layered on top.
 
+## Manufacturing corpus contract
+
+The manufacturing benchmark metadata boundary is a pure, versioned four-module stack:
+
+- `worker/src/benchmarks/manufacturingCorpusVocabulary.ts` owns shared process, classification, permission, identifier, timestamp, hash, and deterministic JSON vocabulary.
+- `worker/src/benchmarks/manufacturingCorpusRightsContract.ts` owns governance, approval, consent evidence, tenant scope, permissions, redistribution, retention, revocation, deletion, and legal-hold declarations.
+- `worker/src/benchmarks/manufacturingCorpusTopology.ts` owns portable roots, artifact identities, cases, process targets, execution limits, and the protected internal manifest.
+- `worker/src/benchmarks/manufacturingCorpusAnnotationContract.ts` owns reviewed manufacturing ground truth and evidence-bearing annotation states.
+
+`worker/src/benchmarks/manufacturingCorpusContract.ts` is the compatibility facade and re-exports the exact reviewed bindings without wrapping them.
+
+This stack validates in-memory metadata only. It does not read or mount files, verify artifact bytes, determine tenant or policy eligibility, compute process coverage, execute manufacturing dependencies, or estimate prices. Those operational responsibilities remain sequenced under OVD-264 and its filesystem, eligibility, and CLI children. The protected manifest is internal and is not a publishable customer-data projection.
+
 ## Request-model boundary
 
 - projects are the grouping and collaboration boundary, not the only place where service intent lives
