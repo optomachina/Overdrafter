@@ -78,6 +78,12 @@ begin
     private.user_can_manage_organization_billing(
       p_organization_id,
       auth.uid()
+    ),
+    'hasStripeSubscription',
+    exists (
+      select 1
+      from private.organization_subscription_projections subscription_row
+      where subscription_row.organization_id = p_organization_id
     )
   );
 end;
@@ -293,6 +299,55 @@ grant execute on function public.api_bind_organization_stripe_customer(
   boolean
 ) to service_role;
 
+create or replace function private.guard_billing_audit_events()
+returns trigger
+language plpgsql
+set search_path = pg_catalog
+as $$
+declare
+  v_billing_event_types constant text[] := array[
+    'billing.upgrade_started',
+    'billing.subscription_activated'
+  ];
+begin
+  if tg_op = 'INSERT' then
+    if new.event_type = any(v_billing_event_types)
+      and current_user <> 'postgres'
+      and coalesce(auth.role(), '') <> 'service_role'
+    then
+      raise exception using
+        errcode = '42501',
+        message = 'Billing audit events may only be appended by the billing service.';
+    end if;
+    return new;
+  end if;
+
+  if old.event_type = any(v_billing_event_types)
+    and not (
+      tg_op = 'DELETE'
+      and pg_catalog.pg_trigger_depth() > 1
+    )
+  then
+    raise exception using
+      errcode = '42501',
+      message = 'Billing audit events are append-only.';
+  end if;
+
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function private.guard_billing_audit_events()
+  from public, anon, authenticated, service_role;
+
+drop trigger if exists guard_billing_audit_events on public.audit_events;
+create trigger guard_billing_audit_events
+before insert or update or delete on public.audit_events
+for each row execute function private.guard_billing_audit_events();
+
 create or replace function public.api_record_billing_checkout_started(
   p_organization_id uuid,
   p_actor_user_id uuid,
@@ -426,7 +481,8 @@ execute function private.audit_subscription_activation();
 
 -- Rollback:
 -- 1. Disable the billing-sessions Edge Function.
--- 2. Drop audit_subscription_activation and its private trigger function.
+-- 2. Drop audit_subscription_activation, guard_billing_audit_events, and
+--    their private trigger functions.
 -- 3. Revoke/drop the three public billing-session functions.
 -- 4. Restore api_get_organization_entitlements from OVD-229.
 -- 5. Drop private.user_can_manage_organization_billing.

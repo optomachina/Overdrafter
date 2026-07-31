@@ -57,6 +57,9 @@ export type BillingStripeClient = {
         parameters: Stripe.Checkout.SessionCreateParams,
         options?: Stripe.RequestOptions,
       ): PromiseLike<Stripe.Checkout.Session>;
+      list(
+        parameters: Stripe.Checkout.SessionListParams,
+      ): PromiseLike<{ data: Stripe.Checkout.Session[] }>;
     };
   };
   customers: {
@@ -70,6 +73,11 @@ export type BillingStripeClient = {
       priceId: string,
       parameters?: Stripe.PriceRetrieveParams,
     ): PromiseLike<Stripe.Price>;
+  };
+  subscriptions: {
+    list(
+      parameters: Stripe.SubscriptionListParams,
+    ): PromiseLike<{ data: Stripe.Subscription[] }>;
   };
 };
 
@@ -298,6 +306,28 @@ function isValidHostedUrl(url: string | null | undefined): url is string {
   } catch {
     return false;
   }
+}
+
+function isBlockingSubscription(subscription: Stripe.Subscription): boolean {
+  return subscription.status !== "canceled" &&
+    subscription.status !== "incomplete_expired";
+}
+
+function findReusableCheckoutSession(
+  sessions: Stripe.Checkout.Session[],
+  organizationId: string,
+  priceId: string,
+): Stripe.Checkout.Session | null {
+  return sessions.find((session) =>
+    session.status === "open" &&
+    session.mode === "subscription" &&
+    session.client_reference_id === organizationId &&
+    session.metadata?.organization_id === organizationId &&
+    session.metadata?.plan === "pro" &&
+    session.metadata?.billing_interval === "month" &&
+    session.metadata?.stripe_price_id === priceId &&
+    isValidHostedUrl(session.url)
+  ) ?? null;
 }
 
 function isValidMonthlyProPrice(
@@ -547,6 +577,43 @@ export function createBillingSessionHandler(
       }
 
       const customerId = await resolveStripeCustomer(runtime, preparation);
+      const subscriptions = await runtime.stripe.subscriptions.list({
+        customer: customerId,
+        limit: 100,
+        status: "all",
+      });
+      if (subscriptions.data.some(isBlockingSubscription)) {
+        return json(409, {
+          error:
+            "This organization already has a Stripe subscription. Use Manage billing instead.",
+        });
+      }
+
+      const openCheckoutSessions = await runtime.stripe.checkout.sessions.list({
+        customer: customerId,
+        limit: 10,
+        status: "open",
+      });
+      const reusableCheckoutSession = findReusableCheckoutSession(
+        openCheckoutSessions.data,
+        preparation.organizationId,
+        runtime.proMonthlyPriceId,
+      );
+      if (reusableCheckoutSession) {
+        const { error: auditError } = await runtime.serviceClient.rpc(
+          "api_record_billing_checkout_started",
+          {
+            p_actor_user_id: user.id,
+            p_organization_id: preparation.organizationId,
+            p_stripe_checkout_session_id: reusableCheckoutSession.id,
+          },
+        );
+        if (auditError) {
+          throw new Error("billing_checkout_audit_failed");
+        }
+        return json(200, { url: reusableCheckoutSession.url });
+      }
+
       const checkoutSession = await runtime.stripe.checkout.sessions.create(
         {
           allow_promotion_codes: false,
@@ -563,6 +630,7 @@ export function createBillingSessionHandler(
             billing_interval: "month",
             organization_id: preparation.organizationId,
             plan: "pro",
+            stripe_price_id: runtime.proMonthlyPriceId,
           },
           mode: "subscription",
           subscription_data: {

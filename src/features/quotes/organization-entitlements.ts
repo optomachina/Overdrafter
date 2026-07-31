@@ -8,6 +8,7 @@ export type OrganizationEntitlements = {
   source: string;
   automaticQuoteCollection: boolean;
   canManageBilling: boolean;
+  hasStripeSubscription: boolean;
 };
 
 async function fetchOrganizationEntitlements(
@@ -42,6 +43,7 @@ export function useOrganizationQuoteCollectionMode(
         source: "fixture",
         automaticQuoteCollection: false,
         canManageBilling: true,
+        hasStripeSubscription: false,
       });
       setIsLoading(false);
       return;
@@ -77,6 +79,7 @@ export function useOrganizationQuoteCollectionMode(
   return {
     automaticEnabled: hasAutomaticEntitlement,
     canManageBilling: entitlements?.canManageBilling === true,
+    hasStripeSubscription: entitlements?.hasStripeSubscription === true,
     hasAutomaticEntitlement,
     isLoading,
     plan: entitlements?.plan ?? "free",

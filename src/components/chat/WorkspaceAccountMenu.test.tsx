@@ -24,6 +24,7 @@ const billingMocks = vi.hoisted(() => ({
     automaticEnabled: false,
     canManageBilling: true,
     hasAutomaticEntitlement: false,
+    hasStripeSubscription: false,
     isLoading: false,
     plan: "free" as "free" | "pro",
     refresh: vi.fn(),
@@ -294,6 +295,7 @@ describe("WorkspaceAccountMenu", () => {
       automaticEnabled: false,
       canManageBilling: true,
       hasAutomaticEntitlement: false,
+      hasStripeSubscription: false,
       isLoading: false,
       plan: "free",
       refresh: vi.fn(),
@@ -589,6 +591,7 @@ describe("WorkspaceAccountMenu", () => {
       automaticEnabled: true,
       canManageBilling: true,
       hasAutomaticEntitlement: true,
+      hasStripeSubscription: true,
       isLoading: false,
       plan: "pro",
       refresh: vi.fn(),
@@ -608,11 +611,32 @@ describe("WorkspaceAccountMenu", () => {
     });
   });
 
+  it("does not offer the Stripe portal for a non-Stripe Pro grant", async () => {
+    billingMocks.quoteMode = {
+      automaticEnabled: true,
+      canManageBilling: true,
+      hasAutomaticEntitlement: true,
+      hasStripeSubscription: false,
+      isLoading: false,
+      plan: "pro",
+      refresh: vi.fn(),
+    };
+
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+
+    expect(await screen.findByText("Automatic quote collection")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Manage billing" })).not.toBeInTheDocument();
+  });
+
   it("does not offer billing mutations to a non-owner organization member", async () => {
     billingMocks.quoteMode = {
       automaticEnabled: false,
       canManageBilling: false,
       hasAutomaticEntitlement: false,
+      hasStripeSubscription: false,
       isLoading: false,
       plan: "free",
       refresh: vi.fn(),

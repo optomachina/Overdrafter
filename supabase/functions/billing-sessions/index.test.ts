@@ -84,10 +84,12 @@ function validPrice(
 }
 
 function makeRuntime(options: {
+  checkoutSessions?: Stripe.Checkout.Session[];
   preparation?: Record<string, unknown>;
   preparationError?: { message: string };
   price?: Stripe.Price;
   rpc?: BillingServiceClient["rpc"];
+  subscriptions?: Stripe.Subscription[];
   user?: { id: string } | null;
 } = {}) {
   const calls = {
@@ -95,6 +97,7 @@ function makeRuntime(options: {
       options: Stripe.RequestOptions | undefined;
       parameters: Stripe.Checkout.SessionCreateParams;
     }>,
+    checkoutList: [] as Stripe.Checkout.SessionListParams[],
     customer: [] as Array<{
       options: Stripe.RequestOptions | undefined;
       parameters: Stripe.CustomerCreateParams;
@@ -108,6 +111,7 @@ function makeRuntime(options: {
       name: string;
       parameters: Record<string, unknown>;
     }>,
+    subscriptionList: [] as Stripe.SubscriptionListParams[],
   };
 
   const userClient: BillingUserClient = {
@@ -176,6 +180,12 @@ function makeRuntime(options: {
             url: "https://checkout.stripe.com/c/pay/ovd228",
           } as Stripe.Checkout.Session);
         },
+        list: (parameters) => {
+          calls.checkoutList.push(parameters);
+          return Promise.resolve({
+            data: options.checkoutSessions ?? [],
+          });
+        },
       },
     },
     customers: {
@@ -192,6 +202,14 @@ function makeRuntime(options: {
       retrieve: (id, parameters) => {
         calls.price.push({ id, parameters });
         return Promise.resolve(options.price ?? validPrice());
+      },
+    },
+    subscriptions: {
+      list: (parameters) => {
+        calls.subscriptionList.push(parameters);
+        return Promise.resolve({
+          data: options.subscriptions ?? [],
+        });
       },
     },
   };
@@ -367,6 +385,7 @@ Deno.test("creates a server-owned monthly Checkout and binds the organization cu
     billing_interval: "month",
     organization_id: ORGANIZATION_ID,
     plan: "pro",
+    stripe_price_id: "price_OVD228Pro",
   });
   assertEquals(calls.checkout[0].parameters.subscription_data?.metadata, {
     billing_interval: "month",
@@ -380,6 +399,91 @@ Deno.test("creates a server-owned monthly Checkout and binds the organization cu
       "api_bind_organization_stripe_customer",
       "api_record_billing_checkout_started",
     ],
+  );
+});
+
+Deno.test("rejects Checkout when the Stripe customer already has a non-terminal subscription", async () => {
+  const { calls, runtime } = makeRuntime({
+    preparation: {
+      organizationId: ORGANIZATION_ID,
+      organizationName: "OVD 228 Optics",
+      stripeCustomerId: "cus_OVD228",
+      stripeLivemode: false,
+    },
+    subscriptions: [{
+      id: "sub_OVD228",
+      object: "subscription",
+      status: "active",
+    } as Stripe.Subscription],
+  });
+  const handler = createBillingSessionHandler(
+    enabledEnvironment,
+    () => runtime,
+  );
+
+  const response = await handler(
+    request({ action: "checkout", organizationId: ORGANIZATION_ID }),
+  );
+
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), {
+    error:
+      "This organization already has a Stripe subscription. Use Manage billing instead.",
+  });
+  assertEquals(calls.subscriptionList, [{
+    customer: "cus_OVD228",
+    limit: 100,
+    status: "all",
+  }]);
+  assertEquals(calls.checkoutList.length, 0);
+  assertEquals(calls.checkout.length, 0);
+});
+
+Deno.test("reuses an open Checkout session for the same organization and launch price", async () => {
+  const { calls, runtime } = makeRuntime({
+    checkoutSessions: [{
+      client_reference_id: ORGANIZATION_ID,
+      id: "cs_test_OVD228Open",
+      metadata: {
+        billing_interval: "month",
+        organization_id: ORGANIZATION_ID,
+        plan: "pro",
+        stripe_price_id: "price_OVD228Pro",
+      },
+      mode: "subscription",
+      object: "checkout.session",
+      status: "open",
+      url: "https://checkout.stripe.com/c/pay/ovd228-open",
+    } as unknown as Stripe.Checkout.Session],
+    preparation: {
+      organizationId: ORGANIZATION_ID,
+      organizationName: "OVD 228 Optics",
+      stripeCustomerId: "cus_OVD228",
+      stripeLivemode: false,
+    },
+  });
+  const handler = createBillingSessionHandler(
+    enabledEnvironment,
+    () => runtime,
+  );
+
+  const response = await handler(
+    request({ action: "checkout", organizationId: ORGANIZATION_ID }),
+  );
+
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), {
+    url: "https://checkout.stripe.com/c/pay/ovd228-open",
+  });
+  assertEquals(calls.checkoutList, [{
+    customer: "cus_OVD228",
+    limit: 10,
+    status: "open",
+  }]);
+  assertEquals(calls.checkout.length, 0);
+  assertEquals(
+    calls.rpc.at(-1)?.name,
+    "api_record_billing_checkout_started",
   );
 });
 

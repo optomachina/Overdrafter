@@ -49,7 +49,16 @@ Use this for Stripe checkout, subscriptions, invoicing, entitlements, plan state
   administration is deferred.
 - Checkout success means “webhook confirmation pending.” Never grant Pro from a
   URL parameter or Checkout redirect.
+- Before creating Checkout, the billing boundary rejects any non-terminal
+  Stripe subscription for the organization Customer and reuses a matching open
+  Checkout Session. The time-bucketed Stripe idempotency key is only a
+  concurrent-request safeguard, not the duplicate-subscription authority.
+- Show Billing Portal access only when a synchronized Stripe subscription
+  exists. Trial and complimentary Pro grants still receive Pro capabilities
+  without presenting a broken Stripe management action.
 - `billing.upgrade_started` and `billing.subscription_activated` are recorded
-  in the existing server-side audit event stream.
+  in the existing server-side audit event stream. Guard triggers prevent
+  authenticated internal roles from forging, updating, or deleting those
+  billing event types.
 - If Checkout or Stripe is unavailable, Free sourcing recommendations and
   official RFQ links remain usable.

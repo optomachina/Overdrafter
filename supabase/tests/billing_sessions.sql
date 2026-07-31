@@ -1,6 +1,6 @@
 begin;
 
-select plan(16);
+select plan(21);
 
 create function pg_temp.set_ovd228_request_identity(p_user_id uuid)
 returns void
@@ -140,6 +140,14 @@ select is(
   ) ->> 'canManageBilling',
   'true',
   'the self-service organization owner can manage billing'
+);
+
+select is(
+  public.api_get_organization_entitlements(
+    (select primary_organization_id from ovd228_test_context)
+  ) ->> 'hasStripeSubscription',
+  'false',
+  'a new organization does not advertise a Stripe-backed subscription'
 );
 
 select is(
@@ -342,6 +350,60 @@ select is(
   ),
   1::bigint,
   'webhook-synchronized activation emits the server-side funnel event once'
+);
+
+set local role authenticated;
+select pg_temp.set_ovd228_request_identity(
+  (select internal_admin_user_id from ovd228_test_context)
+);
+
+select is(
+  public.api_get_organization_entitlements(
+    (select primary_organization_id from ovd228_test_context)
+  ) ->> 'hasStripeSubscription',
+  'true',
+  'the entitlement contract exposes a synchronized Stripe subscription'
+);
+
+select throws_ok(
+  $$
+    insert into public.audit_events (
+      organization_id,
+      actor_user_id,
+      event_type,
+      payload
+    )
+    values (
+      '00000000-0000-4000-8000-000000002284',
+      '00000000-0000-4000-8000-000000002283',
+      'billing.upgrade_started',
+      '{}'::jsonb
+    )
+  $$,
+  '42501',
+  'Billing audit events may only be appended by the billing service.',
+  'internal users cannot forge billing funnel history'
+);
+
+select throws_ok(
+  $$
+    update public.audit_events
+    set payload = '{}'::jsonb
+    where event_type = 'billing.upgrade_started'
+  $$,
+  '42501',
+  'Billing audit events are append-only.',
+  'internal users cannot rewrite billing funnel history'
+);
+
+select throws_ok(
+  $$
+    delete from public.audit_events
+    where event_type = 'billing.subscription_activated'
+  $$,
+  '42501',
+  'Billing audit events are append-only.',
+  'internal users cannot delete billing activation history'
 );
 
 select * from finish();

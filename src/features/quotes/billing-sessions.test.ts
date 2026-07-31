@@ -40,12 +40,22 @@ describe("billing sessions", () => {
   });
 
   it("surfaces the customer-safe server error", async () => {
-    supabaseMocks.invoke.mockResolvedValue({
-      data: {
+    const response = new Response(
+      JSON.stringify({
         error:
           "Pro billing is temporarily unavailable. Free sourcing remains available.",
+      }),
+      {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
       },
-      error: new Error("FunctionsHttpError"),
+    );
+    supabaseMocks.invoke.mockResolvedValue({
+      data: null,
+      error: Object.assign(new Error("FunctionsHttpError"), {
+        context: response,
+      }),
+      response,
     });
 
     await expect(

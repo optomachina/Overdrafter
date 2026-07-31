@@ -15,6 +15,43 @@ function readErrorMessage(data: unknown): string | null {
   return typeof error === "string" && error.trim() ? error.trim() : null;
 }
 
+function readErrorResponse(
+  error: unknown,
+  response: Response | undefined,
+): Response | null {
+  if (response instanceof Response) {
+    return response;
+  }
+  if (!error || typeof error !== "object" || Array.isArray(error)) {
+    return null;
+  }
+
+  const context = (error as { context?: unknown }).context;
+  return context instanceof Response ? context : null;
+}
+
+async function readFunctionErrorMessage(
+  data: unknown,
+  error: unknown,
+  response: Response | undefined,
+): Promise<string | null> {
+  const messageFromData = readErrorMessage(data);
+  if (messageFromData) {
+    return messageFromData;
+  }
+
+  const errorResponse = readErrorResponse(error, response);
+  if (!errorResponse) {
+    return null;
+  }
+
+  try {
+    return readErrorMessage(await errorResponse.clone().json());
+  } catch {
+    return null;
+  }
+}
+
 function readHostedBillingUrl(data: unknown): string | null {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     return null;
@@ -42,14 +79,18 @@ export async function requestHostedBillingSession(
   organizationId: string,
   action: HostedBillingAction,
 ): Promise<string> {
-  const { data, error } = await supabase.functions.invoke("billing-sessions", {
+  const { data, error, response } = await supabase.functions.invoke("billing-sessions", {
     body: {
       action,
       organizationId,
     },
   });
 
-  const customerSafeError = readErrorMessage(data);
+  const customerSafeError = await readFunctionErrorMessage(
+    data,
+    error,
+    response,
+  );
   if (error || customerSafeError) {
     throw new Error(
       customerSafeError ??

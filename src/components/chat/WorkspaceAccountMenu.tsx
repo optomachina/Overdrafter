@@ -1051,6 +1051,7 @@ export function WorkspaceAccountMenu({
               ) : null}
               {!quoteCollectionMode.isLoading
                 && quoteCollectionMode.hasAutomaticEntitlement
+                && quoteCollectionMode.hasStripeSubscription
                 && quoteCollectionMode.canManageBilling ? (
                 <Button
                   type="button"
