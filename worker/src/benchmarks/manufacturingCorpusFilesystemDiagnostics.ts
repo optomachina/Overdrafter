@@ -1,6 +1,19 @@
 export const MANUFACTURING_CORPUS_MANIFEST_DIAGNOSTIC_CODES = [
+  "artifact_capture_limit_exceeded",
+  "artifact_changed_during_validation",
+  "artifact_not_regular_file",
+  "artifact_open_failed",
+  "artifact_path_escape",
+  "artifact_path_missing",
+  "artifact_read_failed",
+  "artifact_root_missing",
+  "artifact_sha256_mismatch",
+  "artifact_size_mismatch",
+  "artifact_symlink",
+  "case_not_found",
   "duplicate_artifact_id",
   "duplicate_case_id",
+  "duplicate_requested_case_id",
   "duplicate_rights_id",
   "duplicate_root_id",
   "duplicate_target_identity",
@@ -92,3 +105,20 @@ export function serializeManufacturingCorpusManifestDiagnostics(
     2,
   )}\n`;
 }
+
+// Canonical aliases for consumers of the composed filesystem boundary. The
+// original manifest-prefixed exports remain source-compatible with OVD-276.
+export const MANUFACTURING_CORPUS_FILESYSTEM_DIAGNOSTIC_CODES =
+  MANUFACTURING_CORPUS_MANIFEST_DIAGNOSTIC_CODES;
+export type ManufacturingCorpusFilesystemDiagnosticCode =
+  ManufacturingCorpusManifestDiagnosticCode;
+export type ManufacturingCorpusFilesystemDiagnosticRecordKind =
+  ManufacturingCorpusManifestDiagnosticRecordKind;
+export type ManufacturingCorpusFilesystemDiagnostic =
+  ManufacturingCorpusManifestDiagnostic;
+export const createManufacturingCorpusFilesystemDiagnostic =
+  createManufacturingCorpusManifestDiagnostic;
+export const normalizeManufacturingCorpusFilesystemDiagnostics =
+  normalizeManufacturingCorpusManifestDiagnostics;
+export const serializeManufacturingCorpusFilesystemDiagnostics =
+  serializeManufacturingCorpusManifestDiagnostics;
