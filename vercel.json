@@ -1,11 +1,40 @@
 {
-  "routes": [
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/mobile-auth.ts": {
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
     {
-      "handle": "filesystem"
+      "source": "/auth/mobile/start",
+      "destination": "/api/mobile-auth?action=start"
     },
     {
-      "src": "/.*",
-      "dest": "/index.html"
+      "source": "/auth/mobile/provider-callback",
+      "destination": "/api/mobile-auth?action=provider-callback"
+    },
+    {
+      "source": "/auth/mobile/complete",
+      "destination": "/api/mobile-auth?action=complete"
+    },
+    {
+      "source": "/auth/mobile/callback",
+      "destination": "/api/mobile-auth?action=callback"
+    },
+    {
+      "source": "/auth/mobile/bootstrap",
+      "destination": "/api/mobile-auth?action=bootstrap"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/mobile-auth?action=cleanup",
+      "schedule": "17 4 * * *"
     }
   ]
 }

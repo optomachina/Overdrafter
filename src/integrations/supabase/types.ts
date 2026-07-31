@@ -2020,6 +2020,114 @@ export type Database = {
         Args: { p_project_id: string }
         Returns: Json
       }
+      api_mobile_auth_claim_completion: {
+        Args: {
+          p_browser_binding_digest: string
+          p_crypto_key_version: number
+          p_csrf_digest: string
+          p_expected_version: number
+          p_transaction_id: string
+        }
+        Returns: Json
+      }
+      api_mobile_auth_cleanup: {
+        Args: { p_batch_size?: number; p_terminal_retention_seconds?: number }
+        Returns: Json
+      }
+      api_mobile_auth_complete_transaction: {
+        Args: {
+          p_browser_binding_digest: string
+          p_crypto_key_version: number
+          p_csrf_digest: string
+          p_expected_version: number
+          p_handoff_digest: string
+          p_handoff_expires_at: string
+          p_session_envelope: string
+          p_source_session_id: string
+          p_transaction_id: string
+          p_verified_user_id: string
+        }
+        Returns: Json
+      }
+      api_mobile_auth_consume_transaction: {
+        Args: {
+          p_callback_origin: string
+          p_callback_path: string
+          p_code_challenge: string
+          p_expected_version: number
+          p_handoff_digest: string
+          p_source_session_id: string
+          p_state_digest: string
+          p_transaction_id: string
+          p_verified_user_id: string
+        }
+        Returns: Json
+      }
+      api_mobile_auth_create_transaction: {
+        Args: {
+          p_browser_binding_digest: string
+          p_callback_origin: string
+          p_callback_path: string
+          p_ceremony_storage_key: string
+          p_code_challenge: string
+          p_contract_version: number
+          p_crypto_key_version: number
+          p_csrf_digest: string
+          p_provider_callback_path: string
+          p_return_to: string
+          p_state_digest: string
+          p_state_envelope: string
+          p_trace_id: string
+          p_transaction_id: string
+        }
+        Returns: Json
+      }
+      api_mobile_auth_get_browser_transaction: {
+        Args: { p_browser_binding_digests: string[]; p_transaction_id: string }
+        Returns: Json
+      }
+      api_mobile_auth_log_audit_event: {
+        Args: {
+          p_app_version?: string
+          p_contract_version: number
+          p_duration_bucket?: string
+          p_environment: string
+          p_event_type: string
+          p_failure_code?: string
+          p_os_version?: string
+          p_trace_id: string
+        }
+        Returns: number
+      }
+      api_mobile_auth_prepare_bootstrap: {
+        Args: {
+          p_callback_origin: string
+          p_callback_path: string
+          p_code_challenge: string
+          p_handoff_digests: string[]
+          p_state_digests: string[]
+        }
+        Returns: Json
+      }
+      api_mobile_auth_take_rate_limit: {
+        Args: {
+          p_key_digest: string
+          p_key_version: number
+          p_limit: number
+          p_scope: string
+          p_window_seconds: number
+        }
+        Returns: Json
+      }
+      api_mobile_auth_terminate_transaction: {
+        Args: {
+          p_expected_version: number
+          p_failure_code: string
+          p_target_status: string
+          p_transaction_id: string
+        }
+        Returns: Json
+      }
       api_prepare_job_file_upload: {
         Args: {
           p_content_sha256?: string
