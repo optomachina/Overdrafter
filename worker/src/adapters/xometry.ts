@@ -140,6 +140,7 @@ const ARRIVAL_MONTHS = [
 const MAX_ARRIVAL_SPAN_DAYS = 400;
 const MILLISECONDS_PER_DAY = 86_400_000;
 const XOMETRY_POST_SAVE_TIMEOUT_FLOOR_MS = 120_000;
+const XOMETRY_CONTROL_RENDER_TIMEOUT_MS = 10_000;
 const XOMETRY_OPTION_RENDER_TIMEOUT_MS = 10_000;
 
 function parseArrivalDate(text: string, today: Date) {
@@ -551,7 +552,15 @@ async function findButtonAndOpen(
   selectors: readonly string[],
   field: "material" | "finish",
 ) {
-  const match = await firstWorkingLocator(page, selectors);
+  const preferredSelector = selectors[0];
+  const preferredLocator = page.locator(preferredSelector).first();
+  const preferredVisible = await preferredLocator
+    .waitFor({ state: "visible", timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS })
+    .then(() => true)
+    .catch(() => false);
+  const match = preferredVisible
+    ? { selector: preferredSelector, locator: preferredLocator }
+    : await firstWorkingLocator(page, selectors.slice(1));
 
   if (!match) {
     throw new VendorAutomationError(

@@ -472,6 +472,8 @@ describe("XometryAdapter", () => {
     const workerTempDir = await makeTempDir();
     const saveConfiguration = vi.fn();
     const setTolerance = vi.fn();
+    let materialControlRendered = false;
+    let finishControlRendered = false;
     let materialOptionsOpen = false;
     let finishOptionsOpen = false;
     let materialOptionsRendered = false;
@@ -504,11 +506,17 @@ describe("XometryAdapter", () => {
           press: vi.fn(),
         },
         [XOMETRY_LOCATORS.materialButtons[0]]: {
-          count: 1,
+          count: () => (materialControlRendered ? 1 : 0),
+          waitFor: () => {
+            materialControlRendered = true;
+          },
           click: openMaterialOptions,
         },
         [XOMETRY_LOCATORS.finishButtons[0]]: {
-          count: 1,
+          count: () => (finishControlRendered ? 1 : 0),
+          waitFor: () => {
+            finishControlRendered = true;
+          },
           click: openFinishOptions,
         },
         [XOMETRY_LOCATORS.priceText[0]]: {
