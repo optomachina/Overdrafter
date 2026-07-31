@@ -14,7 +14,7 @@ import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -67,6 +67,38 @@ const CLIENT_PASSWORD = [79, 118, 101, 114, 100, 114, 97, 102, 116, 101, 114, 49
 const ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
 const PUBLISHED_JOB_ID = "00000000-0000-4000-8000-000000000103";
+
+function executeLocalDatabaseSql(sql) {
+  const containerName = execFileSync(
+    "docker",
+    ["ps", "--filter", "name=supabase_db_", "--format", "{{.Names}}"],
+    { encoding: "utf8" },
+  )
+    .trim()
+    .split("\n")[0];
+
+  if (!containerName) {
+    throw new Error("Could not find the local Supabase database container.");
+  }
+
+  execFileSync(
+    "docker",
+    [
+      "exec",
+      containerName,
+      "psql",
+      "-U",
+      "postgres",
+      "-d",
+      "postgres",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-c",
+      sql,
+    ],
+    { stdio: "pipe" },
+  );
+}
 
 async function insertTestJob(admin, userId, overrides = {}) {
   const { data, error } = await admin
@@ -375,6 +407,43 @@ describe("api_request_quote gating paths", () => {
 
     client = createAnonClient(supabaseUrl, anonKey);
     clientUserId = await signInWithPassword(client, CLIENT_EMAIL, CLIENT_PASSWORD);
+
+    executeLocalDatabaseSql(`
+      insert into private.organization_entitlement_grants (
+        organization_id,
+        grant_type,
+        starts_at,
+        review_at,
+        grant_reason,
+        granted_by_user_id
+      )
+      values (
+        '${ORG_ID}'::uuid,
+        'complimentary',
+        now() - interval '1 minute',
+        now() + interval '1 year',
+        'Local automatic quote integration coverage',
+        '${clientUserId}'::uuid
+      )
+      on conflict (organization_id, grant_type)
+      where revoked_at is null
+      do update set
+        starts_at = excluded.starts_at,
+        review_at = excluded.review_at,
+        expires_at = null,
+        grant_reason = excluded.grant_reason,
+        revoked_at = null,
+        revoked_by_user_id = null,
+        revocation_reason = null;
+    `);
+  });
+
+  afterAll(() => {
+    executeLocalDatabaseSql(`
+      delete from private.organization_entitlement_grants
+      where organization_id = '${ORG_ID}'::uuid
+        and grant_reason = 'Local automatic quote integration coverage';
+    `);
   });
 
   afterEach(async () => {
@@ -435,6 +504,95 @@ describe("api_request_quote gating paths", () => {
     await linkCadFileToPart(admin, partId, cadFileId);
     return { jobId };
   }
+
+  it("rejects automatic collection for Free without creating quote lifecycle rows", async () => {
+    executeLocalDatabaseSql(`
+      delete from private.organization_entitlement_grants
+      where organization_id = '${ORG_ID}'::uuid
+        and grant_reason = 'Local automatic quote integration coverage';
+    `);
+
+    const { jobId, partId } = await buildQuoteReadyJob();
+    testJobId = jobId;
+
+    try {
+      const { data, error } = await client.rpc("api_request_quote", {
+        p_job_id: jobId,
+        p_force_retry: false,
+      });
+
+      expect(error).toBeNull();
+      expect(data).toMatchObject({
+        accepted: false,
+        created: false,
+        deduplicated: false,
+        status: "not_requested",
+        reasonCode: "pro_required",
+        requestedVendors: [],
+        quoteMode: "automatic",
+      });
+      expect(data.quoteRequestId).toBeNull();
+      expect(data.quoteRunId).toBeNull();
+      expect(data.serviceRequestLineItemId).toBeNull();
+
+      const [
+        { count: requestCount },
+        { count: runCount },
+        { count: queueCount },
+        { count: serviceLineCount },
+        { count: vendorResultCount },
+        { data: job },
+      ] = await Promise.all([
+        admin
+          .from("quote_requests")
+          .select("id", { count: "exact", head: true })
+          .eq("job_id", jobId),
+        admin
+          .from("quote_runs")
+          .select("id", { count: "exact", head: true })
+          .eq("job_id", jobId),
+        admin
+          .from("work_queue")
+          .select("id", { count: "exact", head: true })
+          .eq("job_id", jobId),
+        admin
+          .from("service_request_line_items")
+          .select("id", { count: "exact", head: true })
+          .eq("job_id", jobId),
+        admin
+          .from("vendor_quote_results")
+          .select("id", { count: "exact", head: true })
+          .eq("part_id", partId),
+        admin.from("jobs").select("status").eq("id", jobId).single(),
+      ]);
+
+      expect(requestCount).toBe(0);
+      expect(runCount).toBe(0);
+      expect(queueCount).toBe(0);
+      expect(serviceLineCount).toBe(0);
+      expect(vendorResultCount).toBe(0);
+      expect(job?.status).toBe("ready_to_quote");
+    } finally {
+      executeLocalDatabaseSql(`
+        insert into private.organization_entitlement_grants (
+          organization_id,
+          grant_type,
+          starts_at,
+          review_at,
+          grant_reason,
+          granted_by_user_id
+        )
+        values (
+          '${ORG_ID}'::uuid,
+          'complimentary',
+          now() - interval '1 minute',
+          now() + interval '1 year',
+          'Local automatic quote integration coverage',
+          '${clientUserId}'::uuid
+        );
+      `);
+    }
+  });
 
   it("accepts and creates a new quote request for a fully ready job", async () => {
     const { jobId } = await buildQuoteReadyJob();
