@@ -62,4 +62,14 @@ final class WorkspacePageState: ObservableObject {
 
         webView?.goBack()
     }
+
+    func resetForNewSession() {
+        webView = nil
+        isLoading = true
+        progress = 0
+        canGoBack = false
+        hasLoadedContent = false
+        errorMessage = nil
+        alertMessage = nil
+    }
 }

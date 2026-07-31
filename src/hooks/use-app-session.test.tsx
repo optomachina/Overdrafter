@@ -57,7 +57,7 @@ function SessionProbe() {
   );
 }
 
-function renderProbe() {
+function renderProbe(initialEntry = "/") {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -68,7 +68,7 @@ function renderProbe() {
 
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/"]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <SessionProbe />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -155,6 +155,7 @@ describe("useAppSession", () => {
     vi.useRealTimers();
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+    Reflect.deleteProperty(window, "webkit");
   });
 
   it("hydrates the user immediately from a signed-in auth event before the session refetch completes", async () => {
@@ -501,6 +502,44 @@ describe("useAppSession", () => {
     });
   });
 
+  it("uses local logout and notifies the native shell in an iOS workspace", async () => {
+    const postMessage = vi.fn();
+    Object.defineProperty(window, "webkit", {
+      configurable: true,
+      value: {
+        messageHandlers: {
+          mobileAuth: {
+            postMessage,
+          },
+        },
+      },
+    });
+    fetchAppSessionDataMock.mockResolvedValueOnce({
+      user: {
+        id: "user-1",
+        email: "client@example.com",
+      } as AppSessionData["user"],
+      memberships: [],
+      isVerifiedAuth: true,
+      authState: "authenticated",
+    });
+
+    renderProbe("/quotes");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
+
+    await waitFor(() => {
+      expect(signOutMock).toHaveBeenCalledWith({ scope: "local" });
+      expect(postMessage).toHaveBeenCalledWith({
+        version: 1,
+        status: "signed_out",
+      });
+    });
+  });
+
   it("purges subject-bound query data synchronously on sign-out", async () => {
     fetchAppSessionDataMock.mockResolvedValueOnce({
       user: {
@@ -777,6 +816,57 @@ describe("useAppSession", () => {
     await waitFor(() => {
       expect(screen.getByTestId("auth-state")).toHaveTextContent("anonymous");
       expect(screen.getByRole("button", { name: "Log in" })).toBeInTheDocument();
+    });
+  });
+
+  it("notifies the native shell when an iOS session becomes terminally invalid", async () => {
+    const postMessage = vi.fn();
+    Object.defineProperty(window, "webkit", {
+      configurable: true,
+      value: {
+        messageHandlers: {
+          mobileAuth: {
+            postMessage,
+          },
+        },
+      },
+    });
+    const tokenKey = getSupabaseAuthStorageKey();
+    storageMock.setItem(tokenKey, JSON.stringify({ access_token: "token-1" }));
+    getSessionMock.mockResolvedValueOnce({
+      data: {
+        session: {
+          access_token: "token-1",
+          refresh_token: "refresh-token-1",
+          expires_in: 3600,
+          token_type: "bearer",
+          user: {
+            id: "user-1",
+            email: "client@example.com",
+            app_metadata: {},
+            user_metadata: {},
+            aud: "authenticated",
+            created_at: "2026-03-11T00:00:00.000Z",
+          },
+        } as Session,
+      },
+      error: null,
+    });
+    fetchAppSessionDataMock.mockResolvedValueOnce({
+      user: null,
+      memberships: [],
+      isVerifiedAuth: false,
+      authState: "invalid_session",
+    });
+
+    renderProbe("/parts");
+
+    await waitFor(() => {
+      expect(postMessage).toHaveBeenCalledWith({
+        version: 1,
+        status: "signed_out",
+      });
+      expect(storageMock.getItem(tokenKey)).toBeNull();
     });
   });
 

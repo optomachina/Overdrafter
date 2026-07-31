@@ -5,6 +5,21 @@
       "maxDuration": 60
     }
   },
+  "headers": [
+    {
+      "source": "/.well-known/apple-app-site-association",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/json"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    }
+  ],
   "rewrites": [
     {
       "source": "/auth/mobile/start",

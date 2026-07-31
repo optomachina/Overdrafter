@@ -1,0 +1,22 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": [
+          "CNCDUB33GL.com.optomachina.overdrafter"
+        ],
+        "components": [
+          {
+            "/": "/auth/mobile/callback"
+          }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "CNCDUB33GL.com.optomachina.overdrafter"
+    ]
+  }
+}

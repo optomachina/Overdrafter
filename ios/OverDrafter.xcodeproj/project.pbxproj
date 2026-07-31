@@ -11,15 +11,19 @@
 		0473F1DE3F5ACD639B944040 /* WorkspaceWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3E20B967315758CD6691E36 /* WorkspaceWebView.swift */; };
 		08EFBEEC8AE2DD7882D1697C /* WebWorkspaceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAD43D9EE0F7C29BAC330CD1 /* WebWorkspaceSession.swift */; };
 		095F1515E25966AB53D41480 /* AppDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A6E599B94734A2FD81C2CB /* AppDestination.swift */; };
+		192332AF8335D6087A12E0E0 /* MobileAuthWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB916F19B60C6228025041EA /* MobileAuthWebView.swift */; };
+		3F221CE48C817A4E1B4CF924 /* MobileAuthContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4175ADD91A7D5084C7E592D5 /* MobileAuthContract.swift */; };
 		5280A31FC879D498B883BEFE /* AppConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82483D7718BF5AE4FC35C6B5 /* AppConfiguration.swift */; };
 		585FC61F1B4E55407F3F69B4 /* WebWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5223E35EF4889C3FBA4AE8D2 /* WebWorkspaceView.swift */; };
 		66ECBC6866A40B25A79D16E3 /* RoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ACFC40BF9D6921A098ED3A3 /* RoutingTests.swift */; };
 		6D0D07BF7995F5A1DFCE5749 /* WorkspacePageState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 965D2DFD0002AE8A98088F3C /* WorkspacePageState.swift */; };
 		809AFA425A57E7601152D1D4 /* NavigationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4029B5BFF0D62F6B0CBF0756 /* NavigationPolicy.swift */; };
 		81BC33F807223C14E0D62EBD /* ConnectivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 398629C529ADAB9A646368BF /* ConnectivityMonitor.swift */; };
+		8DAC4FC6D47AB85BAEDF7C53 /* MobileAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51DCA04E94E2D880F295B0F /* MobileAuthTests.swift */; };
 		99866B0AC3DC903AEEBDAD44 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0DC193602C0771E153A48D12 /* Assets.xcassets */; };
 		9A937F5B0D06C3149EA7324A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 71BC0F1C9DB9745661AACF2B /* PrivacyInfo.xcprivacy */; };
 		A536F9E3D78E1656C304612F /* DeepLinkRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DEFAC6FD842BB2F7D11F4FF /* DeepLinkRouter.swift */; };
+		B5903865BB59F51B84ABFC81 /* MobileAuthCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40A42AF695A9B5F420D27AE7 /* MobileAuthCoordinator.swift */; };
 		C7EF31B5828C73D2B5744E32 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 054BCB6D1F0E6FF5F5185D63 /* RootView.swift */; };
 		E6809F34CAE6A420F268A08C /* AppShellState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9C69BD392C9D5283AA26C9C /* AppShellState.swift */; };
 /* End PBXBuildFile section */
@@ -42,6 +46,8 @@
 		398629C529ADAB9A646368BF /* ConnectivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectivityMonitor.swift; sourceTree = "<group>"; };
 		3DEFAC6FD842BB2F7D11F4FF /* DeepLinkRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkRouter.swift; sourceTree = "<group>"; };
 		4029B5BFF0D62F6B0CBF0756 /* NavigationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationPolicy.swift; sourceTree = "<group>"; };
+		40A42AF695A9B5F420D27AE7 /* MobileAuthCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAuthCoordinator.swift; sourceTree = "<group>"; };
+		4175ADD91A7D5084C7E592D5 /* MobileAuthContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAuthContract.swift; sourceTree = "<group>"; };
 		5223E35EF4889C3FBA4AE8D2 /* WebWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebWorkspaceView.swift; sourceTree = "<group>"; };
 		58A6E599B94734A2FD81C2CB /* AppDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDestination.swift; sourceTree = "<group>"; };
 		5ACFC40BF9D6921A098ED3A3 /* RoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutingTests.swift; sourceTree = "<group>"; };
@@ -50,9 +56,11 @@
 		82483D7718BF5AE4FC35C6B5 /* AppConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
 		965D2DFD0002AE8A98088F3C /* WorkspacePageState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePageState.swift; sourceTree = "<group>"; };
 		A4B7E66F9678FA65EB1FFDCD /* OverDrafter.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OverDrafter.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A51DCA04E94E2D880F295B0F /* MobileAuthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAuthTests.swift; sourceTree = "<group>"; };
 		A9C69BD392C9D5283AA26C9C /* AppShellState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShellState.swift; sourceTree = "<group>"; };
 		B3E20B967315758CD6691E36 /* WorkspaceWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceWebView.swift; sourceTree = "<group>"; };
 		BCDC61EC185B173D9E3981BD /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		DB916F19B60C6228025041EA /* MobileAuthWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAuthWebView.swift; sourceTree = "<group>"; };
 		EAD43D9EE0F7C29BAC330CD1 /* WebWorkspaceSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebWorkspaceSession.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -68,6 +76,7 @@
 		2AFE2DD01C7A46EB122183FA /* OverDrafterTests */ = {
 			isa = PBXGroup;
 			children = (
+				A51DCA04E94E2D880F295B0F /* MobileAuthTests.swift */,
 				5ACFC40BF9D6921A098ED3A3 /* RoutingTests.swift */,
 			);
 			path = OverDrafterTests;
@@ -106,6 +115,7 @@
 			isa = PBXGroup;
 			children = (
 				398629C529ADAB9A646368BF /* ConnectivityMonitor.swift */,
+				DB916F19B60C6228025041EA /* MobileAuthWebView.swift */,
 				EAD43D9EE0F7C29BAC330CD1 /* WebWorkspaceSession.swift */,
 				5223E35EF4889C3FBA4AE8D2 /* WebWorkspaceView.swift */,
 				965D2DFD0002AE8A98088F3C /* WorkspacePageState.swift */,
@@ -136,6 +146,7 @@
 		9905ADE80084856BA1FF45D6 /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				E8EF2D9CD05B9BD6B6B31257 /* Auth */,
 				87948C8FE708D647248EC12C /* Configuration */,
 				9E8E1E78D0F76B9F4E518FE7 /* Routing */,
 				3F1269963323FBCA9F8E6743 /* Web */,
@@ -160,6 +171,15 @@
 				4029B5BFF0D62F6B0CBF0756 /* NavigationPolicy.swift */,
 			);
 			path = Routing;
+			sourceTree = "<group>";
+		};
+		E8EF2D9CD05B9BD6B6B31257 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				4175ADD91A7D5084C7E592D5 /* MobileAuthContract.swift */,
+				40A42AF695A9B5F420D27AE7 /* MobileAuthCoordinator.swift */,
+			);
+			path = Auth;
 			sourceTree = "<group>";
 		};
 		FA4B600F0A7D533034E2675B /* Supporting */ = {
@@ -260,6 +280,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8DAC4FC6D47AB85BAEDF7C53 /* MobileAuthTests.swift in Sources */,
 				66ECBC6866A40B25A79D16E3 /* RoutingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -273,6 +294,9 @@
 				E6809F34CAE6A420F268A08C /* AppShellState.swift in Sources */,
 				81BC33F807223C14E0D62EBD /* ConnectivityMonitor.swift in Sources */,
 				A536F9E3D78E1656C304612F /* DeepLinkRouter.swift in Sources */,
+				3F221CE48C817A4E1B4CF924 /* MobileAuthContract.swift in Sources */,
+				B5903865BB59F51B84ABFC81 /* MobileAuthCoordinator.swift in Sources */,
+				192332AF8335D6087A12E0E0 /* MobileAuthWebView.swift in Sources */,
 				809AFA425A57E7601152D1D4 /* NavigationPolicy.swift in Sources */,
 				001821E20C9EE8A683968078 /* OverDrafterApp.swift in Sources */,
 				C7EF31B5828C73D2B5744E32 /* RootView.swift in Sources */,

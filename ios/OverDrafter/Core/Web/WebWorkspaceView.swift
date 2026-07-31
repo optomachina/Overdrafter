@@ -1,9 +1,11 @@
 import SwiftUI
+import WebKit
 
 struct WebWorkspaceView: View {
     let destination: AppDestination
     let initialURL: URL
     let configuration: AppConfiguration
+    let mobileAuthHandler: WKScriptMessageHandler
 
     @ObservedObject var pageState: WorkspacePageState
     @EnvironmentObject private var connectivity: ConnectivityMonitor
@@ -15,7 +17,8 @@ struct WebWorkspaceView: View {
             WorkspaceWebView(
                 initialURL: initialURL,
                 configuration: configuration,
-                pageState: pageState
+                pageState: pageState,
+                mobileAuthHandler: mobileAuthHandler
             )
 
             if let errorMessage = pageState.errorMessage, !pageState.hasLoadedContent {

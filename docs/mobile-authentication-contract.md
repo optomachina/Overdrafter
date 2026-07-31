@@ -122,12 +122,15 @@ The iOS app MUST declare:
 
 ```text
 applinks:<configured-host>
+webcredentials:<configured-host>
 ```
 
-The same host MUST serve an `apple-app-site-association` document that permits
-the exact `/auth/mobile/callback` path for the production bundle identifier.
-The callback matcher, Associated Domains entitlement, AASA host, backend
-callback route, and configured app origin MUST agree exactly.
+The `applinks` association permits the exact `/auth/mobile/callback` path for
+the production bundle identifier. The `webcredentials` association names the
+same production app ID and is required by
+`ASWebAuthenticationSession.Callback.https(host:path:)`. The callback matcher,
+Associated Domains entitlements, AASA host, backend callback route, and
+configured app origin MUST agree exactly.
 
 ## Cryptographic material
 

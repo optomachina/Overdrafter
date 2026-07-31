@@ -5,6 +5,7 @@ struct WorkspaceWebView: UIViewRepresentable {
     let initialURL: URL
     let configuration: AppConfiguration
     let pageState: WorkspacePageState
+    let mobileAuthHandler: WKScriptMessageHandler
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -17,7 +18,9 @@ struct WorkspaceWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let webView = WKWebView(
             frame: .zero,
-            configuration: WebWorkspaceSession.shared.makeConfiguration()
+            configuration: WebWorkspaceSession.shared.makeConfiguration(
+                messageHandler: mobileAuthHandler
+            )
         )
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator

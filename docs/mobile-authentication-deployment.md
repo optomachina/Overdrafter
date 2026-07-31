@@ -1,13 +1,13 @@
 # Mobile Authentication Bridge Deployment
 
-Last updated: July 29, 2026
+Last updated: July 30, 2026
 
 ## Purpose
 
-This runbook deploys the OVD-219 website-mediated authentication bridge. It
-does not enable the native iOS flow by itself. OVD-221 must still add the
-claimed-HTTPS callback, `ASWebAuthenticationSession`, shared
-`WKWebsiteDataStore` bootstrap host, session probe, and local-scope logout.
+This runbook deploys the OVD-219 website-mediated authentication bridge and
+the OVD-221 native iOS integration. The native app uses a claimed-HTTPS
+callback, `ASWebAuthenticationSession`, a shared `WKWebsiteDataStore`
+bootstrap host, a credential-free session probe, and local-scope logout.
 
 The canonical security contract remains
 [`mobile-authentication-contract.md`](mobile-authentication-contract.md).
@@ -21,6 +21,13 @@ One same-origin Vercel Function serves:
 - `POST /auth/mobile/complete`
 - `GET /auth/mobile/callback`
 - `POST /auth/mobile/bootstrap`
+
+The SPA also serves
+`GET /auth/mobile/native-session?app=ios&action=probe|logout`. That control
+route reports only versioned, credential-free session status through the fixed
+`mobileAuth` WebKit message handler. The same origin serves
+`/.well-known/apple-app-site-association` for the exact production app ID and
+callback path.
 
 Vite emits two stable, first-party entry assets:
 
@@ -129,8 +136,9 @@ Deploy in this order:
 1. additive Supabase migration
 2. server-only environment and exact provider redirect
 3. Vercel Function, route rewrites, and stable browser assets
-4. endpoint/header checks on the stable host
-5. OVD-221 native integration and physical-device gate
+4. native-session SPA route, AASA document, and response headers
+5. endpoint/header checks on the stable host
+6. signed OVD-221 app and physical-device gate
 
 Rollback by disabling the five public rewrites or reverting the function
 deployment. Leave the additive private tables and cleanup schedule in place
@@ -147,10 +155,17 @@ Before enabling a signed iOS build:
 - inspect start, callback, completion, bootstrap, replay, expiry, wrong-state,
   wrong-verifier, revoked-session, and rate-limit behavior
 - confirm all responses are `no-store` and bootstrap CSP matches the contract
+- confirm the AASA document is JSON, matches the signed Team ID and bundle ID,
+  allows only `/auth/mobile/callback` under `applinks`, and declares the same
+  app ID under `webcredentials`
+- confirm session probe, local logout, and ordinary-workspace sign-out report
+  only the fixed credential-free status shapes
 - confirm one winner under simultaneous redemption
 - confirm Vercel access-log access and retention are restricted for start and
   provider callback query strings
 - confirm no credential, verifier, body, cookie, callback fragment, email, or
   domain content appears in application logs
-- complete the Associated Domains, AASA, archive-signing, and physical-iPhone
-  checks owned by OVD-221
+- confirm the iOS 17.4 app has both production `applinks` and
+  `webcredentials` Associated Domains entitlements
+- complete password/provider, cancellation, relaunch, revocation, logout,
+  account-switching, and credential-leak checks on a signed physical iPhone

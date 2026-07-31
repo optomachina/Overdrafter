@@ -36,6 +36,10 @@ import ClientProjectReview from "./pages/ClientProjectReview";
 import SharedInvite from "./pages/SharedInvite";
 import StateGallery from "./pages/StateGallery";
 import { ConceptsGallery } from "@/concepts/ConceptsGallery";
+import {
+  NativeSessionRoute,
+  NativeSessionSignOutObserver,
+} from "@/mobile-auth/native-session";
 import "./App.css";
 
 function formatTargetName(value: unknown) {
@@ -114,6 +118,7 @@ const App = () => (
           <DiagnosticsBootstrap />
           <ExtractionLauncher hideFloatingButton />
           <FixturePanel hideFloatingButton />
+          <NativeSessionSignOutObserver />
           {shouldRenderAgentation() && <Agentation />}
           <AppErrorBoundary>
             <Routes>
@@ -133,6 +138,7 @@ const App = () => (
               <Route path="/client/packages/:packageId" element={<ClientPackage />} />
               <Route path="/signin" element={<SignIn />} />
               <Route path="/auth/callback" element={<AuthCallback />} />
+              <Route path="/auth/mobile/native-session" element={<NativeSessionRoute />} />
               <Route path="/dev-login" element={<DevLogin />} />
               <Route path="/debug/state-gallery" element={<StateGallery />} />
               <Route path="/debug/concepts" element={<ConceptsGallery />} />

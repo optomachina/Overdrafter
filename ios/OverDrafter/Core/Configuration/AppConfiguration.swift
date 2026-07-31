@@ -2,6 +2,7 @@ import Foundation
 
 struct AppConfiguration: Equatable {
     static let productionDefaultURL = URL(string: "https://overdrafter.vercel.app")!
+    static let mobileAuthCallbackPath = "/auth/mobile/callback"
 
     let baseURL: URL
     let allowsInsecureLocalhost: Bool
@@ -38,6 +39,77 @@ struct AppConfiguration: Equatable {
         }
 
         return url
+    }
+
+    func mobileAuthStartURL(
+        state: String,
+        challenge: String,
+        returnTo: String
+    ) throws -> URL {
+        guard var components = originComponents(path: "/auth/mobile/start") else {
+            throw MobileAuthContractError.invalidConfiguration
+        }
+        components.queryItems = [
+            URLQueryItem(name: "v", value: "1"),
+            URLQueryItem(name: "state", value: state),
+            URLQueryItem(name: "code_challenge", value: challenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
+            URLQueryItem(name: "return_to", value: returnTo),
+        ]
+        guard let url = components.url else {
+            throw MobileAuthContractError.invalidConfiguration
+        }
+        return url
+    }
+
+    func mobileAuthBootstrapRequest(
+        code: String,
+        state: String,
+        verifier: String
+    ) -> URLRequest {
+        guard
+            let components = originComponents(path: "/auth/mobile/bootstrap"),
+            let url = components.url
+        else {
+            preconditionFailure("Validated OverDrafter auth origin could not be decomposed.")
+        }
+        var bodyComponents = URLComponents()
+        bodyComponents.queryItems = [
+            URLQueryItem(name: "v", value: "1"),
+            URLQueryItem(name: "code", value: code),
+            URLQueryItem(name: "state", value: state),
+            URLQueryItem(name: "code_verifier", value: verifier),
+        ]
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.timeoutInterval = 60
+        request.setValue(
+            "application/x-www-form-urlencoded; charset=utf-8",
+            forHTTPHeaderField: "Content-Type"
+        )
+        request.setValue("text/html", forHTTPHeaderField: "Accept")
+        request.setValue("bootstrap-v1", forHTTPHeaderField: "X-OverDrafter-Mobile-Auth")
+        request.httpBody = bodyComponents.percentEncodedQuery?.data(using: .utf8)
+        return request
+    }
+
+    func nativeSessionRequest(action: String) -> URLRequest {
+        guard var components = originComponents(path: "/auth/mobile/native-session") else {
+            preconditionFailure("Validated OverDrafter auth origin could not be decomposed.")
+        }
+        components.queryItems = [
+            URLQueryItem(name: "app", value: "ios"),
+            URLQueryItem(name: "action", value: action),
+        ]
+        guard let url = components.url else {
+            preconditionFailure("Unable to build the OverDrafter session-control URL.")
+        }
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.timeoutInterval = 60
+        return request
     }
 
     func matchesConfiguredOrigin(_ url: URL) -> Bool {
@@ -108,6 +180,18 @@ struct AppConfiguration: Equatable {
         return scheme == "http"
             && allowsInsecureLocalhost
             && url.isLocalDevelopmentURL
+    }
+
+    private func originComponents(path: String) -> URLComponents? {
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        components.path = path
+        components.query = nil
+        components.fragment = nil
+        components.user = nil
+        components.password = nil
+        return components
     }
 
     private func effectivePort(for url: URL) -> Int? {

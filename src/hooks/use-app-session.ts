@@ -19,6 +19,10 @@ import { WORKSPACE_SHARED_STALE_TIME_MS } from "@/features/quotes/workspace-navi
 import { supabase } from "@/integrations/supabase/client";
 import { hasVerifiedAuth } from "@/lib/auth-status";
 import { recordWorkspaceSessionDiagnostic } from "@/lib/workspace-session-diagnostics";
+import {
+  hasNativeMobileAuthHandler,
+  reportNativeSessionStatus,
+} from "@/mobile-auth/native-session-control";
 
 const APP_SESSION_QUERY_KEY = ["app-session"] as const;
 const EMPTY_MEMBERSHIPS: AppMembership[] = [];
@@ -69,6 +73,7 @@ export function useAppSession() {
   const membershipErrorRetriedRef = useRef(false);
   const fixtureSession = getFixtureSessionDataForSearch(location.search);
   const isFixtureSession = fixtureSession !== null;
+  const isIosNativeSession = hasNativeMobileAuthHandler();
   const startupHadStoredTokenRef = useRef(Boolean(fixtureSession ? false : getStoredSupabaseAccessToken()));
   const [initialAuthCheck, setInitialAuthCheck] = useState<InitialAuthCheckState>(
     fixtureSession ? "none" : "checking",
@@ -382,6 +387,12 @@ export function useAppSession() {
         pendingAuthTransitionRef.current = false;
         updateInitialAuthCheck("none");
         markInitialRestoreResolved("use-app-session.query.invalid-session");
+        if (isIosNativeSession) {
+          reportNativeSessionStatus({
+            version: 1,
+            status: "signed_out",
+          });
+        }
         return result;
       }
 
@@ -550,9 +561,17 @@ export function useAppSession() {
     );
     queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
 
-    const { error } = await supabase.auth.signOut({ scope: "global" });
+    const { error } = await supabase.auth.signOut({
+      scope: isIosNativeSession ? "local" : "global",
+    });
 
     if (!error) {
+      if (isIosNativeSession) {
+        reportNativeSessionStatus({
+          version: 1,
+          status: "signed_out",
+        });
+      }
       return;
     }
 
@@ -570,6 +589,12 @@ export function useAppSession() {
         { force: true },
       );
       queryClient.setQueryData(APP_SESSION_QUERY_KEY, EMPTY_APP_SESSION);
+      if (isIosNativeSession) {
+        reportNativeSessionStatus({
+          version: 1,
+          status: "signed_out",
+        });
+      }
       return;
     }
 
@@ -582,6 +607,13 @@ export function useAppSession() {
         hasAccessToken: Boolean(accessToken),
       },
     );
+    if (isIosNativeSession) {
+      reportNativeSessionStatus({
+        version: 1,
+        status: "error",
+        code: "mobile_auth_logout_failed",
+      });
+    }
   };
 
   return {
