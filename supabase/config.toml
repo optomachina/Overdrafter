@@ -27,3 +27,6 @@ max_enrolled_factors = 10
 [auth.mfa.totp]
 enroll_enabled = true
 verify_enabled = true
+
+[functions.stripe-events]
+verify_jwt = false

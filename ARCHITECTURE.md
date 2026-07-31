@@ -203,6 +203,11 @@ Internal review implementation boundary:
 - Stripe owns economic subscription, invoice, coupon, and promotion-code facts
 - the local projection plus audited manual grants is authoritative for application access decisions
 - subscription webhooks are signature-verified, durably deduplicated by Stripe Event ID, replayable, and reconciled
+- the signature-only `stripe-events` Edge Function verifies the raw body and uses service-role-only database functions; its private inbox records livemode, API version, receipts, attempts, terminal state, and bounded failure context
+- subscription and invoice projection updates run while the event inbox row is locked; event creation time plus deterministic same-second status precedence prevents reordered delivery from overwriting newer state
+- subscription projections grant Pro only when the verified Stripe Price ID and
+  test/live mode match the server-managed launch Pro price allowlist
+- failed or pending events are replayed through `api_replay_stripe_event` or bounded `api_reconcile_stripe_events` calls rather than by editing commercial projection tables directly
 - platform viewers remain read-only; billing and order mutations require separately granted stable-ID capabilities, AAL2, server-side authorization, idempotency, and append-only audit
 - subscription promotion codes never adjust manufacturing quote or order totals
 - explicit orders are distinct from projects and retain immutable selected-offer, quantity, vendor, price, currency, and procurement-handoff snapshots
