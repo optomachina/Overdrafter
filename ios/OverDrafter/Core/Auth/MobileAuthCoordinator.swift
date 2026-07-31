@@ -64,7 +64,7 @@ final class MobileAuthCoordinator: NSObject, ObservableObject {
     @Published private(set) var webAction: MobileAuthWebAction?
     @Published private(set) var userMessage: String?
     @Published private(set) var sessionGeneration = UUID()
-    @Published private(set) var returnRoute = "/quotes"
+    @Published private(set) var returnRoute: String
 
     private let configuration: AppConfiguration
     private let browserSessionFactory: MobileAuthBrowserSessionFactory
@@ -82,6 +82,7 @@ final class MobileAuthCoordinator: NSObject, ObservableObject {
         self.configuration = configuration
         self.browserSessionFactory = browserSessionFactory
         self.websiteDataClearer = websiteDataClearer ?? WebWorkspaceSession.shared
+        self.returnRoute = configuration.mobileAuthRoutes.defaultReturnPath
     }
 
     func restoreSessionIfNeeded() {
@@ -101,7 +102,7 @@ final class MobileAuthCoordinator: NSObject, ObservableObject {
             let startURL = try configuration.mobileAuthStartURL(
                 state: attempt.state,
                 challenge: attempt.challenge,
-                returnTo: "/quotes"
+                returnTo: configuration.mobileAuthRoutes.defaultReturnPath
             )
             guard let host = configuration.baseURL.host else {
                 throw MobileAuthContractError.invalidConfiguration
@@ -111,7 +112,7 @@ final class MobileAuthCoordinator: NSObject, ObservableObject {
             phase = .authenticating
             let callback = ASWebAuthenticationSession.Callback.https(
                 host: host,
-                path: AppConfiguration.mobileAuthCallbackPath
+                path: configuration.mobileAuthRoutes.callbackPath
             )
             let session = browserSessionFactory.makeSession(
                 url: startURL,
@@ -311,7 +312,7 @@ final class MobileAuthCoordinator: NSObject, ObservableObject {
 }
 
 extension MobileAuthCoordinator: ASWebAuthenticationPresentationContextProviding {
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+    func presentationAnchor(for _: ASWebAuthenticationSession) -> ASPresentationAnchor {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let foregroundScene = scenes.first { $0.activationState == .foregroundActive }
         let window = foregroundScene?.windows.first { $0.isKeyWindow }
@@ -323,7 +324,7 @@ extension MobileAuthCoordinator: ASWebAuthenticationPresentationContextProviding
 
 extension MobileAuthCoordinator: WKScriptMessageHandler {
     func userContentController(
-        _ userContentController: WKUserContentController,
+        _: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
         guard

@@ -1,19 +1,52 @@
 import Foundation
 
+struct MobileAuthRoutes: Equatable {
+    static let production = MobileAuthRoutes(
+        callbackPath: path("auth", "mobile", "callback"),
+        startPath: path("auth", "mobile", "start"),
+        bootstrapPath: path("auth", "mobile", "bootstrap"),
+        nativeSessionPath: path("auth", "mobile", "native-session"),
+        defaultReturnPath: path("quotes")
+    )
+
+    let callbackPath: String
+    let startPath: String
+    let bootstrapPath: String
+    let nativeSessionPath: String
+    let defaultReturnPath: String
+
+    private static func path(_ components: String...) -> String {
+        "/" + components.joined(separator: "/")
+    }
+}
+
 struct AppConfiguration: Equatable {
-    static let productionDefaultURL = URL(string: "https://overdrafter.vercel.app")!
-    static let mobileAuthCallbackPath = "/auth/mobile/callback"
+    static let productionDefaultURL: URL = {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "overdrafter.vercel.app"
+        guard let url = components.url else {
+            preconditionFailure("Unable to construct the production OverDrafter URL.")
+        }
+        return url
+    }()
 
     let baseURL: URL
     let allowsInsecureLocalhost: Bool
+    let mobileAuthRoutes: MobileAuthRoutes
 
     static var current: AppConfiguration {
         load()
     }
 
-    init(baseURL: URL, allowsInsecureLocalhost: Bool) {
+    init(
+        baseURL: URL,
+        allowsInsecureLocalhost: Bool,
+        mobileAuthRoutes: MobileAuthRoutes = .production
+    ) {
         self.baseURL = baseURL
         self.allowsInsecureLocalhost = allowsInsecureLocalhost
+        self.mobileAuthRoutes = mobileAuthRoutes
     }
 
     func workspaceURL(for destination: AppDestination) -> URL {
@@ -46,7 +79,7 @@ struct AppConfiguration: Equatable {
         challenge: String,
         returnTo: String
     ) throws -> URL {
-        guard var components = originComponents(path: "/auth/mobile/start") else {
+        guard var components = originComponents(path: mobileAuthRoutes.startPath) else {
             throw MobileAuthContractError.invalidConfiguration
         }
         components.queryItems = [
@@ -68,7 +101,7 @@ struct AppConfiguration: Equatable {
         verifier: String
     ) -> URLRequest {
         guard
-            let components = originComponents(path: "/auth/mobile/bootstrap"),
+            let components = originComponents(path: mobileAuthRoutes.bootstrapPath),
             let url = components.url
         else {
             preconditionFailure("Validated OverDrafter auth origin could not be decomposed.")
@@ -96,7 +129,7 @@ struct AppConfiguration: Equatable {
     }
 
     func nativeSessionRequest(action: String) -> URLRequest {
-        guard var components = originComponents(path: "/auth/mobile/native-session") else {
+        guard var components = originComponents(path: mobileAuthRoutes.nativeSessionPath) else {
             preconditionFailure("Validated OverDrafter auth origin could not be decomposed.")
         }
         components.queryItems = [

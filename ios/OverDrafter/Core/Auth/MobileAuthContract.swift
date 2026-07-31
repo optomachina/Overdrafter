@@ -1,3 +1,4 @@
+import CoreFoundation
 import CryptoKit
 import Foundation
 import Security
@@ -55,7 +56,7 @@ struct MobileAuthCallbackPayload: Equatable {
         guard
             url.scheme?.lowercased() == "https",
             configuration.matchesConfiguredOrigin(url),
-            url.path(percentEncoded: true) == AppConfiguration.mobileAuthCallbackPath,
+            url.path(percentEncoded: true) == configuration.mobileAuthRoutes.callbackPath,
             url.query == nil,
             url.user == nil,
             url.password == nil,
@@ -141,7 +142,9 @@ enum MobileAuthWebMessage: Equatable {
     init?(body: Any) {
         guard
             let object = body as? [String: Any],
-            (object["version"] as? NSNumber)?.intValue == 1,
+            let version = object["version"] as? NSNumber,
+            CFGetTypeID(version) != CFBooleanGetTypeID(),
+            version.doubleValue == 1,
             let status = object["status"] as? String
         else {
             return nil

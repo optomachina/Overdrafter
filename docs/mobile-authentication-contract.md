@@ -414,6 +414,12 @@ The code, state, and verifier MUST be in the request body. They MUST NOT be
 copied into a navigation URL, custom header likely to be logged, page title,
 JavaScript console message, or native diagnostic.
 
+The hidden authentication web view MUST allow only the exact expected
+main-frame request, including origin, percent-encoded URL, and HTTP method.
+Subframe navigation, redirects, changed query strings, changed paths, and
+foreign origins MUST be cancelled and treated as bootstrap/session-control
+failure.
+
 The fixed nonsecret `X-OverDrafter-Mobile-Auth` marker is required so an
 ordinary cross-site HTML form cannot trigger bootstrap. The bridge MUST reject
 missing markers, cross-site `Origin`, or cross-site Fetch Metadata before

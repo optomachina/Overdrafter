@@ -5,7 +5,7 @@ import XCTest
 
 final class MobileAuthContractTests: XCTestCase {
     private let configuration = AppConfiguration(
-        baseURL: URL(string: "https://overdrafter.vercel.app")!,
+        baseURL: AppConfiguration.productionDefaultURL,
         allowsInsecureLocalhost: false
     )
 
@@ -13,9 +13,9 @@ final class MobileAuthContractTests: XCTestCase {
         let first = try MobileAuthAttempt.generate()
         let second = try MobileAuthAttempt.generate()
 
-        XCTAssertCanonicalSecret(first.state)
-        XCTAssertCanonicalSecret(first.verifier)
-        XCTAssertCanonicalSecret(first.challenge)
+        assertCanonicalSecret(first.state)
+        assertCanonicalSecret(first.verifier)
+        assertCanonicalSecret(first.challenge)
         XCTAssertNotEqual(first.state, second.state)
         XCTAssertNotEqual(first.verifier, second.verifier)
 
@@ -61,12 +61,8 @@ final class MobileAuthContractTests: XCTestCase {
     func testCallbackParserRejectsForeignOriginAndUnexpectedQuery() {
         let state = canonicalSecret("s")
         let code = canonicalSecret("c")
-        let foreign = URL(
-            string: "https://attacker.example/auth/mobile/callback#code=\(code)&state=\(state)"
-        )!
-        let queried = URL(
-            string: "https://overdrafter.vercel.app/auth/mobile/callback?source=browser#code=\(code)&state=\(state)"
-        )!
+        let foreign = callbackURL(code: code, state: state, host: "attacker.example")
+        let queried = callbackURL(code: code, state: state, query: "source=browser")
 
         assertInvalidCallback(foreign, expectedState: state)
         assertInvalidCallback(queried, expectedState: state)
@@ -75,15 +71,14 @@ final class MobileAuthContractTests: XCTestCase {
     func testCallbackParserRejectsPercentEncodedPaths() {
         let state = canonicalSecret("s")
         let code = canonicalSecret("c")
+        let callbackPath = configuration.mobileAuthRoutes.callbackPath
         let encodedPaths = [
-            "/auth/mobile/%63allback",
-            "/auth/mobile/callback%2F",
+            callbackPath.replacingOccurrences(of: "callback", with: "%63allback"),
+            callbackPath + "%2F",
         ]
 
         for path in encodedPaths {
-            let callback = URL(
-                string: "https://overdrafter.vercel.app\(path)#code=\(code)&state=\(state)"
-            )!
+            let callback = callbackURL(code: code, state: state, path: path)
             assertInvalidCallback(callback, expectedState: state)
         }
     }
@@ -91,8 +86,8 @@ final class MobileAuthContractTests: XCTestCase {
     func testCallbackParserRejectsDuplicateFields() {
         let state = canonicalSecret("s")
         let code = canonicalSecret("c")
-        let duplicate = URL(
-            string: "https://overdrafter.vercel.app/auth/mobile/callback#code=\(code)&state=\(state)&state=\(state)"
+        let duplicate = callbackURL(
+            fragment: "code=\(code)&state=\(state)&state=\(state)"
         )!
 
         assertInvalidCallback(duplicate, expectedState: state)
@@ -101,9 +96,7 @@ final class MobileAuthContractTests: XCTestCase {
     func testCallbackParserRejectsPercentEncodedFields() {
         let state = canonicalSecret("s")
         let encodedCode = "%63" + String(repeating: "c", count: 42)
-        let encoded = URL(
-            string: "https://overdrafter.vercel.app/auth/mobile/callback#code=\(encodedCode)&state=\(state)"
-        )!
+        let encoded = callbackURL(fragment: "code=\(encodedCode)&state=\(state)")!
 
         assertInvalidCallback(encoded, expectedState: state)
     }
@@ -112,18 +105,12 @@ final class MobileAuthContractTests: XCTestCase {
         let state = canonicalSecret("s")
         let code = canonicalSecret("c")
         let callbacks = [
-            URL(
-                string: "https://overdrafter.vercel.app/auth/mobile/callback#code=\(code)&state"
+            callbackURL(fragment: "code=\(code)&state")!,
+            callbackURL(fragment: "code=\(code)")!,
+            callbackURL(
+                fragment: "code=\(code)&state=\(String(repeating: "s", count: 42))"
             )!,
-            URL(
-                string: "https://overdrafter.vercel.app/auth/mobile/callback#code=\(code)"
-            )!,
-            URL(
-                string: "https://overdrafter.vercel.app/auth/mobile/callback#code=\(code)&state=\(String(repeating: "s", count: 42))"
-            )!,
-            URL(
-                string: "https://overdrafter.vercel.app/auth/mobile/callback#code=\(code)&state=\(state)&provider=github"
-            )!,
+            callbackURL(fragment: "code=\(code)&state=\(state)&provider=github")!,
         ]
 
         for callback in callbacks {
@@ -143,8 +130,8 @@ final class MobileAuthContractTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            request.url?.absoluteString,
-            "https://overdrafter.vercel.app/auth/mobile/bootstrap"
+            request.url?.path(percentEncoded: true),
+            configuration.mobileAuthRoutes.bootstrapPath
         )
         XCTAssertNil(request.url?.query)
         XCTAssertFalse(request.url?.absoluteString.contains(code) ?? true)
@@ -212,6 +199,22 @@ final class MobileAuthContractTests: XCTestCase {
         XCTAssertNil(
             MobileAuthWebMessage(
                 body: [
+                    "version": true,
+                    "status": "authenticated",
+                ]
+            )
+        )
+        XCTAssertNil(
+            MobileAuthWebMessage(
+                body: [
+                    "version": 1.5,
+                    "status": "authenticated",
+                ]
+            )
+        )
+        XCTAssertNil(
+            MobileAuthWebMessage(
+                body: [
                     "version": 2,
                     "status": "signed_out",
                 ]
@@ -226,7 +229,7 @@ final class MobileAuthContractTests: XCTestCase {
                     "version": 1,
                     "status": "ready",
                     "state": canonicalSecret("s"),
-                    "returnTo": "/admin",
+                    "returnTo": configuration.mobileAuthRoutes.defaultReturnPath + "-admin",
                 ]
             )
         )
@@ -256,13 +259,41 @@ final class MobileAuthContractTests: XCTestCase {
         }
     }
 
-    private func callbackURL(code: String, state: String) -> URL {
-        URL(
-            string: "https://overdrafter.vercel.app/auth/mobile/callback#code=\(code)&state=\(state)"
+    private func callbackURL(
+        code: String,
+        state: String,
+        host: String? = nil,
+        path: String? = nil,
+        query: String? = nil
+    ) -> URL {
+        callbackURL(
+            fragment: "code=\(code)&state=\(state)",
+            host: host,
+            path: path,
+            query: query
         )!
     }
 
-    private func XCTAssertCanonicalSecret(
+    private func callbackURL(
+        fragment: String,
+        host: String? = nil,
+        path: String? = nil,
+        query: String? = nil
+    ) -> URL? {
+        guard var components = URLComponents(
+            url: configuration.baseURL,
+            resolvingAgainstBaseURL: false
+        ) else {
+            return nil
+        }
+        components.host = host ?? components.host
+        components.percentEncodedPath = path ?? configuration.mobileAuthRoutes.callbackPath
+        components.percentEncodedQuery = query
+        components.percentEncodedFragment = fragment
+        return components.url
+    }
+
+    private func assertCanonicalSecret(
         _ value: String,
         file: StaticString = #filePath,
         line: UInt = #line
@@ -282,10 +313,48 @@ final class MobileAuthContractTests: XCTestCase {
     }
 }
 
+final class MobileAuthNavigationPolicyTests: XCTestCase {
+    private let configuration = AppConfiguration(
+        baseURL: AppConfiguration.productionDefaultURL,
+        allowsInsecureLocalhost: false
+    )
+
+    func testAllowsOnlyTheExactMainFrameRequest() throws {
+        let allowedRequest = configuration.nativeSessionRequest(action: "probe")
+        let policy = MobileAuthNavigationPolicy(
+            configuration: configuration,
+            allowedRequest: allowedRequest
+        )
+
+        XCTAssertTrue(policy.allows(allowedRequest, targetIsMainFrame: true))
+        XCTAssertFalse(policy.allows(allowedRequest, targetIsMainFrame: false))
+
+        var foreignRequest = allowedRequest
+        var foreignComponents = try XCTUnwrap(
+            URLComponents(url: XCTUnwrap(allowedRequest.url), resolvingAgainstBaseURL: false)
+        )
+        foreignComponents.host = "attacker.example"
+        foreignRequest.url = try XCTUnwrap(foreignComponents.url)
+        XCTAssertFalse(policy.allows(foreignRequest, targetIsMainFrame: true))
+
+        var differentPathRequest = allowedRequest
+        var differentPathComponents = try XCTUnwrap(
+            URLComponents(url: XCTUnwrap(allowedRequest.url), resolvingAgainstBaseURL: false)
+        )
+        differentPathComponents.path = configuration.mobileAuthRoutes.bootstrapPath
+        differentPathRequest.url = try XCTUnwrap(differentPathComponents.url)
+        XCTAssertFalse(policy.allows(differentPathRequest, targetIsMainFrame: true))
+
+        var differentMethodRequest = allowedRequest
+        differentMethodRequest.httpMethod = "POST"
+        XCTAssertFalse(policy.allows(differentMethodRequest, targetIsMainFrame: true))
+    }
+}
+
 @MainActor
 final class MobileAuthCoordinatorTests: XCTestCase {
     private let configuration = AppConfiguration(
-        baseURL: URL(string: "https://overdrafter.vercel.app")!,
+        baseURL: AppConfiguration.productionDefaultURL,
         allowsInsecureLocalhost: false
     )
 
@@ -335,21 +404,85 @@ final class MobileAuthCoordinatorTests: XCTestCase {
             return
         }
         XCTAssertEqual(
-            action.request.url?.absoluteString,
-            "https://overdrafter.vercel.app/auth/mobile/bootstrap"
+            action.request.url?.path(percentEncoded: true),
+            configuration.mobileAuthRoutes.bootstrapPath
         )
         XCTAssertFalse(action.request.url?.absoluteString.contains(code) ?? true)
         XCTAssertFalse(action.request.url?.absoluteString.contains(state) ?? true)
 
+        let detailReturnRoute = [
+            configuration.mobileAuthRoutes.defaultReturnPath,
+            "Q-7K4P9M",
+        ].joined(separator: "/")
         coordinator.receive(
-            .ready(state: state, returnTo: "/quotes/Q-7K4P9M"),
+            .ready(state: state, returnTo: detailReturnRoute),
             origin: configuration.baseURL,
             isMainFrame: true
         )
 
         XCTAssertEqual(coordinator.phase, .authenticated)
-        XCTAssertEqual(coordinator.returnRoute, "/quotes/Q-7K4P9M")
+        XCTAssertEqual(coordinator.returnRoute, detailReturnRoute)
         XCTAssertNil(coordinator.webAction)
+    }
+
+    func testSessionRestoreIgnoresForeignOriginAndSubframeMessages() throws {
+        let coordinator = MobileAuthCoordinator(configuration: configuration)
+        coordinator.restoreSessionIfNeeded()
+        let initialActionID = try XCTUnwrap(coordinator.webAction?.id)
+        let initialGeneration = coordinator.sessionGeneration
+        let initialRoute = coordinator.returnRoute
+
+        coordinator.receive(
+            .authenticated,
+            origin: foreignOrigin(),
+            isMainFrame: true
+        )
+        coordinator.receive(
+            .signedOut,
+            origin: configuration.baseURL,
+            isMainFrame: false
+        )
+
+        XCTAssertEqual(coordinator.phase, .checkingSession)
+        XCTAssertEqual(coordinator.webAction?.id, initialActionID)
+        XCTAssertEqual(coordinator.sessionGeneration, initialGeneration)
+        XCTAssertEqual(coordinator.returnRoute, initialRoute)
+    }
+
+    func testBootstrapIgnoresForeignOriginAndSubframeReadyMessages() async throws {
+        let factory = FakeMobileAuthBrowserSessionFactory()
+        let coordinator = MobileAuthCoordinator(
+            configuration: configuration,
+            browserSessionFactory: factory
+        )
+        coordinator.continueSignIn()
+        let state = try XCTUnwrap(queryValue("state", in: XCTUnwrap(factory.startURL)))
+        factory.complete(url: callbackURL(code: canonicalSecret("c"), state: state))
+        await drainMainActor()
+
+        let initialActionID = try XCTUnwrap(coordinator.webAction?.id)
+        let initialGeneration = coordinator.sessionGeneration
+        let initialRoute = coordinator.returnRoute
+        let detailReturnRoute = [
+            configuration.mobileAuthRoutes.defaultReturnPath,
+            "Q-FOREIGN",
+        ].joined(separator: "/")
+
+        coordinator.receive(
+            .ready(state: state, returnTo: detailReturnRoute),
+            origin: foreignOrigin(),
+            isMainFrame: true
+        )
+        coordinator.receive(
+            .ready(state: state, returnTo: detailReturnRoute),
+            origin: configuration.baseURL,
+            isMainFrame: false
+        )
+
+        XCTAssertEqual(coordinator.phase, .bootstrapping)
+        XCTAssertEqual(coordinator.webAction?.id, initialActionID)
+        XCTAssertEqual(coordinator.sessionGeneration, initialGeneration)
+        XCTAssertEqual(coordinator.returnRoute, initialRoute)
     }
 
     func testProviderErrorReturnsSpecificRetryMessage() async throws {
@@ -541,9 +674,22 @@ final class MobileAuthCoordinatorTests: XCTestCase {
     }
 
     private func callbackURL(code: String, state: String) -> URL {
-        URL(
-            string: "https://overdrafter.vercel.app/auth/mobile/callback#code=\(code)&state=\(state)"
+        var components = URLComponents(
+            url: configuration.baseURL,
+            resolvingAgainstBaseURL: false
         )!
+        components.path = configuration.mobileAuthRoutes.callbackPath
+        components.percentEncodedFragment = "code=\(code)&state=\(state)"
+        return components.url!
+    }
+
+    private func foreignOrigin() -> URL {
+        var components = URLComponents(
+            url: configuration.baseURL,
+            resolvingAgainstBaseURL: false
+        )!
+        components.host = "attacker.example"
+        return components.url!
     }
 
     private func drainMainActor() async {
@@ -575,7 +721,7 @@ private final class FakeMobileAuthBrowserSessionFactory: MobileAuthBrowserSessio
 
     func makeSession(
         url: URL,
-        callback: ASWebAuthenticationSession.Callback,
+        callback _: ASWebAuthenticationSession.Callback,
         completion: @escaping ASWebAuthenticationSession.CompletionHandler
     ) -> MobileAuthBrowserSession {
         startURL = url

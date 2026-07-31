@@ -1,6 +1,29 @@
 import SwiftUI
 import WebKit
 
+struct MobileAuthNavigationPolicy {
+    let configuration: AppConfiguration
+    let allowedRequest: URLRequest
+
+    func allows(_ request: URLRequest, targetIsMainFrame: Bool) -> Bool {
+        guard
+            targetIsMainFrame,
+            let candidateURL = request.url,
+            let allowedURL = allowedRequest.url,
+            configuration.matchesConfiguredOrigin(candidateURL),
+            candidateURL.absoluteString == allowedURL.absoluteString
+        else {
+            return false
+        }
+
+        return normalizedMethod(request.httpMethod) == normalizedMethod(allowedRequest.httpMethod)
+    }
+
+    private func normalizedMethod(_ method: String?) -> String {
+        method?.uppercased() ?? "GET"
+    }
+}
+
 struct MobileAuthWebView: UIViewRepresentable {
     let action: MobileAuthWebAction
     let configuration: AppConfiguration
@@ -22,41 +45,48 @@ struct MobileAuthWebView: UIViewRepresentable {
     func updateUIView(_ webView: WKWebView, context: Context) {
         guard context.coordinator.actionID != action.id else { return }
         context.coordinator.actionID = action.id
+        context.coordinator.policy = MobileAuthNavigationPolicy(
+            configuration: configuration,
+            allowedRequest: action.request
+        )
         webView.load(action.request)
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             actionID: action.id,
-            configuration: configuration,
+            policy: MobileAuthNavigationPolicy(
+                configuration: configuration,
+                allowedRequest: action.request
+            ),
             onNavigationFailure: onNavigationFailure
         )
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         var actionID: UUID
-        private let configuration: AppConfiguration
+        var policy: MobileAuthNavigationPolicy
         private let onNavigationFailure: () -> Void
 
         init(
             actionID: UUID,
-            configuration: AppConfiguration,
+            policy: MobileAuthNavigationPolicy,
             onNavigationFailure: @escaping () -> Void
         ) {
             self.actionID = actionID
-            self.configuration = configuration
+            self.policy = policy
             self.onNavigationFailure = onNavigationFailure
         }
 
         func webView(
-            _ webView: WKWebView,
+            _: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
-            guard
-                let url = navigationAction.request.url,
-                configuration.matchesConfiguredOrigin(url)
-            else {
+            guard policy.allows(
+                navigationAction.request,
+                targetIsMainFrame: navigationAction.targetFrame?.isMainFrame == true
+            ) else {
                 decisionHandler(.cancel)
                 onNavigationFailure()
                 return
@@ -65,17 +95,17 @@ struct MobileAuthWebView: UIViewRepresentable {
         }
 
         func webView(
-            _ webView: WKWebView,
-            didFailProvisionalNavigation navigation: WKNavigation?,
-            withError error: Error
+            _: WKWebView,
+            didFailProvisionalNavigation _: WKNavigation?,
+            withError _: Error
         ) {
             onNavigationFailure()
         }
 
         func webView(
-            _ webView: WKWebView,
-            didFail navigation: WKNavigation?,
-            withError error: Error
+            _: WKWebView,
+            didFail _: WKNavigation?,
+            withError _: Error
         ) {
             onNavigationFailure()
         }

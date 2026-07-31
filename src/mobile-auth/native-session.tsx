@@ -68,9 +68,9 @@ export function NativeSessionRoute() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
-      <p className="text-sm text-muted-foreground" role="status">
+      <output className="text-sm text-muted-foreground">
         {label}
-      </p>
+      </output>
     </main>
   );
 }
