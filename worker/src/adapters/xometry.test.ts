@@ -26,6 +26,7 @@ import {
   parseFirstCurrency,
   parseLeadTime,
   selectToleranceTier,
+  toleranceSummaryMatches,
 } from "./xometry";
 import { XOMETRY_LOCATORS, XOMETRY_URLS, buildFinishSearchTerms, buildMaterialSearchTerms } from "./xometryConstraints";
 
@@ -341,6 +342,12 @@ describe("Xometry helpers", () => {
     expect(selectToleranceTier(0.004).tier).toBe("tighter");
     expect(selectToleranceTier(null).tier).toBeNull();
     expect(hasVisibleFilename("Attached: PART.PDF", "part.pdf")).toBe(true);
+    expect(
+      toleranceSummaryMatches(
+        "Precision Tolerance:\nTighter than ±.005",
+        "tighter",
+      ),
+    ).toBe(true);
     expect(isManualReviewText("Manual review required after upload.")).toBe(true);
     expect(
       detectBlockingStateSignal({

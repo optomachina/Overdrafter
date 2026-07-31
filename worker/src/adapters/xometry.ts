@@ -122,68 +122,55 @@ function observedUsFederalHoliday(date: Date) {
   );
 }
 
-/**
- * Parses an explicit business-day duration or approximates an arrival date
- * using the US federal business calendar. Ambiguous stale yearless dates are
- * rejected except for a bounded November/December-to-January/February rollover.
- */
-export function parseLeadTime(text: string, now = new Date()): number | null {
-  const match = text.match(/(\d+)\s+(?:business\s+)?days?/i);
-  if (match) {
-    const parsed = Number.parseInt(match[1], 10);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
+const ARRIVAL_MONTHS = [
+  "jan",
+  "feb",
+  "mar",
+  "apr",
+  "may",
+  "jun",
+  "jul",
+  "aug",
+  "sep",
+  "oct",
+  "nov",
+  "dec",
+] as const;
 
-  const arrivalMatch = text.match(
-    /arrives?\s+by\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2})(?:,\s*(\d{4}))?/i,
-  );
+function parseArrivalDate(text: string, today: Date) {
+  const arrivalMatch =
+    /arrives?\s+by\s+([a-z]+)\s+(\d{1,2})(?:,\s*(\d{4}))?/i.exec(text);
   if (!arrivalMatch) return null;
 
-  const monthNames = [
-    "jan",
-    "feb",
-    "mar",
-    "apr",
-    "may",
-    "jun",
-    "jul",
-    "aug",
-    "sep",
-    "oct",
-    "nov",
-    "dec",
-  ];
-  const month = monthNames.findIndex((candidate) =>
+  const month = ARRIVAL_MONTHS.findIndex((candidate) =>
     arrivalMatch[1].toLowerCase().startsWith(candidate),
   );
   const day = Number.parseInt(arrivalMatch[2], 10);
-  let year = arrivalMatch[3] ? Number.parseInt(arrivalMatch[3], 10) : now.getUTCFullYear();
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const hasExplicitYear = Boolean(arrivalMatch[3]);
+  let year = hasExplicitYear
+    ? Number.parseInt(arrivalMatch[3], 10)
+    : today.getUTCFullYear();
   let arrival = new Date(Date.UTC(year, month, day));
 
-  if (
-    month < 0 ||
-    arrival.getUTCFullYear() !== year ||
-    arrival.getUTCMonth() !== month ||
-    arrival.getUTCDate() !== day
-  ) {
-    return null;
-  }
+  const validDate =
+    month >= 0 &&
+    arrival.getUTCFullYear() === year &&
+    arrival.getUTCMonth() === month &&
+    arrival.getUTCDate() === day;
+  if (!validDate) return null;
+  if (hasExplicitYear && arrival.getTime() < today.getTime()) return null;
+  if (arrival.getTime() >= today.getTime()) return arrival;
 
-  if (arrivalMatch[3] && arrival.getTime() < today.getTime()) {
-    return null;
-  }
+  const boundedYearEndRollover =
+    !hasExplicitYear && today.getUTCMonth() >= 10 && month <= 1;
+  if (!boundedYearEndRollover) return null;
 
-  if (!arrivalMatch[3] && arrival.getTime() < today.getTime()) {
-    const boundedYearEndRollover =
-      today.getUTCMonth() >= 10 && month <= 1;
-    if (!boundedYearEndRollover) {
-      return null;
-    }
-    year += 1;
-    arrival = new Date(Date.UTC(year, month, day));
-  }
+  year += 1;
+  arrival = new Date(Date.UTC(year, month, day));
+  return arrival;
+}
 
+function countUsFederalBusinessDays(today: Date, arrival: Date) {
   let businessDays = 0;
   const cursor = new Date(today);
   while (cursor.getTime() < arrival.getTime()) {
@@ -193,8 +180,24 @@ export function parseLeadTime(text: string, now = new Date()): number | null {
       businessDays += 1;
     }
   }
-
   return businessDays;
+}
+
+/**
+ * Parses an explicit business-day duration or approximates an arrival date
+ * using the US federal business calendar. Ambiguous stale yearless dates are
+ * rejected except for a bounded November/December-to-January/February rollover.
+ */
+export function parseLeadTime(text: string, now = new Date()): number | null {
+  const durationMatch = /(\d+)\s+(?:business\s+)?days?/i.exec(text);
+  if (durationMatch) {
+    const parsed = Number.parseInt(durationMatch[1], 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const arrival = parseArrivalDate(text, today);
+  return arrival ? countUsFederalBusinessDays(today, arrival) : null;
 }
 
 function isSignalPresent(text: string, patterns: readonly RegExp[]) {
@@ -816,12 +819,31 @@ export function hasVisibleFilename(text: string, filename: string) {
   return text.toLocaleLowerCase().includes(filename.toLocaleLowerCase());
 }
 
+export function toleranceSummaryMatches(bodyText: string, tier: string | null) {
+  const summary = bodyText.replace(/\s+/g, " ");
+  switch (tier) {
+    case null:
+      return true;
+    case "looser":
+      return /Precision Tolerance:\s*±?\.010/i.test(summary);
+    case "standard":
+      return /Precision Tolerance:\s*±?\.005/i.test(summary);
+    case "tighter":
+      return /Precision Tolerance:.*(?:tighter than|<)\s*±?\.005/i.test(summary);
+    default:
+      return false;
+  }
+}
+
 function verifySavedRequirements(
   bodyText: string,
   expected: SavedRequirementCheck,
 ) {
   const mismatches: string[] = [];
-  const quantityPattern = new RegExp(`\\bQuantity\\s*:?\\s*${expected.quantity}\\b`, "i");
+  const quantityPattern = new RegExp(
+    String.raw`\bQuantity\s*:?\s*${expected.quantity}\b`,
+    "i",
+  );
 
   if (!quantityPattern.test(bodyText)) {
     mismatches.push("quantity");
@@ -829,26 +851,15 @@ function verifySavedRequirements(
   if (!includesAnyTerm(bodyText, expected.materialTerms)) {
     mismatches.push("material");
   }
-  if (expected.finishTerms.length > 0 && !includesAnyTerm(bodyText, expected.finishTerms)) {
-    mismatches.push("finish");
-  } else if (
-    expected.finishTerms.length === 0 &&
-    !/Finish:\s*(?:Standard|As Machined|None)\b/i.test(bodyText)
-  ) {
+  const finishMatches =
+    expected.finishTerms.length > 0
+      ? includesAnyTerm(bodyText, expected.finishTerms)
+      : /Finish:\s*(?:Standard|As Machined|None)\b/i.test(bodyText);
+  if (!finishMatches) {
     mismatches.push("finish");
   }
 
-  if (expected.toleranceTier === "looser" && !/Precision Tolerance:\s*±?\.010/i.test(bodyText)) {
-    mismatches.push("tolerance");
-  } else if (
-    expected.toleranceTier === "standard" &&
-    !/Precision Tolerance:\s*±?\.005/i.test(bodyText)
-  ) {
-    mismatches.push("tolerance");
-  } else if (
-    expected.toleranceTier === "tighter" &&
-    !/Precision Tolerance:.*(?:tighter than|<)\s*±?\.005/i.test(bodyText)
-  ) {
+  if (!toleranceSummaryMatches(bodyText, expected.toleranceTier)) {
     mismatches.push("tolerance");
   }
 
