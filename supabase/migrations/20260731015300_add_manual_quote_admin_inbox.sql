@@ -8,6 +8,11 @@
 -- three billing-admin storage policies and the artifact read policy, then drop
 -- the partial inbox index. Quote/result/audit rows created before rollback are
 -- durable business records and must not be deleted.
+--
+-- Deployment: create the partial inbox index during a low-traffic window
+-- because this transactional migration can briefly block writes to
+-- public.quote_requests. For a large production table, pre-create the same
+-- index concurrently out of band before applying this migration.
 
 create index if not exists idx_quote_requests_manual_admin_inbox
 on public.quote_requests (created_at asc, id asc)
@@ -263,6 +268,7 @@ declare
   v_offer_quantity integer;
   v_offer_ordinality bigint;
   v_artifact jsonb;
+  v_artifact_paths text[] := '{}'::text[];
   v_summary_offer jsonb;
   v_summary_total numeric;
   v_summary_unit numeric;
@@ -573,6 +579,7 @@ begin
         split_part(v_artifact ->> 'storagePath', '/', 5),
         ''
       ) is null
+      or split_part(v_artifact ->> 'storagePath', '/', 5) in ('.', '..')
       or nullif(
         split_part(v_artifact ->> 'storagePath', '/', 6),
         ''
@@ -580,6 +587,15 @@ begin
     then
       raise exception 'Manual quote evidence path does not match the supplied request, run, and job.';
     end if;
+
+    if (v_artifact ->> 'storagePath') = any(v_artifact_paths) then
+      raise exception 'Manual quote evidence paths must be unique.';
+    end if;
+    v_artifact_paths :=
+      pg_catalog.array_append(
+        v_artifact_paths,
+        v_artifact ->> 'storagePath'
+      );
   end loop;
 
   select offer_row.value
@@ -951,6 +967,7 @@ begin
     or split_part(coalesce(p_storage_path, ''), '/', 1)
       <> 'manual-completions'
     or nullif(split_part(coalesce(p_storage_path, ''), '/', 5), '') is null
+    or split_part(coalesce(p_storage_path, ''), '/', 5) in ('.', '..')
     or nullif(split_part(coalesce(p_storage_path, ''), '/', 6), '') is not null
   then
     return false;

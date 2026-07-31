@@ -1,6 +1,6 @@
 begin;
 
-select plan(54);
+select plan(57);
 
 create temporary table ovd262_context (
   billing_admin_user_id uuid not null,
@@ -22,7 +22,26 @@ create temporary table ovd262_context (
   third_run_id uuid not null
 ) on commit drop;
 
-insert into ovd262_context values (
+insert into ovd262_context (
+  billing_admin_user_id,
+  order_admin_user_id,
+  requester_user_id,
+  organization_id,
+  project_id,
+  first_job_id,
+  second_job_id,
+  third_job_id,
+  first_part_id,
+  second_part_id,
+  third_part_id,
+  first_request_id,
+  second_request_id,
+  third_request_id,
+  first_run_id,
+  second_run_id,
+  third_run_id
+)
+values (
   '00000000-0000-4000-8000-000000002621',
   '00000000-0000-4000-8000-000000002622',
   '00000000-0000-4000-8000-000000002623',
@@ -74,6 +93,97 @@ $$;
 revoke all on function public.ovd262_test_set_claims(uuid, text)
   from public, anon;
 grant execute on function public.ovd262_test_set_claims(uuid, text)
+  to authenticated;
+
+create function public.ovd262_test_first_manual_path(
+  p_filename text
+)
+returns text
+language sql
+immutable
+set search_path = pg_catalog
+as $$
+  select pg_catalog.format(
+    'manual-completions/%s/%s/%s/%s',
+    '00000000-0000-4000-8000-000000002633',
+    '00000000-0000-4000-8000-000000002643',
+    '00000000-0000-4000-8000-000000002626',
+    p_filename
+  )
+$$;
+
+create function public.ovd262_test_complete_first_manual(
+  p_reason text,
+  p_idempotency_key text,
+  p_artifacts jsonb
+)
+returns jsonb
+language sql
+set search_path = pg_catalog
+as $$
+  select public.api_admin_complete_manual_quote_request(
+    '00000000-0000-4000-8000-000000002633',
+    '00000000-0000-4000-8000-000000002643',
+    '00000000-0000-4000-8000-000000002626',
+    '00000000-0000-4000-8000-000000002629',
+    'xometry',
+    p_reason,
+    p_idempotency_key,
+    'official_quote_received',
+    null,
+    null,
+    null,
+    '[{"offerId":"lane-1","totalPriceUsd":"100.00"}]'::jsonb,
+    p_artifacts
+  )
+$$;
+
+create function public.ovd262_test_complete_canonical()
+returns jsonb
+language sql
+set search_path = pg_catalog
+as $$
+  select public.api_admin_complete_manual_quote_request(
+    '00000000-0000-4000-8000-000000002633',
+    '00000000-0000-4000-8000-000000002643',
+    '00000000-0000-4000-8000-000000002626',
+    '00000000-0000-4000-8000-000000002629',
+    'xometry',
+    'Record the manually sourced quote',
+    'complete-first',
+    'official_quote_received',
+    'Reviewed supplier PDF',
+    'Supplier quote reference 262',
+    'https://example.com/quote/262',
+    '[{"offerId":"lane-1","supplier":"Xometry","unitPriceUsd":"12.50","totalPriceUsd":"125.00","leadTimeBusinessDays":"7","requestedQuantity":"10"}]'::jsonb,
+    pg_catalog.jsonb_build_array(
+      pg_catalog.jsonb_build_object(
+        'artifactType', 'uploaded_evidence',
+        'storageBucket', 'quote-artifacts',
+        'storagePath',
+          public.ovd262_test_first_manual_path('supplier-quote.pdf'),
+        'metadata',
+          pg_catalog.jsonb_build_object(
+            'originalName', 'supplier-quote.pdf'
+          )
+      )
+    )
+  )
+$$;
+
+revoke all on function public.ovd262_test_first_manual_path(text)
+  from public, anon;
+revoke all on function
+  public.ovd262_test_complete_first_manual(text, text, jsonb)
+  from public, anon;
+revoke all on function public.ovd262_test_complete_canonical()
+  from public, anon;
+grant execute on function public.ovd262_test_first_manual_path(text)
+  to authenticated;
+grant execute on function
+  public.ovd262_test_complete_first_manual(text, text, jsonb)
+  to authenticated;
+grant execute on function public.ovd262_test_complete_canonical()
   to authenticated;
 
 insert into auth.users (id, aud, role, email)
@@ -652,6 +762,57 @@ select throws_ok(
   'duplicate offer keys reject before writes'
 );
 
+select throws_ok(
+  $$
+    select public.ovd262_test_complete_first_manual(
+      'Reject duplicate evidence paths',
+      'duplicate-artifact-paths',
+      pg_catalog.jsonb_build_array(
+        pg_catalog.jsonb_build_object(
+          'storagePath', -- NOSONAR: stable artifact contract key
+          public.ovd262_test_first_manual_path('duplicate.pdf')
+        ),
+        pg_catalog.jsonb_build_object(
+          'storagePath',
+          public.ovd262_test_first_manual_path('duplicate.pdf')
+        )
+      )
+    )
+  $$,
+  'P0001',
+  'Manual quote evidence paths must be unique.',
+  'duplicate evidence paths reject before writes'
+);
+
+select throws_ok(
+  $$
+    select public.ovd262_test_complete_first_manual(
+      'Reject traversal evidence path',
+      'traversal-artifact-path',
+      pg_catalog.jsonb_build_array(
+        pg_catalog.jsonb_build_object(
+          'storagePath',
+          public.ovd262_test_first_manual_path('..')
+        )
+      )
+    )
+  $$,
+  'P0001',
+  'Manual quote evidence path does not match the supplied request, run, and job.',
+  'traversal evidence paths reject before writes'
+);
+
+select ok(
+  not public.current_user_can_access_manual_quote_artifact(
+    null,
+    'quote-artifacts',
+    public.ovd262_test_first_manual_path('..'),
+    false,
+    true
+  ),
+  'billing-admin storage access rejects traversal evidence paths'
+);
+
 reset role;
 
 select is(
@@ -683,38 +844,7 @@ select public.ovd262_test_set_claims(
 
 select is(
   (
-    public.api_admin_complete_manual_quote_request(
-      (select first_request_id from ovd262_context),
-      (select first_run_id from ovd262_context),
-      (select first_job_id from ovd262_context),
-      (select first_part_id from ovd262_context),
-      'xometry',
-      'Record the manually sourced quote',
-      'complete-first',
-      'official_quote_received',
-      'Reviewed supplier PDF',
-      'Supplier quote reference 262',
-      'https://example.com/quote/262',
-      '[{"offerId":"lane-1","supplier":"Xometry","unitPriceUsd":"12.50","totalPriceUsd":"125.00","leadTimeBusinessDays":"7","requestedQuantity":"10"}]'::jsonb,
-      pg_catalog.jsonb_build_array(
-        pg_catalog.jsonb_build_object(
-          'artifactType', 'uploaded_evidence',
-          'storageBucket', 'quote-artifacts',
-          'storagePath',
-            'manual-completions/'
-            || (select first_request_id::text from ovd262_context)
-            || '/'
-            || (select first_run_id::text from ovd262_context)
-            || '/'
-            || (select first_job_id::text from ovd262_context)
-            || '/supplier-quote.pdf', -- NOSONAR: deterministic storage fixture
-          'metadata',
-            pg_catalog.jsonb_build_object(
-              'originalName', 'supplier-quote.pdf'
-            )
-        )
-      )
-    ) ->> 'replayed'
+    public.ovd262_test_complete_canonical() ->> 'replayed'
   )::boolean,
   false,
   'AAL2 billing admins can complete one exact active request'
@@ -814,38 +944,7 @@ select public.ovd262_test_set_claims(
 
 select is(
   (
-    public.api_admin_complete_manual_quote_request(
-      (select first_request_id from ovd262_context),
-      (select first_run_id from ovd262_context),
-      (select first_job_id from ovd262_context),
-      (select first_part_id from ovd262_context),
-      'xometry',
-      'Record the manually sourced quote',
-      'complete-first',
-      'official_quote_received',
-      'Reviewed supplier PDF',
-      'Supplier quote reference 262',
-      'https://example.com/quote/262',
-      '[{"offerId":"lane-1","supplier":"Xometry","unitPriceUsd":"12.50","totalPriceUsd":"125.00","leadTimeBusinessDays":"7","requestedQuantity":"10"}]'::jsonb,
-      pg_catalog.jsonb_build_array(
-        pg_catalog.jsonb_build_object(
-          'artifactType', 'uploaded_evidence',
-          'storageBucket', 'quote-artifacts',
-          'storagePath',
-            'manual-completions/'
-            || (select first_request_id::text from ovd262_context)
-            || '/'
-            || (select first_run_id::text from ovd262_context)
-            || '/'
-            || (select first_job_id::text from ovd262_context)
-            || '/supplier-quote.pdf',
-          'metadata',
-            pg_catalog.jsonb_build_object(
-              'originalName', 'supplier-quote.pdf'
-            )
-        )
-      )
-    ) ->> 'replayed'
+    public.ovd262_test_complete_canonical() ->> 'replayed'
   )::boolean,
   true,
   'an exact retry returns the original completion result'

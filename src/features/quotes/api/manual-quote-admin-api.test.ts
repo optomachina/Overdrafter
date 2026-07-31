@@ -111,6 +111,23 @@ describe("manual-quote-admin-api", () => {
     });
   });
 
+  it("sends the default cursor and page size", async () => {
+    callUntypedRpcMock.mockResolvedValue({
+      data: { items: [], nextCursor: null },
+      error: null,
+    });
+
+    await fetchAdminManualQuoteRequests();
+
+    expect(callUntypedRpcMock).toHaveBeenCalledWith(
+      "api_admin_list_manual_quote_requests",
+      {
+        p_cursor: null,
+        p_limit: 25,
+      },
+    );
+  });
+
   it("passes exact lineage and idempotency intent to completion", async () => {
     callUntypedRpcMock.mockResolvedValue({
       data: {
