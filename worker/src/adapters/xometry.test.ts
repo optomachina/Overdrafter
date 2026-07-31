@@ -219,7 +219,10 @@ function createFakePage(options: FakePageOptions) {
         });
       }
 
-      return makeLocator(selectorBehaviors[selector]);
+      const normalizedSelector = selector.endsWith(":visible")
+        ? selector.slice(0, -":visible".length)
+        : selector;
+      return makeLocator(selectorBehaviors[selector] ?? selectorBehaviors[normalizedSelector]);
     },
     getByRole(role: string, input: { name?: RegExp }) {
       if (role !== "option") {
@@ -488,6 +491,10 @@ describe("XometryAdapter", () => {
     const openFinishOptions = vi.fn(() => {
       finishOptionsOpen = true;
     });
+    const clickMaterialControl = vi.fn();
+    const clickFinishControl = vi.fn();
+    const hiddenMaterialControl = vi.fn();
+    const hiddenFinishControl = vi.fn();
     const page = createFakePage({
       bodyText: "Configure part",
       postSaveBodyText: [
@@ -510,19 +517,33 @@ describe("XometryAdapter", () => {
           press: vi.fn(),
         },
         [XOMETRY_LOCATORS.materialButtons[0]]: {
+          count: 1,
+          click: hiddenMaterialControl,
+        },
+        [`${XOMETRY_LOCATORS.materialButtons[0]}:visible`]: {
           count: () => (materialControlRendered ? 1 : 0),
           waitFor: () => {
             materialControlRendered = true;
           },
-          getAttribute: (name) => (name === "aria-expanded" ? "true" : null),
-          click: openMaterialOptions,
+          getAttribute: (name) => {
+            if (name === "role") return "combobox";
+            return name === "aria-expanded" ? "true" : null;
+          },
+          press: openMaterialOptions,
+          click: clickMaterialControl,
         },
         [XOMETRY_LOCATORS.finishButtons[0]]: {
+          count: 1,
+          click: hiddenFinishControl,
+        },
+        [`${XOMETRY_LOCATORS.finishButtons[0]}:visible`]: {
           count: () => (finishControlRendered ? 1 : 0),
           waitFor: () => {
             finishControlRendered = true;
           },
-          click: openFinishOptions,
+          getAttribute: (name) => (name === "role" ? "combobox" : null),
+          press: openFinishOptions,
+          click: clickFinishControl,
         },
         [XOMETRY_LOCATORS.priceText[0]]: {
           count: 1,
@@ -575,8 +596,14 @@ describe("XometryAdapter", () => {
     });
     expect(saveConfiguration).toHaveBeenCalledTimes(1);
     expect(setTolerance).toHaveBeenCalledTimes(1);
-    expect(openMaterialOptions).not.toHaveBeenCalled();
+    expect(openMaterialOptions).toHaveBeenCalledTimes(1);
     expect(openFinishOptions).toHaveBeenCalledTimes(1);
+    expect(openMaterialOptions).toHaveBeenCalledWith("ArrowDown");
+    expect(openFinishOptions).toHaveBeenCalledWith("ArrowDown");
+    expect(clickMaterialControl).not.toHaveBeenCalled();
+    expect(clickFinishControl).not.toHaveBeenCalled();
+    expect(hiddenMaterialControl).not.toHaveBeenCalled();
+    expect(hiddenFinishControl).not.toHaveBeenCalled();
     expect(page.waitForURL).toHaveBeenCalled();
     expect(result.artifacts).toHaveLength(8);
   });

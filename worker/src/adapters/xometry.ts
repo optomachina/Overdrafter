@@ -553,14 +553,20 @@ async function findButtonAndOpen(
   field: "material" | "finish",
 ) {
   const preferredSelector = selectors[0];
-  const preferredLocator = page.locator(preferredSelector).first();
+  const preferredLocator = page.locator(`${preferredSelector}:visible`).first();
   const preferredVisible = await preferredLocator
     .waitFor({ state: "visible", timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS })
     .then(() => true)
     .catch(() => false);
-  const match = preferredVisible
-    ? { selector: preferredSelector, locator: preferredLocator }
+  const fallbackMatch = preferredVisible
+    ? null
     : await firstWorkingLocator(page, selectors.slice(1));
+  let match = null;
+  if (preferredVisible) {
+    match = { selector: preferredSelector, locator: preferredLocator, isPreferred: true };
+  } else if (fallbackMatch) {
+    match = { ...fallbackMatch, isPreferred: false };
+  }
 
   if (!match) {
     throw new VendorAutomationError(
@@ -577,11 +583,14 @@ async function findButtonAndOpen(
     );
   }
 
+  const controlRole = await match.locator.getAttribute("role").catch(() => null);
   const alreadyExpanded = await match.locator
     .getAttribute("aria-expanded")
     .then((value) => value === "true")
     .catch(() => false);
-  if (!alreadyExpanded) {
+  if (match.isPreferred && controlRole === "combobox") {
+    await match.locator.press("ArrowDown");
+  } else if (!alreadyExpanded) {
     await match.locator.click();
   }
   return match.selector;
@@ -592,6 +601,7 @@ async function chooseOptionByTerms(
   terms: string[],
   optionSelectors: readonly string[],
   field: "material" | "finish",
+  controlSelector: string,
 ) {
   for (const term of terms) {
     const roleOption = page
@@ -631,6 +641,8 @@ async function chooseOptionByTerms(
       attemptedSelectors: [...optionSelectors],
       nearbyAttributes: [...optionSelectors],
       requestedTerms: terms,
+      controlSelector,
+      bodyExcerpt: excerptText(await readBodyText(page)),
       url: page.url(),
     },
   );
@@ -643,8 +655,8 @@ async function configureRequiredOption(
   optionSelectors: readonly string[],
   field: "material" | "finish",
 ) {
-  await findButtonAndOpen(page, controlSelectors, field);
-  return chooseOptionByTerms(page, terms, optionSelectors, field);
+  const controlSelector = await findButtonAndOpen(page, controlSelectors, field);
+  return chooseOptionByTerms(page, terms, optionSelectors, field, controlSelector);
 }
 
 async function saveConfiguration(page: Page, timeoutMs: number) {
