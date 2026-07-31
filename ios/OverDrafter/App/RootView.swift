@@ -123,7 +123,7 @@ struct RootView: View {
                     .foregroundStyle(
                         appState.selection == destination
                             ? Color.overDrafterAccent
-                            : Color.primary
+                            : Color.overDrafterInk
                     )
                     .listRowBackground(
                         appState.selection == destination
@@ -199,11 +199,12 @@ struct RootView: View {
                 Text("OVERDRAFTER")
                     .font(.system(size: 25, weight: .semibold, design: .monospaced))
                     .tracking(2)
+                    .foregroundStyle(Color.overDrafterInk)
 
                 Text("Upload parts, compare quotes, and move manufacturing forward.")
                     .font(.system(size: 15))
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.overDrafterMuted)
                     .frame(maxWidth: 340)
             }
 
@@ -234,7 +235,7 @@ struct RootView: View {
             Text("Sign in opens OverDrafter's secure website. Your password is never entered into this app.")
                 .font(.system(size: 11, design: .monospaced))
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.overDrafterMuted)
                 .padding(.horizontal, 32)
                 .padding(.bottom, 24)
         }
@@ -253,11 +254,12 @@ struct RootView: View {
 
             Text(title)
                 .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color.overDrafterInk)
 
             Text(detail)
                 .font(.system(size: 13))
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.overDrafterMuted)
                 .frame(maxWidth: 340)
 
             if allowsCancellation {
@@ -287,5 +289,15 @@ private extension Color {
         red: 194.0 / 255.0,
         green: 65.0 / 255.0,
         blue: 12.0 / 255.0
+    )
+    static let overDrafterInk = Color(
+        red: 28.0 / 255.0,
+        green: 27.0 / 255.0,
+        blue: 25.0 / 255.0
+    )
+    static let overDrafterMuted = Color(
+        red: 107.0 / 255.0,
+        green: 102.0 / 255.0,
+        blue: 92.0 / 255.0
     )
 }
