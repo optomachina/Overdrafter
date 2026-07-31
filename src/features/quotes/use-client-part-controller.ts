@@ -32,6 +32,7 @@ import {
 import { useOrganizationQuoteCollectionMode } from "@/features/quotes/organization-entitlements";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import { createJobsFromUploadFiles, uploadFilesToJob } from "@/features/quotes/api/uploads-api";
+import { shouldPollClientWorkspaceState } from "@/features/quotes/client-workspace-polling";
 import {
   fetchClientActivityEventsByJobIds,
   fetchPartDetailByJobId,
@@ -113,12 +114,6 @@ const EMPTY_QUOTE_DIAGNOSTICS: QuoteDiagnostics = {
   excludedOffers: [],
   excludedReasonCounts: [],
 };
-
-function shouldPollExtractionState(
-  lifecycle: string | null | undefined,
-) {
-  return lifecycle === "queued" || lifecycle === "extracting" || lifecycle === "uploaded";
-}
 
 /**
  * Loads the access-filtered part workspace and its quote actions.
@@ -237,8 +232,15 @@ export function useClientPartController(
     retry: false,
     refetchInterval: (query) => {
       const data = query.state.data;
-      const lifecycle = data?.part?.clientExtraction?.lifecycle ?? null;
-      return shouldPollExtractionState(lifecycle) ? 5000 : false;
+      return shouldPollClientWorkspaceState({
+        extractionLifecycle: data?.part?.clientExtraction?.lifecycle,
+        quoteRequestStatus: data?.latestQuoteRequest?.status,
+        quoteRequestMode: data?.latestQuoteRequest?.request_mode,
+        quoteRequestUpdatedAt: data?.latestQuoteRequest?.updated_at,
+        hasPersistedOffers: (data?.quoteDiagnostics?.rawOfferCount ?? 0) > 0,
+      })
+        ? 5000
+        : false;
     },
     ...workspaceDetailQueryOptions,
   });
@@ -250,8 +252,16 @@ export function useClientPartController(
     queryFn: () => fetchClientActivityEventsByJobIds([resolvedJobId ?? ""]),
     enabled: Boolean(user) && Boolean(resolvedJobId),
     refetchInterval: () => {
-      const lifecycle = partDetailQuery.data?.part?.clientExtraction?.lifecycle ?? null;
-      return shouldPollExtractionState(lifecycle) ? 5000 : false;
+      const data = partDetailQuery.data;
+      return shouldPollClientWorkspaceState({
+        extractionLifecycle: data?.part?.clientExtraction?.lifecycle,
+        quoteRequestStatus: data?.latestQuoteRequest?.status,
+        quoteRequestMode: data?.latestQuoteRequest?.request_mode,
+        quoteRequestUpdatedAt: data?.latestQuoteRequest?.updated_at,
+        hasPersistedOffers: (data?.quoteDiagnostics?.rawOfferCount ?? 0) > 0,
+      })
+        ? 5000
+        : false;
     },
     ...workspaceDetailQueryOptions,
   });

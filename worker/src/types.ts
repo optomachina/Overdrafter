@@ -114,6 +114,7 @@ export type ApprovedRequirementRecord = {
   quote_quantities: number[];
   requested_by_date: string | null;
   applicable_vendors: VendorName[];
+  updated_at?: string;
   spec_snapshot?: unknown;
 };
 
@@ -318,6 +319,7 @@ export type VendorAutomationErrorCode =
   | "unexpected_ui_state"
   | "anti_detection_block"
   | "profile_in_use"
+  | "persistence_failure"
   | "not_implemented";
 
 export class VendorAutomationError extends Error {

@@ -35,6 +35,16 @@ vi.mock("next-themes", () => ({
   }),
 }));
 
+vi.mock("@/features/quotes/organization-entitlements", () => ({
+  useOrganizationQuoteCollectionMode: () => ({
+    automaticEnabled: false,
+    hasAutomaticEntitlement: false,
+    isLoading: false,
+    plan: "free",
+    setAutomaticEnabled: vi.fn(),
+  }),
+}));
+
 function makeUser(overrides: Partial<User> = {}): User {
   return {
     id: "user-1",

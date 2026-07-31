@@ -25,6 +25,11 @@ describe("vendorTaskRetry", () => {
     ).toBe(true);
     expect(
       isRetryableVendorTaskError(
+        new VendorAutomationError("offer write failed", "persistence_failure"),
+      ),
+    ).toBe(true);
+    expect(
+      isRetryableVendorTaskError(
         new VendorAutomationError("missing cad", "upload_failure", {
           reason: "missing_cad_file",
         }),

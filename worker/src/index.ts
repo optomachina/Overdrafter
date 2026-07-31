@@ -880,6 +880,12 @@ async function handleVendorQuoteTask(
   if (!context.requirement) {
     throw new Error(`No approved requirement found for part ${task.part_id}.`);
   }
+  const requirementCapturedAt = context.requirement.updated_at;
+  if (!requirementCapturedAt) {
+    throw new Error(
+      `Approved requirement ${context.requirement.id} is missing its update timestamp.`,
+    );
+  }
 
   const currentResultRequest = vendorQuoteResultId
     ? supabase
@@ -1053,6 +1059,34 @@ async function handleVendorQuoteTask(
       artifacts: result.artifacts,
     });
 
+    if (result.totalPriceUsd !== null || result.unitPriceUsd !== null || result.leadTimeBusinessDays !== null) {
+      const offerPayload = buildVendorQuoteOfferPayload({
+        vendorQuoteResultId: currentResult.id,
+        organizationId: task.organization_id,
+        vendor,
+        requestedQuantity: currentResult.requested_quantity,
+        requirement: context.requirement,
+        requirementCapturedAt,
+        result,
+      });
+      const { error: offerError } = await supabase.from("vendor_quote_offers").upsert(
+        offerPayload,
+        { onConflict: "vendor_quote_result_id,offer_key" },
+      );
+
+      if (offerError) {
+        throw new VendorAutomationError(
+          `Vendor quote offer upsert failed for ${offerPayload.offer_key}: ${summarizeError(offerError)}`,
+          "persistence_failure",
+          {
+            reason: "offer_upsert_failed",
+            vendorQuoteResultId: currentResult.id,
+            offerKey: offerPayload.offer_key,
+          },
+        );
+      }
+    }
+
     const { error } = await supabase
       .from("vendor_quote_results")
       .update({
@@ -1067,6 +1101,7 @@ async function handleVendorQuoteTask(
           ...result.rawPayload,
           artifactStoragePaths,
           requestedQuantity: currentResult.requested_quantity,
+          requirementCapturedAt,
           retryCount,
           failureCode: null,
         },
@@ -1075,39 +1110,6 @@ async function handleVendorQuoteTask(
 
     if (error) {
       throw error;
-    }
-
-    if (result.totalPriceUsd !== null || result.unitPriceUsd !== null || result.leadTimeBusinessDays !== null) {
-      const offerPayload = buildVendorQuoteOfferPayload({
-        vendorQuoteResultId: currentResult.id,
-        organizationId: task.organization_id,
-        vendor,
-        requestedQuantity: currentResult.requested_quantity,
-        requirement: context.requirement,
-        result,
-      });
-      const { error: offerError } = await supabase.from("vendor_quote_offers").upsert(
-        offerPayload,
-        { onConflict: "vendor_quote_result_id,offer_key" },
-      );
-
-      if (offerError) {
-        console.warn(
-          JSON.stringify({
-            service: "overdrafter-cad-worker",
-            level: "warn",
-            source: "worker.vendor_quote_offer",
-            message: `Vendor quote offer upsert failed: ${summarizeError(offerError)}`,
-            context: {
-              vendorQuoteResultId: currentResult.id,
-              offerKey: offerPayload.offer_key,
-              supplier: vendor,
-              quoteRunId: task.quote_run_id,
-              jobId: task.job_id,
-            },
-          }),
-        );
-      }
     }
 
     // Compute and store routing scores for this quote run.

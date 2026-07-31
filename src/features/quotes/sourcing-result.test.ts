@@ -87,6 +87,7 @@ describe("buildClientSourcingResult", () => {
           vendorStatus: "instant_quote_received",
           requestedQuantity: 1,
           quoteDateIso: "2026-07-30T00:00:00.000Z",
+          quoteResultCreatedAt: "2026-07-30T00:00:00.000Z",
           quoteUrl: "https://www.xometry.com/quoting/home/quote-1",
           quoteResultUpdatedAt: "2026-07-30T00:00:00.000Z",
           quoteResultRawPayload: {
@@ -100,6 +101,7 @@ describe("buildClientSourcingResult", () => {
           vendorStatus: "official_quote_received",
           requestedQuantity: 1,
           quoteDateIso: "2026-07-30T00:00:00.000Z",
+          quoteResultCreatedAt: "2026-07-30T00:00:00.000Z",
           quoteUrl: "https://app.fictiv.com/quotes/quote-2",
           quoteResultUpdatedAt: "2026-07-30T00:00:00.000Z",
           quoteResultRawPayload: {
@@ -116,6 +118,39 @@ describe("buildClientSourcingResult", () => {
       outcome: "live_offers_available",
       liveOfferCount: 2,
       liveOfferKeys: ["xometry-live", "fictiv-live"],
+    });
+  });
+
+  it("uses the immutable offer creation time when a live adapter omits quote_date", () => {
+    const result = buildClientSourcingResult({
+      part: makeSupportedPart(),
+      profiles: [],
+      liveOffers: [
+        {
+          offerKey: "xometry-live-without-quote-date",
+          vendorKey: "xometry",
+          vendorStatus: "instant_quote_received",
+          requestedQuantity: 1,
+          quoteDateIso: null,
+          offerCreatedAt: "2026-07-30T00:00:00.000Z",
+          quoteResultCreatedAt: "2026-07-30T00:00:00.000Z",
+          quoteUrl: "https://www.xometry.com/quoting/quote/Q64-TEST",
+          quoteResultRawPayload: {
+            automationVersion: "xometry-worker-v1",
+            detectedFlow: "instant_quote",
+          },
+        },
+      ],
+      automaticCollectionEnabled: true,
+      capabilityDataAvailable: false,
+      now: new Date("2026-07-31T00:00:00.000Z"),
+    });
+
+    expect(result).toEqual({
+      outcome: "live_offers_available",
+      liveOfferCount: 1,
+      liveOfferKeys: ["xometry-live-without-quote-date"],
+      recommendations: [],
     });
   });
 
@@ -221,6 +256,7 @@ describe("buildClientSourcingResult", () => {
           vendorStatus: "instant_quote_received",
           requestedQuantity: 1,
           quoteDateIso: "2026-06-01T00:00:00.000Z",
+          quoteResultCreatedAt: "2026-06-01T00:00:00.000Z",
           quoteUrl: "https://www.xometry.com/quoting/home/old-quote",
           quoteResultRawPayload: {
             automationVersion: "xometry-worker-v1",
@@ -233,6 +269,7 @@ describe("buildClientSourcingResult", () => {
           vendorStatus: "instant_quote_received",
           requestedQuantity: 1,
           quoteDateIso: "2026-07-30T00:00:00.000Z",
+          quoteResultCreatedAt: "2026-07-30T00:00:00.000Z",
           quoteUrl: "simulated://xometry/quote",
           quoteResultRawPayload: {
             automationVersion: "xometry-worker-v1",
@@ -260,7 +297,9 @@ describe("buildClientSourcingResult", () => {
           vendorKey: "xometry",
           vendorStatus: "instant_quote_received",
           requestedQuantity: 1,
-          quoteDateIso: "2026-06-01T00:00:00.000Z",
+          quoteDateIso: null,
+          offerCreatedAt: "2026-06-01T00:00:00.000Z",
+          quoteResultCreatedAt: "2026-06-01T00:00:00.000Z",
           quoteUrl: "https://www.xometry.com/quoting/home/old-quote",
           quoteResultUpdatedAt: "2026-07-30T23:00:00.000Z",
           quoteResultRawPayload: {
@@ -290,6 +329,7 @@ describe("buildClientSourcingResult", () => {
           vendorStatus: "instant_quote_received",
           requestedQuantity: 1,
           quoteDateIso: "2026-07-30T00:00:00.000Z",
+          quoteResultCreatedAt: "2026-07-30T00:00:00.000Z",
           quoteUrl: "https://www.xometry.com/quoting/home/quote-1",
           quoteResultRawPayload: {
             automationVersion: "xometry-worker-v1",
@@ -327,10 +367,48 @@ describe("buildClientSourcingResult", () => {
           vendorStatus: "instant_quote_received",
           requestedQuantity: 1,
           quoteDateIso: "2026-07-30T10:00:00.000Z",
+          quoteResultCreatedAt: "2026-07-30T10:00:00.000Z",
           quoteUrl: "https://www.xometry.com/quoting/home/quote-before-edit",
           quoteResultRawPayload: {
             automationVersion: "xometry-worker-v1",
             detectedFlow: "quote_ready",
+          },
+        },
+      ],
+      automaticCollectionEnabled: true,
+      now: new Date("2026-07-31T00:00:00.000Z"),
+    });
+
+    expect(result).toMatchObject({
+      outcome: "provider_recommendations_available",
+      reason: "automatic_collection_fallback",
+    });
+  });
+
+  it("rejects an offer persisted after requirements changed when quoting captured the prior revision", () => {
+    const part = makeSupportedPart();
+    part.approvedRequirement = {
+      ...part.approvedRequirement!,
+      updated_at: "2026-07-30T12:00:00.000Z",
+    };
+
+    const result = buildClientSourcingResult({
+      part,
+      profiles: [makeProfile("xometry")],
+      liveOffers: [
+        {
+          offerKey: "xometry-persisted-after-edit",
+          vendorKey: "xometry",
+          vendorStatus: "instant_quote_received",
+          requestedQuantity: 1,
+          quoteDateIso: null,
+          offerCreatedAt: "2026-07-30T12:05:00.000Z",
+          quoteResultCreatedAt: "2026-07-30T11:55:00.000Z",
+          quoteUrl: "https://www.xometry.com/quoting/home/quote-after-edit",
+          quoteResultRawPayload: {
+            automationVersion: "xometry-worker-v1",
+            detectedFlow: "quote_ready",
+            requirementCapturedAt: "2026-07-30T11:55:00.000Z",
           },
         },
       ],
@@ -372,6 +450,7 @@ describe("buildClientSourcingResult", () => {
           vendorStatus: "instant_quote_received",
           requestedQuantity: 1,
           quoteDateIso: "2026-07-30T10:00:00.000Z",
+          quoteResultCreatedAt: "2026-07-30T10:00:00.000Z",
           quoteUrl: "https://www.xometry.com/quoting/home/quote-before-edit",
           quoteResultRawPayload: {
             automationVersion: "xometry-worker-v1",
@@ -422,6 +501,7 @@ describe("buildClientSourcingResult", () => {
           vendorStatus: "instant_quote_received",
           requestedQuantity: 2,
           quoteDateIso: "2026-07-30T11:00:00.000Z",
+          quoteResultCreatedAt: "2026-07-30T11:00:00.000Z",
           quoteUrl: "https://www.xometry.com/quoting/home/quote-before-client-edit",
           quoteResultRawPayload: {
             automationVersion: "xometry-worker-v1",

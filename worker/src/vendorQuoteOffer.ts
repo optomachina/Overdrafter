@@ -11,6 +11,7 @@ type VendorQuoteOfferPayloadInput = {
   vendor: VendorName;
   requestedQuantity: number;
   requirement: ApprovedRequirementRecord;
+  requirementCapturedAt: string;
   result: VendorQuoteAdapterOutput;
 };
 
@@ -39,6 +40,7 @@ export function buildVendorQuoteOfferPayload(input: VendorQuoteOfferPayloadInput
       ...input.result.rawPayload,
       quoteUrl: input.result.quoteUrl,
       requestedQuantity: input.requestedQuantity,
+      requirementCapturedAt: input.requirementCapturedAt,
     },
   };
 }
