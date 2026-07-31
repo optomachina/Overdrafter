@@ -699,12 +699,14 @@ export function uploadInputAcceptsFile(
   const extension = path.extname(filePath).toLocaleLowerCase();
   if (!extension) return false;
 
-  const acceptedTypes = accept
-    .split(",")
-    .map((candidate) => candidate.trim().toLocaleLowerCase())
-    .filter(Boolean);
+  const acceptedTypes = new Set(
+    accept
+      .split(",")
+      .map((candidate) => candidate.trim().toLocaleLowerCase())
+      .filter(Boolean),
+  );
 
-  return acceptedTypes.includes(extension) || acceptedTypes.includes("*/*");
+  return acceptedTypes.has(extension) || acceptedTypes.has("*/*");
 }
 
 async function waitForDashboardUploadReadiness(
