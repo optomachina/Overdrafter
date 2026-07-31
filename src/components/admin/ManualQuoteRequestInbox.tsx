@@ -128,13 +128,65 @@ function InboxEmptyState() {
   );
 }
 
+function RequestLifecycle({
+  request,
+}: {
+  request: AdminManualQuoteRequest;
+}) {
+  return (
+    <>
+      <div className="flex max-w-72 flex-wrap gap-2">
+        <Badge variant="outline">
+          Request {formatStatusLabel(request.requestStatus)}
+        </Badge>
+        <Badge variant="outline">
+          Run {formatStatusLabel(request.quoteRunStatus ?? "missing")}
+        </Badge>
+        <Badge variant="outline">
+          Job {formatStatusLabel(request.jobStatus)}
+        </Badge>
+        {request.isStale ? (
+          <Badge variant="destructive">Stale</Badge>
+        ) : null}
+      </div>
+      {request.staleReason ? (
+        <p className="mt-2 max-w-80 text-xs text-destructive">
+          {request.staleReason}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function RequestAction({
+  request,
+  fullWidth = false,
+}: {
+  request: AdminManualQuoteRequest;
+  fullWidth?: boolean;
+}) {
+  return (
+    <Button
+      asChild
+      variant={request.isStale ? "outline" : "default"}
+      size="sm"
+      className={fullWidth ? "w-full" : undefined}
+    >
+      <Link to={buildRequestHref(request)}>
+        {request.isStale ? "Inspect" : "Complete"}
+        <ExternalLink className="ml-2 h-4 w-4" aria-hidden="true" />
+      </Link>
+    </Button>
+  );
+}
+
 function InboxRequestTable({
   requests,
 }: {
   requests: AdminManualQuoteRequest[];
 }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="hidden overflow-x-auto md:block">
       <Table>
         <TableHeader>
           <TableRow className="border-border hover:bg-transparent">
@@ -173,43 +225,74 @@ function InboxRequestTable({
                 </Badge>
               </TableCell>
               <TableCell>
-                <div className="flex max-w-72 flex-wrap gap-2">
-                  <Badge variant="outline">
-                    Request {formatStatusLabel(request.requestStatus)}
-                  </Badge>
-                  <Badge variant="outline">
-                    Run {formatStatusLabel(request.quoteRunStatus ?? "missing")}
-                  </Badge>
-                  <Badge variant="outline">
-                    Job {formatStatusLabel(request.jobStatus)}
-                  </Badge>
-                  {request.isStale ? (
-                    <Badge variant="destructive">Stale</Badge>
-                  ) : null}
-                </div>
-                {request.staleReason ? (
-                  <p className="mt-2 max-w-80 text-xs text-destructive">
-                    {request.staleReason}
-                  </p>
-                ) : null}
+                <RequestLifecycle request={request} />
               </TableCell>
               <TableCell className="text-right">
-                <Button
-                  asChild
-                  variant={request.isStale ? "outline" : "default"}
-                  size="sm"
-                >
-                  <Link to={buildRequestHref(request)}>
-                    {request.isStale ? "Inspect" : "Complete"}
-                    <ExternalLink className="ml-2 h-4 w-4" />
-                  </Link>
-                </Button>
+                <RequestAction request={request} />
               </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
     </div>
+  );
+}
+
+function InboxRequestCards({
+  requests,
+}: {
+  requests: AdminManualQuoteRequest[];
+}) {
+  return (
+    <ul
+      aria-label="Manual quote requests"
+      className="grid gap-3 md:hidden"
+    >
+      {requests.map((request) => (
+        <li
+          key={request.requestId}
+          className="rounded-xl border border-border bg-background/40 p-4"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-medium text-foreground">
+                {request.organizationName}
+              </p>
+              <p className="mt-1 truncate text-xs text-muted-foreground">
+                {request.requestedByEmail ?? "Requester email unavailable"}
+              </p>
+            </div>
+            <Badge variant="outline" className="shrink-0">
+              <span className="sr-only">Request age: </span>
+              {formatRequestAge(request.requestAgeSeconds)}
+            </Badge>
+          </div>
+
+          <div className="mt-4 border-t border-border pt-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Project / job
+            </p>
+            <p className="mt-2 font-medium text-foreground">
+              {request.projectName ?? "No project"}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {request.jobTitle}
+            </p>
+          </div>
+
+          <div className="mt-4 border-t border-border pt-4">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Lifecycle
+            </p>
+            <RequestLifecycle request={request} />
+          </div>
+
+          <div className="mt-4">
+            <RequestAction request={request} fullWidth />
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -309,6 +392,7 @@ function InboxContent({
   return (
     <>
       <InboxRequestTable requests={requests} />
+      <InboxRequestCards requests={requests} />
       <InboxPagination
         cursorHistory={cursorHistory}
         isFetching={requestsQuery.isFetching}

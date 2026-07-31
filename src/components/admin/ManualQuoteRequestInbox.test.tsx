@@ -1,6 +1,12 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -155,11 +161,31 @@ describe("ManualQuoteRequestInbox", () => {
 
     renderInbox();
 
-    expect(await screen.findByText("Stale")).toBeInTheDocument();
+    const mobileList = await screen.findByRole("list", {
+      name: "Manual quote requests",
+    });
+    const mobileRequest = within(mobileList);
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(mobileRequest.getByText("Wilson Works")).toBeInTheDocument();
+    expect(mobileRequest.getByText("buyer@example.com")).toBeInTheDocument();
+    expect(mobileRequest.getByText("Launch Fixture")).toBeInTheDocument();
+    expect(mobileRequest.getByText("Bracket")).toBeInTheDocument();
     expect(
-      screen.getByText("The linked quote run has already completed."),
+      mobileRequest.getByText(
+        (_, element) => element?.textContent === "Request age: 2h",
+      ),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Inspect" })).toHaveAttribute(
+    expect(mobileRequest.getByText("Request Queued")).toBeInTheDocument();
+    expect(mobileRequest.getByText("Run Running")).toBeInTheDocument();
+    expect(
+      mobileRequest.getByText("Job Awaiting Vendor Manual Review"),
+    ).toBeInTheDocument();
+    expect(mobileRequest.getByText("Stale")).toBeInTheDocument();
+    expect(
+      mobileRequest.getByText("The linked quote run has already completed."),
+    ).toBeInTheDocument();
+    expect(mobileRequest.getByRole("link", { name: "Inspect" })).toHaveAttribute(
       "href",
       "/internal/jobs/job-1?quoteRequestId=request-1&quoteRunId=run-1",
     );
@@ -185,7 +211,7 @@ describe("ManualQuoteRequestInbox", () => {
 
     renderInbox();
 
-    await screen.findByText("Bracket");
+    await screen.findAllByText("Bracket");
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     await waitFor(() => {
@@ -194,7 +220,7 @@ describe("ManualQuoteRequestInbox", () => {
         limit: 25,
       });
     });
-    expect(await screen.findByText("Second bracket")).toBeInTheDocument();
+    expect(await screen.findAllByText("Second bracket")).not.toHaveLength(0);
     expect(screen.getByText("Page 2")).toBeInTheDocument();
   });
 });
