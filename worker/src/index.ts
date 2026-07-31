@@ -843,6 +843,11 @@ async function handleDebugExtractTask(
   }
 }
 
+/**
+ * Runs vendor automation while moving the quote result through running and terminal states.
+ * Retryable automation or persistence failures are rethrown for queue retry; terminal
+ * failures are recorded on the result before the task completes.
+ */
 async function handleVendorQuoteTask(
   supabase: SupabaseClient,
   task: QueueTaskRecord,
