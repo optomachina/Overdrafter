@@ -26,7 +26,6 @@ import {
 import { reconcileJobParts, requestExtraction } from "@/features/quotes/api/extraction-api";
 import {
   cancelQuoteRequest,
-  requestManualQuote,
   requestQuote,
   setJobSelectedVendorQuoteOffer,
 } from "@/features/quotes/api/quote-requests-api";
@@ -36,6 +35,7 @@ import { createJobsFromUploadFiles, uploadFilesToJob } from "@/features/quotes/a
 import {
   fetchClientActivityEventsByJobIds,
   fetchPartDetailByJobId,
+  fetchVendorCapabilityProfiles,
   resolveClientPartDetailRoute,
 } from "@/features/quotes/api/workspace-access";
 import { updateClientPartRequest, resetClientPartPropertyOverrides } from "@/features/quotes/api/jobs-api";
@@ -73,6 +73,7 @@ import {
   type QuotePreset,
 } from "@/features/quotes/selection";
 import { logQuoteFetchDiagnostics } from "@/features/quotes/quote-chart-diagnostics";
+import { buildClientSourcingResult } from "@/features/quotes/sourcing-result";
 import type {
   ClientPartPropertyOverrideField,
   ClientPartRequestUpdateInput,
@@ -254,6 +255,12 @@ export function useClientPartController(
     },
     ...workspaceDetailQueryOptions,
   });
+  const vendorCapabilityProfilesQuery = useQuery({
+    queryKey: ["vendor-capability-profiles"],
+    queryFn: fetchVendorCapabilityProfiles,
+    enabled: Boolean(user),
+    staleTime: 15 * 60 * 1000,
+  });
   const partDetail = partDetailQuery.data;
   const canonicalJobId = resolvedJobId ?? partDetail?.job?.id ?? routeJobId;
   const isPartDetailLoading =
@@ -384,10 +391,13 @@ export function useClientPartController(
   });
 
   const requestQuoteMutation = useMutation({
-    mutationFn: ({ forceRetry = false }: { forceRetry?: boolean }) =>
-      quoteCollectionMode.automaticEnabled
-        ? requestQuote(canonicalJobId, forceRetry)
-        : requestManualQuote(canonicalJobId, forceRetry),
+    mutationFn: ({ forceRetry = false }: { forceRetry?: boolean }) => {
+      if (!quoteCollectionMode.automaticEnabled) {
+        throw new Error("Automatic quote collection requires Pro.");
+      }
+
+      return requestQuote(canonicalJobId, forceRetry);
+    },
     onSuccess: async (result, variables) => {
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
 
@@ -601,10 +611,49 @@ export function useClientPartController(
       : quoteDataStatus === "invalid_for_plotting"
         ? summarizeQuoteDiagnostics(quoteDiagnostics)
         : null;
-  const rankedQuoteOptions = useMemo(
+  const sourcingCandidates = useMemo(
     () => sortQuoteOptionsForPreset(quoteOptions, activePreset ?? "cheapest"),
     [activePreset, quoteOptions],
   );
+  const sourcingResult = useMemo(
+    () => {
+      const result = buildClientSourcingResult({
+        part: partDetail?.part ?? null,
+        profiles: vendorCapabilityProfilesQuery.data ?? [],
+        liveOffers: sourcingCandidates.map((option) => ({
+          ...option,
+          offerKey: option.key,
+        })),
+        automaticCollectionEnabled: quoteCollectionMode.automaticEnabled,
+        capabilityDataAvailable: !vendorCapabilityProfilesQuery.isError,
+      });
+
+      if (
+        vendorCapabilityProfilesQuery.isPending &&
+        result.outcome !== "live_offers_available"
+      ) {
+        return null;
+      }
+
+      return result;
+    },
+    [
+      partDetail?.part,
+      quoteCollectionMode.automaticEnabled,
+      sourcingCandidates,
+      vendorCapabilityProfilesQuery.data,
+      vendorCapabilityProfilesQuery.isError,
+      vendorCapabilityProfilesQuery.isPending,
+    ],
+  );
+  const rankedQuoteOptions = useMemo(() => {
+    if (sourcingResult?.outcome !== "live_offers_available") {
+      return [];
+    }
+
+    const liveOfferKeys = new Set(sourcingResult.liveOfferKeys);
+    return sourcingCandidates.filter((option) => liveOfferKeys.has(option.key));
+  }, [sourcingCandidates, sourcingResult]);
   const selectedQuoteOption =
     getSelectedOption(rankedQuoteOptions, partDetail?.job.selected_vendor_quote_offer_id) ??
     rankedQuoteOptions.find((option) => option.eligible) ??
@@ -1314,6 +1363,7 @@ export function useClientPartController(
     saveRequestMutation,
     selectedQuoteOption,
     selectedRevisionIndex,
+    sourcingResult,
     setIsPartArchiveBusy,
     setIsPartOptionsOpen,
     setIsSearchOpen,

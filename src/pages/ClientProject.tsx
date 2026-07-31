@@ -1342,6 +1342,7 @@ const ClientProject = () => {
                 disabled={
                   requestProjectQuotesMutation.isPending
                   || isQuoteCollectionModeLoading
+                  || !automaticQuoteCollectionEnabled
                   || projectRequestableJobIds.length === 0
                 }
                 onClick={() => {
@@ -1349,11 +1350,23 @@ const ClientProject = () => {
                 }}
               >
                 {requestProjectQuotesMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {projectRequestableJobIds.length > 0
-                  ? `${automaticQuoteCollectionEnabled ? "Request" : "Request manual"} ${projectRequestableJobIds.length} quote${projectRequestableJobIds.length === 1 ? "" : "s"}`
-                  : automaticQuoteCollectionEnabled
-                    ? "Request quotes"
-                    : "Request manual quotes"}
+                {(() => {
+                  if (isQuoteCollectionModeLoading) {
+                    return "Loading quote access…";
+                  }
+
+                  if (!automaticQuoteCollectionEnabled) {
+                    return "Pro required for automatic quotes";
+                  }
+
+                  if (projectRequestableJobIds.length === 0) {
+                    return "Request quotes";
+                  }
+
+                  const quoteSuffix =
+                    projectRequestableJobIds.length === 1 ? "" : "s";
+                  return `Request ${projectRequestableJobIds.length} quote${quoteSuffix}`;
+                })()}
               </Button>
               <Button
                 type="button"

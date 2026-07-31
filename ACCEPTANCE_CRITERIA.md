@@ -67,20 +67,20 @@ This document defines what it means for the current repository-hardening phase t
 - The commercial plan is owned by the organization, not by an individual user or membership role.
 - Every organization resolves to either Free or Pro through a server-side effective-entitlement contract.
 - Free users may upload parts and create projects without a customer-facing usage quota.
-- Free and Pro users may submit manual quote requests for an individual part or a ready project batch.
-- Manual requests create durable lifecycle visibility and internal follow-up work without automated vendor dispatch.
+- A supported Free upload returns ranked potential providers, fit explanations, and official RFQ links without starting worker or operator work.
+- Every sourcing result is explicitly one of: live offers available, provider recommendations available, or unsupported package.
+- Potential providers are never presented as returned quotes, and synthetic or stale prices are never labeled live.
+- A live offer must come from a successful trusted Xometry or Fictiv live-adapter result and be no more than 14 days old; all other persisted offers fall back to recommendations.
 - Pro adds the `automatic_quote_collection` entitlement.
-- The automatic-quote toggle remains visible to Free users. Attempting to enable it opens a Pro upgrade dialog and leaves it off.
 - Automatic quote APIs independently enforce Pro and return a stable `pro_required` result when the UI is bypassed.
+- Vendor authentication expiry, timeout, disabled adapters, and portal failures expose provider guidance rather than stranding the customer.
 - Existing operational throttles and organization cost ceilings remain invisible safeguards, not plan quotas.
 - Authorized billing admins may create and revoke audited trial and complimentary Pro grants under AAL2.
 - Trial grants require an expiration. Complimentary grants require a reason and review date and may optionally expire.
-- Self-service Pro offers monthly and annual subscription intervals.
-- Eligible past-due Pro subscriptions retain Pro access for a seven-day grace period, then resolve to Free without affecting uploads or manual quote requests.
-- Stripe subscription, invoice, coupon, and promotion-code facts are synchronized through signed, replay-safe webhooks before they affect access.
-- Subscription promotion codes do not discount manufacturing quote or order totals.
-- Procurement handoffs and explicit orders may be persisted for manual visibility and externally confirmed lifecycle tracking.
-- Manufacturing payment collection, automated supplier order placement, order discounts, tax automation, and ERP/accounting integration remain excluded.
+- Self-service launch Pro costs $49/month through hosted Stripe Checkout.
+- Eligible past-due Pro subscriptions retain Pro access for a seven-day grace period, then resolve to Free without affecting uploads or sourcing guidance.
+- Stripe subscription and invoice facts are synchronized through signed, replay-safe webhooks before they affect access.
+- Annual billing, coupons, promotion codes, procurement handoffs, orders, manufacturing payment collection, automated supplier order placement, tax automation, and ERP/accounting integration remain excluded.
 
 ### Feature addendum — Client-triggered quote requests
 - A logged-in client user can request a quote from the part workspace for an uploaded part they can edit.

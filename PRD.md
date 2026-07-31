@@ -80,18 +80,18 @@ contract is defined in
 
 ## Client-triggered quote request capability
 
-OverDrafter includes an explicit customer-facing `Request Quote` action for uploaded parts. Client users can request a quote for an individual part from the part workspace, or request quotes for the ready parts in a project from the project workspace.
+For the August 9, 2026 launch, OverDrafter turns a reviewed machined-aluminum STEP/PDF package into an unattended sourcing result. Every result ends in one of three client-safe outcomes: live offers, ranked potential-provider recommendations, or a bounded unsupported-package explanation with a useful next action.
 
 Canonical feature statement:
 
-`Client users can explicitly request quotes for uploaded parts. Manual requests are available to Free and Pro organizations and enter an internal follow-up workflow without automated vendor dispatch. Pro organizations may instead enable automatic collection, which validates the package, creates an idempotent quote request, and dispatches vendor quote generation through the worker pipeline across the organization's enabled applicable vendors.`
+`Free organizations receive ranked provider guidance and official RFQ links from reviewed capability data. Pro organizations may request automatic quote collection and receive persisted live offers when a vendor succeeds. A failed or unavailable vendor lane degrades to the same useful provider guidance; it never creates a customer-visible dependency on internal manual fulfillment.`
 
 Commercial access rules:
 - The commercial plan belongs to the organization, not an individual membership.
 - Free and Pro organizations may upload parts without a customer-facing quota.
-- Free and Pro organizations may request manual quote follow-up for a single part or a ready project batch.
+- Free organizations receive provider recommendations without starting a worker or creating internal fulfillment work.
 - Automatic vendor collection is a Pro entitlement enforced by the server before vendor work is queued.
-- The automatic-quote toggle remains visible to Free users. Attempting to enable it opens the Pro upgrade dialog and leaves the toggle off.
+- Potential providers must be labeled separately from returned quotes. Synthetic or stale prices must never be presented as live.
 - Existing operational throttles and cost ceilings remain invisible safety controls. They are not customer quotas and must not create upload anxiety.
 
 Current implementation foundation:
@@ -99,19 +99,19 @@ Current implementation foundation:
 - project-scoped bulk automatic requests for ready parts
 - multi-vendor dispatch across org-enabled, part-applicable vendor lanes
 - durable quote request lifecycle visibility in the client UI
+- provider recommendations ranked from authenticated, reviewed capability profiles
+- official provider RFQ links that remain useful when automation is unavailable
 
 Planned commercial additions:
-- manual quote-request mode with an internal fulfillment inbox
-- organization-level Free/Pro entitlement resolution
-- visible-but-gated automatic collection for Free organizations
-- audited manual trial and complimentary Pro grants
+- replay-safe Stripe subscription synchronization
+- one hosted monthly Pro Checkout price and Billing Portal access
+- production funnel events from signup through live offer receipt
 
 Current non-goals:
 - client-side vendor choice or multi-vendor comparison at request time
-- cancellation UI
 - automatic reruns after a successful request
-- quote comparison across multiple automated vendors triggered by the client request path
 - richer DFM or release-gate workflows beyond the existing request metadata and package validation
+- annual pricing, coupons, manufacturing payments, orders, and complex account administration
 
 ## Vision
 
@@ -181,7 +181,7 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 - Organize parts into projects.
 - Create a project before deciding whether the submitted content includes assemblies, standalone parts, or both.
 - Share projects with collaborators.
-- Explicitly request manual quote follow-up when an uploaded part package is ready.
+- Receive an actionable sourcing result without waiting for an operator.
 - Upgrade the organization to Pro when automatic vendor quote collection is valuable.
 - See whether quote collection has not started, is queued, is requesting, has received a response, or failed.
 - Review published quote options.
@@ -204,7 +204,6 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 ### For commercial operations admins
 - Inspect organization-level Free/Pro status, entitlement source, subscription state, and grant history.
 - Grant or revoke reasoned trial and complimentary Pro access when authorized.
-- Issue and deactivate subscription-only promotion codes.
 - Review manual procurement handoffs and externally confirmed order status.
 - Perform privileged mutations only through separately granted capabilities, step-up authentication, and append-only audit records.
 
@@ -216,11 +215,11 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 
 ### Primary goals
 - Reduce friction in part intake.
-- Make uploaded parts immediately accessible while letting client users explicitly start quote collection when prerequisites are met.
+- Make supported uploads immediately useful through live offers or reviewed provider guidance.
 - Centralize vendor comparison in one canonical record of quoting work.
 - Provide a clean client experience for collaboration and quote selection.
 - Maintain secure access boundaries between workspaces, projects, collaborators, and internal-only data.
-- Let users enjoy uploads and manual quote requests without quota anxiety while monetizing cost-bearing automatic quote collection.
+- Let users receive useful sourcing guidance without quota anxiety while monetizing cost-bearing automatic quote collection.
 - Give trusted operators safe, auditable controls for commercial access and order visibility.
 
 ### Secondary goals
@@ -282,18 +281,17 @@ the application.
 
 OverDrafter supports an organization-level `Free` plan and a `Pro` plan.
 
-- Free includes unlimited part uploads, project organization, request preparation, and manual quote requests.
+- Free includes unlimited part uploads, project organization, request preparation, ranked provider guidance, and official RFQ links.
 - Pro adds the `automatic_quote_collection` entitlement.
 - Membership roles such as client, estimator, and internal admin remain authorization roles; they are not commercial plans.
 - Trial grants are explicit entitlement grants with actor, reason, effective dates, required expiration, revocation history, and immutable audit.
 - Complimentary grants are explicit entitlement grants with actor, required reason, effective dates, required review date, optional expiration, revocation history, and immutable audit.
-- Self-service Pro subscriptions offer monthly and annual Stripe prices.
+- Launch Pro is one $49/month Stripe subscription.
 - Eligible past-due Pro subscriptions retain access for a seven-day delinquency grace period before resolving to Free.
-- Stripe is the economic source of truth for Customers, Products, Prices, Subscriptions, Invoices, Coupons, and Promotion Codes.
+- Stripe is the economic source of truth for customers, products, prices, subscriptions, and invoices.
 - A webhook-synchronized local projection plus active manual grants is the server-side source used for product access decisions.
 - Client redirects, UI state, and client-supplied Stripe identifiers must never grant Pro access.
-- Subscription promotion codes do not change manufacturing quote or order totals.
-- Account subscription billing remains separate from procurement, manufacturing payments, and the manual order ledger.
+- Annual pricing, coupons, promotion codes, procurement payments, and order administration are deferred until the web product records revenue.
 
 ## Client workspace surface
 

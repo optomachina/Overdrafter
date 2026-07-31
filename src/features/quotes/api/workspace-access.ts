@@ -32,6 +32,10 @@ export {
 } from "./workspace-api";
 
 export {
+  fetchVendorCapabilityProfiles,
+} from "./capability-profiles-api";
+
+export {
   fetchAdminAllJobs,
   fetchAdminAllProjects,
   fetchAdminAllUsers,

@@ -19,6 +19,7 @@ import {
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
+import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { PartProductDataBar } from "@/components/quotes/PartProductDataBar";
 import { PartViewerRow } from "@/components/quotes/PartViewerRow";
@@ -229,6 +230,7 @@ const ClientPart = () => {
     saveRequestMutation,
     selectedQuoteOption,
     selectedRevisionIndex,
+    sourcingResult,
     setIsPartArchiveBusy,
     setIsPartOptionsOpen,
     setIsSearchOpen,
@@ -452,10 +454,18 @@ const ClientPart = () => {
                 status={quoteRequestViewModel.status}
                 tone={quoteRequestViewModel.tone}
                 label={quoteRequestViewModel.label}
-                detail={quoteRequestViewModel.detail}
+                detail={
+                  !automaticQuoteCollectionEnabled &&
+                  (quoteRequestViewModel.action.kind === "request" ||
+                    quoteRequestViewModel.action.kind === "retry")
+                    ? "Your sourcing guidance is available below. Pro enables automatic vendor quote collection."
+                    : quoteRequestViewModel.detail
+                }
                 actionLabel={
-                  quoteRequestViewModel.action.kind === "request" && !automaticQuoteCollectionEnabled
-                    ? "Request manual quote"
+                  !automaticQuoteCollectionEnabled &&
+                  (quoteRequestViewModel.action.kind === "request" ||
+                    quoteRequestViewModel.action.kind === "retry")
+                    ? null
                     : quoteRequestViewModel.action.label
                 }
                 actionDisabled={
@@ -465,7 +475,19 @@ const ClientPart = () => {
                 }
                 blockerReasons={quoteRequestViewModel.blockerReasons}
                 isBusy={isRequestingQuote || isCancelingQuoteRequest}
-                onAction={quoteRequestViewModel.action.kind === "none" ? null : handleQuoteRequestAction}
+                onAction={
+                  quoteRequestViewModel.action.kind === "none" ||
+                  (!automaticQuoteCollectionEnabled &&
+                    (quoteRequestViewModel.action.kind === "request" ||
+                      quoteRequestViewModel.action.kind === "retry"))
+                    ? null
+                    : handleQuoteRequestAction
+                }
+                heading={
+                  automaticQuoteCollectionEnabled
+                    ? "Automatic quote status"
+                    : "Free sourcing preview"
+                }
               />
             ) : null}
           </>
@@ -814,7 +836,9 @@ const ClientPart = () => {
                 </TabsList>
 
                 <TabsContent value="quote" className="mt-0">
-                  <ClientQuoteDecisionPanel
+                  <div className="space-y-4">
+                    {sourcingResult ? <ClientSourcingResultPanel result={sourcingResult} /> : null}
+                    <ClientQuoteDecisionPanel
                     options={rankedQuoteOptions}
                     selectedOption={
                       rankedQuoteOptions.find((option) => option.offerId === selectedOfferId) ?? selectedQuoteOption
@@ -831,6 +855,7 @@ const ClientPart = () => {
                         type="button"
                         className="rounded-full shadow-sm"
                         onClick={() => navigate(appAwareHref(`/parts/${jobId}/review`))}
+                        disabled={rankedQuoteOptions.length === 0}
                       >
                         Review order
                         <MoveRight className="ml-2 h-4 w-4" />
@@ -854,7 +879,8 @@ const ClientPart = () => {
                         dueDateHelpText="Highlights which vendors can meet the requested delivery date and dims the rest immediately."
                       />
                     }
-                  />
+                    />
+                  </div>
                 </TabsContent>
 
                 <TabsContent value="request" className="mt-0 md:hidden">

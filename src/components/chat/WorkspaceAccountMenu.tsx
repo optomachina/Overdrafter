@@ -128,6 +128,35 @@ const PANEL_CARD_CLASS = "rounded-surface-lg border border-border bg-muted p-4";
 const NOTIFICATION_BADGE_CLASS =
   "rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300";
 
+function getSourcingPlanPresentation(
+  isLoading: boolean,
+  hasAutomaticEntitlement: boolean,
+) {
+  if (isLoading) {
+    return {
+      badge: "Checking",
+      description: "Confirming this organization's current sourcing plan.",
+      title: "Checking sourcing access",
+    };
+  }
+
+  if (hasAutomaticEntitlement) {
+    return {
+      badge: "Pro",
+      description:
+        "Eligible parts are sent to supported quote providers automatically. If a provider is unavailable, your reviewed recommendations and official RFQ links remain available.",
+      title: "Automatic quote collection",
+    };
+  }
+
+  return {
+    badge: "Free",
+    description:
+      "Free includes reviewed provider recommendations and official RFQ links. Upgrade to Pro to collect vendor quotes automatically.",
+    title: "Provider recommendations",
+  };
+}
+
 type ArchiveListItem =
   | {
       kind: "project";
@@ -689,6 +718,11 @@ export function WorkspaceAccountMenu({
   };
 
   const renderPanelBody = () => {
+    const sourcingPlanPresentation = getSourcingPlanPresentation(
+      quoteCollectionMode.isLoading,
+      quoteCollectionMode.hasAutomaticEntitlement,
+    );
+
     switch (activePanel) {
       case "notifications":
         return (
@@ -908,38 +942,32 @@ export function WorkspaceAccountMenu({
             </div>
 
             <div className={PANEL_CARD_CLASS}>
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <PanelSectionTitle>Quote collection</PanelSectionTitle>
-                    <span className="rounded-full border border-border bg-accent px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground/80">
-                      {quoteCollectionMode.hasAutomaticEntitlement ? "Pro" : "Free"}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-[17px] font-medium text-foreground">Automatic quotes</p>
-                  <p className="mt-1 text-sm leading-6 text-foreground/80">
-                    {quoteCollectionMode.hasAutomaticEntitlement
-                      ? "Automatically send eligible parts to supported quote providers. Turn this off anytime to request a manual quote instead."
-                      : "Manual quotes are included with your account. Automatic quote collection is available with Pro."}
-                  </p>
-                </div>
-                <div className="flex min-h-11 shrink-0 items-center">
-                  <Switch
-                    aria-label="Automatic quotes"
-                    checked={quoteCollectionMode.automaticEnabled}
-                    disabled={quoteCollectionMode.isLoading}
-                    onCheckedChange={(checked) => {
-                      if (checked && !quoteCollectionMode.hasAutomaticEntitlement) {
-                        setUpgradeDialogOpen(true);
-                        return;
-                      }
-
-                      quoteCollectionMode.setAutomaticEnabled(checked);
-                    }}
-                    className="data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-accent"
-                  />
-                </div>
+              <div className="flex items-center gap-2">
+                <PanelSectionTitle>Sourcing plan</PanelSectionTitle>
+                <span className="rounded-full border border-border bg-accent px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground/80">
+                  {sourcingPlanPresentation.badge}
+                </span>
               </div>
+              <p className="mt-3 text-[17px] font-medium text-foreground">
+                {sourcingPlanPresentation.title}
+              </p>
+              <p className="mt-1 text-sm leading-6 text-foreground/80">
+                {sourcingPlanPresentation.description}
+              </p>
+              {!quoteCollectionMode.isLoading
+                && !quoteCollectionMode.hasAutomaticEntitlement ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-4 rounded-full border-border bg-transparent"
+                  onClick={() => {
+                    setActivePanel(null);
+                    setUpgradeDialogOpen(true);
+                  }}
+                >
+                  Upgrade to Pro
+                </Button>
+              ) : null}
             </div>
 
             {activeMembership?.organizationId && orgDetailsLoaded && (
@@ -1833,8 +1861,8 @@ export function WorkspaceAccountMenu({
           <AlertDialogHeader>
             <AlertDialogTitle>Let OverDrafter collect quotes automatically</AlertDialogTitle>
             <AlertDialogDescription className="text-muted-foreground">
-              Upgrade to Pro to automatically send eligible parts to supported quote providers. You can keep
-              requesting manual quotes for free.
+              Upgrade to Pro to automatically send eligible parts to supported quote providers. Reviewed
+              recommendations and official RFQ links remain available on Free.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
