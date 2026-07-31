@@ -17,7 +17,12 @@ At a high level, the product does four things:
 3. Lets internal estimators review extracted requirements and compare sourcing options.
 4. Publishes curated quote packages for client review and selection.
 
-The primary client entry model is `Parts | Quotes | Search` on responsive web and iOS. `Project` remains the collaboration and procurement-workflow container in the domain; it does not need to be the first navigation choice for every customer. `Organization` is the commercial account and entitlement boundary.
+The primary responsive-web entry model is `Parts | Quotes | Search`. The
+approved iOS growth shell is `Inbox | Parts | Quotes | More` with a separate,
+capability-gated `Ask OverDrafter` action. `Project` remains the collaboration
+and procurement-workflow container in the domain; it does not need to be the
+first navigation choice for every customer. `Organization` is the commercial
+account and entitlement boundary.
 
 ## Core terminology and container model
 
@@ -35,11 +40,11 @@ The intended hierarchy is:
 - Documents and supporting files inside a project
 - Quote packages, quote rounds, and downstream order or review records scoped to a project
 
-When collaboration or mixed-request context is needed, customer-facing actions should use project-oriented labels such as `Create Project`, `Add Parts`, `Add Assembly`, `Upload Files`, and `Request Quotes`. The primary launch navigation remains `Parts | Quotes | Search`.
+When collaboration or mixed-request context is needed, customer-facing actions should use project-oriented labels such as `Create Project`, `Add Parts`, `Add Assembly`, `Upload Files`, and `Request Quotes`. Responsive web keeps `Parts | Quotes | Search`; iOS reveals Projects contextually through `More` and artifact links.
 
 ## Quote Intelligence launch surface
 
-The client application uses three durable, user-facing destinations:
+The responsive web application uses three durable, user-facing destinations:
 
 - `Parts` — the accessible artifact library, with All/Parts/Assemblies as one filter control
 - `Quotes` — quote requests and their current supplier-response/selection state
@@ -49,7 +54,29 @@ This presentation model does not replace `Project` in the backend. Projects cont
 
 Quote detail presents request facts and supplier offers directly. Buyer comparison uses independent points with ready-to-ship working days on X and quoted total price on Y. It must not draw a connecting, trend, or Pareto line through unrelated offers.
 
-The same launch model is used by responsive web and the iPhone/iPad application so a user does not have to learn two products.
+The approved iPhone/iPad shell adapts that same artifact-first product to a
+smaller operational surface:
+
+- `Inbox` — unresolved quote decisions and recoverable quote problems, not a
+  general activity feed
+- `Parts` — the same accessible artifact library
+- `Quotes` — the same quote-request and offer-decision surface
+- `More` — only destinations that work now, initially Search, Projects,
+  Favorites, and Settings as each becomes available
+- `Ask OverDrafter` — a separate contextual action, hidden until its read-only
+  capability is available
+
+New iOS users land in Quotes; later launches restore their last valid
+destination. Unavailable services, PDM, supplier, and marketplace destinations
+remain hidden rather than appearing as disabled placeholders.
+
+In the approved iOS target, the app authenticates through the OverDrafter
+website in `ASWebAuthenticationSession`. The callback carries only opaque
+one-time material, and a server-mediated bootstrap establishes the existing
+Supabase session in the app's persistent web store. Access and refresh tokens
+never belong in callback URLs or native app storage. The security and lifecycle
+contract is defined in
+[`docs/mobile-authentication-contract.md`](docs/mobile-authentication-contract.md).
 
 ## Client-triggered quote request capability
 
@@ -198,10 +225,38 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 
 ### Secondary goals
 - Support mixed sourcing models including browser automation, imported spreadsheets, and manual quote intake.
+- Let customers discover qualified manufacturing suppliers by capability and geographic proximity when an instant-quote provider is not the best or only path.
+- Let customers contribute supplier information for shops that are not yet represented, subject to verification and deduplication.
 - Support long-running asynchronous processing.
 - Preserve auditability for sensitive workflow actions.
 - Make the app usable for both one-off parts and grouped project workflows.
 - Keep future BOM, revision, and where-used capabilities compatible with projects that contain multiple assemblies and standalone parts.
+
+## Supplier discovery and assisted-RFQ direction
+
+OverDrafter should support two complementary sourcing lanes after a customer uploads a part:
+
+1. `instant_quote`: free automated quote collection from supported high-volume vendor platforms.
+2. `supplier_discovery`: search and assisted RFQ preparation for independent shops selected by capability, geography, certification, customer preference, or other reviewed fit criteria.
+
+The supplier directory is a continuously maintained coverage system rather than a claim that every possible shop is permanently known. Supplier companies, individual facilities, capabilities, certifications, service areas, source evidence, and verification history must be represented separately so results can be deduplicated and audited.
+
+Customers may:
+
+- search for shops near a part destination or another chosen location
+- filter shops by relevant manufacturing capabilities and qualifications
+- suggest or provide information about an unlisted shop
+- use directory information to prepare or support an RFQ without implying that the shop offers an instant API quote
+
+Historical approved-supplier lists and public directories are discovery evidence only. A historical approval, certification, capability, address, or availability claim must retain its source and effective date and must not be presented as currently verified without a later verification event.
+
+Commercial placement may eventually let suppliers pay for additional visibility. Paid placement must:
+
+- be visibly labeled as sponsored
+- remain separate from organic capability and proximity matching
+- never make an otherwise ineligible supplier appear technically qualified
+- never change quote price, lead-time, quality, or capability scoring
+- preserve an organic-results path that customers can inspect independently
 
 ## Non-goals
 
@@ -216,7 +271,12 @@ The current product should not be treated as owning:
 - full manufacturing execution
 - public marketing CMS functionality
 
-Native iPhone and iPad applications are now in scope. The first release may reuse hardened route-specific web workspaces inside a native navigation shell to preserve auth, upload, and quote mutation parity; privileged credentials must never be embedded in the application.
+Native iPhone and iPad applications are now in scope. The first beta reuses
+hardened route-specific web workspaces and supports embedded email/password
+sign-in. The approved follow-on preserves those workspaces for upload and quote
+mutation parity but moves provider authentication into the system
+web-authentication session. Privileged credentials must never be embedded in
+the application.
 
 ## Commercial account and billing boundary
 
@@ -239,7 +299,13 @@ OverDrafter supports an organization-level `Free` plan and a `Pro` plan.
 
 The client-facing workspace should be artifact-first. CAD, drawings, structured metadata, request state, and quote comparison should be the dominant surfaces in the part and project experience.
 
-Chat-style interaction may exist as a contextual tool inside the workspace, but it must not be the primary page surface or the primary information architecture. The launch mental model is `Parts | Quotes | Search`; Project remains contextual collaboration scope, and artifact/quote detail remains the decision surface.
+Chat-style interaction may exist as a contextual tool inside the workspace, but
+it must not replace structured artifacts, quote comparisons, or explicit
+confirmation surfaces. Responsive web and the first iOS beta launch through
+`Parts | Quotes | Search`. The approved iOS target grows to
+`Inbox | Parts | Quotes | More` plus a separate Ask action. Project remains
+contextual collaboration scope, and artifact/quote detail remains the decision
+surface.
 
 ## Product principles
 
