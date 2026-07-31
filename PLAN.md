@@ -34,7 +34,13 @@ Operational workflow alignment:
 
 Ship the Quote Intelligence client release across responsive web and iPhone/iPad while preserving the no-Stripe live-quote loop for `dmrifles@gmail.com`: sign in, upload real part files, request quotes, compare returned offers by total price and lead time, and select an option or receive an explicit manual-follow-up state.
 
-The launch navigation is `Parts | Quotes | Search`. Project remains the collaboration/procurement-workflow container behind these views; Organization is the commercial account and entitlement boundary. PDM, marketplace publication, customer-visible unvalidated estimates, and supplier benchmarking remain capability-gated.
+Responsive web and the first iOS beta use `Parts | Quotes | Search`. Project
+remains the collaboration/procurement-workflow container behind these views,
+and Organization is the commercial account and entitlement boundary. The approved
+iOS follow-on adds a quote-action Inbox, moves Search under More, and adds a
+separate capability-gated Ask action. PDM, marketplace publication,
+customer-visible unvalidated estimates, supplier benchmarking, and
+consequential agent actions remain capability-gated.
 
 Release sequence:
 
@@ -73,6 +79,47 @@ Execution sequence:
 10. Add reconciliation, monitoring, kill switches, pilot provisioning, and staged rollout.
 
 The Commercial Account Administration initiative is tracked by Linear parent `OVD-227`. The parent remains High complexity and is executed only through its bounded child issues.
+
+### Approved iOS follow-on sequence
+
+The mobile redesign is High complexity as one unit and must remain split into
+the following bounded Linear issues:
+
+1. `OVD-220` defines the website-mediated browser-auth and one-time session
+   handoff contract.
+2. `OVD-219` implements that authentication bridge only after explicit
+   High-complexity approval and security review.
+3. `OVD-221` adds the native welcome screen, claimed HTTPS
+   `ASWebAuthenticationSession` callback, bootstrap, logout, and account
+   switching.
+4. `OVD-224` changes the native shell to
+   `Inbox | Parts | Quotes | More` plus a separate Ask action.
+5. `OVD-222` makes Inbox a client-safe queue of unresolved quote actions.
+6. `OVD-223` adds contextual, read-only Ask OverDrafter with structured results
+   after the command grammar and validator foundations are ready.
+
+`OVD-226` must define authorization, exact confirmation, idempotency, and audit
+contracts before any agent write or external action is enabled. `OVD-225`
+separately defines the licensing, edition, and citation boundary for
+engineering-standards content. Neither guardrail is satisfied by a chat UI.
+
+`OVD-220` established the approved contract in
+[`docs/mobile-authentication-contract.md`](docs/mobile-authentication-contract.md).
+The server/browser implementation is the dependency-ordered `OVD-219` slice;
+native adoption remains isolated to `OVD-221`.
+
+## Supplier discovery track
+
+Build a complementary sourcing path that begins in Tucson and can expand across the United States:
+
+1. Establish a provenance-first supplier, facility, capability, certification, and verification schema without changing the current instant-vendor execution model.
+2. Import the supplied historical SpaceX approved-supplier data as dated source evidence, with deterministic deduplication and no implied current approval.
+3. Add Tucson-area discovery and verification workflows, including customer-submitted shop information.
+4. Add capability- and proximity-based organic search for manufacturing requests that need independent-shop sourcing.
+5. Add assisted RFQ preparation and response intake for directory suppliers.
+6. Consider clearly labeled sponsored placement only after organic eligibility, matching, and ranking are independently testable.
+
+The supplier-discovery track must not delay or weaken the active instant-quote MVP. Instant vendor quotes and directory-assisted sourcing are complementary lanes presented from the same part or project context.
 
 ### Immediate next steps (MVP — sequenced by dependency)
 

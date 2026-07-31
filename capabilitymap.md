@@ -23,6 +23,7 @@ This document classifies OverDrafter capabilities by planning horizon so future 
 | quote comparison | Now | core current workflow |
 | published package review | Now | current product capability |
 | worker-based async processing | Now | core implementation foundation |
+| universal iPhone/iPad app | Now | native shell and route-specific web workspaces exist |
 | part workspace redesign | Next | direct continuation of current work |
 | project workspace redesign | Next | direct continuation of current work |
 | quote preset selection | Next | directly adjacent to existing compare flow |
@@ -34,6 +35,10 @@ This document classifies OverDrafter capabilities by planning horizon so future 
 | persisted procurement handoffs | Next | promote existing client-side handoff state into an authenticated durable record |
 | manual order ledger | Next | explicit order snapshots and externally confirmed visibility without native payment/placement |
 | browser notifications | Next | useful extension of current web product |
+| iOS website-mediated sign-in | Next | contract first; bridge and native client remain dependency-ordered |
+| iOS growth shell | Next | `Inbox \| Parts \| Quotes \| More` plus capability-gated Ask |
+| actionable Quote Inbox | Next | unresolved client quote decisions and recoverable failures only |
+| contextual read-only agent | Next | structured answers over authorized current data; no writes |
 | richer RFQ metadata | Next | directly supports better quoting and review |
 | canonical manufacturing-process classification | Next | user-confirmable classification should normalize drawing/CAD evidence and drive vendor eligibility |
 | service request taxonomy | Next | adjacent product expansion |
@@ -46,8 +51,9 @@ This document classifies OverDrafter capabilities by planning horizon so future 
 | revision comparison | Later | depends on version graph |
 | Windows app | Later | after web flows are stable |
 | macOS app | Later | after web flows are stable |
-| iPhone app | Later | after mobile review use cases are defined |
 | Android app | Later | after mobile review use cases are defined |
+| consequential agent actions | Later | requires authorization, exact confirmation, idempotency, and audit contract |
+| standards-aware engineering assistant | Later | requires content rights, edition identity, retrieval controls, and citations |
 | SOLIDWORKS plugin | Later | high-value integration, but depends on stronger domain model |
 | Fusion / Inventor / Onshape plugins | Eventually | after first plugin contract proves out |
 | full PDM replacement of SOLIDWORKS PDM | Eventually | strategic ambition, not near-term scope |
@@ -83,7 +89,10 @@ This document classifies OverDrafter capabilities by planning horizon so future 
 ### Cross-platform access
 - browser notifications
 - desktop clients
-- mobile clients
+- universal iPhone/iPad client
+- website-mediated mobile authentication
+- actionable mobile Inbox
+- scalable mobile navigation
 
 ### CAD-native integrations
 - plugin contract
