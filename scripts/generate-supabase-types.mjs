@@ -21,6 +21,7 @@ export type ProjectInviteStatus = Enums<"project_invite_status">
 export type ProjectRole = Enums<"project_role">
 export type QueueTaskStatus = Enums<"queue_task_status">
 export type QueueTaskType = Enums<"queue_task_type">
+export type QuoteRequestMode = Enums<"quote_request_mode">
 export type QuoteRequestStatus = Enums<"quote_request_status">
 export type QuoteRunStatus = Enums<"quote_run_status">
 export type VendorName = Enums<"vendor_name">

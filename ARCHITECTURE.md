@@ -1,6 +1,6 @@
 # OverDrafter Architecture
 
-Last updated: July 29, 2026
+Last updated: July 30, 2026
 
 ## Purpose
 
@@ -184,13 +184,22 @@ Internal review implementation boundary:
 - project-level navigation that does not treat assemblies as the umbrella container
 - current project-ledger assignee bubbles derive from `project_jobs.created_by` joined to auth user profile metadata; this is the minimum safe source of truth until a dedicated part-assignee relation exists because each ledger row is still a project-job row owned by its creator
 
-### 9. Commercial access and operations layer (Target — not implemented)
+### 9. Commercial access and operations layer
+
+**As-built**
 
 - organization is the commercial account, Stripe Customer, subscription, and entitlement boundary
 - membership roles remain authorization roles and do not encode Free or Pro
 - local billing-account and subscription projections retain Stripe object identifiers and synchronized lifecycle state
 - effective product access is resolved server-side from active manual grants, eligible synchronized subscription state, the seven-day delinquency grace period, and the Free fallback
 - trial and complimentary grants are explicit, revocable, time-aware records rather than synthetic Stripe subscriptions or mutable `paid` flags
+- automatic quote collection is enforced at the server boundary from the effective organization entitlement; manual quotes and uploads remain available to Free organizations
+- commercial-account search, exact-organization detail, quote activity, entitlement history, and billing-lane audit are exposed through guarded RPCs rather than direct reads from private commercial tables or `auth.users`
+- commercial-account reads require the stable `billing_admin` capability and accept AAL1 or AAL2 sessions; grant and revoke mutations additionally require AAL2, idempotency, and append-only audit
+- platform viewers and organization administrators cannot read or mutate commercial-account administration state unless they separately hold the required commercial capability
+
+**Target**
+
 - Stripe owns economic subscription, invoice, coupon, and promotion-code facts
 - the local projection plus audited manual grants is authoritative for application access decisions
 - subscription webhooks are signature-verified, durably deduplicated by Stripe Event ID, replayable, and reconciled
