@@ -45,7 +45,9 @@ function formatDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "No requests yet";
 }
 
-function AccountPlan({ account }: { account: CommercialAccountSearchItem }) {
+function AccountPlan({
+  account,
+}: Readonly<{ account: CommercialAccountSearchItem }>) {
   return (
     <div>
       <Badge variant={account.effective.plan === "pro" ? "default" : "outline"}>
@@ -63,7 +65,9 @@ function AccountPlan({ account }: { account: CommercialAccountSearchItem }) {
   );
 }
 
-function AccountActivity({ account }: { account: CommercialAccountSearchItem }) {
+function AccountActivity({
+  account,
+}: Readonly<{ account: CommercialAccountSearchItem }>) {
   return (
     <div className="space-y-1 text-sm">
       <p>{account.quoteActivity.manualRequestCount} manual</p>
@@ -82,9 +86,9 @@ function AccountActivity({ account }: { account: CommercialAccountSearchItem }) 
 
 function AccountCards({
   accounts,
-}: {
+}: Readonly<{
   accounts: readonly CommercialAccountSearchItem[];
-}) {
+}>) {
   return (
     <div className="grid gap-3 md:hidden">
       {accounts.map((account) => (
@@ -122,6 +126,117 @@ function AccountCards({
         </Card>
       ))}
     </div>
+  );
+}
+
+function AccountResults({
+  isLoading,
+  isError,
+  error,
+  accounts,
+  search,
+  onRetry,
+}: Readonly<{
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+  accounts: readonly CommercialAccountSearchItem[];
+  search: string;
+  onRetry: () => void;
+}>) {
+  if (isLoading) {
+    return (
+      <div className="flex min-h-64 items-center justify-center rounded-3xl border border-dashed border-border">
+        <Loader2
+          className="h-6 w-6 animate-spin text-primary"
+          aria-label="Loading commercial accounts"
+        />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card className="border-destructive/30 bg-destructive/10">
+        <CardContent className="flex flex-wrap items-center justify-between gap-4 p-6">
+          <p className="text-sm text-destructive" role="alert">
+            {getErrorMessage(error, "Commercial accounts could not be loaded.")}
+          </p>
+          <Button type="button" variant="outline" onClick={onRetry}>
+            <RefreshCcw className="mr-2 h-4 w-4" />
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (accounts.length === 0) {
+    let emptyDescription = "Organizations appear here when they are created.";
+
+    if (search) {
+      emptyDescription = "Try a different organization or member email.";
+    }
+
+    return (
+      <div className="rounded-3xl border border-dashed border-border bg-accent p-10 text-center">
+        <Building2 className="mx-auto h-8 w-8 text-muted-foreground" />
+        <p className="mt-4 font-medium">No commercial accounts found</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {emptyDescription}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <AccountCards accounts={accounts} />
+      <div className="hidden overflow-x-auto rounded-3xl border border-border md:block">
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Organization</TableHead>
+              <TableHead>Members</TableHead>
+              <TableHead>Effective access</TableHead>
+              <TableHead>Quote activity</TableHead>
+              <TableHead className="text-right">Account</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {accounts.map((account) => (
+              <TableRow key={account.organizationId}>
+                <TableCell>
+                  <p className="font-medium">{account.organizationName}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {account.organizationSlug}
+                  </p>
+                  {account.matchingMemberEmails.length > 0 ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Match: {account.matchingMemberEmails.join(", ")}
+                    </p>
+                  ) : null}
+                </TableCell>
+                <TableCell>{account.memberCount}</TableCell>
+                <TableCell>
+                  <AccountPlan account={account} />
+                </TableCell>
+                <TableCell>
+                  <AccountActivity account={account} />
+                </TableCell>
+                <TableCell className="text-right">
+                  <Button asChild size="sm">
+                    <Link to={`/internal/commercial/${account.organizationId}`}>
+                      View
+                    </Link>
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </>
   );
 }
 
@@ -256,93 +371,14 @@ const CommercialAccounts = () => {
           <Button type="submit">Search</Button>
         </form>
 
-        {accountsQuery.isLoading ? (
-          <div className="flex min-h-64 items-center justify-center rounded-3xl border border-dashed border-border">
-            <Loader2
-              className="h-6 w-6 animate-spin text-primary"
-              aria-label="Loading commercial accounts"
-            />
-          </div>
-        ) : accountsQuery.isError ? (
-          <Card className="border-destructive/30 bg-destructive/10">
-            <CardContent className="flex flex-wrap items-center justify-between gap-4 p-6">
-              <p className="text-sm text-destructive" role="alert">
-                {getErrorMessage(
-                  accountsQuery.error,
-                  "Commercial accounts could not be loaded.",
-                )}
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void accountsQuery.refetch()}
-              >
-                <RefreshCcw className="mr-2 h-4 w-4" />
-                Retry
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (accountsQuery.data?.items.length ?? 0) === 0 ? (
-          <div className="rounded-3xl border border-dashed border-border bg-accent p-10 text-center">
-            <Building2 className="mx-auto h-8 w-8 text-muted-foreground" />
-            <p className="mt-4 font-medium">No commercial accounts found</p>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {search
-                ? "Try a different organization or member email."
-                : "Organizations appear here when they are created."}
-            </p>
-          </div>
-        ) : (
-          <>
-            <AccountCards accounts={accountsQuery.data?.items ?? []} />
-            <div className="hidden overflow-x-auto rounded-3xl border border-border md:block">
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead>Organization</TableHead>
-                    <TableHead>Members</TableHead>
-                    <TableHead>Effective access</TableHead>
-                    <TableHead>Quote activity</TableHead>
-                    <TableHead className="text-right">Account</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(accountsQuery.data?.items ?? []).map((account) => (
-                    <TableRow key={account.organizationId}>
-                      <TableCell>
-                        <p className="font-medium">{account.organizationName}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {account.organizationSlug}
-                        </p>
-                        {account.matchingMemberEmails.length > 0 ? (
-                          <p className="mt-2 text-xs text-muted-foreground">
-                            Match: {account.matchingMemberEmails.join(", ")}
-                          </p>
-                        ) : null}
-                      </TableCell>
-                      <TableCell>{account.memberCount}</TableCell>
-                      <TableCell>
-                        <AccountPlan account={account} />
-                      </TableCell>
-                      <TableCell>
-                        <AccountActivity account={account} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button asChild size="sm">
-                          <Link
-                            to={`/internal/commercial/${account.organizationId}`}
-                          >
-                            View
-                          </Link>
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </>
-        )}
+        <AccountResults
+          isLoading={accountsQuery.isLoading}
+          isError={accountsQuery.isError}
+          error={accountsQuery.error}
+          accounts={accountsQuery.data?.items ?? []}
+          search={search}
+          onRetry={() => void accountsQuery.refetch()}
+        />
 
         <div className="flex items-center justify-between">
           <Button

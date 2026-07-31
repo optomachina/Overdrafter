@@ -25,7 +25,7 @@ export function CommercialAdminShell({
   isPlatformAdmin,
   onSignOut,
   children,
-}: CommercialAdminShellProps) {
+}: Readonly<CommercialAdminShellProps>) {
   const navigate = useNavigate();
 
   return (

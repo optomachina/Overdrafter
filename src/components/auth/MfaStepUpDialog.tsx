@@ -18,6 +18,7 @@ import {
   unenrollTotpFactor,
   verifyTotpCode,
   type TotpEnrollment,
+  type TotpFactor,
 } from "@/features/auth/mfa-api";
 
 type MfaStepUpDialogProps = {
@@ -32,11 +33,121 @@ function getErrorMessage(error: unknown): string {
     : "Authenticator verification failed.";
 }
 
+function FactorState({
+  isLoading,
+  isError,
+  error,
+  isFetching,
+  verifiedFactor,
+  enrollment,
+  isPending,
+  onRetry,
+  onEnroll,
+}: Readonly<{
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+  isFetching: boolean;
+  verifiedFactor: TotpFactor | undefined;
+  enrollment: TotpEnrollment | null;
+  isPending: boolean;
+  onRetry: () => void;
+  onEnroll: () => void;
+}>) {
+  if (isLoading) {
+    return (
+      <div className="flex min-h-36 items-center justify-center">
+        <Loader2
+          className="h-5 w-5 animate-spin text-primary"
+          aria-label="Loading authenticator factors"
+        />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div
+        className="rounded-2xl border border-destructive/30 bg-destructive/10 p-5"
+        role="alert"
+      >
+        <p className="font-medium text-destructive">
+          Authenticator factors could not be loaded
+        </p>
+        <p className="mt-2 text-sm text-destructive">
+          {getErrorMessage(error)}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-4"
+          onClick={onRetry}
+          disabled={isFetching}
+        >
+          {isFetching ? "Retrying…" : "Retry"}
+        </Button>
+      </div>
+    );
+  }
+
+  if (verifiedFactor) {
+    return (
+      <div className="rounded-2xl border border-border bg-accent p-4">
+        <p className="flex items-center gap-2 font-medium">
+          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          {verifiedFactor.friendlyName}
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Enter the current six-digit code from this authenticator.
+        </p>
+      </div>
+    );
+  }
+
+  if (enrollment) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-border bg-white p-4 text-center">
+          <img
+            src={enrollment.qrCode}
+            alt="Authenticator enrollment QR code"
+            className="mx-auto h-48 w-48"
+          />
+        </div>
+        <div className="rounded-2xl border border-border bg-accent p-4">
+          <p className="text-sm font-medium">Can’t scan the code?</p>
+          <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
+            {enrollment.secret}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-border bg-accent p-5">
+      <p className="font-medium">Set up an authenticator app</p>
+      <p className="mt-2 text-sm text-muted-foreground">
+        No verified TOTP factor is available. Set one up before changing
+        customer access.
+      </p>
+      <Button
+        type="button"
+        className="mt-4"
+        onClick={onEnroll}
+        disabled={isPending}
+      >
+        Set up authenticator
+      </Button>
+    </div>
+  );
+}
+
 export function MfaStepUpDialog({
   open,
   onOpenChange,
   onVerified,
-}: MfaStepUpDialogProps) {
+}: Readonly<MfaStepUpDialogProps>) {
   const [code, setCode] = useState("");
   const [enrollment, setEnrollment] = useState<TotpEnrollment | null>(null);
   const factorsQuery = useQuery({
@@ -131,77 +242,17 @@ export function MfaStepUpDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {factorsQuery.isLoading ? (
-          <div className="flex min-h-36 items-center justify-center">
-            <Loader2
-              className="h-5 w-5 animate-spin text-primary"
-              aria-label="Loading authenticator factors"
-            />
-          </div>
-        ) : factorsQuery.isError ? (
-          <div
-            className="rounded-2xl border border-destructive/30 bg-destructive/10 p-5"
-            role="alert"
-          >
-            <p className="font-medium text-destructive">
-              Authenticator factors could not be loaded
-            </p>
-            <p className="mt-2 text-sm text-destructive">
-              {getErrorMessage(factorsQuery.error)}
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              className="mt-4"
-              onClick={() => void factorsQuery.refetch()}
-              disabled={factorsQuery.isFetching}
-            >
-              {factorsQuery.isFetching ? "Retrying…" : "Retry"}
-            </Button>
-          </div>
-        ) : verifiedFactor ? (
-          <div className="rounded-2xl border border-border bg-accent p-4">
-            <p className="flex items-center gap-2 font-medium">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              {verifiedFactor.friendlyName}
-            </p>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Enter the current six-digit code from this authenticator.
-            </p>
-          </div>
-        ) : enrollment ? (
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-border bg-white p-4 text-center">
-              <img
-                src={enrollment.qrCode}
-                alt="Authenticator enrollment QR code"
-                className="mx-auto h-48 w-48"
-              />
-            </div>
-            <div className="rounded-2xl border border-border bg-accent p-4">
-              <p className="text-sm font-medium">Can’t scan the code?</p>
-              <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
-                {enrollment.secret}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-border bg-accent p-5">
-            <p className="font-medium">Set up an authenticator app</p>
-            <p className="mt-2 text-sm text-muted-foreground">
-              No verified TOTP factor is available. Set one up before changing
-              customer access.
-            </p>
-            <Button
-              type="button"
-              className="mt-4"
-              onClick={() => enrollmentMutation.mutate()}
-              disabled={isPending}
-            >
-              Set up authenticator
-            </Button>
-          </div>
-        )}
+        <FactorState
+          isLoading={factorsQuery.isLoading}
+          isError={factorsQuery.isError}
+          error={factorsQuery.error}
+          isFetching={factorsQuery.isFetching}
+          verifiedFactor={verifiedFactor}
+          enrollment={enrollment}
+          isPending={isPending}
+          onRetry={() => void factorsQuery.refetch()}
+          onEnroll={() => enrollmentMutation.mutate()}
+        />
 
         {factorId ? (
           <div className="space-y-2">

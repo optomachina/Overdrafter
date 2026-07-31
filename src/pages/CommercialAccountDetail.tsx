@@ -45,7 +45,7 @@ function formatDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "Not set";
 }
 
-function LoadingPanel({ label }: { label: string }) {
+function LoadingPanel({ label }: Readonly<{ label: string }>) {
   return (
     <div className="flex min-h-64 items-center justify-center rounded-3xl border border-dashed border-border">
       <Loader2
@@ -59,10 +59,10 @@ function LoadingPanel({ label }: { label: string }) {
 function ErrorPanel({
   message,
   onRetry,
-}: {
+}: Readonly<{
   message: string;
   onRetry: () => void;
-}) {
+}>) {
   return (
     <Card className="border-destructive/30 bg-destructive/10">
       <CardContent className="flex flex-wrap items-center justify-between gap-4 p-6">
@@ -78,7 +78,9 @@ function ErrorPanel({
   );
 }
 
-function AccessSummary({ account }: { account: CommercialAccountDetailData }) {
+function AccessSummary({
+  account,
+}: Readonly<{ account: CommercialAccountDetailData }>) {
   const { effective } = account;
   let sourceDescription = formatStatusLabel(effective.source);
 
@@ -151,9 +153,9 @@ function AccessSummary({ account }: { account: CommercialAccountDetailData }) {
 
 function SubscriptionHistory({
   account,
-}: {
+}: Readonly<{
   account: CommercialAccountDetailData;
-}) {
+}>) {
   return (
     <Card className="border-border bg-muted">
       <CardHeader>
@@ -222,9 +224,9 @@ function SubscriptionHistory({
 
 function MembersAndActivity({
   account,
-}: {
+}: Readonly<{
   account: CommercialAccountDetailData;
-}) {
+}>) {
   return (
     <div className="grid gap-5 xl:grid-cols-2">
       <Card className="border-border bg-muted">
@@ -316,7 +318,9 @@ function MembersAndActivity({
   );
 }
 
-function AuditEvent({ event }: { event: CommercialAccountAuditEvent }) {
+function AuditEvent({
+  event,
+}: Readonly<{ event: CommercialAccountAuditEvent }>) {
   return (
     <div className="rounded-2xl border border-border bg-accent p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -334,6 +338,52 @@ function AuditEvent({ event }: { event: CommercialAccountAuditEvent }) {
       <p className="mt-2 break-all font-mono text-[11px] text-muted-foreground">
         {event.idempotencyKey}
       </p>
+    </div>
+  );
+}
+
+function AuditResults({
+  isLoading,
+  isError,
+  error,
+  events,
+  onRetry,
+}: Readonly<{
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+  events: readonly CommercialAccountAuditEvent[];
+  onRetry: () => void;
+}>) {
+  if (isLoading) {
+    return <LoadingPanel label="Loading commercial audit" />;
+  }
+
+  if (isError) {
+    return (
+      <ErrorPanel
+        message={getErrorMessage(
+          error,
+          "Commercial audit history could not be loaded.",
+        )}
+        onRetry={onRetry}
+      />
+    );
+  }
+
+  if (events.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+        No commercial audit events are recorded.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {events.map((event) => (
+        <AuditEvent key={event.eventId} event={event} />
+      ))}
     </div>
   );
 }
@@ -492,27 +542,13 @@ const CommercialAccountDetail = () => {
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
-            {auditQuery.isLoading ? (
-              <LoadingPanel label="Loading commercial audit" />
-            ) : auditQuery.isError ? (
-              <ErrorPanel
-                message={getErrorMessage(
-                  auditQuery.error,
-                  "Commercial audit history could not be loaded.",
-                )}
-                onRetry={() => void auditQuery.refetch()}
-              />
-            ) : (auditQuery.data?.items.length ?? 0) === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                No commercial audit events are recorded.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {(auditQuery.data?.items ?? []).map((event) => (
-                  <AuditEvent key={event.eventId} event={event} />
-                ))}
-              </div>
-            )}
+            <AuditResults
+              isLoading={auditQuery.isLoading}
+              isError={auditQuery.isError}
+              error={auditQuery.error}
+              events={auditQuery.data?.items ?? []}
+              onRetry={() => void auditQuery.refetch()}
+            />
 
             <div className="flex items-center justify-between">
               <Button

@@ -41,8 +41,23 @@ type CommercialEntitlementControlsProps = {
 };
 
 function newIntentKey(): string {
-  return globalThis.crypto?.randomUUID?.()
-    ?? `commercial-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const cryptoApi = globalThis.crypto;
+
+  if (!cryptoApi) {
+    throw new Error("Secure intent generation is unavailable.");
+  }
+
+  if (cryptoApi.randomUUID) {
+    return cryptoApi.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  cryptoApi.getRandomValues(bytes);
+
+  return Array.from(
+    bytes,
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
 }
 
 function toLocalDateTime(date: Date): string {
@@ -76,7 +91,7 @@ export function CommercialEntitlementControls({
   hasAal2,
   onAccessRefresh,
   onChanged,
-}: CommercialEntitlementControlsProps) {
+}: Readonly<CommercialEntitlementControlsProps>) {
   const now = useMemo(() => new Date(), []);
   const [grantType, setGrantType] = useState<"trial" | "complimentary">("trial");
   const [startsAt, setStartsAt] = useState(toLocalDateTime(now));
