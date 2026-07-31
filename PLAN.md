@@ -79,6 +79,19 @@ engineering-standards content. Neither guardrail is satisfied by a chat UI.
 The server/browser implementation is the dependency-ordered `OVD-219` slice;
 native adoption remains isolated to `OVD-221`.
 
+## Supplier discovery track
+
+Build a complementary sourcing path that begins in Tucson and can expand across the United States:
+
+1. Establish a provenance-first supplier, facility, capability, certification, and verification schema without changing the current instant-vendor execution model.
+2. Import the supplied historical SpaceX approved-supplier data as dated source evidence, with deterministic deduplication and no implied current approval.
+3. Add Tucson-area discovery and verification workflows, including customer-submitted shop information.
+4. Add capability- and proximity-based organic search for manufacturing requests that need independent-shop sourcing.
+5. Add assisted RFQ preparation and response intake for directory suppliers.
+6. Consider clearly labeled sponsored placement only after organic eligibility, matching, and ranking are independently testable.
+
+The supplier-discovery track must not delay or weaken the active instant-quote MVP. Instant vendor quotes and directory-assisted sourcing are complementary lanes presented from the same part or project context.
+
 ### Immediate next steps (MVP — sequenced by dependency)
 
 > **Strategy:** Prove the customer-visible quote loop first. The active milestone is not checkout; it is a functioning upload -> quote request -> live quote result path for `dmrifles@gmail.com`.

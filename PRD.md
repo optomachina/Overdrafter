@@ -200,10 +200,38 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 
 ### Secondary goals
 - Support mixed sourcing models including browser automation, imported spreadsheets, and manual quote intake.
+- Let customers discover qualified manufacturing suppliers by capability and geographic proximity when an instant-quote provider is not the best or only path.
+- Let customers contribute supplier information for shops that are not yet represented, subject to verification and deduplication.
 - Support long-running asynchronous processing.
 - Preserve auditability for sensitive workflow actions.
 - Make the app usable for both one-off parts and grouped project workflows.
 - Keep future BOM, revision, and where-used capabilities compatible with projects that contain multiple assemblies and standalone parts.
+
+## Supplier discovery and assisted-RFQ direction
+
+OverDrafter should support two complementary sourcing lanes after a customer uploads a part:
+
+1. `instant_quote`: free automated quote collection from supported high-volume vendor platforms.
+2. `supplier_discovery`: search and assisted RFQ preparation for independent shops selected by capability, geography, certification, customer preference, or other reviewed fit criteria.
+
+The supplier directory is a continuously maintained coverage system rather than a claim that every possible shop is permanently known. Supplier companies, individual facilities, capabilities, certifications, service areas, source evidence, and verification history must be represented separately so results can be deduplicated and audited.
+
+Customers may:
+
+- search for shops near a part destination or another chosen location
+- filter shops by relevant manufacturing capabilities and qualifications
+- suggest or provide information about an unlisted shop
+- use directory information to prepare or support an RFQ without implying that the shop offers an instant API quote
+
+Historical approved-supplier lists and public directories are discovery evidence only. A historical approval, certification, capability, address, or availability claim must retain its source and effective date and must not be presented as currently verified without a later verification event.
+
+Commercial placement may eventually let suppliers pay for additional visibility. Paid placement must:
+
+- be visibly labeled as sponsored
+- remain separate from organic capability and proximity matching
+- never make an otherwise ineligible supplier appear technically qualified
+- never change quote price, lead-time, quality, or capability scoring
+- preserve an organic-results path that customers can inspect independently
 
 ## Non-goals
 
