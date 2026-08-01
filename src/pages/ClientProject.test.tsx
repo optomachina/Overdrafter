@@ -435,6 +435,28 @@ function createVendorCapabilityProfile(
   };
 }
 
+function markQuoteAsTrustedLive(quote: VendorQuoteAggregate) {
+  const collectedAt = new Date().toISOString();
+
+  return {
+    ...quote,
+    quote_url: `https://www.xometry.com/quoting/home/${quote.id}`,
+    raw_payload: {
+      automationVersion: "xometry-worker-v1",
+      detectedFlow: "quote_ready",
+      requirementCapturedAt: collectedAt,
+    },
+    created_at: collectedAt,
+    updated_at: collectedAt,
+    offers: quote.offers.map((offer) => ({
+      ...offer,
+      quote_date: collectedAt.slice(0, 10),
+      created_at: collectedAt,
+      updated_at: collectedAt,
+    })),
+  } satisfies VendorQuoteAggregate;
+}
+
 function createVendorQuoteFixture(input: {
   resultId: string;
   offerId: string;
@@ -511,13 +533,13 @@ function createProjectSummaryWorkspaceItem(input: {
   const hasSelection = selectedPriceUsd !== null && selectedLeadTimeBusinessDays !== null;
   const vendorQuotes = hasSelection
     ? [
-        createVendorQuoteFixture({
+        markQuoteAsTrustedLive(createVendorQuoteFixture({
           resultId: `${input.jobId}-result-1`,
           offerId,
           supplier: `${input.partNumber} Supplier`,
           totalPriceUsd: selectedPriceUsd,
           leadTimeBusinessDays: selectedLeadTimeBusinessDays,
-        }),
+        })),
       ]
     : [];
 
@@ -852,6 +874,9 @@ describe("ClientProject", () => {
     expect(screen.getByText("Review every part in this project from a single dense ledger view.")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "Project inspector" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "No part selected" })).toBeInTheDocument();
+    expect(screen.queryByText("Provider recommendations available")).not.toBeInTheDocument();
+    expect(screen.queryByText("Action needed")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Reviewing sourcing options/i)).not.toBeInTheDocument();
     expect(
       screen.getByText("Select a row in the ledger to inspect that part without leaving the project workspace."),
     ).toBeInTheDocument();
@@ -1006,6 +1031,89 @@ describe("ClientProject", () => {
     });
   });
 
+  it.each(["simulated", "stale"] as const)(
+    "excludes %s stored prices from project totals and coverage",
+    async (untrustedReason) => {
+    const projectJob = createProjectJobFixture({
+      jobId: "job-1",
+      title: "BRKT-001",
+      selectedVendorQuoteOfferId: "job-1-offer-1",
+    });
+    const workspaceItem = createProjectSummaryWorkspaceItem({
+      jobId: "job-1",
+      partId: "part-1",
+      partNumber: "BRKT-001",
+      description: "Primary bracket",
+      totalPriceUsd: 1200,
+      leadTimeBusinessDays: 14,
+      quoteStatus: "received",
+    });
+
+    api.fetchAccessibleJobs.mockResolvedValueOnce([projectJob]);
+    api.fetchJobsByProject.mockResolvedValueOnce([projectJob]);
+    api.fetchJobPartSummariesByJobIds.mockResolvedValueOnce([
+      createSelectedSummaryFixture({
+        jobId: "job-1",
+        partNumber: "BRKT-001",
+        description: "Primary bracket",
+        selectedPriceUsd: 1200,
+        selectedLeadTimeBusinessDays: 14,
+      }),
+    ]);
+    const staleTimestamp = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString();
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([
+      {
+        ...workspaceItem,
+        part: workspaceItem.part
+          ? {
+              ...workspaceItem.part,
+              vendorQuotes: workspaceItem.part.vendorQuotes.map((quote) => {
+                if (untrustedReason === "simulated") {
+                  return {
+                    ...quote,
+                    raw_payload: { mode: "simulate" },
+                  };
+                }
+
+                return {
+                  ...quote,
+                  raw_payload: {
+                    automationVersion: "xometry-worker-v1",
+                    detectedFlow: "quote_ready",
+                    requirementCapturedAt: staleTimestamp,
+                  },
+                  created_at: staleTimestamp,
+                  updated_at: staleTimestamp,
+                  offers: quote.offers.map((offer) => ({
+                    ...offer,
+                    quote_date: staleTimestamp.slice(0, 10),
+                    created_at: staleTimestamp,
+                    updated_at: staleTimestamp,
+                  })),
+                };
+              }),
+            }
+          : null,
+      },
+    ]);
+
+    renderWithClient("/projects/project-1");
+
+    const summary = await screen.findByRole("region", { name: "Project summary" });
+    await waitFor(() => {
+      expect(within(summary).getByText("$0")).toBeInTheDocument();
+      expect(within(summary).getByText("No selections yet")).toBeInTheDocument();
+      expect(within(summary).getByText("1 part unquoted")).toBeInTheDocument();
+      expect(within(summary).queryByText("$1,200")).not.toBeInTheDocument();
+    });
+    expect(await screen.findByText("1 provider")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("BRKT-001"));
+    const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+    expect(within(inspector).getByText("Provider recommendations available")).toBeInTheDocument();
+    expect(within(inspector).queryByText("Live offers available")).not.toBeInTheDocument();
+  });
+
   it("selects a row and updates the docked inspector without navigating away", async () => {
     renderWithClient("/projects/project-1");
 
@@ -1058,6 +1166,39 @@ describe("ClientProject", () => {
       "https://www.xometry.com/quoting/home/",
     );
     expect(officialRfqLink.closest("article")?.parentElement).not.toHaveClass("lg:grid-cols-3");
+  });
+
+  it("shows an explicit reviewing state while provider capabilities load", async () => {
+    const capabilityProfiles = createDeferredPromise<VendorCapabilityProfileRecord[]>();
+    api.fetchVendorCapabilityProfiles.mockReturnValueOnce(capabilityProfiles.promise);
+
+    renderWithClient("/projects/project-1");
+
+    expect(await screen.findByText("Reviewing")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("BRKT-001"));
+    const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+    expect(within(inspector).getByText(/Reviewing sourcing options/i)).toBeInTheDocument();
+
+    await act(async () => {
+      capabilityProfiles.resolve([createVendorCapabilityProfile()]);
+      await capabilityProfiles.promise;
+    });
+
+    expect(await screen.findByText("1 provider")).toBeInTheDocument();
+    expect(within(inspector).getByText("Provider recommendations available")).toBeInTheDocument();
+  });
+
+  it("shows an explicit action when provider capability data fails", async () => {
+    api.fetchVendorCapabilityProfiles.mockRejectedValueOnce(new Error("capability lookup failed"));
+
+    renderWithClient("/projects/project-1");
+
+    expect((await screen.findAllByText("Action needed")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByText("BRKT-001"));
+    const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+    expect(
+      within(inspector).getByRole("heading", { name: "Provider guidance is temporarily unavailable" }),
+    ).toBeInTheDocument();
   });
 
   it("distinguishes a current trusted Pro offer from provider recommendations", async () => {
@@ -1425,6 +1566,11 @@ describe("ClientProject", () => {
     expect(within(inspectorSheet).getAllByText("Machined mounting bracket").length).toBeGreaterThan(0);
     expect(within(inspectorSheet).getByText("Material")).toBeInTheDocument();
     expect(within(inspectorSheet).getByText("6061-T6")).toBeInTheDocument();
+    expect(within(inspectorSheet).getByText("Provider recommendations available")).toBeInTheDocument();
+    expect(within(inspectorSheet).getByRole("link", { name: /open official rfq/i })).toHaveAttribute(
+      "href",
+      "https://www.xometry.com/quoting/home/",
+    );
     expect(within(inspectorSheet).getByRole("button", { name: "Full workspace" })).toBeInTheDocument();
     expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-1");
   });

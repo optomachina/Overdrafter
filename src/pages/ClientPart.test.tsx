@@ -787,6 +787,7 @@ describe("ClientPart", () => {
   });
 
   it("renders real vendor quote options instead of the empty comparison state", async () => {
+    const liveTimestamp = new Date().toISOString();
     api.fetchVendorCapabilityProfiles.mockReturnValue(new Promise(() => undefined));
     api.fetchPartDetailByJobId.mockResolvedValue(
       createPartDetail({
@@ -851,9 +852,10 @@ describe("ClientPart", () => {
               raw_payload: {
                 automationVersion: "xometry-worker-v1",
                 detectedFlow: "quote_ready",
+                requirementCapturedAt: liveTimestamp,
               },
-              created_at: "2026-03-01T00:00:00Z",
-              updated_at: "2026-07-30T00:00:00Z",
+              created_at: liveTimestamp,
+              updated_at: liveTimestamp,
               offers: [
                 {
                   id: "offer-1",
@@ -865,7 +867,7 @@ describe("ClientPart", () => {
                   sourcing: "USA",
                   tier: "Standard",
                   quote_ref: "Q-1",
-                  quote_date: "2026-07-30",
+                  quote_date: liveTimestamp.slice(0, 10),
                   unit_price_usd: 10,
                   total_price_usd: 100,
                   lead_time_business_days: 7,
@@ -881,8 +883,8 @@ describe("ClientPart", () => {
                   notes: null,
                   sort_rank: 0,
                   raw_payload: {},
-                  created_at: "2026-03-01T00:00:00Z",
-                  updated_at: "2026-03-01T00:00:00Z",
+                  created_at: liveTimestamp,
+                  updated_at: liveTimestamp,
                 },
               ],
               artifacts: [],
