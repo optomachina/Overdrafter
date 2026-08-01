@@ -43,6 +43,7 @@ import {
   setJobVendorPreferences,
   setProjectVendorPreferences,
 } from "@/features/quotes/api/vendor-preferences-api";
+import { fetchVendorCapabilityProfiles } from "@/features/quotes/api/capability-profiles-api";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import { createJobsFromUploadFiles, uploadFilesToJob } from "@/features/quotes/api/uploads-api";
 import {
@@ -88,6 +89,10 @@ import {
   type QuotePreset,
 } from "@/features/quotes/selection";
 import { logQuoteFetchDiagnostics } from "@/features/quotes/quote-chart-diagnostics";
+import {
+  buildClientSourcingResult,
+  type ClientSourcingResult,
+} from "@/features/quotes/sourcing-result";
 import type {
   ClientPartRequestUpdateInput,
   ClientQuoteWorkspaceItem,
@@ -319,6 +324,12 @@ export function useClientProjectController() {
       clientWorkspaceItemsNeedPolling(projectWorkspaceItemsQuery.data) ? 5000 : false,
     ...workspaceDetailQueryOptions,
   });
+  const vendorCapabilityProfilesQuery = useQuery({
+    queryKey: ["vendor-capability-profiles"],
+    queryFn: fetchVendorCapabilityProfiles,
+    enabled: Boolean(user),
+    staleTime: 15 * 60 * 1000,
+  });
   const workspaceItemsByJobId = useMemo(
     () => new Map((projectWorkspaceItemsQuery.data ?? []).map((item) => [item.job.id, item])),
     [projectWorkspaceItemsQuery.data],
@@ -337,7 +348,7 @@ export function useClientProjectController() {
       ),
     [projectJobs, selectedOfferOverrides],
   );
-  const quoteSelectionResultsByJobId = useMemo(
+  const rawQuoteSelectionResultsByJobId = useMemo(
     () =>
       Object.fromEntries(
         projectJobIds.map((jobId) => {
@@ -388,6 +399,76 @@ export function useClientProjectController() {
         }
       >,
     [excludedVendorKeysByJobId, projectDueByDate, projectJobIds, requestDraftsByJobId, workspaceItemsByJobId],
+  );
+  const sourcingResultsByJobId = useMemo(
+    () =>
+      Object.fromEntries(
+        projectJobIds.map((jobId) => {
+          const workspaceItem = workspaceItemsByJobId.get(jobId);
+          const selectionResult = rawQuoteSelectionResultsByJobId[jobId];
+
+          if (!workspaceItem?.part || !selectionResult) {
+            return [jobId, null];
+          }
+
+          const result = buildClientSourcingResult({
+            part: workspaceItem.part,
+            profiles: vendorCapabilityProfilesQuery.data ?? [],
+            liveOffers: selectionResult.options.map((option) => ({
+              ...option,
+              offerKey: option.key,
+            })),
+            automaticCollectionEnabled: quoteCollectionMode.automaticEnabled,
+            capabilityDataAvailable: !vendorCapabilityProfilesQuery.isError,
+          });
+
+          if (
+            vendorCapabilityProfilesQuery.isPending &&
+            result.outcome !== "live_offers_available"
+          ) {
+            return [jobId, null];
+          }
+
+          return [jobId, result];
+        }),
+      ) as Record<string, ClientSourcingResult | null>,
+    [
+      projectJobIds,
+      quoteCollectionMode.automaticEnabled,
+      rawQuoteSelectionResultsByJobId,
+      vendorCapabilityProfilesQuery.data,
+      vendorCapabilityProfilesQuery.isError,
+      vendorCapabilityProfilesQuery.isPending,
+      workspaceItemsByJobId,
+    ],
+  );
+  const quoteSelectionResultsByJobId = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(rawQuoteSelectionResultsByJobId).map(([jobId, result]) => {
+          const sourcingResult = sourcingResultsByJobId[jobId];
+          const liveOfferKeys = new Set(
+            sourcingResult?.outcome === "live_offers_available"
+              ? sourcingResult.liveOfferKeys
+              : [],
+          );
+
+          return [
+            jobId,
+            {
+              ...result,
+              options: result.options.filter((option) => liveOfferKeys.has(option.key)),
+            },
+          ];
+        }),
+      ) as Record<
+        string,
+        {
+          options: ClientQuoteSelectionOption[];
+          diagnostics: QuoteDiagnostics;
+        }
+      >,
+    [rawQuoteSelectionResultsByJobId, sourcingResultsByJobId],
   );
   const optionsByJobId = useMemo(
     () =>
@@ -448,6 +529,7 @@ export function useClientProjectController() {
     focusedWorkspaceItem?.summary ?? (focusedJob ? summariesByJobId.get(focusedJob.id) ?? null : null);
   const focusedSelectedOption = focusedJob ? selectedOptionsByJobId[focusedJob.id] ?? null : null;
   const focusedQuoteOptions = focusedJob ? optionsByJobId[focusedJob.id] ?? [] : [];
+  const focusedSourcingResult = focusedJob ? sourcingResultsByJobId[focusedJob.id] ?? null : null;
   const focusedQuoteDiagnostics = focusedJob
     ? quoteDiagnosticsByJobId[focusedJob.id] ?? focusedWorkspaceItem?.quoteDiagnostics ?? EMPTY_QUOTE_DIAGNOSTICS
     : EMPTY_QUOTE_DIAGNOSTICS;
@@ -1501,6 +1583,7 @@ export function useClientProjectController() {
     focusedQuoteQuantityInput,
     focusedRequestedByDate,
     focusedSelectedOption,
+    focusedSourcingResult,
     focusedSummary,
     focusedVendorPreferences: focusedVendorPreferenceQuery.data ?? null,
     focusedVendorPreferencesErrorMessage,

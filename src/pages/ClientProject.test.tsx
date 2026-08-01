@@ -10,6 +10,7 @@ import type {
   ClientQuoteRequestStatus,
   QuoteRequestRecord,
   QuoteRunRecord,
+  VendorCapabilityProfileRecord,
   VendorQuoteAggregate,
 } from "@/features/quotes/types";
 import { createClientQuoteWorkspaceItemFixture } from "@/features/quotes/client-workspace-fixtures";
@@ -41,6 +42,7 @@ const {
     fetchArchivedProjects: vi.fn(),
     fetchClientActivityEventsByJobIds: vi.fn(),
     fetchClientQuoteWorkspaceByJobIds: vi.fn(),
+    fetchVendorCapabilityProfiles: vi.fn(),
     fetchJobVendorPreferenceContext: vi.fn(),
     fetchProjectAssigneeProfiles: vi.fn(),
     fetchJobPartSummariesByJobIds: vi.fn(),
@@ -135,6 +137,9 @@ vi.mock("@/features/quotes/api/vendor-preferences-api", () => ({
   fetchJobVendorPreferenceContext: api.fetchJobVendorPreferenceContext,
   setJobVendorPreferences: api.setJobVendorPreferences,
   setProjectVendorPreferences: api.setProjectVendorPreferences,
+}));
+vi.mock("@/features/quotes/api/capability-profiles-api", () => ({
+  fetchVendorCapabilityProfiles: api.fetchVendorCapabilityProfiles,
 }));
 vi.mock("@/features/quotes/api/shared/schema-runtime", () => ({
   isProjectCollaborationSchemaUnavailable: api.isProjectCollaborationSchemaUnavailable,
@@ -394,6 +399,86 @@ function createWorkspaceItemFixture(overrides: WorkspaceItemOverrides = {}) {
   return createClientQuoteWorkspaceItemFixture(overrides);
 }
 
+function createReviewedCapabilityProfile(): VendorCapabilityProfileRecord {
+  return {
+    vendor_name: "xometry",
+    process_types: ["cnc_milling", "cnc_turning"],
+    materials: ["6061 aluminum", "7075 aluminum"],
+    tolerance_min_mm: 0.005,
+    tolerance_max_mm: 0.2,
+    max_part_size_mm: 1000,
+    min_quantity: 1,
+    max_quantity: null,
+    geographic_region: "US",
+    certifications: ["ISO9001"],
+    quality_score: 88,
+    lead_time_reliability: 84,
+    cost_competitiveness: 82,
+    domestic_us: true,
+    updated_at: "2026-07-30T00:00:00.000Z",
+  };
+}
+
+function createSupportedWorkspaceItem(vendorQuotes: VendorQuoteAggregate[] = []) {
+  const item = createWorkspaceItemFixture();
+
+  if (!item.part?.approvedRequirement) {
+    throw new Error("Expected the project workspace fixture to include approved requirements.");
+  }
+
+  return {
+    ...item,
+    part: {
+      ...item.part,
+      approvedRequirement: {
+        ...item.part.approvedRequirement,
+        material: "6061-T6 aluminum",
+        spec_snapshot: {
+          ...(item.part.approvedRequirement.spec_snapshot &&
+          typeof item.part.approvedRequirement.spec_snapshot === "object" &&
+          !Array.isArray(item.part.approvedRequirement.spec_snapshot)
+            ? item.part.approvedRequirement.spec_snapshot
+            : {}),
+          process: "CNC milling",
+        },
+      },
+      vendorQuotes,
+    },
+  } satisfies ClientQuoteWorkspaceItem;
+}
+
+function markQuoteAsTrustedLive(quote: VendorQuoteAggregate) {
+  const collectedAt = new Date().toISOString();
+
+  return {
+    ...quote,
+    quote_url: `https://www.xometry.com/quoting/home/${quote.id}`,
+    raw_payload: {
+      automationVersion: "xometry-worker-v1",
+      detectedFlow: "quote_ready",
+      requirementCapturedAt: collectedAt,
+    },
+    created_at: collectedAt,
+    updated_at: collectedAt,
+    offers: quote.offers.map((offer) => ({
+      ...offer,
+      quote_date: collectedAt.slice(0, 10),
+      created_at: collectedAt,
+      updated_at: collectedAt,
+    })),
+  } satisfies VendorQuoteAggregate;
+}
+
+function createTrustedLiveQuote() {
+  return markQuoteAsTrustedLive(createVendorQuoteFixture({
+    resultId: "xometry-live-result",
+    offerId: "xometry-live-offer",
+    supplier: "Xometry",
+    totalPriceUsd: 1200,
+    leadTimeBusinessDays: 8,
+  }));
+}
+
 function createVendorQuoteFixture(input: {
   resultId: string;
   offerId: string;
@@ -470,13 +555,13 @@ function createProjectSummaryWorkspaceItem(input: {
   const hasSelection = selectedPriceUsd !== null && selectedLeadTimeBusinessDays !== null;
   const vendorQuotes = hasSelection
     ? [
-        createVendorQuoteFixture({
+        markQuoteAsTrustedLive(createVendorQuoteFixture({
           resultId: `${input.jobId}-result-1`,
           offerId,
           supplier: `${input.partNumber} Supplier`,
           totalPriceUsd: selectedPriceUsd,
           leadTimeBusinessDays: selectedLeadTimeBusinessDays,
-        }),
+        })),
       ]
     : [];
 
@@ -509,6 +594,17 @@ function createProjectSummaryWorkspaceItem(input: {
                 part_id: input.partId,
                 part_number: input.partNumber,
                 description: input.description,
+                material: "6061-T6 aluminum",
+                spec_snapshot: {
+                  ...(
+                    base.part.approvedRequirement.spec_snapshot &&
+                    typeof base.part.approvedRequirement.spec_snapshot === "object" &&
+                    !Array.isArray(base.part.approvedRequirement.spec_snapshot)
+                      ? base.part.approvedRequirement.spec_snapshot
+                      : {}
+                  ),
+                  process: "CNC milling",
+                },
               }
             : null,
           vendorQuotes,
@@ -651,6 +747,7 @@ describe("ClientProject", () => {
     mockUseIsMobile.mockReturnValue(false);
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
     api.fetchClientActivityEventsByJobIds.mockResolvedValue([]);
+    api.fetchVendorCapabilityProfiles.mockResolvedValue([]);
     api.fetchAccessibleProjects.mockResolvedValue([
       {
         project: {
@@ -808,6 +905,9 @@ describe("ClientProject", () => {
     expect(screen.getByText("Review every part in this project from a single dense ledger view.")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "Project inspector" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "No part selected" })).toBeInTheDocument();
+    expect(screen.queryByText("Sourcing result")).not.toBeInTheDocument();
+    expect(screen.queryByText("Provider recommendations available")).not.toBeInTheDocument();
+    expect(screen.queryByText("Action needed")).not.toBeInTheDocument();
     expect(
       screen.getByText("Select a row in the ledger to inspect that part without leaving the project workspace."),
     ).toBeInTheDocument();
@@ -960,6 +1060,59 @@ describe("ClientProject", () => {
     });
   });
 
+  it("excludes stale or simulated stored prices from project totals and coverage", async () => {
+    const projectJob = createProjectJobFixture({
+      jobId: "job-1",
+      title: "BRKT-001",
+      selectedVendorQuoteOfferId: "job-1-offer-1",
+    });
+    const workspaceItem = createProjectSummaryWorkspaceItem({
+      jobId: "job-1",
+      partId: "part-1",
+      partNumber: "BRKT-001",
+      description: "Primary bracket",
+      totalPriceUsd: 1200,
+      leadTimeBusinessDays: 14,
+      quoteStatus: "received",
+    });
+
+    api.fetchAccessibleJobs.mockResolvedValueOnce([projectJob]);
+    api.fetchJobsByProject.mockResolvedValueOnce([projectJob]);
+    api.fetchJobPartSummariesByJobIds.mockResolvedValueOnce([
+      createSelectedSummaryFixture({
+        jobId: "job-1",
+        partNumber: "BRKT-001",
+        description: "Primary bracket",
+        selectedPriceUsd: 1200,
+        selectedLeadTimeBusinessDays: 14,
+      }),
+    ]);
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([
+      {
+        ...workspaceItem,
+        part: workspaceItem.part
+          ? {
+              ...workspaceItem.part,
+              vendorQuotes: workspaceItem.part.vendorQuotes.map((quote) => ({
+                ...quote,
+                raw_payload: { mode: "simulate" },
+              })),
+            }
+          : null,
+      },
+    ]);
+
+    renderWithClient("/projects/project-1");
+
+    const summary = await screen.findByRole("region", { name: "Project summary" });
+    await waitFor(() => {
+      expect(within(summary).getByText("$0")).toBeInTheDocument();
+      expect(within(summary).getByText("No selections yet")).toBeInTheDocument();
+      expect(within(summary).getByText("1 part unquoted")).toBeInTheDocument();
+      expect(within(summary).queryByText("$1,200")).not.toBeInTheDocument();
+    });
+  });
+
   it("selects a row and updates the docked inspector without navigating away", async () => {
     renderWithClient("/projects/project-1");
 
@@ -984,6 +1137,102 @@ describe("ClientProject", () => {
     expect(within(inspector).getByText("±0.0050 in")).toBeInTheDocument();
     expect(within(inspector).getByRole("button", { name: "Full workspace" })).toBeInTheDocument();
     expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-1");
+  });
+
+  it("shows reviewed provider guidance for a supported Free project part", async () => {
+    mockQuoteCollectionMode.mockReturnValue({
+      automaticEnabled: false,
+      hasAutomaticEntitlement: false,
+      isLoading: false,
+      plan: "free",
+      setAutomaticEnabled: vi.fn(),
+    });
+    api.fetchVendorCapabilityProfiles.mockResolvedValueOnce([createReviewedCapabilityProfile()]);
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([createSupportedWorkspaceItem()]);
+
+    renderWithClient("/projects/project-1");
+    fireEvent.click(await screen.findByText("BRKT-001"));
+
+    const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+    expect(await within(inspector).findByText("Provider recommendations available")).toBeInTheDocument();
+    expect(
+      within(inspector).getByText(/not returned quotes and no price is implied/i),
+    ).toBeInTheDocument();
+    expect(within(inspector).getByRole("heading", { name: "Xometry" })).toBeInTheDocument();
+    expect(within(inspector).getByRole("link", { name: /open official rfq/i })).toHaveAttribute(
+      "href",
+      "https://www.xometry.com/quoting/home/",
+    );
+    expect(within(inspector).queryByText("Live offers available")).not.toBeInTheDocument();
+  });
+
+  it("shows only verified current adapter prices as live project offers", async () => {
+    api.fetchVendorCapabilityProfiles.mockResolvedValueOnce([createReviewedCapabilityProfile()]);
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([
+      createSupportedWorkspaceItem([createTrustedLiveQuote()]),
+    ]);
+
+    renderWithClient("/projects/project-1");
+    fireEvent.click(await screen.findByText("BRKT-001"));
+
+    const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+    expect(await within(inspector).findByText("Live offers available")).toBeInTheDocument();
+    expect(within(inspector).getByRole("heading", { name: "1 live offer plus fallback options" })).toBeInTheDocument();
+  });
+
+  it.each(["queued", "failed"] as const)(
+    "falls back to reviewed guidance when a Pro request is %s",
+    async (status) => {
+      api.fetchVendorCapabilityProfiles.mockResolvedValueOnce([createReviewedCapabilityProfile()]);
+      const item = createSupportedWorkspaceItem();
+      const latestQuoteRequest = createQuoteRequestFixture({
+        status,
+        failure_reason: status === "failed" ? "The provider session expired." : null,
+        failed_at: status === "failed" ? "2026-07-30T01:00:00.000Z" : null,
+      });
+      api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([
+        {
+          ...item,
+          latestQuoteRequest,
+          latestQuoteRun: createQuoteRunFixture({
+            quote_request_id: latestQuoteRequest.id,
+            status,
+          }),
+        },
+      ]);
+
+      renderWithClient("/projects/project-1");
+      fireEvent.click(await screen.findByText("BRKT-001"));
+
+      const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+      expect(await within(inspector).findByText("Provider recommendations available")).toBeInTheDocument();
+      expect(within(inspector).queryByText("Live offers available")).not.toBeInTheDocument();
+    },
+  );
+
+  it("shows an explicit unsupported-package result in the project inspector", async () => {
+    const item = createSupportedWorkspaceItem();
+    api.fetchVendorCapabilityProfiles.mockResolvedValueOnce([createReviewedCapabilityProfile()]);
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([
+      {
+        ...item,
+        part: item.part
+          ? {
+              ...item.part,
+              cadFile: item.part.cadFile
+                ? { ...item.part.cadFile, original_name: "bracket.iges" }
+                : null,
+            }
+          : null,
+      },
+    ]);
+
+    renderWithClient("/projects/project-1");
+    fireEvent.click(await screen.findByText("BRKT-001"));
+
+    const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+    expect(await within(inspector).findByText("Action needed")).toBeInTheDocument();
+    expect(within(inspector).getByRole("heading", { name: "A STEP model is required" })).toBeInTheDocument();
   });
 
   it("lets users pin or exclude vendors at project and part scopes from the inspector", async () => {

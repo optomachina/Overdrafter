@@ -10,6 +10,7 @@ import {
   Search as SearchIcon,
 } from "lucide-react";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
+import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
 import { ProjectMembersDialog } from "@/components/chat/ProjectMembersDialog";
 import { PromptComposer } from "@/components/chat/PromptComposer";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
@@ -384,6 +385,7 @@ type ProjectInspectorContentProps = Readonly<{
       status: ClientQuoteRequestStatus;
     } | null;
   } | null;
+  focusedSourcingResult: ReturnType<typeof useClientProjectController>["focusedSourcingResult"];
   focusedVendorPreferences: ReturnType<typeof useClientProjectController>["focusedVendorPreferences"];
   focusedVendorPreferencesErrorMessage: string | null;
   isVendorPreferenceLoading: boolean;
@@ -607,6 +609,7 @@ function ProjectInspectorContent({
   focusedJobId,
   focusedWorkspaceItem,
   focusedInspectorModel,
+  focusedSourcingResult,
   focusedVendorPreferences,
   focusedVendorPreferencesErrorMessage,
   isVendorPreferenceLoading,
@@ -715,6 +718,10 @@ function ProjectInspectorContent({
       </div>
 
       <div className="mt-4 space-y-3">
+        {focusedSourcingResult ? (
+          <ClientSourcingResultPanel compact result={focusedSourcingResult} />
+        ) : null}
+
         <details open className="overflow-hidden rounded-lg border border-border bg-muted">
           <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-foreground marker:content-none">
             Properties
@@ -844,6 +851,7 @@ const ClientProject = () => {
     projectJobsQuery,
     projectMembershipsQuery,
     projectName,
+    optionsByJobId,
     projectQuery,
     projectWorkspaceItemsQuery,
     projectPartCount,
@@ -869,6 +877,7 @@ const ClientProject = () => {
     sidebarProjects,
     signOut,
     summariesByJobId,
+    selectedOptionsByJobId,
     updateProjectMutation,
     user,
     accessibleJobs,
@@ -883,6 +892,7 @@ const ClientProject = () => {
     focusedJobId,
     focusedVendorPreferences,
     focusedVendorPreferencesErrorMessage,
+    focusedSourcingResult,
     focusedWorkspaceItem,
     isMobile,
     isSavingVendorPreferences,
@@ -1014,16 +1024,11 @@ const ClientProject = () => {
       const workspaceItem = workspaceItemsByJobId.get(job.id) ?? null;
       const summary = workspaceItem?.summary ?? summariesByJobId.get(job.id) ?? null;
       const presentation = getClientItemPresentation(job, summary);
-      const selectedSpendUsd = summary?.selectedPriceUsd ?? null;
-      const selectedLeadTimeBusinessDays = summary?.selectedLeadTimeBusinessDays ?? null;
-      const hasSelection =
-        summary?.selectedSupplier !== null &&
-        selectedSpendUsd !== null &&
-        selectedSpendUsd !== undefined;
-      const hasQuotes =
-        hasSelection ||
-        (workspaceItem?.part?.vendorQuotes.length ?? 0) > 0 ||
-        (quoteRequestViewModelsByJobId.get(job.id)?.status ?? "not_requested") === "received";
+      const selectedOption = selectedOptionsByJobId[job.id] ?? null;
+      const selectedSpendUsd = selectedOption?.totalPriceUsd ?? null;
+      const selectedLeadTimeBusinessDays = selectedOption?.leadTimeBusinessDays ?? null;
+      const hasSelection = selectedOption !== null;
+      const hasQuotes = (optionsByJobId[job.id]?.length ?? 0) > 0;
 
       return {
         jobId: job.id,
@@ -1078,7 +1083,7 @@ const ClientProject = () => {
       dominantSpendLabel: dominantSpendRow?.label ?? null,
       dominantSpendPercent: dominantSpendRow?.sharePercent ?? null,
     };
-  }, [projectJobs, quoteRequestViewModelsByJobId, summariesByJobId, workspaceItemsByJobId]);
+  }, [optionsByJobId, projectJobs, selectedOptionsByJobId, summariesByJobId, workspaceItemsByJobId]);
 
   const activeFilterOption = useMemo(
     () => clientFilterOptions.find((filter) => filter.id === activeFilter) ?? clientFilterOptions[0],
@@ -1592,6 +1597,7 @@ const ClientProject = () => {
                   focusedJobId={focusedJobId}
                   focusedWorkspaceItem={focusedWorkspaceItem}
                   focusedInspectorModel={focusedInspectorModel}
+                  focusedSourcingResult={focusedSourcingResult}
                   focusedVendorPreferences={focusedVendorPreferences}
                   focusedVendorPreferencesErrorMessage={focusedVendorPreferencesErrorMessage}
                   isVendorPreferenceLoading={isVendorPreferenceLoading}
@@ -1625,6 +1631,7 @@ const ClientProject = () => {
               focusedJobId={focusedJobId}
               focusedWorkspaceItem={focusedWorkspaceItem}
               focusedInspectorModel={focusedInspectorModel}
+              focusedSourcingResult={focusedSourcingResult}
               focusedVendorPreferences={focusedVendorPreferences}
               focusedVendorPreferencesErrorMessage={focusedVendorPreferencesErrorMessage}
               isVendorPreferenceLoading={isVendorPreferenceLoading}
