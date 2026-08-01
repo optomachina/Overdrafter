@@ -169,6 +169,16 @@ describe("manufacturing corpus vocabulary", () => {
       enumerable: true,
       value: "discarded by JSON.stringify",
     });
+    const accessorBacked = {};
+    Object.defineProperty(accessorBacked, "value", {
+      enumerable: true,
+      get: () => "computed",
+    });
+    const nonEnumerable = {};
+    Object.defineProperty(nonEnumerable, "value", {
+      enumerable: false,
+      value: "hidden",
+    });
     const hostileProxy = new Proxy(
       {},
       {
@@ -193,11 +203,23 @@ describe("manufacturing corpus vocabulary", () => {
       symbolKeyed,
       inheritedToJson,
       outOfRangeArray,
+      accessorBacked,
+      nonEnumerable,
     ]) {
       expect(manufacturingCorpusJsonValueSchema.safeParse(value).success).toBe(
         false,
       );
     }
     expect(manufacturingCorpusIsJsonValue(hostileProxy)).toBe(false);
+
+    const nullPrototypeObject = Object.create(null) as Record<string, unknown>;
+    nullPrototypeObject.value = "kept";
+    const nullPrototypeArray = ["kept"];
+    Object.setPrototypeOf(nullPrototypeArray, null);
+    for (const value of [nullPrototypeObject, nullPrototypeArray]) {
+      expect(manufacturingCorpusJsonValueSchema.safeParse(value).success).toBe(
+        true,
+      );
+    }
   });
 });
