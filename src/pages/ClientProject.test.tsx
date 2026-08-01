@@ -10,6 +10,7 @@ import type {
   ClientQuoteRequestStatus,
   QuoteRequestRecord,
   QuoteRunRecord,
+  VendorCapabilityProfileRecord,
   VendorQuoteAggregate,
 } from "@/features/quotes/types";
 import { createClientQuoteWorkspaceItemFixture } from "@/features/quotes/client-workspace-fixtures";
@@ -41,6 +42,7 @@ const {
     fetchArchivedProjects: vi.fn(),
     fetchClientActivityEventsByJobIds: vi.fn(),
     fetchClientQuoteWorkspaceByJobIds: vi.fn(),
+    fetchVendorCapabilityProfiles: vi.fn(),
     fetchJobVendorPreferenceContext: vi.fn(),
     fetchProjectAssigneeProfiles: vi.fn(),
     fetchJobPartSummariesByJobIds: vi.fn(),
@@ -150,6 +152,7 @@ vi.mock("@/features/quotes/api/workspace-access", () => ({
   fetchArchivedProjects: api.fetchArchivedProjects,
   fetchClientActivityEventsByJobIds: api.fetchClientActivityEventsByJobIds,
   fetchClientQuoteWorkspaceByJobIds: api.fetchClientQuoteWorkspaceByJobIds,
+  fetchVendorCapabilityProfiles: api.fetchVendorCapabilityProfiles,
   fetchProjectAssigneeProfiles: api.fetchProjectAssigneeProfiles,
   fetchJobPartSummariesByJobIds: api.fetchJobPartSummariesByJobIds,
   fetchJobsByProject: api.fetchJobsByProject,
@@ -391,7 +394,45 @@ function createQuoteRunFixture(overrides: Partial<QuoteRunRecord> = {}): QuoteRu
 }
 
 function createWorkspaceItemFixture(overrides: WorkspaceItemOverrides = {}) {
-  return createClientQuoteWorkspaceItemFixture(overrides);
+  const workspaceItem = createClientQuoteWorkspaceItemFixture(overrides);
+
+  if (
+    overrides.approvedRequirement === undefined &&
+    workspaceItem.part?.approvedRequirement
+  ) {
+    workspaceItem.part.approvedRequirement = {
+      ...workspaceItem.part.approvedRequirement,
+      spec_snapshot: {
+        ...((workspaceItem.part.approvedRequirement.spec_snapshot as Record<string, unknown> | null) ?? {}),
+        process: "CNC milling",
+      },
+    };
+  }
+
+  return workspaceItem;
+}
+
+function createVendorCapabilityProfile(
+  overrides: Partial<VendorCapabilityProfileRecord> = {},
+): VendorCapabilityProfileRecord {
+  return {
+    vendor_name: "xometry",
+    process_types: ["cnc_milling"],
+    materials: ["aluminum"],
+    tolerance_min_mm: 0.01,
+    tolerance_max_mm: 1,
+    max_part_size_mm: 1000,
+    min_quantity: 1,
+    max_quantity: 1000,
+    geographic_region: "United States",
+    certifications: ["ISO 9001"],
+    quality_score: 90,
+    lead_time_reliability: 88,
+    cost_competitiveness: 85,
+    domestic_us: true,
+    updated_at: "2026-07-31T00:00:00Z",
+    ...overrides,
+  };
 }
 
 function createVendorQuoteFixture(input: {
@@ -651,6 +692,9 @@ describe("ClientProject", () => {
     mockUseIsMobile.mockReturnValue(false);
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
     api.fetchClientActivityEventsByJobIds.mockResolvedValue([]);
+    api.fetchVendorCapabilityProfiles.mockResolvedValue([
+      createVendorCapabilityProfile(),
+    ]);
     api.fetchAccessibleProjects.mockResolvedValue([
       {
         project: {
@@ -819,10 +863,12 @@ describe("ClientProject", () => {
     expect(screen.getByRole("columnheader", { name: "CAD" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "DWG" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Quote" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Sourcing" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Assignee" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Creation Date" })).toBeInTheDocument();
     expect(screen.getByText("BRKT-001")).toBeInTheDocument();
     expect(screen.getByText("Machined mounting bracket")).toBeInTheDocument();
+    expect(screen.getByText("1 provider")).toBeInTheDocument();
     expect(screen.getByText("No")).toBeInTheDocument();
     expect(screen.getAllByText("BW").length).toBeGreaterThan(0);
   });
@@ -985,6 +1031,125 @@ describe("ClientProject", () => {
     expect(within(inspector).getByRole("button", { name: "Full workspace" })).toBeInTheDocument();
     expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-1");
   });
+
+  it("shows reviewed provider guidance for a Free project part", async () => {
+    mockQuoteCollectionMode.mockReturnValue({
+      automaticEnabled: false,
+      hasAutomaticEntitlement: false,
+      isLoading: false,
+      plan: "free",
+      setAutomaticEnabled: vi.fn(),
+    });
+
+    renderWithClient("/projects/project-1");
+
+    const partNumber = await screen.findByText("BRKT-001");
+    expect(screen.getByText("1 provider")).toBeInTheDocument();
+    fireEvent.click(partNumber);
+
+    const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+    expect(within(inspector).getByText("Provider recommendations available")).toBeInTheDocument();
+    expect(
+      within(inspector).getByText(/potential providers ranked from reviewed capability data/i),
+    ).toBeInTheDocument();
+    const officialRfqLink = within(inspector).getByRole("link", { name: /open official rfq/i });
+    expect(officialRfqLink).toHaveAttribute(
+      "href",
+      "https://www.xometry.com/quoting/home/",
+    );
+    expect(officialRfqLink.closest("article")?.parentElement).not.toHaveClass("lg:grid-cols-3");
+  });
+
+  it("distinguishes a current trusted Pro offer from provider recommendations", async () => {
+    const workspaceItem = createWorkspaceItemFixture();
+    const liveTimestamp = new Date().toISOString();
+    const liveQuote = createVendorQuoteFixture({
+      resultId: "live-result-1",
+      offerId: "live-offer-1",
+      supplier: "Xometry",
+      totalPriceUsd: 100,
+      leadTimeBusinessDays: 7,
+    });
+    liveQuote.raw_payload = {
+      automationVersion: "xometry-worker-2026-08",
+      requirementCapturedAt: liveTimestamp,
+    };
+    liveQuote.created_at = liveTimestamp;
+    liveQuote.updated_at = liveTimestamp;
+    liveQuote.offers = liveQuote.offers.map((offer) => ({
+      ...offer,
+      quote_date: liveTimestamp.slice(0, 10),
+      created_at: liveTimestamp,
+      updated_at: liveTimestamp,
+    }));
+    if (!workspaceItem.part) {
+      throw new Error("Expected a part fixture.");
+    }
+    workspaceItem.part.vendorQuotes = [liveQuote];
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([workspaceItem]);
+
+    renderWithClient("/projects/project-1");
+
+    const partNumber = await screen.findByText("BRKT-001");
+    expect(await screen.findByText("1 live")).toBeInTheDocument();
+    fireEvent.click(partNumber);
+
+    const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+    expect(within(inspector).getByText("Live offers available")).toBeInTheDocument();
+    expect(within(inspector).getByRole("heading", { name: /1 live offer/i })).toBeInTheDocument();
+  });
+
+  it("shows an explicit unsupported-package result in the project ledger and inspector", async () => {
+    const baseRequirement = createWorkspaceItemFixture().part?.approvedRequirement;
+    if (!baseRequirement) {
+      throw new Error("Expected an approved requirement fixture.");
+    }
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([
+      createWorkspaceItemFixture({
+        approvedRequirement: {
+          ...baseRequirement,
+          material: "17-4 PH stainless steel",
+          spec_snapshot: {
+            ...((baseRequirement.spec_snapshot as Record<string, unknown> | null) ?? {}),
+            process: "CNC milling",
+          },
+        },
+      }),
+    ]);
+
+    renderWithClient("/projects/project-1");
+
+    const partNumber = await screen.findByText("BRKT-001");
+    expect((await screen.findAllByText("Action needed")).length).toBeGreaterThan(0);
+    fireEvent.click(partNumber);
+
+    const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+    expect(
+      within(inspector).getByRole("heading", { name: "This material is outside the launch scope" }),
+    ).toBeInTheDocument();
+    expect(within(inspector).getByText(/currently supports machined aluminum parts/i)).toBeInTheDocument();
+  });
+
+  it.each(["queued", "failed"] as const)(
+    "degrades a Pro %s request to reviewed provider guidance",
+    async (status) => {
+      api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([
+        buildWorkspaceItemWithQuoteStatus(status),
+      ]);
+
+      renderWithClient("/projects/project-1");
+
+      const partNumber = await screen.findByText("BRKT-001");
+      expect(await screen.findByText("1 provider")).toBeInTheDocument();
+      fireEvent.click(partNumber);
+
+      const inspector = screen.getByRole("complementary", { name: "Project inspector" });
+      expect(within(inspector).getByText("Provider recommendations available")).toBeInTheDocument();
+      expect(
+        within(inspector).getByText(/automatic collection has not produced a live offer yet/i),
+      ).toBeInTheDocument();
+    },
+  );
 
   it("lets users pin or exclude vendors at project and part scopes from the inspector", async () => {
     api.fetchJobVendorPreferenceContext.mockResolvedValueOnce({
