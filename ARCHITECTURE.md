@@ -214,7 +214,8 @@ Internal review implementation boundary:
   lookup keys, exact Price IDs, mode, and return URLs
 - each organization billing account stores an explicit, stable client
   membership as its billing owner; ordinary members, internal platform staff,
-  former owners, and cross-organization callers are denied server-side
+  former owners, and cross-organization callers are denied server-side;
+  removing the owner clears billing authority instead of transferring it
 - a durable per-organization Checkout intent serializes monthly/annual races,
   supplies Stripe's idempotency identity, resumes same-plan retries, and keeps
   an open Session from being replaced by a different interval

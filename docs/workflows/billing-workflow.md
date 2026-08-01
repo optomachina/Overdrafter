@@ -31,8 +31,9 @@ Use this for Stripe checkout, subscriptions, invoicing, entitlements, plan state
 
 - Each organization billing account stores one explicit client membership as
   its stable billing owner. Ordinary members and internal platform staff cannot
-  prepare customer billing state. Reassign the owner before deleting the owner
-  membership.
+  prepare customer billing state. Removing that membership clears billing
+  authority and requires an explicit owner assignment before billing can resume;
+  authority never transfers to another member implicitly.
 - The active Checkout catalog has monthly and annual slots for
   `overdrafter_pro_monthly_v1` and `overdrafter_pro_annual_v1`. Configuring a
   new active Price adds it to the webhook entitlement allowlist without removing

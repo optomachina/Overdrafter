@@ -5,7 +5,7 @@
 
 alter table private.organization_billing_accounts
   add column billing_owner_membership_id uuid
-    references public.organization_memberships(id) on delete restrict;
+    references public.organization_memberships(id) on delete set null;
 
 create index organization_billing_accounts_owner_idx
   on private.organization_billing_accounts (billing_owner_membership_id)

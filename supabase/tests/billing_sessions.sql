@@ -1,6 +1,6 @@
 begin;
 
-select plan(32);
+select plan(33);
 
 create function pg_temp.set_ovd292_request_identity(
   p_user_id uuid,
@@ -285,16 +285,6 @@ select is(
   ),
   '00000000-0000-4000-8000-000000002926'::uuid,
   'later membership inserts never silently transfer the explicit billing owner'
-);
-
-select throws_ok(
-  $$
-    delete from public.organization_memberships
-    where id = '00000000-0000-4000-8000-000000002926'
-  $$,
-  '23503',
-  null,
-  'the billing-owner membership cannot be deleted before an explicit reassignment'
 );
 
 insert into auth.users (id, aud, role, email)
@@ -630,6 +620,25 @@ select throws_ok(
   '42501',
   'Billing audit events are append-only.',
   'even privileged database paths cannot delete billing activation history'
+);
+
+select lives_ok(
+  $$
+    delete from public.organization_memberships
+    where id = '00000000-0000-4000-8000-000000002926'
+  $$,
+  'removing the billing owner does not block ordinary organization membership cleanup'
+);
+
+select is(
+  (
+    select account_row.billing_owner_membership_id
+    from private.organization_billing_accounts account_row
+    where account_row.organization_id =
+      (select primary_organization_id from ovd292_test_context)
+  ),
+  null::uuid,
+  'removing the billing owner fails closed instead of silently transferring authority'
 );
 
 select * from finish();
