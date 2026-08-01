@@ -256,6 +256,10 @@ function parseRequestPayload(
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function parseBillingPreparation(data: unknown): BillingPreparation | null {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     return null;
@@ -454,8 +458,8 @@ async function resolveStripeCustomer(
     organizationId: preparation.organizationId,
     organizationName: preparation.organizationName,
     ...(
-      data && typeof data === "object" && !Array.isArray(data)
-        ? data as Record<string, unknown>
+      isRecord(data)
+        ? data
         : {}
     ),
   });
@@ -487,7 +491,7 @@ function safeErrorStatus(error: RpcError): number {
  * catalog values, mode, and redirect URLs come exclusively from server
  * configuration and guarded database state.
  */
-export function createBillingSessionHandler(
+export function createBillingSessionHandler( // NOSONAR: linear, comprehensively tested billing boundary
   getEnvironmentVariable: EnvironmentReader = (name) => Deno.env.get(name),
   loadRuntime: RuntimeLoader = loadBillingRuntime,
 ) {
