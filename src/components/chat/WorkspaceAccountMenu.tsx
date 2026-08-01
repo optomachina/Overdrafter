@@ -1094,20 +1094,20 @@ export function WorkspaceAccountMenu({
               ) : null}
               {billingReturnState === "success"
                 && !quoteCollectionMode.hasAutomaticEntitlement ? (
-                <p
-                  className="mt-3 rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm leading-5 text-emerald-200"
-                  role="status"
+                <output
+                  className="mt-3 block rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm leading-5 text-emerald-200"
+                  aria-live="polite"
                 >
                   Checkout complete. Pro will activate automatically as soon as Stripe confirms the subscription.
-                </p>
+                </output>
               ) : null}
               {billingReturnState === "cancelled" ? (
-                <p
-                  className="mt-3 rounded border border-border bg-accent px-3 py-2 text-sm leading-5 text-foreground/80"
-                  role="status"
+                <output
+                  className="mt-3 block rounded border border-border bg-accent px-3 py-2 text-sm leading-5 text-foreground/80"
+                  aria-live="polite"
                 >
                   Checkout was canceled. Your Free sourcing access is unchanged.
-                </p>
+                </output>
               ) : null}
               {!quoteCollectionMode.isLoading
                 && !quoteCollectionMode.hasAutomaticEntitlement
