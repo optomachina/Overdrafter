@@ -195,6 +195,14 @@ Required frontend environment variables:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 
+Hosted Pro billing also requires the authenticated `billing-sessions` Supabase
+Edge Function. Configure its server-only `OVERDRAFTER_APP_URL`,
+`STRIPE_EXPECTED_LIVEMODE`, `STRIPE_PRO_MONTHLY_PRICE_ID`, and
+`STRIPE_SECRET_KEY` values. Keep `BILLING_SELF_SERVICE_ENABLED=false` until the
+single $49/month Stripe catalog entry and signed `stripe-events` webhook have
+been verified in the same test/live mode. Checkout redirects never activate
+Pro; the synchronized Stripe webhook does.
+
 If you replace `src/assets/logo.png`, regenerate the favicon assets before committing:
 
 ```bash
@@ -428,11 +436,11 @@ Commercial account administration is now an active staged program under Linear p
 
 Target contract and sequence:
 
-- Free organizations will keep unlimited uploads and manual quote requests without customer-facing quota messaging.
+- Free organizations will keep unlimited uploads and receive unattended provider guidance with official RFQ links.
 - Pro organizations will gain server-enforced automatic vendor quote collection.
 - Free users will continue to see the automatic-quote toggle; attempting to enable it will open the Pro upgrade dialog.
-- Organization-level Stripe subscriptions, audited trial/complimentary grants, and subscription promotion codes are sequenced separately from procurement.
-- The first order-administration slice will be a manual visibility ledger for externally confirmed order state.
+- Organization-level Stripe subscriptions use one $49 monthly Checkout price with audited trial/complimentary grants sequenced separately from procurement.
+- Annual pricing, promotion codes, and order administration remain deferred until the web product records revenue.
 
 Manufacturing card collection, order discounts, automated supplier order placement, tax automation, and ERP/accounting integration remain deferred. For controlled tests, a local live worker is acceptable; unattended use still requires hosting the live worker on a long-lived platform.
 

@@ -207,7 +207,23 @@ Internal review implementation boundary:
 - the signature-only `stripe-events` Edge Function verifies the raw body and uses service-role-only database functions; its private inbox records livemode, API version, receipts, attempts, terminal state, and bounded failure context
 - subscription and invoice projection updates run while the event inbox row is locked; event creation time plus deterministic same-second status precedence prevents reordered delivery from overwriting newer state
 - subscription projections grant Pro only when the verified Stripe Price ID and
-  test/live mode match the server-managed launch Pro price allowlist
+  test/live mode match the server-managed Pro price allowlist; price rotation
+  preserves historical IDs for existing subscriptions while exactly one Price
+  per mode remains enabled for new Checkout Sessions
+- the authenticated `billing-sessions` Edge Function accepts only an
+  organization ID plus `checkout` or `portal`; the server owns the Stripe
+  Customer, single $49 monthly Price ID, mode, and return URLs
+- the oldest active organization membership is the launch billing owner;
+  internal organization administrators also retain billing-owner access, while
+  later members and cross-organization callers are denied server-side
+- Checkout redirects are informational only; Pro access changes exclusively
+  after the signed Stripe event is synchronized into the subscription
+  projection
+- new Checkout creation is serialized by a durable organization-scoped
+  reservation whose token is reused as the Stripe idempotency key; failed
+  pre-session reservations expire without operator intervention
+- Checkout remains feature-flagged until its configured Stripe Product and
+  Price are active, test/live-mode matched, USD 49.00, and monthly recurring
 - failed or pending events are replayed through `api_replay_stripe_event` or bounded `api_reconcile_stripe_events` calls rather than by editing commercial projection tables directly
 - platform viewers remain read-only; billing and order mutations require separately granted stable-ID capabilities, AAL2, server-side authorization, idempotency, and append-only audit
 - subscription promotion codes never adjust manufacturing quote or order totals

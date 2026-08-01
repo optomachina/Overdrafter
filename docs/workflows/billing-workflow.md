@@ -26,3 +26,43 @@ Use this for Stripe checkout, subscriptions, invoicing, entitlements, plan state
 - Inspect a stored event through the service-role-only `api_get_stripe_event_status` function.
 - Replay one repaired event with `api_replay_stripe_event`; reconcile a bounded pending/failed batch with `api_reconcile_stripe_events`.
 - Never replay by changing inbox or subscription/invoice projection rows directly.
+
+## Hosted Pro Checkout and Billing Portal
+
+- Deploy `billing-sessions` with Supabase JWT verification enabled.
+- Keep `BILLING_SELF_SERVICE_ENABLED=false` until the Stripe catalog, webhook,
+  and production return URL have been checked together.
+- Configure these server-only values:
+  - `OVERDRAFTER_APP_URL`
+  - `STRIPE_EXPECTED_LIVEMODE`
+  - `STRIPE_PRO_MONTHLY_PRICE_ID`
+  - `STRIPE_SECRET_KEY`
+- The configured Price must be an active USD $49.00 monthly recurring price on
+  an active Product in the expected Stripe mode. The function validates this
+  before creating every Checkout Session. It enables exactly one Checkout
+  Price per Stripe mode while retaining historical Price IDs in the webhook
+  allowlist so existing subscriptions continue to synchronize after rotation.
+- The browser may send only `organizationId` and `action` (`checkout` or
+  `portal`). Customer IDs, Price IDs, amounts, intervals, modes, and return URLs
+  are server-owned.
+- The oldest active organization member is the launch billing owner; internal
+  organization administrators are also allowed. Complex billing-role
+  administration is deferred.
+- Checkout success means “webhook confirmation pending.” Never grant Pro from a
+  URL parameter or Checkout redirect.
+- Before creating Checkout, the billing boundary rejects any non-terminal
+  Stripe subscription for the organization Customer and reuses a matching open
+  Checkout Session. A durable, organization-scoped reservation serializes new
+  session creation; its token is also the Stripe idempotency key. Reservations
+  expire after two minutes so a failed pre-session request cannot strand the
+  organization. Non-terminal subscriptions and open Stripe Sessions remain the
+  duplicate-subscription authority.
+- Show Billing Portal access only when a synchronized Stripe subscription
+  exists. Trial and complimentary Pro grants still receive Pro capabilities
+  without presenting a broken Stripe management action.
+- `billing.upgrade_started` and `billing.subscription_activated` are recorded
+  in the existing server-side audit event stream. Guard triggers prevent
+  authenticated internal roles from forging, updating, or deleting those
+  billing event types.
+- If Checkout or Stripe is unavailable, Free sourcing recommendations and
+  official RFQ links remain usable.

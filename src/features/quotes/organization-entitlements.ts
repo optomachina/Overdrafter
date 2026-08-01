@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { callUntypedRpc } from "@/features/quotes/api/shared/rpc";
 import { ensureData } from "@/features/quotes/api/shared/response";
 import { isFixtureModeEnabled } from "@/features/quotes/client-workspace-fixtures";
@@ -7,6 +7,8 @@ export type OrganizationEntitlements = {
   plan: "free" | "pro";
   source: string;
   automaticQuoteCollection: boolean;
+  canManageBilling: boolean;
+  hasStripeSubscription: boolean;
 };
 
 async function fetchOrganizationEntitlements(
@@ -25,10 +27,24 @@ export function useOrganizationQuoteCollectionMode(
 ) {
   const [entitlements, setEntitlements] = useState<OrganizationEntitlements | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const inFlightRequest = useRef<{
+    key: string;
+    promise: Promise<void>;
+  } | null>(null);
+  const requestVersion = useRef(0);
 
-  useEffect(() => {
+  const refresh = useCallback(async () => {
     if (!organizationId || !enabled) {
+      requestVersion.current += 1;
+      inFlightRequest.current = null;
+      setEntitlements(null);
+      setIsLoading(false);
       return;
+    }
+
+    const requestKey = `${organizationId}:${enabled}`;
+    if (inFlightRequest.current?.key === requestKey) {
+      return inFlightRequest.current.promise;
     }
 
     if (isFixtureModeEnabled()) {
@@ -36,42 +52,59 @@ export function useOrganizationQuoteCollectionMode(
         plan: "free",
         source: "fixture",
         automaticQuoteCollection: false,
+        canManageBilling: true,
+        hasStripeSubscription: false,
       });
       setIsLoading(false);
       return;
     }
 
-    let cancelled = false;
+    const currentVersion = requestVersion.current + 1;
+    requestVersion.current = currentVersion;
     setIsLoading(true);
-    fetchOrganizationEntitlements(organizationId)
+
+    const request = fetchOrganizationEntitlements(organizationId)
       .then((nextEntitlements) => {
-        if (!cancelled) {
+        if (requestVersion.current === currentVersion) {
           setEntitlements(nextEntitlements);
         }
       })
       .catch(() => {
-        if (!cancelled) {
+        if (requestVersion.current === currentVersion) {
           setEntitlements(null);
         }
       })
       .finally(() => {
-        if (!cancelled) {
+        if (requestVersion.current === currentVersion) {
           setIsLoading(false);
+        }
+        if (inFlightRequest.current?.promise === request) {
+          inFlightRequest.current = null;
         }
       });
 
-    return () => {
-      cancelled = true;
-    };
+    inFlightRequest.current = { key: requestKey, promise: request };
+    return request;
   }, [enabled, organizationId]);
+
+  useEffect(() => {
+    void refresh();
+
+    return () => {
+      requestVersion.current += 1;
+    };
+  }, [refresh]);
 
   const hasAutomaticEntitlement =
     entitlements?.automaticQuoteCollection === true;
 
   return {
     automaticEnabled: hasAutomaticEntitlement,
+    canManageBilling: entitlements?.canManageBilling === true,
+    hasStripeSubscription: entitlements?.hasStripeSubscription === true,
     hasAutomaticEntitlement,
     isLoading,
     plan: entitlements?.plan ?? "free",
+    refresh,
   };
 }
