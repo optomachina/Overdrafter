@@ -69,6 +69,7 @@ This document defines what it means for the current repository-hardening phase t
 - Free users may upload parts and create projects without a customer-facing usage quota.
 - A supported Free upload returns ranked potential providers, fit explanations, and official RFQ links without starting worker or operator work.
 - Every sourcing result is explicitly one of: live offers available, provider recommendations available, or unsupported package.
+- The same sourcing result is visible in the single-part workspace and for the selected part in a project workspace.
 - Potential providers are never presented as returned quotes, and synthetic or stale prices are never labeled live.
 - A live offer must come from a successful trusted Xometry or Fictiv live-adapter result and be no more than 14 days old; all other persisted offers fall back to recommendations.
 - Pro adds the `automatic_quote_collection` entitlement.

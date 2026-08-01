@@ -996,6 +996,24 @@ export function revertBulkPresetSelection(input: {
   };
 }
 
+export function sanitizeBulkSelectionHistory(input: {
+  optionsByJobId: Readonly<Record<string, readonly ClientQuoteSelectionOption[]>>;
+  lastBulkAction: readonly BulkSelectionChange[];
+}): BulkSelectionChange[] {
+  return input.lastBulkAction.map((change) => {
+    const previousOfferIsTrusted =
+      change.previousOfferId === null ||
+      (input.optionsByJobId[change.jobId] ?? []).some(
+        (option) => option.persistedOfferId === change.previousOfferId,
+      );
+
+    return {
+      ...change,
+      previousOfferId: previousOfferIsTrusted ? change.previousOfferId : null,
+    };
+  });
+}
+
 export function summarizeSelectedQuoteOptions(
   options: readonly (ClientQuoteSelectionOption | null | undefined)[],
 ): QuoteSelectionSummary {

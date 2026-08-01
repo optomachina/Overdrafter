@@ -35,10 +35,14 @@ export function ClientSourcingResultPanel({
     const fallbackSuffix =
       result.recommendations.length > 0 ? " plus fallback options" : "";
     heading = `${result.liveOfferCount} live ${offerNoun}${fallbackSuffix}`;
-    detail =
-      result.recommendations.length > 0
-        ? "Compare returned offers below. These provider links remain available if another lane is a better fit."
-        : "Compare the returned offers below.";
+    if (compact) {
+      detail = "Open the full workspace to compare the returned offers.";
+    } else {
+      detail =
+        result.recommendations.length > 0
+          ? "Compare returned offers below. These provider links remain available if another lane is a better fit."
+          : "Compare the returned offers below.";
+    }
   } else if (result.reason === "free_preview") {
     detail =
       "These are potential providers ranked from reviewed capability data. They are not returned quotes and no price is implied.";

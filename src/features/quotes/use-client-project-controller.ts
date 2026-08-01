@@ -81,6 +81,7 @@ import {
   buildVendorLabelMap,
   getSelectedOption,
   revertBulkPresetSelection,
+  sanitizeBulkSelectionHistory,
   sortQuoteOptionsForPreset,
   summarizeSelectedQuoteOptions,
   summarizeQuoteDiagnostics,
@@ -348,7 +349,7 @@ export function useClientProjectController() {
       ),
     [projectJobs, selectedOfferOverrides],
   );
-  const quoteSelectionResultsByJobId = useMemo(
+  const rawQuoteSelectionResultsByJobId = useMemo(
     () =>
       Object.fromEntries(
         projectJobIds.map((jobId) => {
@@ -400,22 +401,21 @@ export function useClientProjectController() {
       >,
     [excludedVendorKeysByJobId, projectDueByDate, projectJobIds, requestDraftsByJobId, workspaceItemsByJobId],
   );
-  const optionsByJobId = useMemo(
-    () =>
-      Object.fromEntries(
-        Object.entries(quoteSelectionResultsByJobId).map(([jobId, result]) => [jobId, result.options]),
-      ) as Record<string, ClientQuoteSelectionOption[]>,
-    [quoteSelectionResultsByJobId],
-  );
   const sourcingResultsByJobId = useMemo(
     () =>
       Object.fromEntries(
         projectJobIds.map((jobId) => {
-          const workspaceItem = workspaceItemsByJobId.get(jobId) ?? null;
+          const workspaceItem = workspaceItemsByJobId.get(jobId);
+          const selectionResult = rawQuoteSelectionResultsByJobId[jobId];
+
+          if (!workspaceItem?.part || !selectionResult) {
+            return [jobId, null];
+          }
+
           const result = buildClientSourcingResult({
-            part: workspaceItem?.part ?? null,
+            part: workspaceItem.part,
             profiles: vendorCapabilityProfilesQuery.data ?? [],
-            liveOffers: (optionsByJobId[jobId] ?? []).map((option) => ({
+            liveOffers: selectionResult.options.map((option) => ({
               ...option,
               offerKey: option.key,
             })),
@@ -434,14 +434,49 @@ export function useClientProjectController() {
         }),
       ) as Record<string, ClientSourcingResult | null>,
     [
-      optionsByJobId,
       projectJobIds,
       quoteCollectionMode.automaticEnabled,
+      rawQuoteSelectionResultsByJobId,
       vendorCapabilityProfilesQuery.data,
       vendorCapabilityProfilesQuery.isError,
       vendorCapabilityProfilesQuery.isPending,
       workspaceItemsByJobId,
     ],
+  );
+  const quoteSelectionResultsByJobId = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(rawQuoteSelectionResultsByJobId).map(([jobId, result]) => {
+          const sourcingResult = sourcingResultsByJobId[jobId];
+          const liveOfferKeys = new Set(
+            sourcingResult?.outcome === "live_offers_available"
+              ? sourcingResult.liveOfferKeys
+              : [],
+          );
+
+          return [
+            jobId,
+            {
+              ...result,
+              options: result.options.filter((option) => liveOfferKeys.has(option.key)),
+            },
+          ];
+        }),
+      ) as Record<
+        string,
+        {
+          options: ClientQuoteSelectionOption[];
+          diagnostics: QuoteDiagnostics;
+        }
+      >,
+    [rawQuoteSelectionResultsByJobId, sourcingResultsByJobId],
+  );
+  const optionsByJobId = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(quoteSelectionResultsByJobId).map(([jobId, result]) => [jobId, result.options]),
+      ) as Record<string, ClientQuoteSelectionOption[]>,
+    [quoteSelectionResultsByJobId],
   );
   const quoteDiagnosticsByJobId = useMemo(
     () =>
@@ -1249,9 +1284,13 @@ export function useClientProjectController() {
       return;
     }
 
+    const safeLastBulkAction = sanitizeBulkSelectionHistory({
+      optionsByJobId,
+      lastBulkAction,
+    });
     const result = revertBulkPresetSelection({
       currentSelectedOfferIdsByJobId,
-      lastBulkAction,
+      lastBulkAction: safeLastBulkAction,
     });
 
     if (result.restoredJobIds.length === 0) {

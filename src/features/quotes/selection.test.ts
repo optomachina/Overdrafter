@@ -11,6 +11,7 @@ import {
   getPresetScope,
   pickPresetOption,
   revertBulkPresetSelection,
+  sanitizeBulkSelectionHistory,
   summarizeSelectedQuoteOptions,
 } from "@/features/quotes/selection";
 
@@ -392,6 +393,66 @@ describe("selection helpers", () => {
     expect(reverted.nextSelectedOfferIdsByJobId["job-1"]).toBe("manual-1");
     expect(reverted.nextSelectedOfferIdsByJobId["job-2"]).toBe("manual-override");
     expect(reverted.restoredJobIds).toEqual(["job-1"]);
+  });
+
+  it("clears untrusted previous offers before reverting a bulk selection", () => {
+    const trustedOptions = buildClientQuoteSelectionOptions({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              id: "trusted-previous",
+            },
+          ],
+        }),
+      ],
+    });
+    const safeHistory = sanitizeBulkSelectionHistory({
+      optionsByJobId: {
+        "job-trusted": trustedOptions,
+        "job-stale": trustedOptions,
+        "job-empty": [],
+      },
+      lastBulkAction: [
+        {
+          jobId: "job-trusted",
+          previousOfferId: "trusted-previous",
+          appliedOfferId: "bulk-trusted",
+        },
+        {
+          jobId: "job-stale",
+          previousOfferId: "stale-previous",
+          appliedOfferId: "bulk-stale",
+        },
+        {
+          jobId: "job-empty",
+          previousOfferId: null,
+          appliedOfferId: "bulk-empty",
+        },
+      ],
+    });
+
+    expect(safeHistory.map((change) => change.previousOfferId)).toEqual([
+      "trusted-previous",
+      null,
+      null,
+    ]);
+
+    const reverted = revertBulkPresetSelection({
+      currentSelectedOfferIdsByJobId: {
+        "job-trusted": "bulk-trusted",
+        "job-stale": "bulk-stale",
+        "job-empty": "bulk-empty",
+      },
+      lastBulkAction: safeHistory,
+    });
+
+    expect(reverted.nextSelectedOfferIdsByJobId).toMatchObject({
+      "job-trusted": "trusted-previous",
+      "job-stale": null,
+      "job-empty": null,
+    });
   });
 
   it("summarizes totals from selected options using total price", () => {
