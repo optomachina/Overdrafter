@@ -84,6 +84,101 @@ interface JsonValidationFrame {
   value: unknown;
 }
 
+type JsonPrimitiveClassification = "container" | "invalid" | "valid";
+
+function classifyJsonPrimitive(value: unknown): JsonPrimitiveClassification {
+  if (value === null || typeof value === "string") {
+    return "valid";
+  }
+  if (typeof value === "boolean") {
+    return "valid";
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? "valid" : "invalid";
+  }
+  return typeof value === "object" ? "container" : "invalid";
+}
+
+function isDenseJsonArray(candidate: unknown[]): boolean {
+  for (let index = 0; index < candidate.length; index += 1) {
+    if (!Object.hasOwn(candidate, index)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isValidJsonArrayKey(key: PropertyKey, length: number): boolean {
+  if (key === "length") {
+    return true;
+  }
+  if (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key)) {
+    return false;
+  }
+  return Number(key) < length;
+}
+
+function hasJsonContainerShape(candidate: object): boolean {
+  const prototype = Object.getPrototypeOf(candidate);
+  if (!Array.isArray(candidate)) {
+    return prototype === Object.prototype || prototype === null;
+  }
+  if (prototype !== Array.prototype && prototype !== null) {
+    return false;
+  }
+  return (
+    isDenseJsonArray(candidate) &&
+    Reflect.ownKeys(candidate).every((key) =>
+      isValidJsonArrayKey(key, candidate.length),
+    )
+  );
+}
+
+function collectJsonChildFrames(
+  candidate: object,
+): JsonValidationFrame[] | null {
+  const childFrames: JsonValidationFrame[] = [];
+  const descriptors = Object.getOwnPropertyDescriptors(candidate);
+
+  for (const key of Reflect.ownKeys(descriptors)) {
+    if (Array.isArray(candidate) && key === "length") {
+      continue;
+    }
+    if (typeof key !== "string") {
+      return null;
+    }
+    const descriptor = descriptors[key];
+    if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+      return null;
+    }
+    childFrames.push({ exiting: false, value: descriptor.value });
+  }
+
+  return childFrames;
+}
+
+function pushJsonContainerFrames(
+  candidate: object,
+  stack: JsonValidationFrame[],
+): boolean {
+  try {
+    if (!hasJsonContainerShape(candidate)) {
+      return false;
+    }
+    const childFrames = collectJsonChildFrames(candidate);
+    if (!childFrames) {
+      return false;
+    }
+    stack.push({ exiting: true, value: candidate });
+    for (const childFrame of childFrames) {
+      stack.push(childFrame);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Safely checks arbitrary JavaScript input without allowing reflection traps to escape. */
 export function manufacturingCorpusIsJsonValue(
   value: unknown,
@@ -97,23 +192,15 @@ export function manufacturingCorpusIsJsonValue(
       return false;
     }
 
-    const candidate = frame.value;
-    if (candidate === null || typeof candidate === "string") {
+    const classification = classifyJsonPrimitive(frame.value);
+    if (classification === "valid") {
       continue;
     }
-    if (typeof candidate === "boolean") {
-      continue;
-    }
-    if (typeof candidate === "number") {
-      if (!Number.isFinite(candidate)) {
-        return false;
-      }
-      continue;
-    }
-    if (typeof candidate !== "object") {
+    if (classification === "invalid") {
       return false;
     }
 
+    const candidate = frame.value as object;
     if (frame.exiting) {
       activeContainers.delete(candidate);
       continue;
@@ -122,57 +209,10 @@ export function manufacturingCorpusIsJsonValue(
       return false;
     }
 
-    try {
-      const prototype = Object.getPrototypeOf(candidate);
-      if (Array.isArray(candidate)) {
-        if (prototype !== Array.prototype && prototype !== null) {
-          return false;
-        }
-        for (let index = 0; index < candidate.length; index += 1) {
-          if (!Object.hasOwn(candidate, index)) {
-            return false;
-          }
-        }
-        const arrayKeys = Reflect.ownKeys(candidate);
-        if (
-          arrayKeys.some(
-            (key) => {
-              if (key === "length") {
-                return false;
-              }
-              if (typeof key !== "string" || !/^(0|[1-9][0-9]*)$/.test(key)) {
-                return true;
-              }
-              return Number(key) >= candidate.length;
-            },
-          )
-        ) {
-          return false;
-        }
-      } else if (prototype !== Object.prototype && prototype !== null) {
-        return false;
-      }
-
-      activeContainers.add(candidate);
-      stack.push({ exiting: true, value: candidate });
-
-      const descriptors = Object.getOwnPropertyDescriptors(candidate);
-      for (const key of Reflect.ownKeys(descriptors)) {
-        if (Array.isArray(candidate) && key === "length") {
-          continue;
-        }
-        if (typeof key !== "string") {
-          return false;
-        }
-        const descriptor = descriptors[key];
-        if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
-          return false;
-        }
-        stack.push({ exiting: false, value: descriptor.value });
-      }
-    } catch {
+    if (!pushJsonContainerFrames(candidate, stack)) {
       return false;
     }
+    activeContainers.add(candidate);
   }
 
   return true;
