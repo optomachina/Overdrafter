@@ -2053,7 +2053,7 @@ export function WorkspaceAccountMenu({
               className="border-border bg-transparent text-foreground hover:bg-accent hover:text-foreground"
               disabled={billingAction !== null}
             >
-              Keep Free
+              Nope
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-emerald-500 text-slate-950 hover:bg-emerald-400"

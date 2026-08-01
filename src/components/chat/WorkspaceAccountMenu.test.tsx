@@ -573,7 +573,7 @@ describe("WorkspaceAccountMenu", () => {
     fireEvent.click(upgradeButton);
 
     expect(await screen.findByText("Let OverDrafter collect quotes automatically")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Keep Free" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Nope" })).toBeInTheDocument();
     const confirmUpgrade = screen.getByRole("button", {
       name: "Upgrade to Pro — $49/month",
     });
