@@ -11,6 +11,10 @@ import type {
 } from "@/integrations/supabase/types";
 import { callUntypedRpc } from "./shared/rpc";
 import { ensureData } from "./shared/response";
+import {
+  fetchCommercialAdminAccess,
+  type CommercialAdminAccess,
+} from "./commercial-admin-access-api";
 
 export type AdminManualQuoteRequest = {
   requestId: string;
@@ -53,10 +57,7 @@ export type AdminManualQuoteCompletionResult = {
   replayed: boolean;
 };
 
-export type ManualQuoteOperatorAccess = {
-  hasCapability: boolean;
-  hasAal2: boolean;
-};
+export type ManualQuoteOperatorAccess = CommercialAdminAccess;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -196,23 +197,7 @@ function normalizeManualQuoteCompletion(
  * requires an AAL2 session, which is enforced again by the completion RPC.
  */
 export async function fetchManualQuoteOperatorAccess(): Promise<ManualQuoteOperatorAccess> {
-  const [capabilityResult, aal2Result] = await Promise.all([
-    callUntypedRpc("current_user_has_commercial_capability", {
-      p_capability: "billing_admin",
-    }),
-    callUntypedRpc("current_user_has_aal2"),
-  ]);
-
-  const capability = ensureData(
-    capabilityResult.data,
-    capabilityResult.error,
-  );
-  const aal2 = ensureData(aal2Result.data, aal2Result.error);
-
-  return {
-    hasCapability: capability === true,
-    hasAal2: aal2 === true,
-  };
+  return fetchCommercialAdminAccess();
 }
 
 /**

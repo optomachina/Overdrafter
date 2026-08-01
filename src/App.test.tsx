@@ -55,6 +55,14 @@ vi.mock("./pages/InternalJobDetail", () => ({
   default: () => <div>Internal Job Detail Page</div>,
 }));
 
+vi.mock("./pages/CommercialAccounts", () => ({
+  default: () => <div>Commercial Accounts Page</div>,
+}));
+
+vi.mock("./pages/CommercialAccountDetail", () => ({
+  default: () => <div>Commercial Account Detail Page</div>,
+}));
+
 vi.mock("./pages/ClientPackage", () => ({
   default: () => <div>Client Package Page</div>,
 }));
@@ -164,6 +172,24 @@ describe("App routes", () => {
     render(<App />);
 
     expect(screen.getByText("Client Package Page")).toBeInTheDocument();
+  });
+
+  it("renders the commercial accounts route", () => {
+    window.history.pushState({}, "", "/internal/commercial");
+
+    render(<App />);
+
+    expect(screen.getByText("Commercial Accounts Page")).toBeInTheDocument();
+  });
+
+  it("renders the commercial account detail route", () => {
+    window.history.pushState({}, "", "/internal/commercial/org-42");
+
+    render(<App />);
+
+    expect(
+      screen.getByText("Commercial Account Detail Page"),
+    ).toBeInTheDocument();
   });
 
   it("renders the shared client project route", () => {

@@ -1,8 +1,8 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { User } from "@supabase/supabase-js";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceNotificationsController } from "@/features/notifications/use-workspace-notifications";
 import type { AppMembership } from "@/features/quotes/types";
@@ -12,6 +12,7 @@ const fetchAdminOrganizationsMock = vi.fn();
 const fetchAdminAllUsersMock = vi.fn();
 const fetchAdminAllJobsMock = vi.fn();
 const fetchAdminAllProjectsMock = vi.fn();
+const fetchCommercialAdminAccessMock = vi.fn();
 const useWorkspaceNotificationsMock = vi.fn();
 const useClientWorkspaceDataMock = vi.fn();
 const useAppSessionMock = vi.fn();
@@ -25,6 +26,10 @@ vi.mock("@/features/quotes/api/workspace-access", () => ({
   fetchAdminAllUsers: (...args: unknown[]) => fetchAdminAllUsersMock(...args),
   fetchAdminAllJobs: (...args: unknown[]) => fetchAdminAllJobsMock(...args),
   fetchAdminAllProjects: (...args: unknown[]) => fetchAdminAllProjectsMock(...args),
+}));
+vi.mock("@/features/quotes/api/commercial-admin-access-api", () => ({
+  fetchCommercialAdminAccess: (...args: unknown[]) =>
+    fetchCommercialAdminAccessMock(...args),
 }));
 vi.mock("@/features/notifications/use-workspace-notifications", async (importOriginal) => {
   const actual =
@@ -102,7 +107,23 @@ function makeNotificationCenter(): WorkspaceNotificationsController {
   } as unknown as WorkspaceNotificationsController;
 }
 
-function renderInternalAdmin() {
+type CommercialAdminAccess = {
+  hasCapability: boolean;
+  hasAal2: boolean;
+};
+
+function LocationProbe() {
+  const location = useLocation();
+
+  return <output aria-label="Current route">{location.pathname}</output>;
+}
+
+function renderInternalAdmin(
+  commercialAccess: CommercialAdminAccess = {
+    hasCapability: false,
+    hasAal2: false,
+  },
+) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -110,11 +131,17 @@ function renderInternalAdmin() {
       },
     },
   });
+  queryClient.setQueryData(
+    ["commercial-admin-access"],
+    commercialAccess,
+    { updatedAt: Date.now() },
+  );
 
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/internal/admin"]}>
         <InternalAdmin />
+        <LocationProbe />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -200,6 +227,10 @@ describe("InternalAdmin", () => {
         createdAt: "2026-03-04T00:00:00.000Z",
       },
     ]);
+    fetchCommercialAdminAccessMock.mockResolvedValue({
+      hasCapability: false,
+      hasAal2: false,
+    });
     useWorkspaceNotificationsMock.mockReturnValue(makeNotificationCenter());
     useClientWorkspaceDataMock.mockReturnValue({
       accessibleJobsQuery: { data: [{ id: "job-1" }], isLoading: false },
@@ -232,10 +263,38 @@ describe("InternalAdmin", () => {
     expect(screen.getByText("Jobs / Parts")).toBeInTheDocument();
     expect(screen.getByText("Projects")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "God Mode" }).length).toBeGreaterThan(0);
+    expect(
+      screen.queryByRole("button", { name: "Commercial accounts" }),
+    ).not.toBeInTheDocument();
+    expect(fetchCommercialAdminAccessMock).not.toHaveBeenCalled();
     expect(await screen.findByRole("link", { name: "Widget Block" })).toHaveAttribute(
       "href",
       "/internal/jobs/job-1",
     );
+  });
+
+  it("shows and follows commercial navigation for capability holders", async () => {
+    useAppSessionMock.mockReturnValue({
+      user: makeUser(),
+      activeMembership: makeMembership("internal_admin"),
+      isPlatformAdmin: true,
+      isAuthInitializing: false,
+      signOut: signOutMock,
+    });
+
+    renderInternalAdmin({
+      hasCapability: true,
+      hasAal2: false,
+    });
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Commercial accounts" }),
+    );
+
+    expect(screen.getByLabelText("Current route")).toHaveTextContent(
+      "/internal/commercial",
+    );
+    expect(fetchCommercialAdminAccessMock).not.toHaveBeenCalled();
   });
 
   it("shows a not-authorized card for non-platform-admin users", async () => {

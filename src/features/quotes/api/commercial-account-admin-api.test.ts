@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getCommercialAccount,
+  grantCommercialEntitlement,
   listCommercialAccountAudit,
+  revokeCommercialEntitlement,
   searchCommercialAccounts,
 } from "./commercial-account-admin-api";
 
@@ -12,6 +14,59 @@ const { callUntypedRpcMock } = vi.hoisted(() => ({
 vi.mock("./shared/rpc", () => ({
   callUntypedRpc: callUntypedRpcMock,
 }));
+
+function makeRawAccountDetail(organizationId: string) {
+  return {
+    organization: {
+      id: organizationId,
+      name: "Apex Manufacturing",
+      slug: "apex-manufacturing",
+      createdAt: "2026-07-01T10:00:00Z",
+    },
+    members: [],
+    billingAccount: null,
+    effective: {
+      plan: "free",
+      source: "default",
+      sourceId: null,
+      automaticQuoteCollection: false,
+      validUntil: null,
+      reviewAt: null,
+      reviewDue: false,
+      graceEndsAt: null,
+      organizationExists: true,
+    },
+    grants: [],
+    subscriptions: [],
+    quoteActivity: {
+      manualRequestCount: 0,
+      automaticRequestCount: 0,
+      activeManualRequestCount: 0,
+      receivedRequestCount: 0,
+      failedRequestCount: 0,
+      lastRequestAt: null,
+      recentRequests: [],
+    },
+  };
+}
+
+function makeRawAuditEvent(organizationId: string) {
+  return {
+    eventId: "event-1",
+    organizationId,
+    actorUserId: "admin-1",
+    actorEmail: "admin@example.com",
+    action: "organization_entitlement.grant",
+    targetType: "organization_entitlement",
+    targetId: "grant-1",
+    reason: "Audited pilot access",
+    beforeState: null,
+    afterState: null,
+    requestMetadata: {},
+    idempotencyKey: "intent-1",
+    createdAt: "2026-07-30T10:00:00Z",
+  };
+}
 
 describe("commercial-account-admin-api", () => {
   beforeEach(() => {
@@ -285,6 +340,46 @@ describe("commercial-account-admin-api", () => {
     });
   });
 
+  it("fails closed when account detail belongs to a different organization", async () => {
+    callUntypedRpcMock.mockResolvedValue({
+      data: makeRawAccountDetail("org-other"),
+      error: null,
+    });
+
+    await expect(getCommercialAccount("org-1")).rejects.toThrow(
+      "Commercial account detail returned an unexpected organization.",
+    );
+  });
+
+  it("accepts equivalent canonical and decorated UUID spellings", async () => {
+    const canonicalOrganizationId = "abcdef12-3456-7890-abcd-ef1234567890";
+    callUntypedRpcMock
+      .mockResolvedValueOnce({
+        data: makeRawAccountDetail(canonicalOrganizationId),
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: {
+          items: [makeRawAuditEvent(canonicalOrganizationId)],
+          nextCursor: null,
+        },
+        error: null,
+      });
+
+    await expect(
+      getCommercialAccount("{ABCDEF12-3456-7890-ABCD-EF1234567890}"),
+    ).resolves.toMatchObject({
+      organization: { id: canonicalOrganizationId },
+    });
+    await expect(
+      listCommercialAccountAudit({
+        organizationId: "ABCDEF1234567890ABCDEF1234567890",
+      }),
+    ).resolves.toMatchObject({
+      items: [{ organizationId: canonicalOrganizationId }],
+    });
+  });
+
   it("preserves nullable detail fields for a free account", async () => {
     callUntypedRpcMock.mockResolvedValue({
       data: {
@@ -426,6 +521,22 @@ describe("commercial-account-admin-api", () => {
       ],
       nextCursor: "opaque-audit-cursor",
     });
+  });
+
+  it("fails closed when an audit event belongs to a different organization", async () => {
+    callUntypedRpcMock.mockResolvedValue({
+      data: {
+        items: [makeRawAuditEvent("org-other")],
+        nextCursor: null,
+      },
+      error: null,
+    });
+
+    await expect(
+      listCommercialAccountAudit({ organizationId: "org-1" }),
+    ).rejects.toThrow(
+      "Commercial account audit returned an unexpected organization.",
+    );
   });
 
   it.each([
@@ -616,5 +727,224 @@ describe("commercial-account-admin-api", () => {
     });
 
     await expect(searchCommercialAccounts()).rejects.toBe(rpcError);
+  });
+
+  it("passes exact grant intent and normalizes an idempotent replay", async () => {
+    callUntypedRpcMock.mockResolvedValue({
+      data: {
+        grantId: "grant-1",
+        supersededGrantIds: ["grant-old"],
+        effective: {
+          plan: "pro",
+          source: "manual_trial",
+          sourceId: "grant-1",
+          automaticQuoteCollection: true,
+          validUntil: "2026-08-31T10:00:00Z",
+          reviewAt: null,
+          reviewDue: false,
+          graceEndsAt: null,
+          organizationExists: true,
+        },
+        eventId: "event-1",
+        replayed: true,
+        ignoredServerField: "not part of the client contract",
+      },
+      error: null,
+    });
+
+    const result = await grantCommercialEntitlement({
+      organizationId: "org-1",
+      grantType: "trial",
+      startsAt: "2026-07-31T10:00:00Z",
+      expiresAt: "2026-08-31T10:00:00Z",
+      reviewAt: null,
+      reason: "Thirty-day evaluation",
+      idempotencyKey: "org-1-trial-2026-07-31",
+    });
+
+    expect(callUntypedRpcMock).toHaveBeenCalledWith(
+      "api_admin_grant_organization_entitlement",
+      {
+        p_organization_id: "org-1",
+        p_grant_type: "trial",
+        p_starts_at: "2026-07-31T10:00:00Z",
+        p_expires_at: "2026-08-31T10:00:00Z",
+        p_review_at: null,
+        p_reason: "Thirty-day evaluation",
+        p_idempotency_key: "org-1-trial-2026-07-31",
+      },
+    );
+    expect(result).toEqual({
+      grantId: "grant-1",
+      supersededGrantIds: ["grant-old"],
+      effective: {
+        plan: "pro",
+        source: "manual_trial",
+        sourceId: "grant-1",
+        automaticQuoteCollection: true,
+        validUntil: "2026-08-31T10:00:00Z",
+        reviewAt: null,
+        reviewDue: false,
+        graceEndsAt: null,
+        organizationExists: true,
+      },
+      eventId: "event-1",
+      replayed: true,
+    });
+  });
+
+  it("passes exact revocation intent and normalizes the result", async () => {
+    callUntypedRpcMock.mockResolvedValue({
+      data: {
+        grantId: "grant-1",
+        revokedAt: "2026-07-31T12:00:00Z",
+        effective: {
+          plan: "free",
+          source: "default",
+          sourceId: null,
+          automaticQuoteCollection: false,
+          validUntil: null,
+          reviewAt: null,
+          reviewDue: false,
+          graceEndsAt: null,
+          organizationExists: true,
+        },
+        eventId: "event-2",
+        replayed: false,
+        ignoredServerField: true,
+      },
+      error: null,
+    });
+
+    const result = await revokeCommercialEntitlement({
+      grantId: "grant-1",
+      reason: "Pilot concluded",
+      idempotencyKey: "grant-1-revoke",
+    });
+
+    expect(callUntypedRpcMock).toHaveBeenCalledWith(
+      "api_admin_revoke_organization_entitlement",
+      {
+        p_grant_id: "grant-1",
+        p_reason: "Pilot concluded",
+        p_idempotency_key: "grant-1-revoke",
+      },
+    );
+    expect(result).toEqual({
+      grantId: "grant-1",
+      revokedAt: "2026-07-31T12:00:00Z",
+      effective: {
+        plan: "free",
+        source: "default",
+        sourceId: null,
+        automaticQuoteCollection: false,
+        validUntil: null,
+        reviewAt: null,
+        reviewDue: false,
+        graceEndsAt: null,
+        organizationExists: true,
+      },
+      eventId: "event-2",
+      replayed: false,
+    });
+  });
+
+  it.each([
+    [
+      "grant",
+      () =>
+        grantCommercialEntitlement({
+          organizationId: "org-1",
+          grantType: "complimentary",
+          startsAt: "2026-07-31T10:00:00Z",
+          expiresAt: null,
+          reviewAt: "2026-10-31T10:00:00Z",
+          reason: "Audited pilot",
+          idempotencyKey: "org-1-complimentary-2026-07-31",
+        }),
+      {
+        data: {
+          grantId: "grant-1",
+          supersededGrantIds: [],
+          effective: {
+            plan: "pro",
+            source: "manual_complimentary",
+            sourceId: "grant-1",
+            automaticQuoteCollection: true,
+            validUntil: null,
+            reviewAt: "2026-10-31T10:00:00Z",
+            reviewDue: false,
+            graceEndsAt: null,
+            organizationExists: true,
+          },
+          eventId: "event-1",
+          replayed: "true",
+        },
+        error: null,
+      },
+    ],
+    [
+      "revocation",
+      () =>
+        revokeCommercialEntitlement({
+          grantId: "grant-1",
+          reason: "Pilot concluded",
+          idempotencyKey: "grant-1-revoke",
+        }),
+      {
+        data: {
+          grantId: "grant-1",
+          revokedAt: null,
+          effective: {
+            plan: "free",
+            source: "default",
+            sourceId: null,
+            automaticQuoteCollection: false,
+            validUntil: null,
+            reviewAt: null,
+            reviewDue: false,
+            graceEndsAt: null,
+            organizationExists: true,
+          },
+          eventId: "event-2",
+          replayed: false,
+        },
+        error: null,
+      },
+    ],
+  ])("fails closed for a malformed %s mutation response", async (_label, call, response) => {
+    callUntypedRpcMock.mockResolvedValue(response);
+
+    await expect(call()).rejects.toThrow(TypeError);
+  });
+
+  it.each([
+    [
+      "grant",
+      () =>
+        grantCommercialEntitlement({
+          organizationId: "org-1",
+          grantType: "trial",
+          startsAt: "2026-07-31T10:00:00Z",
+          expiresAt: "2026-08-31T10:00:00Z",
+          reviewAt: null,
+          reason: "Thirty-day evaluation",
+          idempotencyKey: "org-1-trial-2026-07-31",
+        }),
+    ],
+    [
+      "revocation",
+      () =>
+        revokeCommercialEntitlement({
+          grantId: "grant-1",
+          reason: "Pilot concluded",
+          idempotencyKey: "grant-1-revoke",
+        }),
+    ],
+  ])("propagates a %s RPC error", async (_label, call) => {
+    const rpcError = { message: "AAL2 is required." };
+    callUntypedRpcMock.mockResolvedValue({ data: null, error: rpcError });
+
+    await expect(call()).rejects.toBe(rpcError);
   });
 });
