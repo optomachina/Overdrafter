@@ -57,14 +57,13 @@ Implementation and release acceptance is tracked in `docs/quote-intelligence-rel
 Build commercial access around the organization boundary without adding customer-facing usage anxiety or coupling account subscriptions to manufacturing orders.
 
 Locked product behavior:
-- Free organizations can upload parts without a customer-facing quota and can always request manual quote follow-up.
+- Free organizations can upload parts without a customer-facing quota and receive unattended provider guidance with official RFQ links.
 - Pro organizations can enable automatic vendor quote collection.
 - The automatic-quote toggle remains visible to Free users; attempting to enable it opens an upgrade dialog and leaves it off.
 - Existing request throttles and organization cost ceilings remain invisible operational safeguards rather than plan quotas.
 - Billing admins may issue audited trial and complimentary Pro grants under step-up authentication.
-- Self-service Pro subscriptions use monthly and annual Stripe prices, webhook-synchronized local state, and a seven-day payment-failure grace period.
-- Promotion codes apply to subscriptions only.
-- Order administration starts as a manual visibility ledger. Manufacturing card collection and automated supplier order placement remain deferred.
+- Self-service Pro subscriptions use one monthly Stripe price, webhook-synchronized local state, and a seven-day payment-failure grace period.
+- Annual pricing, promotion codes, and order administration remain deferred until the web product records revenue.
 
 Execution sequence:
 1. Align the commercial product contract across canonical and downstream documentation.
@@ -72,11 +71,11 @@ Execution sequence:
 3. Complete matching comparison-board and Figma exploration, select a direction, and validate the phone prototype.
 4. Add stable-ID billing/order admin capabilities, AAL2 enforcement, and append-only commercial audit.
 5. Add organization plans, effective entitlements, and audited trial/complimentary grants.
-6. Add manual quote requests and enforce automatic collection as a Pro capability at the server boundary.
+6. Add unattended provider guidance and enforce automatic collection as a Pro capability at the server boundary.
 7. Ship customer account administration and manual Pro grants.
-8. Add replay-safe Stripe subscription synchronization, Checkout, Billing Portal, and subscription promotion codes.
-9. Persist procurement handoffs and explicit orders, then add manual order administration.
-10. Add reconciliation, monitoring, kill switches, pilot provisioning, and staged rollout.
+8. Add replay-safe Stripe subscription synchronization, one monthly Checkout price, and Billing Portal access.
+9. Add reconciliation, monitoring, kill switches, pilot provisioning, and staged rollout.
+10. Revisit annual pricing, promotions, and order administration after the web product records revenue.
 
 The Commercial Account Administration initiative is tracked by Linear parent `OVD-227`. The parent remains High complexity and is executed only through its bounded child issues.
 

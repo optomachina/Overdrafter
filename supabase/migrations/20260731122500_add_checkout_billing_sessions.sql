@@ -312,8 +312,11 @@ declare
 begin
   if tg_op = 'INSERT' then
     if new.event_type = any(v_billing_event_types)
-      and current_user <> 'postgres'
       and coalesce(auth.role(), '') <> 'service_role'
+      and not (
+        new.event_type = 'billing.subscription_activated'
+        and pg_catalog.pg_trigger_depth() > 1
+      )
     then
       raise exception using
         errcode = '42501',

@@ -1,6 +1,6 @@
 begin;
 
-select plan(21);
+select plan(22);
 
 create function pg_temp.set_ovd228_request_identity(p_user_id uuid)
 returns void
@@ -21,6 +21,31 @@ begin
     p_user_id::text,
     true
   );
+  perform pg_catalog.set_config(
+    'request.jwt.claim.role',
+    'authenticated',
+    true
+  );
+end;
+$$;
+
+create function pg_temp.set_ovd228_service_identity()
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  perform pg_catalog.set_config(
+    'request.jwt.claims',
+    pg_catalog.jsonb_build_object('role', 'service_role')::text,
+    true
+  );
+  perform pg_catalog.set_config(
+    'request.jwt.claim.role',
+    'service_role',
+    true
+  );
+  perform pg_catalog.set_config('request.jwt.claim.sub', '', true);
 end;
 $$;
 
@@ -220,6 +245,7 @@ select is(
 
 reset role;
 set local role service_role;
+select pg_temp.set_ovd228_service_identity();
 
 select public.api_configure_stripe_pro_price(
   'price_OVD228Old',
@@ -248,6 +274,7 @@ select is(
 );
 
 set local role service_role;
+select pg_temp.set_ovd228_service_identity();
 
 select is(
   public.api_bind_organization_stripe_customer(
@@ -363,6 +390,19 @@ select is(
   ) ->> 'hasStripeSubscription',
   'true',
   'the entitlement contract exposes a synchronized Stripe subscription'
+);
+
+select throws_ok(
+  $$
+    select public.log_audit_event(
+      '00000000-0000-4000-8000-000000002284',
+      'billing.upgrade_started',
+      '{}'::jsonb
+    )
+  $$,
+  '42501',
+  'Billing audit events may only be appended by the billing service.',
+  'the legacy security-definer audit helper cannot forge billing history'
 );
 
 select throws_ok(
