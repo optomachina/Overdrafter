@@ -15,6 +15,7 @@ import { PromptComposer } from "@/components/chat/PromptComposer";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
+import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ import { buildProjectAssigneeBadgeModel } from "@/features/quotes/project-assign
 import { buildAppAwareHref } from "@/features/quotes/quote-intelligence-view-model";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import { getQuoteRequestStatusBadgeClassName } from "@/features/quotes/quote-request-status-badge";
+import type { ClientSourcingResult } from "@/features/quotes/sourcing-result";
 import { getVendorDisplayName } from "@/features/quotes/vendor-colors";
 import type { ClientQuoteRequestStatus } from "@/features/quotes/types";
 import {
@@ -86,6 +88,35 @@ function formatCurrencyLabel(value: number | null | undefined) {
 
 function formatPercentageLabel(value: number) {
   return `${Math.round(value)}%`;
+}
+
+function getSourcingResultBadge(result: ClientSourcingResult | null) {
+  if (!result) {
+    return {
+      className: "border border-border bg-accent text-muted-foreground",
+      label: "Reviewing",
+    };
+  }
+
+  if (result.outcome === "live_offers_available") {
+    return {
+      className: "border border-emerald-400/30 bg-emerald-500/20 text-emerald-300",
+      label: `${result.liveOfferCount} live`,
+    };
+  }
+
+  if (result.outcome === "provider_recommendations_available") {
+    const providerNoun = result.recommendations.length === 1 ? "provider" : "providers";
+    return {
+      className: "border border-sky-400/30 bg-sky-500/20 text-sky-200",
+      label: `${result.recommendations.length} ${providerNoun}`,
+    };
+  }
+
+  return {
+    className: "border border-amber-400/30 bg-amber-500/15 text-amber-200",
+    label: "Action needed",
+  };
 }
 
 function formatToleranceLabel(value: number | null | undefined) {
@@ -374,6 +405,7 @@ function ProjectSummaryPanel({ summary, isLoading }: Readonly<ProjectSummaryPane
 type ProjectInspectorContentProps = Readonly<{
   focusedJobId: string | null;
   focusedWorkspaceItem: ReturnType<typeof useClientProjectController>["focusedWorkspaceItem"];
+  focusedSourcingResult: ReturnType<typeof useClientProjectController>["focusedSourcingResult"];
   focusedInspectorModel: {
     description: string;
     partNumber: string;
@@ -606,6 +638,7 @@ function VendorPreferencePanel({
 function ProjectInspectorContent({
   focusedJobId,
   focusedWorkspaceItem,
+  focusedSourcingResult,
   focusedInspectorModel,
   focusedVendorPreferences,
   focusedVendorPreferencesErrorMessage,
@@ -715,6 +748,19 @@ function ProjectInspectorContent({
       </div>
 
       <div className="mt-4 space-y-3">
+        {focusedJobId ? (
+          focusedSourcingResult ? (
+            <ClientSourcingResultPanel compact result={focusedSourcingResult} />
+          ) : (
+            <p
+              className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground"
+              role="status"
+            >
+              Reviewing sourcing options from current requirements…
+            </p>
+          )
+        ) : null}
+
         <details open className="overflow-hidden rounded-lg border border-border bg-muted">
           <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-foreground marker:content-none">
             Properties
@@ -868,6 +914,7 @@ const ClientProject = () => {
     sidebarPinsQuery,
     sidebarProjects,
     signOut,
+    sourcingResultsByJobId,
     summariesByJobId,
     updateProjectMutation,
     user,
@@ -883,6 +930,7 @@ const ClientProject = () => {
     focusedJobId,
     focusedVendorPreferences,
     focusedVendorPreferencesErrorMessage,
+    focusedSourcingResult,
     focusedWorkspaceItem,
     isMobile,
     isSavingVendorPreferences,
@@ -1447,7 +1495,7 @@ const ClientProject = () => {
               ) : filteredJobs.length === 0 ? (
                 <div className="px-6 py-12 text-center text-muted-foreground">No parts match the current project filter.</div>
               ) : (
-                <Table className="w-full min-w-[640px] text-foreground">
+                <Table className="w-full min-w-[760px] text-foreground">
                   <TableHeader>
                     <TableRow className="border-border hover:bg-transparent">
                       <TableHead className="h-10 px-5 py-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -1466,6 +1514,9 @@ const ClientProject = () => {
                         Quote
                       </TableHead>
                       <TableHead className="h-10 px-2 py-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                        Sourcing
+                      </TableHead>
+                      <TableHead className="h-10 px-2 py-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
                         Assignee
                       </TableHead>
                       <TableHead className="h-10 py-2 pl-2 pr-5 text-right text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -1482,6 +1533,9 @@ const ClientProject = () => {
                       const quoteStatusLabel = quoteRequestViewModel?.label ?? formatStatusLabel(job.status);
                       const quoteStatusClassName = getQuoteRequestStatusBadgeClassName(
                         quoteRequestViewModel?.status ?? "not_requested",
+                      );
+                      const sourcingResultBadge = getSourcingResultBadge(
+                        sourcingResultsByJobId[job.id] ?? null,
                       );
                       const partNumber =
                         workspaceItem?.part?.approvedRequirement?.part_number ?? presentation.partNumber ?? "—";
@@ -1538,6 +1592,11 @@ const ClientProject = () => {
                             <Badge className={quoteStatusClassName}>{quoteStatusLabel}</Badge>
                           </TableCell>
                           <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
+                            <Badge className={sourcingResultBadge.className}>
+                              {sourcingResultBadge.label}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="w-px whitespace-nowrap px-2 py-2.5">
                             {assigneeBadge ? (
                               assigneeBadge.isUnassigned ? (
                                 <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
@@ -1591,6 +1650,7 @@ const ClientProject = () => {
                 <ProjectInspectorContent
                   focusedJobId={focusedJobId}
                   focusedWorkspaceItem={focusedWorkspaceItem}
+                  focusedSourcingResult={focusedSourcingResult}
                   focusedInspectorModel={focusedInspectorModel}
                   focusedVendorPreferences={focusedVendorPreferences}
                   focusedVendorPreferencesErrorMessage={focusedVendorPreferencesErrorMessage}
@@ -1624,6 +1684,7 @@ const ClientProject = () => {
             <ProjectInspectorContent
               focusedJobId={focusedJobId}
               focusedWorkspaceItem={focusedWorkspaceItem}
+              focusedSourcingResult={focusedSourcingResult}
               focusedInspectorModel={focusedInspectorModel}
               focusedVendorPreferences={focusedVendorPreferences}
               focusedVendorPreferencesErrorMessage={focusedVendorPreferencesErrorMessage}

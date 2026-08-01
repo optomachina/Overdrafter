@@ -50,6 +50,7 @@ import {
   fetchClientQuoteWorkspaceByJobIds,
   fetchJobsByProject,
   fetchProjectAssigneeProfiles,
+  fetchVendorCapabilityProfiles,
 } from "@/features/quotes/api/workspace-access";
 import { useArchiveUndo } from "@/features/quotes/archive-undo";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
@@ -88,6 +89,10 @@ import {
   type QuotePreset,
 } from "@/features/quotes/selection";
 import { logQuoteFetchDiagnostics } from "@/features/quotes/quote-chart-diagnostics";
+import {
+  buildClientSourcingResult,
+  type ClientSourcingResult,
+} from "@/features/quotes/sourcing-result";
 import type {
   ClientPartRequestUpdateInput,
   ClientQuoteWorkspaceItem,
@@ -319,6 +324,12 @@ export function useClientProjectController() {
       clientWorkspaceItemsNeedPolling(projectWorkspaceItemsQuery.data) ? 5000 : false,
     ...workspaceDetailQueryOptions,
   });
+  const vendorCapabilityProfilesQuery = useQuery({
+    queryKey: ["vendor-capability-profiles"],
+    queryFn: fetchVendorCapabilityProfiles,
+    enabled: Boolean(user),
+    staleTime: 15 * 60 * 1000,
+  });
   const workspaceItemsByJobId = useMemo(
     () => new Map((projectWorkspaceItemsQuery.data ?? []).map((item) => [item.job.id, item])),
     [projectWorkspaceItemsQuery.data],
@@ -396,6 +407,42 @@ export function useClientProjectController() {
       ) as Record<string, ClientQuoteSelectionOption[]>,
     [quoteSelectionResultsByJobId],
   );
+  const sourcingResultsByJobId = useMemo(
+    () =>
+      Object.fromEntries(
+        projectJobIds.map((jobId) => {
+          const workspaceItem = workspaceItemsByJobId.get(jobId) ?? null;
+          const result = buildClientSourcingResult({
+            part: workspaceItem?.part ?? null,
+            profiles: vendorCapabilityProfilesQuery.data ?? [],
+            liveOffers: (optionsByJobId[jobId] ?? []).map((option) => ({
+              ...option,
+              offerKey: option.key,
+            })),
+            automaticCollectionEnabled: quoteCollectionMode.automaticEnabled,
+            capabilityDataAvailable: !vendorCapabilityProfilesQuery.isError,
+          });
+
+          if (
+            vendorCapabilityProfilesQuery.isPending &&
+            result.outcome !== "live_offers_available"
+          ) {
+            return [jobId, null];
+          }
+
+          return [jobId, result];
+        }),
+      ) as Record<string, ClientSourcingResult | null>,
+    [
+      optionsByJobId,
+      projectJobIds,
+      quoteCollectionMode.automaticEnabled,
+      vendorCapabilityProfilesQuery.data,
+      vendorCapabilityProfilesQuery.isError,
+      vendorCapabilityProfilesQuery.isPending,
+      workspaceItemsByJobId,
+    ],
+  );
   const quoteDiagnosticsByJobId = useMemo(
     () =>
       Object.fromEntries(
@@ -448,6 +495,9 @@ export function useClientProjectController() {
     focusedWorkspaceItem?.summary ?? (focusedJob ? summariesByJobId.get(focusedJob.id) ?? null : null);
   const focusedSelectedOption = focusedJob ? selectedOptionsByJobId[focusedJob.id] ?? null : null;
   const focusedQuoteOptions = focusedJob ? optionsByJobId[focusedJob.id] ?? [] : [];
+  const focusedSourcingResult = focusedJob
+    ? sourcingResultsByJobId[focusedJob.id] ?? null
+    : null;
   const focusedQuoteDiagnostics = focusedJob
     ? quoteDiagnosticsByJobId[focusedJob.id] ?? focusedWorkspaceItem?.quoteDiagnostics ?? EMPTY_QUOTE_DIAGNOSTICS
     : EMPTY_QUOTE_DIAGNOSTICS;
@@ -1501,6 +1551,7 @@ export function useClientProjectController() {
     focusedQuoteQuantityInput,
     focusedRequestedByDate,
     focusedSelectedOption,
+    focusedSourcingResult,
     focusedSummary,
     focusedVendorPreferences: focusedVendorPreferenceQuery.data ?? null,
     focusedVendorPreferencesErrorMessage,
@@ -1593,6 +1644,7 @@ export function useClientProjectController() {
     sidebarProjects,
     signOut,
     summariesByJobId,
+    sourcingResultsByJobId,
     updateProjectMutation,
     dissolveProjectMutation,
     user,

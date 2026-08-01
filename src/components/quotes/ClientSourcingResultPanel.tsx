@@ -4,10 +4,12 @@ import { Button } from "@/components/ui/button";
 import type { ClientSourcingResult } from "@/features/quotes/sourcing-result";
 
 interface ClientSourcingResultPanelProps {
+  readonly compact?: boolean;
   readonly result: ClientSourcingResult;
 }
 
 export function ClientSourcingResultPanel({
+  compact = false,
   result,
 }: ClientSourcingResultPanelProps) {
   if (result.outcome === "unsupported_package") {
@@ -62,7 +64,7 @@ export function ClientSourcingResultPanel({
         <ShieldCheck className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
       </div>
 
-      <div className="mt-5 grid gap-3 lg:grid-cols-3">
+      <div className={compact ? "mt-5 grid gap-3" : "mt-5 grid gap-3 lg:grid-cols-3"}>
         {result.recommendations.map((recommendation, index) => (
           <article
             key={recommendation.vendorName}
