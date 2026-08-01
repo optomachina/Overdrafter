@@ -704,6 +704,21 @@ function ProjectInspectorContent({
     }
   };
 
+  let sourcingResultContent = null;
+  if (focusedJobId) {
+    if (focusedSourcingResult) {
+      sourcingResultContent = (
+        <ClientSourcingResultPanel compact result={focusedSourcingResult} />
+      );
+    } else {
+      sourcingResultContent = (
+        <output className="block rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
+          Reviewing sourcing options from current requirements…
+        </output>
+      );
+    }
+  }
+
   return (
     <>
       <div className="flex items-start justify-between gap-3 border-b border-border pb-4">
@@ -748,18 +763,7 @@ function ProjectInspectorContent({
       </div>
 
       <div className="mt-4 space-y-3">
-        {focusedJobId ? (
-          focusedSourcingResult ? (
-            <ClientSourcingResultPanel compact result={focusedSourcingResult} />
-          ) : (
-            <p
-              className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground"
-              role="status"
-            >
-              Reviewing sourcing options from current requirements…
-            </p>
-          )
-        ) : null}
+        {sourcingResultContent}
 
         <details open className="overflow-hidden rounded-lg border border-border bg-muted">
           <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-foreground marker:content-none">
