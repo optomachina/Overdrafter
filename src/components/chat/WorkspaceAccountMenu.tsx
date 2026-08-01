@@ -101,6 +101,8 @@ type AccountPanelId =
   | "download-apps"
   | "keyboard-shortcuts";
 
+type BillingReturnState = "cancelled" | "portal_return" | "success" | null;
+
 type HelpItem = {
   id: AccountPanelId | "report-bug";
   label: string;
@@ -131,6 +133,19 @@ const PANEL_SHEET_CLASS =
 const PANEL_CARD_CLASS = "rounded-surface-lg border border-border bg-muted p-4";
 const NOTIFICATION_BADGE_CLASS =
   "rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300";
+const BILLING_CONFIRMATION_MAX_ATTEMPTS = 6;
+
+function readBillingReturnState(): BillingReturnState {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const value = new URLSearchParams(window.location.search).get("billing");
+  if (value === "cancelled" || value === "portal_return" || value === "success") {
+    return value;
+  }
+  return null;
+}
 
 function getSourcingPlanPresentation(
   isLoading: boolean,
@@ -420,7 +435,11 @@ export function WorkspaceAccountMenu({
   const { resolvedTheme, setTheme } = useTheme();
   const panelContentRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [activePanel, setActivePanel] = useState<AccountPanelId | null>(null);
+  const [billingReturnState, setBillingReturnState] =
+    useState<BillingReturnState>(readBillingReturnState);
+  const [activePanel, setActivePanel] = useState<AccountPanelId | null>(() =>
+    billingReturnState ? "settings" : null
+  );
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutDialogOpen, setSignOutDialogOpen] = useState(false);
   const [pendingUnarchiveJobIds, setPendingUnarchiveJobIds] = useState<string[]>([]);
@@ -655,28 +674,72 @@ export function WorkspaceAccountMenu({
   const hasPendingDelete = pendingDeleteJobIds.length > 0;
   const bulkDeleteJobIds = deleteConfirmation?.kind === "bulk" ? deleteConfirmation.jobs.map((job) => job.job.id) : [];
   const deleteAllDisabled = isArchiveLoading || archivedPartCount === 0 || hasPendingDelete;
-  const billingReturnState =
-    typeof window === "undefined"
-      ? null
-      : new URLSearchParams(window.location.search).get("billing");
-
   useEffect(() => {
-    if (
-      activePanel !== "settings" ||
-      billingReturnState !== "success" ||
-      hasAutomaticEntitlement
-    ) {
+    if (billingReturnState !== "success") {
       return;
     }
 
-    const intervalId = window.setInterval(() => {
-      refreshQuoteCollectionMode();
-    }, 3_000);
-    return () => window.clearInterval(intervalId);
+    const clearBillingReturnState = () => {
+      const returnUrl = new URL(window.location.href);
+      returnUrl.searchParams.delete("billing");
+      window.history.replaceState(window.history.state, "", returnUrl);
+      setBillingReturnState(null);
+    };
+
+    if (hasAutomaticEntitlement) {
+      clearBillingReturnState();
+      return;
+    }
+    if (quoteCollectionMode.hasStripeSubscription) {
+      setBillingError(
+        "Stripe confirmed the subscription, but payment still needs attention. Use Manage billing to finish activation.",
+      );
+      clearBillingReturnState();
+      return;
+    }
+    if (activePanel !== "settings") {
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: number | null = null;
+    let attempts = 0;
+
+    const pollForActivation = async () => {
+      attempts += 1;
+      await refreshQuoteCollectionMode();
+      if (cancelled) {
+        return;
+      }
+      if (attempts >= BILLING_CONFIRMATION_MAX_ATTEMPTS) {
+        setBillingError(
+          "Stripe confirmation is taking longer than expected. Your subscription will activate automatically when it arrives.",
+        );
+        clearBillingReturnState();
+        return;
+      }
+
+      const delayMs = Math.min(2_000 * (attempts + 1), 10_000);
+      timeoutId = window.setTimeout(() => {
+        void pollForActivation();
+      }, delayMs);
+    };
+
+    timeoutId = window.setTimeout(() => {
+      void pollForActivation();
+    }, 2_000);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
   }, [
     activePanel,
     billingReturnState,
     hasAutomaticEntitlement,
+    quoteCollectionMode.hasStripeSubscription,
     refreshQuoteCollectionMode,
   ]);
 
@@ -1035,6 +1098,7 @@ export function WorkspaceAccountMenu({
               ) : null}
               {!quoteCollectionMode.isLoading
                 && !quoteCollectionMode.hasAutomaticEntitlement
+                && !quoteCollectionMode.hasStripeSubscription
                 && quoteCollectionMode.canManageBilling ? (
                 <Button
                   type="button"
@@ -1050,7 +1114,6 @@ export function WorkspaceAccountMenu({
                 </Button>
               ) : null}
               {!quoteCollectionMode.isLoading
-                && quoteCollectionMode.hasAutomaticEntitlement
                 && quoteCollectionMode.hasStripeSubscription
                 && quoteCollectionMode.canManageBilling ? (
                 <Button

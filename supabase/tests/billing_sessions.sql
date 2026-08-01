@@ -1,6 +1,6 @@
 begin;
 
-select plan(22);
+select plan(25);
 
 create function pg_temp.set_ovd228_request_identity(p_user_id uuid)
 returns void
@@ -392,6 +392,42 @@ select is(
   'the entitlement contract exposes a synchronized Stripe subscription'
 );
 
+reset role;
+update private.organization_subscription_projections
+set status = 'unpaid'
+where organization_id = (select primary_organization_id from ovd228_test_context);
+
+set local role authenticated;
+select pg_temp.set_ovd228_request_identity(
+  (select internal_admin_user_id from ovd228_test_context)
+);
+
+select is(
+  public.api_get_organization_entitlements(
+    (select primary_organization_id from ovd228_test_context)
+  ) ->> 'hasStripeSubscription',
+  'true',
+  'an inactive non-terminal subscription keeps Billing Portal access available'
+);
+
+reset role;
+update private.organization_subscription_projections
+set status = 'canceled'
+where organization_id = (select primary_organization_id from ovd228_test_context);
+
+set local role authenticated;
+select pg_temp.set_ovd228_request_identity(
+  (select internal_admin_user_id from ovd228_test_context)
+);
+
+select is(
+  public.api_get_organization_entitlements(
+    (select primary_organization_id from ovd228_test_context)
+  ) ->> 'hasStripeSubscription',
+  'false',
+  'a terminal subscription allows the organization to start a new Checkout'
+);
+
 select throws_ok(
   $$
     select public.log_audit_event(
@@ -434,6 +470,30 @@ select throws_ok(
   '42501',
   'Billing audit events are append-only.',
   'internal users cannot rewrite billing funnel history'
+);
+
+insert into public.audit_events (
+  organization_id,
+  actor_user_id,
+  event_type,
+  payload
+)
+values (
+  '00000000-0000-4000-8000-000000002284',
+  '00000000-0000-4000-8000-000000002283',
+  'quote.reviewed',
+  '{"ovd228AuditConversion": true}'::jsonb
+);
+
+select throws_ok(
+  $$
+    update public.audit_events
+    set event_type = 'billing.subscription_activated'
+    where payload ->> 'ovd228AuditConversion' = 'true'
+  $$,
+  '42501',
+  'Billing audit events are append-only.',
+  'internal users cannot convert an ordinary event into protected billing history'
 );
 
 select throws_ok(

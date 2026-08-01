@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { callUntypedRpc } from "@/features/quotes/api/shared/rpc";
 import { ensureData } from "@/features/quotes/api/shared/response";
 import { isFixtureModeEnabled } from "@/features/quotes/client-workspace-fixtures";
@@ -27,14 +27,23 @@ export function useOrganizationQuoteCollectionMode(
 ) {
   const [entitlements, setEntitlements] = useState<OrganizationEntitlements | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [refreshVersion, setRefreshVersion] = useState(0);
-  const refresh = useCallback(() => {
-    setRefreshVersion((current) => current + 1);
-  }, []);
+  const inFlightRequest = useRef<{
+    key: string;
+    promise: Promise<void>;
+  } | null>(null);
+  const requestVersion = useRef(0);
 
-  useEffect(() => {
+  const refresh = useCallback(async () => {
     if (!organizationId || !enabled) {
+      requestVersion.current += 1;
+      setEntitlements(null);
+      setIsLoading(false);
       return;
+    }
+
+    const requestKey = `${organizationId}:${enabled}`;
+    if (inFlightRequest.current?.key === requestKey) {
+      return inFlightRequest.current.promise;
     }
 
     if (isFixtureModeEnabled()) {
@@ -49,29 +58,41 @@ export function useOrganizationQuoteCollectionMode(
       return;
     }
 
-    let cancelled = false;
+    const currentVersion = requestVersion.current + 1;
+    requestVersion.current = currentVersion;
     setIsLoading(true);
-    fetchOrganizationEntitlements(organizationId)
+
+    const request = fetchOrganizationEntitlements(organizationId)
       .then((nextEntitlements) => {
-        if (!cancelled) {
+        if (requestVersion.current === currentVersion) {
           setEntitlements(nextEntitlements);
         }
       })
       .catch(() => {
-        if (!cancelled) {
+        if (requestVersion.current === currentVersion) {
           setEntitlements(null);
         }
       })
       .finally(() => {
-        if (!cancelled) {
+        if (requestVersion.current === currentVersion) {
           setIsLoading(false);
+        }
+        if (inFlightRequest.current?.promise === request) {
+          inFlightRequest.current = null;
         }
       });
 
+    inFlightRequest.current = { key: requestKey, promise: request };
+    return request;
+  }, [enabled, organizationId]);
+
+  useEffect(() => {
+    void refresh();
+
     return () => {
-      cancelled = true;
+      requestVersion.current += 1;
     };
-  }, [enabled, organizationId, refreshVersion]);
+  }, [refresh]);
 
   const hasAutomaticEntitlement =
     entitlements?.automaticQuoteCollection === true;

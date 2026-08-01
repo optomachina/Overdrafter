@@ -84,6 +84,7 @@ begin
       select 1
       from private.organization_subscription_projections subscription_row
       where subscription_row.organization_id = p_organization_id
+        and subscription_row.status not in ('canceled', 'incomplete_expired')
     )
   );
 end;
@@ -325,10 +326,10 @@ begin
     return new;
   end if;
 
-  if old.event_type = any(v_billing_event_types)
-    and not (
-      tg_op = 'DELETE'
-      and pg_catalog.pg_trigger_depth() > 1
+  if tg_op = 'UPDATE'
+    and (
+      old.event_type = any(v_billing_event_types)
+      or new.event_type = any(v_billing_event_types)
     )
   then
     raise exception using
@@ -337,6 +338,13 @@ begin
   end if;
 
   if tg_op = 'DELETE' then
+    if old.event_type = any(v_billing_event_types)
+      and pg_catalog.pg_trigger_depth() <= 1
+    then
+      raise exception using
+        errcode = '42501',
+        message = 'Billing audit events are append-only.';
+    end if;
     return old;
   end if;
   return new;
