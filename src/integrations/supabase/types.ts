@@ -2779,6 +2779,15 @@ export type Database = {
     }
     Functions: {
       api_accept_project_invite: { Args: { p_token: string }; Returns: string }
+      api_acquire_organization_billing_checkout: {
+        Args: {
+          p_billing_interval: string
+          p_catalog_key: string
+          p_livemode: boolean
+          p_organization_id: string
+        }
+        Returns: Json
+      }
       api_admin_complete_manual_quote_request: {
         Args: {
           p_artifacts?: Json
@@ -2867,6 +2876,14 @@ export type Database = {
         Args: { p_job_id: string }
         Returns: number
       }
+      api_bind_organization_stripe_customer: {
+        Args: {
+          p_livemode: boolean
+          p_organization_id: string
+          p_stripe_customer_id: string
+        }
+        Returns: Json
+      }
       api_cancel_quote_request: {
         Args: { p_request_id: string }
         Returns: Json
@@ -2897,6 +2914,18 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      api_configure_stripe_pro_catalog: {
+        Args: {
+          p_annual_stripe_price_id: string
+          p_livemode: boolean
+          p_monthly_stripe_price_id: string
+        }
+        Returns: Json
+      }
+      api_configure_stripe_pro_price: {
+        Args: { p_livemode: boolean; p_stripe_price_id: string }
+        Returns: Json
       }
       api_create_client_draft: {
         Args: {
@@ -2961,6 +2990,14 @@ export type Database = {
         }
         Returns: string
       }
+      api_finalize_organization_billing_checkout: {
+        Args: {
+          p_intent_id: string
+          p_organization_id: string
+          p_stripe_checkout_session_id: string
+        }
+        Returns: Json
+      }
       api_get_client_intake_compatibility: { Args: never; Returns: Json }
       api_get_is_platform_admin: { Args: never; Returns: boolean }
       api_get_job_vendor_preferences: {
@@ -2973,6 +3010,21 @@ export type Database = {
       }
       api_get_quote_run_readiness: {
         Args: { p_quote_run_id: string }
+        Returns: Json
+      }
+      api_get_stripe_event_status: {
+        Args: { p_stripe_event_id: string }
+        Returns: Json
+      }
+      api_ingest_stripe_event: {
+        Args: {
+          p_api_version: string
+          p_event_created_at: string
+          p_event_type: string
+          p_livemode: boolean
+          p_payload: Json
+          p_stripe_event_id: string
+        }
         Returns: Json
       }
       api_invite_project_member: {
@@ -3122,6 +3174,14 @@ export type Database = {
         }
         Returns: Json
       }
+      api_prepare_organization_billing_session: {
+        Args: { p_organization_id: string }
+        Returns: Json
+      }
+      api_process_stripe_event: {
+        Args: { p_stripe_event_id: string }
+        Returns: Json
+      }
       api_publish_quote_package: {
         Args: {
           p_client_summary?: string
@@ -3132,6 +3192,17 @@ export type Database = {
         Returns: string
       }
       api_reconcile_job_parts: { Args: { p_job_id: string }; Returns: Json }
+      api_reconcile_stripe_events: { Args: { p_limit?: number }; Returns: Json }
+      api_record_billing_checkout_started: {
+        Args: {
+          p_actor_user_id: string
+          p_billing_interval: string
+          p_organization_id: string
+          p_stripe_checkout_session_id: string
+          p_stripe_price_id: string
+        }
+        Returns: string
+      }
       api_record_manual_vendor_quote: {
         Args: {
           p_artifacts?: Json
@@ -3153,6 +3224,10 @@ export type Database = {
       api_remove_project_member: {
         Args: { p_project_membership_id: string }
         Returns: string
+      }
+      api_replay_stripe_event: {
+        Args: { p_stripe_event_id: string }
+        Returns: Json
       }
       api_request_debug_extraction: {
         Args: { p_model?: string; p_part_id: string }

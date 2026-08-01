@@ -1,6 +1,6 @@
 begin;
 
-select plan(35);
+select plan(38);
 
 create temporary table ovd229_context (
   organization_id uuid not null,
@@ -523,9 +523,44 @@ select is(
   private.resolve_organization_entitlements_at(
     (select organization_id from ovd229_context),
     '2026-07-31T00:00:00Z'
+  ) ->> 'source',
+  'subscription_trialing',
+  'an eligible Stripe trialing subscription resolves truthfully to Pro'
+);
+
+select is(
+  private.resolve_organization_entitlements_at(
+    (select organization_id from ovd229_context),
+    '2026-10-01T00:00:00Z'
   ) ->> 'plan',
   'free',
-  'Stripe trialing state does not bypass audited manual trial grants'
+  'a Stripe trialing subscription resolves to Free at its period boundary'
+);
+
+update private.organization_subscription_projections
+set
+  status = 'active',
+  current_period_end = '2026-10-01T00:00:00Z',
+  cancel_at_period_end = true,
+  updated_at = now()
+where stripe_subscription_id = 'sub_OVD229';
+
+select is(
+  private.resolve_organization_entitlements_at(
+    (select organization_id from ovd229_context),
+    '2026-09-30T23:59:59.999999Z'
+  ) ->> 'source',
+  'subscription_active',
+  'cancellation at period end retains Pro through the paid period'
+);
+
+select is(
+  private.resolve_organization_entitlements_at(
+    (select organization_id from ovd229_context),
+    '2026-10-01T00:00:00Z'
+  ) ->> 'plan',
+  'free',
+  'a period-end cancellation resolves to Free at the paid boundary'
 );
 
 set local role authenticated;

@@ -1,6 +1,6 @@
 begin;
 
-select plan(42);
+select plan(43);
 
 create function public.ovd235_subscription_event(
   p_event_id text,
@@ -361,7 +361,7 @@ select is(
       1785469400,
       'cus_OVD235Recovery',
       'sub_OVD235Recovery',
-      'active'
+      'trialing'
     )
   ) ->> 'state',
   'pending',
@@ -401,6 +401,15 @@ select is(
   public.api_replay_stripe_event('evt_recovery') ->> 'state',
   'processed',
   'a failed event replays successfully after its dependency is repaired'
+);
+
+select is(
+  private.resolve_organization_entitlements_at(
+    '00000000-0000-4000-8000-000000002352',
+    '2026-08-01T00:00:00Z'
+  ) ->> 'source',
+  'subscription_trialing',
+  'a replayed signed trialing event grants Pro through the local projection'
 );
 
 select ok(

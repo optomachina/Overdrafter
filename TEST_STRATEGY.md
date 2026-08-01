@@ -142,6 +142,12 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - cover platform viewer, organization admin, billing admin, and order admin access at AAL1 and AAL2
 - verify privileged mutations are idempotent and produce append-only audit records
 - validate signed Stripe events for duplicate, concurrent, delayed, reordered, failed, and replayed delivery
+- validate the exact $49 monthly/$490 annual lookup-key catalog, server-owned
+  identifiers, Customer metadata/mode binding, cross-interval Checkout races,
+  same-intent recovery, Portal eligibility, and pending-until-webhook behavior
+- validate `active`, `trialing`, seven-day eligible `past_due`, expired grace,
+  and cancellation-at-period-end boundaries without affecting Free uploads or
+  manual sourcing
 - verify manual order snapshot immutability, legal transition rules, external-reference requirements, and cross-organization isolation
 - use the production-realistic auth/RLS lane, targeted integration/E2E coverage, migration validation, and the full repository gate
 

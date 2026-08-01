@@ -104,14 +104,14 @@ Current implementation foundation:
 
 Planned commercial additions:
 - replay-safe Stripe subscription synchronization
-- one hosted monthly Pro Checkout price and Billing Portal access
+- hosted $49/month and $490/year Pro Checkout plus Billing Portal access
 - production funnel events from signup through live offer receipt
 
 Current non-goals:
 - client-side vendor choice or multi-vendor comparison at request time
 - automatic reruns after a successful request
 - richer DFM or release-gate workflows beyond the existing request metadata and package validation
-- annual pricing, coupons, manufacturing payments, orders, and complex account administration
+- manufacturing payments, automated supplier placement, and complex account administration
 
 ## Vision
 
@@ -286,12 +286,15 @@ OverDrafter supports an organization-level `Free` plan and a `Pro` plan.
 - Membership roles such as client, estimator, and internal admin remain authorization roles; they are not commercial plans.
 - Trial grants are explicit entitlement grants with actor, reason, effective dates, required expiration, revocation history, and immutable audit.
 - Complimentary grants are explicit entitlement grants with actor, required reason, effective dates, required review date, optional expiration, revocation history, and immutable audit.
-- Launch Pro is one $49/month Stripe subscription.
+- Launch Pro is $49/month or $490/year through fixed server-owned Stripe catalog
+  lookup keys.
 - Eligible past-due Pro subscriptions retain access for a seven-day delinquency grace period before resolving to Free.
 - Stripe is the economic source of truth for customers, products, prices, subscriptions, and invoices.
 - A webhook-synchronized local projection plus active manual grants is the server-side source used for product access decisions.
 - Client redirects, UI state, and client-supplied Stripe identifiers must never grant Pro access.
-- Annual pricing, coupons, promotion codes, procurement payments, and order administration are deferred until the web product records revenue.
+- Promotion codes are sequenced after subscription launch. Procurement payments,
+  automated supplier placement, and manufacturing-order discounts remain
+  outside the commercial subscription boundary.
 
 ## Client workspace surface
 

@@ -345,7 +345,11 @@ values
     'cus_OVD233CursorA',
     '2026-07-03T00:00:00Z',
     '2026-07-03T00:00:00Z'
-  );
+  )
+on conflict (organization_id) do update
+  set stripe_customer_id = excluded.stripe_customer_id,
+      created_at = excluded.created_at,
+      updated_at = excluded.updated_at;
 
 insert into private.organization_entitlement_grants (
   id,

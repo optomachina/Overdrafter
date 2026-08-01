@@ -77,10 +77,14 @@ This document defines what it means for the current repository-hardening phase t
 - Existing operational throttles and organization cost ceilings remain invisible safeguards, not plan quotas.
 - Authorized billing admins may create and revoke audited trial and complimentary Pro grants under AAL2.
 - Trial grants require an expiration. Complimentary grants require a reason and review date and may optionally expire.
-- Self-service launch Pro costs $49/month through hosted Stripe Checkout.
+- Self-service launch Pro costs $49/month or $490/year through hosted Stripe
+  Checkout using server-selected catalog lookup keys.
 - Eligible past-due Pro subscriptions retain Pro access for a seven-day grace period, then resolve to Free without affecting uploads or sourcing guidance.
 - Stripe subscription and invoice facts are synchronized through signed, replay-safe webhooks before they affect access.
-- Annual billing, coupons, promotion codes, procurement handoffs, orders, manufacturing payment collection, automated supplier order placement, tax automation, and ERP/accounting integration remain excluded.
+- Subscription promotion codes are sequenced separately after Checkout.
+  Procurement handoffs, manufacturing payment collection, automated supplier
+  order placement, tax automation, and ERP/accounting integration remain
+  excluded from subscription billing.
 
 ### Feature addendum — Client-triggered quote requests
 - A logged-in client user can request a quote from the part workspace for an uploaded part they can edit.
