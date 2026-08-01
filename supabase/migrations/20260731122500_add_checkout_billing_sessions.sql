@@ -152,6 +152,13 @@ revoke all on function public.api_prepare_organization_billing_session(uuid)
 grant execute on function public.api_prepare_organization_billing_session(uuid)
   to authenticated;
 
+alter table private.stripe_pro_price_allowlist
+  add column if not exists checkout_enabled boolean not null default false;
+
+create unique index if not exists stripe_pro_price_one_checkout_per_mode_idx
+  on private.stripe_pro_price_allowlist (livemode)
+  where checkout_enabled;
+
 create or replace function public.api_configure_stripe_pro_price(
   p_stripe_price_id text,
   p_livemode boolean
@@ -173,22 +180,32 @@ begin
   end if;
 
   perform pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended('stripe_pro_launch_price', 0)
+    pg_catalog.hashtextextended(
+      'stripe_pro_launch_price:' || p_livemode::text,
+      0
+    )
   );
 
-  delete from private.stripe_pro_price_allowlist price_row
-  where price_row.stripe_price_id <> v_price_id;
+  update private.stripe_pro_price_allowlist price_row
+  set
+    checkout_enabled = false,
+    updated_at = pg_catalog.now()
+  where price_row.checkout_enabled
+    and price_row.livemode = p_livemode;
 
   insert into private.stripe_pro_price_allowlist (
     stripe_price_id,
-    livemode
+    livemode,
+    checkout_enabled
   )
   values (
     v_price_id,
-    p_livemode
+    p_livemode,
+    true
   )
   on conflict (stripe_price_id) do update
     set livemode = excluded.livemode,
+        checkout_enabled = true,
         updated_at = pg_catalog.now();
 
   return pg_catalog.jsonb_build_object(
@@ -299,6 +316,258 @@ grant execute on function public.api_bind_organization_stripe_customer(
   text,
   boolean
 ) to service_role;
+
+create table private.organization_billing_checkout_reservations (
+  organization_id uuid primary key
+    references private.organization_billing_accounts(organization_id)
+    on delete cascade,
+  reservation_token uuid not null unique default pg_catalog.gen_random_uuid(),
+  stripe_price_id text not null,
+  stripe_livemode boolean not null,
+  stripe_checkout_session_id text,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default pg_catalog.now(),
+  updated_at timestamptz not null default pg_catalog.now(),
+  constraint organization_billing_checkout_price_check
+    check (stripe_price_id ~ '^price_[A-Za-z0-9]+$'),
+  constraint organization_billing_checkout_session_check
+    check (
+      stripe_checkout_session_id is null
+      or stripe_checkout_session_id ~ '^cs_(test_|live_)?[A-Za-z0-9]+$'
+    )
+);
+
+revoke all on private.organization_billing_checkout_reservations
+  from public, anon, authenticated, service_role;
+
+create or replace function public.api_acquire_organization_billing_checkout(
+  p_organization_id uuid,
+  p_actor_user_id uuid,
+  p_stripe_price_id text,
+  p_livemode boolean
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+declare
+  v_price_id text := trim(p_stripe_price_id);
+  v_reservation_token uuid;
+  v_existing private.organization_billing_checkout_reservations%rowtype;
+begin
+  if p_organization_id is null
+    or p_actor_user_id is null
+    or v_price_id is null
+    or v_price_id !~ '^price_[A-Za-z0-9]+$'
+    or p_livemode is null
+  then
+    raise exception using
+      errcode = '22023',
+      message = 'A valid organization, actor, Stripe Price ID, and mode are required.';
+  end if;
+
+  if not private.user_can_manage_organization_billing(
+    p_organization_id,
+    p_actor_user_id
+  ) then
+    raise exception 'Billing actor is not an organization billing owner.';
+  end if;
+
+  if not exists (
+    select 1
+    from private.organization_billing_accounts account_row
+    where account_row.organization_id = p_organization_id
+      and account_row.stripe_customer_id is not null
+      and account_row.stripe_livemode = p_livemode
+  ) then
+    raise exception 'Organization does not have a verified Stripe customer.';
+  end if;
+
+  if not exists (
+    select 1
+    from private.stripe_pro_price_allowlist price_row
+    where price_row.stripe_price_id = v_price_id
+      and price_row.livemode = p_livemode
+      and price_row.checkout_enabled
+  ) then
+    raise exception 'Stripe Price is not the active Checkout price.';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(
+      'organization_billing_checkout:' || p_organization_id::text,
+      0
+    )
+  );
+
+  delete from private.organization_billing_checkout_reservations reservation_row
+  where reservation_row.organization_id = p_organization_id
+    and reservation_row.expires_at <= pg_catalog.now();
+
+  select reservation_row.*
+  into v_existing
+  from private.organization_billing_checkout_reservations reservation_row
+  where reservation_row.organization_id = p_organization_id;
+
+  if v_existing.reservation_token is not null then
+    return pg_catalog.jsonb_strip_nulls(
+      pg_catalog.jsonb_build_object(
+        'acquired', false,
+        'reservationToken', v_existing.reservation_token,
+        'stripeCheckoutSessionId', v_existing.stripe_checkout_session_id,
+        'retryAfterSeconds',
+          greatest(
+            1,
+            ceil(
+              extract(epoch from (v_existing.expires_at - pg_catalog.now()))
+            )::integer
+          )
+      )
+    );
+  end if;
+
+  insert into private.organization_billing_checkout_reservations (
+    organization_id,
+    stripe_price_id,
+    stripe_livemode,
+    expires_at
+  )
+  values (
+    p_organization_id,
+    v_price_id,
+    p_livemode,
+    pg_catalog.now() + interval '2 minutes'
+  )
+  returning reservation_token into v_reservation_token;
+
+  return pg_catalog.jsonb_build_object(
+    'acquired', true,
+    'reservationToken', v_reservation_token,
+    'retryAfterSeconds', 0
+  );
+end;
+$$;
+
+revoke all on function public.api_acquire_organization_billing_checkout(
+  uuid,
+  uuid,
+  text,
+  boolean
+) from public, anon, authenticated;
+grant execute on function public.api_acquire_organization_billing_checkout(
+  uuid,
+  uuid,
+  text,
+  boolean
+) to service_role;
+
+create or replace function public.api_finalize_organization_billing_checkout(
+  p_organization_id uuid,
+  p_reservation_token uuid,
+  p_stripe_checkout_session_id text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+declare
+  v_session_id text := trim(p_stripe_checkout_session_id);
+  v_reservation private.organization_billing_checkout_reservations%rowtype;
+begin
+  if p_organization_id is null
+    or p_reservation_token is null
+    or v_session_id is null
+    or v_session_id !~ '^cs_(test_|live_)?[A-Za-z0-9]+$'
+  then
+    raise exception using
+      errcode = '22023',
+      message = 'A valid Checkout reservation and Session ID are required.';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(
+      'organization_billing_checkout:' || p_organization_id::text,
+      0
+    )
+  );
+
+  update private.organization_billing_checkout_reservations reservation_row
+  set
+    stripe_checkout_session_id = v_session_id,
+    expires_at = pg_catalog.now() + interval '2 minutes',
+    updated_at = pg_catalog.now()
+  where reservation_row.organization_id = p_organization_id
+    and reservation_row.reservation_token = p_reservation_token
+    and (
+      reservation_row.stripe_checkout_session_id is null
+      or reservation_row.stripe_checkout_session_id = v_session_id
+    )
+  returning * into v_reservation;
+
+  if v_reservation.reservation_token is null then
+    raise exception 'Checkout reservation could not be finalized.';
+  end if;
+
+  return pg_catalog.jsonb_build_object(
+    'organizationId', v_reservation.organization_id,
+    'reservationToken', v_reservation.reservation_token,
+    'stripeCheckoutSessionId', v_reservation.stripe_checkout_session_id
+  );
+end;
+$$;
+
+revoke all on function public.api_finalize_organization_billing_checkout(
+  uuid,
+  uuid,
+  text
+) from public, anon, authenticated;
+grant execute on function public.api_finalize_organization_billing_checkout(
+  uuid,
+  uuid,
+  text
+) to service_role;
+
+create or replace function public.api_release_organization_billing_checkout(
+  p_organization_id uuid,
+  p_reservation_token uuid
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+declare
+  v_deleted_count integer;
+begin
+  if p_organization_id is null or p_reservation_token is null then
+    raise exception using
+      errcode = '22023',
+      message = 'A valid Checkout reservation is required.';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(
+      'organization_billing_checkout:' || p_organization_id::text,
+      0
+    )
+  );
+
+  delete from private.organization_billing_checkout_reservations reservation_row
+  where reservation_row.organization_id = p_organization_id
+    and reservation_row.reservation_token = p_reservation_token
+    and reservation_row.stripe_checkout_session_id is null;
+
+  get diagnostics v_deleted_count = row_count;
+  return v_deleted_count = 1;
+end;
+$$;
+
+revoke all on function public.api_release_organization_billing_checkout(uuid, uuid)
+  from public, anon, authenticated;
+grant execute on function public.api_release_organization_billing_checkout(uuid, uuid)
+  to service_role;
 
 create or replace function private.guard_billing_audit_events()
 returns trigger
@@ -494,6 +763,12 @@ execute function private.audit_subscription_activation();
 -- 1. Disable the billing-sessions Edge Function.
 -- 2. Drop audit_subscription_activation, guard_billing_audit_events, and
 --    their private trigger functions.
--- 3. Revoke/drop the three public billing-session functions.
--- 4. Restore api_get_organization_entitlements from OVD-229.
--- 5. Drop private.user_can_manage_organization_billing.
+-- 3. Revoke/drop the seven public billing-session, reservation, and audit
+--    recording functions.
+-- 4. Drop private.organization_billing_checkout_reservations.
+-- 5. Drop stripe_pro_price_one_checkout_per_mode_idx and remove
+--    private.stripe_pro_price_allowlist.checkout_enabled only after restoring
+--    the prior price-configuration function. Preserve historical allowlist
+--    rows while Stripe subscriptions still reference them.
+-- 6. Restore api_get_organization_entitlements from OVD-229.
+-- 7. Drop private.user_can_manage_organization_billing.

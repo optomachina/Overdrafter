@@ -11,6 +11,7 @@ import {
 
 const ORGANIZATION_ID = "00000000-0000-4000-8000-000000002281";
 const USER_ID = "00000000-0000-4000-8000-000000002282";
+const RESERVATION_TOKEN = "00000000-0000-4000-8000-000000002289";
 
 function request(
   body: Record<string, unknown>,
@@ -88,6 +89,12 @@ function makeRuntime(options: {
   preparation?: Record<string, unknown>;
   preparationError?: { message: string };
   price?: Stripe.Price;
+  reservation?: { acquired: boolean; reservationToken?: string };
+  reservations?: Array<{
+    acquired: boolean;
+    reservationToken?: string;
+    stripeCheckoutSessionId?: string;
+  }>;
   rpc?: BillingServiceClient["rpc"];
   subscriptions?: Stripe.Subscription[];
   user?: { id: string } | null;
@@ -135,6 +142,7 @@ function makeRuntime(options: {
     },
   };
 
+  let reservationIndex = 0;
   const defaultRpc: BillingServiceClient["rpc"] = (name, parameters) => {
     calls.rpc.push({ name, parameters });
     if (name === "api_bind_organization_stripe_customer") {
@@ -143,6 +151,17 @@ function makeRuntime(options: {
           organizationId: ORGANIZATION_ID,
           stripeCustomerId: "cus_OVD228",
           stripeLivemode: false,
+        },
+        error: null,
+      });
+    }
+    if (name === "api_acquire_organization_billing_checkout") {
+      const sequencedReservation = options.reservations?.[reservationIndex];
+      reservationIndex += 1;
+      return Promise.resolve({
+        data: sequencedReservation ?? options.reservation ?? {
+          acquired: true,
+          reservationToken: RESERVATION_TOKEN,
         },
         error: null,
       });
@@ -343,7 +362,6 @@ Deno.test("creates a server-owned monthly Checkout and binds the organization cu
   const handler = createBillingSessionHandler(
     enabledEnvironment,
     () => runtime,
-    () => 1_785_469_200_000,
   );
 
   const response = await handler(
@@ -392,13 +410,90 @@ Deno.test("creates a server-owned monthly Checkout and binds the organization cu
     organization_id: ORGANIZATION_ID,
     plan: "pro",
   });
+  assertEquals(calls.checkout[0].options, {
+    idempotencyKey:
+      `overdrafter:organization:${ORGANIZATION_ID}:pro-checkout:${RESERVATION_TOKEN}`,
+  });
   assertEquals(
     calls.rpc.map((call) => call.name),
     [
       "api_configure_stripe_pro_price",
       "api_bind_organization_stripe_customer",
+      "api_acquire_organization_billing_checkout",
+      "api_finalize_organization_billing_checkout",
       "api_record_billing_checkout_started",
     ],
+  );
+});
+
+Deno.test("serializes concurrent Checkout creation with a durable reservation", async () => {
+  const { calls, runtime } = makeRuntime({
+    reservation: { acquired: false },
+  });
+  const handler = createBillingSessionHandler(
+    enabledEnvironment,
+    () => runtime,
+  );
+
+  const response = await handler(
+    request({ action: "checkout", organizationId: ORGANIZATION_ID }),
+  );
+
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), {
+    error: "Checkout is already being prepared. Try again in a moment.",
+  });
+  assertEquals(calls.checkout.length, 0);
+  assertEquals(
+    calls.rpc.at(-1)?.name,
+    "api_acquire_organization_billing_checkout",
+  );
+});
+
+Deno.test("reuses the durable idempotency token after an ambiguous Stripe failure", async () => {
+  const { calls, runtime } = makeRuntime({
+    reservations: [
+      { acquired: true, reservationToken: RESERVATION_TOKEN },
+      { acquired: false, reservationToken: RESERVATION_TOKEN },
+    ],
+  });
+  let createAttempt = 0;
+  runtime.stripe.checkout.sessions.create = (parameters, requestOptions) => {
+    calls.checkout.push({ parameters, options: requestOptions });
+    createAttempt += 1;
+    if (createAttempt === 1) {
+      return Promise.reject(new Error("ambiguous Stripe timeout"));
+    }
+    return Promise.resolve({
+      id: "cs_test_OVD228Retry",
+      object: "checkout.session",
+      url: "https://checkout.stripe.com/c/pay/ovd228-retry",
+    } as Stripe.Checkout.Session);
+  };
+  const handler = createBillingSessionHandler(
+    enabledEnvironment,
+    () => runtime,
+  );
+
+  const firstResponse = await handler(
+    request({ action: "checkout", organizationId: ORGANIZATION_ID }),
+  );
+  const secondResponse = await handler(
+    request({ action: "checkout", organizationId: ORGANIZATION_ID }),
+  );
+
+  assertEquals(firstResponse.status, 502);
+  assertEquals(secondResponse.status, 200);
+  assertEquals(calls.checkout.length, 2);
+  assertEquals(
+    calls.checkout[0].options?.idempotencyKey,
+    calls.checkout[1].options?.idempotencyKey,
+  );
+  assertEquals(
+    calls.rpc.filter((call) =>
+      call.name === "api_release_organization_billing_checkout"
+    ).length,
+    0,
   );
 });
 

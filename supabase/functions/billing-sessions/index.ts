@@ -101,6 +101,12 @@ type BillingPreparation = {
   stripeLivemode?: boolean;
 };
 
+type CheckoutReservation = {
+  acquired: boolean;
+  reservationToken?: string;
+  stripeCheckoutSessionId?: string;
+};
+
 const ORGANIZATION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PRICE_ID_PATTERN = /^price_[A-Za-z0-9]+$/;
@@ -288,6 +294,47 @@ function parseBillingPreparation(data: unknown): BillingPreparation | null {
   };
 }
 
+function parseCheckoutReservation(data: unknown): CheckoutReservation | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return null;
+  }
+
+  const record = data as Record<string, unknown>;
+  if (typeof record.acquired !== "boolean") {
+    return null;
+  }
+  if (
+    record.reservationToken !== undefined &&
+    (typeof record.reservationToken !== "string" ||
+      !ORGANIZATION_ID_PATTERN.test(record.reservationToken))
+  ) {
+    return null;
+  }
+  if (
+    record.stripeCheckoutSessionId !== undefined &&
+    (typeof record.stripeCheckoutSessionId !== "string" ||
+      !CHECKOUT_SESSION_ID_PATTERN.test(record.stripeCheckoutSessionId))
+  ) {
+    return null;
+  }
+
+  if (!record.acquired) {
+    return {
+      acquired: false,
+      reservationToken: record.reservationToken,
+      stripeCheckoutSessionId: record.stripeCheckoutSessionId,
+    };
+  }
+  if (!record.reservationToken) {
+    return null;
+  }
+
+  return {
+    acquired: true,
+    reservationToken: record.reservationToken,
+  };
+}
+
 function buildReturnUrl(
   appBaseUrl: URL,
   state: "cancelled" | "portal_return" | "success",
@@ -443,7 +490,6 @@ function safeErrorStatus(error: RpcError): number {
 export function createBillingSessionHandler(
   getEnvironmentVariable: EnvironmentReader = (name) => Deno.env.get(name),
   loadRuntime: RuntimeLoader = loadBillingRuntime,
-  now: () => number = Date.now,
 ) {
   return async (request: Request): Promise<Response> => {
     if (request.method === "OPTIONS") {
@@ -465,6 +511,8 @@ export function createBillingSessionHandler(
     }
 
     let requestPayload: unknown;
+    let checkoutReservationToken: string | null = null;
+    let checkoutSessionCreationAttempted = false;
     try {
       requestPayload = await request.json();
     } catch {
@@ -614,6 +662,35 @@ export function createBillingSessionHandler(
         return json(200, { url: reusableCheckoutSession.url });
       }
 
+      const { data: reservationData, error: reservationError } =
+        await runtime.serviceClient.rpc(
+          "api_acquire_organization_billing_checkout",
+          {
+            p_actor_user_id: user.id,
+            p_livemode: runtime.expectedLivemode,
+            p_organization_id: preparation.organizationId,
+            p_stripe_price_id: runtime.proMonthlyPriceId,
+          },
+        );
+      const reservation = parseCheckoutReservation(reservationData);
+      if (reservationError || !reservation) {
+        throw new Error("billing_checkout_reservation_failed");
+      }
+      if (
+        reservation.stripeCheckoutSessionId ||
+        (!reservation.acquired && !reservation.reservationToken)
+      ) {
+        return json(409, {
+          error:
+            "Checkout is already being prepared. Try again in a moment.",
+        });
+      }
+      if (!reservation.reservationToken) {
+        throw new Error("billing_checkout_reservation_token_missing");
+      }
+      checkoutReservationToken = reservation.reservationToken;
+
+      checkoutSessionCreationAttempted = true;
       const checkoutSession = await runtime.stripe.checkout.sessions.create(
         {
           allow_promotion_codes: false,
@@ -644,9 +721,7 @@ export function createBillingSessionHandler(
         },
         {
           idempotencyKey:
-            `overdrafter:organization:${preparation.organizationId}:pro-checkout:${
-              Math.floor(now() / 900_000)
-            }`,
+            `overdrafter:organization:${preparation.organizationId}:pro-checkout:${checkoutReservationToken}`,
         },
       );
       if (
@@ -654,6 +729,18 @@ export function createBillingSessionHandler(
         !isValidHostedUrl(checkoutSession.url)
       ) {
         throw new Error("billing_checkout_session_invalid");
+      }
+
+      const { error: finalizationError } = await runtime.serviceClient.rpc(
+        "api_finalize_organization_billing_checkout",
+        {
+          p_organization_id: preparation.organizationId,
+          p_reservation_token: checkoutReservationToken,
+          p_stripe_checkout_session_id: checkoutSession.id,
+        },
+      );
+      if (finalizationError) {
+        throw new Error("billing_checkout_reservation_finalize_failed");
       }
 
       const { error: auditError } = await runtime.serviceClient.rpc(
@@ -670,6 +757,18 @@ export function createBillingSessionHandler(
 
       return json(200, { url: checkoutSession.url });
     } catch {
+      if (checkoutReservationToken && !checkoutSessionCreationAttempted) {
+        const { error: releaseError } = await runtime.serviceClient.rpc(
+          "api_release_organization_billing_checkout",
+          {
+            p_organization_id: preparation.organizationId,
+            p_reservation_token: checkoutReservationToken,
+          },
+        );
+        if (releaseError) {
+          console.error("billing-sessions: Checkout reservation release failed");
+        }
+      }
       console.error("billing-sessions: Stripe session creation failed");
       return json(502, {
         error:

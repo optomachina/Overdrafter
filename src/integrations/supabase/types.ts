@@ -2875,6 +2875,15 @@ export type Database = {
         }
         Returns: Json
       }
+      api_acquire_organization_billing_checkout: {
+        Args: {
+          p_actor_user_id: string
+          p_livemode: boolean
+          p_organization_id: string
+          p_stripe_price_id: string
+        }
+        Returns: Json
+      }
       api_cancel_quote_request: {
         Args: { p_request_id: string }
         Returns: Json
@@ -2957,6 +2966,14 @@ export type Database = {
           p_quote_run_id: string
           p_requested_quantity: number
           p_vendor: Database["public"]["Enums"]["vendor_name"]
+        }
+        Returns: Json
+      }
+      api_finalize_organization_billing_checkout: {
+        Args: {
+          p_organization_id: string
+          p_reservation_token: string
+          p_stripe_checkout_session_id: string
         }
         Returns: Json
       }
@@ -3197,6 +3214,10 @@ export type Database = {
       api_remove_project_member: {
         Args: { p_project_membership_id: string }
         Returns: string
+      }
+      api_release_organization_billing_checkout: {
+        Args: { p_organization_id: string; p_reservation_token: string }
+        Returns: boolean
       }
       api_replay_stripe_event: {
         Args: { p_stripe_event_id: string }

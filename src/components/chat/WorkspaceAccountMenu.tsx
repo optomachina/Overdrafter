@@ -675,6 +675,19 @@ export function WorkspaceAccountMenu({
   const bulkDeleteJobIds = deleteConfirmation?.kind === "bulk" ? deleteConfirmation.jobs.map((job) => job.job.id) : [];
   const deleteAllDisabled = isArchiveLoading || archivedPartCount === 0 || hasPendingDelete;
   useEffect(() => {
+    if (
+      billingReturnState !== "cancelled"
+      && billingReturnState !== "portal_return"
+    ) {
+      return;
+    }
+
+    const returnUrl = new URL(window.location.href);
+    returnUrl.searchParams.delete("billing");
+    window.history.replaceState(window.history.state, "", returnUrl);
+  }, [billingReturnState]);
+
+  useEffect(() => {
     if (billingReturnState !== "success") {
       return;
     }

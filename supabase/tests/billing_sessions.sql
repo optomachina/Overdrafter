@@ -1,6 +1,6 @@
 begin;
 
-select plan(25);
+select plan(31);
 
 create function pg_temp.set_ovd228_request_identity(p_user_id uuid)
 returns void
@@ -57,6 +57,10 @@ create temporary table ovd228_test_context (
   second_organization_id uuid not null
 ) on commit drop;
 
+create temporary table ovd228_checkout_reservation_context (
+  reservation_token uuid not null
+) on commit drop;
+
 insert into ovd228_test_context values (
   '00000000-0000-4000-8000-000000002281',
   '00000000-0000-4000-8000-000000002282',
@@ -66,6 +70,7 @@ insert into ovd228_test_context values (
 );
 
 grant select on ovd228_test_context to authenticated, service_role;
+grant select, insert on ovd228_checkout_reservation_context to service_role;
 
 insert into auth.users (id, aud, role, email)
 values
@@ -255,6 +260,10 @@ select public.api_configure_stripe_pro_price(
   'price_OVD228Pro',
   false
 );
+select public.api_configure_stripe_pro_price(
+  'price_OVD228Live',
+  true
+);
 
 reset role;
 
@@ -263,14 +272,25 @@ select is(
     select pg_catalog.jsonb_agg(
       pg_catalog.jsonb_build_object(
         'priceId', price_row.stripe_price_id,
-        'livemode', price_row.livemode
+        'livemode', price_row.livemode,
+        'checkoutEnabled', price_row.checkout_enabled
       )
       order by price_row.stripe_price_id
     )
     from private.stripe_pro_price_allowlist price_row
   ),
-  '[{"priceId": "price_OVD228Pro", "livemode": false}]'::jsonb,
-  'the launch catalog retains exactly one configured Pro price'
+  '[{"priceId": "price_OVD228Live", "livemode": true, "checkoutEnabled": true}, {"priceId": "price_OVD228Old", "livemode": false, "checkoutEnabled": false}, {"priceId": "price_OVD228Pro", "livemode": false, "checkoutEnabled": true}]'::jsonb,
+  'price rotation retains history and independently selects one Checkout price per mode'
+);
+
+select is(
+  (
+    select count(*)
+    from private.stripe_pro_price_allowlist price_row
+    where price_row.checkout_enabled
+  ),
+  2::bigint,
+  'test and live Checkout prices remain independently enabled'
 );
 
 set local role service_role;
@@ -309,6 +329,74 @@ select throws_ok(
   'an organization cannot be rebound to a different Stripe customer'
 );
 
+with acquired as (
+  select public.api_acquire_organization_billing_checkout(
+    (select primary_organization_id from ovd228_test_context),
+    (select owner_user_id from ovd228_test_context),
+    'price_OVD228Pro',
+    false
+  ) as result
+)
+insert into ovd228_checkout_reservation_context (reservation_token)
+select (result ->> 'reservationToken')::uuid
+from acquired;
+
+select is(
+  (select count(*) from ovd228_checkout_reservation_context),
+  1::bigint,
+  'the first Checkout request acquires a durable organization reservation'
+);
+
+select is(
+  public.api_acquire_organization_billing_checkout(
+    (select primary_organization_id from ovd228_test_context),
+    (select owner_user_id from ovd228_test_context),
+    'price_OVD228Pro',
+    false
+  ) ->> 'acquired',
+  'false',
+  'a concurrent Checkout request cannot acquire the same organization'
+);
+
+select is(
+  public.api_finalize_organization_billing_checkout(
+    (select primary_organization_id from ovd228_test_context),
+    (select reservation_token from ovd228_checkout_reservation_context),
+    'cs_test_OVD228Reserved'
+  ) ->> 'stripeCheckoutSessionId',
+  'cs_test_OVD228Reserved',
+  'the Stripe Session finalizes the matching reservation'
+);
+
+select is(
+  public.api_release_organization_billing_checkout(
+    (select primary_organization_id from ovd228_test_context),
+    (select reservation_token from ovd228_checkout_reservation_context)
+  ),
+  false,
+  'a finalized reservation cannot be released into a duplicate-Checkout race'
+);
+
+reset role;
+
+update private.organization_billing_checkout_reservations
+set expires_at = pg_catalog.now() - interval '1 second'
+where organization_id = (select primary_organization_id from ovd228_test_context);
+
+set local role service_role;
+select pg_temp.set_ovd228_service_identity();
+
+select is(
+  public.api_acquire_organization_billing_checkout(
+    (select primary_organization_id from ovd228_test_context),
+    (select owner_user_id from ovd228_test_context),
+    'price_OVD228Pro',
+    false
+  ) ->> 'acquired',
+  'true',
+  'an expired reservation permits a fresh Checkout attempt'
+);
+
 select is(
   public.api_record_billing_checkout_started(
     (select primary_organization_id from ovd228_test_context),
@@ -325,6 +413,8 @@ select public.api_record_billing_checkout_started(
   'cs_test_OVD228'
 );
 
+reset role;
+
 select is(
   (
     select count(*)
@@ -338,8 +428,6 @@ select is(
   1::bigint,
   'replaying a Checkout session records one upgrade-start funnel event'
 );
-
-reset role;
 
 insert into private.organization_subscription_projections (
   organization_id,
@@ -439,6 +527,14 @@ select throws_ok(
   '42501',
   'Billing audit events may only be appended by the billing service.',
   'the legacy security-definer audit helper cannot forge billing history'
+);
+
+-- Exercise the trigger itself even if a future migration broadens table grants.
+reset role;
+grant insert, update, delete on public.audit_events to authenticated;
+set local role authenticated;
+select pg_temp.set_ovd228_request_identity(
+  (select internal_admin_user_id from ovd228_test_context)
 );
 
 select throws_ok(

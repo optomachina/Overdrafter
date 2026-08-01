@@ -36,6 +36,7 @@ export function useOrganizationQuoteCollectionMode(
   const refresh = useCallback(async () => {
     if (!organizationId || !enabled) {
       requestVersion.current += 1;
+      inFlightRequest.current = null;
       setEntitlements(null);
       setIsLoading(false);
       return;

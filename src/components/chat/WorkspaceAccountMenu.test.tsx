@@ -692,6 +692,28 @@ describe("WorkspaceAccountMenu", () => {
     expect(screen.queryByText("Automatic quote collection")).not.toBeInTheDocument();
   });
 
+  it("consumes a canceled Checkout marker after showing the result once", async () => {
+    window.history.replaceState({}, "", "/?billing=cancelled");
+
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+
+    expect(
+      await screen.findByText(
+        "Checkout was canceled. Your Free sourcing access is unchanged.",
+      ),
+    ).toBeInTheDocument();
+    expect(window.location.search).toBe("");
+  });
+
+  it("consumes a Billing Portal return marker after reopening Settings", async () => {
+    window.history.replaceState({}, "", "/?billing=portal_return");
+
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+
+    expect(await screen.findByText("Provider recommendations")).toBeInTheDocument();
+    expect(window.location.search).toBe("");
+  });
+
   it("bounds non-overlapping Checkout confirmation polling and clears the return marker", async () => {
     vi.useFakeTimers();
     window.history.replaceState({}, "", "/?billing=success");

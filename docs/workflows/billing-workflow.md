@@ -39,8 +39,9 @@ Use this for Stripe checkout, subscriptions, invoicing, entitlements, plan state
   - `STRIPE_SECRET_KEY`
 - The configured Price must be an active USD $49.00 monthly recurring price on
   an active Product in the expected Stripe mode. The function validates this
-  before creating every Checkout Session and registers the exact Price ID in
-  the webhook allowlist.
+  before creating every Checkout Session. It enables exactly one Checkout
+  Price per Stripe mode while retaining historical Price IDs in the webhook
+  allowlist so existing subscriptions continue to synchronize after rotation.
 - The browser may send only `organizationId` and `action` (`checkout` or
   `portal`). Customer IDs, Price IDs, amounts, intervals, modes, and return URLs
   are server-owned.
@@ -51,8 +52,11 @@ Use this for Stripe checkout, subscriptions, invoicing, entitlements, plan state
   URL parameter or Checkout redirect.
 - Before creating Checkout, the billing boundary rejects any non-terminal
   Stripe subscription for the organization Customer and reuses a matching open
-  Checkout Session. The time-bucketed Stripe idempotency key is only a
-  concurrent-request safeguard, not the duplicate-subscription authority.
+  Checkout Session. A durable, organization-scoped reservation serializes new
+  session creation; its token is also the Stripe idempotency key. Reservations
+  expire after two minutes so a failed pre-session request cannot strand the
+  organization. Non-terminal subscriptions and open Stripe Sessions remain the
+  duplicate-subscription authority.
 - Show Billing Portal access only when a synchronized Stripe subscription
   exists. Trial and complimentary Pro grants still receive Pro capabilities
   without presenting a broken Stripe management action.
