@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "manufacturing-characterization-annotation.v1",
+  "annotationVersion": "1.0.0",
+  "caseId": "synthetic-malformed-step",
+  "review": {
+    "state": "pending_manufacturing_review",
+    "reviewerRole": null,
+    "reviewedAt": null
+  },
+  "expected": {
+    "productStructure": {
+      "definitionCount": null,
+      "occurrenceCount": null
+    },
+    "units": {
+      "length": "unsupported"
+    },
+    "commonFeatures": [],
+    "requirements": [],
+    "candidateRoutes": [],
+    "unsupportedStates": [
+      {
+        "code": "malformed_source",
+        "evidence": [
+          {
+            "artifactRole": "cad_model",
+            "locator": "DATA/#1"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -126,6 +126,16 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - verify deterministic canonical identifiers and typed topology fields instead of asserting against raw provider-specific STEP entities
 - verify normalized unit and bounding-box fields when geometry coordinates are part of the change
 
+### Manufacturing characterization corpus changes
+- validate manifest and annotation schemas, contained relative paths, exact byte sizes, SHA-256 identities, unique IDs, and referenced rights records
+- prove repeated validation and blinded-plan generation are byte-stable for identical inputs
+- fail closed on missing, altered, expired, revoked, traversal, symlink, unmounted-private-root, and unapproved customer cases
+- keep ordinary validation separate from strict coverage: a valid growing corpus may report gaps, while strict coverage must fail until every process threshold and consented-real minimum is met
+- prove blinded dependency inputs omit annotations, expected outputs, rights records, source classifications, and process labels
+- retain malformed and resource-limit fixtures with explicit expected bounded-failure codes
+- do not count a case toward promotion until data-governance rights approval and manufacturing annotation review are both active
+- run `npm --prefix worker run corpus:validate`, the focused corpus tests, and `npm run verify:worker`; use the full repo gate before review because characterization feeds later quote logic
+
 ### Schema or migration changes
 - validate the migration path
 - run the relevant pgTAP database tests for RLS or other database-enforced behavior

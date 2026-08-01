@@ -21,6 +21,7 @@
     "auth:fictiv": "tsx src/tools/fictivAuth.ts",
     "auth:vendor": "tsx src/tools/vendorAuth.ts",
     "sweep:fictiv-quantity": "tsx src/tools/fictivQuantitySweep.ts",
+    "corpus:validate": "tsx src/tools/validateManufacturingCorpus.ts",
     "eval:gate": "tsx src/tools/extractEvalGate.ts",
     "sweep:xometry-quantity": "tsx src/tools/xometryQuantitySweep.ts",
     "smoke:vendor-workflow": "tsx src/tools/vendorWorkflowSmoke.ts",

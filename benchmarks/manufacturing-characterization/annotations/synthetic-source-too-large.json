@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "manufacturing-characterization-annotation.v1",
+  "annotationVersion": "1.0.0",
+  "caseId": "synthetic-source-too-large",
+  "review": {
+    "state": "pending_manufacturing_review",
+    "reviewerRole": null,
+    "reviewedAt": null
+  },
+  "expected": {
+    "productStructure": {
+      "definitionCount": null,
+      "occurrenceCount": null
+    },
+    "units": {
+      "length": "unsupported"
+    },
+    "commonFeatures": [],
+    "requirements": [],
+    "candidateRoutes": [],
+    "unsupportedStates": [
+      {
+        "code": "source_file_too_large",
+        "evidence": [
+          {
+            "artifactRole": "cad_model",
+            "locator": "artifact byte size"
+          }
+        ]
+      }
+    ]
+  }
+}

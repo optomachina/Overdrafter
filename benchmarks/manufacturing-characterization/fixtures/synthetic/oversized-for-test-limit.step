@@ -1,0 +1,9 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('OVD-244 synthetic resource-limit fixture'),'2;1');
+FILE_NAME('oversized-for-test-limit.step','2026-07-30T00:00:00',('OverDrafter'),('OverDrafter'),'synthetic','synthetic','');
+FILE_SCHEMA(('AUTOMOTIVE_DESIGN'));
+ENDSEC;
+DATA;
+ENDSEC;
+END-ISO-10303-21;

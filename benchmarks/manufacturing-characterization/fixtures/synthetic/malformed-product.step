@@ -1,0 +1,8 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('OVD-244 synthetic malformed STEP'),'2;1');
+ENDSEC;
+DATA;
+#1=PRODUCT('unterminated product definition
+ENDSEC;
+END-ISO-10303-21;

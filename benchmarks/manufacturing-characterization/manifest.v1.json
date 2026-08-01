@@ -1,0 +1,212 @@
+{
+  "schemaVersion": "manufacturing-characterization-corpus.v1",
+  "corpusVersion": "0.1.0",
+  "roots": [
+    {
+      "id": "committed",
+      "kind": "manifest_relative",
+      "path": ".",
+      "access": "redistributable"
+    },
+    {
+      "id": "private",
+      "kind": "external_mount",
+      "access": "internal_only"
+    }
+  ],
+  "targets": [
+    {
+      "processFamily": "cnc_milling",
+      "supportTarget": "broad_estimate",
+      "minimumPackages": 25,
+      "minimumConsentedRealPackages": 10
+    },
+    {
+      "processFamily": "cnc_turning",
+      "supportTarget": "broad_estimate",
+      "minimumPackages": 25,
+      "minimumConsentedRealPackages": 10
+    },
+    {
+      "processFamily": "mill_turn",
+      "supportTarget": "broad_estimate",
+      "minimumPackages": 25,
+      "minimumConsentedRealPackages": 10
+    },
+    {
+      "processFamily": "sheet_metal",
+      "supportTarget": "broad_estimate",
+      "minimumPackages": 25,
+      "minimumConsentedRealPackages": 10
+    },
+    {
+      "processFamily": "additive_polymer",
+      "supportTarget": "broad_estimate",
+      "minimumPackages": 25,
+      "minimumConsentedRealPackages": 10
+    },
+    {
+      "processFamily": "additive_metal",
+      "supportTarget": "broad_estimate",
+      "minimumPackages": 25,
+      "minimumConsentedRealPackages": 10
+    },
+    {
+      "processFamily": "welding_fabrication",
+      "supportTarget": "broad_estimate",
+      "minimumPackages": 25,
+      "minimumConsentedRealPackages": 10
+    },
+    {
+      "processFamily": "casting",
+      "supportTarget": "characterization_only",
+      "minimumPackages": 10,
+      "minimumConsentedRealPackages": 0
+    },
+    {
+      "processFamily": "injection_molding",
+      "supportTarget": "characterization_only",
+      "minimumPackages": 10,
+      "minimumConsentedRealPackages": 0
+    },
+    {
+      "processFamily": "other",
+      "supportTarget": "characterization_only",
+      "minimumPackages": 10,
+      "minimumConsentedRealPackages": 0
+    }
+  ],
+  "rights": [
+    {
+      "id": "project-authored-synthetic-pending-review",
+      "sourceClass": "synthetic",
+      "reviewStatus": "pending",
+      "rightsBasis": "Project-authored adversarial fixtures created for OVD-244",
+      "evidenceRef": "repo:OVD-244/project-authored-synthetic-fixtures",
+      "evidenceSha256": null,
+      "effectiveAt": "2026-07-30T00:00:00Z",
+      "expiresAt": null,
+      "approvedByRole": null,
+      "approvedAt": null,
+      "permissions": {
+        "humanAnnotation": true,
+        "localParserEvaluation": true,
+        "geometrySdkEvaluation": true,
+        "modelValidation": true,
+        "modelTraining": true,
+        "commercialProductImprovement": true,
+        "internalDemonstration": true,
+        "publication": true
+      },
+      "processorPolicy": {
+        "mode": "local_only",
+        "allowedProcessors": [],
+        "rawOutputRetentionAllowed": false
+      },
+      "tenantScopeRefs": [],
+      "crossTenantUse": false,
+      "redistribution": {
+        "assets": "full_assets",
+        "annotations": "full_assets"
+      },
+      "lifecycle": {
+        "sourceExpiresAt": null,
+        "derivedExpiresAt": null,
+        "revokedAt": null,
+        "deletionRequestRef": null,
+        "purgeVerifiedAt": null,
+        "legalHold": false
+      }
+    }
+  ],
+  "cases": [
+    {
+      "id": "synthetic-malformed-step",
+      "processFamilies": [
+        "other"
+      ],
+      "supportTarget": "characterization_only",
+      "sourceClass": "synthetic",
+      "dataClassification": "public",
+      "opaqueSourceRef": "synthetic:ovd-244:malformed-product",
+      "redactionStatus": "not_required",
+      "rightsId": "project-authored-synthetic-pending-review",
+      "artifacts": [
+        {
+          "role": "cad_model",
+          "rootId": "committed",
+          "path": "fixtures/synthetic/malformed-product.step",
+          "mediaType": "application/step",
+          "byteSize": 168,
+          "sha256": "69e5d793482bc57e97c9e6f45d5f65fe030ac75d7807c8603292691ebfa8374f"
+        }
+      ],
+      "annotation": {
+        "rootId": "committed",
+        "path": "annotations/synthetic-malformed-step.json",
+        "byteSize": 714,
+        "sha256": "4ff0b0c417c10ee0e010b25b43a191ed257a32539f9ad82be386f88f38e123fc"
+      },
+      "executionLimits": {
+        "maxSourceBytes": 262144000,
+        "maxPackageBytes": 2147483648,
+        "timeoutMs": 10000,
+        "memoryMb": 256
+      },
+      "expectedExecution": {
+        "outcome": "bounded_failure",
+        "diagnosticCodes": [
+          "malformed_source"
+        ]
+      },
+      "tags": [
+        "adversarial",
+        "malformed"
+      ]
+    },
+    {
+      "id": "synthetic-source-too-large",
+      "processFamilies": [
+        "other"
+      ],
+      "supportTarget": "characterization_only",
+      "sourceClass": "synthetic",
+      "dataClassification": "public",
+      "opaqueSourceRef": "synthetic:ovd-244:resource-limit",
+      "redactionStatus": "not_required",
+      "rightsId": "project-authored-synthetic-pending-review",
+      "artifacts": [
+        {
+          "role": "cad_model",
+          "rootId": "committed",
+          "path": "fixtures/synthetic/oversized-for-test-limit.step",
+          "mediaType": "application/step",
+          "byteSize": 293,
+          "sha256": "81183bf5eb0fd4cb728246890a4e8b71debe32930f790d8f151a4549dfd6c075"
+        }
+      ],
+      "annotation": {
+        "rootId": "committed",
+        "path": "annotations/synthetic-source-too-large.json",
+        "byteSize": 732,
+        "sha256": "ae4131a48d8c16dcaa49dfabf1640579781832efa13f2e53264bfaa8f253f563"
+      },
+      "executionLimits": {
+        "maxSourceBytes": 128,
+        "maxPackageBytes": 1024,
+        "timeoutMs": 1000,
+        "memoryMb": 64
+      },
+      "expectedExecution": {
+        "outcome": "bounded_failure",
+        "diagnosticCodes": [
+          "source_file_too_large"
+        ]
+      },
+      "tags": [
+        "adversarial",
+        "resource_limit"
+      ]
+    }
+  ]
+}

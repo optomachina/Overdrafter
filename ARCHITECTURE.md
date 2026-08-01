@@ -264,6 +264,24 @@ Extraction completion events carry provider, prompt version, tokens, latency, co
 
 `worker/src/tools/extractEvalGate.ts` runs the production extraction path over a checked-in corpus and fails below per-field accuracy floors. The CI job reports skipped when no corpus or provider key is present, so an empty corpus never reads as a passing quality signal. Corpus layout and the intended coverage are documented in `worker/eval-corpus/README.md`.
 
+## Manufacturing characterization corpus gate
+
+`benchmarks/manufacturing-characterization/manifest.v1.json` is the versioned,
+rights-gated benchmark boundary for manufacturing characterization. The offline
+validator in `worker/src/benchmarks/manufacturingCorpus.ts` verifies contained
+paths, exact byte sizes and SHA-256 identities, annotation schema and review
+state, purpose-specific rights, expected bounded failures, and per-process
+promotion coverage. Its deterministic blinded plan excludes annotations,
+expected outputs, source classifications, rights records, and process labels
+from dependency inputs.
+
+This gate is benchmark infrastructure, not production characterization.
+Unknown-license repository fixtures and ordinary customer uploads are ineligible
+by default. Private customer cases remain tenant-scoped outside the repository
+and require explicit mounted roots plus active consent for the exact evaluation
+purpose. Coverage gaps block downstream process promotion instead of being
+treated as a passing empty corpus.
+
 ## Extraction boundary
 
 Drawing extraction is advisory evidence, not the canonical quote contract.
