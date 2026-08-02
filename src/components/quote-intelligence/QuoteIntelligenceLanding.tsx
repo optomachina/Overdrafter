@@ -29,12 +29,17 @@ export function QuoteIntelligenceLanding({
 
       <section className="grid min-h-[calc(100svh-4rem)] lg:grid-cols-[minmax(0,0.8fr)_minmax(36rem,1.2fr)]">
         <div className="flex flex-col justify-center px-5 py-12 sm:px-8 lg:px-12">
-          <p className="font-mono text-micro uppercase text-paper-red">Quote intelligence</p>
+          <p className="font-mono text-micro uppercase text-paper-red">Machined aluminum sourcing</p>
           <h1 className="mt-5 max-w-[12ch] font-display text-[44px] font-bold leading-[0.98] tracking-[-0.055em] sm:text-[64px]">
-            Parts in. Comparable quotes out.
+            Parts in. Clear sourcing paths out.
           </h1>
           <p className="mt-6 max-w-md text-body-lg text-paper-muted">
-            Keep part files, supplier responses, and manufacturing decisions in one traceable workspace.
+            Upload a STEP model and PDF drawing. Free gives you ranked potential providers and official RFQ links. Pro
+            automatically collects supported vendor quotes for $49/month.
+          </p>
+          <p className="mt-4 max-w-md text-[13px] leading-relaxed text-paper-muted">
+            Recommendations come from reviewed capability data. If vendor automation is unavailable, the same useful
+            sourcing guidance remains available.
           </p>
           <div className="mt-8 flex flex-col items-start gap-3 sm:flex-row">
             <button
@@ -58,7 +63,7 @@ export function QuoteIntelligenceLanding({
             ) : null}
           </div>
           <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.08em] text-paper-muted">
-            STEP + PDF · source-linked responses · selection history
+            Launch scope · machined aluminum · STEP + PDF
           </p>
         </div>
 
@@ -66,7 +71,7 @@ export function QuoteIntelligenceLanding({
           <div className="absolute inset-0 opacity-50 [background-image:linear-gradient(var(--hairline)_1px,transparent_1px),linear-gradient(90deg,var(--hairline)_1px,transparent_1px)] [background-size:32px_32px]" aria-hidden="true" />
           <figure className="relative flex h-full min-h-[32rem] flex-col border border-paper-hairline bg-paper-surface">
             <figcaption className="flex items-center justify-between border-b border-paper-hairline px-4 py-3 font-mono text-[10px] uppercase tracking-[0.08em] text-paper-muted">
-              <span>Example quote workspace</span>
+              <span>Illustrative Pro workspace · sample data</span>
               <span>Q7M4DX</span>
             </figcaption>
             <div className="grid flex-1 md:grid-cols-[0.8fr_1.2fr]">
@@ -82,7 +87,10 @@ export function QuoteIntelligenceLanding({
               <div className="flex flex-col p-5 sm:p-7">
                 <div>
                   <p className="font-mono text-[10px] uppercase text-paper-muted">FLT-BRACKET-01 · REV B</p>
-                  <h2 className="mt-2 font-display text-2xl font-bold">Three exact responses</h2>
+                  <h2 className="mt-2 font-display text-2xl font-bold">Example returned offers</h2>
+                  <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.08em] text-paper-red">
+                    Sample prices and lead times — not live quotes
+                  </p>
                 </div>
                 <svg viewBox="0 0 420 230" role="img" aria-label="Example price versus lead-time comparison" className="mt-8 w-full">
                   <path d="M48 18v172h342M48 61h342M48 104h342M48 147h342" fill="none" stroke="var(--hairline)" />
