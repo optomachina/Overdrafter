@@ -86,8 +86,10 @@ that has never changed.
 
 - Automatic quote incident: turn `automatic_quote_collection` off. Manual
   quotes, uploads, and provider recommendations remain available.
-- Privileged admin incident: turn `commercial_admin_mutations` off. Do not edit
-  or delete grants or their audit history.
+- Privileged admin incident: turn `commercial_admin_mutations` off. The change
+  waits for already-authorized grant/revoke transactions to finish, then blocks
+  all new mutation calls, including exact retries, before delegated grant or
+  revoke work begins. Do not edit or delete grants or their audit history.
 - Checkout incident: set `BILLING_SELF_SERVICE_ENABLED=false`. Do not remove the
   Stripe webhook secret as a rollback because Stripe will retry configuration
   failures.
@@ -110,13 +112,16 @@ event table and `private.reject_commercial_rollout_control_event_mutation`;
 and finally drop the control table. Removing enforcement while a control is off
 would re-enable the pre-control behavior.
 
-Rolling back only the OVD-315 schema wrapper must preserve every entitlement
-grant and `commercial_admin_audit_events` row. Restore the private unguarded
-grant/revoke implementations to their original public names and authenticated
-EXECUTE grants, then drop `private.require_commercial_admin_mutation`, only in a
-reviewed forward migration. Never use that schema rollback to contain an
-incident; turning `commercial_admin_mutations` off is the safe operational
-rollback.
+Rolling back the OVD-315 linearization migration first restores
+`private.require_commercial_admin_mutation` from the review-hardening migration
+without its shared transaction lock and reintroduces the check/write race.
+Rolling back the underlying OVD-315 schema wrapper must still preserve every
+entitlement grant and `commercial_admin_audit_events` row. Restore the private
+unguarded grant/revoke implementations to their original public names and
+authenticated EXECUTE grants, then drop
+`private.require_commercial_admin_mutation`, only in a reviewed forward
+migration. Never use either schema rollback to contain an incident; turning
+`commercial_admin_mutations` off is the safe operational rollback.
 
 ## Monitoring and reminders
 
