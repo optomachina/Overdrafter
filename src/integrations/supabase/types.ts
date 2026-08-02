@@ -2779,6 +2779,15 @@ export type Database = {
     }
     Functions: {
       api_accept_project_invite: { Args: { p_token: string }; Returns: string }
+      api_acquire_organization_billing_checkout: {
+        Args: {
+          p_actor_user_id: string
+          p_livemode: boolean
+          p_organization_id: string
+          p_stripe_price_id: string
+        }
+        Returns: Json
+      }
       api_admin_complete_manual_quote_request: {
         Args: {
           p_artifacts?: Json
@@ -2875,15 +2884,6 @@ export type Database = {
         }
         Returns: Json
       }
-      api_acquire_organization_billing_checkout: {
-        Args: {
-          p_actor_user_id: string
-          p_livemode: boolean
-          p_organization_id: string
-          p_stripe_price_id: string
-        }
-        Returns: Json
-      }
       api_cancel_quote_request: {
         Args: { p_request_id: string }
         Returns: Json
@@ -2969,14 +2969,6 @@ export type Database = {
         }
         Returns: Json
       }
-      api_finalize_organization_billing_checkout: {
-        Args: {
-          p_organization_id: string
-          p_reservation_token: string
-          p_stripe_checkout_session_id: string
-        }
-        Returns: Json
-      }
       api_finalize_job_file_upload: {
         Args: {
           p_content_sha256?: string
@@ -2990,7 +2982,16 @@ export type Database = {
         }
         Returns: string
       }
+      api_finalize_organization_billing_checkout: {
+        Args: {
+          p_organization_id: string
+          p_reservation_token: string
+          p_stripe_checkout_session_id: string
+        }
+        Returns: Json
+      }
       api_get_client_intake_compatibility: { Args: never; Returns: Json }
+      api_get_commercial_rollout_controls: { Args: never; Returns: Json }
       api_get_is_platform_admin: { Args: never; Returns: boolean }
       api_get_job_vendor_preferences: {
         Args: { p_job_id: string }
@@ -3207,6 +3208,10 @@ export type Database = {
         }
         Returns: Json
       }
+      api_release_organization_billing_checkout: {
+        Args: { p_organization_id: string; p_reservation_token: string }
+        Returns: boolean
+      }
       api_remove_job_from_project: {
         Args: { p_job_id: string; p_project_id: string }
         Returns: string
@@ -3214,10 +3219,6 @@ export type Database = {
       api_remove_project_member: {
         Args: { p_project_membership_id: string }
         Returns: string
-      }
-      api_release_organization_billing_checkout: {
-        Args: { p_organization_id: string; p_reservation_token: string }
-        Returns: boolean
       }
       api_replay_stripe_event: {
         Args: { p_stripe_event_id: string }
@@ -3260,6 +3261,17 @@ export type Database = {
       api_select_quote_option: {
         Args: { p_note?: string; p_option_id: string; p_package_id: string }
         Returns: string
+      }
+      api_set_commercial_rollout_control: {
+        Args: {
+          p_capability: string
+          p_change_reason: string
+          p_enabled: boolean
+          p_expected_revision: number
+          p_idempotency_key: string
+          p_operator: string
+        }
+        Returns: Json
       }
       api_set_global_spend_cap: {
         Args: {

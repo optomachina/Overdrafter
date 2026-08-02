@@ -2,6 +2,9 @@
 
 Use this for Stripe checkout, subscriptions, invoicing, entitlements, plan state, and billing-related access.
 
+Use [Commercial Rollout Controls](./commercial-rollout-controls.md) for the
+independent default-off switches, audited enablement, and rollback sequence.
+
 1. Create issue from `billing-feature-template.md`.
 2. Route as high-risk using `linear-triage-router`.
 3. Scope using `linear-feature-scoper` + `billing-implementation-guardrails`.
