@@ -380,7 +380,7 @@ export async function startHealthServer(
       return;
     }
 
-    if (url === "/readyz") {
+    if (url === "/ready" || url === "/readyz") {
       const statusCode = state.status === "running" && state.readinessIssues.length === 0 ? 200 : 503;
       const extras = await buildHealthExtras(config);
       writeJson(response, statusCode, getSnapshot(config, state, extras));

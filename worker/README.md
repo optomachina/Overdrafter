@@ -152,11 +152,12 @@ The worker now starts a lightweight HTTP server on `PORT` and exposes:
 
 - `/health`
 - `/healthz` for non-Cloud Run environments
-- `/readyz`
+- `/ready`
+- `/readyz` for non-Cloud Run environments
 
 Cloud Run reserves some paths ending in `z`, and its frontend can intercept
-`/healthz` before the request reaches the container. Use `/health` for Cloud Run
-liveness checks and `/readyz` for worker readiness.
+those requests before they reach the container. Use `/health` for Cloud Run
+liveness checks and `/ready` for worker readiness.
 
 Debug routes are intentionally not part of the deployed contract. `/debug/events`,
 `/debug/extraction/models`, `/debug/extraction/models/refresh`, and
@@ -257,7 +258,7 @@ The deploy script:
 - optionally injects `OPENAI_API_KEY` or `OPENROUTER_API_KEY` from Secret Manager
 - enables the Chromium flags that are typically needed in Cloud Run
 
-In Cloud Run, treat `/health` and `/readyz` as the only supported HTTP endpoints.
+In Cloud Run, treat `/health` and `/ready` as the only supported HTTP endpoints.
 The worker debug routes are disabled because the deployed service runs with
 `WORKER_MODE=live`.
 

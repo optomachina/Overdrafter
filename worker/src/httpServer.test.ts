@@ -109,11 +109,7 @@ describe("startHealthServer", () => {
     const cloudRunHealthResponse = await fetch(`${server.url}/health`);
     const cloudRunHealthPayload = await cloudRunHealthResponse.json();
     expect(cloudRunHealthResponse.status).toBe(200);
-    expect(cloudRunHealthPayload).toMatchObject({
-      workerBuildVersion: "build-test",
-      status: "running",
-      ready: true,
-    });
+    expect(cloudRunHealthPayload).toEqual(healthPayload);
 
     const debugResponse = await fetch(`${server.url}/debug/events`);
     const debugPayload = await debugResponse.json();
@@ -219,7 +215,7 @@ describe("startHealthServer", () => {
     });
   });
 
-  it("reports readiness failures on /readyz", async () => {
+  it("reports the same readiness failures on /ready and /readyz", async () => {
     const runtimeState = createWorkerRuntimeState();
     runtimeState.status = "running";
     runtimeState.readinessIssues = [
@@ -229,11 +225,15 @@ describe("startHealthServer", () => {
     const server = await startHealthServer(workerConfig, runtimeState);
     servers.push(server);
 
-    const readyResponse = await fetch(`${server.url}/readyz`);
-    const readyPayload = await readyResponse.json();
+    const cloudRunReadyResponse = await fetch(`${server.url}/ready`);
+    const cloudRunReadyPayload = await cloudRunReadyResponse.json();
+    const legacyReadyResponse = await fetch(`${server.url}/readyz`);
+    const legacyReadyPayload = await legacyReadyResponse.json();
 
-    expect(readyResponse.status).toBe(503);
-    expect(readyPayload).toMatchObject({
+    expect(cloudRunReadyResponse.status).toBe(503);
+    expect(legacyReadyResponse.status).toBe(503);
+    expect(cloudRunReadyPayload).toEqual(legacyReadyPayload);
+    expect(cloudRunReadyPayload).toMatchObject({
       ready: false,
       readinessIssues: [
         "Xometry storage state file was not found at /tmp/missing.json.",
