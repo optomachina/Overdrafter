@@ -14,7 +14,7 @@ import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -67,6 +67,18 @@ const CLIENT_PASSWORD = [79, 118, 101, 114, 100, 114, 97, 102, 116, 101, 114, 49
 const ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
 const PUBLISHED_JOB_ID = "00000000-0000-4000-8000-000000000103";
+const JOB_ID_COLUMN = "job_id";
+const PART_ID_COLUMN = "part_id";
+const READY_TO_QUOTE_STATUS = "ready_to_quote";
+const NOT_REQUESTED_STATUS = "not_requested";
+const AUTOMATIC_QUOTE_MODE = "automatic";
+const QUOTE_REQUESTS_TABLE = "quote_requests";
+const QUOTE_RUNS_TABLE = "quote_runs";
+const WORK_QUEUE_TABLE = "work_queue";
+const SERVICE_LINE_ITEMS_TABLE = "service_request_line_items";
+const VENDOR_QUOTE_RESULTS_TABLE = "vendor_quote_results";
+const JOBS_TABLE = "jobs";
+const STATUS_COLUMN = "status";
 
 function executeLocalDatabaseSql(sql) {
   const containerName = execFileSync(
@@ -272,6 +284,52 @@ async function countRows(admin, table, column, value) {
   return count ?? 0;
 }
 
+function setAutomaticQuoteRollout(enabled) {
+  executeLocalDatabaseSql(`
+    update private.commercial_rollout_controls
+    set enabled = ${enabled ? "true" : "false"}
+    where capability = 'automatic_quote_collection';
+  `);
+}
+
+function disableAllCommercialRolloutControls() {
+  executeLocalDatabaseSql(`
+    update private.commercial_rollout_controls
+    set enabled = false;
+  `);
+}
+
+async function readQuoteSideEffects(admin, jobId, partId) {
+  const [
+    requestCount,
+    runCount,
+    queueCount,
+    serviceLineCount,
+    vendorResultCount,
+    { data: job, error: jobError },
+  ] = await Promise.all([
+    countRows(admin, QUOTE_REQUESTS_TABLE, JOB_ID_COLUMN, jobId),
+    countRows(admin, QUOTE_RUNS_TABLE, JOB_ID_COLUMN, jobId),
+    countRows(admin, WORK_QUEUE_TABLE, JOB_ID_COLUMN, jobId),
+    countRows(admin, SERVICE_LINE_ITEMS_TABLE, JOB_ID_COLUMN, jobId),
+    countRows(admin, VENDOR_QUOTE_RESULTS_TABLE, PART_ID_COLUMN, partId),
+    admin.from(JOBS_TABLE).select(STATUS_COLUMN).eq("id", jobId).single(),
+  ]);
+
+  if (jobError) {
+    throw new Error(`readQuoteSideEffects could not load the job: ${jobError.message}`);
+  }
+
+  return {
+    requestCount,
+    runCount,
+    queueCount,
+    serviceLineCount,
+    vendorResultCount,
+    jobStatus: job.status,
+  };
+}
+
 function createAnonClient(supabaseUrl, anonKey = ANON_KEY) {
   return createClient(supabaseUrl, anonKey, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -444,6 +502,11 @@ describe("api_request_quote gating paths", () => {
       where organization_id = '${ORG_ID}'::uuid
         and grant_reason = 'Local automatic quote integration coverage';
     `);
+    disableAllCommercialRolloutControls();
+  });
+
+  beforeEach(() => {
+    setAutomaticQuoteRollout(true);
   });
 
   afterEach(async () => {
@@ -506,6 +569,7 @@ describe("api_request_quote gating paths", () => {
   }
 
   it("rejects automatic collection for Free without creating quote lifecycle rows", async () => {
+    disableAllCommercialRolloutControls();
     executeLocalDatabaseSql(`
       delete from private.organization_entitlement_grants
       where organization_id = '${ORG_ID}'::uuid
@@ -535,43 +599,14 @@ describe("api_request_quote gating paths", () => {
       expect(data.quoteRunId).toBeNull();
       expect(data.serviceRequestLineItemId).toBeNull();
 
-      const [
-        { count: requestCount },
-        { count: runCount },
-        { count: queueCount },
-        { count: serviceLineCount },
-        { count: vendorResultCount },
-        { data: job },
-      ] = await Promise.all([
-        admin
-          .from("quote_requests")
-          .select("id", { count: "exact", head: true })
-          .eq("job_id", jobId),
-        admin
-          .from("quote_runs")
-          .select("id", { count: "exact", head: true })
-          .eq("job_id", jobId),
-        admin
-          .from("work_queue")
-          .select("id", { count: "exact", head: true })
-          .eq("job_id", jobId),
-        admin
-          .from("service_request_line_items")
-          .select("id", { count: "exact", head: true })
-          .eq("job_id", jobId),
-        admin
-          .from("vendor_quote_results")
-          .select("id", { count: "exact", head: true })
-          .eq("part_id", partId),
-        admin.from("jobs").select("status").eq("id", jobId).single(),
-      ]);
-
-      expect(requestCount).toBe(0);
-      expect(runCount).toBe(0);
-      expect(queueCount).toBe(0);
-      expect(serviceLineCount).toBe(0);
-      expect(vendorResultCount).toBe(0);
-      expect(job?.status).toBe("ready_to_quote");
+      expect(await readQuoteSideEffects(admin, jobId, partId)).toEqual({
+        requestCount: 0,
+        runCount: 0,
+        queueCount: 0,
+        serviceLineCount: 0,
+        vendorResultCount: 0,
+        jobStatus: READY_TO_QUOTE_STATUS,
+      });
     } finally {
       executeLocalDatabaseSql(`
         insert into private.organization_entitlement_grants (
@@ -592,6 +627,37 @@ describe("api_request_quote gating paths", () => {
         );
       `);
     }
+  });
+
+  it("returns a stable fallback for Pro while automatic rollout is disabled", async () => {
+    setAutomaticQuoteRollout(false);
+    const { jobId, partId } = await buildQuoteReadyJob();
+    testJobId = jobId;
+
+    const { data, error } = await requestQuote(client, jobId);
+
+    expect(error).toBeNull();
+    expect(data).toMatchObject({
+      accepted: false,
+      created: false,
+      deduplicated: false,
+      status: NOT_REQUESTED_STATUS,
+      reasonCode: "automatic_quote_disabled",
+      requestedVendors: [],
+      quoteMode: AUTOMATIC_QUOTE_MODE,
+    });
+    expect(data.reason).toMatch(/manual quote/i);
+    expect(data.quoteRequestId).toBeNull();
+    expect(data.quoteRunId).toBeNull();
+    expect(data.serviceRequestLineItemId).toBeNull();
+    expect(await readQuoteSideEffects(admin, jobId, partId)).toEqual({
+      requestCount: 0,
+      runCount: 0,
+      queueCount: 0,
+      serviceLineCount: 0,
+      vendorResultCount: 0,
+      jobStatus: READY_TO_QUOTE_STATUS,
+    });
   });
 
   it("accepts and creates a new quote request for a fully ready job", async () => {
@@ -633,6 +699,7 @@ describe("api_request_quote gating paths", () => {
   });
 
   it("creates a trackable manual request without vendor fan-out", async () => {
+    disableAllCommercialRolloutControls();
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
@@ -878,6 +945,7 @@ describe("api_request_quote gating paths", () => {
   });
 
   it("rejects cross-org access with a permission exception", async () => {
+    setAutomaticQuoteRollout(false);
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
