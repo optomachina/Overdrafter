@@ -195,7 +195,7 @@ Internal review implementation boundary:
 - trial and complimentary grants are explicit, revocable, time-aware records rather than synthetic Stripe subscriptions or mutable `paid` flags
 - automatic quote collection is enforced at the server boundary from the effective organization entitlement; manual quotes and uploads remain available to Free organizations
 - commercial-account search, exact-organization detail, quote activity, entitlement history, and billing-lane audit are exposed through guarded RPCs rather than direct reads from private commercial tables or `auth.users`
-- commercial-account reads require the stable `billing_admin` capability and accept AAL1 or AAL2 sessions; grant and revoke mutations additionally require AAL2, idempotency, and append-only audit
+- commercial-account reads require the stable `billing_admin` capability and accept AAL1 or AAL2 sessions; grant and revoke mutations additionally require AAL2, idempotency, append-only audit, and the default-off `commercial_admin_mutations` rollout control; the mutation RPCs share the rollout setter's advisory-lock key so disablement linearizes against in-flight writes without interfering with organization-deletion cascades
 - the capability-first `/internal/commercial` directory and exact-account detail routes remain available to provisioned billing administrators without requiring customer membership; trial, complimentary, and revocation controls use TOTP step-up and never impersonate the customer or label a manual grant as paid
 - platform viewers and organization administrators cannot read or mutate commercial-account administration state unless they separately hold the required commercial capability
 

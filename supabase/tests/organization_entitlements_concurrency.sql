@@ -3,7 +3,7 @@
 
 create extension if not exists dblink with schema extensions;
 
-select plan(6);
+select plan(8);
 
 do $$
 begin
@@ -13,6 +13,18 @@ begin
        select 1
        from auth.users
        where id <> '00000000-0000-4000-8000-000000002298'
+     )
+     or not exists (
+       select 1
+       from private.commercial_rollout_controls
+       where capability = 'commercial_admin_mutations'
+         and not enabled
+         and revision = 0
+     )
+     or exists (
+       select 1
+       from private.commercial_rollout_control_events
+       where idempotency_key = 'ovd315-entitlement-concurrency-disable'
      ) then
     raise exception
       'OVD-229 concurrency tests require a freshly reset disposable local database';
@@ -333,6 +345,63 @@ select is(
   'the resolver matches the final committed concurrent state'
 );
 
+select extensions.dblink_exec('ovd229_a', 'begin');
+
+truncate table ovd229_concurrent_results;
+
+insert into ovd229_concurrent_results
+select result
+from extensions.dblink(
+  'ovd229_a',
+  $query$
+    select public.ovd229_concurrent_grant('rollout-lock-grant')
+  $query$
+) as response(result jsonb);
+
+select extensions.dblink_send_query(
+  'ovd229_b',
+  $query$
+    select public.api_set_commercial_rollout_control(
+      'commercial_admin_mutations',
+      false,
+      'Disable after the in-flight entitlement mutation commits',
+      'ovd229-concurrency-suite',
+      1,
+      'ovd315-entitlement-concurrency-disable'
+    )
+  $query$
+);
+
+select pg_catalog.pg_sleep(0.1);
+
+select is(
+  extensions.dblink_is_busy('ovd229_b'),
+  1,
+  'rollout disablement waits for an in-flight entitlement mutation'
+);
+
+select extensions.dblink_exec('ovd229_a', 'commit');
+
+truncate table ovd229_concurrent_results;
+
+insert into ovd229_concurrent_results
+select result
+from extensions.dblink_get_result('ovd229_b') as response(result jsonb);
+select *
+from extensions.dblink_get_result('ovd229_b') as response(result jsonb);
+
+select is(
+  (
+    select pg_catalog.jsonb_build_array(
+      result ->> 'enabled',
+      result ->> 'revision'
+    )
+    from ovd229_concurrent_results
+  ),
+  '["false", "2"]'::jsonb,
+  'disablement commits immediately after the in-flight mutation finishes'
+);
+
 select extensions.dblink_disconnect('ovd229_a');
 select extensions.dblink_disconnect('ovd229_b');
 
@@ -356,6 +425,13 @@ delete from public.organizations
 where id = '00000000-0000-4000-8000-000000002297';
 delete from auth.users
 where id = '00000000-0000-4000-8000-000000002298';
+
+alter table private.commercial_rollout_control_events
+  disable trigger reject_commercial_rollout_control_event_mutation;
+delete from private.commercial_rollout_control_events
+where idempotency_key = 'ovd315-entitlement-concurrency-disable';
+alter table private.commercial_rollout_control_events
+  enable trigger reject_commercial_rollout_control_event_mutation;
 
 update private.commercial_rollout_controls
 set
