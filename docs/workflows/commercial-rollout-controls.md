@@ -113,9 +113,10 @@ would re-enable the pre-control behavior.
 Rolling back only the OVD-315 schema wrapper must preserve every entitlement
 grant and `commercial_admin_audit_events` row. Restore the private unguarded
 grant/revoke implementations to their original public names and authenticated
-EXECUTE grants only in a reviewed forward migration. Never use that schema
-rollback to contain an incident; turning `commercial_admin_mutations` off is
-the safe operational rollback.
+EXECUTE grants, then drop `private.require_commercial_admin_mutation`, only in a
+reviewed forward migration. Never use that schema rollback to contain an
+incident; turning `commercial_admin_mutations` off is the safe operational
+rollback.
 
 ## Monitoring and reminders
 
