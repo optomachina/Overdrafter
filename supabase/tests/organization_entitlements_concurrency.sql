@@ -3,7 +3,22 @@
 
 create extension if not exists dblink with schema extensions;
 
-select plan(8);
+select plan(9);
+
+create temporary table ovd315_concurrency_constants (
+  rollout_capability text not null,
+  disable_idempotency_key text not null,
+  session_b_pid integer
+);
+
+insert into ovd315_concurrency_constants (
+  rollout_capability,
+  disable_idempotency_key
+)
+values (
+  'commercial_admin_mutations',
+  'ovd315-entitlement-concurrency-disable'
+);
 
 do $$
 begin
@@ -17,14 +32,20 @@ begin
      or not exists (
        select 1
        from private.commercial_rollout_controls
-       where capability = 'commercial_admin_mutations'
+       where capability = (
+         select rollout_capability
+         from ovd315_concurrency_constants
+       )
          and not enabled
          and revision = 0
      )
      or exists (
        select 1
        from private.commercial_rollout_control_events
-       where idempotency_key = 'ovd315-entitlement-concurrency-disable'
+       where idempotency_key = (
+         select disable_idempotency_key
+         from ovd315_concurrency_constants
+       )
      ) then
     raise exception
       'OVD-229 concurrency tests require a freshly reset disposable local database';
@@ -75,10 +96,14 @@ set
   change_reason = 'Enable OVD-315 disposable concurrency verification',
   updated_at = pg_catalog.now(),
   updated_by_actor = 'ovd315-concurrency-test'
-where capability = 'commercial_admin_mutations';
+where capability = (
+  select rollout_capability
+  from ovd315_concurrency_constants
+);
 
 drop function if exists public.ovd229_concurrent_revoke(uuid, text);
 drop function if exists public.ovd229_concurrent_grant(text);
+drop function if exists public.ovd315_wait_for_advisory_lock(integer);
 
 insert into auth.users (id, aud, role, email)
 values (
@@ -169,9 +194,39 @@ begin
 end;
 $$;
 
+create function public.ovd315_wait_for_advisory_lock(
+  p_backend_pid integer
+)
+returns boolean
+language plpgsql
+set search_path = pg_catalog
+as $$
+declare
+  v_attempt integer;
+begin
+  for v_attempt in 1..250 loop
+    if exists (
+      select 1
+      from pg_catalog.pg_stat_activity
+      where pid = p_backend_pid
+        and wait_event_type = 'Lock'
+        and wait_event = 'advisory'
+    ) then
+      return true;
+    end if;
+
+    perform pg_catalog.pg_sleep(0.02);
+  end loop;
+
+  return false;
+end;
+$$;
+
 revoke all on function public.ovd229_concurrent_grant(text)
   from public, anon, authenticated, service_role;
 revoke all on function public.ovd229_concurrent_revoke(uuid, text)
+  from public, anon, authenticated, service_role;
+revoke all on function public.ovd315_wait_for_advisory_lock(integer)
   from public, anon, authenticated, service_role;
 
 commit;
@@ -184,6 +239,13 @@ select extensions.dblink_connect(
   'ovd229_b',
   'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'
 );
+
+update ovd315_concurrency_constants
+set session_b_pid = remote_session.pid
+from extensions.dblink(
+  'ovd229_b',
+  'select pg_catalog.pg_backend_pid()'
+) as remote_session(pid integer);
 
 select extensions.dblink_send_query(
   'ovd229_a',
@@ -358,25 +420,46 @@ from extensions.dblink(
   $query$
 ) as response(result jsonb);
 
-select extensions.dblink_send_query(
-  'ovd229_b',
-  $query$
-    select public.api_set_commercial_rollout_control(
-      'commercial_admin_mutations',
-      false,
-      'Disable after the in-flight entitlement mutation commits',
-      'ovd229-concurrency-suite',
-      1,
-      'ovd315-entitlement-concurrency-disable'
-    )
-  $query$
+select is(
+  (
+    select (result ->> 'replayed')::boolean
+    from ovd229_concurrent_results
+  ),
+  false,
+  'the in-flight transaction contains a real entitlement mutation'
 );
 
-select pg_catalog.pg_sleep(0.1);
+select extensions.dblink_send_query(
+  'ovd229_b',
+  pg_catalog.format(
+    $query$
+      select public.api_set_commercial_rollout_control(
+        %L,
+        false,
+        'Disable after the in-flight entitlement mutation commits',
+        'ovd229-concurrency-suite',
+        1,
+        %L
+      )
+    $query$,
+    (
+      select rollout_capability
+      from ovd315_concurrency_constants
+    ),
+    (
+      select disable_idempotency_key
+      from ovd315_concurrency_constants
+    )
+  )
+);
 
-select is(
-  extensions.dblink_is_busy('ovd229_b'),
-  1,
+select ok(
+  public.ovd315_wait_for_advisory_lock(
+    (
+      select session_b_pid
+      from ovd315_concurrency_constants
+    )
+  ),
   'rollout disablement waits for an in-flight entitlement mutation'
 );
 
@@ -409,6 +492,7 @@ begin;
 
 drop function public.ovd229_concurrent_revoke(uuid, text);
 drop function public.ovd229_concurrent_grant(text);
+drop function public.ovd315_wait_for_advisory_lock(integer);
 
 alter table public.commercial_admin_audit_events
   disable trigger reject_commercial_admin_audit_mutation;
@@ -429,7 +513,10 @@ where id = '00000000-0000-4000-8000-000000002298';
 alter table private.commercial_rollout_control_events
   disable trigger reject_commercial_rollout_control_event_mutation;
 delete from private.commercial_rollout_control_events
-where idempotency_key = 'ovd315-entitlement-concurrency-disable';
+where idempotency_key = (
+  select disable_idempotency_key
+  from ovd315_concurrency_constants
+);
 alter table private.commercial_rollout_control_events
   enable trigger reject_commercial_rollout_control_event_mutation;
 
@@ -441,7 +528,10 @@ set
   updated_at = pg_catalog.now(),
   updated_by_user_id = null,
   updated_by_actor = null
-where capability = 'commercial_admin_mutations';
+where capability = (
+  select rollout_capability
+  from ovd315_concurrency_constants
+);
 
 commit;
 
