@@ -9,13 +9,17 @@ select plan(2);
 create temporary table ovd314_concurrency_constants (
   rollout_capability text not null,
   request_connection text not null,
-  disable_connection text not null
+  disable_connection text not null,
+  request_backend_pid integer,
+  disable_backend_pid integer
 ) on commit preserve rows;
 
 insert into ovd314_concurrency_constants values (
   'automatic_quote_collection',
   'ovd314_request',
-  'ovd314_disable'
+  'ovd314_disable',
+  null,
+  null
 );
 
 do $$
@@ -64,6 +68,23 @@ select extensions.dblink_connect(
   'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'
 );
 
+update ovd314_concurrency_constants
+set
+  request_backend_pid = (
+    select backend_pid
+    from extensions.dblink(
+      (select request_connection from ovd314_concurrency_constants),
+      'select pg_catalog.pg_backend_pid()'
+    ) as response(backend_pid integer)
+  ),
+  disable_backend_pid = (
+    select backend_pid
+    from extensions.dblink(
+      (select disable_connection from ovd314_concurrency_constants),
+      'select pg_catalog.pg_backend_pid()'
+    ) as response(backend_pid integer)
+  );
+
 select extensions.dblink_exec(
   (select request_connection from ovd314_concurrency_constants),
   'begin'
@@ -99,14 +120,61 @@ select extensions.dblink_send_query(
   )
 );
 
-select pg_catalog.pg_sleep(0.1);
+do $$
+declare
+  v_attempt integer;
+begin
+  for v_attempt in 1..100 loop
+    exit when exists (
+      select 1
+      from pg_catalog.pg_locks waiting_lock
+      join pg_catalog.pg_locks held_lock
+        on held_lock.locktype = waiting_lock.locktype
+       and held_lock.database is not distinct from waiting_lock.database
+       and held_lock.classid is not distinct from waiting_lock.classid
+       and held_lock.objid is not distinct from waiting_lock.objid
+       and held_lock.objsubid is not distinct from waiting_lock.objsubid
+      where waiting_lock.pid = (
+        select disable_backend_pid
+        from ovd314_concurrency_constants
+      )
+        and held_lock.pid = (
+          select request_backend_pid
+          from ovd314_concurrency_constants
+        )
+        and waiting_lock.locktype = 'advisory'
+        and not waiting_lock.granted
+        and held_lock.granted
+    );
 
-select is(
-  extensions.dblink_is_busy(
-    (select disable_connection from ovd314_concurrency_constants)
+    perform pg_catalog.pg_sleep(0.01);
+  end loop;
+end;
+$$;
+
+select ok(
+  exists (
+    select 1
+    from pg_catalog.pg_locks waiting_lock
+    join pg_catalog.pg_locks held_lock
+      on held_lock.locktype = waiting_lock.locktype
+     and held_lock.database is not distinct from waiting_lock.database
+     and held_lock.classid is not distinct from waiting_lock.classid
+     and held_lock.objid is not distinct from waiting_lock.objid
+     and held_lock.objsubid is not distinct from waiting_lock.objsubid
+    where waiting_lock.pid = (
+      select disable_backend_pid
+      from ovd314_concurrency_constants
+    )
+      and held_lock.pid = (
+        select request_backend_pid
+        from ovd314_concurrency_constants
+      )
+      and waiting_lock.locktype = 'advisory'
+      and not waiting_lock.granted
+      and held_lock.granted
   ),
-  1,
-  'audited disablement waits for the in-flight automatic request transaction'
+  'audited disablement waits on the in-flight request advisory lock'
 );
 
 select extensions.dblink_exec(

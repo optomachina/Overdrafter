@@ -3,8 +3,9 @@ begin;
 select plan(8);
 
 create temporary table ovd314_test_constants (
-  automatic_wrapper regprocedure not null,
-  rollout_guard regprocedure not null,
+  automatic_wrapper regprocedure,
+  automatic_wrapper_definition text,
+  rollout_guard regprocedure,
   rollout_guard_definition_needle text not null,
   authenticated_role text not null,
   anonymous_role text not null,
@@ -13,8 +14,11 @@ create temporary table ovd314_test_constants (
 ) on commit drop;
 
 insert into ovd314_test_constants values (
-  'public.api_request_quote(uuid,boolean)',
-  'private.automatic_quote_rollout_enabled_with_lock()',
+  pg_catalog.to_regprocedure('public.api_request_quote(uuid,boolean)'),
+  null,
+  pg_catalog.to_regprocedure(
+    'private.automatic_quote_rollout_enabled_with_lock()'
+  ),
   'private.automatic_quote_rollout_enabled_with_lock()',
   'authenticated',
   'anon',
@@ -22,9 +26,16 @@ insert into ovd314_test_constants values (
   'EXECUTE'
 );
 
+update ovd314_test_constants
+set automatic_wrapper_definition = pg_catalog.pg_get_functiondef(
+  automatic_wrapper
+)
+where automatic_wrapper is not null;
+
 select ok(
-  (select rollout_guard from ovd314_test_constants) is not null,
-  'the owner-only automatic quote rollout guard exists'
+  (select automatic_wrapper from ovd314_test_constants) is not null
+  and (select rollout_guard from ovd314_test_constants) is not null,
+  'the public wrapper and owner-only automatic quote rollout guard exist'
 );
 
 select ok(
@@ -85,53 +96,52 @@ select ok(
 
 select ok(
   pg_catalog.strpos(
-    pg_catalog.pg_get_functiondef(
-      (select automatic_wrapper from ovd314_test_constants)
-    ),
+    (select automatic_wrapper_definition from ovd314_test_constants),
     'perform public.require_verified_auth()'
-  ) < pg_catalog.strpos(
-    pg_catalog.pg_get_functiondef(
-      (select automatic_wrapper from ovd314_test_constants)
-    ),
+  ) > 0
+  and pg_catalog.strpos(
+    (select automatic_wrapper_definition from ovd314_test_constants),
     'public.user_can_edit_job(v_job.id)'
+  ) > pg_catalog.strpos(
+    (select automatic_wrapper_definition from ovd314_test_constants),
+    'perform public.require_verified_auth()'
   ),
   'verified authentication precedes job authorization'
 );
 
 select ok(
   pg_catalog.strpos(
-    pg_catalog.pg_get_functiondef(
-      (select automatic_wrapper from ovd314_test_constants)
-    ),
+    (select automatic_wrapper_definition from ovd314_test_constants),
     'private.resolve_organization_entitlements_at'
-  ) < pg_catalog.strpos(
-    pg_catalog.pg_get_functiondef(
-      (select automatic_wrapper from ovd314_test_constants)
-    ),
+  ) > 0
+  and pg_catalog.strpos(
+    (select automatic_wrapper_definition from ovd314_test_constants),
     (select rollout_guard_definition_needle from ovd314_test_constants)
+  ) > pg_catalog.strpos(
+    (select automatic_wrapper_definition from ovd314_test_constants),
+    'private.resolve_organization_entitlements_at'
   ),
   'the Pro entitlement decision precedes rollout inspection'
 );
 
 select ok(
   pg_catalog.strpos(
-    pg_catalog.pg_get_functiondef(
-      (select automatic_wrapper from ovd314_test_constants)
-    ),
+    (select automatic_wrapper_definition from ovd314_test_constants),
     (select rollout_guard_definition_needle from ovd314_test_constants)
-  ) < pg_catalog.strpos(
-    pg_catalog.pg_get_functiondef(
-      (select automatic_wrapper from ovd314_test_constants)
-    ),
+  ) > 0
+  and pg_catalog.strpos(
+    (select automatic_wrapper_definition from ovd314_test_constants),
     'private.request_automatic_quote_impl'
+  ) > pg_catalog.strpos(
+    (select automatic_wrapper_definition from ovd314_test_constants),
+    (select rollout_guard_definition_needle from ovd314_test_constants)
   ),
   'the rollout decision precedes vendor resolution and lifecycle writes'
 );
 
 select ok(
-  pg_catalog.pg_get_functiondef(
-    (select automatic_wrapper from ovd314_test_constants)
-  ) like '%automatic_quote_disabled%manual quote%',
+  (select automatic_wrapper_definition from ovd314_test_constants)
+    like '%automatic_quote_disabled%manual quote%',
   'the disabled Pro result has a stable reason code and manual fallback'
 );
 
