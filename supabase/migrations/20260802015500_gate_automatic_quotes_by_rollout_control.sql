@@ -54,6 +54,8 @@ as $$
 declare
   v_job public.jobs%rowtype;
   v_entitlements jsonb;
+  v_quote_mode_key constant text := 'quoteMode';
+  v_automatic_quote_mode constant text := 'automatic';
 begin
   perform public.require_verified_auth();
 
@@ -91,7 +93,7 @@ begin
       'reasonCode', 'pro_required',
       'reason', 'Automatic quote collection requires a Pro account.',
       'requestedVendors', pg_catalog.jsonb_build_array(),
-      'quoteMode', 'automatic'
+      v_quote_mode_key, v_automatic_quote_mode
     );
   end if;
 
@@ -108,7 +110,7 @@ begin
       'reasonCode', 'automatic_quote_disabled',
       'reason', 'Automatic quote collection is temporarily unavailable. You can still request a manual quote.',
       'requestedVendors', pg_catalog.jsonb_build_array(),
-      'quoteMode', 'automatic'
+      v_quote_mode_key, v_automatic_quote_mode
     );
   end if;
 
@@ -116,8 +118,8 @@ begin
     p_job_id,
     p_force_retry
   ) || pg_catalog.jsonb_build_object(
-    'quoteMode',
-    'automatic'
+    v_quote_mode_key,
+    v_automatic_quote_mode
   );
 end;
 $$;

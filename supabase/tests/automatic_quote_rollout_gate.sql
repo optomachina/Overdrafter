@@ -5,6 +5,7 @@ select plan(8);
 create temporary table ovd314_test_constants (
   automatic_wrapper regprocedure not null,
   rollout_guard regprocedure not null,
+  rollout_guard_definition_needle text not null,
   authenticated_role text not null,
   anonymous_role text not null,
   service_role_name text not null,
@@ -13,6 +14,7 @@ create temporary table ovd314_test_constants (
 
 insert into ovd314_test_constants values (
   'public.api_request_quote(uuid,boolean)',
+  'private.automatic_quote_rollout_enabled_with_lock()',
   'private.automatic_quote_rollout_enabled_with_lock()',
   'authenticated',
   'anon',
@@ -106,7 +108,7 @@ select ok(
     pg_catalog.pg_get_functiondef(
       (select automatic_wrapper from ovd314_test_constants)
     ),
-    'private.automatic_quote_rollout_enabled_with_lock()'
+    (select rollout_guard_definition_needle from ovd314_test_constants)
   ),
   'the Pro entitlement decision precedes rollout inspection'
 );
@@ -116,7 +118,7 @@ select ok(
     pg_catalog.pg_get_functiondef(
       (select automatic_wrapper from ovd314_test_constants)
     ),
-    'private.automatic_quote_rollout_enabled_with_lock()'
+    (select rollout_guard_definition_needle from ovd314_test_constants)
   ) < pg_catalog.strpos(
     pg_catalog.pg_get_functiondef(
       (select automatic_wrapper from ovd314_test_constants)

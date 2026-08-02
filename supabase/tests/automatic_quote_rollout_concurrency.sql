@@ -7,11 +7,15 @@ create extension if not exists dblink with schema extensions;
 select plan(2);
 
 create temporary table ovd314_concurrency_constants (
-  rollout_capability text not null
+  rollout_capability text not null,
+  request_connection text not null,
+  disable_connection text not null
 ) on commit preserve rows;
 
 insert into ovd314_concurrency_constants values (
-  'automatic_quote_collection'
+  'automatic_quote_collection',
+  'ovd314_request',
+  'ovd314_disable'
 );
 
 do $$
@@ -52,17 +56,20 @@ select public.api_set_commercial_rollout_control(
 );
 
 select extensions.dblink_connect(
-  'ovd314_request',
+  (select request_connection from ovd314_concurrency_constants),
   'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'
 );
 select extensions.dblink_connect(
-  'ovd314_disable',
+  (select disable_connection from ovd314_concurrency_constants),
   'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'
 );
 
-select extensions.dblink_exec('ovd314_request', 'begin');
 select extensions.dblink_exec(
-  'ovd314_request',
+  (select request_connection from ovd314_concurrency_constants),
+  'begin'
+);
+select extensions.dblink_exec(
+  (select request_connection from ovd314_concurrency_constants),
   $query$
     do $remote$
     begin
@@ -73,7 +80,7 @@ select extensions.dblink_exec(
 );
 
 select extensions.dblink_send_query(
-  'ovd314_disable',
+  (select disable_connection from ovd314_concurrency_constants),
   pg_catalog.format(
     $query$
       select public.api_set_commercial_rollout_control(
@@ -95,12 +102,17 @@ select extensions.dblink_send_query(
 select pg_catalog.pg_sleep(0.1);
 
 select is(
-  extensions.dblink_is_busy('ovd314_disable'),
+  extensions.dblink_is_busy(
+    (select disable_connection from ovd314_concurrency_constants)
+  ),
   1,
   'audited disablement waits for the in-flight automatic request transaction'
 );
 
-select extensions.dblink_exec('ovd314_request', 'commit');
+select extensions.dblink_exec(
+  (select request_connection from ovd314_concurrency_constants),
+  'commit'
+);
 
 create temporary table ovd314_disable_result (
   result jsonb not null
@@ -108,9 +120,13 @@ create temporary table ovd314_disable_result (
 
 insert into ovd314_disable_result
 select result
-from extensions.dblink_get_result('ovd314_disable') as response(result jsonb);
+from extensions.dblink_get_result(
+  (select disable_connection from ovd314_concurrency_constants)
+) as response(result jsonb);
 select *
-from extensions.dblink_get_result('ovd314_disable') as response(result jsonb);
+from extensions.dblink_get_result(
+  (select disable_connection from ovd314_concurrency_constants)
+) as response(result jsonb);
 
 select is(
   (
@@ -124,8 +140,12 @@ select is(
   'disablement commits immediately after the in-flight request finishes'
 );
 
-select extensions.dblink_disconnect('ovd314_request');
-select extensions.dblink_disconnect('ovd314_disable');
+select extensions.dblink_disconnect(
+  (select request_connection from ovd314_concurrency_constants)
+);
+select extensions.dblink_disconnect(
+  (select disable_connection from ovd314_concurrency_constants)
+);
 
 begin;
 
