@@ -5,6 +5,10 @@ sourcing. All database controls are default-off and may be changed only through
 the service-role API. Every operator action requires identity, reason, expected
 revision, and idempotency evidence and appends an immutable audit event.
 
+Use the [Commercial Account Administration Guide](./commercial-account-administration.md)
+for the day-to-day browser workflow after an operator has been provisioned and
+the relevant controls have been enabled.
+
 The registry alone does not gate product behavior. The OVD-315 enforcement
 migrations guard entitlement administration, and the OVD-314 enforcement
 migration guards automatic quote collection separately. Keep every control off
@@ -22,6 +26,73 @@ until its matching enforcement migration and verification are deployed.
 Hosted Checkout and Billing Portal use the independent server-only
 `BILLING_SELF_SERVICE_ENABLED` Edge Function secret. Do not add a duplicate
 database control for billing self-service.
+
+## Provision billing administrators
+
+Commercial-account access is a server-provisioned capability, not an
+organization role. Being a platform viewer or an organization administrator
+does not imply `billing_admin` access. Provisioning and revocation must run
+through a trusted service-role or database-operator connection. Never expose
+these writes through browser code.
+
+First resolve and independently verify the intended auth user ID. Do not grant
+access from an unverified email copied from a support request.
+
+```sql
+select id, email, created_at
+from auth.users
+where lower(email) = lower('operator@example.com');
+```
+
+Inspect existing assignments for that user before inserting. An expired row
+with no `revoked_at` value still occupies the one-active-assignment slot; revoke
+that historical assignment in place before creating a replacement.
+
+Create one reasoned assignment. Use an expiration for temporary operator
+access. `granted_by_user_id` may be `null` only for a documented bootstrap
+operation that has no authenticated granting user.
+
+```sql
+insert into private.platform_admin_capabilities (
+  user_id,
+  capability,
+  granted_by_user_id,
+  grant_reason,
+  expires_at
+)
+values (
+  'operator-auth-user-id',
+  'billing_admin',
+  'granting-auth-user-id',
+  'Commercial account administration for approved operations rotation',
+  '2026-09-01T00:00:00Z'
+)
+returning id, user_id, capability, expires_at, created_at;
+```
+
+Verify the operator can open `/internal/commercial`, then verify an AAL2
+authenticator session before enabling mutation access. The application must
+still reject organization administrators, platform viewers, expired grants,
+and revoked grants that lack the capability.
+
+Revoke an assignment in place with an actor and reason. Never delete capability
+history or reuse an old row for a different person or capability.
+
+```sql
+update private.platform_admin_capabilities
+set
+  revoked_at = timezone('utc', now()),
+  revoked_by_user_id = 'revoking-auth-user-id',
+  revocation_reason = 'Operator rotated out of commercial administration'
+where id = 'capability-assignment-id'
+  and revoked_at is null
+returning id, user_id, capability, revoked_at, revocation_reason;
+```
+
+Capability assignment does not enable customer-access mutations by itself.
+The independent `commercial_admin_mutations` control must also be on, and each
+grant or revocation still requires AAL2, a reason, idempotency, and an appended
+commercial audit event.
 
 ## Inspect state
 
