@@ -112,15 +112,16 @@ event table and `private.reject_commercial_rollout_control_event_mutation`;
 and finally drop the control table. Removing enforcement while a control is off
 would re-enable the pre-control behavior.
 
-Rolling back the OVD-315 linearization migration first restores the complete
-wrapper definitions from `20260802011500_gate_entitlement_admin_mutations.sql`
-and reintroduces the check/write race. Rolling back the underlying OVD-315
-schema wrapper must still preserve every entitlement grant and
-`commercial_admin_audit_events` row. Restore the private unguarded grant/revoke
-implementations to their original public names and authenticated EXECUTE grants
-only in a reviewed forward migration. Never use either schema rollback to
-contain an incident; turning `commercial_admin_mutations` off is the safe
-operational rollback.
+Rolling back the OVD-315 linearization migration first restores
+`private.require_commercial_admin_mutation` from the review-hardening migration
+without its shared transaction lock and reintroduces the check/write race.
+Rolling back the underlying OVD-315 schema wrapper must still preserve every
+entitlement grant and `commercial_admin_audit_events` row. Restore the private
+unguarded grant/revoke implementations to their original public names and
+authenticated EXECUTE grants, then drop
+`private.require_commercial_admin_mutation`, only in a reviewed forward
+migration. Never use either schema rollback to contain an incident; turning
+`commercial_admin_mutations` off is the safe operational rollback.
 
 ## Monitoring and reminders
 
