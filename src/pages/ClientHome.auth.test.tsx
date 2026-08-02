@@ -13,7 +13,7 @@ import {
 import { getSupabaseAuthStorageKey } from "@/hooks/use-app-session";
 import ClientHome from "./ClientHome";
 
-const guestLandingHeading = /parts in\.\s*comparable quotes out\./i;
+const guestLandingHeading = /parts in\.\s*clear sourcing paths out\./i;
 
 const fetchAppSessionDataMock = vi.fn<() => Promise<AppSessionData>>();
 const requestPasswordResetMock = vi.fn();

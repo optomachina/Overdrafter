@@ -7,9 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobRecord } from "@/features/quotes/types";
 import Index from "./Index";
 
-const guestLandingHeading = /parts in\.\s*comparable quotes out\./i;
+const guestLandingHeading = /parts in\.\s*clear sourcing paths out\./i;
 const guestLandingBody =
-  /keep part files, supplier responses, and manufacturing decisions in one traceable workspace/i;
+  /upload a STEP model and PDF drawing\. Free gives you ranked potential providers and official RFQ links/i;
 
 const mockUseAppSession = vi.fn();
 const mockFetchCommercialAdminAccess = vi.hoisted(() => vi.fn());
@@ -167,7 +167,7 @@ describe("Index client home", () => {
     expect(screen.getByRole("button", { name: /upload a part package/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
     expect(screen.getByText(guestLandingBody)).toBeInTheDocument();
-    expect(screen.getByText(/example quote workspace/i)).toBeInTheDocument();
+    expect(screen.getByText(/illustrative pro workspace/i)).toBeInTheDocument();
   });
 
   it("routes an established client workspace to the parts collection", async () => {
