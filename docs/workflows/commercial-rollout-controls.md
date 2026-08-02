@@ -5,16 +5,16 @@ sourcing. All database controls are default-off and may be changed only through
 the service-role API. Every operator action requires identity, reason, expected
 revision, and idempotency evidence and appends an immutable audit event.
 
-The registry alone does not gate product behavior. OVD-315 adds entitlement
-administration enforcement and OVD-314 adds automatic-quote enforcement. Keep
-every control off until its matching enforcement migration and verification are
-deployed.
+The registry alone does not gate product behavior. The OVD-315 enforcement
+migration guards entitlement administration, and OVD-314 adds automatic-quote
+enforcement separately. Keep every control off until its matching enforcement
+migration and verification are deployed.
 
 ## Controls
 
 | Capability | Effect when off | Safe customer behavior |
 | --- | --- | --- |
-| `commercial_admin_mutations` | OVD-315 blocks trial/complimentary grant and revocation writes. | Existing entitlements continue to resolve from preserved history. |
+| `commercial_admin_mutations` | Blocks trial/complimentary grant and revocation writes at the audited admin RPC boundary. | Existing entitlements continue to resolve from preserved history, and organization deletion cascades remain available. |
 | `automatic_quote_collection` | OVD-314 stops Pro automatic requests before vendor resolution or lifecycle writes. | Free still receives the Pro upgrade prompt; manual quotes and provider recommendations remain available. |
 | `promotion_codes` | Reserved for the promotion-code implementation. | No subscription or manufacturing-order discount is applied. |
 | `order_administration` | Reserved for the visibility-only order ledger. | Existing customer/project access is unchanged. |
@@ -70,8 +70,8 @@ that has never changed.
    broad linked `supabase db push` while migration history remains divergent.
 2. Confirm all four database controls are off and
    `BILLING_SELF_SERVICE_ENABLED=false`.
-3. Deploy OVD-315 and OVD-314 enforcement before relying on their control
-   values as a product safety boundary.
+3. Confirm the OVD-315 and OVD-314 enforcement migrations are deployed before
+   relying on their control values as product safety boundaries.
 4. Exercise Free manual quote and Pro disabled-automatic paths. Neither may
    create vendor jobs or automatic quote lifecycle rows.
 5. Enable `commercial_admin_mutations` for internal audited administration.
@@ -109,6 +109,13 @@ revoke and drop `api_set_commercial_rollout_control`,
 event table and `private.reject_commercial_rollout_control_event_mutation`;
 and finally drop the control table. Removing enforcement while a control is off
 would re-enable the pre-control behavior.
+
+Rolling back only the OVD-315 schema wrapper must preserve every entitlement
+grant and `commercial_admin_audit_events` row. Restore the private unguarded
+grant/revoke implementations to their original public names and authenticated
+EXECUTE grants only in a reviewed forward migration. Never use that schema
+rollback to contain an incident; turning `commercial_admin_mutations` off is
+the safe operational rollback.
 
 ## Monitoring and reminders
 

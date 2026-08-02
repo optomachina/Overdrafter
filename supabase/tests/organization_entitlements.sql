@@ -1,6 +1,6 @@
 begin;
 
-select plan(35);
+select plan(42);
 
 create temporary table ovd229_context (
   organization_id uuid not null,
@@ -240,6 +240,56 @@ select public.ovd229_test_set_claims(
 
 select throws_ok(
   format(
+    'select public.api_admin_grant_organization_entitlement(%L,%L,%L,%L,null,%L,%L)',
+    (select organization_id from ovd229_context),
+    'trial',
+    '2026-07-01T00:00:00Z',
+    '2026-09-01T00:00:00Z',
+    'Default-off grant must fail closed',
+    'rollout-disabled-grant'
+  ),
+  'P0001',
+  'Commercial admin mutations are temporarily disabled.',
+  'billing-admin grants fail closed while rollout is disabled'
+);
+
+reset role;
+
+select ok(
+  not exists (
+    select 1
+    from private.organization_entitlement_grants
+    where organization_id = (select organization_id from ovd229_context)
+  )
+  and not exists (
+    select 1
+    from public.commercial_admin_audit_events
+    where idempotency_key = 'rollout-disabled-grant'
+  ),
+  'a disabled grant creates no entitlement or commercial audit row'
+);
+
+do $$
+begin
+  perform public.api_set_commercial_rollout_control(
+    'commercial_admin_mutations',
+    true,
+    'Enable entitlement administration contract tests',
+    'ovd315-test-runner',
+    0,
+    'ovd315-enable-admin'
+  );
+end;
+$$;
+
+set local role authenticated;
+select public.ovd229_test_set_claims(
+  (select billing_admin_user_id from ovd229_context),
+  'aal2'
+);
+
+select throws_ok(
+  format(
     'select public.api_admin_grant_organization_entitlement(%L,%L,%L,null,%L,%L,%L)',
     (select organization_id from ovd229_context),
     'trial',
@@ -406,6 +456,74 @@ select is(
   'manual_trial',
   'an active manual grant takes precedence over a subscription'
 );
+
+do $$
+begin
+  perform public.api_set_commercial_rollout_control(
+    'commercial_admin_mutations',
+    false,
+    'Verify default-off revocation behavior',
+    'ovd315-test-runner',
+    1,
+    'ovd315-disable-revoke'
+  );
+end;
+$$;
+
+set local role authenticated;
+select public.ovd229_test_set_claims(
+  (select billing_admin_user_id from ovd229_context),
+  'aal2'
+);
+
+select throws_ok(
+  format(
+    'select public.api_admin_revoke_organization_entitlement(%L,%L,%L)',
+    (
+      select target_id::uuid
+      from public.commercial_admin_audit_events
+      where idempotency_key = 'trial-success'
+    ),
+    'Default-off revoke must fail closed',
+    'rollout-disabled-revoke'
+  ),
+  'P0001',
+  'Commercial admin mutations are temporarily disabled.',
+  'billing-admin revocations fail closed while rollout is disabled'
+);
+
+reset role;
+
+select ok(
+  (
+    select revoked_at is null
+    from private.organization_entitlement_grants
+    where id = (
+      select target_id::uuid
+      from public.commercial_admin_audit_events
+      where idempotency_key = 'trial-success'
+    )
+  )
+  and not exists (
+    select 1
+    from public.commercial_admin_audit_events
+    where idempotency_key = 'rollout-disabled-revoke'
+  ),
+  'a disabled revocation changes no grant and creates no audit row'
+);
+
+do $$
+begin
+  perform public.api_set_commercial_rollout_control(
+    'commercial_admin_mutations',
+    true,
+    'Re-enable entitlement administration contract tests',
+    'ovd315-test-runner',
+    2,
+    'ovd315-reenable-admin'
+  );
+end;
+$$;
 
 set local role authenticated;
 select public.ovd229_test_set_claims(
@@ -593,6 +711,97 @@ select ok(
       and revoked_at is null
   ),
   'only one current grant per organization and type remains unrevoked'
+);
+
+do $$
+begin
+  perform public.api_set_commercial_rollout_control(
+    'commercial_admin_mutations',
+    false,
+    'Verify reads and cleanup while administration is disabled',
+    'ovd315-test-runner',
+    3,
+    'ovd315-disable-final'
+  );
+end;
+$$;
+
+set local role authenticated;
+select public.ovd229_test_set_claims(
+  (select billing_admin_user_id from ovd229_context),
+  'aal2'
+);
+
+select is(
+  public.api_admin_get_organization_entitlement_state(
+    (select organization_id from ovd229_context)
+  ) -> 'effective' ->> 'source',
+  'manual_complimentary',
+  'entitlement state reads remain available while admin mutations are disabled'
+);
+
+reset role;
+
+insert into public.organizations (id, name, slug)
+values (
+  '00000000-0000-4000-8000-000000002290',
+  'OVD 315 Cascade',
+  'ovd-315-cascade'
+);
+
+insert into private.organization_entitlement_grants (
+  id,
+  organization_id,
+  grant_type,
+  starts_at,
+  expires_at,
+  grant_reason,
+  granted_by_user_id
+)
+values (
+  '00000000-0000-4000-8000-000000002289',
+  '00000000-0000-4000-8000-000000002290',
+  'trial',
+  '2026-08-01T00:00:00Z',
+  '2026-08-02T00:00:00Z',
+  'OVD-315 cascade verification',
+  (select billing_admin_user_id from ovd229_context)
+);
+
+delete from public.organizations
+where id = '00000000-0000-4000-8000-000000002290';
+
+select ok(
+  not exists (
+    select 1
+    from private.organization_entitlement_grants
+    where id = '00000000-0000-4000-8000-000000002289'
+  ),
+  'organization deletion still cascades grant cleanup while mutations are disabled'
+);
+
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'private.api_admin_grant_organization_entitlement_unguarded(uuid,text,timestamp with time zone,timestamp with time zone,timestamp with time zone,text,text)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'private.api_admin_grant_organization_entitlement_unguarded(uuid,text,timestamp with time zone,timestamp with time zone,timestamp with time zone,text,text)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'private.api_admin_revoke_organization_entitlement_unguarded(uuid,text,text)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'private.api_admin_revoke_organization_entitlement_unguarded(uuid,text,text)',
+    'EXECUTE'
+  ),
+  'application roles cannot bypass the public rollout-enforced wrappers'
 );
 
 set local role authenticated;

@@ -56,6 +56,15 @@ where id = '00000000-0000-4000-8000-000000002297';
 delete from auth.users
 where id = '00000000-0000-4000-8000-000000002298';
 
+update private.commercial_rollout_controls
+set
+  enabled = true,
+  revision = 1,
+  change_reason = 'Enable OVD-315 disposable concurrency verification',
+  updated_at = pg_catalog.now(),
+  updated_by_actor = 'ovd315-concurrency-test'
+where capability = 'commercial_admin_mutations';
+
 drop function if exists public.ovd229_concurrent_revoke(uuid, text);
 drop function if exists public.ovd229_concurrent_grant(text);
 
@@ -347,6 +356,16 @@ delete from public.organizations
 where id = '00000000-0000-4000-8000-000000002297';
 delete from auth.users
 where id = '00000000-0000-4000-8000-000000002298';
+
+update private.commercial_rollout_controls
+set
+  enabled = false,
+  revision = 0,
+  change_reason = 'Default-off commercial operations rollout',
+  updated_at = pg_catalog.now(),
+  updated_by_user_id = null,
+  updated_by_actor = null
+where capability = 'commercial_admin_mutations';
 
 commit;
 
