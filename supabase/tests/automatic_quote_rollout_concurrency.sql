@@ -22,6 +22,35 @@ insert into ovd314_concurrency_constants values (
   null
 );
 
+create function pg_temp.ovd314_disable_waiting_on_request()
+returns boolean
+language sql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+  select exists (
+    select 1
+    from pg_catalog.pg_locks waiting_lock
+    join pg_catalog.pg_locks held_lock
+      on held_lock.locktype = waiting_lock.locktype
+     and held_lock.database is not distinct from waiting_lock.database
+     and held_lock.classid is not distinct from waiting_lock.classid
+     and held_lock.objid is not distinct from waiting_lock.objid
+     and held_lock.objsubid is not distinct from waiting_lock.objsubid
+    where waiting_lock.pid = (
+      select disable_backend_pid
+      from pg_temp.ovd314_concurrency_constants
+    )
+      and held_lock.pid = (
+        select request_backend_pid
+        from pg_temp.ovd314_concurrency_constants
+      )
+      and waiting_lock.locktype = 'advisory'
+      and not waiting_lock.granted
+      and held_lock.granted
+  );
+$$;
+
 do $$
 begin
   if current_database() <> 'postgres'
@@ -125,27 +154,7 @@ declare
   v_attempt integer;
 begin
   for v_attempt in 1..100 loop
-    exit when exists (
-      select 1
-      from pg_catalog.pg_locks waiting_lock
-      join pg_catalog.pg_locks held_lock
-        on held_lock.locktype = waiting_lock.locktype
-       and held_lock.database is not distinct from waiting_lock.database
-       and held_lock.classid is not distinct from waiting_lock.classid
-       and held_lock.objid is not distinct from waiting_lock.objid
-       and held_lock.objsubid is not distinct from waiting_lock.objsubid
-      where waiting_lock.pid = (
-        select disable_backend_pid
-        from ovd314_concurrency_constants
-      )
-        and held_lock.pid = (
-          select request_backend_pid
-          from ovd314_concurrency_constants
-        )
-        and waiting_lock.locktype = 'advisory'
-        and not waiting_lock.granted
-        and held_lock.granted
-    );
+    exit when pg_temp.ovd314_disable_waiting_on_request();
 
     perform pg_catalog.pg_sleep(0.01);
   end loop;
@@ -153,27 +162,7 @@ end;
 $$;
 
 select ok(
-  exists (
-    select 1
-    from pg_catalog.pg_locks waiting_lock
-    join pg_catalog.pg_locks held_lock
-      on held_lock.locktype = waiting_lock.locktype
-     and held_lock.database is not distinct from waiting_lock.database
-     and held_lock.classid is not distinct from waiting_lock.classid
-     and held_lock.objid is not distinct from waiting_lock.objid
-     and held_lock.objsubid is not distinct from waiting_lock.objsubid
-    where waiting_lock.pid = (
-      select disable_backend_pid
-      from ovd314_concurrency_constants
-    )
-      and held_lock.pid = (
-        select request_backend_pid
-        from ovd314_concurrency_constants
-      )
-      and waiting_lock.locktype = 'advisory'
-      and not waiting_lock.granted
-      and held_lock.granted
-  ),
+  pg_temp.ovd314_disable_waiting_on_request(),
   'audited disablement waits on the in-flight request advisory lock'
 );
 
