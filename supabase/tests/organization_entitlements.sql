@@ -20,6 +20,30 @@ insert into ovd229_context values (
   '00000000-0000-4000-8000-000000002296'
 );
 
+create temporary table ovd315_test_constants (
+  rollout_capability text not null,
+  rollout_actor text not null,
+  expected_manual_source text not null,
+  cascade_organization_id uuid not null,
+  cascade_grant_id uuid not null,
+  unguarded_grant_function regprocedure not null,
+  unguarded_revoke_function regprocedure not null,
+  mutation_guard_function regprocedure not null
+) on commit drop;
+
+insert into ovd315_test_constants values (
+  'commercial_admin_mutations',
+  'ovd315-test-runner',
+  'manual_complimentary',
+  '00000000-0000-4000-8000-000000002290',
+  '00000000-0000-4000-8000-000000002289',
+  'private.api_admin_grant_organization_entitlement_unguarded(uuid,text,timestamp with time zone,timestamp with time zone,timestamp with time zone,text,text)',
+  'private.api_admin_revoke_organization_entitlement_unguarded(uuid,text,text)',
+  'private.require_commercial_admin_mutation(text)'
+);
+
+grant select on ovd315_test_constants to authenticated;
+
 grant select on ovd229_context to authenticated;
 
 create function public.ovd229_test_set_claims(
@@ -272,10 +296,10 @@ select ok(
 do $$
 begin
   perform public.api_set_commercial_rollout_control(
-    'commercial_admin_mutations',
+    (select rollout_capability from ovd315_test_constants),
     true,
     'Enable entitlement administration contract tests',
-    'ovd315-test-runner',
+    (select rollout_actor from ovd315_test_constants),
     0,
     'ovd315-enable-admin'
   );
@@ -460,10 +484,10 @@ select is(
 do $$
 begin
   perform public.api_set_commercial_rollout_control(
-    'commercial_admin_mutations',
+    (select rollout_capability from ovd315_test_constants),
     false,
     'Verify default-off revocation behavior',
-    'ovd315-test-runner',
+    (select rollout_actor from ovd315_test_constants),
     1,
     'ovd315-disable-revoke'
   );
@@ -515,10 +539,10 @@ select ok(
 do $$
 begin
   perform public.api_set_commercial_rollout_control(
-    'commercial_admin_mutations',
+    (select rollout_capability from ovd315_test_constants),
     true,
     'Re-enable entitlement administration contract tests',
-    'ovd315-test-runner',
+    (select rollout_actor from ovd315_test_constants),
     2,
     'ovd315-reenable-admin'
   );
@@ -688,7 +712,7 @@ select is(
   public.api_admin_get_organization_entitlement_state(
     (select organization_id from ovd229_context)
   ) -> 'effective' ->> 'source',
-  'manual_complimentary',
+  (select expected_manual_source from ovd315_test_constants),
   'complimentary grants have deterministic display precedence over trials'
 );
 
@@ -696,7 +720,7 @@ select is(
   public.api_admin_get_organization_entitlement_state(
     (select organization_id from ovd229_context)
   ) -> 'effective' ->> 'source',
-  'manual_complimentary',
+  (select expected_manual_source from ovd315_test_constants),
   'billing admins can read effective state and grant history at AAL2'
 );
 
@@ -716,10 +740,10 @@ select ok(
 do $$
 begin
   perform public.api_set_commercial_rollout_control(
-    'commercial_admin_mutations',
+    (select rollout_capability from ovd315_test_constants),
     false,
     'Verify reads and cleanup while administration is disabled',
-    'ovd315-test-runner',
+    (select rollout_actor from ovd315_test_constants),
     3,
     'ovd315-disable-final'
   );
@@ -736,7 +760,7 @@ select is(
   public.api_admin_get_organization_entitlement_state(
     (select organization_id from ovd229_context)
   ) -> 'effective' ->> 'source',
-  'manual_complimentary',
+  (select expected_manual_source from ovd315_test_constants),
   'entitlement state reads remain available while admin mutations are disabled'
 );
 
@@ -744,7 +768,7 @@ reset role;
 
 insert into public.organizations (id, name, slug)
 values (
-  '00000000-0000-4000-8000-000000002290',
+  (select cascade_organization_id from ovd315_test_constants),
   'OVD 315 Cascade',
   'ovd-315-cascade'
 );
@@ -759,8 +783,8 @@ insert into private.organization_entitlement_grants (
   granted_by_user_id
 )
 values (
-  '00000000-0000-4000-8000-000000002289',
-  '00000000-0000-4000-8000-000000002290',
+  (select cascade_grant_id from ovd315_test_constants),
+  (select cascade_organization_id from ovd315_test_constants),
   'trial',
   '2026-08-01T00:00:00Z',
   '2026-08-02T00:00:00Z',
@@ -769,39 +793,62 @@ values (
 );
 
 delete from public.organizations
-where id = '00000000-0000-4000-8000-000000002290';
+where id = (select cascade_organization_id from ovd315_test_constants);
 
 select ok(
   not exists (
     select 1
     from private.organization_entitlement_grants
-    where id = '00000000-0000-4000-8000-000000002289'
+    where id = (select cascade_grant_id from ovd315_test_constants)
   ),
   'organization deletion still cascades grant cleanup while mutations are disabled'
 );
 
 select ok(
-  not has_function_privilege(
-    'authenticated',
-    'private.api_admin_grant_organization_entitlement_unguarded(uuid,text,timestamp with time zone,timestamp with time zone,timestamp with time zone,text,text)',
-    'EXECUTE'
+  not exists (
+    select 1
+    from (
+      values ('anon'), ('authenticated'), ('service_role')
+    ) as application_role(role_name)
+    cross join lateral (
+      select unguarded_grant_function::oid as function_oid
+      from ovd315_test_constants
+      union all
+      select unguarded_revoke_function::oid
+      from ovd315_test_constants
+      union all
+      select mutation_guard_function::oid
+      from ovd315_test_constants
+    ) as guarded_function
+    where has_function_privilege(
+      application_role.role_name,
+      guarded_function.function_oid,
+      'EXECUTE'
+    )
   )
-  and not has_function_privilege(
-    'service_role',
-    'private.api_admin_grant_organization_entitlement_unguarded(uuid,text,timestamp with time zone,timestamp with time zone,timestamp with time zone,text,text)',
-    'EXECUTE'
-  )
-  and not has_function_privilege(
-    'authenticated',
-    'private.api_admin_revoke_organization_entitlement_unguarded(uuid,text,text)',
-    'EXECUTE'
-  )
-  and not has_function_privilege(
-    'service_role',
-    'private.api_admin_revoke_organization_entitlement_unguarded(uuid,text,text)',
-    'EXECUTE'
+  and not exists (
+    select 1
+    from pg_catalog.pg_proc function_row
+    cross join lateral pg_catalog.aclexplode(
+      coalesce(
+        function_row.proacl,
+        pg_catalog.acldefault('f', function_row.proowner)
+      )
+    ) function_acl
+    where function_row.oid in (
+      select unguarded_grant_function::oid
+      from ovd315_test_constants
+      union all
+      select unguarded_revoke_function::oid
+      from ovd315_test_constants
+      union all
+      select mutation_guard_function::oid
+      from ovd315_test_constants
+    )
+      and function_acl.grantee = 0
+      and function_acl.privilege_type = 'EXECUTE'
   ),
-  'application roles cannot bypass the public rollout-enforced wrappers'
+  'anon, authenticated, service role, and PUBLIC cannot bypass enforced wrappers'
 );
 
 set local role authenticated;
