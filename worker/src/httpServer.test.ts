@@ -106,6 +106,15 @@ describe("startHealthServer", () => {
       ]),
     );
 
+    const cloudRunHealthResponse = await fetch(`${server.url}/health`);
+    const cloudRunHealthPayload = await cloudRunHealthResponse.json();
+    expect(cloudRunHealthResponse.status).toBe(200);
+    expect(cloudRunHealthPayload).toMatchObject({
+      workerBuildVersion: "build-test",
+      status: "running",
+      ready: true,
+    });
+
     const debugResponse = await fetch(`${server.url}/debug/events`);
     const debugPayload = await debugResponse.json();
     expect(debugResponse.status).toBe(200);
