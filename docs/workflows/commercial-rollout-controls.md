@@ -6,16 +6,16 @@ the service-role API. Every operator action requires identity, reason, expected
 revision, and idempotency evidence and appends an immutable audit event.
 
 The registry alone does not gate product behavior. The OVD-315 enforcement
-migration guards entitlement administration, and OVD-314 adds automatic-quote
-enforcement separately. Keep every control off until its matching enforcement
-migration and verification are deployed.
+migrations guard entitlement administration, and the OVD-314 enforcement
+migration guards automatic quote collection separately. Keep every control off
+until its matching enforcement migration and verification are deployed.
 
 ## Controls
 
 | Capability | Effect when off | Safe customer behavior |
 | --- | --- | --- |
 | `commercial_admin_mutations` | Blocks trial/complimentary grant and revocation writes at the audited admin RPC boundary. | Existing entitlements continue to resolve from preserved history, and organization deletion cascades remain available. |
-| `automatic_quote_collection` | OVD-314 stops Pro automatic requests before vendor resolution or lifecycle writes. | Free still receives the Pro upgrade prompt; manual quotes and provider recommendations remain available. |
+| `automatic_quote_collection` | Stops eligible Pro automatic requests before vendor resolution or lifecycle writes. | Free still receives the Pro upgrade response; Pro receives `automatic_quote_disabled`; manual quotes and provider recommendations remain available. |
 | `promotion_codes` | Reserved for the promotion-code implementation. | No subscription or manufacturing-order discount is applied. |
 | `order_administration` | Reserved for the visibility-only order ledger. | Existing customer/project access is unchanged. |
 
@@ -84,8 +84,10 @@ that has never changed.
 
 ## Rollback
 
-- Automatic quote incident: turn `automatic_quote_collection` off. Manual
-  quotes, uploads, and provider recommendations remain available.
+- Automatic quote incident: turn `automatic_quote_collection` off. The change
+  waits for an already-authorized automatic request transaction to finish, then
+  returns the bounded manual fallback for every new Pro request. Manual quotes,
+  uploads, and provider recommendations remain available.
 - Privileged admin incident: turn `commercial_admin_mutations` off. The change
   waits for already-authorized grant/revoke transactions to finish, then blocks
   all new mutation calls, including exact retries, before delegated grant or
@@ -111,6 +113,12 @@ revoke and drop `api_set_commercial_rollout_control`,
 event table and `private.reject_commercial_rollout_control_event_mutation`;
 and finally drop the control table. Removing enforcement while a control is off
 would re-enable the pre-control behavior.
+
+Rolling back OVD-314 restores the entitlement-only wrapper from
+`20260731015240_gate_automatic_quotes_by_entitlement.sql` and drops
+`private.automatic_quote_rollout_enabled_with_lock`. That makes eligible Pro
+requests bypass the rollout registry, so use only a reviewed forward migration;
+turning `automatic_quote_collection` off is the safe operational rollback.
 
 Rolling back the OVD-315 linearization migration first restores
 `private.require_commercial_admin_mutation` from the review-hardening migration
