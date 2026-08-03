@@ -22,7 +22,8 @@ history, not the administrator's manual.
 
 | Operation | Current interface | Required access |
 | --- | --- | --- |
-| Search organizations or member email | `/internal/commercial` | Active `billing_admin` capability; AAL1 or AAL2 |
+| Search organizations by name or slug | `/internal/commercial` | Active `billing_admin` capability; AAL1 or AAL2 |
+| Search organizations by member email | Temporarily withheld because the current route retains the query in its URL | Do not use until the privacy-safe search behavior is deployed |
 | Review effective plan, source, dates, subscription history, members, quote activity, grants, and audit | Commercial account detail | Active `billing_admin` capability; AAL1 or AAL2 |
 | Grant trial or complimentary Pro | Commercial account detail | Active `billing_admin`, AAL2, and enabled `commercial_admin_mutations` control |
 | Revoke one manual Pro grant | Commercial account detail | Active `billing_admin`, AAL2, and enabled `commercial_admin_mutations` control |
@@ -44,7 +45,11 @@ server-only procedures documented in [Commercial Rollout Controls](./commercial-
 
 Account search and read-only detail work at AAL1. Any trial, complimentary, or
 revocation mutation requires AAL2 through a verified authenticator-app code.
-The interface may enroll a TOTP authenticator when the operator has none.
+The operator's factor must have been independently established before the
+`billing_admin` capability is provisioned. If the interface offers TOTP
+enrollment to an AAL1 session, do not use it for commercial access. There is no
+compliant in-product bootstrap path for a new commercial operator yet; stop and
+do not provision or mutate access until the approved security workflow exists.
 
 Every successful manual access change records the signed-in operator, exact
 organization or grant, reason, time, before and after state, and idempotency
@@ -56,7 +61,7 @@ account.
 1. Sign in with the approved operator account.
 2. Open `/internal/commercial`, or choose **Commercial accounts** from the internal workspace sidebar.
 3. If **Not authorized** appears, stop. Ask a service operator to verify the exact auth user ID and active `billing_admin` assignment. Do not work around the capability boundary by adding an organization membership.
-4. Search by organization name, organization slug, or member email. Search is server-side and the URL retains the query.
+4. Search by organization name or organization slug. Do not submit a member email in the current interface because the route retains the query in its browser-visible URL.
 5. Choose **View** or **View account** for the exact organization. Check the organization name, slug, and member list before changing access.
 
 The directory shows the effective Free or Pro plan, its source, validity,
@@ -96,7 +101,7 @@ Use a trial for approved, time-limited evaluation access.
 2. In **Manual Pro access**, choose **Trial**.
 3. Set **Starts** and the required **Trial expiration**. Expiration must be after the start time.
 4. Enter a specific reason that another operator can understand later. Do not include passwords, tokens, payment-card data, or other secrets.
-5. Choose **Grant trial Pro**. If the page shows **Verify with MFA to grant**, complete the authenticator step first.
+5. Choose **Grant trial Pro**. If the page shows **Verify with MFA to grant**, verify with the independently established factor. If the dialog offers factor setup instead, stop without changing access.
 6. Confirm the success message, the effective-access summary, the new grant-history row, and the corresponding commercial-audit event.
 
 Do not represent a trial as paid. Extending access requires another explicit,
@@ -110,7 +115,7 @@ Use complimentary access only for an approved non-paid relationship.
 2. In **Manual Pro access**, choose **Complimentary**.
 3. Set **Starts** and the required **Complimentary review date**. The review date must be after the start time.
 4. Enter the business reason and owner for the next review.
-5. Choose **Grant complimentary Pro**, completing MFA when prompted.
+5. Choose **Grant complimentary Pro**, verifying with the independently established factor when prompted. If the dialog offers factor setup instead, stop.
 6. Confirm the effective-access summary, grant history, and commercial audit.
 
 A review date is not an automatic expiration. The grant remains explicitly
@@ -123,7 +128,7 @@ Revocation removes only the selected manual grant. It does not cancel or alter
 a paid Stripe subscription.
 
 1. In **Grant history**, identify the exact trial or complimentary grant.
-2. Choose **Revoke**. Complete MFA first if the button says **Verify to revoke**.
+2. Choose **Revoke**. Verify with the independently established factor if the button says **Verify to revoke**. If the dialog offers factor setup instead, stop.
 3. Enter a specific revocation reason.
 4. Confirm **Revoke grant**.
 5. Verify the grant is labeled **Revoked**, the effective-access summary is recalculated, and a commercial-audit event is present.
@@ -169,7 +174,7 @@ updated or deleted.
 | What the operator sees | Meaning | Response |
 | --- | --- | --- |
 | **Not authorized** | The signed-in user lacks an active `billing_admin` capability. | Verify the auth user ID, assignment, expiration, and revocation state through the server-only procedure. |
-| **MFA required** | Reads are allowed, but the current session is not AAL2. | Complete or enroll the authenticator-app factor in the step-up dialog, then retry the intended mutation. |
+| **MFA required** | Reads are allowed, but the current session is not AAL2. | Verify the independently established factor. If the dialog offers factor setup or no verified factor exists, stop; do not enroll from the AAL1 commercial session. |
 | Mutation-disabled error | `commercial_admin_mutations` is off or was disabled while the operator was working. | Leave it off until the incident or rollout owner approves enablement. Check the control and latest event; do not bypass it. |
 | Account, audit, or authorization load failure | The guarded API or session could not return current truth. | Use **Retry** once. If it persists, stop changing access and investigate auth, migration, PostgREST, and service health. |
 | Unexpected Free or Pro result | Another grant, subscription, grace period, expiry, or rollout control affects the result. | Reconcile all displayed sources before taking another action. Do not add a compensating grant merely to hide stale state. |
@@ -184,7 +189,7 @@ Before:
 - choose trial or complimentary truthfully;
 - use required expiration or review dates;
 - write a reason without secrets or payment data;
-- confirm MFA and rollout-control readiness.
+- confirm an independently established MFA factor and rollout-control readiness.
 
 After:
 

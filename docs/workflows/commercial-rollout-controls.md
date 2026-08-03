@@ -38,6 +38,15 @@ these writes through browser code.
 First resolve and independently verify the intended auth user ID. Do not grant
 access from an unverified email copied from a support request.
 
+Before inserting the capability, independently confirm the operator's identity
+and ownership of an already verified authenticator factor. The password-only
+browser session that will receive the capability is not sufficient evidence.
+If the operator has no independently established factor, stop; do not use the
+commercial interface's AAL1 enrollment path to bootstrap commercial access.
+No compliant in-product bootstrap path exists yet, so capability provisioning
+is temporarily limited to approved operators whose factor was established and
+verified before this workflow. Do not improvise a replacement procedure.
+
 ```sql
 select id, email, created_at
 from auth.users
