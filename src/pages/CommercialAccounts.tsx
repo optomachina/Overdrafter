@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -36,6 +36,10 @@ import { formatStatusLabel } from "@/features/quotes/utils";
 import { useAppSession } from "@/hooks/use-app-session";
 
 const PAGE_SIZE = 25;
+
+function isSensitiveSearch(value: string): boolean {
+  return value.trim().includes("@");
+}
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -249,8 +253,10 @@ const CommercialAccounts = () => {
     isAuthInitializing,
   } = useAppSession();
   const [searchParams, setSearchParams] = useSearchParams();
-  const search = searchParams.get("q")?.trim() ?? "";
+  const urlSearch = searchParams.get("q")?.trim() ?? "";
+  const [search, setSearch] = useState(urlSearch);
   const [searchInput, setSearchInput] = useState(search);
+  const skipNextEmptyUrlSync = useRef(false);
   const [pagination, setPagination] = useState<{
     search: string;
     cursor: string | null;
@@ -282,8 +288,30 @@ const CommercialAccounts = () => {
   });
 
   useEffect(() => {
-    setSearchInput(search);
-  }, [search]);
+    if (isSensitiveSearch(urlSearch)) {
+      skipNextEmptyUrlSync.current = true;
+      setSearch(urlSearch);
+      setSearchInput(urlSearch);
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          next.delete("q");
+          return next;
+        },
+        { replace: true },
+      );
+      return;
+    }
+
+    if (skipNextEmptyUrlSync.current && !urlSearch) {
+      skipNextEmptyUrlSync.current = false;
+      return;
+    }
+
+    skipNextEmptyUrlSync.current = false;
+    setSearch(urlSearch);
+    setSearchInput(urlSearch);
+  }, [setSearchParams, urlSearch]);
 
   if (isAuthInitializing) {
     return <AuthBootstrapScreen message="Restoring your commercial admin session." />;
@@ -296,7 +324,40 @@ const CommercialAccounts = () => {
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const next = searchInput.trim();
-    setSearchParams(next ? { q: next } : {}, { replace: true });
+    setSearch(next);
+
+    if (isSensitiveSearch(next)) {
+      if (urlSearch) {
+        skipNextEmptyUrlSync.current = true;
+        setSearchParams(
+          (current) => {
+            const scrubbed = new URLSearchParams(current);
+            scrubbed.delete("q");
+            return scrubbed;
+          },
+          { replace: true },
+        );
+      }
+      return;
+    }
+
+    skipNextEmptyUrlSync.current = false;
+    if (next === urlSearch) {
+      return;
+    }
+
+    setSearchParams(
+      (current) => {
+        const updated = new URLSearchParams(current);
+        if (next) {
+          updated.set("q", next);
+        } else {
+          updated.delete("q");
+        }
+        return updated;
+      },
+      { replace: true },
+    );
   };
 
   const renderContent = () => {

@@ -1,6 +1,6 @@
 # Commercial Account Administration Guide
 
-Last reviewed: August 1, 2026
+Last reviewed: August 2, 2026
 
 Audience: provisioned billing administrators and service operators
 
@@ -23,7 +23,7 @@ history, not the administrator's manual.
 | Operation | Current interface | Required access |
 | --- | --- | --- |
 | Search organizations by name or slug | `/internal/commercial` | Active `billing_admin` capability; AAL1 or AAL2 |
-| Search organizations by member email | Temporarily withheld because the current route retains the query in its URL | Do not use until the privacy-safe search behavior is deployed |
+| Search organizations by member email | `/internal/commercial`; email-like searches remain in page memory and are not written to browser history | Active `billing_admin` capability; AAL1 or AAL2 |
 | Review effective plan, source, dates, subscription history, members, quote activity, grants, and audit | Commercial account detail | Active `billing_admin` capability; AAL1 or AAL2 |
 | Grant trial or complimentary Pro | Commercial account detail | Active `billing_admin`, AAL2, and enabled `commercial_admin_mutations` control |
 | Revoke one manual Pro grant | Commercial account detail | Active `billing_admin`, AAL2, and enabled `commercial_admin_mutations` control |
@@ -61,7 +61,7 @@ account.
 1. Sign in with the approved operator account.
 2. Open `/internal/commercial`, or choose **Commercial accounts** from the internal workspace sidebar.
 3. If **Not authorized** appears, stop. Ask a service operator to verify the exact auth user ID and active `billing_admin` assignment. Do not work around the capability boundary by adding an organization membership.
-4. Search by organization name or organization slug. Do not submit a member email in the current interface because the route retains the query in its browser-visible URL.
+4. Search by organization name, organization slug, or member email. Name and slug searches remain in the URL so they can be refreshed or shared. Any trimmed query containing `@` is treated as sensitive: it stays in page memory, is not written to the browser URL or history, and is lost on refresh. If an older link contains an email-like `q` value, the page keeps that search for the current session while replacing the URL with a scrubbed version. Other URL parameters are retained.
 5. Choose **View** or **View account** for the exact organization. Check the organization name, slug, and member list before changing access.
 
 The directory shows the effective Free or Pro plan, its source, validity,
