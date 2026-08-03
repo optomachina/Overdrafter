@@ -85,9 +85,15 @@ set
   revoked_by_user_id = 'revoking-auth-user-id',
   revocation_reason = 'Operator rotated out of commercial administration'
 where id = 'capability-assignment-id'
+  and user_id = 'intended-auth-user-id'
+  and capability = 'billing_admin'
   and revoked_at is null
 returning id, user_id, capability, revoked_at, revocation_reason;
 ```
+
+Treat a zero-row result as an unsuccessful revocation and stop. Re-resolve the
+assignment, intended auth user, and capability before attempting a new action;
+do not weaken the predicates to make an unexpected identifier succeed.
 
 Capability assignment does not enable customer-access mutations by itself.
 The independent `commercial_admin_mutations` control must also be on, and each
