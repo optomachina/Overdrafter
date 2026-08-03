@@ -9,7 +9,7 @@ import {
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { PropsWithChildren } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommercialAccountSearchItem } from "@/features/quotes/api/commercial-account-admin-api";
 
@@ -84,7 +84,27 @@ function deferred<T>() {
   return { promise, reject, resolve };
 }
 
-function renderPage(initialEntry = "/internal/commercial") {
+function RouterHistoryProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  return (
+    <div>
+      <output data-testid="router-search">{location.search}</output>
+      <button type="button" onClick={() => void navigate(-1)}>
+        Browser back
+      </button>
+      <button type="button" onClick={() => void navigate(1)}>
+        Browser forward
+      </button>
+    </div>
+  );
+}
+
+function renderPage(
+  initialEntry = "/internal/commercial",
+  earlierEntries: string[] = [],
+) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -95,7 +115,11 @@ function renderPage(initialEntry = "/internal/commercial") {
 
   const rendered = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[initialEntry]}>
+      <MemoryRouter
+        initialEntries={[...earlierEntries, initialEntry]}
+        initialIndex={earlierEntries.length}
+      >
+        <RouterHistoryProbe />
         <CommercialAccounts />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -229,8 +253,11 @@ describe("CommercialAccounts", () => {
     });
   });
 
-  it("uses the URL query as the server-side account search", async () => {
-    renderPage("/internal/commercial?q=buyer%40atlas.example");
+  it("scrubs a legacy member-email URL while retaining the current search", async () => {
+    renderPage(
+      "/internal/commercial?q=buyer%40atlas.example",
+      ["/internal/commercial?q=atlas"],
+    );
 
     expect(await screen.findByLabelText("Search commercial accounts")).toHaveValue(
       "buyer@atlas.example",
@@ -241,6 +268,62 @@ describe("CommercialAccounts", () => {
         cursor: null,
         limit: 25,
       });
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("router-search")).toBeEmptyDOMElement();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Browser back" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("router-search")).toHaveTextContent("?q=atlas");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Browser forward" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("router-search")).toHaveTextContent("");
+    });
+  });
+
+  it("keeps submitted member-email searches out of the URL", async () => {
+    renderPage();
+
+    const searchInput = await screen.findByRole("textbox", {
+      name: "Search commercial accounts",
+    });
+    fireEvent.change(searchInput, {
+      target: { value: "  buyer@atlas.example  " },
+    });
+    fireEvent.submit(searchInput.closest("form")!);
+
+    await waitFor(() => {
+      expect(mocks.searchAccounts).toHaveBeenCalledWith({
+        search: "buyer@atlas.example",
+        cursor: null,
+        limit: 25,
+      });
+    });
+    expect(screen.getByTestId("router-search")).toBeEmptyDOMElement();
+  });
+
+  it("keeps organization and slug searches URL-backed", async () => {
+    renderPage();
+
+    const searchInput = await screen.findByRole("textbox", {
+      name: "Search commercial accounts",
+    });
+    fireEvent.change(searchInput, {
+      target: { value: "atlas-mfg" },
+    });
+    fireEvent.submit(searchInput.closest("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("router-search")).toHaveTextContent(
+        "?q=atlas-mfg",
+      );
+    });
+    expect(mocks.searchAccounts).toHaveBeenCalledWith({
+      search: "atlas-mfg",
+      cursor: null,
+      limit: 25,
     });
   });
 
