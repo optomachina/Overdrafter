@@ -255,8 +255,8 @@ describe("CommercialAccounts", () => {
 
   it("scrubs a legacy member-email URL while retaining the current search", async () => {
     renderPage(
-      "/internal/commercial?q=buyer%40atlas.example",
-      ["/internal/commercial?q=atlas"],
+      "/internal/commercial?q=buyer%40atlas.example&view=active",
+      ["/internal/commercial?q=atlas&view=active"],
     );
 
     expect(await screen.findByLabelText("Search commercial accounts")).toHaveValue(
@@ -270,21 +270,27 @@ describe("CommercialAccounts", () => {
       });
     });
     await waitFor(() => {
-      expect(screen.getByTestId("router-search")).toBeEmptyDOMElement();
+      expect(screen.getByTestId("router-search")).toHaveTextContent(
+        "?view=active",
+      );
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Browser back" }));
     await waitFor(() => {
-      expect(screen.getByTestId("router-search")).toHaveTextContent("?q=atlas");
+      expect(screen.getByTestId("router-search")).toHaveTextContent(
+        "?q=atlas&view=active",
+      );
     });
     fireEvent.click(screen.getByRole("button", { name: "Browser forward" }));
     await waitFor(() => {
-      expect(screen.getByTestId("router-search")).toHaveTextContent("");
+      expect(screen.getByTestId("router-search")).toHaveTextContent(
+        "?view=active",
+      );
     });
   });
 
   it("keeps submitted member-email searches out of the URL", async () => {
-    renderPage();
+    renderPage("/internal/commercial?view=active");
 
     const searchInput = await screen.findByRole("textbox", {
       name: "Search commercial accounts",
@@ -301,7 +307,9 @@ describe("CommercialAccounts", () => {
         limit: 25,
       });
     });
-    expect(screen.getByTestId("router-search")).toBeEmptyDOMElement();
+    expect(screen.getByTestId("router-search")).toHaveTextContent(
+      "?view=active",
+    );
   });
 
   it("keeps organization and slug searches URL-backed", async () => {
