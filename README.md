@@ -37,6 +37,16 @@ Important specialized planning docs include:
 - `docs/assembly-workspace-foundation.md` for project-scoped assembly workspace planning and backlog placement
 - `docs/DESIGN.md` for the canonical design system (typography, color, layout, anti-slop rules) — read before any UI or visual decision
 
+### Commercial operations documentation
+
+Start with the [Commercial Account Administration Guide](docs/workflows/commercial-account-administration.md)
+for day-to-day account lookup, access review, manual Pro grants, revocation,
+and audit checks. Its linked references keep the detailed rules in one place:
+
+- [Billing Workflow](docs/workflows/billing-workflow.md) defines Stripe synchronization, Checkout, and entitlement behavior.
+- [Commercial Rollout Controls](docs/workflows/commercial-rollout-controls.md) defines capability provisioning, staged enablement, monitoring, and rollback.
+- [Architecture: commercial access and operations](ARCHITECTURE.md#9-commercial-access-and-operations-layer) defines the authorization and data boundaries.
+
 ## Symphony Automation
 
 OverDrafter includes a repo-local Symphony workflow contract in `WORKFLOW.md`, repo-local skills in
