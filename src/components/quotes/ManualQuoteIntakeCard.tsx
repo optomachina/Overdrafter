@@ -534,14 +534,18 @@ export function ManualQuoteIntakeCard({
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label>Quote URL</Label>
+            <Label htmlFor="manual-vendor-quote-url">Vendor quote or purchasing link</Label>
             <Input
+              id="manual-vendor-quote-url"
               className="border-border bg-muted"
               value={quoteUrl}
               disabled={formDisabled}
               onChange={(event) => setQuoteUrl(event.target.value)}
-              placeholder="https://vendor.example/quote/123"
+              placeholder="https://vendor.example/shared-quote/123"
             />
+            <p className="text-xs text-muted-foreground">
+              Supported vendor links are made available to the customer. Prefer the vendor's guest or purchasing link.
+            </p>
           </div>
           <div className="space-y-2">
             <Label>Internal note</Label>

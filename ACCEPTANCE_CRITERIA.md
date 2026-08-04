@@ -151,3 +151,10 @@ This document defines what it means for the current repository-hardening phase t
 - The repo states when worktrees should be used.
 - Branch naming conventions are documented.
 - Nontrivial work is expected to happen in isolated branches or worktrees.
+
+### 10. Vendor purchasing links fail closed
+- Customer quote comparisons expose stored vendor quote links for Xometry, Fictiv, Protolabs, and SendCutSend when
+  the URL uses HTTPS and matches the selected vendor's official domain.
+- Unsupported vendors, simulated URLs, credential-bearing URLs, insecure URLs, and mismatched domains do not render
+  as customer-visible purchasing actions.
+- The interface states that vendor sign-in or a vendor-issued guest link may still be required.

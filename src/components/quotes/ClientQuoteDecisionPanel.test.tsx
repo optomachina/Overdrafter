@@ -132,6 +132,65 @@ describe("ClientQuoteDecisionPanel", () => {
     expect(onSelect).toHaveBeenCalledWith(second);
   });
 
+  it("shows a supported vendor purchasing link without selecting the row", async () => {
+    const onSelect = vi.fn();
+    const option = makeClientQuoteOption({
+      quoteUrl: "https://www.xometry.com/quoting/home/Q-123",
+    });
+
+    render(
+      <ClientQuoteDecisionPanel
+        options={[option]}
+        selectedOption={null}
+        onSelect={onSelect}
+        requestedByDate={null}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    });
+
+    const vendorLink = screen.getByRole("link", { name: "Open from Xometry" });
+    expect(vendorLink).toHaveAttribute("href", option.quoteUrl);
+    expect(vendorLink).toHaveAttribute("target", "_blank");
+    expect(screen.getByText(/vendor sign-in or a vendor-issued guest link may be required/i)).toBeInTheDocument();
+
+    fireEvent.click(vendorLink);
+
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("hides unsafe and unsupported vendor quote URLs", async () => {
+    const mismatched = makeClientQuoteOption({
+      quoteUrl: "https://example.test/quote/1",
+    });
+    const unsupported = makeClientQuoteOption({
+      key: "partsbadger-option",
+      offerId: "partsbadger-offer",
+      persistedOfferId: "partsbadger-offer",
+      vendorKey: "partsbadger",
+      vendorLabel: "PartsBadger",
+      quoteUrl: "https://portal.parts-badger.com/rapid-quote/1",
+    });
+
+    render(
+      <ClientQuoteDecisionPanel
+        options={[mismatched, unsupported]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Quote Chart")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("link", { name: /open from/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/vendor sign-in or a vendor-issued guest link may be required/i)).not.toBeInTheDocument();
+  });
+
   it("syncs panel selection state when chart selection changes", async () => {
     const first = makeClientQuoteOption();
     const second = makeSecondOption();
