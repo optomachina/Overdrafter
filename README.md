@@ -47,24 +47,38 @@ and audit checks. Its linked references keep the detailed rules in one place:
 - [Commercial Rollout Controls](docs/workflows/commercial-rollout-controls.md) defines capability provisioning, staged enablement, monitoring, and rollback.
 - [Architecture: commercial access and operations](ARCHITECTURE.md#9-commercial-access-and-operations-layer) defines the authorization and data boundaries.
 
-## Symphony Automation
+## Current Launch Posture
 
-OverDrafter includes a repo-local Symphony workflow contract in `WORKFLOW.md`, repo-local skills in
-`.codex/skills/`, and a guard script at `scripts/symphony-preflight.sh`.
+OverDrafter is in a web-first customer-interest and pricing-validation phase.
+Use the responsive `Parts | Quotes | Search` experience for controlled customer
+demonstrations and feedback. Production billing and unattended automatic-quote
+enablement are paused until the product owner approves pricing and resumes the
+launch dependency chain.
 
-When launching Symphony, point the service at this repo's `WORKFLOW.md` explicitly. Do not rely on
-Symphony's default local `./WORKFLOW.md` from the separate `openai/symphony` checkout.
-For active implementation states, Symphony should switch off `main` in `hooks.before_run` using
-`./scripts/symphony-ensure-branch.sh`, which derives a deterministic branch from the Linear issue
-identifier.
+The preserved launch sequence is `OVD-228` and `OVD-206`, then `OVD-319`, then
+`OVD-320`. Do not resume those issues without explicit direction. iOS production
+readiness, CAD-native workspace expansion, supplier-network development, and
+manufacturing estimates are deferred Low-priority tracks. Draft iOS PR #271 is
+closed unmerged with its branch preserved.
+
+The PRD's current $49 monthly price remains the canonical offer and the pricing
+hypothesis being tested during this phase. Keep production Checkout disabled.
+Any later price change must update the canonical product contract, customer
+copy, billing validation, and Stripe catalog together before activation.
+
+## Execution Workflow
+
+The agent's current plan is the execution source of truth. Linear provides issue
+identity, human-visible status, and durable history. Codex handles bounded
+planning, implementation, verification, and handoff work; GitHub pull requests
+and CI provide review and repeatable verification.
 
 ## Code Review Workflow
 
 OverDrafter uses a layered review stack:
 
 - Linear is the issue and status source of truth.
-- Symphony is the orchestration and planning layer.
-- Codex CLI is the local implementation agent.
+- Codex is the planning, implementation, and local review agent.
 - Codex GitHub review is the PR review layer.
 - CI provides the repeatable verification layer.
 - GitHub Actions fans CI out into parallel lint, typecheck, test, build, and worker lanes, then reports a final aggregate `ci` gate for branch protection.
@@ -125,7 +139,7 @@ The active runtime and ownership model for this repository is:
 - `worker/` - the separate TypeScript worker package
 - `supabase/` - migrations, local config, and Edge Functions
 - `public/` - static assets served by the Vite app
-- `scripts/` - repo automation, seed helpers, and Symphony guard scripts
+- `scripts/` - repo automation, seed helpers, and workflow guard scripts
 - `e2e/` - Playwright coverage for end-to-end flows
 
 There is no active tracked `apps/` or `packages/` source layout in this repository. If those directories
@@ -138,13 +152,19 @@ appear in old diffs or stale local artifacts, do not treat them as canonical run
 
 The current React + Supabase + worker implementation provides the solid foundation (job intake, extraction, quote orchestration, OpenClaw harness) that will now be progressively wrapped and hidden behind the ideal multi-agent UX.
 
-The client launch surface is `Parts | Quotes | Search` on responsive web and in the iOS shell. Projects remain the
-collaboration/procurement-workflow container behind those collections, while organizations are the commercial account
-and entitlement boundary. Quote detail keeps request status, source facts, and the
-lead-time-versus-total-price comparison together; the current short quote code is a login-gated locator rather than an
-access token.
+The active client launch surface is `Parts | Quotes | Search` on responsive web.
+Projects remain the collaboration/procurement-workflow container behind those
+collections, while organizations are the commercial account and entitlement
+boundary. Quote detail keeps request status, source facts, and the
+lead-time-versus-total-price comparison together; the current short quote code
+is a login-gated locator rather than an access token. The iOS implementation is
+preserved in the repository, but production iOS work is deferred.
 
 ### iOS
+
+iOS production readiness is deferred during the web-first launch phase. The
+commands and runbooks below remain reference material for the later
+re-authorized iOS cycle; they are not current release steps.
 
 Generate and verify the checked-in Xcode project from its source definition:
 
@@ -208,10 +228,12 @@ Required frontend environment variables:
 Hosted Pro billing also requires the authenticated `billing-sessions` Supabase
 Edge Function. Configure its server-only `OVERDRAFTER_APP_URL`,
 `STRIPE_EXPECTED_LIVEMODE`, `STRIPE_PRO_MONTHLY_PRICE_ID`, and
-`STRIPE_SECRET_KEY` values. Keep `BILLING_SELF_SERVICE_ENABLED=false` until the
-single $49/month Stripe catalog entry and signed `stripe-events` webhook have
-been verified in the same test/live mode. Checkout redirects never activate
-Pro; the synchronized Stripe webhook does.
+`STRIPE_SECRET_KEY` values only when billing work is explicitly resumed. Keep
+`BILLING_SELF_SERVICE_ENABLED=false` while pricing is under validation. Before
+activation, the product owner must approve the monthly price and the matching
+Stripe catalog entry and signed `stripe-events` webhook must be verified in the
+same test/live mode. Checkout redirects never activate Pro; the synchronized
+Stripe webhook does.
 
 If you replace `src/assets/logo.png`, regenerate the favicon assets before committing:
 
@@ -442,14 +464,17 @@ Recent live-adapter status:
 - Xometry live automation uses standard Playwright Chromium by default. This matches Xometry's current authenticated configurator behavior; Patchright can cause the material-options API to return `401` and render `No options` despite a valid session. `XOMETRY_BROWSER_ENGINE=patchright` and `XOMETRY_BROWSER_ENGINE=camoufox` remain explicit rollback options, with Camoufox requiring a persistent `XOMETRY_USER_DATA_DIR`.
 - Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
 
-Commercial account administration is now an active staged program under Linear parent `OVD-227`:
+Commercial account administration has a staged foundation under Linear parent
+`OVD-227`, but billing activation is paused during customer-interest and pricing
+validation:
 
 Target contract and sequence:
 
 - Free organizations will keep unlimited uploads and receive unattended provider guidance with official RFQ links.
 - Pro organizations will gain server-enforced automatic vendor quote collection.
 - Free users will continue to see the automatic-quote toggle; attempting to enable it will open the Pro upgrade dialog.
-- Organization-level Stripe subscriptions use one $49 monthly Checkout price with audited trial/complimentary grants sequenced separately from procurement.
+- The current PRD's $49 monthly Checkout price is the pricing hypothesis being validated with prospective customers.
+- No Stripe catalog change, Checkout activation, or automatic-quote production enablement is authorized during the hold.
 - Annual pricing, promotion codes, and order administration remain deferred until the web product records revenue.
 
 Manufacturing card collection, order discounts, automated supplier order placement, tax automation, and ERP/accounting integration remain deferred. For controlled tests, a local live worker is acceptable; unattended use still requires hosting the live worker on a long-lived platform.

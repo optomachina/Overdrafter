@@ -1,6 +1,6 @@
 # OverDrafter Acceptance Criteria
 
-Last updated: July 29, 2026
+Last updated: August 3, 2026
 
 ## Purpose
 
@@ -8,7 +8,7 @@ This document defines what it means for the current repository-hardening phase t
 
 ## Acceptance criteria
 
-### Feature addendum — Quote Intelligence web and iOS release
+### Feature addendum — Quote Intelligence web launch and deferred iOS release
 
 - Authenticated clients can navigate directly to Parts, Quotes, Search, and quote detail.
 - Project remains the backend collaboration/procurement-workflow container and legacy Project/Part links remain compatible; Organization is the commercial account boundary.
@@ -20,9 +20,9 @@ This document defines what it means for the current repository-hardening phase t
 - Missing quote validity, response time, estimate, or benchmark data is shown as unavailable or suppressed rather than inferred.
 - Existing sign-in, upload, quote-request, cancel/retry, and offer-selection behavior remains functional.
 - Signing out, switching accounts, or changing organization/role context cannot render cached workspace data from the prior access scope.
-- The universal iPhone/iPad app exposes native Parts, Quotes, and Search destinations and reuses the authorized production workflow without embedding privileged credentials.
-- Responsive web, iPhone, and iPad verification passes before release.
-- Production website and TestFlight install links are smoke-tested against the release build.
+- The universal iPhone/iPad implementation remains preserved, but its production-readiness and TestFlight gates are deferred until explicit product-owner re-authorization.
+- Responsive-web verification passes before web release; iPhone and iPad verification applies only when the iOS release track resumes.
+- The production website is smoke-tested against the web release build. TestFlight installation and link verification are not gates for the current web-first validation phase.
 - Product, architecture, design, test, and release documentation reflect the shipped behavior.
 
 ### Contract addendum — iOS browser authentication
