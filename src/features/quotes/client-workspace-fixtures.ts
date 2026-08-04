@@ -408,25 +408,26 @@ const FIXTURE_VENDOR_CAPABILITY_PROFILES: VendorCapabilityProfileRecord[] = [
 
 const scenarioStateCache = new Map<FixtureScenarioId, FixtureState>();
 
-function fixtureTimestampOffset(minutes: number): string {
-  return new Date(Date.parse(FIXTURE_TIMESTAMP) + minutes * 60_000).toISOString();
-}
-
 function createClientActivityEvent(input: {
   id: string;
   jobId: string;
   eventType: string;
   minutesAfterStart: number;
+  timelineStartedAt?: string;
   packageId?: string | null;
   payload?: ClientActivityEvent["payload"];
 }): ClientActivityEvent {
+  const timelineStartedAt = input.timelineStartedAt ?? FIXTURE_TIMESTAMP;
+
   return {
     id: input.id,
     jobId: input.jobId,
     packageId: input.packageId ?? null,
     eventType: input.eventType,
     payload: input.payload ?? {},
-    occurredAt: fixtureTimestampOffset(input.minutesAfterStart),
+    occurredAt: new Date(
+      Date.parse(timelineStartedAt) + input.minutesAfterStart * 60_000,
+    ).toISOString(),
   };
 }
 
@@ -638,6 +639,7 @@ function createPartAggregate(input: {
   serviceNotes?: string | null;
   requestedQuoteQuantities: number[];
   requestedByDate: string | null;
+  process?: string;
   vendorQuotes?: VendorQuoteAggregate[];
   cadAsset?: {
     fileName: string;
@@ -746,6 +748,7 @@ function createPartAggregate(input: {
         requested_by_date: input.requestedByDate,
         applicable_vendors: ["xometry", "protolabs", "fictiv"],
         spec_snapshot: {
+          ...(input.process ? { process: input.process } : {}),
           requestedServiceKinds: serviceIntent.requestedServiceKinds,
           primaryServiceKind: serviceIntent.primaryServiceKind,
           serviceNotes: serviceIntent.serviceNotes,
@@ -793,8 +796,28 @@ function createVendorQuoteAggregate(input: {
   offerId?: string;
   laneLabel?: string;
   quoteRunId?: string;
+  capturedAt?: string;
+  requirementCapturedAt?: string;
+  process?: string;
+  material?: string;
+  finish?: string;
 }): VendorQuoteAggregate {
   const offerId = input.offerId ?? `${input.id}-offer`;
+  const quoteCapturedAt = input.capturedAt ?? FIXTURE_TIMESTAMP;
+  const requirementCapturedAt = input.requirementCapturedAt ?? quoteCapturedAt;
+  const rawPayload: Record<string, string | boolean> = {};
+
+  if (input.domestic !== null) {
+    rawPayload.domestic = input.domestic;
+  }
+
+  if (input.vendor === "xometry") {
+    rawPayload.automationVersion = "xometry-worker-fixture";
+    rawPayload.requirementCapturedAt = requirementCapturedAt;
+  } else if (input.vendor === "fictiv") {
+    rawPayload.source = "fictiv-live-adapter";
+    rawPayload.requirementCapturedAt = requirementCapturedAt;
+  }
 
   return {
     id: input.id,
@@ -807,17 +830,12 @@ function createVendorQuoteAggregate(input: {
     unit_price_usd: input.unitPriceUsd,
     total_price_usd: input.totalPriceUsd,
     lead_time_business_days: input.leadTimeBusinessDays,
-    quote_url: `https://example.test/${input.vendor}/${offerId}`,
+    quote_url: buildQuoteResultUrl(input.vendor, offerId),
     dfm_issues: [],
     notes: [],
-    raw_payload:
-      input.domestic === null
-        ? {}
-        : {
-            domestic: input.domestic,
-          },
-    created_at: FIXTURE_TIMESTAMP,
-    updated_at: FIXTURE_TIMESTAMP,
+    raw_payload: rawPayload,
+    created_at: quoteCapturedAt,
+    updated_at: quoteCapturedAt,
     offers: [
       {
         id: offerId,
@@ -829,15 +847,15 @@ function createVendorQuoteAggregate(input: {
         sourcing: input.domestic === true ? "Domestic" : input.domestic === false ? "International" : null,
         tier: "standard",
         quote_ref: `${input.vendor.toUpperCase()}-${offerId.slice(-4).toUpperCase()}`,
-        quote_date: FIXTURE_TIMESTAMP.slice(0, 10),
+        quote_date: quoteCapturedAt.slice(0, 10),
         unit_price_usd: input.unitPriceUsd,
         total_price_usd: input.totalPriceUsd,
         lead_time_business_days: input.leadTimeBusinessDays,
         ship_receive_by: null,
         due_date: null,
-        process: "CNC mill",
-        material: "6061-T6 aluminum",
-        finish: "As machined",
+        process: input.process ?? "CNC mill",
+        material: input.material ?? "6061-T6 aluminum",
+        finish: input.finish ?? "As machined",
         tightest_tolerance: "+/-0.005",
         tolerance_source: "fixture",
         thread_callouts: null,
@@ -850,8 +868,8 @@ function createVendorQuoteAggregate(input: {
             : {
                 domestic: input.domestic,
               },
-        created_at: FIXTURE_TIMESTAMP,
-        updated_at: FIXTURE_TIMESTAMP,
+        created_at: quoteCapturedAt,
+        updated_at: quoteCapturedAt,
       },
     ],
     artifacts: [],
@@ -935,6 +953,10 @@ export function createClientQuoteWorkspaceItemFixture(
 }
 
 function buildQuoteResultUrl(vendor: VendorName, laneId: string): string {
+  if (vendor === "xometry") {
+    return "https://www.xometry.com/quoting/quote/Q00-FIXTURE-0001";
+  }
+
   return `https://example.test/${vendor}/${laneId}`;
 }
 
@@ -954,7 +976,7 @@ function buildQuotedSampleVendorQuotes(partId: string, quoteRunId: string): Vend
       unit_price_usd: lane.unitPriceUsd,
       total_price_usd: lane.totalPriceUsd,
       lead_time_business_days: lane.leadTimeBusinessDays,
-      quote_url: buildQuoteResultUrl(lane.vendor, lane.id),
+      quote_url: `https://example.test/${lane.vendor}/${lane.id}`,
       dfm_issues: [],
       notes: lane.notes ? [lane.notes] : [],
       raw_payload: {
@@ -1356,6 +1378,16 @@ function buildQuotedScenario(): FixtureState {
 
 function buildPublishedScenario(): FixtureState {
   const state = buildQuotedScenario();
+  const timelineNow = new Date();
+  const jobCreatedAt = new Date(timelineNow.getTime() - 90 * 60_000).toISOString();
+  const requirementCapturedAt = new Date(timelineNow.getTime() - 60 * 60_000).toISOString();
+  const quoteRunStartedAt = new Date(timelineNow.getTime() - 45 * 60_000).toISOString();
+  const quoteCapturedAt = new Date(timelineNow.getTime() - 30 * 60_000).toISOString();
+  const packagePublishedAt = new Date(timelineNow.getTime() - 20 * 60_000).toISOString();
+  const selectionRecordedAt = new Date(timelineNow.getTime() - 10 * 60_000).toISOString();
+  const requestedByDate = new Date(timelineNow.getTime() + 30 * 24 * 60 * 60_000)
+    .toISOString()
+    .slice(0, 10);
   const publishedProject = createProjectRecord({
     id: "fx-project-published",
     ownerUserId: "fixture-user-client",
@@ -1375,6 +1407,11 @@ function buildPublishedScenario(): FixtureState {
       domestic: true,
       offerId: "fx-offer-published-xometry",
       laneLabel: "Balanced",
+      capturedAt: quoteCapturedAt,
+      requirementCapturedAt,
+      process: "CNC milling",
+      material: "7075 aluminum",
+      finish: "Black anodize",
     }),
     createVendorQuoteAggregate({
       id: "fx-quote-published-protolabs",
@@ -1388,6 +1425,11 @@ function buildPublishedScenario(): FixtureState {
       domestic: true,
       offerId: "fx-offer-published-protolabs",
       laneLabel: "Fastest",
+      capturedAt: quoteCapturedAt,
+      requirementCapturedAt,
+      process: "CNC milling",
+      material: "7075 aluminum",
+      finish: "Black anodize",
     }),
   ];
   const job = createJobRecord({
@@ -1397,7 +1439,7 @@ function buildPublishedScenario(): FixtureState {
     description: "Published part ready for checkout review.",
     status: "published",
     requestedQuoteQuantities: [25, 50],
-    requestedByDate: "2026-04-02",
+    requestedByDate,
     projectId: publishedProject.id,
     selectedVendorQuoteOfferId: "fx-offer-published-xometry",
   });
@@ -1411,10 +1453,18 @@ function buildPublishedScenario(): FixtureState {
     description: "Production plate with finish callout",
     material: "7075 aluminum",
     finish: "Black anodize",
+    process: "CNC milling",
     requestedQuoteQuantities: [25, 50],
-    requestedByDate: "2026-04-02",
+    requestedByDate,
     vendorQuotes: publishedOffers,
   });
+  if (part.approvedRequirement) {
+    part.approvedRequirement.approved_at = requirementCapturedAt;
+    part.approvedRequirement.created_at = requirementCapturedAt;
+    part.approvedRequirement.updated_at = requirementCapturedAt;
+  }
+  job.created_at = jobCreatedAt;
+  job.updated_at = selectionRecordedAt;
   const selectedOffer = findOfferById(publishedOffers, job.selected_vendor_quote_offer_id);
   summary.selectedSupplier = selectedOffer?.supplier ?? null;
   summary.selectedPriceUsd = selectedOffer?.total_price_usd ?? null;
@@ -1428,8 +1478,8 @@ function buildPublishedScenario(): FixtureState {
     initiated_by: "fixture-user-client",
     status: "published",
     requested_auto_publish: true,
-    created_at: FIXTURE_TIMESTAMP,
-    updated_at: FIXTURE_TIMESTAMP,
+    created_at: quoteRunStartedAt,
+    updated_at: quoteCapturedAt,
   };
   const packageRecord: PublishedQuotePackageRecord = {
     id: "fx-package-published",
@@ -1440,8 +1490,8 @@ function buildPublishedScenario(): FixtureState {
     pricing_policy_id: "fixture-pricing-policy",
     auto_published: true,
     client_summary: "Published for client review.",
-    created_at: FIXTURE_TIMESTAMP,
-    published_at: FIXTURE_TIMESTAMP,
+    created_at: quoteCapturedAt,
+    published_at: packagePublishedAt,
   };
 
   state.accessibleJobs = [job];
@@ -1497,18 +1547,21 @@ function buildPublishedScenario(): FixtureState {
         jobId: job.id,
         eventType: "job.created",
         minutesAfterStart: 0,
+        timelineStartedAt: jobCreatedAt,
       }),
       createClientActivityEvent({
         id: "fx-job-published-quote-started",
         jobId: job.id,
         eventType: "job.quote_run_started",
-        minutesAfterStart: 14,
+        minutesAfterStart: 45,
+        timelineStartedAt: jobCreatedAt,
       }),
       createClientActivityEvent({
         id: "fx-job-published-quote-completed",
         jobId: job.id,
         eventType: "worker.quote_run_completed",
-        minutesAfterStart: 26,
+        minutesAfterStart: 60,
+        timelineStartedAt: jobCreatedAt,
         payload: {
           successfulVendorQuotes: publishedOffers.length,
           failedVendorQuotes: 0,
@@ -1519,14 +1572,16 @@ function buildPublishedScenario(): FixtureState {
         jobId: job.id,
         packageId: packageRecord.id,
         eventType: "job.quote_package_published",
-        minutesAfterStart: 34,
+        minutesAfterStart: 70,
+        timelineStartedAt: jobCreatedAt,
       }),
       createClientActivityEvent({
         id: "fx-job-published-selected",
         jobId: job.id,
         packageId: packageRecord.id,
         eventType: "client.quote_option_selected",
-        minutesAfterStart: 41,
+        minutesAfterStart: 80,
+        timelineStartedAt: jobCreatedAt,
       }),
     ],
   };
