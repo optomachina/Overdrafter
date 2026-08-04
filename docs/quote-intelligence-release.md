@@ -1,9 +1,15 @@
 # Quote Intelligence App Release
 
-Status: In progress
+Status: Responsive web delivered; iOS/TestFlight release deferred
 Task ID: `OVERNIGHT-QUOTE-INTELLIGENCE-APP`
 Authorized: July 28, 2026
 Approved product contract: Quote Intelligence design review approved July 28, 2026
+
+Current execution note: as of August 3, 2026, the responsive web product is the
+active customer-interest and pricing-validation surface. iOS production
+readiness and every unchecked TestFlight gate below are paused until explicit
+product-owner re-authorization. Draft PR #271 was closed unmerged with its
+branch preserved.
 
 ## Problem
 
@@ -100,16 +106,16 @@ ready-to-ship lead time, and response latency only after the legal, cohort, and 
 - [x] Existing request, retry, cancel, and offer-selection mutations retain their authorization and idempotency behavior.
 - [x] Signing out or switching accounts cannot reuse the prior account’s cached parts, quotes, activity, or project data.
 
-### iOS
+### iOS (deferred)
 
 - [x] The universal app has native Parts, Quotes, and Search destinations.
 - [x] The app loads only configured HTTPS production/preview hosts outside local development.
-- [ ] Auth sessions and uploads work inside the app workspace.
+- [ ] Auth sessions and uploads work inside the app workspace. (Deferred)
 - [x] External supplier/source URLs leave the app safely.
 - [x] Offline and load failure states offer retry.
 - [x] iPhone and iPad simulator builds and tests pass.
-- [ ] A generic-device archive validates.
-- [ ] A TestFlight build is uploaded and its install link is verified.
+- [ ] A generic-device archive validates. (Deferred)
+- [ ] A TestFlight build is uploaded and its install link is verified. (Deferred)
 
 ### Release verification
 
@@ -120,7 +126,7 @@ ready-to-ship lead time, and response latency only after the legal, cohort, and 
 - [x] Full repository verification passes or every unrelated baseline failure is documented.
 - [x] Browser smoke covers anonymous landing, authenticated navigation fixture, search, and quote comparison.
 - [x] Production Vercel deployment is HTTP 200 and matches the release commit.
-- [ ] TestFlight installation is smoke-tested.
+- [ ] TestFlight installation is smoke-tested. (Deferred)
 
 ## Verification evidence
 

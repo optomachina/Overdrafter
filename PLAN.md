@@ -1,7 +1,7 @@
 <!-- /autoplan restore point: /Users/blainewilson/.gstack/projects/optomachina-Overdrafter/claude-quizzical-williams-autoplan-restore-20260331-213648.md -->
 # OverDrafter Execution Plan
 
-Last updated: July 29, 2026
+Last updated: August 3, 2026
 
 ## Purpose
 
@@ -21,67 +21,80 @@ This replaces the previous quote-centric scaffolding as the guiding objective.
 
 ## Planning objective
 
-The active objective is to harden Phase 1 gaps and continue Phase 2 (multi-vendor quote fan-out + service-request line-item model).
+The active objective is a web-first customer-interest and pricing-validation
+phase. Put the existing responsive product in front of prospective users,
+learn which sourcing outcome they value, and test pricing before activating
+self-service billing or the unattended production rollout.
+
+The multi-agent, CAD-native North Star remains the long-term direction, but it
+does not define current launch work. iOS production readiness, CAD-native
+workspace expansion, supplier-network development, and manufacturing estimates
+are deferred and must not consume launch work in progress.
 
 Operational workflow alignment:
-- Linear is the planning and status source of truth.
-- Symphony is the orchestration and planning layer for issue execution.
-- Codex CLI is the local implementation and pre-PR review agent.
-- Codex GitHub review is the PR review layer.
-- CI is the repeatable automation layer for verification.
+
+- The agent's current execution plan is the implementation source of truth.
+- Linear is the issue identity, human-visible status, and durable history layer.
+- Codex owns bounded planning, implementation, verification, and handoff work.
+- GitHub pull requests and CI provide review and repeatable verification.
 
 ## Active objective
 
-Ship the Quote Intelligence client release across responsive web and iPhone/iPad while preserving the no-Stripe live-quote loop for `dmrifles@gmail.com`: sign in, upload real part files, request quotes, compare returned offers by total price and lead time, and select an option or receive an explicit manual-follow-up state.
+Use the responsive-web `Parts | Quotes | Search` experience to demonstrate the
+current Free sourcing path and gather customer-interest and pricing feedback.
+Preserve every working upload, provider-guidance, quote-result, and manual
+handoff path while this validation is underway.
 
-Responsive web and the first iOS beta use `Parts | Quotes | Search`. Project
-remains the collaboration/procurement-workflow container behind these views,
-and Organization is the commercial account and entitlement boundary. The approved
-iOS follow-on adds a quote-action Inbox, moves Search under More, and adds a
-separate capability-gated Ask action. PDM, marketplace publication,
-customer-visible unvalidated estimates, supplier benchmarking, and
-consequential agent actions remain capability-gated.
+The production launch dependency chain remains:
 
-Release sequence:
+1. `OVD-228` — finalize and validate the product-owner-approved monthly Stripe configuration after the pricing decision.
+2. `OVD-206` — validate the hosted Xometry automatic-quote path under its spend and no-order guardrails.
+3. `OVD-319` — certify and enable the unattended production launch after both prerequisites pass.
+4. `OVD-320` — onboard the first external paid organization after certification.
 
-1. Ship the responsive Parts, Quotes, Search, and quote-detail surfaces over existing client-safe APIs.
-2. Preserve legacy Project/Part routes and every working upload/request/selection path.
-3. Ship a universal SwiftUI application with the same three native destinations and production workflow parity.
-4. Pass web release-confidence checks plus iPhone/iPad simulator and archive validation.
-5. Publish the website through Vercel and the iOS build through TestFlight.
+Execution of this chain is paused by product-owner direction as of August 3,
+2026 while customer interest and pricing are evaluated. Do not resume
+`OVD-228`, `OVD-206`, `OVD-319`, or `OVD-320` without explicit direction.
+Controlled demonstrations of the existing web product may continue, but they
+must not enable billing, automatic-quote production rollout, manufacturing
+payment, or supplier ordering.
 
-Implementation and release acceptance is tracked in `docs/quote-intelligence-release.md`.
+iOS production release is explicitly deferred. Draft PR #271 was closed
+unmerged with its branch preserved for a later re-authorized iOS cycle.
+Implementation and release acceptance reference material remains in
+`docs/quote-intelligence-release.md`.
 
 ## Commercial account administration track
 
 Build commercial access around the organization boundary without adding customer-facing usage anxiety or coupling account subscriptions to manufacturing orders.
 
-Locked product behavior:
+Current product behavior and operating constraints:
+
 - Free organizations can upload parts without a customer-facing quota and receive unattended provider guidance with official RFQ links.
-- Pro organizations can enable automatic vendor quote collection.
+- Pro organizations have an automatic vendor quote capability, but production enablement remains off during the current hold.
 - The automatic-quote toggle remains visible to Free users; attempting to enable it opens an upgrade dialog and leaves it off.
 - Existing request throttles and organization cost ceilings remain invisible operational safeguards rather than plan quotas.
 - Billing admins may issue audited trial and complimentary Pro grants under step-up authentication.
 - Self-service Pro subscriptions use one monthly Stripe price, webhook-synchronized local state, and a seven-day payment-failure grace period.
+- The PRD's current $49 monthly price remains the canonical offer and the active pricing hypothesis during customer discovery; keep production Checkout disabled until the product owner approves launch activation or updates the canonical contract.
 - Annual pricing, promotion codes, and order administration remain deferred until the web product records revenue.
 
 Execution sequence:
-1. Align the commercial product contract across canonical and downstream documentation.
-2. Disable the historical project-payment prototype by default.
-3. Complete matching comparison-board and Figma exploration, select a direction, and validate the phone prototype.
-4. Add stable-ID billing/order admin capabilities, AAL2 enforcement, and append-only commercial audit.
-5. Add organization plans, effective entitlements, and audited trial/complimentary grants.
-6. Add unattended provider guidance and enforce automatic collection as a Pro capability at the server boundary.
-7. Ship customer account administration and manual Pro grants.
-8. Add replay-safe Stripe subscription synchronization, one monthly Checkout price, and Billing Portal access.
-9. Add reconciliation, monitoring, kill switches, pilot provisioning, and staged rollout.
-10. Revisit annual pricing, promotions, and order administration after the web product records revenue.
+
+1. Demonstrate the current web experience and collect structured interest and pricing feedback.
+2. Record the approved monthly price before resuming billing activation.
+3. Resume only `OVD-228` and `OVD-206`; do not open additional implementation work while either can progress.
+4. Execute `OVD-319` only after both prerequisite issues pass their acceptance gates.
+5. Execute `OVD-320` only after production certification.
+6. Revisit annual pricing, promotions, order administration, and deferred product tracks after the web product records revenue.
 
 The Commercial Account Administration initiative is tracked by Linear parent `OVD-227`. The parent remains High complexity and is executed only through its bounded child issues.
 
-### Approved iOS follow-on sequence
+### Deferred iOS follow-on sequence
 
-The mobile redesign is High complexity as one unit and must remain split into
+The mobile redesign is deferred until explicit product-owner re-authorization.
+Its issues are Low priority during the web-first launch phase. When resumed, it
+is High complexity as one unit and must remain split into
 the following bounded Linear issues:
 
 1. `OVD-220` defines the website-mediated browser-auth and one-time session
@@ -107,9 +120,10 @@ engineering-standards content. Neither guardrail is satisfied by a chat UI.
 The server/browser implementation is the dependency-ordered `OVD-219` slice;
 native adoption remains isolated to `OVD-221`.
 
-## Supplier discovery track
+## Deferred supplier discovery track
 
-Build a complementary sourcing path that begins in Tucson and can expand across the United States:
+This track is Low priority during the web-first launch phase. When resumed,
+build a complementary sourcing path that begins in Tucson and can expand across the United States:
 
 1. Establish a provenance-first supplier, facility, capability, certification, and verification schema without changing the current instant-vendor execution model.
 2. Import the supplied historical SpaceX approved-supplier data as dated source evidence, with deterministic deduplication and no implied current approval.
@@ -118,41 +132,26 @@ Build a complementary sourcing path that begins in Tucson and can expand across 
 5. Add assisted RFQ preparation and response intake for directory suppliers.
 6. Consider clearly labeled sponsored placement only after organic eligibility, matching, and ranking are independently testable.
 
-The supplier-discovery track must not delay or weaken the active instant-quote MVP. Instant vendor quotes and directory-assisted sourcing are complementary lanes presented from the same part or project context.
+The supplier-discovery track must not precede or delay web validation and the
+preserved launch dependency chain. Instant vendor quotes and directory-assisted
+sourcing remain complementary future lanes presented from the same part or
+project context.
 
-### Immediate next steps (MVP — sequenced by dependency)
+### Current launch control
 
-> **Strategy:** Prove the customer-visible quote loop first. The active milestone is not checkout; it is a functioning upload -> quote request -> live quote result path for `dmrifles@gmail.com`.
+> **Strategy:** Learn whether prospective users value the current sourcing
+> experience and what they will pay before activating billing or unattended
+> automatic quotes.
 
-**Task 1: Rebase/sync local work onto the merged live-adapter PRs**
-- Recent PRs reviewed on May 12, 2026:
-  - PR #235 repaired the Fictiv live adapter against the current Fictiv portal and added Fictiv/Xometry quantity sweep tools.
-  - PR #236 added `XOMETRY_BROWSER_ENGINE=camoufox` with persistent Firefox profile support and validated a real Xometry quote: `$194.13`, 8 business days, real Xometry Q-ID `Q69-1104-8928`.
-  - PR #231 added `xometry_session_age_days` to worker `/health`.
-- Acceptance: local branch includes the merged worker changes from PRs #235, #236, and #231 before additional live-quote fixes are made.
+- Use the responsive web product for controlled customer demonstrations and interviews.
+- Keep `BILLING_SELF_SERVICE_ENABLED=false` and all commercial rollout controls off.
+- Keep manufacturing payment, promotion, order-administration, and supplier-order actions disabled.
+- Present the current $49/month PRD price as the pricing hypothesis being tested and record customer response to it.
+- Record a product-owner pricing decision before resuming `OVD-228`; any price change must update the PRD, acceptance criteria, customer copy, billing guard, and Stripe catalog together.
+- Preserve the existing manual procurement handoff; it must not collect manufacturing payment or place supplier orders.
+- Resume the dependency chain only through `OVD-228` and `OVD-206`, followed by `OVD-319` and then `OVD-320`.
 
-**Task 2: Validate app-triggered live quote flow**
-- Configure the test organization and `dmrifles@gmail.com` client membership in the target Supabase project.
-- Bootstrap vendor sessions:
-  - Xometry: prefer Camoufox persistent profile via `XOMETRY_BROWSER_ENGINE=camoufox` and `XOMETRY_USER_DATA_DIR`.
-  - Fictiv: use the repaired live adapter from PR #235 when two-vendor validation is needed.
-- Start the worker in `WORKER_MODE=live` with a narrow rollout set. For the first controlled app test, `WORKER_LIVE_ADAPTERS=xometry` is sufficient; expand to `xometry,fictiv` after the Xometry app path passes.
-- From the app, upload a STEP/PDF package as `dmrifles@gmail.com`, click `Request Quote`, and confirm persisted quote results or explicit manual-follow-up states appear in the client workspace.
-- Validate with `npm --prefix worker run validate:openclaw-gate -- --quote-run-id <quote-run-id>` after the worker finishes.
-
-**Task 3: Operationalize the test path**
-- Use the worker `/health` session-age fields before each customer-visible test run.
-- Keep Protolabs and SendCutSend disabled or routed to manual follow-up until their live adapters are implemented.
-- Keep hidden extended vendor candidates (`oshcut`, `fabworks`, `ponoko`, `quickparts`, `rapiddirect`, `geomiq`, `weerg`, `protolabsnetwork`) out of default client fan-out until authenticated smoke runs prove the individual workflows. They are enum/capability registered for internal validation only and require explicit `WORKER_LIVE_ADAPTERS` opt-in.
-- For controlled demos, a local live worker is acceptable. For unattended use, OVD-202 remains required: host the live worker on a long-lived platform.
-
-**Commercial boundary after the no-Stripe MVP**
-- The delivered live-quote MVP did not require Stripe or in-app ordering.
-- Organization-level subscription billing is now an active, separately sequenced product track.
-- `ClientProjectReview` / `ProcurementHandoffPanel` remains a manual handoff surface and must not collect manufacturing payment or place supplier orders.
-- A future manual order ledger records externally confirmed procurement state; it does not execute payment, PO submission, or supplier placement.
-
-### Phase 2 (following immediate steps)
+### Deferred capabilities
 
 - Full cross-CAD plugin coverage (after live quote value validated with customers).
 - PDM versioning and revision-aware agents.
