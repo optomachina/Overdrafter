@@ -953,11 +953,18 @@ export function createClientQuoteWorkspaceItemFixture(
 }
 
 function buildQuoteResultUrl(vendor: VendorName, laneId: string): string {
-  if (vendor === "xometry") {
-    return "https://www.xometry.com/quoting/quote/Q00-FIXTURE-0001";
+  switch (vendor) {
+    case "xometry":
+      return "https://www.xometry.com/quoting/quote/Q00-FIXTURE-0001";
+    case "fictiv":
+      return `https://www.fictiv.com/quotes/${laneId}`;
+    case "protolabs":
+      return `https://www.protolabs.com/quotes/${laneId}`;
+    case "sendcutsend":
+      return `https://sendcutsend.com/quotes/${laneId}`;
+    default:
+      return `https://example.test/${vendor}/${laneId}`;
   }
-
-  return `https://example.test/${vendor}/${laneId}`;
 }
 
 function buildQuotedSampleVendorQuotes(partId: string, quoteRunId: string): VendorQuoteAggregate[] {

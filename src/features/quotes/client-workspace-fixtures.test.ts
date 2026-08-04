@@ -116,9 +116,18 @@ describe("client workspace fixtures", () => {
     const xometryQuote = workspaceItem?.part?.vendorQuotes.find(
       (quote) => quote.vendor === "xometry",
     );
+    const protolabsQuote = workspaceItem?.part?.vendorQuotes.find(
+      (quote) => quote.vendor === "protolabs",
+    );
 
     expect(xometryQuote?.quote_url).toBe(
       "https://www.xometry.com/quoting/quote/Q00-FIXTURE-0001",
+    );
+    expect(protolabsQuote?.quote_url).toBe(
+      "https://www.protolabs.com/quotes/fx-offer-published-protolabs",
+    );
+    expect(new URL(protolabsQuote?.quote_url ?? "").hostname).toBe(
+      "www.protolabs.com",
     );
     expect(xometryQuote?.raw_payload).toMatchObject({
       automationVersion: "xometry-worker-fixture",
@@ -128,7 +137,9 @@ describe("client workspace fixtures", () => {
       workspaceItem?.part?.approvedRequirement?.updated_at ?? "",
     ).getTime();
 
-    expect(Date.now() - quoteCapturedAt).toBeLessThan(60 * 60_000);
+    const now = Date.now();
+    expect(quoteCapturedAt).toBeLessThanOrEqual(now);
+    expect(now - quoteCapturedAt).toBeLessThan(60 * 60_000);
     expect(requirementCapturedAt).toBeLessThan(quoteCapturedAt);
     expect(xometryQuote?.updated_at).toBe(xometryQuote?.created_at);
     expect(xometryQuote?.offers[0]?.created_at).toBe(xometryQuote?.created_at);
