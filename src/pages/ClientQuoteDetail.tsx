@@ -32,6 +32,7 @@ import {
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
 import { useClientHomeController } from "@/features/quotes/use-client-home-controller";
 import { useClientPartController } from "@/features/quotes/use-client-part-controller";
+import { resolveVendorPurchasingLink } from "@/features/quotes/vendor-purchasing-links";
 import { cn } from "@/lib/utils";
 
 function formatDate(value: string | null | undefined): string {
@@ -50,19 +51,6 @@ function formatDate(value: string | null | undefined): string {
     day: "numeric",
     year: "numeric",
   }).format(parsed);
-}
-
-function getValidHttpsUrl(value: string | null | undefined): string | null {
-  if (!value) {
-    return null;
-  }
-
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" ? url.toString() : null;
-  } catch {
-    return null;
-  }
 }
 
 function QuoteFact({
@@ -278,7 +266,9 @@ const ClientQuoteDetail = () => {
     latestQuoteRequest: partDetail.latestQuoteRequest,
     latestQuoteRun: partDetail.latestQuoteRun,
   });
-  const sourceUrl = getValidHttpsUrl(controller.selectedQuoteOption?.quoteUrl);
+  const vendorPurchasingLink = controller.selectedQuoteOption
+    ? resolveVendorPurchasingLink(controller.selectedQuoteOption)
+    : null;
   const requestedAt =
     partDetail.latestQuoteRequest?.created_at ??
     partDetail.latestQuoteRun?.created_at ??
@@ -420,16 +410,16 @@ const ClientQuoteDetail = () => {
         onToggleVendorExclusion={controller.handleToggleVendorExclusion}
         emptyState="No published supplier response is available yet. The request status above shows the current collection state."
         headerActions={
-          sourceUrl ? (
+          vendorPurchasingLink ? (
             <Button asChild variant="outline" className="rounded-[4px]">
-              <a href={sourceUrl} target="_blank" rel="noreferrer">
-                Source quote
+              <a href={vendorPurchasingLink.url} target="_blank" rel="noopener noreferrer">
+                Open selected vendor quote
                 <ArrowUpRight className="ml-2 h-4 w-4" />
               </a>
             </Button>
           ) : (
             <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-              Source link unavailable
+              Vendor purchasing link unavailable
             </span>
           )
         }

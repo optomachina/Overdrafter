@@ -101,6 +101,61 @@ describe("client workspace fixtures", () => {
     expect(workspace[0]?.part?.cadFile?.original_name).toBe("1093-05589-02.STEP");
   });
 
+  it("keeps the published fixture quote current, coherent, and linked to the official vendor domain", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/quotes/Z5QF44?fixture=client-published",
+    );
+    const gateway = getActiveClientWorkspaceGateway();
+    expect(gateway).not.toBeNull();
+
+    const [workspaceItem] = await gateway!.fetchClientQuoteWorkspaceByJobIds([
+      "fx-job-published",
+    ]);
+    const xometryQuote = workspaceItem?.part?.vendorQuotes.find(
+      (quote) => quote.vendor === "xometry",
+    );
+    const protolabsQuote = workspaceItem?.part?.vendorQuotes.find(
+      (quote) => quote.vendor === "protolabs",
+    );
+
+    expect(xometryQuote?.quote_url).toBe(
+      "https://www.xometry.com/quoting/quote/Q00-FIXTURE-0001",
+    );
+    expect(protolabsQuote?.quote_url).toBe(
+      "https://www.protolabs.com/quotes/fx-offer-published-protolabs",
+    );
+    expect(new URL(protolabsQuote?.quote_url ?? "").hostname).toBe(
+      "www.protolabs.com",
+    );
+    expect(xometryQuote?.raw_payload).toMatchObject({
+      automationVersion: "xometry-worker-fixture",
+    });
+    const quoteCapturedAt = new Date(xometryQuote?.created_at ?? "").getTime();
+    const requirementCapturedAt = new Date(
+      workspaceItem?.part?.approvedRequirement?.updated_at ?? "",
+    ).getTime();
+
+    const now = Date.now();
+    expect(quoteCapturedAt).toBeLessThanOrEqual(now);
+    expect(now - quoteCapturedAt).toBeLessThan(60 * 60_000);
+    expect(requirementCapturedAt).toBeLessThan(quoteCapturedAt);
+    expect(xometryQuote?.updated_at).toBe(xometryQuote?.created_at);
+    expect(xometryQuote?.offers[0]?.created_at).toBe(xometryQuote?.created_at);
+    expect(xometryQuote?.offers[0]).toMatchObject({
+      process: "CNC milling",
+      material: workspaceItem?.part?.approvedRequirement?.material,
+      finish: workspaceItem?.part?.approvedRequirement?.finish,
+    });
+    expect(xometryQuote?.offers[0]?.quote_date).toBe(
+      xometryQuote?.created_at.slice(0, 10),
+    );
+    expect(xometryQuote?.raw_payload).toMatchObject({
+      requirementCapturedAt: workspaceItem?.part?.approvedRequirement?.updated_at,
+    });
+  });
+
   it("updates the selected offer and archive state inside the fixture store", async () => {
     const gateway = activateQuotedFixtureGateway();
 

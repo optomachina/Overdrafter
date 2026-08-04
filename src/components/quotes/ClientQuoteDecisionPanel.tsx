@@ -18,6 +18,7 @@ const ClientQuoteComparisonChart = lazy(() =>
 );
 import { QuoteStatsBar } from "@/components/quotes/QuoteStatsBar";
 import { QuoteSupplierLegend } from "@/components/quotes/QuoteSupplierLegend";
+import { VendorPurchasingLinkButton } from "@/components/quotes/VendorPurchasingLinkButton";
 import { ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,7 @@ import {
 import type { QuoteDataStatus, QuoteDiagnostics } from "@/features/quotes/types";
 import { formatCurrency } from "@/features/quotes/utils";
 import { getVendorColor } from "@/features/quotes/vendor-colors";
+import { resolveVendorPurchasingLink } from "@/features/quotes/vendor-purchasing-links";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
@@ -347,6 +349,7 @@ function QuoteComparisonTable({
             <TableHead className="text-right text-[11px] text-muted-foreground">Unit</TableHead>
             <TableHead className="text-right text-[11px] text-muted-foreground">Total</TableHead>
             <TableHead className="text-right text-[11px] text-muted-foreground">Estimated Delivery</TableHead>
+            <TableHead className="text-right text-[11px] text-muted-foreground">Vendor quote</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -446,6 +449,9 @@ function QuoteComparisonTable({
                 </TableCell>
                 <TableCell className="py-2.5 text-right text-sm tabular-nums text-foreground/80">
                   {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
+                </TableCell>
+                <TableCell className="py-2.5 text-right">
+                  <VendorPurchasingLinkButton option={option} label="Open" />
                 </TableCell>
               </TableRow>
             );
@@ -582,6 +588,7 @@ function QuoteComparisonCards({
                   Selected
                 </Badge>
               ) : null}
+              <VendorPurchasingLinkButton option={option} />
             </div>
           </article>
         );
@@ -718,6 +725,7 @@ function MobileQuoteReviewDeck({
               >
                 {selected ? "Selected" : "Select this vendor"}
               </Button>
+              <VendorPurchasingLinkButton option={option} className="mt-2 h-11 w-full" />
             </article>
           );
         })}
@@ -861,6 +869,13 @@ function renderDecisionPanelContent({
       />
 
       {comparisonContent}
+
+      {options.some((option) => resolveVendorPurchasingLink(option)) ? (
+        <p className="text-xs text-muted-foreground">
+          Vendor quote links open the supplier's purchasing page. Vendor sign-in or a vendor-issued guest link may be
+          required.
+        </p>
+      ) : null}
     </div>
   );
 }
