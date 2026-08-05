@@ -50,7 +50,7 @@ describe("persistent CAD preview migrations", () => {
   it("adds sketch without removing hidden-lines-removed and makes sketch the default", () => {
     expect(sketchDefaultMigration).toContain("display_style in ('hidden_lines_removed', 'sketch')");
     expect(sketchDefaultMigration).toContain("alter column display_style set default 'sketch'");
-    expect(sketchDefaultMigration).toContain("asset.display_style = 'sketch'");
+    expect(sketchDefaultMigration).toContain("asset.display_style <> 'hidden_lines_removed'");
     expect(sketchDefaultMigration).toContain("'cad_preview_sketch_backfill'");
   });
 });

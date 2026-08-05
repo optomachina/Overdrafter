@@ -11,6 +11,7 @@ create temporary table cad_preview_test_context (
   part_id uuid not null,
   preview_id uuid not null,
   object_id uuid not null,
+  authenticated_role text not null,
   artifact_bucket text not null,
   preview_path text not null
 ) on commit drop;
@@ -24,25 +25,19 @@ insert into cad_preview_test_context values (
   '00000000-0000-4000-8000-000000000706',
   '00000000-0000-4000-8000-000000000707',
   '00000000-0000-4000-8000-000000000708',
+  'authenticated',
   'quote-artifacts',
   'org/cad-previews/job/part/hidden-lines-removed-isometric.svg'
 );
 
 grant select on cad_preview_test_context to authenticated;
 
-with test_role as (
-  select 'authenticated'::text as role_name
-), test_users as (
-  select member_user_id as user_id, 'cad-preview-member@example.com' as email
-  from cad_preview_test_context
-  union all
-  select outsider_user_id, 'cad-preview-outsider@example.com'
-  from cad_preview_test_context
-)
 insert into auth.users (id, aud, role, email)
-select user_id, role_name, role_name, email
-from test_users
-cross join test_role;
+select member_user_id, authenticated_role, authenticated_role, 'cad-preview-member@example.com'
+from cad_preview_test_context
+union all
+select outsider_user_id, authenticated_role, authenticated_role, 'cad-preview-outsider@example.com'
+from cad_preview_test_context;
 
 insert into public.organizations (id, name, slug)
 select organization_id, 'CAD Preview Policy', 'cad-preview-policy'
