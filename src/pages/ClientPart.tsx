@@ -837,7 +837,14 @@ const ClientPart = () => {
 
                 <TabsContent value="quote" className="mt-0">
                   <div className="space-y-4">
-                    {sourcingResult ? <ClientSourcingResultPanel result={sourcingResult} /> : null}
+                    {sourcingResult ? (
+                      <ClientSourcingResultPanel
+                        result={sourcingResult}
+                        selectedProcess={effectiveRequestDraft?.process}
+                        isProcessSaving={saveRequestMutation.isPending}
+                        onProcessSelect={(process) => handleSaveRequestPatch({ process })}
+                      />
+                    ) : null}
                     <ClientQuoteDecisionPanel
                     options={rankedQuoteOptions}
                     selectedOption={

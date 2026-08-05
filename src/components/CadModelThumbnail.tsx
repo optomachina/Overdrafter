@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Box, Loader2, Rotate3D } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import type { OcctMesh } from "occt-import-js";
 import { isStepPreviewableFile, loadCadPreview, type CadPreviewSource } from "@/lib/cad-preview";
 import { cn } from "@/lib/utils";
@@ -126,19 +126,6 @@ export function CadModelThumbnail({
         modelGroup.position.sub(center);
         modelGroup.position.y += maxDimension * 0.06;
 
-        const shadow = new THREE.Mesh(
-          new THREE.CircleGeometry(maxDimension * 0.62, 48),
-          new THREE.MeshBasicMaterial({
-            color: 0x06101d,
-            transparent: true,
-            opacity: 0.14,
-          }),
-        );
-        shadow.rotation.x = -Math.PI / 2;
-        shadow.position.y = -size.y * 0.58;
-        shadow.scale.set(1.35, 0.78, 1);
-        nextScene.add(shadow);
-
         const distance = maxDimension * 2.3;
         camera.position.set(distance, distance * 0.82, distance * 1.15);
         camera.near = Math.max(maxDimension / 200, 0.01);
@@ -233,15 +220,6 @@ export function CadModelThumbnail({
     >
       <div ref={canvasHostRef} className="absolute inset-0" />
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between p-2">
-        <div className="rounded-full border border-border bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-[0.24em] text-foreground/80">
-          STEP
-        </div>
-        <div className="rounded-full border border-border bg-muted px-2 py-1 text-[11px] text-muted-foreground">
-          Hidden lines removed
-        </div>
-      </div>
-
       {status !== "ready" ? (
         <div
           className={cn(
@@ -283,17 +261,6 @@ export function CadModelThumbnail({
           )}
         </div>
       ) : null}
-
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between p-3 text-[11px] text-muted-foreground">
-        <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2 py-1">
-          <Rotate3D className="h-3.5 w-3.5" />
-          Drag to inspect
-        </div>
-        <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2 py-1">
-          <Box className="h-3.5 w-3.5" />
-          Live 3D
-        </div>
-      </div>
     </div>
   );
 }

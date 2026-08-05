@@ -153,6 +153,7 @@ export function useClientPartController(
   const [isPartArchiveBusy, setIsPartArchiveBusy] = useState(false);
   const isRequestQuoteLockedRef = useRef(false);
   const isCancelQuoteRequestLockedRef = useRef(false);
+  const patchDraftPreservationRef = useRef<ClientPartRequestUpdateInput | null>(null);
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const workspaceAccessScope = createWorkspaceAccessScope({
@@ -751,6 +752,7 @@ export function useClientPartController(
   useEffect(() => {
     setExcludedVendorKeys(readExcludedVendorKeys(canonicalJobId));
     setActivePreset(null);
+    patchDraftPreservationRef.current = null;
     setRequestDraft(null);
     setQuoteQuantityInput("");
     setPartRenameValue("");
@@ -766,10 +768,13 @@ export function useClientPartController(
       return;
     }
 
-    setRequestDraft(fallbackRequestDraft);
-    setQuoteQuantityInput(
-      formatRequestedQuoteQuantitiesInput(fallbackRequestDraft.requestedQuoteQuantities),
-    );
+    const preservedDraft = patchDraftPreservationRef.current;
+    setRequestDraft(preservedDraft ?? fallbackRequestDraft);
+    if (!preservedDraft) {
+      setQuoteQuantityInput(
+        formatRequestedQuoteQuantitiesInput(fallbackRequestDraft.requestedQuoteQuantities),
+      );
+    }
     setPartRenameValue(fallbackRequestDraft.partNumber ?? presentation?.title ?? "");
   }, [fallbackRequestDraft, presentation?.title]);
 
@@ -1188,30 +1193,28 @@ export function useClientPartController(
       requestedQuoteQuantities: nextQuantities,
     } satisfies ClientPartRequestUpdateInput;
 
+    patchDraftPreservationRef.current = null;
     setRequestDraft(payload);
     setQuoteQuantityInput(formatRequestedQuoteQuantitiesInput(nextQuantities));
     saveRequestMutation.mutate(payload);
   };
 
   const handleSaveRequestPatch = (next: Partial<ClientPartRequestUpdateInput>) => {
-    if (!effectiveRequestDraft) {
+    if (!fallbackRequestDraft) {
       return;
     }
 
-    const nextQuantities = parseRequestedQuoteQuantitiesInput(
-      quoteQuantityInput,
-      effectiveRequestDraft.quantity,
-    );
-
     const payload = {
-      ...effectiveRequestDraft,
+      ...fallbackRequestDraft,
       ...next,
-      requestedQuoteQuantities: nextQuantities,
     } satisfies ClientPartRequestUpdateInput;
+    const preservedDraft = requestDraft ? { ...requestDraft, ...next } : payload;
 
-    setRequestDraft(payload);
-    setQuoteQuantityInput(formatRequestedQuoteQuantitiesInput(nextQuantities));
-    saveRequestMutation.mutate(payload);
+    patchDraftPreservationRef.current = preservedDraft;
+    setRequestDraft(preservedDraft);
+    saveRequestMutation.mutate(payload, {
+      onSuccess: () => setRequestDraft(preservedDraft),
+    });
   };
 
   const handleRequestQuote = async (forceRetry = false) => {

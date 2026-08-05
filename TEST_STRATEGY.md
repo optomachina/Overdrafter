@@ -168,6 +168,16 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - verify deterministic canonical identifiers and typed topology fields instead of asserting against raw provider-specific STEP entities
 - verify normalized unit and bounding-box fields when geometry coordinates are part of the change
 
+### Persistent CAD preview changes
+- verify coplanar triangulation seams are omitted while boundary and crease edges remain
+- run the renderer against a representative STEP fixture and record triangle, feature-edge, and output-size evidence
+- verify current source-file and renderer versions skip redundant work while stale assets are replaced through an atomic upsert
+- verify client workspace hydration ignores assets tied to an obsolete `cad_file_id`
+- verify authenticated users can read only preview rows and storage objects for jobs they can access
+- verify the collection keeps the browser-rendered fallback while a persistent asset is missing or unavailable
+- verify existing STEP-backed parts receive one `generate_cad_preview` backfill task without duplicate queued work
+- verify `sketch` is additive to `hidden_lines_removed`, is the collection default, and backfills parts that have only the earlier style
+
 ### Schema or migration changes
 - validate the migration path
 - run the relevant pgTAP database tests for RLS or other database-enforced behavior

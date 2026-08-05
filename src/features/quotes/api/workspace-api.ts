@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type {
   ArchivedJobSummary,
+  CadPreviewAssetRecord,
   ClientActivityEvent,
   ClientQuoteWorkspaceItem,
   DrawingPreviewAssetRecord,
@@ -22,6 +23,7 @@ import {
 import { callRpc } from "./shared/rpc";
 import { emptyResponse, ensureData } from "./shared/response";
 import {
+  isMissingCadPreviewSchemaError,
   isMissingClientActivitySchemaError,
   isMissingDrawingPreviewSchemaError,
   isMissingFunctionError,
@@ -55,6 +57,24 @@ const EMPTY_QUOTE_DIAGNOSTICS: QuoteDiagnostics = {
   excludedOffers: [],
   excludedReasonCounts: [],
 };
+
+function resolveCurrentCadPreview(
+  part: Pick<PartRecord, "cad_file_id">,
+  assets: readonly CadPreviewAssetRecord[],
+): CadPreviewAssetRecord | null {
+  if (!part.cad_file_id) {
+    return null;
+  }
+
+  return (
+    assets.find(
+      (asset) =>
+        asset.source_cad_file_id === part.cad_file_id &&
+        asset.display_style === "sketch" &&
+        asset.view_orientation === "isometric",
+    ) ?? null
+  );
+}
 
 function resolveQuoteWorkspaceHealth(input: {
   quoteDataStatus: QuoteDataStatus;
@@ -326,24 +346,37 @@ export async function fetchClientQuoteWorkspaceByJobIds(
   const parts = ensureData(partsResult.data, partsResult.error) as PartRecord[];
   const metadataRows = await fetchClientPartMetadataByJobIds(jobIds);
   const previewPartIds = [...new Set([...parts.map((part) => part.id), ...metadataRows.map((item) => item.partId)])];
-  const previewResult =
+  const [previewResult, cadPreviewResult] = await Promise.all([
     previewPartIds.length > 0
-      ? await supabase
+      ? supabase
           .from("drawing_preview_assets")
           .select("*")
           .in("part_id", previewPartIds)
           .order("page_number", { ascending: true })
-      : await emptyResponse<DrawingPreviewAssetRecord>();
+      : emptyResponse<DrawingPreviewAssetRecord>(),
+    previewPartIds.length > 0
+      ? supabase
+          .from("cad_preview_assets")
+          .select("*")
+          .in("part_id", previewPartIds)
+          .eq("display_style", "sketch")
+          .eq("view_orientation", "isometric")
+      : emptyResponse<CadPreviewAssetRecord>(),
+  ]);
 
   const previewAssets = isMissingDrawingPreviewSchemaError(previewResult.error)
     ? []
     : (ensureData(previewResult.data, previewResult.error) as DrawingPreviewAssetRecord[]);
+  const cadPreviewAssets = isMissingCadPreviewSchemaError(cadPreviewResult.error)
+    ? []
+    : (ensureData(cadPreviewResult.data, cadPreviewResult.error) as CadPreviewAssetRecord[]);
 
   const summariesByJobId = new Map(summaries.map((summary) => [summary.jobId, summary]));
   const filesByJobId = new Map<string, JobFileRecord[]>();
   const partsByJobId = new Map<string, PartRecord[]>();
   const metadataByPartId = new Map(metadataRows.map((item) => [item.partId, item]));
   const previewAssetsByPartId = new Map<string, DrawingPreviewAssetRecord[]>();
+  const cadPreviewAssetsByPartId = new Map<string, CadPreviewAssetRecord[]>();
   const fileById = new Map(files.map((file) => [file.id, file]));
   const projectIdsByJobId = new Map<string, string[]>();
 
@@ -363,6 +396,12 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     const assets = previewAssetsByPartId.get(asset.part_id) ?? [];
     assets.push(asset);
     previewAssetsByPartId.set(asset.part_id, assets);
+  });
+
+  cadPreviewAssets.forEach((asset) => {
+    const assets = cadPreviewAssetsByPartId.get(asset.part_id) ?? [];
+    assets.push(asset);
+    cadPreviewAssetsByPartId.set(asset.part_id, assets);
   });
 
   projectMemberships.forEach((membership) => {
@@ -396,7 +435,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     };
     const primaryPart = jobParts[0] ?? null;
     const fallbackMetadata = metadataRows.find((item) => item.jobId === jobId) ?? null;
-    const partWithRelations =
+    const basePartWithRelations =
       primaryPart === null
         ? fallbackMetadata
           ? buildClientPartAggregateFromMetadata({
@@ -416,6 +455,15 @@ export async function fetchClientQuoteWorkspaceByJobIds(
             clientExtraction: metadataByPartId.get(primaryPart.id)?.extraction ?? null,
             vendorQuotes: quoteWorkspace.vendorQuotes.filter((quote) => quote.part_id === primaryPart.id),
           };
+    const partWithRelations = basePartWithRelations
+      ? {
+          ...basePartWithRelations,
+          cadPreview: resolveCurrentCadPreview(
+            basePartWithRelations,
+            cadPreviewAssetsByPartId.get(basePartWithRelations.id) ?? [],
+          ),
+        }
+      : null;
     const quoteWorkspaceHealth = resolveQuoteWorkspaceHealth({
       quoteDataStatus: quoteWorkspace.quoteDataStatus,
       quoteDataMessage: quoteWorkspace.quoteDataMessage,

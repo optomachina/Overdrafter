@@ -34,6 +34,7 @@ export type JobFileRecord = Database["public"]["Tables"]["job_files"]["Row"];
 export type PartRecord = Database["public"]["Tables"]["parts"]["Row"];
 export type DrawingExtractionRecord = Database["public"]["Tables"]["drawing_extractions"]["Row"];
 export type DrawingPreviewAssetRecord = Database["public"]["Tables"]["drawing_preview_assets"]["Row"];
+export type CadPreviewAssetRecord = Database["public"]["Tables"]["cad_preview_assets"]["Row"];
 export type DebugExtractionRunRecord = Database["public"]["Tables"]["debug_extraction_runs"]["Row"];
 export type ApprovedPartRequirementRecord = Database["public"]["Tables"]["approved_part_requirements"]["Row"];
 export type QuoteRequestRecord = Database["public"]["Tables"]["quote_requests"]["Row"];
@@ -597,6 +598,7 @@ export type PartAggregate = PartRecord & {
   approvedRequirement: ApprovedPartRequirementRecord | null;
   clientRequirement?: ClientPartRequirementView | null;
   clientExtraction?: ClientExtractionDiagnostics | null;
+  cadPreview?: CadPreviewAssetRecord | null;
   vendorQuotes: VendorQuoteAggregate[];
 };
 

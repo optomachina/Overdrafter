@@ -47,8 +47,19 @@ describe("PartProductDataBar", () => {
 
     expect(screen.getByText("Material").nextElementSibling).toHaveTextContent("Titanium");
     expect(screen.getByText("Finish").nextElementSibling).toHaveTextContent("Electropolish");
-    expect(screen.getByText("Tolerance").nextElementSibling).toHaveTextContent("±0.0010 in");
+    expect(screen.getByText("Tolerance").nextElementSibling).toHaveTextContent("±0.001 in");
     expect(screen.getByText("Thread").nextElementSibling).toHaveTextContent("M4x0.7");
+  });
+
+  it("uses a fourth decimal only for tolerances tighter than one thousandth", () => {
+    renderBar({
+      draft: {
+        tightestToleranceInch: 0.0002,
+        requestedQuoteQuantities: [],
+      } as ComponentProps<typeof PartProductDataBar>["draft"],
+    });
+
+    expect(screen.getByText("Tolerance").nextElementSibling).toHaveTextContent("±0.0002 in");
   });
 
   it("falls back to extraction material when draft has no material", () => {

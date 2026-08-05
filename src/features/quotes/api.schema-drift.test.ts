@@ -151,6 +151,7 @@ function findFilter(
 describe("quotes api schema drift handling", () => {
   beforeEach(() => {
     supabaseMock.reset();
+    supabaseMock.setResolver("cad_preview_assets", () => response([]));
     resetClientActivityFeedAvailabilityForTests();
     resetClientIntakeSchemaAvailabilityForTests();
     resetJobArchivingSchemaAvailabilityForTests();
@@ -298,6 +299,14 @@ describe("quotes api schema drift handling", () => {
       response(null, {
         code: "42703",
         message: 'column drawing_preview_assets.page_number does not exist',
+        details: null,
+        hint: null,
+      }),
+    );
+    supabaseMock.setResolver("cad_preview_assets", () =>
+      response(null, {
+        code: "42P01",
+        message: 'relation "public.cad_preview_assets" does not exist',
         details: null,
         hint: null,
       }),
@@ -491,7 +500,7 @@ describe("quotes api schema drift handling", () => {
             organization_id: "org-1",
             name: "Bracket",
             normalized_key: "1093-05589-a",
-            cad_file_id: null,
+            cad_file_id: "cad-1",
             drawing_file_id: null,
             quantity: 10,
             created_at: "2026-03-01T00:00:00Z",
@@ -514,6 +523,28 @@ describe("quotes api schema drift handling", () => {
     });
     supabaseMock.setResolver("project_jobs", () => response([]));
     supabaseMock.setResolver("drawing_preview_assets", () => response([]));
+    supabaseMock.setResolver("cad_preview_assets", () =>
+      response([
+        {
+          id: "cad-preview-1",
+          part_id: "part-1",
+          organization_id: "org-1",
+          source_cad_file_id: "cad-1",
+          source_content_sha256: "cad-hash",
+          display_style: "sketch",
+          view_orientation: "isometric",
+          renderer_version: "cad-svg-sketch-v1",
+          storage_bucket: "quote-artifacts",
+          storage_path: "org-1/cad-previews/job-1/part-1/preview.svg",
+          mime_type: "image/svg+xml",
+          width: 256,
+          height: 256,
+          generated_at: "2026-03-01T00:05:00Z",
+          created_at: "2026-03-01T00:05:00Z",
+          updated_at: "2026-03-01T00:05:00Z",
+        },
+      ]),
+    );
     supabaseMock.setResolver("quote_requests", () => response([]));
     supabaseMock.rpc.mockImplementation((fn: string) => {
       if (fn === "api_list_client_part_metadata") {
@@ -674,6 +705,10 @@ describe("quotes api schema drift handling", () => {
           status: "published",
         }),
         part: expect.objectContaining({
+          cadPreview: expect.objectContaining({
+            id: "cad-preview-1",
+            source_cad_file_id: "cad-1",
+          }),
           vendorQuotes: [
             expect.objectContaining({
               id: "quote-1",

@@ -26,16 +26,18 @@ type RequestServiceIntentFieldsProps = {
 function getToneClasses(tone: "client" | "internal") {
   return tone === "internal"
     ? {
-        card: "rounded-2xl border border-border bg-accent px-4 py-3",
-        helper: "text-xs text-muted-foreground",
-        select: "border-border bg-muted text-foreground",
-        textarea: "min-h-[96px] border-border bg-muted text-foreground",
+        card: "min-w-0 rounded-2xl border border-border bg-accent px-4 py-3",
+        grid: "grid min-w-0 gap-3 md:grid-cols-2",
+        helper: "break-words text-xs text-muted-foreground",
+        select: "min-w-0 border-border bg-muted text-foreground",
+        textarea: "min-h-[96px] min-w-0 border-border bg-muted text-foreground",
       }
     : {
-        card: "rounded-2xl border border-border bg-muted px-4 py-3",
-        helper: "text-xs text-muted-foreground",
-        select: "border-border bg-muted text-foreground",
-        textarea: "min-h-[96px] border-border bg-muted text-foreground",
+        card: "min-w-0 rounded-2xl border border-border bg-muted px-4 py-3",
+        grid: "grid min-w-0 grid-cols-1 gap-3",
+        helper: "break-words text-xs text-muted-foreground",
+        select: "min-w-0 border-border bg-muted text-foreground",
+        textarea: "min-h-[96px] min-w-0 border-border bg-muted text-foreground",
       };
 }
 
@@ -74,10 +76,10 @@ export function RequestServiceIntentFields({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="space-y-2">
+    <div className="min-w-0 space-y-4">
+      <div className="min-w-0 space-y-2">
         <Label>Requested services</Label>
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className={styles.grid}>
           {REQUESTED_SERVICE_TYPE_OPTIONS.map((option) => (
             <label key={option.code} className={styles.card}>
               <div className="flex items-start gap-3">
@@ -85,9 +87,9 @@ export function RequestServiceIntentFields({
                   checked={requestedServiceKinds.includes(option.code)}
                   disabled={disabled}
                   onCheckedChange={(checked) => handleToggle(option.code, checked === true)}
-                  className="mt-0.5"
+                  className="mt-0.5 shrink-0"
                 />
-                <div className="space-y-1">
+                <div className="min-w-0 space-y-1">
                   <div className="text-sm font-medium text-foreground">{option.label}</div>
                   <p className={styles.helper}>{option.description}</p>
                 </div>
@@ -100,7 +102,7 @@ export function RequestServiceIntentFields({
         </p>
       </div>
 
-      <div className="space-y-2">
+      <div className="min-w-0 space-y-2">
         <Label>Primary service</Label>
         <Select
           value={primaryServiceKind}
@@ -134,7 +136,7 @@ export function RequestServiceIntentFields({
         </Select>
       </div>
 
-      <div className="space-y-2">
+      <div className="min-w-0 space-y-2">
         <Label htmlFor={`service-notes-${tone}`}>Service notes</Label>
         <Textarea
           id={`service-notes-${tone}`}

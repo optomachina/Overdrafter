@@ -7,9 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobRecord } from "@/features/quotes/types";
 import Index from "./Index";
 
-const guestLandingHeading = /parts in\.\s*clear sourcing paths out\./i;
+const guestLandingHeading = /files in\.\s*parts out\./i;
 const guestLandingBody =
-  /upload a STEP model and PDF drawing\. Free gives you ranked potential providers and official RFQ links/i;
+  /upload CAD files and drawings to collect vendor quotes, compare price and lead time, and choose the best source for your budget and deadline/i;
 
 const mockUseAppSession = vi.fn();
 const mockFetchCommercialAdminAccess = vi.hoisted(() => vi.fn());
@@ -167,7 +167,9 @@ describe("Index client home", () => {
     expect(screen.getByRole("button", { name: /upload a part package/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
     expect(screen.getByText(guestLandingBody)).toBeInTheDocument();
-    expect(screen.getByText(/illustrative pro workspace/i)).toBeInTheDocument();
+    expect(screen.queryByText(/illustrative pro workspace/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /vendor quotes plotted by total price and lead time/i })).toBeInTheDocument();
+    expect(screen.getByText("© 2026 OverDrafter")).toBeInTheDocument();
   });
 
   it("routes an established client workspace to the parts collection", async () => {

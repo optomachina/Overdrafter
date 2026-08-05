@@ -42,6 +42,9 @@ export function RfqLineItemMetadataFields({
   mode = "client",
 }: RfqLineItemMetadataFieldsProps) {
   const showInternalFields = mode === "internal";
+  const gridClasses = showInternalFields
+    ? "grid min-w-0 gap-4 md:grid-cols-2"
+    : "grid min-w-0 grid-cols-1 gap-4";
 
   const updateShipping = (next: Partial<RfqLineItemExtendedMetadata["shipping"]>) =>
     onChange({ shipping: { ...value.shipping, ...next } });
@@ -53,8 +56,8 @@ export function RfqLineItemMetadataFields({
     onChange({ release: { ...value.release, ...next } });
 
   return (
-    <div className="space-y-5">
-      <div className="grid gap-4 md:grid-cols-2">
+    <div className="min-w-0 space-y-5">
+      <div className={gridClasses}>
         {showInternalFields ? (
           <div className="space-y-2">
             <Label htmlFor={`${idPrefix}-requested-date-override`}>Shipping date override</Label>
@@ -94,8 +97,8 @@ export function RfqLineItemMetadataFields({
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-2 md:col-span-2">
+      <div className={gridClasses}>
+        <div className={showInternalFields ? "space-y-2 md:col-span-2" : "min-w-0 space-y-2"}>
           <Label htmlFor={`${idPrefix}-required-certifications`}>Required certifications</Label>
           <Input
             id={`${idPrefix}-required-certifications`}
@@ -169,7 +172,7 @@ export function RfqLineItemMetadataFields({
         </label>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className={gridClasses}>
         <div className="space-y-2">
           <Label>Sourcing preference</Label>
           <Select
@@ -220,7 +223,7 @@ export function RfqLineItemMetadataFields({
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-2 md:col-span-2">
+        <div className={showInternalFields ? "space-y-2 md:col-span-2" : "min-w-0 space-y-2"}>
           <Label htmlFor={`${idPrefix}-preferred-suppliers`}>Preferred suppliers</Label>
           <Input
             id={`${idPrefix}-preferred-suppliers`}
@@ -235,7 +238,7 @@ export function RfqLineItemMetadataFields({
             }
           />
         </div>
-        <div className="space-y-2 md:col-span-2">
+        <div className={showInternalFields ? "space-y-2 md:col-span-2" : "min-w-0 space-y-2"}>
           <Label htmlFor={`${idPrefix}-sourcing-notes`}>Sourcing notes</Label>
           <Textarea
             id={`${idPrefix}-sourcing-notes`}
@@ -248,7 +251,7 @@ export function RfqLineItemMetadataFields({
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className={gridClasses}>
         <div className="space-y-2">
           <Label>Release status</Label>
           <Select
@@ -300,7 +303,7 @@ export function RfqLineItemMetadataFields({
             </Select>
           </div>
         ) : null}
-        <div className="space-y-2 md:col-span-2">
+        <div className={showInternalFields ? "space-y-2 md:col-span-2" : "min-w-0 space-y-2"}>
           <Label htmlFor={`${idPrefix}-release-notes`}>Release notes</Label>
           <Textarea
             id={`${idPrefix}-release-notes`}

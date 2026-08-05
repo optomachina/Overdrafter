@@ -182,8 +182,9 @@ describe("WorkspaceSidebar", () => {
     expect(sortAndFilterButton).toBeInTheDocument();
     expect(newJobButton).toHaveClass("text-foreground");
     expect(searchButton).toHaveClass("text-foreground");
-    expect(newJobButton).toHaveClass("pl-1", "pr-3");
-    expect(searchButton).toHaveClass("pl-1", "pr-3");
+    expect(newJobButton).toHaveClass("pl-2.5", "pr-3");
+    expect(searchButton).toHaveClass("pl-2.5", "pr-3");
+    expect(newJobButton.parentElement).toHaveClass("-mx-1");
   });
 
   it("invokes the project header create action", () => {

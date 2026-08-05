@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Box, FolderKanban, Search, Upload } from "lucide-react";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
+import { CadPreviewThumbnail } from "@/components/CadPreviewThumbnail";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { QuoteIntelligenceLanding } from "@/components/quote-intelligence/QuoteIntelligenceLanding";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
@@ -14,6 +15,8 @@ import {
 } from "@/features/quotes/quote-intelligence-view-model";
 import { useClientHomeController } from "@/features/quotes/use-client-home-controller";
 import { useQuoteIntelligenceWorkspace } from "@/features/quotes/use-quote-intelligence-workspace";
+import type { CadPreviewAssetRecord } from "@/features/quotes/types";
+import { createCadPreviewSourceFromJobFile, isStepPreviewableFile } from "@/lib/cad-preview";
 
 const FILTERS: Array<{ value: PartCollectionFilter; label: string }> = [
   { value: "all", label: "All" },
@@ -45,6 +48,36 @@ export default function ClientParts() {
     Boolean(controller.user),
     controller.workspaceAccessScope,
   );
+  const cadPreviewSourcesByJobId = useMemo(() => {
+    const sources = new Map<string, ReturnType<typeof createCadPreviewSourceFromJobFile>>();
+
+    (quoteWorkspace.workspaceQuery.data ?? []).forEach((item) => {
+      const primaryCadFile = item.part?.cadFile;
+      const cadFile =
+        primaryCadFile && isStepPreviewableFile(primaryCadFile.original_name)
+          ? primaryCadFile
+          : item.files.find(
+              (file) => file.file_kind === "cad" && isStepPreviewableFile(file.original_name),
+            );
+
+      if (cadFile) {
+        sources.set(item.job.id, createCadPreviewSourceFromJobFile(cadFile));
+      }
+    });
+
+    return sources;
+  }, [quoteWorkspace.workspaceQuery.data]);
+  const cadPreviewAssetsByJobId = useMemo(() => {
+    const assets = new Map<string, CadPreviewAssetRecord>();
+
+    (quoteWorkspace.workspaceQuery.data ?? []).forEach((item) => {
+      if (item.part?.cadPreview) {
+        assets.set(item.job.id, item.part.cadPreview);
+      }
+    });
+
+    return assets;
+  }, [quoteWorkspace.workspaceQuery.data]);
   const projects = useMemo(
     () =>
       controller.sidebarProjects.map((project) => ({
@@ -117,7 +150,7 @@ export default function ClientParts() {
         className="inline-flex min-h-10 items-center gap-2 border border-paper-hairline bg-paper-surface px-3 text-[12px] font-medium transition-colors hover:bg-paper-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red"
       >
         <Upload className="h-4 w-4" aria-hidden="true" />
-        <span className="hidden sm:inline">Upload parts</span>
+        <span className="hidden sm:inline">Upload</span>
       </button>
     </>
   );
@@ -176,46 +209,65 @@ export default function ClientParts() {
 
     return (
       <div className="border-b border-paper-hairline" aria-live="polite">
-        {rows.map((row) => (
-          <Link
-            key={`${row.kind}:${row.id}`}
-            to={row.href}
-            className="group grid min-h-[92px] grid-cols-[64px_minmax(0,1fr)] gap-4 border-t border-paper-hairline py-4 transition-colors hover:bg-paper-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red sm:grid-cols-[72px_minmax(0,1fr)_auto]"
-          >
-            <span className="flex h-16 w-16 items-center justify-center rounded-[2px] border border-paper-hairline bg-paper-surface text-paper-muted sm:h-[72px] sm:w-[72px]">
-              {row.kind === "project_group" ? <FolderKanban className="h-7 w-7" aria-hidden="true" /> : <Box className="h-7 w-7" aria-hidden="true" />}
-              <span className="sr-only">{row.kind === "project_group" ? "Project group" : "Part preview unavailable"}</span>
-            </span>
-            <span className="min-w-0">
-              <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <span className="truncate font-display text-[16px] font-bold">{row.title}</span>
-                <span className="font-mono text-[10px] uppercase text-paper-red">{row.statusLabel}</span>
+        {rows.map((row) => {
+          const previewSource = row.kind === "part" ? cadPreviewSourcesByJobId.get(row.id) : null;
+          const previewAsset = row.kind === "part" ? cadPreviewAssetsByJobId.get(row.id) ?? null : null;
+
+          return (
+            <Link
+              key={`${row.kind}:${row.id}`}
+              to={row.href}
+              className="group grid min-h-[92px] grid-cols-[64px_minmax(0,1fr)] gap-4 border-t border-paper-hairline py-4 transition-colors hover:bg-paper-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red sm:grid-cols-[72px_minmax(0,1fr)_auto]"
+            >
+              <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-[2px] border border-paper-hairline bg-paper-surface text-paper-muted sm:h-[72px] sm:w-[72px]">
+                {row.kind === "project_group" ? (
+                  <>
+                    <FolderKanban className="h-7 w-7" aria-hidden="true" />
+                    <span className="sr-only">Project group</span>
+                  </>
+                ) : previewSource || previewAsset ? (
+                  <CadPreviewThumbnail
+                    asset={previewAsset}
+                    fallbackSource={previewSource ?? null}
+                  />
+                ) : (
+                  <>
+                    <Box className="h-7 w-7" aria-hidden="true" />
+                    <span className="sr-only">Part preview unavailable</span>
+                  </>
+                )}
               </span>
-              <span className="mt-1 line-clamp-2 block text-[12px] text-paper-muted">{row.description}</span>
-              <span className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] uppercase text-paper-muted">
-                {row.reference ? <span>{row.reference}{row.revision ? ` · Rev ${row.revision}` : ""}</span> : null}
-                {row.quantity ? <span>Qty {row.quantity}</span> : null}
-                {row.partCount !== null ? <span>{row.partCount} parts</span> : null}
-                {row.material ? <span>{row.material}</span> : null}
-                {row.finish ? <span>{row.finish}</span> : null}
-                {row.process ? <span>{row.process}</span> : null}
-                {row.projectNames.length > 0 ? <span>{row.projectNames.join(", ")}</span> : null}
-              </span>
-              {row.matchExplanations.length > 0 ? (
-                <span className="mt-2 flex flex-wrap gap-2">
-                  {row.matchExplanations.map((explanation) => (
-                    <span key={`${explanation.label}:${explanation.value ?? ""}`} className="rounded-[2px] border border-paper-hairline px-2 py-1 text-[10px] text-paper-muted">
-                      {explanation.label}{explanation.value ? ` · ${explanation.value}` : ""}
-                    </span>
-                  ))}
+              <span className="min-w-0">
+                <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <span className="truncate font-display text-[16px] font-bold">{row.title}</span>
+                  <span className="font-mono text-[10px] uppercase text-paper-red">{row.statusLabel}</span>
                 </span>
-              ) : null}
-            </span>
-            <span className="hidden self-center pr-3 font-mono text-[10px] uppercase text-paper-muted sm:block">
-              {formatUpdatedAt(row.updatedAt)}
-            </span>
-          </Link>
-        ))}
+                <span className="mt-1 line-clamp-2 block text-[12px] text-paper-muted">{row.description}</span>
+                <span className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] uppercase text-paper-muted">
+                  {row.reference ? <span>{row.reference}{row.revision ? ` · Rev ${row.revision}` : ""}</span> : null}
+                  {row.quantity ? <span>Qty {row.quantity}</span> : null}
+                  {row.partCount !== null ? <span>{row.partCount} parts</span> : null}
+                  {row.material ? <span>{row.material}</span> : null}
+                  {row.finish ? <span>{row.finish}</span> : null}
+                  {row.process ? <span>{row.process}</span> : null}
+                  {row.projectNames.length > 0 ? <span>{row.projectNames.join(", ")}</span> : null}
+                </span>
+                {row.matchExplanations.length > 0 ? (
+                  <span className="mt-2 flex flex-wrap gap-2">
+                    {row.matchExplanations.map((explanation) => (
+                      <span key={`${explanation.label}:${explanation.value ?? ""}`} className="rounded-[2px] border border-paper-hairline px-2 py-1 text-[10px] text-paper-muted">
+                        {explanation.label}{explanation.value ? ` · ${explanation.value}` : ""}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
+              </span>
+              <span className="hidden self-center pr-3 font-mono text-[10px] uppercase text-paper-muted sm:block">
+                {formatUpdatedAt(row.updatedAt)}
+              </span>
+            </Link>
+          );
+        })}
       </div>
     );
   }

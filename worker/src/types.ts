@@ -14,6 +14,7 @@ export type ModelUsageSummary = {
 export type QueueTaskType =
   | "extract_part"
   | "debug_extract_part"
+  | "generate_cad_preview"
   | "run_vendor_quote"
   | "poll_vendor_quote"
   | "publish_package"
@@ -98,6 +99,7 @@ export type JobFileRecord = {
   storage_bucket: string;
   storage_path: string;
   original_name: string;
+  content_sha256?: string | null;
   file_kind: "cad" | "drawing" | "artifact" | "other";
 };
 

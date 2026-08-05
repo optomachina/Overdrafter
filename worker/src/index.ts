@@ -69,6 +69,10 @@ import { aggregateQuoteRunStatus } from "./quoteRunStatus.js";
 import { shouldWarnSimulateModeInProduction } from "./runtimeEnvironment.js";
 import { computeAndStoreRoutingScores } from "./scoringIntegration.js";
 import { buildVendorQuoteOfferPayload } from "./vendorQuoteOffer.js";
+import {
+  enqueueCadPreviewGenerationTask,
+  ensurePersistentCadPreview,
+} from "./cadPreviewPersistence.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -164,6 +168,25 @@ function logPreviewRenderWarning(task: QueueTaskRecord, stage: "all_pages" | "fi
         ...buildTaskContext(task),
         stage,
       },
+      error:
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+            }
+          : { message: summarizeError(error) },
+    }),
+  );
+}
+
+function logCadPreviewWarning(task: QueueTaskRecord, error: unknown) {
+  console.warn(
+    JSON.stringify({
+      service: "overdrafter-cad-worker",
+      level: "warn",
+      source: "worker.cad-preview.render",
+      message: `Failed to generate the persistent CAD preview for ${task.task_type} ${task.id}: ${summarizeError(error)}`,
+      context: buildTaskContext(task),
       error:
         error instanceof Error
           ? {
@@ -666,6 +689,31 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       jobId: task.job_id!,
       previewAssets,
     });
+    let cadPreviewStatus: "current" | "generated" | "skipped" | "failed" = "skipped";
+    try {
+      const cadPreviewResult = await ensurePersistentCadPreview(supabase, config, {
+        organizationId: context.part.organization_id,
+        jobId: task.job_id!,
+        partId: context.part.id,
+        cadFile: context.cadFile,
+        runDir: extractionRun.runDir,
+      });
+      cadPreviewStatus = cadPreviewResult.status;
+    } catch (error) {
+      cadPreviewStatus = "failed";
+      logCadPreviewWarning(task, error);
+      try {
+        await enqueueCadPreviewGenerationTask(supabase, {
+          organizationId: context.part.organization_id,
+          jobId: task.job_id!,
+          partId: context.part.id,
+          cadFileId: context.cadFile?.id ?? null,
+          source: "extract_part_retry",
+        });
+      } catch (enqueueError) {
+        logCadPreviewWarning(task, enqueueError);
+      }
+    }
     const autoApprovedPartCount = await autoApproveJobRequirements(supabase, task.job_id!);
     const completedAt = new Date().toISOString();
     const completionPayload = buildExtractionCompletionPayload({
@@ -683,10 +731,12 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       eventType: "worker.extraction_completed",
       payload: {
         partId: context.part.id,
+        cadPreviewStatus,
         ...completionPayload,
       },
     });
     await markTaskCompleted(supabase, task, {
+      cadPreviewStatus,
       ...completionPayload,
     });
   } catch (error) {
@@ -705,6 +755,49 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
     throw error;
   } finally {
     await cleanupPaths(runDir ? [runDir] : []);
+  }
+}
+
+async function handleGenerateCadPreviewTask(
+  supabase: SupabaseClient,
+  task: QueueTaskRecord,
+  config: WorkerConfig,
+) {
+  if (!task.part_id || !task.job_id) {
+    throw new Error("generate_cad_preview task is missing job_id or part_id.");
+  }
+
+  const runDir = await createRunDir(config, ["cad-preview", task.id]);
+
+  try {
+    const context = await fetchPartContext(supabase, task.part_id);
+    const result = await ensurePersistentCadPreview(supabase, config, {
+      organizationId: context.part.organization_id,
+      jobId: task.job_id,
+      partId: context.part.id,
+      cadFile: context.cadFile,
+      runDir,
+    });
+
+    await logWorkerAuditEvent(supabase, {
+      organizationId: context.part.organization_id,
+      jobId: task.job_id,
+      eventType: "worker.cad_preview_completed",
+      payload: {
+        partId: context.part.id,
+        cadFileId: context.cadFile?.id ?? null,
+        status: result.status,
+        triangleCount: result.triangleCount,
+        featureEdgeCount: result.featureEdgeCount,
+      },
+    });
+    await markTaskCompleted(supabase, task, {
+      cadPreviewStatus: result.status,
+      triangleCount: result.triangleCount,
+      featureEdgeCount: result.featureEdgeCount,
+    });
+  } finally {
+    await cleanupPaths([runDir]);
   }
 }
 
@@ -1353,6 +1446,9 @@ async function processTask(
     case "debug_extract_part":
       await handleDebugExtractTask(supabase, task, config);
       return;
+    case "generate_cad_preview":
+      await handleGenerateCadPreviewTask(supabase, task, config);
+      return;
     case "run_vendor_quote":
       await handleVendorQuoteTask(supabase, task, config);
       return;
@@ -1592,10 +1688,12 @@ async function main() {
       });
     } catch (error) {
       const message = summarizeError(error);
-      const retryAt =
-        task.task_type === "run_vendor_quote" && isRetryableVendorTaskError(error)
-          ? nextRetryAt(task.attempts)
-          : null;
+      let retryAt: string | null = null;
+      if (task.task_type === "generate_cad_preview") {
+        retryAt = nextRetryAt(task.attempts);
+      } else if (task.task_type === "run_vendor_quote" && isRetryableVendorTaskError(error)) {
+        retryAt = nextRetryAt(task.attempts);
+      }
       const retryCount = retryCountForAttempts(task.attempts);
 
       if (retryAt) {

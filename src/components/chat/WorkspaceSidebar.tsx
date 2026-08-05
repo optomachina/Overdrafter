@@ -114,7 +114,7 @@ const DEFAULT_SECTIONS: SidebarSections = {
 };
 
 const SIDEBAR_COLUMN_INSET_CLASS = "px-2";
-const SIDEBAR_ACTION_BUTTON_PADDING_CLASS = "pl-1 pr-3";
+const SIDEBAR_ACTION_BUTTON_PADDING_CLASS = "pl-2.5 pr-3";
 const SIDEBAR_ROW_PADDING_CLASS = "px-2 py-2";
 const SIDEBAR_PREFETCH_DELAY_MS = 75;
 
@@ -1366,7 +1366,7 @@ export function WorkspaceSidebar({
     <>
       <nav aria-label="Workspace navigation" className="flex h-full flex-col px-2.5">
         {onCreateJob || onSearch ? (
-          <div className={cn("shrink-0 space-y-2 pb-3 pt-0", SIDEBAR_COLUMN_INSET_CLASS)}>
+          <div className="-mx-1 shrink-0 space-y-2 pb-3 pt-0">
             {onCreateJob ? (
               <Button
                 type="button"
@@ -1377,7 +1377,7 @@ export function WorkspaceSidebar({
                 )}
                 onClick={onCreateJob}
               >
-                <span className="flex w-5 shrink-0 items-center justify-center text-foreground">
+                <span data-sidebar-top-action-icon className="flex w-5 shrink-0 items-center justify-center text-foreground">
                   <PlusSquare aria-hidden="true" className="h-4 w-4" />
                 </span>
                 <span className="truncate">New Job</span>
@@ -1394,7 +1394,7 @@ export function WorkspaceSidebar({
                 )}
                 onClick={onSearch}
               >
-                <span className="flex w-5 shrink-0 items-center justify-center text-foreground">
+                <span data-sidebar-top-action-icon className="flex w-5 shrink-0 items-center justify-center text-foreground">
                   <Search aria-hidden="true" className="h-4 w-4" />
                 </span>
                 <span className="truncate">Search</span>

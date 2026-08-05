@@ -76,29 +76,32 @@ export function ClientExtractionStatusNotice({
       return (
         <div className={cn("rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4", className)}>
           <div className="flex items-start gap-3">
-            <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-200" />
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">Partial drawing metadata found</p>
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-200" />
+            <div className="min-w-0 space-y-2">
+              <p className="text-sm font-medium text-foreground">Review drawing details before sourcing</p>
               <p className="text-sm text-amber-100/85">
-                Available fields were populated, but some drawing data still needs review before relying on it.
+                We filled the request fields we could read from the PDF. Complete anything marked Missing and verify anything marked Review in the request details below.
               </p>
               <div className="flex flex-wrap gap-2">
                 {diagnostics.warningCount > 0 ? (
-                  <Badge className="border border-amber-300/20 bg-amber-400/10 text-amber-100">
+                  <Badge className="max-w-full whitespace-normal border border-amber-300/20 bg-amber-400/10 text-left text-amber-100">
                     {diagnostics.warningCount} warning{diagnostics.warningCount === 1 ? "" : "s"}
                   </Badge>
                 ) : null}
                 {missingLabel ? (
-                  <Badge className="border border-amber-300/20 bg-amber-400/10 text-amber-100">
+                  <Badge className="max-w-full whitespace-normal break-words border border-amber-300/20 bg-amber-400/10 text-left text-amber-100">
                     Missing: {missingLabel}
                   </Badge>
                 ) : null}
                 {reviewLabel ? (
-                  <Badge className="border border-amber-300/20 bg-amber-400/10 text-amber-100">
+                  <Badge className="max-w-full whitespace-normal break-words border border-amber-300/20 bg-amber-400/10 text-left text-amber-100">
                     Review: {reviewLabel}
                   </Badge>
                 ) : null}
               </div>
+              <p className="text-xs leading-5 text-amber-100/75">
+                When the values are correct, select Save request details. Provider matching uses the saved values, not this extraction warning.
+              </p>
             </div>
           </div>
         </div>

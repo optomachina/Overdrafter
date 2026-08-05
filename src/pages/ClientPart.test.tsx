@@ -397,9 +397,13 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
 
 vi.mock("@/components/workspace/PartInfoPanel", () => ({
   PartInfoPanel: ({
+    effectiveRequestDraft,
+    onDraftChange,
     statusContent,
     onSave,
   }: {
+    effectiveRequestDraft?: { description?: string | null } | null;
+    onDraftChange?: (next: { description: string }) => void;
     statusContent?: ReactNode;
     onSave?: () => void;
   }) => {
@@ -408,6 +412,11 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
       <div data-testid="part-info-panel">
         <div>Part information</div>
         {statusContent}
+        <input
+          aria-label="Description"
+          value={effectiveRequestDraft?.description ?? ""}
+          onChange={(event) => onDraftChange?.({ description: event.target.value })}
+        />
         <button type="button" onClick={() => onSave?.()}>
           Save Request
         </button>
@@ -1906,6 +1915,68 @@ describe("ClientPart", () => {
       expect(screen.getByText(/partial drawing metadata found/i)).toBeInTheDocument();
       expect(screen.getByText(/missing: material, finish/i)).toBeInTheDocument();
     });
+  });
+
+  it("saves a manufacturing process selected from the sourcing result", async () => {
+    const baseDetail = createPartDetail();
+    const cadFile = {
+      id: "cad-file-1",
+      job_id: "job-1",
+      organization_id: "org-1",
+      file_kind: "cad" as const,
+      blob_id: "blob-1",
+      storage_bucket: "job-files",
+      storage_path: "org-1/job-1/bracket.step",
+      normalized_name: "bracket.step",
+      original_name: "bracket.step",
+      mime_type: "application/step",
+      size_bytes: 1024,
+      content_sha256: "hash",
+      matched_part_key: null,
+      uploaded_by: "user-1",
+      created_at: "2026-03-01T00:00:00Z",
+    };
+
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(
+      createPartDetail({
+        files: [cadFile],
+        part: {
+          ...baseDetail.part,
+          cadFile,
+          clientRequirement: {
+            description: "Bracket",
+            partNumber: "BRKT-001",
+            revision: "A",
+            material: "6061-T6 aluminum",
+            finish: null,
+            tightestToleranceInch: null,
+            process: null,
+            notes: null,
+            quantity: 10,
+            quoteQuantities: [10],
+            requestedByDate: "2026-04-15",
+          },
+        },
+      }),
+    );
+
+    renderWithClient("/parts/job-1");
+
+    fireEvent.change(await screen.findByLabelText("Description"), {
+      target: { value: "Pending unsaved description" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "CNC milling" }));
+
+    await waitFor(() => {
+      expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          jobId: "job-1",
+          process: "CNC milling",
+          description: "Bracket",
+        }),
+      );
+    });
+    expect(screen.getByLabelText("Description")).toHaveValue("Pending unsaved description");
   });
 
   it("logs structured archived delete failures through the account menu callback", async () => {

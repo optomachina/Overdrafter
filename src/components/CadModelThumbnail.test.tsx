@@ -27,6 +27,10 @@ describe("CadModelThumbnail", () => {
     );
 
     expect(await screen.findByText(/3d preview is unavailable in this browser/i)).toBeInTheDocument();
+    expect(screen.queryByText("STEP")).not.toBeInTheDocument();
+    expect(screen.queryByText("Hidden lines removed")).not.toBeInTheDocument();
+    expect(screen.queryByText("Drag to inspect")).not.toBeInTheDocument();
+    expect(screen.queryByText("Live 3D")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Download bracket.step" }));
     expect(onFallbackAction).toHaveBeenCalledTimes(1);
