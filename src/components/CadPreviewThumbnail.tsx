@@ -7,9 +7,9 @@ import { downloadStoredFileBlob } from "@/lib/stored-file";
 import { cn } from "@/lib/utils";
 
 type CadPreviewThumbnailProps = {
-  asset: CadPreviewAssetRecord | null;
-  fallbackSource: CadPreviewSource | null;
-  className?: string;
+  readonly asset: CadPreviewAssetRecord | null;
+  readonly fallbackSource: CadPreviewSource | null;
+  readonly className?: string;
 };
 
 /** Prefers the persisted worker preview and retains local rendering as fallback. */

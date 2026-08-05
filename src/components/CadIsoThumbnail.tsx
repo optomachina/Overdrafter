@@ -12,8 +12,8 @@ const projectionCache = new Map<string, Promise<ProjectedCadGeometry>>();
 let projectionQueue: Promise<void> = Promise.resolve();
 
 type CadIsoThumbnailProps = {
-  source: CadPreviewSource;
-  className?: string;
+  readonly source: CadPreviewSource;
+  readonly className?: string;
 };
 
 export function CadIsoThumbnail({ source, className }: CadIsoThumbnailProps) {
@@ -97,7 +97,6 @@ export function CadIsoThumbnail({ source, className }: CadIsoThumbnailProps) {
         ref={canvasRef}
         width={PREVIEW_SIZE}
         height={PREVIEW_SIZE}
-        aria-hidden="true"
         className={cn("h-full w-full transition-opacity duration-200", status === "ready" ? "opacity-100" : "opacity-0")}
       />
       {status !== "ready" ? (
@@ -112,7 +111,7 @@ export function CadIsoThumbnail({ source, className }: CadIsoThumbnailProps) {
 
 function loadProjectedCadGeometry(source: CadPreviewSource): Promise<ProjectedCadGeometry> {
   const existing = projectionCache.get(source.cacheKey);
-  if (existing) {
+  if (existing !== undefined) {
     return existing;
   }
 

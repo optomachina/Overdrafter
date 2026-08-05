@@ -1689,16 +1689,17 @@ async function main() {
     } catch (error) {
       const message = summarizeError(error);
       let retryAt: string | null = null;
-      if (task.task_type === "generate_cad_preview") {
-        retryAt = nextRetryAt(task.attempts);
-      } else if (task.task_type === "run_vendor_quote" && isRetryableVendorTaskError(error)) {
+      const shouldRetry =
+        task.task_type === "generate_cad_preview" ||
+        (task.task_type === "run_vendor_quote" && isRetryableVendorTaskError(error));
+      if (shouldRetry) {
         retryAt = nextRetryAt(task.attempts);
       }
       const retryCount = retryCountForAttempts(task.attempts);
 
       if (retryAt) {
         await markTaskQueuedForRetry(supabase, task, message, retryAt, {
-              failureMessage: message,
+          failureMessage: message,
           failureCode: failureCodeForError(error),
           retryCount,
           nextRetryAt: retryAt,

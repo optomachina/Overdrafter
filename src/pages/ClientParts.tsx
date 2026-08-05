@@ -16,13 +16,47 @@ import {
 import { useClientHomeController } from "@/features/quotes/use-client-home-controller";
 import { useQuoteIntelligenceWorkspace } from "@/features/quotes/use-quote-intelligence-workspace";
 import type { CadPreviewAssetRecord } from "@/features/quotes/types";
-import { createCadPreviewSourceFromJobFile, isStepPreviewableFile } from "@/lib/cad-preview";
+import {
+  createCadPreviewSourceFromJobFile,
+  isStepPreviewableFile,
+  type CadPreviewSource,
+} from "@/lib/cad-preview";
 
 const FILTERS: Array<{ value: PartCollectionFilter; label: string }> = [
   { value: "all", label: "All" },
   { value: "parts", label: "Parts" },
   { value: "assemblies", label: "Assemblies" },
 ];
+
+function PartPreview({
+  asset,
+  kind,
+  source,
+}: Readonly<{
+  asset: CadPreviewAssetRecord | null;
+  kind: "part" | "project_group";
+  source: CadPreviewSource | null | undefined;
+}>) {
+  if (kind === "project_group") {
+    return (
+      <>
+        <FolderKanban className="h-7 w-7" aria-hidden="true" />
+        <span className="sr-only">Project group</span>
+      </>
+    );
+  }
+
+  if (source || asset) {
+    return <CadPreviewThumbnail asset={asset} fallbackSource={source ?? null} />;
+  }
+
+  return (
+    <>
+      <Box className="h-7 w-7" aria-hidden="true" />
+      <span className="sr-only">Part preview unavailable</span>
+    </>
+  );
+}
 
 function formatUpdatedAt(value: string | null): string {
   if (!value) {
@@ -220,22 +254,7 @@ export default function ClientParts() {
               className="group grid min-h-[92px] grid-cols-[64px_minmax(0,1fr)] gap-4 border-t border-paper-hairline py-4 transition-colors hover:bg-paper-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red sm:grid-cols-[72px_minmax(0,1fr)_auto]"
             >
               <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-[2px] border border-paper-hairline bg-paper-surface text-paper-muted sm:h-[72px] sm:w-[72px]">
-                {row.kind === "project_group" ? (
-                  <>
-                    <FolderKanban className="h-7 w-7" aria-hidden="true" />
-                    <span className="sr-only">Project group</span>
-                  </>
-                ) : previewSource || previewAsset ? (
-                  <CadPreviewThumbnail
-                    asset={previewAsset}
-                    fallbackSource={previewSource ?? null}
-                  />
-                ) : (
-                  <>
-                    <Box className="h-7 w-7" aria-hidden="true" />
-                    <span className="sr-only">Part preview unavailable</span>
-                  </>
-                )}
+                <PartPreview asset={previewAsset} kind={row.kind} source={previewSource} />
               </span>
               <span className="min-w-0">
                 <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">

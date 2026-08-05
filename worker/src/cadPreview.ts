@@ -165,9 +165,7 @@ export function renderCadMeshesToSvg(meshes: readonly OcctMesh[]): CadPreviewRen
 }
 
 function getOcctModule(): Promise<OcctModule> {
-  if (!occtModulePromise) {
-    occtModulePromise = occtImportJs();
-  }
+  occtModulePromise ??= occtImportJs();
 
   return occtModulePromise;
 }
@@ -233,11 +231,16 @@ function assignVisibleFeatureEdges(
       return;
     }
 
-    const owner = visibleReferences.reduce((frontmost, candidate) => {
+    const [initialOwner, ...remainingReferences] = visibleReferences;
+    if (!initialOwner) {
+      return;
+    }
+
+    const owner = remainingReferences.reduce((frontmost, candidate) => {
       const frontmostDepth = triangles[frontmost.triangleId]?.depth ?? Number.NEGATIVE_INFINITY;
       const candidateDepth = triangles[candidate.triangleId]?.depth ?? Number.NEGATIVE_INFINITY;
       return candidateDepth > frontmostDepth ? candidate : frontmost;
-    });
+    }, initialOwner);
     const current = edgesByTriangle.get(owner.triangleId) ?? [];
     current.push({
       start: projectIsometricPoint(owner.start),
@@ -331,7 +334,8 @@ function closedPath(
     return "";
   }
 
-  return `M${formatPoint(first)}${rest.map((point) => `L${formatPoint(point)}`).join("")}Z`;
+  const remainingPath = rest.map((point) => `L${formatPoint(point)}`).join("");
+  return `M${formatPoint(first)}${remainingPath}Z`;
 }
 
 function transformPoint(point: Point2, scale: number, offsetX: number, offsetY: number): Point2 {

@@ -84,11 +84,16 @@ export function projectCadMeshesForThumbnail(
       return;
     }
 
-    const owner = references.reduce((frontmost, candidate) => {
+    const [initialOwner, ...remainingReferences] = references;
+    if (!initialOwner) {
+      return;
+    }
+
+    const owner = remainingReferences.reduce((frontmost, candidate) => {
       const frontmostDepth = triangles[frontmost.triangleId]?.depth ?? Number.NEGATIVE_INFINITY;
       const candidateDepth = triangles[candidate.triangleId]?.depth ?? Number.NEGATIVE_INFINITY;
       return candidateDepth > frontmostDepth ? candidate : frontmost;
-    });
+    }, initialOwner);
     triangles[owner.triangleId]?.edges.push([
       projectIsometricPoint(owner.start),
       projectIsometricPoint(owner.end),

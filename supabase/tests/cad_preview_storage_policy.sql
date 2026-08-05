@@ -30,12 +30,19 @@ insert into cad_preview_test_context values (
 
 grant select on cad_preview_test_context to authenticated;
 
+with test_role as (
+  select 'authenticated'::text as role_name
+), test_users as (
+  select member_user_id as user_id, 'cad-preview-member@example.com' as email
+  from cad_preview_test_context
+  union all
+  select outsider_user_id, 'cad-preview-outsider@example.com'
+  from cad_preview_test_context
+)
 insert into auth.users (id, aud, role, email)
-select member_user_id, 'authenticated', 'authenticated', 'cad-preview-member@example.com'
-from cad_preview_test_context
-union all
-select outsider_user_id, 'authenticated', 'authenticated', 'cad-preview-outsider@example.com'
-from cad_preview_test_context;
+select user_id, role_name, role_name, email
+from test_users
+cross join test_role;
 
 insert into public.organizations (id, name, slug)
 select organization_id, 'CAD Preview Policy', 'cad-preview-policy'
