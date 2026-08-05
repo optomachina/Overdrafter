@@ -7,8 +7,8 @@ import {
 import { formatCurrency } from "@/features/quotes/utils";
 
 type AnonymousHomeLandingProps = {
-  onSignIn: () => void;
-  onSignUp: () => void;
+  readonly onSignIn: () => void;
+  readonly onSignUp: () => void;
 };
 
 const extractedSpecifications = [
@@ -24,7 +24,7 @@ export function AnonymousHomeLanding({ onSignIn, onSignUp }: AnonymousHomeLandin
     <div className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col px-6 pb-20">
       <section className="pt-16">
         <p className="mb-5 font-mono text-[11px] font-medium tracking-[0.08em] text-muted-foreground">
-          // manufacturing workspace
+          Manufacturing workspace
         </p>
 
         <h1 className="font-display text-[44px] font-bold leading-[0.94] tracking-[-0.05em] text-foreground sm:text-[60px] lg:text-[76px]">

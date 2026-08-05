@@ -20,7 +20,7 @@ const ClientQuoteComparisonChart = lazy(() =>
 );
 
 type AnonymousQuoteChartShowcaseProps = {
-  onGetStarted: () => void;
+  readonly onGetStarted: () => void;
 };
 
 type QuoteChartErrorBoundaryProps = {
