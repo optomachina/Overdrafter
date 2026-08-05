@@ -7,9 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobRecord } from "@/features/quotes/types";
 import Index from "./Index";
 
-const guestLandingHeading = /parts in\.\s*clear sourcing paths out\./i;
+const guestLandingHeading = /parts in\.\s*quotes out\./i;
 const guestLandingBody =
-  /upload a STEP model and PDF drawing\. Free gives you ranked potential providers and official RFQ links/i;
+  /upload a machined-aluminum STEP model with an optional PDF drawing.*free ranks potential providers.*pro collects supported vendor quotes automatically/i;
+
+vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
+  ClientQuoteComparisonChart: () => <div data-testid="anonymous-quote-chart" />,
+}));
 
 const mockUseAppSession = vi.fn();
 const mockFetchCommercialAdminAccess = vi.hoisted(() => vi.fn());
@@ -151,7 +155,7 @@ describe("Index client home", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the public quote-intelligence landing", async () => {
+  it("renders the public manufacturing workflow landing", async () => {
     mockUseAppSession.mockReturnValue({
       user: null,
       activeMembership: null,
@@ -163,11 +167,15 @@ describe("Index client home", () => {
     renderIndex();
 
     expect(screen.getByRole("button", { name: /^sign in$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /create account/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /upload a part package/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /sign up for free/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /get started free/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
     expect(screen.getByText(guestLandingBody)).toBeInTheDocument();
-    expect(screen.getByText(/illustrative pro workspace/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /multiple quotes\. one obvious tradeoff/i })).toBeInTheDocument();
+    expect(await screen.findByTestId("anonymous-quote-chart")).toBeInTheDocument();
+    expect(screen.getByText(/how it works/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /drop your part package/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /compare and choose the best fit/i })).toBeInTheDocument();
   });
 
   it("routes an established client workspace to the parts collection", async () => {

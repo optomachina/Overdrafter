@@ -15,6 +15,7 @@ function MockLabel({ value }: Readonly<{ value?: string }>) {
 }
 
 const zAxisSpy = vi.fn();
+const logQuoteChartPointDiagnosticsMock = vi.hoisted(() => vi.fn());
 
 function MockZAxis(props: Readonly<Record<string, unknown>>) {
   zAxisSpy(props);
@@ -27,7 +28,7 @@ vi.mock("@/components/ui/chart", () => ({
 }));
 
 vi.mock("@/features/quotes/quote-chart-diagnostics", () => ({
-  logQuoteChartPointDiagnostics: vi.fn(),
+  logQuoteChartPointDiagnostics: logQuoteChartPointDiagnosticsMock,
 }));
 
 vi.mock("recharts", () => {
@@ -311,6 +312,34 @@ describe("ClientQuoteComparisonChart", () => {
     );
 
     expect(screen.getByTestId("point-option-color")).toHaveAttribute("data-fill", getVendorColor("xometry"));
+  });
+
+  it("supports a neutral illustrative mode without operational diagnostics", () => {
+    logQuoteChartPointDiagnosticsMock.mockClear();
+
+    render(
+      <ClientQuoteComparisonChart
+        options={[
+          makeClientQuoteOption({ key: "option-selected" }),
+          makeClientQuoteOption({
+            key: "option-neutral",
+            vendorKey: "fictiv",
+            vendorLabel: "Example supplier",
+            supplier: "Example supplier",
+          }),
+        ]}
+        selectedKey="option-selected"
+        hoveredKey={null}
+        diagnosticsEnabled={false}
+        colorMode="monochrome"
+        onSelect={vi.fn()}
+        onHover={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("point-option-selected")).toHaveAttribute("data-fill", "var(--accent-red)");
+    expect(screen.getByTestId("point-option-neutral")).toHaveAttribute("data-fill", "var(--muted-ink)");
+    expect(logQuoteChartPointDiagnosticsMock).not.toHaveBeenCalled();
   });
 
   it("plots zero-day quotes on the lead-time axis instead of the N/A lane", () => {
