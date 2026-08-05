@@ -22,6 +22,8 @@ type ClientQuoteComparisonChartProps = {
   readonly hoveredKey: string | null;
   readonly partId?: string | null;
   readonly organizationId?: string | null;
+  readonly diagnosticsEnabled?: boolean;
+  readonly colorMode?: "vendor" | "monochrome";
   readonly onSelect: (option: ClientQuoteSelectionOption) => void;
   readonly onHover: (key: string | null) => void;
 };
@@ -59,7 +61,23 @@ const FIXED_POINT_AREA = Math.PI * FIXED_POINT_RADIUS * FIXED_POINT_RADIUS;
 const NA_ZONE_PADDING = 3;
 const NA_ZONE_WIDTH = 8;
 
-function decorateChartPointVisuals(point: ChartPoint): DecoratedChartPoint {
+function getChartPointFill(point: ChartPoint, colorMode: "vendor" | "monochrome") {
+  if (colorMode === "vendor") {
+    return getVendorColor(point.vendorKey);
+  }
+  if (point.selected) {
+    return "var(--accent-red)";
+  }
+  if (point.hovered) {
+    return "var(--text)";
+  }
+  return "var(--muted-ink)";
+}
+
+function decorateChartPointVisuals(
+  point: ChartPoint,
+  colorMode: "vendor" | "monochrome",
+): DecoratedChartPoint {
   const isActive = point.selected || point.hovered;
   const fillOpacity = point.disabled ? 0.35 : isActive ? 1 : 0.8;
 
@@ -80,7 +98,7 @@ function decorateChartPointVisuals(point: ChartPoint): DecoratedChartPoint {
   return {
     ...point,
     size: FIXED_POINT_AREA,
-    fill: getVendorColor(point.vendorKey),
+    fill: getChartPointFill(point, colorMode),
     fillOpacity,
     stroke,
     strokeWidth,
@@ -91,6 +109,7 @@ function buildChartData(
   options: readonly ClientQuoteSelectionOption[],
   selectedKey: string | null,
   hoveredKey: string | null,
+  colorMode: "vendor" | "monochrome",
 ) {
   const leadTimes = options
     .map((o) => o.leadTimeBusinessDays)
@@ -142,7 +161,7 @@ function buildChartData(
         option,
       };
     })
-    .map(decorateChartPointVisuals);
+    .map((point) => decorateChartPointVisuals(point, colorMode));
 
   const vendorKeys = [...new Set(options.map((o) => o.vendorKey))];
   const pointsByVendor = new Map<VendorName, ChartPoint[]>();
@@ -193,7 +212,8 @@ function CustomTooltipContent({ active, payload }: { active?: boolean; payload?:
  * and quoted totals.
  *
  * Every offer uses the same point size. Hover and selection state are surfaced
- * through point styling and routed back to the caller.
+ * through point styling and routed back to the caller. Callers can opt out of
+ * diagnostics or use a neutral monochrome treatment for illustrative data.
  */
 export function ClientQuoteComparisonChart({
   options,
@@ -201,6 +221,8 @@ export function ClientQuoteComparisonChart({
   hoveredKey,
   partId = null,
   organizationId = null,
+  diagnosticsEnabled = true,
+  colorMode = "vendor",
   onSelect,
   onHover,
 }: ClientQuoteComparisonChartProps) {
@@ -212,8 +234,8 @@ export function ClientQuoteComparisonChart({
     xDomainMax,
     hasNaZone,
   } = useMemo(
-    () => buildChartData(options, selectedKey, hoveredKey),
-    [options, selectedKey, hoveredKey],
+    () => buildChartData(options, selectedKey, hoveredKey, colorMode),
+    [colorMode, options, selectedKey, hoveredKey],
   );
 
   const chartConfig = useMemo(
@@ -222,6 +244,10 @@ export function ClientQuoteComparisonChart({
   );
 
   useEffect(() => {
+    if (!diagnosticsEnabled) {
+      return;
+    }
+
     logQuoteChartPointDiagnostics({
       partId,
       organizationId,
@@ -237,7 +263,7 @@ export function ClientQuoteComparisonChart({
         isNaZone: point.isNaZone,
       })),
     });
-  }, [options, organizationId, partId, points]);
+  }, [diagnosticsEnabled, options, organizationId, partId, points]);
 
   return (
     <ChartContainer
@@ -325,7 +351,7 @@ export function ClientQuoteComparisonChart({
             key={vendorKey}
             name={vendorKey}
             data={pointsByVendor.get(vendorKey) ?? []}
-            fill={getVendorColor(vendorKey)}
+            fill={colorMode === "monochrome" ? "var(--muted-ink)" : getVendorColor(vendorKey)}
             line={false}
             onClick={(point) => {
               const payload = (point as { payload?: ChartPoint } | undefined)?.payload;

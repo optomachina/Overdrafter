@@ -3,7 +3,7 @@ import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
-import { QuoteIntelligenceLanding } from "@/components/quote-intelligence/QuoteIntelligenceLanding";
+import { AnonymousHomeLanding } from "@/components/quote-intelligence/AnonymousHomeLanding";
 import { SignInDialog } from "@/components/SignInDialog";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
@@ -89,11 +89,35 @@ const ClientHome = () => {
   if (!user) {
     return (
       <>
-        <QuoteIntelligenceLanding
-          onUpload={newJobFilePicker.openFilePicker}
-          onSignIn={() => openAuth("signin")}
-          onCreateAccount={() => openAuth("signup")}
-        />
+        <ClientWorkspaceShell
+          showSidebar={false}
+          sidebarContent={null}
+          onLogoClick={() => navigate("/")}
+          topRightContent={
+            <>
+              <Button
+                type="button"
+                className="min-h-11 bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                onClick={() => openAuth("signin")}
+              >
+                Sign in
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 border-border bg-transparent px-4 text-sm text-foreground hover:bg-accent"
+                onClick={() => openAuth("signup")}
+              >
+                Sign up for free
+              </Button>
+            </>
+          }
+        >
+          <AnonymousHomeLanding
+            onSignIn={() => openAuth("signin")}
+            onSignUp={() => openAuth("signup")}
+          />
+        </ClientWorkspaceShell>
         <SignInDialog
           open={isAuthDialogOpen}
           onOpenChange={setIsAuthDialogOpen}
