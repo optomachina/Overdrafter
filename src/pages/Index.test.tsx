@@ -11,6 +11,10 @@ const guestLandingHeading = /files in\.\s*parts out\./i;
 const guestLandingBody =
   /upload CAD files and drawings to collect vendor quotes, compare price and lead time, and choose the best source for your budget and deadline/i;
 
+vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
+  ClientQuoteComparisonChart: () => <div data-testid="anonymous-quote-chart" />,
+}));
+
 const mockUseAppSession = vi.fn();
 const mockFetchCommercialAdminAccess = vi.hoisted(() => vi.fn());
 const mockFetchAccessibleProjects = vi.fn();
@@ -151,7 +155,7 @@ describe("Index client home", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the public quote-intelligence landing", async () => {
+  it("renders the public manufacturing workflow landing", async () => {
     mockUseAppSession.mockReturnValue({
       user: null,
       activeMembership: null,
@@ -163,13 +167,15 @@ describe("Index client home", () => {
     renderIndex();
 
     expect(screen.getByRole("button", { name: /^sign in$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /create account/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /upload a part package/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /sign up for free/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /get started free/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
     expect(screen.getByText(guestLandingBody)).toBeInTheDocument();
-    expect(screen.queryByText(/illustrative pro workspace/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /vendor quotes plotted by total price and lead time/i })).toBeInTheDocument();
-    expect(screen.getByText("© 2026 OverDrafter")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /multiple quotes\. one obvious tradeoff/i })).toBeInTheDocument();
+    expect(await screen.findByTestId("anonymous-quote-chart")).toBeInTheDocument();
+    expect(screen.getByText(/how it works/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /drop your part package/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /compare and choose the best fit/i })).toBeInTheDocument();
   });
 
   it("routes an established client workspace to the parts collection", async () => {

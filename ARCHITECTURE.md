@@ -288,6 +288,9 @@ and must not fabricate assembly membership.
   available to the signed-in workspace
 - collisions fail closed rather than opening an arbitrary quote
 - quote links are currently login-gated; password grants and anyone-with-link grants remain target capabilities
+- supported vendor quote URLs may be shown inside that authenticated buyer workspace as outbound purchasing links;
+  only HTTPS URLs on the documented Xometry, Fictiv, Protolabs, and SendCutSend domains are client-visible, and the
+  vendor remains responsible for guest access, sign-in, and purchasing authorization
 - the editable customer reference in the first release is browser-local and explicitly labeled as such; a future
   persisted Quote/Round/Grant schema must replace that bridge without changing the immutable code or access boundary
 
