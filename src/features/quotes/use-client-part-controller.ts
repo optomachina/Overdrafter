@@ -160,6 +160,15 @@ export function useClientPartController(
   const isCancelQuoteRequestLockedRef = useRef(false);
   const patchDraftPreservationRef = useRef<PatchDraftPreservation | null>(null);
   const patchDraftRequestIdRef = useRef(0);
+  const requestMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const serializeRequestMutation = <T,>(operation: () => Promise<T>): Promise<T> => {
+    const queuedMutation = requestMutationQueueRef.current.then(operation, operation);
+    requestMutationQueueRef.current = queuedMutation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return queuedMutation;
+  };
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const workspaceAccessScope = createWorkspaceAccessScope({
@@ -365,7 +374,8 @@ export function useClientPartController(
   });
 
   const saveRequestMutation = useMutation({
-    mutationFn: (input: ClientPartRequestUpdateInput) => updateClientPartRequest(input),
+    mutationFn: (input: ClientPartRequestUpdateInput) =>
+      serializeRequestMutation(() => updateClientPartRequest(input)),
     onSuccess: async () => {
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
       toast.success("Request details updated.");
@@ -377,7 +387,9 @@ export function useClientPartController(
 
   const resetFieldMutation = useMutation({
     mutationFn: (fields: Array<ClientPartPropertyOverrideField>) =>
-      resetClientPartPropertyOverrides({ jobId: canonicalJobId, fields }),
+      serializeRequestMutation(() =>
+        resetClientPartPropertyOverrides({ jobId: canonicalJobId, fields }),
+      ),
     onSuccess: async () => {
       patchDraftPreservationRef.current = null;
       setRequestDraft(null);
@@ -390,15 +402,20 @@ export function useClientPartController(
   });
 
   const handleResetField = (field: ClientPartPropertyOverrideField) => {
+    patchDraftPreservationRef.current = null;
+    setRequestDraft(null);
     resetFieldMutation.mutate([field]);
   };
 
   const handleResetAllFields = () => {
+    patchDraftPreservationRef.current = null;
+    setRequestDraft(null);
     resetFieldMutation.mutate([...CLIENT_PART_PROPERTY_OVERRIDE_FIELDS]);
   };
 
   const renamePartMutation = useMutation({
-    mutationFn: (input: ClientPartRequestUpdateInput) => updateClientPartRequest(input),
+    mutationFn: (input: ClientPartRequestUpdateInput) =>
+      serializeRequestMutation(() => updateClientPartRequest(input)),
     onSuccess: async () => {
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
       toast.success("Part renamed.");

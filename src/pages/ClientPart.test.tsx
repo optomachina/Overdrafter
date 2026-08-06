@@ -1997,23 +1997,42 @@ describe("ClientPart", () => {
     });
   });
 
-  it("does not restore a partial-save draft after a field reset refetch", async () => {
+  it("serializes a field reset after a pending partial save", async () => {
     const baseDetail = createPartDetail();
-    const patchRequest = createDeferredPromise<void>();
-    const resetDetail = createPartDetail({
-      part: {
-        ...baseDetail.part,
-        clientRequirement: {
-          ...baseDetail.part.clientRequirement!,
-          description: "Extracted bracket description",
-          process: "CNC milling",
+    let persistedDescription: string | null = "Bracket";
+    let resolvePatchRequest: (() => void) | null = null;
+    const buildPersistedDetail = () =>
+      createPartDetail({
+        part: {
+          ...baseDetail.part,
+          clientRequirement: {
+            description: persistedDescription,
+            partNumber: "BRKT-001",
+            revision: "A",
+            material: "6061-T6 aluminum",
+            finish: null,
+            tightestToleranceInch: null,
+            process: "CNC milling",
+            notes: null,
+            quantity: 10,
+            quoteQuantities: [10],
+            requestedByDate: "2026-04-15",
+          },
         },
-      },
+      });
+    api.fetchPartDetailByJobId.mockImplementation(async () => buildPersistedDetail());
+    api.updateClientPartRequest.mockImplementationOnce(
+      (input) =>
+        new Promise<void>((resolve) => {
+          resolvePatchRequest = () => {
+            persistedDescription = input.description;
+            resolve();
+          };
+        }),
+    );
+    api.resetClientPartPropertyOverrides.mockImplementationOnce(async () => {
+      persistedDescription = "Extracted bracket description";
     });
-    api.fetchPartDetailByJobId
-      .mockResolvedValueOnce(baseDetail)
-      .mockResolvedValue(resetDetail);
-    api.updateClientPartRequest.mockReturnValueOnce(patchRequest.promise);
 
     renderWithClient("/parts/job-1");
 
@@ -2026,6 +2045,12 @@ describe("ClientPart", () => {
     await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole("button", { name: "Reset description" }));
+    expect(api.resetClientPartPropertyOverrides).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolvePatchRequest?.();
+    });
+
     await waitFor(() => {
       expect(api.resetClientPartPropertyOverrides).toHaveBeenCalledWith({
         jobId: "job-1",
@@ -2033,12 +2058,7 @@ describe("ClientPart", () => {
       });
       expect(screen.getByLabelText("Description")).toHaveValue("Extracted bracket description");
     });
-
-    await act(async () => patchRequest.resolve());
-
-    await waitFor(() => {
-      expect(screen.getByLabelText("Description")).toHaveValue("Extracted bracket description");
-    });
+    expect(persistedDescription).toBe("Extracted bracket description");
   });
 
   it("logs structured archived delete failures through the account menu callback", async () => {
