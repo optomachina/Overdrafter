@@ -142,16 +142,7 @@ describe("ensurePersistentCadPreview", () => {
 describe("enqueueCadPreviewGenerationTask", () => {
   it("queues a dedicated retry when no preview task is active", async () => {
     const insert = vi.fn().mockResolvedValue({ error: null });
-    const query = {
-      select: vi.fn(),
-      eq: vi.fn(),
-      in: vi.fn(),
-      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
-    };
-    query.select.mockReturnValue(query);
-    query.eq.mockReturnValue(query);
-    query.in.mockReturnValue(query);
-    const from = vi.fn((table: string) => table === "work_queue" ? { ...query, insert } : {});
+    const from = vi.fn((table: string) => table === "work_queue" ? { insert } : {});
 
     await expect(
       enqueueCadPreviewGenerationTask({ from } as never, {
@@ -172,17 +163,10 @@ describe("enqueueCadPreviewGenerationTask", () => {
   });
 
   it("does not duplicate queued preview work", async () => {
-    const insert = vi.fn();
-    const query = {
-      select: vi.fn(),
-      eq: vi.fn(),
-      in: vi.fn(),
-      limit: vi.fn().mockResolvedValue({ data: [{ id: "task-1" }], error: null }),
-    };
-    query.select.mockReturnValue(query);
-    query.eq.mockReturnValue(query);
-    query.in.mockReturnValue(query);
-    const from = vi.fn(() => ({ ...query, insert }));
+    const insert = vi.fn().mockResolvedValue({
+      error: { code: "23505", message: "duplicate active preview task" },
+    });
+    const from = vi.fn(() => ({ insert }));
 
     await expect(
       enqueueCadPreviewGenerationTask({ from } as never, {
@@ -193,6 +177,22 @@ describe("enqueueCadPreviewGenerationTask", () => {
         source: "extract_part_retry",
       }),
     ).resolves.toBe(false);
-    expect(insert).not.toHaveBeenCalled();
+    expect(insert).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces non-conflict enqueue failures", async () => {
+    const insertError = { code: "42501", message: "permission denied" };
+    const insert = vi.fn().mockResolvedValue({ error: insertError });
+    const from = vi.fn(() => ({ insert }));
+
+    await expect(
+      enqueueCadPreviewGenerationTask({ from } as never, {
+        organizationId: "org-1",
+        jobId: "job-1",
+        partId: "part-1",
+        cadFileId: "cad-1",
+        source: "extract_part_retry",
+      }),
+    ).rejects.toBe(insertError);
   });
 });

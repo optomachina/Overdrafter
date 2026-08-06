@@ -5,10 +5,12 @@ import {
   type ProjectedCadGeometry,
 } from "@/lib/cad-iso-thumbnail";
 import { isStepPreviewableFile, loadCadPreview, type CadPreviewSource } from "@/lib/cad-preview";
+import { createCadProjectionCache } from "@/lib/cad-projection-cache";
 import { cn } from "@/lib/utils";
 
 const PREVIEW_SIZE = 192;
-const projectionCache = new Map<string, Promise<ProjectedCadGeometry>>();
+const PROJECTION_CACHE_CAPACITY = 48;
+const projectionCache = createCadProjectionCache(PROJECTION_CACHE_CAPACITY);
 let projectionQueue: Promise<void> = Promise.resolve();
 
 type CadIsoThumbnailProps = {
@@ -84,12 +86,16 @@ export function CadIsoThumbnail({ source, className }: CadIsoThumbnailProps) {
   if (status === "error") {
     statusLabel = "Part preview unavailable";
   }
+  let accessibleLabel = `Isometric CAD sketch preview for ${source.fileName}`;
+  if (status !== "ready") {
+    accessibleLabel = `${statusLabel} for ${source.fileName}`;
+  }
 
   return (
     <span
       ref={hostRef}
       role="img"
-      aria-label={`Isometric CAD sketch preview for ${source.fileName}`}
+      aria-label={accessibleLabel}
       data-state={status}
       className={cn("relative flex h-full w-full items-center justify-center overflow-hidden", className)}
     >
@@ -97,6 +103,7 @@ export function CadIsoThumbnail({ source, className }: CadIsoThumbnailProps) {
         ref={canvasRef}
         width={PREVIEW_SIZE}
         height={PREVIEW_SIZE}
+        aria-hidden="true"
         className={cn("h-full w-full transition-opacity duration-200", status === "ready" ? "opacity-100" : "opacity-0")}
       />
       {status !== "ready" ? (
@@ -104,29 +111,19 @@ export function CadIsoThumbnail({ source, className }: CadIsoThumbnailProps) {
           {status === "loading" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Box className="h-6 w-6" />}
         </span>
       ) : null}
-      <span className="sr-only">{statusLabel}</span>
     </span>
   );
 }
 
 function loadProjectedCadGeometry(source: CadPreviewSource): Promise<ProjectedCadGeometry> {
-  const existing = projectionCache.get(source.cacheKey);
-  if (existing !== undefined) {
-    return existing;
-  }
-
-  const pending = projectionQueue.then(async () => projectCadMeshesForThumbnail((await loadCadPreview(source)).meshes));
-  projectionQueue = pending.then(
-    () => undefined,
-    () => undefined,
-  );
-  const cached = pending.catch((error) => {
-    projectionCache.delete(source.cacheKey);
-    throw error;
+  return projectionCache.getOrCreate(source.cacheKey, () => {
+    const pending = projectionQueue.then(async () => projectCadMeshesForThumbnail((await loadCadPreview(source)).meshes));
+    projectionQueue = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+    return pending;
   });
-  projectionCache.set(source.cacheKey, cached);
-
-  return cached;
 }
 
 function drawProjectedCadThumbnail(canvas: HTMLCanvasElement, projection: ProjectedCadGeometry) {

@@ -115,6 +115,11 @@ const EMPTY_QUOTE_DIAGNOSTICS: QuoteDiagnostics = {
   excludedReasonCounts: [],
 };
 
+type PatchDraftPreservation = {
+  requestId: number;
+  draft: ClientPartRequestUpdateInput;
+};
+
 /**
  * Loads the access-filtered part workspace and its quote actions.
  * Callers that render their own signed-out gate can suppress the legacy homepage redirect.
@@ -153,7 +158,8 @@ export function useClientPartController(
   const [isPartArchiveBusy, setIsPartArchiveBusy] = useState(false);
   const isRequestQuoteLockedRef = useRef(false);
   const isCancelQuoteRequestLockedRef = useRef(false);
-  const patchDraftPreservationRef = useRef<ClientPartRequestUpdateInput | null>(null);
+  const patchDraftPreservationRef = useRef<PatchDraftPreservation | null>(null);
+  const patchDraftRequestIdRef = useRef(0);
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const workspaceAccessScope = createWorkspaceAccessScope({
@@ -373,8 +379,9 @@ export function useClientPartController(
     mutationFn: (fields: Array<ClientPartPropertyOverrideField>) =>
       resetClientPartPropertyOverrides({ jobId: canonicalJobId, fields }),
     onSuccess: async () => {
-      await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
+      patchDraftPreservationRef.current = null;
       setRequestDraft(null);
+      await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
       toast.success("Field reset to extracted value.");
     },
     onError: (error: Error) => {
@@ -768,7 +775,7 @@ export function useClientPartController(
       return;
     }
 
-    const preservedDraft = patchDraftPreservationRef.current;
+    const preservedDraft = patchDraftPreservationRef.current?.draft ?? null;
     setRequestDraft(preservedDraft ?? fallbackRequestDraft);
     if (!preservedDraft) {
       setQuoteQuantityInput(
@@ -1171,10 +1178,19 @@ export function useClientPartController(
         return current;
       }
 
-      return {
+      const nextDraft = {
         ...base,
         ...next,
       };
+      const preservation = patchDraftPreservationRef.current;
+      if (preservation) {
+        patchDraftPreservationRef.current = {
+          ...preservation,
+          draft: nextDraft,
+        };
+      }
+
+      return nextDraft;
     });
   };
 
@@ -1209,11 +1225,26 @@ export function useClientPartController(
       ...next,
     } satisfies ClientPartRequestUpdateInput;
     const preservedDraft = requestDraft ? { ...requestDraft, ...next } : payload;
+    const requestId = patchDraftRequestIdRef.current + 1;
+    patchDraftRequestIdRef.current = requestId;
 
-    patchDraftPreservationRef.current = preservedDraft;
+    patchDraftPreservationRef.current = { requestId, draft: preservedDraft };
     setRequestDraft(preservedDraft);
     saveRequestMutation.mutate(payload, {
-      onSuccess: () => setRequestDraft(preservedDraft),
+      onSuccess: () => {
+        const preservation = patchDraftPreservationRef.current;
+        if (preservation?.requestId !== requestId) {
+          return;
+        }
+
+        setRequestDraft(preservation.draft);
+        patchDraftPreservationRef.current = null;
+      },
+      onError: () => {
+        if (patchDraftPreservationRef.current?.requestId === requestId) {
+          patchDraftPreservationRef.current = null;
+        }
+      },
     });
   };
 

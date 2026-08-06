@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QuoteIntelligenceShell } from "./QuoteIntelligenceShell";
@@ -81,5 +81,41 @@ describe("QuoteIntelligenceShell", () => {
     expect(container.firstElementChild).toHaveStyle({ paddingLeft: "52px" });
     expect(screen.getByRole("complementary")).toHaveAttribute("data-state", "collapsed");
     expect(screen.getByRole("button", { name: "Open sidebar" })).toBeInTheDocument();
+  });
+
+  it("restores the persisted desktop preference after a narrow viewport", () => {
+    globalThis.localStorage.setItem("workspace-shell.desktop-collapsed-v1", "0");
+    let viewportChangeListener: ((event: MediaQueryListEvent) => void) | undefined;
+    const mediaQuery = {
+      matches: false,
+      addEventListener: vi.fn((_type: string, listener: (event: MediaQueryListEvent) => void) => {
+        viewportChangeListener = listener;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    Object.defineProperty(globalThis.window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockReturnValue(mediaQuery),
+    });
+
+    const { container } = render(
+      <MemoryRouter initialEntries={["/parts"]}>
+        <QuoteIntelligenceShell title="Parts">
+          <p>Part collection</p>
+        </QuoteIntelligenceShell>
+      </MemoryRouter>,
+    );
+
+    expect(container.firstElementChild).toHaveStyle({ paddingLeft: "224px" });
+
+    mediaQuery.matches = true;
+    act(() => viewportChangeListener?.({ matches: true } as MediaQueryListEvent));
+    expect(container.firstElementChild).toHaveStyle({ paddingLeft: "52px" });
+    expect(globalThis.localStorage.getItem("workspace-shell.desktop-collapsed-v1")).toBe("0");
+
+    mediaQuery.matches = false;
+    act(() => viewportChangeListener?.({ matches: false } as MediaQueryListEvent));
+    expect(container.firstElementChild).toHaveStyle({ paddingLeft: "224px" });
+    expect(globalThis.localStorage.getItem("workspace-shell.desktop-collapsed-v1")).toBe("0");
   });
 });

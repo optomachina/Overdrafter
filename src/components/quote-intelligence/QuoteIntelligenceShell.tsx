@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Box, FileText, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
 import { OverDrafterMark } from "@/components/OverDrafterMark";
@@ -24,20 +24,68 @@ const DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY = "workspace-shell.desktop-collapsed
 const SIDEBAR_EXPANDED_WIDTH = 224;
 const SIDEBAR_COLLAPSED_WIDTH = 52;
 
-function readSidebarCollapsed() {
+function readDesktopSidebarCollapsed() {
   try {
     if (globalThis.window === undefined) {
       return false;
     }
-
-    if (globalThis.window.matchMedia?.("(max-width: 767px)").matches) {
-      return true;
-    }
-
     return globalThis.window.localStorage.getItem(DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY) === "1";
   } catch {
     return false;
   }
+}
+
+function readNarrowViewport() {
+  return globalThis.window !== undefined &&
+    globalThis.window.matchMedia?.("(max-width: 767px)").matches === true;
+}
+
+function persistDesktopSidebarCollapsed(collapsed: boolean) {
+  try {
+    globalThis.window.localStorage.setItem(
+      DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY,
+      collapsed ? "1" : "0",
+    );
+  } catch {
+    // Ignore storage failures in private browsing and restricted contexts.
+  }
+}
+
+function useSidebarCollapseState() {
+  const [desktopPreference] = useState(() => readDesktopSidebarCollapsed());
+  const desktopPreferenceRef = useRef(desktopPreference);
+  const narrowViewportRef = useRef(readNarrowViewport());
+  const [collapsed, setCollapsed] = useState(
+    () => narrowViewportRef.current || desktopPreferenceRef.current,
+  );
+
+  useEffect(() => {
+    if (globalThis.window === undefined || !globalThis.window.matchMedia) {
+      return;
+    }
+
+    const mediaQuery = globalThis.window.matchMedia("(max-width: 767px)");
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      narrowViewportRef.current = event.matches;
+      setCollapsed(event.matches ? true : desktopPreferenceRef.current);
+    };
+
+    narrowViewportRef.current = mediaQuery.matches;
+    setCollapsed(mediaQuery.matches ? true : desktopPreferenceRef.current);
+    mediaQuery.addEventListener?.("change", handleViewportChange);
+
+    return () => mediaQuery.removeEventListener?.("change", handleViewportChange);
+  }, []);
+
+  const setCollapsedFromUser = (nextCollapsed: boolean) => {
+    setCollapsed(nextCollapsed);
+    if (!narrowViewportRef.current) {
+      desktopPreferenceRef.current = nextCollapsed;
+      persistDesktopSidebarCollapsed(nextCollapsed);
+    }
+  };
+
+  return [collapsed, setCollapsedFromUser] as const;
 }
 
 function DestinationNavigation({ collapsed }: Readonly<{ collapsed: boolean }>) {
@@ -211,18 +259,7 @@ export function QuoteIntelligenceShell({
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const isIosApp = searchParams.get("app") === "ios";
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readSidebarCollapsed());
-
-  useEffect(() => {
-    try {
-      globalThis.window.localStorage.setItem(
-        DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY,
-        sidebarCollapsed ? "1" : "0",
-      );
-    } catch {
-      // Ignore storage failures in private browsing and restricted contexts.
-    }
-  }, [sidebarCollapsed]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useSidebarCollapseState();
 
   const sidebarWidth = sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH;
 

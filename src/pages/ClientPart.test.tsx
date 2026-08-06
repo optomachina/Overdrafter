@@ -45,6 +45,7 @@ const {
     cancelQuoteRequest: vi.fn(),
     requestQuote: vi.fn(),
     requestExtraction: vi.fn(),
+    resetClientPartPropertyOverrides: vi.fn(),
     setJobSelectedVendorQuoteOffer: vi.fn(),
     unarchiveJob: vi.fn(),
     unarchiveProject: vi.fn(),
@@ -92,6 +93,7 @@ vi.mock("@/features/quotes/api/extraction-api", () => ({
   requestExtraction: api.requestExtraction,
 }));
 vi.mock("@/features/quotes/api/jobs-api", () => ({
+  resetClientPartPropertyOverrides: api.resetClientPartPropertyOverrides,
   updateClientPartRequest: api.updateClientPartRequest,
 }));
 vi.mock("@/features/quotes/api/projects-api", () => ({
@@ -401,11 +403,13 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
     onDraftChange,
     statusContent,
     onSave,
+    onResetField,
   }: {
     effectiveRequestDraft?: { description?: string | null } | null;
     onDraftChange?: (next: { description: string }) => void;
     statusContent?: ReactNode;
     onSave?: () => void;
+    onResetField?: (field: "description") => void;
   }) => {
 
     return (
@@ -419,6 +423,9 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
         />
         <button type="button" onClick={() => onSave?.()}>
           Save Request
+        </button>
+        <button type="button" onClick={() => onResetField?.("description")}>
+          Reset description
         </button>
       </div>
     );
@@ -701,6 +708,7 @@ describe("ClientPart", () => {
     api.fetchArchivedProjects.mockResolvedValue([]);
     api.fetchArchivedJobs.mockResolvedValue([]);
     api.updateClientPartRequest.mockResolvedValue(undefined);
+    api.resetClientPartPropertyOverrides.mockResolvedValue(undefined);
     api.resolveClientPartDetailRoute.mockResolvedValue({
       routeId: "job-1",
       jobId: "job-1",
@@ -1918,6 +1926,7 @@ describe("ClientPart", () => {
   });
 
   it("saves a manufacturing process selected from the sourcing result", async () => {
+    const updateRequest = createDeferredPromise<void>();
     const baseDetail = createPartDetail();
     const cadFile = {
       id: "cad-file-1",
@@ -1959,6 +1968,7 @@ describe("ClientPart", () => {
         },
       }),
     );
+    api.updateClientPartRequest.mockReturnValueOnce(updateRequest.promise);
 
     renderWithClient("/parts/job-1");
 
@@ -1976,7 +1986,59 @@ describe("ClientPart", () => {
         }),
       );
     });
-    expect(screen.getByLabelText("Description")).toHaveValue("Pending unsaved description");
+    fireEvent.change(screen.getByLabelText("Description"), {
+      target: { value: "Newer unsaved description" },
+    });
+
+    await act(async () => updateRequest.resolve());
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
+    });
+  });
+
+  it("does not restore a partial-save draft after a field reset refetch", async () => {
+    const baseDetail = createPartDetail();
+    const patchRequest = createDeferredPromise<void>();
+    const resetDetail = createPartDetail({
+      part: {
+        ...baseDetail.part,
+        clientRequirement: {
+          ...baseDetail.part.clientRequirement!,
+          description: "Extracted bracket description",
+          process: "CNC milling",
+        },
+      },
+    });
+    api.fetchPartDetailByJobId
+      .mockResolvedValueOnce(baseDetail)
+      .mockResolvedValue(resetDetail);
+    api.updateClientPartRequest.mockReturnValueOnce(patchRequest.promise);
+
+    renderWithClient("/parts/job-1");
+
+    fireEvent.change(await screen.findByLabelText("Description"), {
+      target: { value: "Pending stale description" },
+    });
+    fireEvent.change(screen.getByLabelText("Need by date"), {
+      target: { value: "2026-04-22" },
+    });
+    await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset description" }));
+    await waitFor(() => {
+      expect(api.resetClientPartPropertyOverrides).toHaveBeenCalledWith({
+        jobId: "job-1",
+        fields: ["description"],
+      });
+      expect(screen.getByLabelText("Description")).toHaveValue("Extracted bracket description");
+    });
+
+    await act(async () => patchRequest.resolve());
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Description")).toHaveValue("Extracted bracket description");
+    });
   });
 
   it("logs structured archived delete failures through the account menu callback", async () => {

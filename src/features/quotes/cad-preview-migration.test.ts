@@ -23,7 +23,13 @@ const sketchDefaultMigration = readFileSync(
   ),
   "utf8",
 ).toLowerCase();
-
+const atomicRepairMigration = readFileSync(
+  path.join(
+    process.cwd(),
+    "supabase/migrations/20260805234840_repair_cad_preview_backfill_atomicity.sql",
+  ),
+  "utf8",
+).toLowerCase();
 describe("persistent CAD preview migrations", () => {
   it("ties one renderer-versioned display-style asset to the current part and CAD file", () => {
     expect(schemaMigration).toContain("create table if not exists public.cad_preview_assets");
@@ -52,5 +58,14 @@ describe("persistent CAD preview migrations", () => {
     expect(sketchDefaultMigration).toContain("alter column display_style set default 'sketch'");
     expect(sketchDefaultMigration).toContain("asset.display_style <> 'hidden_lines_removed'");
     expect(sketchDefaultMigration).toContain("'cad_preview_sketch_backfill'");
+  });
+
+  it("repairs deployed migrations with one atomic active preview task per part", () => {
+    expect(atomicRepairMigration).toContain("row_number() over");
+    expect(atomicRepairMigration).toContain("status = 'cancelled'");
+    expect(atomicRepairMigration).toContain("create unique index if not exists idx_work_queue_active_cad_preview_per_part");
+    expect(atomicRepairMigration).toContain("on conflict (part_id)");
+    expect(atomicRepairMigration).toContain("status in ('queued', 'running')");
+    expect(atomicRepairMigration).toContain("asset.display_style = 'sketch'");
   });
 });

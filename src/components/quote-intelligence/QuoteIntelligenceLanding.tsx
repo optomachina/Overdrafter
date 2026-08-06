@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { ArrowRight, FileUp, LogIn } from "lucide-react";
 
 const quotePoints = [
@@ -20,6 +21,8 @@ export function QuoteIntelligenceLanding({
   onCreateAccount,
   isUploadDisabled = false,
 }: QuoteIntelligenceLandingProps) {
+  const quoteChartSummaryId = useId();
+
   return (
     <main className="min-h-svh overflow-hidden bg-paper text-paper-ink">
       <header className="flex h-16 items-center border-b border-paper-hairline px-5 sm:px-8 lg:px-12">
@@ -81,6 +84,7 @@ export function QuoteIntelligenceLanding({
             viewBox="0 0 560 300"
             role="img"
             aria-label="Vendor quotes plotted by total price and lead time"
+            aria-describedby={quoteChartSummaryId}
             className="mt-3 w-full"
           >
             <g fill="none" stroke="var(--hairline)">
@@ -135,6 +139,10 @@ export function QuoteIntelligenceLanding({
               </g>
             ))}
           </svg>
+          <p id={quoteChartSummaryId} className="sr-only">
+            Apex CNC is recommended at $1,842 with an 11-day lead time. Mesa Precision is $2,240 with a 7-day lead
+            time. Orbit Manufacturing is $1,990 with a 14-day lead time. Northline is $1,695 with an 18-day lead time.
+          </p>
         </figure>
       </section>
 

@@ -12,6 +12,12 @@ const FEATURE_EDGE_ANGLE_RADIANS = (32 * Math.PI) / 180;
 const FEATURE_EDGE_DOT_THRESHOLD = Math.cos(FEATURE_EDGE_ANGLE_RADIANS);
 const CAMERA_DIRECTION = normalizeVector({ x: 1, y: 1, z: 1 });
 const LIGHT_DIRECTION = normalizeVector({ x: -0.35, y: 0.82, z: 0.45 });
+const NON_RETRYABLE_CAD_PREVIEW_PATTERNS = [
+  /could not be triangulated/i,
+  /triangle limit/i,
+  /did not contain renderable faces/i,
+  /did not contain non-degenerate preview faces/i,
+];
 
 type Point3 = { x: number; y: number; z: number };
 type Point2 = { x: number; y: number };
@@ -165,9 +171,20 @@ export function renderCadMeshesToSvg(meshes: readonly OcctMesh[]): CadPreviewRen
 }
 
 function getOcctModule(): Promise<OcctModule> {
-  occtModulePromise ??= occtImportJs();
+  if (!occtModulePromise) {
+    occtModulePromise = occtImportJs().catch((error: unknown) => {
+      occtModulePromise = null;
+      throw error;
+    });
+  }
 
   return occtModulePromise;
+}
+
+/** Reports whether a CAD preview failure can plausibly succeed on a later attempt. */
+export function isRetryableCadPreviewError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return !NON_RETRYABLE_CAD_PREVIEW_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 function calculateModelBounds(meshes: readonly OcctMesh[]) {

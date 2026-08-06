@@ -23,7 +23,7 @@ export type CadPreviewPersistenceResult = {
 
 /**
  * Schedules one dedicated preview attempt after inline extraction rendering
- * fails, without duplicating preview work that is already queued or running.
+ * fails. The active-task unique index makes concurrent enqueue attempts safe.
  */
 export async function enqueueCadPreviewGenerationTask(
   supabase: SupabaseClient,
@@ -35,22 +35,6 @@ export async function enqueueCadPreviewGenerationTask(
     source: string;
   },
 ): Promise<boolean> {
-  const { data: existingTasks, error: existingTaskError } = await supabase
-    .from("work_queue")
-    .select("id")
-    .eq("part_id", input.partId)
-    .eq("task_type", "generate_cad_preview")
-    .in("status", ["queued", "running"])
-    .limit(1);
-
-  if (existingTaskError) {
-    throw existingTaskError;
-  }
-
-  if (existingTasks && existingTasks.length > 0) {
-    return false;
-  }
-
   const { error: insertError } = await supabase.from("work_queue").insert({
     organization_id: input.organizationId,
     job_id: input.jobId,
@@ -66,6 +50,9 @@ export async function enqueueCadPreviewGenerationTask(
   });
 
   if (insertError) {
+    if (insertError.code === "23505") {
+      return false;
+    }
     throw insertError;
   }
 

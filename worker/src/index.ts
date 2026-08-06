@@ -73,6 +73,7 @@ import {
   enqueueCadPreviewGenerationTask,
   ensurePersistentCadPreview,
 } from "./cadPreviewPersistence.js";
+import { isRetryableCadPreviewError } from "./cadPreview.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1690,7 +1691,7 @@ async function main() {
       const message = summarizeError(error);
       let retryAt: string | null = null;
       const shouldRetry =
-        task.task_type === "generate_cad_preview" ||
+        (task.task_type === "generate_cad_preview" && isRetryableCadPreviewError(error)) ||
         (task.task_type === "run_vendor_quote" && isRetryableVendorTaskError(error));
       if (shouldRetry) {
         retryAt = nextRetryAt(task.attempts);
@@ -1706,7 +1707,7 @@ async function main() {
         });
       } else {
         await markTaskFailed(supabase, task, message, {
-              failureMessage: message,
+          failureMessage: message,
           failureCode: failureCodeForError(error),
           retryCount,
         });
