@@ -405,8 +405,8 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
     onSave,
     onResetField,
   }: {
-    effectiveRequestDraft?: { description?: string | null } | null;
-    onDraftChange?: (next: { description: string }) => void;
+    effectiveRequestDraft?: { description?: string | null; notes?: string | null } | null;
+    onDraftChange?: (next: { description?: string; notes?: string }) => void;
     statusContent?: ReactNode;
     onSave?: () => void;
     onResetField?: (field: "description") => void;
@@ -420,6 +420,11 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
           aria-label="Description"
           value={effectiveRequestDraft?.description ?? ""}
           onChange={(event) => onDraftChange?.({ description: event.target.value })}
+        />
+        <input
+          aria-label="Notes"
+          value={effectiveRequestDraft?.notes ?? ""}
+          onChange={(event) => onDraftChange?.({ notes: event.target.value })}
         />
         <button type="button" onClick={() => onSave?.()}>
           Save Request
@@ -2043,6 +2048,9 @@ describe("ClientPart", () => {
       target: { value: "2026-04-22" },
     });
     await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("Notes"), {
+      target: { value: "Keep this unsaved sourcing note" },
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Reset description" }));
     expect(api.resetClientPartPropertyOverrides).not.toHaveBeenCalled();
@@ -2057,8 +2065,50 @@ describe("ClientPart", () => {
         fields: ["description"],
       });
       expect(screen.getByLabelText("Description")).toHaveValue("Extracted bracket description");
+      expect(screen.getByLabelText("Notes")).toHaveValue("Keep this unsaved sourcing note");
     });
     expect(persistedDescription).toBe("Extracted bracket description");
+  });
+
+  it("restores unrelated draft edits when a single-field reset fails", async () => {
+    const baseDetail = createPartDetail();
+    api.fetchPartDetailByJobId.mockResolvedValue(
+      createPartDetail({
+        part: {
+          ...baseDetail.part,
+          clientRequirement: {
+            description: "Bracket",
+            partNumber: "BRKT-001",
+            revision: "A",
+            material: "6061-T6 aluminum",
+            finish: null,
+            tightestToleranceInch: null,
+            process: "CNC milling",
+            notes: null,
+            quantity: 10,
+            quoteQuantities: [10],
+            requestedByDate: "2026-04-15",
+          },
+        },
+      }),
+    );
+    api.resetClientPartPropertyOverrides.mockRejectedValueOnce(new Error("Reset failed"));
+
+    renderWithClient("/parts/job-1");
+
+    fireEvent.change(await screen.findByLabelText("Notes"), {
+      target: { value: "Keep this unsaved sourcing note" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reset description" }));
+
+    await waitFor(() => {
+      expect(api.resetClientPartPropertyOverrides).toHaveBeenCalledWith({
+        jobId: "job-1",
+        fields: ["description"],
+      });
+      expect(screen.getByLabelText("Description")).toHaveValue("Bracket");
+      expect(screen.getByLabelText("Notes")).toHaveValue("Keep this unsaved sourcing note");
+    });
   });
 
   it("logs structured archived delete failures through the account menu callback", async () => {
