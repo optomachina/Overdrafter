@@ -60,7 +60,7 @@ function useSidebarCollapseState() {
   );
 
   useEffect(() => {
-    if (globalThis.window === undefined || !globalThis.window.matchMedia) {
+    if (!globalThis.window?.matchMedia) {
       return;
     }
 

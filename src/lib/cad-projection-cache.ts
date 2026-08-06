@@ -21,7 +21,7 @@ export function createCadProjectionCache(capacity: number): CadProjectionCache {
   return {
     getOrCreate(cacheKey, load) {
       const existing = entries.get(cacheKey);
-      if (existing) {
+      if (existing !== undefined) {
         entries.delete(cacheKey);
         entries.set(cacheKey, existing);
         return existing;

@@ -171,12 +171,10 @@ export function renderCadMeshesToSvg(meshes: readonly OcctMesh[]): CadPreviewRen
 }
 
 function getOcctModule(): Promise<OcctModule> {
-  if (!occtModulePromise) {
-    occtModulePromise = occtImportJs().catch((error: unknown) => {
-      occtModulePromise = null;
-      throw error;
-    });
-  }
+  occtModulePromise ??= occtImportJs().catch((error: unknown) => {
+    occtModulePromise = null;
+    throw error;
+  });
 
   return occtModulePromise;
 }

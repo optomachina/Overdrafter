@@ -103,7 +103,7 @@ export function CadIsoThumbnail({ source, className }: CadIsoThumbnailProps) {
         ref={canvasRef}
         width={PREVIEW_SIZE}
         height={PREVIEW_SIZE}
-        aria-hidden="true"
+        role="presentation"
         className={cn("h-full w-full transition-opacity duration-200", status === "ready" ? "opacity-100" : "opacity-0")}
       />
       {status !== "ready" ? (
