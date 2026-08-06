@@ -1930,9 +1930,11 @@ describe("ClientPart", () => {
     });
   });
 
-  it("saves a manufacturing process selected from the sourcing result", async () => {
+  it("preserves unsaved request edits until a process patch refresh is acknowledged", async () => {
     const updateRequest = createDeferredPromise<void>();
     const baseDetail = createPartDetail();
+    let persistedDescription = "Bracket";
+    let persistedProcess: string | null = null;
     const cadFile = {
       id: "cad-file-1",
       job_id: "job-1",
@@ -1950,32 +1952,34 @@ describe("ClientPart", () => {
       uploaded_by: "user-1",
       created_at: "2026-03-01T00:00:00Z",
     };
-
-    api.fetchPartDetailByJobId.mockResolvedValueOnce(
+    const buildPersistedDetail = () =>
       createPartDetail({
         files: [cadFile],
         part: {
           ...baseDetail.part,
           cadFile,
           clientRequirement: {
-            description: "Bracket",
+            description: persistedDescription,
             partNumber: "BRKT-001",
             revision: "A",
             material: "6061-T6 aluminum",
             finish: null,
             tightestToleranceInch: null,
-            process: null,
+            process: persistedProcess,
             notes: null,
             quantity: 10,
             quoteQuantities: [10],
             requestedByDate: "2026-04-15",
           },
         },
-      }),
-    );
-    api.updateClientPartRequest.mockReturnValueOnce(updateRequest.promise);
+      });
+    api.fetchPartDetailByJobId.mockImplementation(async () => buildPersistedDetail());
+    api.updateClientPartRequest.mockImplementationOnce(async (input) => {
+      await updateRequest.promise;
+      persistedProcess = input.process;
+    });
 
-    renderWithClient("/parts/job-1");
+    const { queryClient } = renderWithClient("/parts/job-1");
 
     fireEvent.change(await screen.findByLabelText("Description"), {
       target: { value: "Pending unsaved description" },
@@ -1995,10 +1999,31 @@ describe("ClientPart", () => {
       target: { value: "Newer unsaved description" },
     });
 
+    const fetchCountBeforeUnrelatedRefresh = api.fetchPartDetailByJobId.mock.calls.length;
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["part-detail"] });
+    });
+
+    expect(api.fetchPartDetailByJobId.mock.calls.length).toBeGreaterThan(
+      fetchCountBeforeUnrelatedRefresh,
+    );
+    expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
+
     await act(async () => updateRequest.resolve());
 
     await waitFor(() => {
       expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
+    });
+
+    persistedDescription = "Server description after acknowledgement";
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["part-detail"] });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Description")).toHaveValue(
+        "Server description after acknowledgement",
+      );
     });
   });
 

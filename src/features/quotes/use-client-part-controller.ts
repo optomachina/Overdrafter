@@ -119,6 +119,8 @@ const EMPTY_QUOTE_DIAGNOSTICS: QuoteDiagnostics = {
 type PatchDraftPreservation = {
   requestId: number;
   draft: ClientPartRequestUpdateInput;
+  patch?: Partial<ClientPartRequestUpdateInput>;
+  mutationCompleted?: boolean;
 };
 
 type ResetFieldMutationInput = {
@@ -184,6 +186,17 @@ function applyResetFields(
   });
 
   return nextDraft;
+}
+
+function requestDraftIncludesPatch(
+  draft: ClientPartRequestUpdateInput,
+  patch: Partial<ClientPartRequestUpdateInput>,
+): boolean {
+  const patchFields = Object.keys(patch) as Array<keyof ClientPartRequestUpdateInput>;
+
+  return patchFields.every(
+    (field) => JSON.stringify(draft[field]) === JSON.stringify(patch[field]),
+  );
 }
 
 /**
@@ -900,7 +913,8 @@ export function useClientPartController(
       return;
     }
 
-    const preservedDraft = patchDraftPreservationRef.current?.draft ?? null;
+    const preservation = patchDraftPreservationRef.current;
+    const preservedDraft = preservation?.draft ?? null;
     setRequestDraft(preservedDraft ?? fallbackRequestDraft);
     if (!preservedDraft) {
       setQuoteQuantityInput(
@@ -909,6 +923,21 @@ export function useClientPartController(
     }
     setPartRenameValue(fallbackRequestDraft.partNumber ?? presentation?.title ?? "");
   }, [fallbackRequestDraft, presentation?.title]);
+
+  useEffect(() => {
+    const preservation = patchDraftPreservationRef.current;
+    if (
+      !fallbackRequestDraft ||
+      !preservation?.mutationCompleted ||
+      !preservation.patch ||
+      !requestDraftIncludesPatch(fallbackRequestDraft, preservation.patch)
+    ) {
+      return;
+    }
+
+    setRequestDraft(preservation.draft);
+    patchDraftPreservationRef.current = null;
+  }, [fallbackRequestDraft, requestDraft]);
 
   useEffect(() => {
     let isActive = true;
@@ -1353,7 +1382,12 @@ export function useClientPartController(
     const requestId = patchDraftRequestIdRef.current + 1;
     patchDraftRequestIdRef.current = requestId;
 
-    patchDraftPreservationRef.current = { requestId, draft: preservedDraft };
+    patchDraftPreservationRef.current = {
+      requestId,
+      draft: preservedDraft,
+      patch: next,
+      mutationCompleted: false,
+    };
     setRequestDraft(preservedDraft);
     saveRequestMutation.mutate(payload, {
       onSuccess: () => {
@@ -1362,8 +1396,12 @@ export function useClientPartController(
           return;
         }
 
-        setRequestDraft(preservation.draft);
-        patchDraftPreservationRef.current = null;
+        const completedPreservation = {
+          ...preservation,
+          mutationCompleted: true,
+        };
+        patchDraftPreservationRef.current = completedPreservation;
+        setRequestDraft({ ...completedPreservation.draft });
       },
       onError: () => {
         if (patchDraftPreservationRef.current?.requestId === requestId) {
