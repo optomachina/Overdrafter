@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { FixturePanel } from "@/components/debug/FixturePanel";
 
 const DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY = "workspace-shell.desktop-collapsed-v1";
 const LEGACY_DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY = "chat-workspace-layout.desktop-collapsed-v1";
@@ -759,6 +760,7 @@ export function ClientWorkspaceShell({
 
               <div className="flex w-full items-center justify-end gap-2 md:ml-auto md:w-auto">{topRightContent}</div>
             </header>
+            <FixturePanel />
 
             <main className="flex min-w-0 flex-1 flex-col">{children}</main>
           </div>

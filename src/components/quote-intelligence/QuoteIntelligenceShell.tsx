@@ -9,6 +9,7 @@ import {
   Search,
 } from "lucide-react";
 import { OverDrafterMark } from "@/components/OverDrafterMark";
+import { FixturePanel } from "@/components/debug/FixturePanel";
 import {
   Sheet,
   SheetContent,
@@ -510,6 +511,7 @@ export function QuoteIntelligenceShell({
             title={title}
             uploadSlot={uploadSlot}
           />
+          <FixturePanel />
 
           <div className="flex min-h-0 min-w-0 flex-1">
             <main

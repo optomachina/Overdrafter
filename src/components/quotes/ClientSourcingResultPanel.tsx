@@ -100,26 +100,16 @@ function UnsupportedPackagePanel({
 }
 
 type SourcingSummary = Readonly<{
-  detail: string;
   hasLiveOffers: boolean;
   heading: string;
 }>;
 
-function buildSourcingSummary(result: RecommendationResult, compact: boolean): SourcingSummary {
+function buildSourcingSummary(result: RecommendationResult): SourcingSummary {
   if (result.outcome === "live_offers_available") {
     const offerNoun = result.liveOfferCount === 1 ? "offer" : "offers";
     const fallbackSuffix = result.recommendations.length > 0 ? " plus fallback options" : "";
-    let detail = "Compare the returned offers below.";
-
-    if (compact) {
-      detail = "Open the full workspace to compare the returned offers.";
-    } else if (result.recommendations.length > 0) {
-      detail =
-        "Compare returned offers below. These provider links remain available if another lane is a better fit.";
-    }
 
     return {
-      detail,
       hasLiveOffers: true,
       heading: `${result.liveOfferCount} live ${offerNoun}${fallbackSuffix}`,
     };
@@ -127,16 +117,12 @@ function buildSourcingSummary(result: RecommendationResult, compact: boolean): S
 
   if (result.reason === "free_preview") {
     return {
-      detail:
-        "These are potential providers ranked from reviewed capability data. They are not returned quotes and no price is implied.",
       hasLiveOffers: false,
       heading: "Qualified next steps, available now",
     };
   }
 
   return {
-    detail:
-      "Automatic collection has not produced a live offer yet. These potential providers and official RFQ links keep the request moving without operator intervention.",
     hasLiveOffers: false,
     heading: "Qualified next steps, available now",
   };
@@ -196,7 +182,7 @@ function RecommendationPanel({
   compact,
   result,
 }: Readonly<{ compact: boolean; result: RecommendationResult }>) {
-  const { detail, hasLiveOffers, heading } = buildSourcingSummary(result, compact);
+  const { hasLiveOffers, heading } = buildSourcingSummary(result);
 
   return (
     <section className="rounded-[22px] border border-border bg-ws-card p-5">
@@ -211,7 +197,6 @@ function RecommendationPanel({
             </Badge>
           </div>
           <h2 className="mt-3 text-lg font-semibold text-foreground">{heading}</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{detail}</p>
         </div>
         <ShieldCheck className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
       </div>

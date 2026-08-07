@@ -46,6 +46,17 @@ describe("QuoteIntelligenceShell", () => {
     expect(container.querySelectorAll('[data-workspace-scroll="primary"]')).toHaveLength(1);
   });
 
+  it("contains active fixture controls inside the application frame", () => {
+    const { container } = renderShell({}, "/parts?fixture=client-quoted&debug=1");
+
+    const shell = container.querySelector("[data-client-shell]");
+    const fixturePanel = container.querySelector<HTMLElement>("[data-fixture-panel]");
+
+    expect(fixturePanel).toBeInTheDocument();
+    expect(shell).toContainElement(fixturePanel);
+    expect(fixturePanel).not.toHaveClass("fixed");
+  });
+
   it("keeps the same navigation icon nodes mounted at 52px and 224px sidebar widths", () => {
     renderShell();
 

@@ -1,8 +1,14 @@
 import "@testing-library/jest-dom/vitest";
+import type { ReactElement } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { Search, SquarePlus } from "lucide-react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ClientWorkspaceShell } from "./ClientWorkspaceShell";
+
+function renderShell(shell: ReactElement) {
+  return render(<MemoryRouter>{shell}</MemoryRouter>);
+}
 
 describe("ClientWorkspaceShell", () => {
   beforeEach(() => {
@@ -10,7 +16,7 @@ describe("ClientWorkspaceShell", () => {
   });
 
   it("keeps the primary viewport shrinkable while exposing a sidebar resize handle", () => {
-    render(
+    renderShell(
       <ClientWorkspaceShell sidebarContent={<div>Sidebar</div>}>
         <div>Primary workspace</div>
       </ClientWorkspaceShell>,
@@ -27,7 +33,7 @@ describe("ClientWorkspaceShell", () => {
   });
 
   it("uses the same horizontal inset rhythm on the expanded sidebar header", () => {
-    render(
+    renderShell(
       <ClientWorkspaceShell sidebarContent={<div>Sidebar</div>}>
         <div>Primary workspace</div>
       </ClientWorkspaceShell>,
@@ -41,7 +47,7 @@ describe("ClientWorkspaceShell", () => {
   });
 
   it("keeps the favicon mark on the same icon axis in both sidebar layers", () => {
-    const { container } = render(
+    const { container } = renderShell(
       <ClientWorkspaceShell
         sidebarContent={<div>Sidebar</div>}
         sidebarRailActions={[

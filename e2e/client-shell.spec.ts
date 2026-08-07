@@ -77,6 +77,20 @@ test.describe("authenticated client shell contract", () => {
     }
   });
 
+  test("exits fixture mode without leaving fixture controls over the live app", async ({ page }) => {
+    await page.setViewportSize({ width: 1512, height: 751 });
+    await page.goto("/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
+
+    const fixturePanel = page.locator("[data-fixture-panel]");
+    await expect(fixturePanel).toBeVisible();
+    await expect(fixturePanel).toHaveCSS("position", "static");
+
+    await page.getByRole("button", { name: "Exit" }).click();
+
+    await expect(page).toHaveURL(/\/?\?auth=signin$/);
+    await expect(fixturePanel).toHaveCount(0);
+  });
+
   test("collapses without remounting or moving navigation icons and keeps overlays above content", async ({ page }) => {
     await page.setViewportSize({ width: 1512, height: 751 });
     await page.goto("/parts?fixture=client-quoted&debug=1");

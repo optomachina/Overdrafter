@@ -171,7 +171,7 @@ describe("ClientDrawingPreviewPanel", () => {
 });
 
 describe("ClientCadPreviewPanel", () => {
-  it("wires thumbnail fallback download action to CAD download", async () => {
+  it("wires the icon and thumbnail fallback actions to CAD download", async () => {
     vi.mocked(downloadStoredFileBlob).mockImplementation(() => new Promise(() => {}));
 
     const cadFile = {
@@ -184,6 +184,14 @@ describe("ClientCadPreviewPanel", () => {
     render(<ClientCadPreviewPanel cadFile={cadFile} />);
 
     expect(screen.queryByText("CAD / isometric")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download CAD file" })).toHaveAttribute(
+      "title",
+      "Download model.step",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Download CAD file" }));
+    expect(downloadStoredFileBlob).toHaveBeenCalledWith(cadFile);
+
+    vi.mocked(downloadStoredFileBlob).mockClear();
     fireEvent.click(screen.getByRole("button", { name: /download model\.step/i }));
 
     expect(downloadStoredFileBlob).toHaveBeenCalledWith(cadFile);

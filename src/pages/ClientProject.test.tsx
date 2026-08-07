@@ -1157,9 +1157,7 @@ describe("ClientProject", () => {
 
     const inspector = screen.getByRole("complementary", { name: "Project inspector" });
     expect(within(inspector).getByText("Provider recommendations available")).toBeInTheDocument();
-    expect(
-      within(inspector).getByText(/potential providers ranked from reviewed capability data/i),
-    ).toBeInTheDocument();
+    expect(within(inspector).queryByText(/potential providers ranked/i)).not.toBeInTheDocument();
     const officialRfqLink = within(inspector).getByRole("link", { name: /open official rfq/i });
     expect(officialRfqLink).toHaveAttribute(
       "href",
@@ -1287,8 +1285,9 @@ describe("ClientProject", () => {
       const inspector = screen.getByRole("complementary", { name: "Project inspector" });
       expect(within(inspector).getByText("Provider recommendations available")).toBeInTheDocument();
       expect(
-        within(inspector).getByText(/automatic collection has not produced a live offer yet/i),
+        within(inspector).getByRole("heading", { name: "Qualified next steps, available now" }),
       ).toBeInTheDocument();
+      expect(within(inspector).queryByText(/automatic collection has not produced/i)).not.toBeInTheDocument();
     },
   );
 
