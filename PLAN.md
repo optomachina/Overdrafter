@@ -1,7 +1,7 @@
 <!-- /autoplan restore point: /Users/blainewilson/.gstack/projects/optomachina-Overdrafter/claude-quizzical-williams-autoplan-restore-20260331-213648.md -->
 # OverDrafter Execution Plan
 
-Last updated: August 3, 2026
+Last updated: August 7, 2026
 
 ## Purpose
 
@@ -13,7 +13,7 @@ The active north star is the multi-agent manufacturing co-pilot described in PRD
 All future work must align to:
 - Hide every piece of complexity (jobs, queues, extraction steps, vendor tabs, cards) until the exact moment it adds value.
 - Make the primary canvas the user’s CAD tool (plugins) or a live 3D viewer.
-- Use natural language as the only control surface.
+- Use natural language as the primary orchestration surface while preserving direct geometry selection and structured precision controls for engineering work.
 - Keep OpenClaw browser automation 100 % invisible.
 - Deliver DFM, quoting, modeling updates, drafting, assembly, fulfillment, and PDM as parallel invisible agents.
 
@@ -154,6 +154,7 @@ project context.
 ### Deferred capabilities
 
 - Full cross-CAD plugin coverage (after live quote value validated with customers).
+- Bidirectional CAD and drawing completion: editable drawing generation from CAD, editable geometry reconstruction from drawings, associative co-editing, and eventual user-selectable CAD backends. This includes the product-owner-reported drawing-only customer segment that needs replacement geometry, quotes, and later purchasing; quantify the segment through customer discovery before prioritizing implementation. See `docs/bidirectional-cad-drawing-roadmap.md`.
 - PDM versioning and revision-aware agents.
 - Fulfillment coordination agents.
 - Production hardening (observability, rate-limiting, self-healing harness).
