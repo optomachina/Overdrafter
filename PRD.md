@@ -1,6 +1,6 @@
 # OverDrafter Product Requirements Document
 
-Last updated: July 29, 2026
+Last updated: August 7, 2026
 
 ## Document purpose
 
@@ -117,6 +117,8 @@ Current non-goals:
 
 Enable a CNC buyer to go from “I have a part and a drawing” to “I selected a vetted quote option” in one workspace, while giving internal estimators full control over review, sourcing, pricing, and publication.
 
+Long term, that starting state must also include customers who possess only one side of the design package. A customer with CAD but no drawing should be able to create and edit a manufacturing drawing. The product owner has identified customers with a drawing but no CAD as an existing replacement-part and legacy-part segment: they should be able to reconstruct reviewed, editable geometry, obtain quotes against the resulting versioned package, and carry the selected package into a future authorized purchasing workflow. Segment size, frequency, and willingness to pay still require quantified customer discovery before this track is prioritized.
+
 ## Long-term product direction (North Star)
 
 OverDrafter’s current implementation is a curated CNC quote platform. The intended destination is a **manufacturing co-pilot** that lives inside the designer’s native CAD environment and disappears until it adds value.
@@ -124,8 +126,9 @@ OverDrafter’s current implementation is a curated CNC quote platform. The inte
 The ideal multi-agent UX is:
 
 - A single, persistent, CAD-native workspace (SolidWorks, Fusion 360, Onshape, Creo, Inventor plugins + web fallback with live 3D STEP viewer).
-- Natural-language direction as the only control surface (“DFM this assembly for CNC aluminum 6061, get firm quotes from the 5 fastest shops under $800…”).
+- Natural-language direction as the primary orchestration surface (“DFM this assembly for CNC aluminum 6061, get firm quotes from the 5 fastest shops under $800…”), complemented by direct geometry selection, structured engineering controls, and exact numeric entry where precision or ambiguity requires them.
 - Invisible specialist agents (DFM, extraction, quoting swarm via OpenClaw browser harness, modeling/drafting updater, assembly/fulfillment coordinator, PDM agent) that decompose, negotiate on an internal blackboard, and execute in parallel.
+- Bidirectional design-package completion: generate an editable drawing from CAD, reconstruct editable CAD from a drawing, keep accepted geometry and drawing edits associative, and preserve provenance and human review throughout.
 - On-demand visualizations only (live DFM heatmap on geometry, dynamic quote scatter, revision diff, risk heatmap) that collapse back to the clean CAD view when not needed.
 - A future costing heatmap that explains an estimated price range through ranked, approximate cost drivers for geometry, tolerance, material, finish, quantity, lead time, and origin. It should learn from immutable feature/condition/prediction/quote snapshots, preserve vendor/source provenance, compare every prediction with later firm quotes, and track accuracy internally. Customer-facing output must not show an abstract confidence score; internal uncertainty widens the displayed range instead.
 - A post-event supplier outcome view that can show an invited supplier where its price, ready-to-ship lead time, and response latency landed inside an anonymized cohort. It remains gated on explicit data-purpose terms, a minimum cohort, event closure, privacy review, and competition counsel; buyer-visible vendor identity must never leak into the supplier view.
@@ -135,6 +138,8 @@ The ideal multi-agent UX is:
 The product evolves from “upload files and receive curated quote options” to “drop a CAD file, speak your intent, and receive an optimized, quoted, PDM-tracked, shippable result.” All quoting, DFM, modeling, redrafting, assembly, fulfillment, and PDM workflows become delegated to the agent swarm. The human’s job is direction, taste, and final responsibility—nothing else.
 
 This direction does not change current implementation boundaries; it is the guiding star for every future phase.
+
+See `docs/bidirectional-cad-drawing-roadmap.md` for the deferred customer segments, editability requirements, verification rules, CAD-backend strategy, and connection from generated design packages to quoting and purchasing.
 
 ## Fulfillment-aware downstream boundary
 

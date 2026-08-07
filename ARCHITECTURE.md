@@ -1,6 +1,6 @@
 # OverDrafter Architecture
 
-Last updated: July 30, 2026
+Last updated: August 7, 2026
 
 ## Purpose
 
@@ -239,11 +239,17 @@ None of the following exists in the codebase today. Vendor automation is impleme
 - CAD plugins (thin clients that inject into SolidWorks/Fusion/Onshape/etc.)
 - Live 3D STEP viewer as web fallback
 - Natural-language intent parser → agent decomposition
+- Direct geometry selection and structured engineering controls for dimensions, holes, datums, fits, tolerances, GD&T, and other precision edits
+- Bidirectional design-package completion: exact CAD to editable drawing, drawing to proposed editable CAD, and associative updates between reviewed representations
+- A vendor-neutral canonical design representation that preserves exact geometry, parametric intent, drawings, manufacturing intent, provenance, review state, and version identity independently of any one native CAD format
+- Capability-advertising CAD backend adapters, using supported APIs or plugins first and isolated agent-operated licensed CAD environments only as a verified compatibility fallback
 - Internal blackboard for agent negotiation (never surfaced to user)
 - On-demand visualization engine (DFM heatmap, quote scatter, revision diff, risk heatmap)
 - Instant human override protocol
 - OpenClaw harness (invisible browser automation)
 - PDM graph and revision sandboxing
+
+See `docs/bidirectional-cad-drawing-roadmap.md` for the deferred customer workflows, verification boundaries, format strategy, and relationship to quoting and future purchasing.
 
 ### 10. Supplier directory and assisted-RFQ layer
 
