@@ -64,7 +64,7 @@ async function expectTooltipAboveWorkspace(page: Page, tooltip: Locator) {
 }
 
 test.describe("authenticated client shell contract", () => {
-  test("keeps one application frame across every client route", async ({ page }) => {
+  test("keeps one application frame across every launch client route", async ({ page }) => {
     await page.setViewportSize({ width: 1512, height: 751 });
 
     for (const route of CLIENT_ROUTES) {
@@ -152,13 +152,29 @@ test.describe("authenticated client shell contract", () => {
     await expectNoDocumentOverflow(page);
 
     await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { name: "Open inspector" })).toBeFocused();
+    await page.getByRole("button", { name: "Open inspector" }).click();
+    await page.setViewportSize({ width: 1512, height: 786 });
+    await expect(page.locator('[data-workspace-inspector="desktop"]')).toBeVisible();
+    await page.setViewportSize({ width: 768, height: 786 });
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
     await page.setViewportSize({ width: 390, height: 786 });
     await page.goto("/parts?fixture=client-quoted&debug=1");
 
     await expect(page.getByRole("complementary")).toBeHidden();
-    await page.getByRole("button", { name: "Open navigation" }).click();
+    const navigationTrigger = page.getByRole("button", { name: "Open navigation" });
+    await navigationTrigger.click();
     await expect(page.getByRole("dialog")).toHaveCSS("width", "224px");
     await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
     await expectNoDocumentOverflow(page);
+
+    await page.keyboard.press("Escape");
+    await expect(navigationTrigger).toBeFocused();
+    await navigationTrigger.click();
+    await page.setViewportSize({ width: 768, height: 786 });
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 786 });
+    await expect(page.getByRole("dialog")).toHaveCount(0);
   });
 });

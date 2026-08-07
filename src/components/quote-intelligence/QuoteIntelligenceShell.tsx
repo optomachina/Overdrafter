@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Box,
@@ -46,6 +46,8 @@ const DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY = "workspace-shell.desktop-collapsed
 const SIDEBAR_EXPANDED_WIDTH = 224;
 const SIDEBAR_COLLAPSED_WIDTH = 52;
 const INSPECTOR_WIDTH = 336;
+const MOBILE_NAVIGATION_SHEET_ID = "client-mobile-navigation-sheet";
+const MOBILE_INSPECTOR_SHEET_ID = "client-mobile-inspector-sheet";
 const SHELL_TOOLTIP_CLASS_NAME =
   "z-[100] rounded-[2px] border border-paper-hairline bg-paper-ink px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-paper shadow-none";
 
@@ -274,6 +276,7 @@ function MobileNavigation({ open, onOpenChange }: MobileNavigationProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
+        id={MOBILE_NAVIGATION_SHEET_ID}
         side="left"
         aria-describedby={undefined}
         className="max-w-[calc(100vw-32px)] gap-0 border-paper-hairline bg-paper p-0 text-paper-ink shadow-none [&>button]:rounded-[2px]"
@@ -293,7 +296,11 @@ function MobileNavigation({ open, onOpenChange }: MobileNavigationProps) {
 type WorkspaceHeaderProps = Readonly<{
   accountSlot?: ReactNode;
   hasInspector: boolean;
+  inspectorOpen: boolean;
+  inspectorTriggerRef: RefObject<HTMLButtonElement | null>;
   isIosApp: boolean;
+  mobileNavigationOpen: boolean;
+  mobileNavigationTriggerRef: RefObject<HTMLButtonElement | null>;
   onOpenInspector: () => void;
   onOpenMobileNavigation: () => void;
   title: string;
@@ -303,7 +310,11 @@ type WorkspaceHeaderProps = Readonly<{
 function WorkspaceHeader({
   accountSlot,
   hasInspector,
+  inspectorOpen,
+  inspectorTriggerRef,
   isIosApp,
+  mobileNavigationOpen,
+  mobileNavigationTriggerRef,
   onOpenInspector,
   onOpenMobileNavigation,
   title,
@@ -313,8 +324,12 @@ function WorkspaceHeader({
     <header className="relative z-40 flex h-14 shrink-0 items-center gap-3 border-b border-paper-hairline bg-paper px-3 sm:px-4">
       {!isIosApp ? (
         <button
+          ref={mobileNavigationTriggerRef}
           type="button"
           aria-label="Open navigation"
+          aria-controls={MOBILE_NAVIGATION_SHEET_ID}
+          aria-expanded={mobileNavigationOpen}
+          aria-haspopup="dialog"
           onClick={onOpenMobileNavigation}
           className="grid h-11 w-11 shrink-0 place-items-center rounded-[2px] text-paper-muted hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red md:hidden"
         >
@@ -337,8 +352,12 @@ function WorkspaceHeader({
         {uploadSlot}
         {hasInspector ? (
           <button
+            ref={inspectorTriggerRef}
             type="button"
             aria-label="Open inspector"
+            aria-controls={MOBILE_INSPECTOR_SHEET_ID}
+            aria-expanded={inspectorOpen}
+            aria-haspopup="dialog"
             onClick={onOpenInspector}
             className="grid h-11 w-11 shrink-0 place-items-center rounded-[2px] text-paper-muted hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red sm:h-9 sm:w-9 xl:hidden"
           >
@@ -381,6 +400,7 @@ function MobileInspector({ children, onOpenChange, open, title }: MobileInspecto
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
+        id={MOBILE_INSPECTOR_SHEET_ID}
         side="right"
         aria-describedby={undefined}
         data-workspace-inspector="sheet"
@@ -415,8 +435,50 @@ export function QuoteIntelligenceShell({
   const [sidebarCollapsed, setSidebarCollapsed] = useSidebarCollapseState();
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
+  const mobileNavigationTriggerRef = useRef<HTMLButtonElement>(null);
+  const mobileInspectorTriggerRef = useRef<HTMLButtonElement>(null);
   const hasInspector = inspector != null;
   const wideInspectorViewport = useWideInspectorViewport();
+
+  useEffect(() => {
+    if (!globalThis.window?.matchMedia) {
+      return;
+    }
+
+    const mediaQuery = globalThis.window.matchMedia("(min-width: 768px)");
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      if (event.matches) {
+        setMobileNavigationOpen(false);
+      }
+    };
+
+    if (mediaQuery.matches) {
+      setMobileNavigationOpen(false);
+    }
+    mediaQuery.addEventListener?.("change", handleViewportChange);
+
+    return () => mediaQuery.removeEventListener?.("change", handleViewportChange);
+  }, []);
+
+  useEffect(() => {
+    if (wideInspectorViewport || !hasInspector) {
+      setMobileInspectorOpen(false);
+    }
+  }, [hasInspector, wideInspectorViewport]);
+
+  const handleMobileNavigationOpenChange = (open: boolean) => {
+    setMobileNavigationOpen(open);
+    if (!open) {
+      globalThis.window?.setTimeout(() => mobileNavigationTriggerRef.current?.focus(), 0);
+    }
+  };
+
+  const handleMobileInspectorOpenChange = (open: boolean) => {
+    setMobileInspectorOpen(open);
+    if (!open) {
+      globalThis.window?.setTimeout(() => mobileInspectorTriggerRef.current?.focus(), 0);
+    }
+  };
 
   return (
     <TooltipProvider delayDuration={120}>
@@ -433,12 +495,16 @@ export function QuoteIntelligenceShell({
         <div className="flex min-w-0 flex-1 flex-col">
           <MobileNavigation
             open={mobileNavigationOpen}
-            onOpenChange={setMobileNavigationOpen}
+            onOpenChange={handleMobileNavigationOpenChange}
           />
           <WorkspaceHeader
             accountSlot={accountSlot}
             hasInspector={hasInspector}
+            inspectorOpen={mobileInspectorOpen}
+            inspectorTriggerRef={mobileInspectorTriggerRef}
             isIosApp={isIosApp}
+            mobileNavigationOpen={mobileNavigationOpen}
+            mobileNavigationTriggerRef={mobileNavigationTriggerRef}
             onOpenInspector={() => setMobileInspectorOpen(true)}
             onOpenMobileNavigation={() => setMobileNavigationOpen(true)}
             title={title}
@@ -478,7 +544,7 @@ export function QuoteIntelligenceShell({
         {hasInspector && !wideInspectorViewport ? (
           <MobileInspector
             open={mobileInspectorOpen}
-            onOpenChange={setMobileInspectorOpen}
+            onOpenChange={handleMobileInspectorOpenChange}
             title={inspectorTitle}
           >
             {inspector}

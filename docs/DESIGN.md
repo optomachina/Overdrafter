@@ -176,7 +176,7 @@ The July 28, 2026 launch direction supersedes the persistent left ledger as the 
 
 - Responsive web navigation is `PARTS | QUOTES | SEARCH`.
 - Authenticated web uses one stable application frame: a 52px collapsed / 224px expanded left rail at tablet width and above, and a 224px navigation drawer on narrower screens. Collapsing changes rail width and label opacity only; navigation icon nodes remain mounted and position-stable.
-- Every authenticated client route uses one 56px page header and one primary workspace scroll container. Document-level scrolling and route-specific shell variants are not permitted.
+- The launch client routes—Parts, Quotes, Search, part detail, and quote detail—use one 56px page header and one primary workspace scroll container. Document-level scrolling and route-specific shell variants are not permitted within those launch surfaces; legacy project and review construction shells remain out of scope.
 - A contextual inspector is optional. It occupies 336px beside the workspace at wide desktop sizes and becomes a 336px sheet on tablet and phone so the central artifact view never gets squeezed.
 - The approved iPhone shell is `INBOX | PARTS | QUOTES | MORE`, with a
   separate `ASK` action adjacent to the bottom destination bar. iPad may adapt

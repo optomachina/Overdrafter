@@ -98,9 +98,13 @@ describe("QuoteIntelligenceShell", () => {
     renderShell();
 
     expect(screen.getByRole("complementary")).toHaveClass("hidden", "md:block");
-    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    const navigationTrigger = screen.getByRole("button", { name: "Open navigation" });
+    fireEvent.click(navigationTrigger);
 
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
+    expect(navigationTrigger).toHaveAttribute("aria-expanded", "true");
+    expect(navigationTrigger).toHaveAttribute("aria-haspopup", "dialog");
+    expect(navigationTrigger).toHaveAttribute("aria-controls", screen.getByRole("dialog").id);
     expect(screen.getByRole("dialog")).toHaveClass("shadow-none");
     expect(screen.getByRole("dialog")).toHaveStyle({ width: "224px" });
   });
