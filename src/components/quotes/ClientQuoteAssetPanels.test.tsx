@@ -102,7 +102,25 @@ describe("ClientDrawingPreviewPanel", () => {
       />,
     );
 
+    const previewImage = screen.getByRole("img", { name: /drawing\.pdf page 1/i });
+    expect(previewImage).toHaveClass("h-full", "w-full", "object-contain");
+    expect(previewImage.parentElement).toHaveClass("h-[clamp(360px,58vh,680px)]");
+  });
+
+  it("prefers fitted preview imagery over the embedded PDF viewer", () => {
+    render(
+      <ClientDrawingPreviewPanel
+        drawingFile={drawingFile}
+        drawingPreview={emptyPreview}
+        viewerMode="pdf"
+        pdfUrl="blob:drawing-pdf"
+        pages={[{ pageNumber: 1, url: "blob:preview" }]}
+        state="ready"
+      />,
+    );
+
     expect(screen.getByRole("img", { name: /drawing\.pdf page 1/i })).toBeInTheDocument();
+    expect(screen.queryByTitle("drawing.pdf PDF preview")).not.toBeInTheDocument();
   });
 
   it("renders the original PDF when a pdfUrl is provided", () => {
@@ -116,7 +134,10 @@ describe("ClientDrawingPreviewPanel", () => {
       />,
     );
 
-    expect(screen.getByTitle("drawing.pdf PDF preview")).toBeInTheDocument();
+    expect(screen.getByTitle("drawing.pdf PDF preview")).toHaveAttribute(
+      "src",
+      "blob:drawing-pdf#view=FitH&zoom=page-fit",
+    );
   });
 
   it("allows drawing actions to wrap on narrow viewports", () => {
@@ -162,6 +183,7 @@ describe("ClientCadPreviewPanel", () => {
 
     render(<ClientCadPreviewPanel cadFile={cadFile} />);
 
+    expect(screen.queryByText("CAD / isometric")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /download model\.step/i }));
 
     expect(downloadStoredFileBlob).toHaveBeenCalledWith(cadFile);

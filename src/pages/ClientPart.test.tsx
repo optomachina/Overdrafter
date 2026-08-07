@@ -45,6 +45,7 @@ const {
     cancelQuoteRequest: vi.fn(),
     requestQuote: vi.fn(),
     requestExtraction: vi.fn(),
+    resetClientPartPropertyOverrides: vi.fn(),
     setJobSelectedVendorQuoteOffer: vi.fn(),
     unarchiveJob: vi.fn(),
     unarchiveProject: vi.fn(),
@@ -92,6 +93,7 @@ vi.mock("@/features/quotes/api/extraction-api", () => ({
   requestExtraction: api.requestExtraction,
 }));
 vi.mock("@/features/quotes/api/jobs-api", () => ({
+  resetClientPartPropertyOverrides: api.resetClientPartPropertyOverrides,
   updateClientPartRequest: api.updateClientPartRequest,
 }));
 vi.mock("@/features/quotes/api/projects-api", () => ({
@@ -397,19 +399,38 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
 
 vi.mock("@/components/workspace/PartInfoPanel", () => ({
   PartInfoPanel: ({
+    effectiveRequestDraft,
+    onDraftChange,
     statusContent,
     onSave,
+    onResetField,
   }: {
+    effectiveRequestDraft?: { description?: string | null; notes?: string | null } | null;
+    onDraftChange?: (next: { description?: string; notes?: string }) => void;
     statusContent?: ReactNode;
     onSave?: () => void;
+    onResetField?: (field: "description") => void;
   }) => {
 
     return (
       <div data-testid="part-info-panel">
         <div>Part information</div>
         {statusContent}
+        <input
+          aria-label="Description"
+          value={effectiveRequestDraft?.description ?? ""}
+          onChange={(event) => onDraftChange?.({ description: event.target.value })}
+        />
+        <input
+          aria-label="Notes"
+          value={effectiveRequestDraft?.notes ?? ""}
+          onChange={(event) => onDraftChange?.({ notes: event.target.value })}
+        />
         <button type="button" onClick={() => onSave?.()}>
           Save Request
+        </button>
+        <button type="button" onClick={() => onResetField?.("description")}>
+          Reset description
         </button>
       </div>
     );
@@ -692,6 +713,7 @@ describe("ClientPart", () => {
     api.fetchArchivedProjects.mockResolvedValue([]);
     api.fetchArchivedJobs.mockResolvedValue([]);
     api.updateClientPartRequest.mockResolvedValue(undefined);
+    api.resetClientPartPropertyOverrides.mockResolvedValue(undefined);
     api.resolveClientPartDetailRoute.mockResolvedValue({
       routeId: "job-1",
       jobId: "job-1",
@@ -1905,6 +1927,212 @@ describe("ClientPart", () => {
     await waitFor(() => {
       expect(screen.getByText(/partial drawing metadata found/i)).toBeInTheDocument();
       expect(screen.getByText(/missing: material, finish/i)).toBeInTheDocument();
+    });
+  });
+
+  it("preserves unsaved request edits until a process patch refresh is acknowledged", async () => {
+    const updateRequest = createDeferredPromise<void>();
+    const baseDetail = createPartDetail();
+    let persistedDescription = "Bracket";
+    let persistedProcess: string | null = null;
+    const cadFile = {
+      id: "cad-file-1",
+      job_id: "job-1",
+      organization_id: "org-1",
+      file_kind: "cad" as const,
+      blob_id: "blob-1",
+      storage_bucket: "job-files",
+      storage_path: "org-1/job-1/bracket.step",
+      normalized_name: "bracket.step",
+      original_name: "bracket.step",
+      mime_type: "application/step",
+      size_bytes: 1024,
+      content_sha256: "hash",
+      matched_part_key: null,
+      uploaded_by: "user-1",
+      created_at: "2026-03-01T00:00:00Z",
+    };
+    const buildPersistedDetail = () =>
+      createPartDetail({
+        files: [cadFile],
+        part: {
+          ...baseDetail.part,
+          cadFile,
+          clientRequirement: {
+            description: persistedDescription,
+            partNumber: "BRKT-001",
+            revision: "A",
+            material: "6061-T6 aluminum",
+            finish: null,
+            tightestToleranceInch: null,
+            process: persistedProcess,
+            notes: null,
+            quantity: 10,
+            quoteQuantities: [10],
+            requestedByDate: "2026-04-15",
+          },
+        },
+      });
+    api.fetchPartDetailByJobId.mockImplementation(async () => buildPersistedDetail());
+    api.updateClientPartRequest.mockImplementationOnce(async (input) => {
+      await updateRequest.promise;
+      persistedProcess = input.process;
+    });
+
+    const { queryClient } = renderWithClient("/parts/job-1");
+
+    fireEvent.change(await screen.findByLabelText("Description"), {
+      target: { value: "Pending unsaved description" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "CNC milling" }));
+
+    await waitFor(() => {
+      expect(api.updateClientPartRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          jobId: "job-1",
+          process: "CNC milling",
+          description: "Bracket",
+        }),
+      );
+    });
+    fireEvent.change(screen.getByLabelText("Description"), {
+      target: { value: "Newer unsaved description" },
+    });
+
+    const fetchCountBeforeUnrelatedRefresh = api.fetchPartDetailByJobId.mock.calls.length;
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["part-detail"] });
+    });
+
+    expect(api.fetchPartDetailByJobId.mock.calls.length).toBeGreaterThan(
+      fetchCountBeforeUnrelatedRefresh,
+    );
+    expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
+
+    await act(async () => updateRequest.resolve());
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
+    });
+
+    persistedDescription = "Server description after acknowledgement";
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["part-detail"] });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Description")).toHaveValue(
+        "Server description after acknowledgement",
+      );
+    });
+  });
+
+  it("serializes a field reset after a pending partial save", async () => {
+    const baseDetail = createPartDetail();
+    let persistedDescription: string | null = "Bracket";
+    let resolvePatchRequest: (() => void) | null = null;
+    const buildPersistedDetail = () =>
+      createPartDetail({
+        part: {
+          ...baseDetail.part,
+          clientRequirement: {
+            description: persistedDescription,
+            partNumber: "BRKT-001",
+            revision: "A",
+            material: "6061-T6 aluminum",
+            finish: null,
+            tightestToleranceInch: null,
+            process: "CNC milling",
+            notes: null,
+            quantity: 10,
+            quoteQuantities: [10],
+            requestedByDate: "2026-04-15",
+          },
+        },
+      });
+    api.fetchPartDetailByJobId.mockImplementation(async () => buildPersistedDetail());
+    api.updateClientPartRequest.mockImplementationOnce(
+      (input) =>
+        new Promise<void>((resolve) => {
+          resolvePatchRequest = () => {
+            persistedDescription = input.description;
+            resolve();
+          };
+        }),
+    );
+    api.resetClientPartPropertyOverrides.mockImplementationOnce(async () => {
+      persistedDescription = "Extracted bracket description";
+    });
+
+    renderWithClient("/parts/job-1");
+
+    fireEvent.change(await screen.findByLabelText("Description"), {
+      target: { value: "Pending stale description" },
+    });
+    fireEvent.change(screen.getByLabelText("Need by date"), {
+      target: { value: "2026-04-22" },
+    });
+    await waitFor(() => expect(api.updateClientPartRequest).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("Notes"), {
+      target: { value: "Keep this unsaved sourcing note" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset description" }));
+    expect(api.resetClientPartPropertyOverrides).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolvePatchRequest?.();
+    });
+
+    await waitFor(() => {
+      expect(api.resetClientPartPropertyOverrides).toHaveBeenCalledWith({
+        jobId: "job-1",
+        fields: ["description"],
+      });
+      expect(screen.getByLabelText("Description")).toHaveValue("Extracted bracket description");
+      expect(screen.getByLabelText("Notes")).toHaveValue("Keep this unsaved sourcing note");
+    });
+    expect(persistedDescription).toBe("Extracted bracket description");
+  });
+
+  it("restores unrelated draft edits when a single-field reset fails", async () => {
+    const baseDetail = createPartDetail();
+    api.fetchPartDetailByJobId.mockResolvedValue(
+      createPartDetail({
+        part: {
+          ...baseDetail.part,
+          clientRequirement: {
+            description: "Bracket",
+            partNumber: "BRKT-001",
+            revision: "A",
+            material: "6061-T6 aluminum",
+            finish: null,
+            tightestToleranceInch: null,
+            process: "CNC milling",
+            notes: null,
+            quantity: 10,
+            quoteQuantities: [10],
+            requestedByDate: "2026-04-15",
+          },
+        },
+      }),
+    );
+    api.resetClientPartPropertyOverrides.mockRejectedValueOnce(new Error("Reset failed"));
+
+    renderWithClient("/parts/job-1");
+
+    fireEvent.change(await screen.findByLabelText("Notes"), {
+      target: { value: "Keep this unsaved sourcing note" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reset description" }));
+
+    await waitFor(() => {
+      expect(api.resetClientPartPropertyOverrides).toHaveBeenCalledWith({
+        jobId: "job-1",
+        fields: ["description"],
+      });
+      expect(screen.getByLabelText("Description")).toHaveValue("Bracket");
+      expect(screen.getByLabelText("Notes")).toHaveValue("Keep this unsaved sourcing note");
     });
   });
 

@@ -1,4 +1,5 @@
 import {
+  CAD_PREVIEW_ASSET_IDENTIFIERS,
   CLIENT_ACTIVITY_IDENTIFIERS,
   CLIENT_INTAKE_IDENTIFIERS,
   CLIENT_PART_METADATA_IDENTIFIERS,
@@ -97,6 +98,10 @@ export function isMissingJobArchivingSchemaError(error: unknown): boolean {
 
 export function isMissingDrawingPreviewSchemaError(error: unknown): boolean {
   return isMissingSchemaIdentifierError(error, DRAWING_PREVIEW_ASSET_IDENTIFIERS);
+}
+
+export function isMissingCadPreviewSchemaError(error: unknown): boolean {
+  return isMissingSchemaIdentifierError(error, CAD_PREVIEW_ASSET_IDENTIFIERS);
 }
 
 export function isMissingDebugExtractionSchemaError(error: unknown): boolean {

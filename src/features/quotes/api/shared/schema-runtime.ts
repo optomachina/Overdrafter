@@ -78,6 +78,12 @@ export const DRAWING_PREVIEW_ASSET_IDENTIFIERS = [
   "page_number",
 ] as const;
 
+export const CAD_PREVIEW_ASSET_IDENTIFIERS = [
+  "public.cad_preview_assets",
+  "cad_preview_assets",
+  "source_cad_file_id",
+] as const;
+
 export const DEBUG_EXTRACTION_RUN_IDENTIFIERS = [
   "public.debug_extraction_runs",
   "debug_extraction_runs",

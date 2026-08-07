@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PanelLeftOpen, PanelRightClose, PanelRightOpen, Sidebar, type LucideIcon } from "lucide-react";
-import logoMark from "@/assets/logo-mark.svg";
+import { OverDrafterMark } from "@/components/OverDrafterMark";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -17,9 +17,8 @@ const DESKTOP_SIDEBAR_COLLAPSED_WIDTH = "52px";
 const SIDEBAR_TOOLTIP_DELAY_MS = 120;
 const CURSOR_TOOLTIP_OFFSET = 14;
 const SIDEBAR_HEADER_INSET_CLASS = "px-2";
-const SIDEBAR_LOGO_VISUAL_OFFSET_CLASS = "translate-x-[5px]";
 const SIDEBAR_ICON_TOOLTIP_CLASS_NAME =
-  "workspace-shell rounded-lg border-transparent bg-ws-deep px-2.5 py-1.5 text-[11px] font-medium text-foreground shadow-[0_10px_30px_rgba(0,0,0,0.45)]";
+  "workspace-shell z-[100] rounded-lg border-transparent bg-ws-deep px-2.5 py-1.5 text-[11px] font-medium text-foreground shadow-[0_10px_30px_rgba(0,0,0,0.45)]";
 const BRAND_NAME = "OverDrafter";
 
 const DESKTOP_RIGHT_RAIL_COLLAPSED_STORAGE_KEY = "workspace-shell.right-rail-collapsed-v1";
@@ -108,6 +107,7 @@ type SidebarIconButtonProps = {
   disabled?: boolean;
   ariaExpanded?: boolean;
   className?: string;
+  interactive?: boolean;
   tooltipMode?: "side" | "cursor";
 };
 
@@ -119,6 +119,7 @@ function SidebarIconButton({
   disabled = false,
   ariaExpanded,
   className,
+  interactive = true,
   tooltipMode = "side",
 }: SidebarIconButtonProps) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -191,9 +192,11 @@ function SidebarIconButton({
       ref={buttonRef}
       type="button"
       aria-label={label}
+      aria-hidden={interactive ? undefined : true}
       aria-describedby={tooltipMode === "cursor" && isCursorTooltipOpen ? tooltipId : undefined}
       aria-expanded={ariaExpanded}
-      disabled={disabled}
+      disabled={disabled || !interactive}
+      tabIndex={interactive ? undefined : -1}
       onClick={(event) => {
         event.stopPropagation();
         hideCursorTooltip();
@@ -251,6 +254,7 @@ function SidebarIconButton({
           ? "border-border bg-accent text-foreground"
           : "border-transparent hover:border-border hover:bg-accent hover:text-foreground",
         disabled && "cursor-not-allowed opacity-50",
+        !interactive && "pointer-events-none",
         className,
       )}
     >
@@ -267,7 +271,7 @@ function SidebarIconButton({
               <div
                 id={tooltipId}
                 role="tooltip"
-                className={cn("pointer-events-none fixed z-50 -translate-x-1/2", SIDEBAR_ICON_TOOLTIP_CLASS_NAME)}
+                className={cn("pointer-events-none fixed -translate-x-1/2", SIDEBAR_ICON_TOOLTIP_CLASS_NAME)}
                 style={{
                   left: cursorTooltipPosition.left,
                   top: cursorTooltipPosition.top,
@@ -299,9 +303,11 @@ function SidebarScaffold({
   sidebarFooter,
   onCollapse,
   onLogoClick,
+  hideRailIcons = false,
 }: Pick<ClientWorkspaceShellProps, "sidebarContent" | "sidebarFooter"> & {
   onCollapse: () => void;
   onLogoClick?: () => void;
+  hideRailIcons?: boolean;
 }) {
   return (
     <div className="workspace-shell flex h-full flex-col bg-ws-shell text-foreground">
@@ -311,21 +317,16 @@ function SidebarScaffold({
             type="button"
             onClick={onLogoClick}
             aria-label={`${BRAND_NAME} home`}
+            aria-hidden={hideRailIcons || undefined}
+            disabled={hideRailIcons}
+            tabIndex={hideRailIcons ? -1 : undefined}
             className="grid h-9 w-9 place-items-center rounded text-left transition hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <img
-              src={logoMark}
-              alt="OverDrafter logo"
-              className={cn("h-6 w-6 object-contain", SIDEBAR_LOGO_VISUAL_OFFSET_CLASS)}
-            />
+            <OverDrafterMark className={cn("h-6 w-6 text-foreground/95", hideRailIcons && "opacity-0")} />
           </button>
         ) : (
           <div className="grid h-9 w-9 place-items-center">
-            <img
-              src={logoMark}
-              alt="OverDrafter logo"
-              className={cn("h-6 w-6 object-contain", SIDEBAR_LOGO_VISUAL_OFFSET_CLASS)}
-            />
+            <OverDrafterMark className={cn("h-6 w-6 text-foreground/95", hideRailIcons && "opacity-0")} />
           </div>
         )}
 
@@ -345,38 +346,60 @@ function SidebarScaffold({
   );
 }
 
-function CollapsedSidebarRail({
+function PersistentSidebarRail({
+  expanded,
+  onLogoClick,
   sidebarRailActions = [],
   onOpen,
 }: Pick<ClientWorkspaceShellProps, "sidebarRailActions"> & {
+  expanded: boolean;
+  onLogoClick?: () => void;
   onOpen: () => void;
 }) {
   return (
     <div
-      className="workspace-shell group flex h-full cursor-e-resize flex-col items-center gap-3 bg-ws-shell px-2 py-3 text-foreground"
-      onClick={onOpen}
+      data-sidebar-layer="persistent"
+      className={cn(
+        "workspace-shell flex h-full flex-col items-center gap-3 px-2 py-3 text-foreground",
+        expanded ? "pointer-events-none bg-transparent" : "cursor-e-resize bg-ws-shell",
+      )}
+      onClick={expanded ? undefined : onOpen}
     >
       <div className="flex h-9 w-full items-center justify-center">
-        <div className="relative h-9 w-9">
-          <img
-            src={logoMark}
-            alt="OverDrafter logo"
-            className="h-9 w-9 object-contain p-[6px] transition group-hover:opacity-0 group-focus-within:opacity-0"
+        <button
+          type="button"
+          aria-label={expanded ? `${BRAND_NAME} home` : "Open sidebar"}
+          aria-expanded={expanded ? undefined : false}
+          disabled={expanded && !onLogoClick}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (expanded) {
+              onLogoClick?.();
+              return;
+            }
+            onOpen();
+          }}
+          className={cn(
+            "group relative grid h-9 w-9 place-items-center rounded text-foreground/95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            expanded ? "pointer-events-auto" : "cursor-e-resize",
+          )}
+        >
+          <OverDrafterMark
+            className={cn(
+              "h-6 w-6 transition-opacity duration-150",
+              !expanded && "group-hover:opacity-0 group-focus-visible:opacity-0",
+            )}
           />
-
-          <div className="pointer-events-none absolute inset-0 opacity-0 transition duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-            <SidebarIconButton
-              label="Open sidebar"
-              icon={PanelLeftOpen}
-              onClick={onOpen}
-              ariaExpanded={false}
-              className="cursor-e-resize"
-            />
-          </div>
-        </div>
+          <PanelLeftOpen
+            className={cn(
+              "pointer-events-none absolute h-4 w-4 opacity-0 transition-opacity duration-150",
+              !expanded && "group-hover:opacity-100 group-focus-visible:opacity-100",
+            )}
+          />
+        </button>
       </div>
 
-      <div className="flex w-full flex-col items-center gap-0.5">
+      <div className="flex w-full flex-col items-center gap-3">
         {sidebarRailActions.map((action) => (
           <SidebarIconButton
             key={action.label}
@@ -385,6 +408,7 @@ function CollapsedSidebarRail({
             onClick={action.onClick}
             isActive={action.isActive}
             disabled={action.disabled}
+            interactive={!expanded}
           />
         ))}
       </div>
@@ -469,6 +493,7 @@ function DesktopSidebarRegion({
 }: DesktopSidebarRegionProps) {
   return (
     <aside
+      data-state={desktopSidebarCollapsed ? "collapsed" : "expanded"}
       className={cn(
         "sidebar-host relative sticky top-0 hidden shrink-0 self-start overflow-visible border-r border-border md:block",
         !isResizing && "transition-[width] duration-200 ease-out",
@@ -477,13 +502,35 @@ function DesktopSidebarRegion({
         width: desktopSidebarCollapsed ? DESKTOP_SIDEBAR_COLLAPSED_WIDTH : `${sidebarWidth}px`,
       }}
     >
-      <div className="h-svh">
-        <div className={cn("h-full", desktopSidebarCollapsed && "hidden")}>
+      <div className="relative h-svh overflow-hidden">
+        <div
+          className="absolute inset-y-0 left-0 z-20 w-[52px]"
+        >
+          <PersistentSidebarRail
+            expanded={!desktopSidebarCollapsed}
+            onLogoClick={onLogoClick}
+            sidebarRailActions={sidebarRailActions}
+            onOpen={onOpen}
+          />
+        </div>
+
+        <div
+          data-sidebar-layer="expanded"
+          aria-hidden={desktopSidebarCollapsed}
+          className="absolute inset-y-0 left-0 z-10 h-full transition-[opacity,visibility] duration-150 ease-out [&_[data-sidebar-top-action-icon]]:opacity-0"
+          style={{
+            width: `${sidebarWidth}px`,
+            opacity: desktopSidebarCollapsed ? 0 : 1,
+            visibility: desktopSidebarCollapsed ? "hidden" : "visible",
+            transitionDelay: desktopSidebarCollapsed ? "0ms, 150ms" : "50ms, 0ms",
+          }}
+        >
           <SidebarScaffold
             sidebarContent={sidebarContent}
             sidebarFooter={sidebarFooter}
             onCollapse={onCollapse}
             onLogoClick={onLogoClick}
+            hideRailIcons
           />
           <div
             role="separator"
@@ -494,12 +541,6 @@ function DesktopSidebarRegion({
           >
             <div className="absolute inset-y-6 left-1/2 w-px -translate-x-1/2 rounded-full bg-border transition-colors duration-150 hover:bg-muted-foreground" />
           </div>
-        </div>
-        <div className={cn("h-full", desktopSidebarCollapsed ? "block" : "hidden")}>
-          <CollapsedSidebarRail
-            sidebarRailActions={sidebarRailActions}
-            onOpen={onOpen}
-          />
         </div>
       </div>
     </aside>

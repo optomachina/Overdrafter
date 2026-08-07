@@ -124,6 +124,7 @@ device release gate before this flow replaces the current embedded sign-in.
 - storing uploaded CAD files and drawings
 - associating files with jobs, parts, or projects
 - preserving file metadata and provenance
+- storing renderer-versioned CAD preview assets whose source CAD file remains explicit
 
 ### 4. Intake and reconciliation layer
 - receiving uploaded files and prompt text
@@ -137,6 +138,7 @@ device release gate before this flow replaces the current embedded sign-in.
 - preserving raw drawing-derived values and evidence in `drawing_extractions`
 - normalizing quote-facing requirement fields separately in `approved_part_requirements` / `spec_snapshot`
 - generating previews and auto-approving extracted requirements for normal quote preparation
+- generating deterministic isometric CAD previews during normal extraction and dedicated backfill tasks
 - supporting preview-only debug reruns in `debug_extraction_runs` without mutating canonical extraction or approved requirements
 - failing closed into review when field confidence is low or candidates conflict
 - running long-lived or queued work
@@ -314,6 +316,18 @@ For the STEP-only normalization slice (`OVD-142`), the worker canonical contract
 - the normalized surface carries source header metadata, normalized length units, topology structure, and bounding boxes needed by later extraction consumers
 
 This slice is intentionally pure and independently testable before PDF extraction or artifact persistence is layered on top.
+
+## Persistent CAD preview contract
+
+The first persistent CAD-preview slice is part-scoped and STEP-only:
+
+- `cad_preview_assets` stores renderer-versioned `isometric` assets per part and display style, recording the source CAD file, source hash, dimensions, and storage location. `sketch` is the collection-thumbnail default; `hidden_lines_removed` remains a supported stored style for the later selector.
+- `generate_cad_preview` queue tasks backfill existing STEP-backed parts without rerunning drawing extraction; normal `extract_part` tasks refresh the preview after CAD changes.
+- the worker writes a deterministic drafting-paper sketch SVG with tessellation seams suppressed, boundary/crease edges retained, a restrained warm face wash, and doubled graphite contours.
+- the client accepts an asset only when `source_cad_file_id` matches the part's current `cad_file_id`, then loads it through authenticated Storage access.
+- the collection UI falls back to local browser rendering while the persistent asset is missing, stale, loading, or unavailable.
+
+The display-style selector, user preferences, additional SolidWorks-style modes, and assembly previews are later slices. Assembly assets must not ship until immutable assembly/BOM identity exists.
 
 ## Request-model boundary
 

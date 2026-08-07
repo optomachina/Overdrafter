@@ -30,9 +30,9 @@ export function PartInfoPanel({
   fieldDefaults,
 }: PartInfoPanelProps) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="mb-[6px] text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Part information</p>
-      <section className="rounded-[12px] border border-ws-border-subtle bg-ws-card p-4">
+      <section className="min-w-0 overflow-hidden rounded-[12px] border border-ws-border-subtle bg-ws-card p-4">
         {statusContent ? <div className="mb-4 space-y-4">{statusContent}</div> : null}
 
         <div>

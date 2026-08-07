@@ -19,6 +19,72 @@ export type DrawingPreviewPage = {
 
 export type DrawingPreviewState = "missing" | "ready" | "pending" | "failed" | "unavailable";
 
+type DrawingViewportProps = Readonly<{
+  activePage: DrawingPreviewPage | null;
+  drawingName: string;
+  emptyState: string;
+  fittedPdfUrl: string | null;
+  isLoading: boolean;
+  state: DrawingPreviewState;
+  statusMessage: string | null | undefined;
+  viewerMode: StoredFileViewerMode;
+}>;
+
+function DrawingViewport({
+  activePage,
+  drawingName,
+  emptyState,
+  fittedPdfUrl,
+  isLoading,
+  state,
+  statusMessage,
+  viewerMode,
+}: DrawingViewportProps) {
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (activePage) {
+    return (
+      <img
+        src={activePage.url}
+        alt={`${drawingName} page ${activePage.pageNumber}`}
+        className="h-full w-full object-contain p-2"
+      />
+    );
+  }
+
+  if (fittedPdfUrl && viewerMode === "pdf") {
+    return (
+      <iframe
+        src={fittedPdfUrl}
+        title={`${drawingName} PDF preview`}
+        className="h-full w-full border-0 bg-background"
+      />
+    );
+  }
+
+  const showErrorIcon = state === "failed" || state === "unavailable";
+  return (
+    <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
+      {showErrorIcon ? <AlertCircle className="h-6 w-6 text-muted-foreground" /> : null}
+      <div>{emptyState}</div>
+      {state === "unavailable" && statusMessage ? (
+        <div className="text-xs text-muted-foreground">{statusMessage}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function fitPdfPreviewToViewport(url: string) {
+  const separator = url.includes("#") ? "&" : "#";
+  return `${url}${separator}view=FitH&zoom=page-fit`;
+}
+
 async function downloadStoredFile(file: DownloadableFile) {
   const blob = await downloadStoredFileBlob(file);
   const url = URL.createObjectURL(blob);
@@ -62,6 +128,7 @@ export function ClientDrawingPreviewPanel({
   const resolvedPages = pages ?? localPages;
   const resolvedLoading = pages ? isLoading : isLocalLoading;
   const hasPdfPreview = typeof pdfUrl === "string" && pdfUrl.length > 0;
+  const fittedPdfUrl = hasPdfPreview ? fitPdfPreviewToViewport(pdfUrl) : null;
   const resolvedViewerMode = viewerMode ?? resolveStoredFileViewerMode(drawingFile);
 
   useEffect(() => {
@@ -176,36 +243,17 @@ export function ClientDrawingPreviewPanel({
       </div>
 
       <div className="mt-4 overflow-hidden rounded-[22px] border border-border bg-muted">
-        <div className="bg-background">
-          {resolvedLoading ? (
-            <div className="flex min-h-[320px] items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : hasPdfPreview && resolvedViewerMode === "pdf" ? (
-            <iframe
-              src={pdfUrl}
-              title={`${drawingFile?.original_name ?? "Drawing"} PDF preview`}
-              className="h-[320px] w-full border-0 bg-background"
-            />
-          ) : activePage ? (
-            <img
-              src={activePage.url}
-              alt={`${drawingFile.original_name} page ${activePage.pageNumber}`}
-              className="w-full object-contain"
-            />
-          ) : (
-            <div className="mx-auto flex min-h-[320px] max-w-md flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
-              {resolvedState === "failed" || resolvedState === "unavailable" ? (
-                <AlertCircle className="h-6 w-6 text-muted-foreground" />
-              ) : null}
-              <div>
-                {emptyState}
-              </div>
-              {resolvedState === "unavailable" && statusMessage ? (
-                <div className="text-xs text-muted-foreground">{statusMessage}</div>
-              ) : null}
-            </div>
-          )}
+        <div className="h-[clamp(360px,58vh,680px)] bg-background">
+          <DrawingViewport
+            activePage={activePage}
+            drawingName={drawingFile?.original_name ?? "Drawing"}
+            emptyState={emptyState}
+            fittedPdfUrl={fittedPdfUrl}
+            isLoading={resolvedLoading}
+            state={resolvedState}
+            statusMessage={statusMessage}
+            viewerMode={resolvedViewerMode}
+          />
         </div>
 
         {resolvedPages.length > 1 ? (
@@ -256,10 +304,7 @@ export function ClientCadPreviewPanel({
 
   return (
     <section className={cn("rounded-[26px] border border-border bg-ws-card p-5", className)}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">CAD / isometric</p>
-        </div>
+      <div className="flex items-start justify-end">
         {cadFile ? (
           <Button
             type="button"

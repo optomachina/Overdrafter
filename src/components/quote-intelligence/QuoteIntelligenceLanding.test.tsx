@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { QuoteIntelligenceLanding } from "./QuoteIntelligenceLanding";
 
 describe("QuoteIntelligenceLanding", () => {
-  it("states the launch scope and labels illustrative quote data honestly", () => {
+  it("renders a focused single-hero landing page", () => {
     render(
       <QuoteIntelligenceLanding
         onUpload={vi.fn()}
@@ -14,11 +14,24 @@ describe("QuoteIntelligenceLanding", () => {
     );
 
     expect(screen.getByText("Machined aluminum sourcing")).toBeInTheDocument();
-    expect(screen.getByText(/free gives you ranked potential providers and official RFQ links/i)).toBeInTheDocument();
-    expect(screen.getByText(/pro automatically collects supported vendor quotes for \$49\/month/i)).toBeInTheDocument();
-    expect(screen.getByText(/recommendations come from reviewed capability data/i)).toBeInTheDocument();
-    expect(screen.getByText("Illustrative Pro workspace · sample data")).toBeInTheDocument();
-    expect(screen.getByText("Sample prices and lead times — not live quotes")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Files in. Parts out." })).toBeInTheDocument();
+    expect(
+      screen.getByText(/upload CAD files and drawings to collect vendor quotes, compare price and lead time/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/choose the best source for your budget and deadline/i)).toBeInTheDocument();
+    expect(screen.queryByText(/recommendations come from reviewed capability data/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Illustrative Pro workspace · sample data")).not.toBeInTheDocument();
+    expect(screen.queryByText("Example returned offers")).not.toBeInTheDocument();
     expect(screen.queryByText("Three exact responses")).not.toBeInTheDocument();
+    const quoteChart = screen.getByRole("img", { name: /vendor quotes plotted by total price and lead time/i });
+    expect(quoteChart).toBeInTheDocument();
+    expect(quoteChart).toHaveAccessibleDescription(
+      /Apex CNC is recommended at \$1,842 with an 11-day lead time.*Mesa Precision is \$2,240.*Orbit Manufacturing is \$1,990.*Northline is \$1,695/i,
+    );
+    expect(screen.getByText("Quote comparison")).toBeInTheDocument();
+    expect(screen.getByText("14 DAY TARGET")).toBeInTheDocument();
+    expect(screen.getByText("Apex CNC")).toBeInTheDocument();
+    expect(screen.queryByText(/example quote comparison/i)).not.toBeInTheDocument();
+    expect(screen.getByText("© 2026 OverDrafter")).toBeInTheDocument();
   });
 });

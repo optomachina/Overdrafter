@@ -3,7 +3,9 @@ export function formatTolerance(value: number | null | undefined): string {
     return "—";
   }
 
-  return `±${value.toFixed(4)} in`;
+  const fixedValue = value.toFixed(4);
+  const formattedValue = fixedValue.endsWith("0") ? fixedValue.slice(0, -1) : fixedValue;
+  return `±${formattedValue} in`;
 }
 
 export function formatTextValue(value: string | null | undefined): string | null {

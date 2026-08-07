@@ -33,6 +33,7 @@ import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShel
 import { WorkspaceInlineSearch } from "@/components/workspace/WorkspaceInlineSearch";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
+import { formatTolerance } from "@/features/quotes/format-part-fields";
 import { buildProjectAssigneeBadgeModel } from "@/features/quotes/project-assignee";
 import { buildAppAwareHref } from "@/features/quotes/quote-intelligence-view-model";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
@@ -117,14 +118,6 @@ function getSourcingResultBadge(result: ClientSourcingResult | null) {
     className: "border border-amber-400/30 bg-amber-500/15 text-amber-200",
     label: "Action needed",
   };
-}
-
-function formatToleranceLabel(value: number | null | undefined) {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return "—";
-  }
-
-  return `±${value.toFixed(4)} in`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -1202,7 +1195,7 @@ const ClientProject = () => {
       clientRequirement?.tightestToleranceInch ??
       approvedRequirement?.tightest_tolerance_inch ??
       readSpecSnapshotNumber(specSnapshot, "tightest_tolerance");
-    const formattedTolerance = formatToleranceLabel(rawToleranceValue);
+    const formattedTolerance = formatTolerance(rawToleranceValue);
     const tightestTolerance =
       formattedTolerance !== "—"
         ? formattedTolerance

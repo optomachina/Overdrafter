@@ -56,6 +56,7 @@ This document defines what it means for the current repository-hardening phase t
 - `dmrifles@gmail.com` has a client membership in the target organization.
 - The client user can upload supported CNC part files, including STEP/PDF packages.
 - Uploaded parts appear in the client workspace without requiring internal-only navigation.
+- STEP-backed parts receive a persistent isometric CAD preview tied to the current part and CAD file, with sketch styling used by default in collection thumbnails and matching local rendering retained as a fallback.
 - The client user can request a quote from a part or project workspace.
 - The request creates durable quote-request intent and worker queue records.
 - A live worker can process the request with `WORKER_MODE=live` and a narrow `WORKER_LIVE_ADAPTERS` rollout.

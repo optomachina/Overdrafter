@@ -78,6 +78,7 @@ import { buildClientSourcingResult } from "@/features/quotes/sourcing-result";
 import type {
   ClientPartPropertyOverrideField,
   ClientPartRequestUpdateInput,
+  PartDetailAggregate,
   QuoteDataStatus,
   QuoteDiagnostics,
 } from "@/features/quotes/types";
@@ -114,6 +115,89 @@ const EMPTY_QUOTE_DIAGNOSTICS: QuoteDiagnostics = {
   excludedOffers: [],
   excludedReasonCounts: [],
 };
+
+type PatchDraftPreservation = {
+  requestId: number;
+  draft: ClientPartRequestUpdateInput;
+  patch?: Partial<ClientPartRequestUpdateInput>;
+  mutationCompleted?: boolean;
+};
+
+type ResetFieldMutationInput = {
+  fields: ClientPartPropertyOverrideField[];
+  preserveUnresetFields: boolean;
+  requestId: number;
+  draftSnapshot: ClientPartRequestUpdateInput | null;
+};
+
+function buildRequestDraftFromPartDetail(
+  partDetail: PartDetailAggregate | null | undefined,
+  jobId: string,
+): ClientPartRequestUpdateInput | null {
+  if (!partDetail?.part) {
+    return null;
+  }
+
+  const requirement = buildRequirementDraft(partDetail.part, {
+    requested_service_kinds: partDetail.job.requested_service_kinds ?? [],
+    primary_service_kind: partDetail.job.primary_service_kind ?? null,
+    service_notes: partDetail.job.service_notes ?? null,
+    requested_quote_quantities: partDetail.job.requested_quote_quantities ?? [],
+    requested_by_date: partDetail.job.requested_by_date ?? null,
+  });
+
+  return buildClientPartRequestUpdateInput(jobId, requirement);
+}
+
+function applyResetFields(
+  draft: ClientPartRequestUpdateInput,
+  refreshedDraft: ClientPartRequestUpdateInput,
+  fields: readonly ClientPartPropertyOverrideField[],
+): ClientPartRequestUpdateInput {
+  const nextDraft = { ...draft };
+
+  fields.forEach((field) => {
+    switch (field) {
+      case "description":
+        nextDraft.description = refreshedDraft.description;
+        break;
+      case "partNumber":
+        nextDraft.partNumber = refreshedDraft.partNumber;
+        break;
+      case "revision":
+        nextDraft.revision = refreshedDraft.revision;
+        break;
+      case "material":
+        nextDraft.material = refreshedDraft.material;
+        break;
+      case "finish":
+        nextDraft.finish = refreshedDraft.finish;
+        break;
+      case "tightestToleranceInch":
+        nextDraft.tightestToleranceInch = refreshedDraft.tightestToleranceInch;
+        break;
+      case "threads":
+        nextDraft.threads = refreshedDraft.threads;
+        break;
+      case "process":
+        nextDraft.process = refreshedDraft.process;
+        break;
+    }
+  });
+
+  return nextDraft;
+}
+
+function requestDraftIncludesPatch(
+  draft: ClientPartRequestUpdateInput,
+  patch: Partial<ClientPartRequestUpdateInput>,
+): boolean {
+  const patchFields = Object.keys(patch) as Array<keyof ClientPartRequestUpdateInput>;
+
+  return patchFields.every(
+    (field) => JSON.stringify(draft[field]) === JSON.stringify(patch[field]),
+  );
+}
 
 /**
  * Loads the access-filtered part workspace and its quote actions.
@@ -153,6 +237,17 @@ export function useClientPartController(
   const [isPartArchiveBusy, setIsPartArchiveBusy] = useState(false);
   const isRequestQuoteLockedRef = useRef(false);
   const isCancelQuoteRequestLockedRef = useRef(false);
+  const patchDraftPreservationRef = useRef<PatchDraftPreservation | null>(null);
+  const patchDraftRequestIdRef = useRef(0);
+  const requestMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const serializeRequestMutation = <T,>(operation: () => Promise<T>): Promise<T> => {
+    const queuedMutation = requestMutationQueueRef.current.then(operation, operation);
+    requestMutationQueueRef.current = queuedMutation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return queuedMutation;
+  };
   const registerArchiveUndo = useArchiveUndo();
   const projectCollaborationUnavailable = isProjectCollaborationSchemaUnavailable();
   const workspaceAccessScope = createWorkspaceAccessScope({
@@ -358,7 +453,8 @@ export function useClientPartController(
   });
 
   const saveRequestMutation = useMutation({
-    mutationFn: (input: ClientPartRequestUpdateInput) => updateClientPartRequest(input),
+    mutationFn: (input: ClientPartRequestUpdateInput) =>
+      serializeRequestMutation(() => updateClientPartRequest(input)),
     onSuccess: async () => {
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
       toast.success("Request details updated.");
@@ -369,11 +465,58 @@ export function useClientPartController(
   });
 
   const resetFieldMutation = useMutation({
-    mutationFn: (fields: Array<ClientPartPropertyOverrideField>) =>
-      resetClientPartPropertyOverrides({ jobId: canonicalJobId, fields }),
-    onSuccess: async () => {
-      await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
-      setRequestDraft(null);
+    mutationFn: (input: ResetFieldMutationInput) =>
+      serializeRequestMutation(async () => {
+        try {
+          await resetClientPartPropertyOverrides({
+            jobId: canonicalJobId,
+            fields: input.fields,
+          });
+          await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
+
+          const refreshedDetail = queryClient.getQueryData<PartDetailAggregate>(
+            workspaceQueryKeys.partDetail(canonicalJobId, workspaceAccessScope),
+          );
+          const refreshedDraft = buildRequestDraftFromPartDetail(
+            refreshedDetail,
+            canonicalJobId,
+          );
+
+          if (input.preserveUnresetFields && refreshedDraft) {
+            const currentPreservation = patchDraftPreservationRef.current;
+            const draftToPreserve = currentPreservation?.draft ?? input.draftSnapshot;
+
+            if (draftToPreserve) {
+              const reconciledDraft = applyResetFields(
+                draftToPreserve,
+                refreshedDraft,
+                input.fields,
+              );
+              patchDraftPreservationRef.current = {
+                requestId: currentPreservation?.requestId ?? input.requestId,
+                draft: reconciledDraft,
+              };
+              setRequestDraft(reconciledDraft);
+              return;
+            }
+          }
+
+          patchDraftPreservationRef.current = null;
+          setRequestDraft(refreshedDraft);
+        } catch (error) {
+          const currentPreservation = patchDraftPreservationRef.current;
+          const draftToRestore = currentPreservation?.draft ?? input.draftSnapshot;
+          if (draftToRestore) {
+            patchDraftPreservationRef.current = {
+              requestId: currentPreservation?.requestId ?? input.requestId,
+              draft: draftToRestore,
+            };
+            setRequestDraft(draftToRestore);
+          }
+          throw error;
+        }
+      }),
+    onSuccess: () => {
       toast.success("Field reset to extracted value.");
     },
     onError: (error: Error) => {
@@ -382,15 +525,38 @@ export function useClientPartController(
   });
 
   const handleResetField = (field: ClientPartPropertyOverrideField) => {
-    resetFieldMutation.mutate([field]);
+    const draftSnapshot = requestDraft ?? fallbackRequestDraft;
+    const requestId = patchDraftRequestIdRef.current + 1;
+    patchDraftRequestIdRef.current = requestId;
+
+    if (draftSnapshot) {
+      patchDraftPreservationRef.current = { requestId, draft: draftSnapshot };
+    }
+    resetFieldMutation.mutate({
+      fields: [field],
+      preserveUnresetFields: true,
+      requestId,
+      draftSnapshot,
+    });
   };
 
   const handleResetAllFields = () => {
-    resetFieldMutation.mutate([...CLIENT_PART_PROPERTY_OVERRIDE_FIELDS]);
+    const draftSnapshot = requestDraft ?? fallbackRequestDraft;
+    const requestId = patchDraftRequestIdRef.current + 1;
+    patchDraftRequestIdRef.current = requestId;
+    patchDraftPreservationRef.current = null;
+    setRequestDraft(null);
+    resetFieldMutation.mutate({
+      fields: [...CLIENT_PART_PROPERTY_OVERRIDE_FIELDS],
+      preserveUnresetFields: false,
+      requestId,
+      draftSnapshot,
+    });
   };
 
   const renamePartMutation = useMutation({
-    mutationFn: (input: ClientPartRequestUpdateInput) => updateClientPartRequest(input),
+    mutationFn: (input: ClientPartRequestUpdateInput) =>
+      serializeRequestMutation(() => updateClientPartRequest(input)),
     onSuccess: async () => {
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
       toast.success("Part renamed.");
@@ -532,28 +698,8 @@ export function useClientPartController(
   const drawingViewerMode = useMemo(() => resolveStoredFileViewerMode(drawingFile), [drawingFile]);
   const cadFile = partDetail?.files.find((file) => file.file_kind === "cad") ?? null;
   const fallbackRequestDraft = useMemo(() => {
-    if (!partDetail?.part) {
-      return null;
-    }
-
-    const requirement = buildRequirementDraft(partDetail.part, {
-      requested_service_kinds: partDetail.job.requested_service_kinds ?? [],
-      primary_service_kind: partDetail.job.primary_service_kind ?? null,
-      service_notes: partDetail.job.service_notes ?? null,
-      requested_quote_quantities: partDetail.job.requested_quote_quantities ?? [],
-      requested_by_date: partDetail.job.requested_by_date ?? null,
-    });
-
-    return buildClientPartRequestUpdateInput(canonicalJobId, requirement);
-  }, [
-    canonicalJobId,
-    partDetail?.job.primary_service_kind,
-    partDetail?.job.requested_by_date,
-    partDetail?.job.requested_quote_quantities,
-    partDetail?.job.requested_service_kinds,
-    partDetail?.job.service_notes,
-    partDetail?.part,
-  ]);
+    return buildRequestDraftFromPartDetail(partDetail, canonicalJobId);
+  }, [canonicalJobId, partDetail]);
   const effectiveRequestDraft = requestDraft ?? fallbackRequestDraft;
   const currentPartName =
     effectiveRequestDraft?.partNumber ??
@@ -751,6 +897,7 @@ export function useClientPartController(
   useEffect(() => {
     setExcludedVendorKeys(readExcludedVendorKeys(canonicalJobId));
     setActivePreset(null);
+    patchDraftPreservationRef.current = null;
     setRequestDraft(null);
     setQuoteQuantityInput("");
     setPartRenameValue("");
@@ -766,12 +913,31 @@ export function useClientPartController(
       return;
     }
 
-    setRequestDraft(fallbackRequestDraft);
-    setQuoteQuantityInput(
-      formatRequestedQuoteQuantitiesInput(fallbackRequestDraft.requestedQuoteQuantities),
-    );
+    const preservation = patchDraftPreservationRef.current;
+    const preservedDraft = preservation?.draft ?? null;
+    setRequestDraft(preservedDraft ?? fallbackRequestDraft);
+    if (!preservedDraft) {
+      setQuoteQuantityInput(
+        formatRequestedQuoteQuantitiesInput(fallbackRequestDraft.requestedQuoteQuantities),
+      );
+    }
     setPartRenameValue(fallbackRequestDraft.partNumber ?? presentation?.title ?? "");
   }, [fallbackRequestDraft, presentation?.title]);
+
+  useEffect(() => {
+    const preservation = patchDraftPreservationRef.current;
+    if (
+      !fallbackRequestDraft ||
+      !preservation?.mutationCompleted ||
+      !preservation.patch ||
+      !requestDraftIncludesPatch(fallbackRequestDraft, preservation.patch)
+    ) {
+      return;
+    }
+
+    setRequestDraft(preservation.draft);
+    patchDraftPreservationRef.current = null;
+  }, [fallbackRequestDraft, requestDraft]);
 
   useEffect(() => {
     let isActive = true;
@@ -1166,10 +1332,19 @@ export function useClientPartController(
         return current;
       }
 
-      return {
+      const nextDraft = {
         ...base,
         ...next,
       };
+      const preservation = patchDraftPreservationRef.current;
+      if (preservation) {
+        patchDraftPreservationRef.current = {
+          ...preservation,
+          draft: nextDraft,
+        };
+      }
+
+      return nextDraft;
     });
   };
 
@@ -1188,30 +1363,52 @@ export function useClientPartController(
       requestedQuoteQuantities: nextQuantities,
     } satisfies ClientPartRequestUpdateInput;
 
+    patchDraftPreservationRef.current = null;
     setRequestDraft(payload);
     setQuoteQuantityInput(formatRequestedQuoteQuantitiesInput(nextQuantities));
     saveRequestMutation.mutate(payload);
   };
 
   const handleSaveRequestPatch = (next: Partial<ClientPartRequestUpdateInput>) => {
-    if (!effectiveRequestDraft) {
+    if (!fallbackRequestDraft) {
       return;
     }
 
-    const nextQuantities = parseRequestedQuoteQuantitiesInput(
-      quoteQuantityInput,
-      effectiveRequestDraft.quantity,
-    );
-
     const payload = {
-      ...effectiveRequestDraft,
+      ...fallbackRequestDraft,
       ...next,
-      requestedQuoteQuantities: nextQuantities,
     } satisfies ClientPartRequestUpdateInput;
+    const preservedDraft = requestDraft ? { ...requestDraft, ...next } : payload;
+    const requestId = patchDraftRequestIdRef.current + 1;
+    patchDraftRequestIdRef.current = requestId;
 
-    setRequestDraft(payload);
-    setQuoteQuantityInput(formatRequestedQuoteQuantitiesInput(nextQuantities));
-    saveRequestMutation.mutate(payload);
+    patchDraftPreservationRef.current = {
+      requestId,
+      draft: preservedDraft,
+      patch: next,
+      mutationCompleted: false,
+    };
+    setRequestDraft(preservedDraft);
+    saveRequestMutation.mutate(payload, {
+      onSuccess: () => {
+        const preservation = patchDraftPreservationRef.current;
+        if (preservation?.requestId !== requestId) {
+          return;
+        }
+
+        const completedPreservation = {
+          ...preservation,
+          mutationCompleted: true,
+        };
+        patchDraftPreservationRef.current = completedPreservation;
+        setRequestDraft({ ...completedPreservation.draft });
+      },
+      onError: () => {
+        if (patchDraftPreservationRef.current?.requestId === requestId) {
+          patchDraftPreservationRef.current = null;
+        }
+      },
+    });
   };
 
   const handleRequestQuote = async (forceRetry = false) => {

@@ -110,7 +110,7 @@ export function ClientPartRequestEditor({
   const materialRequired = requestedServicesRequireMaterial(draft.requestedServiceKinds);
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       <RequestServiceIntentFields
         value={{
           requestedServiceKinds: draft.requestedServiceKinds,
@@ -120,7 +120,7 @@ export function ClientPartRequestEditor({
         onChange={(next) => onChange(next)}
       />
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid min-w-0 grid-cols-1 gap-4">
         <div className="space-y-2">
           <Label htmlFor="client-request-part-number">Part number</Label>
           <div className="relative">
@@ -145,7 +145,7 @@ export function ClientPartRequestEditor({
             <FieldResetButton field="revision" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
         </div>
-        <div className="space-y-2 md:col-span-2">
+        <div className="min-w-0 space-y-2">
           <Label htmlFor="client-request-description">Description</Label>
           <div className="relative">
             <Input
@@ -182,7 +182,7 @@ export function ClientPartRequestEditor({
             <FieldResetButton field="finish" draft={draft} fieldDefaults={fieldDefaults} onResetField={onResetField} />
           </div>
         </div>
-        <div className="space-y-2 md:col-span-2">
+        <div className="min-w-0 space-y-2">
           <Label htmlFor="client-request-threads">Threads</Label>
           <div className="relative">
             <Textarea
@@ -267,7 +267,7 @@ export function ClientPartRequestEditor({
             className="border-border bg-muted text-foreground"
           />
         </div>
-        <div className="space-y-2 md:col-span-2">
+        <div className="min-w-0 space-y-2">
           <Label htmlFor="client-request-notes">Notes</Label>
           <Textarea
             id="client-request-notes"

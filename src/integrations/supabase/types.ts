@@ -170,6 +170,85 @@ export type Database = {
           },
         ]
       }
+      cad_preview_assets: {
+        Row: {
+          created_at: string
+          display_style: string
+          generated_at: string
+          height: number
+          id: string
+          mime_type: string
+          organization_id: string
+          part_id: string
+          renderer_version: string
+          source_cad_file_id: string
+          source_content_sha256: string | null
+          storage_bucket: string
+          storage_path: string
+          updated_at: string
+          view_orientation: string
+          width: number
+        }
+        Insert: {
+          created_at?: string
+          display_style?: string
+          generated_at?: string
+          height: number
+          id?: string
+          mime_type?: string
+          organization_id: string
+          part_id: string
+          renderer_version: string
+          source_cad_file_id: string
+          source_content_sha256?: string | null
+          storage_bucket?: string
+          storage_path: string
+          updated_at?: string
+          view_orientation?: string
+          width: number
+        }
+        Update: {
+          created_at?: string
+          display_style?: string
+          generated_at?: string
+          height?: number
+          id?: string
+          mime_type?: string
+          organization_id?: string
+          part_id?: string
+          renderer_version?: string
+          source_cad_file_id?: string
+          source_content_sha256?: string | null
+          storage_bucket?: string
+          storage_path?: string
+          updated_at?: string
+          view_orientation?: string
+          width?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cad_preview_assets_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cad_preview_assets_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cad_preview_assets_source_cad_file_id_fkey"
+            columns: ["source_cad_file_id"]
+            isOneToOne: false
+            referencedRelation: "job_files"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_selections: {
         Row: {
           created_at: string
@@ -3661,6 +3740,7 @@ export type Database = {
         | "publish_package"
         | "repair_adapter_candidate"
         | "debug_extract_part"
+        | "generate_cad_preview"
       quote_request_mode: "manual" | "automatic"
       quote_request_status:
         | "queued"
@@ -3870,6 +3950,7 @@ export const Constants = {
         "publish_package",
         "repair_adapter_candidate",
         "debug_extract_part",
+        "generate_cad_preview",
       ],
       quote_request_mode: ["manual", "automatic"],
       quote_request_status: [

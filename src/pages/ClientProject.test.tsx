@@ -1135,7 +1135,7 @@ describe("ClientProject", () => {
     expect(within(inspector).getByText("Threads")).toBeInTheDocument();
     expect(within(inspector).getByText("2x 1/4-20 UNC")).toBeInTheDocument();
     expect(within(inspector).getByText("Tightest tolerance")).toBeInTheDocument();
-    expect(within(inspector).getByText("±0.0050 in")).toBeInTheDocument();
+    expect(within(inspector).getByText("±0.005 in")).toBeInTheDocument();
     expect(within(inspector).getByRole("button", { name: "Full workspace" })).toBeInTheDocument();
     expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-1");
   });
