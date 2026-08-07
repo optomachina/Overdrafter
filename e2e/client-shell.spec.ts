@@ -93,7 +93,6 @@ test.describe("authenticated client shell contract", () => {
 
     await page.getByRole("button", { name: "Close sidebar" }).click();
     await expect(page.getByRole("complementary")).toHaveCSS("width", "52px");
-    await page.waitForTimeout(250);
 
     const after = await Promise.all(
       iconSelectors.map((selector) => page.locator(selector).boundingBox()),
