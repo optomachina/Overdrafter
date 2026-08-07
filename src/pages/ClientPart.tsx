@@ -229,7 +229,7 @@ const ClientPart = () => {
     accessibleJobs,
     isAuthInitializing,
     workspaceAccessScope,
-  } = useClientPartController();
+  } = useClientPartController(undefined, { warmNavigation: false });
 
   const notificationCenter = useWorkspaceNotifications({
     accessScope: workspaceAccessScope,
@@ -767,9 +767,6 @@ const ClientPart = () => {
                   <TabsTrigger value="quote" className="rounded-full px-4 py-2">
                     Quote
                   </TabsTrigger>
-                  <TabsTrigger value="request" className="rounded-full px-4 py-2 md:hidden">
-                    Request
-                  </TabsTrigger>
                   <TabsTrigger value="activity" className="rounded-full px-4 py-2">
                     Activity
                   </TabsTrigger>
@@ -828,10 +825,6 @@ const ClientPart = () => {
                     }
                     />
                   </div>
-                </TabsContent>
-
-                <TabsContent value="request" className="mt-0 md:hidden">
-                  {partInfoPanel}
                 </TabsContent>
 
                 <TabsContent value="activity" className="mt-0">

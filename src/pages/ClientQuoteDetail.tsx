@@ -103,6 +103,7 @@ const ClientQuoteDetail = () => {
   const resolvedJobId = matchingJobs.length === 1 ? matchingJobs[0]?.id : undefined;
   const controller = useClientPartController(resolvedJobId, {
     redirectUnauthenticated: false,
+    warmNavigation: false,
   });
   const [customerReference, setCustomerReference] = useState("");
 

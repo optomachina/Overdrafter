@@ -746,9 +746,9 @@ describe("ClientPart", () => {
     expect(screen.getByRole("button", { name: "Review order" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Attach files" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Files" })).not.toBeInTheDocument();
-    // PartInfoPanel moved into the shell right rail on desktop, with a mobile-only
-    // Request tab fallback so small screens can still reach quote-request controls.
-    expect(screen.getByRole("tab", { name: "Request" })).toHaveClass("md:hidden");
+    // PartInfoPanel is owned by the shell inspector at every viewport so the
+    // request form has one live instance and one set of field IDs.
+    expect(screen.queryByRole("tab", { name: "Request" })).not.toBeInTheDocument();
     expect(screen.getByTestId("part-viewer-row")).toBeInTheDocument();
     expect(screen.getByTestId("part-product-data-bar")).toBeInTheDocument();
     // Right rail renders PartInfoPanel without any tab switch.
