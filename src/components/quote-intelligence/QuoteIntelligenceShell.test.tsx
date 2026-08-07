@@ -6,6 +6,19 @@ import { QuoteIntelligenceShell } from "./QuoteIntelligenceShell";
 
 const originalMatchMedia = globalThis.window.matchMedia;
 
+function renderShell(
+  props: Partial<React.ComponentProps<typeof QuoteIntelligenceShell>> = {},
+  initialEntry = "/parts",
+) {
+  return render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <QuoteIntelligenceShell title="Parts" {...props}>
+        <p>Part collection</p>
+      </QuoteIntelligenceShell>
+    </MemoryRouter>,
+  );
+}
+
 describe("QuoteIntelligenceShell", () => {
   beforeEach(() => {
     globalThis.localStorage.clear();
@@ -18,69 +31,85 @@ describe("QuoteIntelligenceShell", () => {
     });
   });
 
-  it("uses a persistent left navigation rail for the desktop workspace", () => {
-    const { container } = render(
-      <MemoryRouter initialEntries={["/parts"]}>
-        <QuoteIntelligenceShell title="Parts">
-          <p>Part collection</p>
-        </QuoteIntelligenceShell>
-      </MemoryRouter>,
-    );
+  it("uses one fixed application frame, page header, and primary workspace scroll owner", () => {
+    const { container } = renderShell();
 
-    const navigation = screen.getByRole("navigation", { name: "Primary" });
-    expect(navigation).toHaveClass("flex-col");
-    expect(screen.getByRole("link", { name: "Parts" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("button", { name: "OverDrafter home" }).closest("aside")).toBeInTheDocument();
-    const shell = container.firstElementChild;
+    const shell = container.querySelector("[data-client-shell]");
+    const header = screen.getByRole("banner");
+    const workspace = screen.getByRole("main");
+
+    expect(shell).toHaveClass("h-svh", "overflow-hidden");
+    expect(header).toHaveClass("h-14", "shrink-0");
+    expect(screen.getByRole("heading", { name: "Parts", level: 1 })).toBeInTheDocument();
+    expect(workspace).toHaveAttribute("data-workspace-scroll", "primary");
+    expect(workspace).toHaveClass("min-h-0", "min-w-0", "overflow-y-auto");
+    expect(container.querySelectorAll('[data-workspace-scroll="primary"]')).toHaveLength(1);
+  });
+
+  it("keeps the same navigation icon nodes mounted at 52px and 224px sidebar widths", () => {
+    renderShell();
+
     const sidebar = screen.getByRole("complementary");
+    const partsIcon = document.querySelector('svg[data-navigation-icon="Parts"]');
+    const quotesIcon = document.querySelector('svg[data-navigation-icon="Quotes"]');
+    const searchIcon = document.querySelector('svg[data-navigation-icon="Search"]');
 
-    expect(shell).toHaveStyle({ paddingLeft: "224px" });
     expect(sidebar).toHaveAttribute("data-state", "expanded");
     expect(sidebar).toHaveStyle({ width: "224px" });
-    expect(screen.getByRole("button", { name: "Close sidebar" })).toBeInTheDocument();
-    const persistentMark = sidebar.querySelector("svg[data-overdrafter-mark]");
-    expect(persistentMark).toBeInTheDocument();
-    expect(screen.getAllByRole("navigation", { name: "Primary" })).toHaveLength(1);
+    expect(partsIcon).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Parts" })).toHaveAttribute("aria-current", "page");
 
     fireEvent.click(screen.getByRole("button", { name: "Close sidebar" }));
 
-    expect(shell).toHaveStyle({ paddingLeft: "52px" });
     expect(sidebar).toHaveAttribute("data-state", "collapsed");
     expect(sidebar).toHaveStyle({ width: "52px" });
+    expect(document.querySelector('svg[data-navigation-icon="Parts"]')).toBe(partsIcon);
+    expect(document.querySelector('svg[data-navigation-icon="Quotes"]')).toBe(quotesIcon);
+    expect(document.querySelector('svg[data-navigation-icon="Search"]')).toBe(searchIcon);
     expect(screen.getByRole("button", { name: "Open sidebar" })).toHaveAttribute("aria-expanded", "false");
-    expect(sidebar.querySelector("svg[data-overdrafter-mark]")).toBe(persistentMark);
+  });
+
+  it("provides a shrink-safe 336px inspector only when inspector content exists", () => {
+    const { container } = renderShell({
+      inspector: <div>Requirements</div>,
+      inspectorTitle: "Part info",
+    });
+
+    const inspector = container.querySelector('[data-workspace-inspector="desktop"]');
+    const workspace = screen.getByRole("main");
+
+    expect(inspector).toHaveStyle({ width: "336px" });
+    expect(inspector).toHaveClass("shrink-0", "xl:flex");
+    expect(inspector).toHaveAccessibleName("Part info");
+    expect(workspace).toHaveClass("min-w-0", "flex-1");
+    expect(screen.getByRole("button", { name: "Open inspector" })).toHaveClass("xl:hidden");
+  });
+
+  it("uses a phone navigation drawer instead of a persistent visible icon rail", () => {
+    Object.defineProperty(globalThis.window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockReturnValue({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }),
+    });
+
+    renderShell();
+
+    expect(screen.getByRole("complementary")).toHaveClass("hidden", "md:block");
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+
+    expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveClass("w-[224px]", "shadow-none");
   });
 
   it("keeps the native iOS shell free of web navigation chrome", () => {
-    render(
-      <MemoryRouter initialEntries={["/parts?app=ios"]}>
-        <QuoteIntelligenceShell title="Parts">
-          <p>Part collection</p>
-        </QuoteIntelligenceShell>
-      </MemoryRouter>,
-    );
+    renderShell({}, "/parts?app=ios");
 
-    expect(screen.queryByRole("navigation", { name: "Primary" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open navigation" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "OverDrafter" })).toHaveAttribute("href", "/parts?app=ios");
-  });
-
-  it("defaults the web sidebar to its icon rail on narrow viewports", () => {
-    Object.defineProperty(globalThis.window, "matchMedia", {
-      configurable: true,
-      value: vi.fn().mockReturnValue({ matches: true }),
-    });
-
-    const { container } = render(
-      <MemoryRouter initialEntries={["/parts"]}>
-        <QuoteIntelligenceShell title="Parts">
-          <p>Part collection</p>
-        </QuoteIntelligenceShell>
-      </MemoryRouter>,
-    );
-
-    expect(container.firstElementChild).toHaveStyle({ paddingLeft: "52px" });
-    expect(screen.getByRole("complementary")).toHaveAttribute("data-state", "collapsed");
-    expect(screen.getByRole("button", { name: "Open sidebar" })).toBeInTheDocument();
   });
 
   it("restores the persisted desktop preference after a narrow viewport", () => {
@@ -98,24 +127,19 @@ describe("QuoteIntelligenceShell", () => {
       value: vi.fn().mockReturnValue(mediaQuery),
     });
 
-    const { container } = render(
-      <MemoryRouter initialEntries={["/parts"]}>
-        <QuoteIntelligenceShell title="Parts">
-          <p>Part collection</p>
-        </QuoteIntelligenceShell>
-      </MemoryRouter>,
-    );
+    renderShell();
+    const sidebar = screen.getByRole("complementary");
 
-    expect(container.firstElementChild).toHaveStyle({ paddingLeft: "224px" });
+    expect(sidebar).toHaveStyle({ width: "224px" });
 
     mediaQuery.matches = true;
     act(() => viewportChangeListener?.({ matches: true } as MediaQueryListEvent));
-    expect(container.firstElementChild).toHaveStyle({ paddingLeft: "52px" });
+    expect(sidebar).toHaveStyle({ width: "52px" });
     expect(globalThis.localStorage.getItem("workspace-shell.desktop-collapsed-v1")).toBe("0");
 
     mediaQuery.matches = false;
     act(() => viewportChangeListener?.({ matches: false } as MediaQueryListEvent));
-    expect(container.firstElementChild).toHaveStyle({ paddingLeft: "224px" });
+    expect(sidebar).toHaveStyle({ width: "224px" });
     expect(globalThis.localStorage.getItem("workspace-shell.desktop-collapsed-v1")).toBe("0");
   });
 });

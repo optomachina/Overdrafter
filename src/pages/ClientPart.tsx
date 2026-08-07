@@ -11,8 +11,6 @@ import {
   MoreHorizontal,
   Star,
   MoveRight,
-  PlusSquare,
-  Search,
   Upload,
   XCircle,
 } from "lucide-react";
@@ -20,13 +18,11 @@ import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
 import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
-import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShell";
+import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
 import { PartProductDataBar } from "@/components/quotes/PartProductDataBar";
 import { PartViewerRow } from "@/components/quotes/PartViewerRow";
 import { QuoteSelectionFunctionBar } from "@/components/quotes/QuoteSelectionFunctionBar";
 import { PartInfoPanel } from "@/components/workspace/PartInfoPanel";
-import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
-import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { ClientExtractionStatusNotice } from "@/components/quotes/ClientExtractionStatusNotice";
 import { ClientPartHeader } from "@/components/quotes/ClientPartHeader";
@@ -174,20 +170,12 @@ const ClientPart = () => {
     effectiveRequestDraft,
     extraction,
     handleArchivePart,
-    handleArchiveProject,
     handleCancelQuoteRequest,
-    handleAssignPartToProject,
-    handleCreateProjectFromSelection,
     handleDeleteArchivedParts,
-    handleDissolveProject,
     handleDownloadFile,
     handleDraftChange,
-    handlePinPart,
-    handlePinProject,
     handlePresetSelection,
-    handleRemovePartFromProject,
     handleRenamePart,
-    handleRenameProject,
     handleRequestQuote,
     handleResetField,
     handleResetAllFields,
@@ -197,8 +185,6 @@ const ClientPart = () => {
     handleToggleCurrentPartPin,
     handleToggleVendorExclusion,
     handleUnarchivePart,
-    handleUnpinPart,
-    handleUnpinProject,
     isDrawingPreviewLoading,
     isPartDetailLoading,
     isPartArchiveBusy,
@@ -206,15 +192,12 @@ const ClientPart = () => {
     isPartOptionsOpen,
     isRequestingQuote,
     isRenamingPart,
-    isSearchOpen,
     jobId,
     navigate,
     newJobFilePicker,
     partDetail,
     partRenameValue,
     pinnedJobIds,
-    prefetchPart,
-    prefetchProject,
     presentation,
     projectCollaborationUnavailable,
     projectMemberships,
@@ -225,7 +208,6 @@ const ClientPart = () => {
     rankedQuoteOptions,
     removeJobMutation,
     requestSummaryRequestedByDate,
-    resolveSidebarProjectIdsForJob,
     revisionOptions,
     saveRequestMutation,
     selectedQuoteOption,
@@ -233,7 +215,6 @@ const ClientPart = () => {
     sourcingResult,
     setIsPartArchiveBusy,
     setIsPartOptionsOpen,
-    setIsSearchOpen,
     setPartRenameValue,
     setQuoteQuantityInput,
     setShowDrawingPreview,
@@ -242,10 +223,7 @@ const ClientPart = () => {
     showDrawingPreview,
     showMoveDialog,
     showRenameDialog,
-    sidebarPinsQuery,
-    sidebarProjects,
     signOut,
-    summariesByJobId,
     summary,
     user,
     accessibleJobs,
@@ -260,17 +238,6 @@ const ClientPart = () => {
     userId: user?.id,
   });
 
-  const navigateToPartDestination = (nextJobId: string) => {
-    const job = accessibleJobs.find((candidate) => candidate.id === nextJobId);
-    const projectId = job ? resolveSidebarProjectIdsForJob(job)[0] ?? null : null;
-
-    if (projectId) {
-      navigate(appAwareHref(`/projects/${projectId}?part=${nextJobId}`));
-      return;
-    }
-
-    navigate(appAwareHref(`/parts/${nextJobId}`));
-  };
   const storageScopeKey = user?.id ?? "anonymous";
 
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(selectedQuoteOption?.offerId ?? null);
@@ -525,50 +492,23 @@ const ClientPart = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <ClientWorkspaceShell
-        showSidebar={appMode !== "ios"}
-        onLogoClick={() => navigate(appAwareHref(appMode === "ios" ? "/parts" : "/"))}
-        sidebarRailActions={[
-          { label: "New Job", icon: PlusSquare, onClick: newJobFilePicker.openFilePicker },
-          { label: "Search", icon: Search, onClick: () => setIsSearchOpen(true) },
-        ]}
-        sidebarContent={
-          <WorkspaceSidebar
-            projects={sidebarProjects}
-            jobs={accessibleJobs}
-            summariesByJobId={summariesByJobId}
-            activeProjectId={breadcrumbProject?.id ?? null}
-            activeJobId={jobId}
-            onCreateJob={newJobFilePicker.openFilePicker}
-            onCreateProject={projectCollaborationUnavailable ? undefined : newJobFilePicker.openFilePicker}
-            onSearch={() => setIsSearchOpen(true)}
-            storageScopeKey={user.id}
-            pinnedProjectIds={sidebarPinsQuery.data?.projectIds ?? []}
-            pinnedJobIds={sidebarPinsQuery.data?.jobIds ?? []}
-            onPinProject={handlePinProject}
-            onUnpinProject={handleUnpinProject}
-            onPinPart={handlePinPart}
-            onUnpinPart={handleUnpinPart}
-            onAssignPartToProject={handleAssignPartToProject}
-            onRemovePartFromProject={handleRemovePartFromProject}
-            onCreateProjectFromSelection={
-              projectCollaborationUnavailable ? undefined : handleCreateProjectFromSelection
-            }
-            onRenameProject={handleRenameProject}
-            onRenamePart={handleRenamePart}
-            onArchivePart={handleArchivePart}
-            onArchiveProject={handleArchiveProject}
-            onDissolveProject={handleDissolveProject}
-            onSelectProject={(projectId) => navigate(appAwareHref(`/projects/${projectId}`))}
-            onSelectPart={navigateToPartDestination}
-            onPrefetchProject={prefetchProject}
-            onPrefetchPart={prefetchPart}
-            resolveProjectIdsForJob={resolveSidebarProjectIdsForJob}
-          />
+      <QuoteIntelligenceShell
+        title={displayPartTitle || "Part"}
+        uploadSlot={
+          <button
+            type="button"
+            aria-label="Upload"
+            onClick={newJobFilePicker.openFilePicker}
+            className="inline-flex min-h-9 items-center gap-2 rounded-[2px] border border-paper-hairline bg-paper-surface px-3 text-[12px] font-medium text-paper-ink hover:bg-paper-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red"
+          >
+            <Upload className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden sm:inline">Upload</span>
+          </button>
         }
-        sidebarFooter={
+        accountSlot={
           <WorkspaceAccountMenu
             user={user}
+            compact
             activeMembership={activeMembership}
             notificationCenter={notificationCenter}
             onSignOut={signOut}
@@ -580,10 +520,10 @@ const ClientPart = () => {
             onDeleteArchivedParts={handleDeleteArchivedParts}
           />
         }
-        rightRailLabel="Part info"
-        rightRailContent={partInfoPanel}
+        inspectorTitle="Part info"
+        inspector={partInfoPanel}
       >
-        <div className="mx-auto flex w-full max-w-[1480px] flex-1 flex-col gap-6 px-6 pb-10 pt-4">
+        <div className="flex w-full flex-1 flex-col gap-6">
           {isPartDetailLoading ? (
             <div className="flex min-h-[320px] items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -591,7 +531,7 @@ const ClientPart = () => {
           ) : partDetail?.job && presentation ? (
             <>
               <ClientPartHeader
-                title={displayPartTitle}
+                title={null}
                 description={presentation.description}
                 details={
                   <div className="space-y-4">
@@ -961,17 +901,7 @@ const ClientPart = () => {
             </div>
           )}
         </div>
-      </ClientWorkspaceShell>
-
-      <SearchPartsDialog
-        open={isSearchOpen}
-        onOpenChange={setIsSearchOpen}
-        projects={sidebarProjects}
-        jobs={accessibleJobs}
-        summariesByJobId={summariesByJobId}
-        onSelectProject={(projectId) => navigate(appAwareHref(`/projects/${projectId}`))}
-        onSelectPart={navigateToPartDestination}
-      />
+      </QuoteIntelligenceShell>
 
       <input
         ref={newJobFilePicker.inputRef}

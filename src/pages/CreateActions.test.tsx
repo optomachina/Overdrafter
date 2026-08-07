@@ -592,7 +592,7 @@ describe("top-level create actions", () => {
     expect(screen.queryByText("Create project")).toBeNull();
   });
 
-  it("uses the file picker for ClientPart new project", async () => {
+  it("uses the file picker for the ClientPart header upload action", async () => {
     mockUseClientJobFilePicker
       .mockImplementationOnce(() => ({
         accept: ".step,.pdf",
@@ -615,13 +615,12 @@ describe("top-level create actions", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "New Project" })).not.toBeNull();
+      expect(screen.getByRole("button", { name: "Upload" })).not.toBeNull();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "New Job" }));
-    fireEvent.click(screen.getByRole("button", { name: "New Project" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
 
-    expect(mockOpenFilePicker).toHaveBeenCalledTimes(2);
+    expect(mockOpenFilePicker).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Create project")).toBeNull();
   });
 

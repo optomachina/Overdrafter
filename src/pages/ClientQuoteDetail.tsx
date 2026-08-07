@@ -156,12 +156,12 @@ const ClientQuoteDetail = () => {
       <Button
         type="button"
         size="sm"
-        aria-label="Upload parts"
+        aria-label="Upload"
         className="h-9 rounded-[4px]"
         onClick={newJobFilePicker.openFilePicker}
       >
         <Upload className="h-4 w-4 sm:mr-2" />
-        <span className="hidden sm:inline">Upload parts</span>
+        <span className="hidden sm:inline">Upload</span>
       </Button>
       <input
         ref={newJobFilePicker.inputRef}
@@ -178,6 +178,7 @@ const ClientQuoteDetail = () => {
   const accountSlot = (
     <WorkspaceAccountMenu
       user={user}
+      compact
       activeMembership={activeMembership}
       onSignOut={signOut}
     />

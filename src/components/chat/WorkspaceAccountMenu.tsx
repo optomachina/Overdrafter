@@ -80,6 +80,7 @@ import {
 
 type WorkspaceAccountMenuProps = {
   user: User;
+  compact?: boolean;
   activeMembership?: AppMembership | null;
   notificationCenter?: WorkspaceNotificationsController | null;
   onSignOut: () => Promise<void> | void;
@@ -421,6 +422,7 @@ function getBrowserPermissionDescription(permission: BrowserNotificationPermissi
 
 export function WorkspaceAccountMenu({
   user,
+  compact = false,
   activeMembership = null,
   notificationCenter = null,
   onSignOut,
@@ -1563,16 +1565,19 @@ export function WorkspaceAccountMenu({
             aria-label="Open account menu"
             disabled={isSigningOut}
             className={cn(
-              "workspace-shell group/account flex w-full items-center gap-3 rounded-surface-lg px-3 py-2.5 text-left text-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-60",
+              "workspace-shell group/account flex items-center text-left text-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-60",
+              compact
+                ? "h-10 w-auto gap-2 rounded-[2px] px-1.5 py-0"
+                : "w-full gap-3 rounded-surface-lg px-3 py-2.5",
               menuOpen ? "bg-accent" : "bg-transparent hover:bg-accent focus-visible:bg-accent",
             )}
           >
-            <Avatar className="h-11 w-11 shrink-0">
-              <AvatarFallback className="bg-emerald-500 text-[18px] font-medium text-foreground">
+            <Avatar className={cn("shrink-0", compact ? "h-8 w-8" : "h-11 w-11")}>
+              <AvatarFallback className={cn("bg-emerald-500 font-medium text-foreground", compact ? "text-[12px]" : "text-[18px]")}>
                 {profile.initials}
               </AvatarFallback>
             </Avatar>
-            <div className="min-w-0 flex-1">
+            <div className={cn("min-w-0 flex-1", compact && "hidden lg:block")}>
               <p className="truncate text-[15px] font-medium leading-5 tracking-[-0.01em] text-foreground">
                 {profile.displayName}
               </p>
@@ -1581,13 +1586,22 @@ export function WorkspaceAccountMenu({
               </p>
             </div>
             {notifications.unseenCount > 0 ? (
-              <span className="hidden shrink-0 h-5 w-5 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/10 text-[11px] font-medium text-emerald-300 md:inline-flex" aria-label={`${notifications.unseenCount} unseen notifications`}>
+              <span
+                className={cn(
+                  "hidden h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/10 text-[11px] font-medium text-emerald-300",
+                  compact ? "lg:inline-flex" : "md:inline-flex",
+                )}
+                aria-label={`${notifications.unseenCount} unseen notifications`}
+              >
                 {notifications.unseenCount}
               </span>
             ) : null}
             <div
               className={cn(
-                "pointer-events-none hidden h-8 w-8 items-center justify-center rounded-full bg-accent text-foreground/80 transition group-hover/account:flex group-focus-visible/account:flex md:flex",
+                "pointer-events-none hidden h-8 w-8 items-center justify-center rounded-full bg-accent text-foreground/80 transition",
+                compact
+                  ? "lg:flex lg:group-hover/account:flex lg:group-focus-visible/account:flex"
+                  : "group-hover/account:flex group-focus-visible/account:flex md:flex",
                 menuOpen ? "opacity-100" : "md:opacity-0 md:group-hover/account:opacity-100 md:group-focus-visible/account:opacity-100",
               )}
             >

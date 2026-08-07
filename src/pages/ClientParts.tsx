@@ -180,6 +180,7 @@ export default function ClientParts() {
       />
       <button
         type="button"
+        aria-label="Upload"
         onClick={controller.newJobFilePicker.openFilePicker}
         className="inline-flex min-h-10 items-center gap-2 border border-paper-hairline bg-paper-surface px-3 text-[12px] font-medium transition-colors hover:bg-paper-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red"
       >
@@ -191,6 +192,7 @@ export default function ClientParts() {
   const accountSlot = (
     <WorkspaceAccountMenu
       user={controller.user}
+      compact
       activeMembership={controller.activeMembership}
       onSignOut={controller.signOut}
     />
@@ -294,8 +296,6 @@ export default function ClientParts() {
   return (
     <QuoteIntelligenceShell
       title="Parts"
-      eyebrow="Accessible manufacturing artifacts"
-      description="Find parts and project-backed groups using the metadata already attached to your workspace."
       uploadSlot={uploadSlot}
       accountSlot={accountSlot}
     >

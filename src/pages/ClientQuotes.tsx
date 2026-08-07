@@ -204,8 +204,6 @@ export default function ClientQuotes() {
   return (
     <QuoteIntelligenceShell
       title="Quotes"
-      eyebrow="Commercial response workspace"
-      description="Track the quote state attached to each accessible part. Facts not present in the current source remain explicitly unavailable."
       uploadSlot={
         <>
           <input
@@ -219,17 +217,19 @@ export default function ClientQuotes() {
           />
           <button
             type="button"
+            aria-label="Upload"
             onClick={controller.newJobFilePicker.openFilePicker}
             className="inline-flex min-h-10 items-center gap-2 border border-paper-hairline bg-paper-surface px-3 text-[12px] font-medium hover:bg-paper-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red"
           >
             <Upload className="h-4 w-4" aria-hidden="true" />
-            <span className="hidden sm:inline">Upload parts</span>
+            <span className="hidden sm:inline">Upload</span>
           </button>
         </>
       }
       accountSlot={
         <WorkspaceAccountMenu
           user={controller.user}
+          compact
           activeMembership={controller.activeMembership}
           onSignOut={controller.signOut}
         />
