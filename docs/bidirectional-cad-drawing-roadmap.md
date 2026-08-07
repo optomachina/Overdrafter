@@ -138,7 +138,7 @@ Artifact-local identity and cross-version correspondence are different contracts
 - Never infer a manufacturing-critical tolerance, datum scheme, fit, material, or process silently.
 - Pin each quote, released package, and future order to the exact reviewed design version that produced it.
 
-Review and release are separate states. Only a capability-gated engineering release authority may release a package for vendor transmission, quoting, or purchasing, with separation of editing and release duties where policy or regulated use requires it. Release requires recorded signer identity, time, reviewed version, validation results, resolved critical findings, and customer authorization evidence. The release transition creates an immutable snapshot; ordinary project membership or an editable "reviewed" status is not sufficient authority.
+Review and release are separate states for future generated or reconciled CAD and drawing packages. Only a capability-gated engineering release authority may release one of those packages for vendor transmission, quoting, or purchasing, with separation of editing and release duties where policy or regulated use requires it. This future gate does not change the current upload, sourcing, quoting, or manual handoff flows: the existing `manufacturing_quote` contract continues without implicit DFM or DFA approval, and any future gate must be explicit and service-aware as defined in `docs/manufacturing-review-status-model.md`. Release requires recorded signer identity, time, reviewed version, validation results, resolved critical findings, and customer authorization evidence. The release transition creates an immutable snapshot; ordinary project membership or an editable "reviewed" status is not sufficient authority.
 
 ## CAD format and execution strategy
 
@@ -171,10 +171,11 @@ Generated geometry and drawings are valuable because they complete a manufactura
 The intended downstream connection is:
 
 1. The user reviews the generated or reconciled design package and resolves all blocking engineering findings.
-2. An authorized engineering releaser records an immutable released version, its provenance, validation evidence, and required customer authorization evidence.
-3. DFM, extraction, and quote preparation operate on that exact version.
-4. Vendor quotes and selected offers remain pinned to it.
-5. A future authorized procurement or purchasing workflow uses the same pinned package so a later edit cannot silently change what was quoted or ordered.
+2. An authorized engineering releaser records an immutable released design-package snapshot containing the exact version, preserved raw source artifacts and extraction data, field-level provenance, validation evidence, the approved `spec_snapshot`, and required customer authorization evidence.
+3. Downstream DFM and extraction operate against that released snapshot while preserving raw source truth and provenance separately from normalized quote-facing values.
+4. Quote preparation and future procurement use the approved `spec_snapshot` captured against the released version. Reparsing or normalization may create a new candidate version but must never mutate the released snapshot or overwrite user-managed values.
+5. Vendor quotes and selected offers remain pinned to the released snapshot.
+6. A future authorized procurement or purchasing workflow uses the same pinned package so a later edit cannot silently change what was quoted or ordered.
 
 This direction does not authorize current manufacturing payment collection, purchase-order issuance, or automated supplier ordering. Those remain separate controlled capabilities.
 
