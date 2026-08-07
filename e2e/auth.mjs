@@ -45,7 +45,7 @@ async function createStorageState(account) {
 
     await page.locator("#auth-email").fill(account.email);
     await page.locator("#auth-password").fill(account.password);
-    await page.getByRole("button", { name: /^Log in$/ }).click();
+    await page.locator("form").getByRole("button", { name: /^Log in$/ }).click();
     await account.waitFor(page);
     await page.context().storageState({ path: account.storageStatePath });
   } finally {

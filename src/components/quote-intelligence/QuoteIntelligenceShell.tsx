@@ -21,6 +21,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ClientShellSection } from "@/components/quote-intelligence/ClientShellPrimitives";
 import { cn } from "@/lib/utils";
 
 type QuoteIntelligenceShellProps = {
@@ -62,6 +63,11 @@ function readDesktopSidebarCollapsed() {
 function readNarrowViewport() {
   return globalThis.window !== undefined &&
     globalThis.window.matchMedia?.("(max-width: 767px)").matches === true;
+}
+
+function readWideInspectorViewport() {
+  return globalThis.window !== undefined &&
+    globalThis.window.matchMedia?.("(min-width: 1280px)").matches === true;
 }
 
 function persistDesktopSidebarCollapsed(collapsed: boolean) {
@@ -112,6 +118,26 @@ function useSidebarCollapseState() {
   return [collapsed, setCollapsedFromUser] as const;
 }
 
+function useWideInspectorViewport() {
+  const [wide, setWide] = useState(readWideInspectorViewport);
+
+  useEffect(() => {
+    if (!globalThis.window?.matchMedia) {
+      return;
+    }
+
+    const mediaQuery = globalThis.window.matchMedia("(min-width: 1280px)");
+    const handleViewportChange = (event: MediaQueryListEvent) => setWide(event.matches);
+
+    setWide(mediaQuery.matches);
+    mediaQuery.addEventListener?.("change", handleViewportChange);
+
+    return () => mediaQuery.removeEventListener?.("change", handleViewportChange);
+  }, []);
+
+  return wide;
+}
+
 type DestinationNavigationProps = Readonly<{
   collapsed: boolean;
   onNavigate?: () => void;
@@ -130,13 +156,13 @@ function DestinationNavigation({ collapsed, onNavigate }: DestinationNavigationP
             aria-current={active ? "page" : undefined}
             onClick={onNavigate}
             className={cn(
-              "group relative grid h-10 w-full grid-cols-[36px_minmax(0,1fr)] items-center overflow-hidden rounded-[2px] px-0 text-[13px] font-medium text-paper-muted transition-colors hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red",
+              "group relative grid h-11 w-full grid-cols-[36px_minmax(0,1fr)] items-center overflow-hidden rounded-[2px] px-0 text-[13px] font-medium text-paper-muted transition-colors hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red md:h-10",
               active && "bg-paper-inset text-paper-ink",
             )}
           >
             {active ? <span className="absolute inset-y-2 left-0 w-0.5 bg-paper-red" aria-hidden="true" /> : null}
             <span className="grid h-9 w-9 place-items-center">
-              <Icon className="h-4 w-4" aria-hidden="true" data-navigation-icon={label} />
+              <Icon className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" data-navigation-icon={label} />
             </span>
             <span
               className={cn(
@@ -207,6 +233,7 @@ function DesktopSidebar({ collapsed, onCollapse, onExpand, onGoHome }: DesktopSi
                 "pointer-events-none absolute h-4 w-4 opacity-0 transition-opacity duration-150",
                 collapsed && "group-hover:opacity-100 group-focus-visible:opacity-100",
               )}
+              strokeWidth={1.5}
             />
           </span>
           <span
@@ -230,7 +257,7 @@ function DesktopSidebar({ collapsed, onCollapse, onExpand, onGoHome }: DesktopSi
             collapsed ? "pointer-events-none opacity-0" : "opacity-100",
           )}
         >
-          <PanelLeftClose className="h-4 w-4" />
+          <PanelLeftClose className="h-4 w-4" strokeWidth={1.5} />
         </button>
       </div>
       <DestinationNavigation collapsed={collapsed} />
@@ -249,7 +276,8 @@ function MobileNavigation({ open, onOpenChange }: MobileNavigationProps) {
       <SheetContent
         side="left"
         aria-describedby={undefined}
-        className="w-[224px] max-w-[calc(100vw-32px)] gap-0 border-paper-hairline bg-paper p-0 text-paper-ink shadow-none [&>button]:rounded-[2px]"
+        className="max-w-[calc(100vw-32px)] gap-0 border-paper-hairline bg-paper p-0 text-paper-ink shadow-none [&>button]:rounded-[2px]"
+        style={{ width: `${SIDEBAR_EXPANDED_WIDTH}px` }}
       >
         <SheetHeader className="h-14 justify-center border-b border-paper-hairline px-3 text-left">
           <SheetTitle className="font-display text-[14px] font-bold uppercase tracking-[-0.04em]">
@@ -288,9 +316,9 @@ function WorkspaceHeader({
           type="button"
           aria-label="Open navigation"
           onClick={onOpenMobileNavigation}
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-[2px] text-paper-muted hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red md:hidden"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-[2px] text-paper-muted hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red md:hidden"
         >
-          <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+          <PanelLeftOpen className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
         </button>
       ) : (
         <NavLink
@@ -312,9 +340,9 @@ function WorkspaceHeader({
             type="button"
             aria-label="Open inspector"
             onClick={onOpenInspector}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-[2px] text-paper-muted hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red xl:hidden"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-[2px] text-paper-muted hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red sm:h-9 sm:w-9 xl:hidden"
           >
-            <PanelRightOpen className="h-4 w-4" aria-hidden="true" />
+            <PanelRightOpen className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
           </button>
         ) : null}
         {accountSlot}
@@ -356,7 +384,8 @@ function MobileInspector({ children, onOpenChange, open, title }: MobileInspecto
         side="right"
         aria-describedby={undefined}
         data-workspace-inspector="sheet"
-        className="w-[336px] max-w-[calc(100vw-32px)] gap-0 border-paper-hairline bg-paper p-0 text-paper-ink shadow-none sm:max-w-[336px] [&>button]:rounded-[2px] xl:hidden"
+        className="max-w-[calc(100vw-32px)] gap-0 border-paper-hairline bg-paper p-0 text-paper-ink shadow-none sm:max-w-[336px] [&>button]:rounded-[2px] xl:hidden"
+        style={{ width: `${INSPECTOR_WIDTH}px` }}
       >
         <SheetHeader className="h-14 justify-center border-b border-paper-hairline px-4 text-left">
           <SheetTitle className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-paper-muted">
@@ -387,6 +416,7 @@ export function QuoteIntelligenceShell({
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
   const hasInspector = inspector != null;
+  const wideInspectorViewport = useWideInspectorViewport();
 
   return (
     <TooltipProvider delayDuration={120}>
@@ -427,22 +457,25 @@ export function QuoteIntelligenceShell({
                 )}
               >
                 {eyebrow || description ? (
-                  <div className="mb-5 border-b border-paper-hairline pb-4">
-                    {eyebrow ? (
-                      <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-paper-muted">{eyebrow}</p>
-                    ) : null}
-                    {description ? <p className="mt-2 max-w-3xl text-[13px] text-paper-muted">{description}</p> : null}
-                  </div>
+                  <ClientShellSection
+                    className="mb-5 py-0 pb-4"
+                    title={eyebrow}
+                    description={description}
+                  />
                 ) : null}
                 {children}
               </div>
             </main>
 
-            {hasInspector ? <DesktopInspector title={inspectorTitle}>{inspector}</DesktopInspector> : null}
+            {hasInspector ? (
+              <DesktopInspector title={inspectorTitle}>
+                {wideInspectorViewport ? inspector : null}
+              </DesktopInspector>
+            ) : null}
           </div>
         </div>
 
-        {hasInspector ? (
+        {hasInspector && !wideInspectorViewport ? (
           <MobileInspector
             open={mobileInspectorOpen}
             onOpenChange={setMobileInspectorOpen}

@@ -124,13 +124,19 @@ type ReleaseNote = {
 
 const MENU_CONTENT_CLASS =
   "workspace-shell z-[70] w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 box-border rounded-surface-lg border border-border bg-ws-raised p-2.5 text-foreground shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
+const COMPACT_MENU_CONTENT_CLASS =
+  "workspace-shell z-[70] w-[280px] max-w-[calc(100vw-32px)] rounded-[4px] border border-border bg-ws-raised p-2.5 text-foreground shadow-none";
 const SUBMENU_CONTENT_CLASS =
   "workspace-shell z-[71] w-[320px] rounded-surface-lg border border-border bg-ws-raised p-2.5 text-foreground shadow-[0_28px_80px_rgba(0,0,0,0.45)]";
+const COMPACT_SUBMENU_CONTENT_CLASS =
+  "workspace-shell z-[71] w-[280px] max-w-[calc(100vw-32px)] rounded-[4px] border border-border bg-ws-raised p-2.5 text-foreground shadow-none";
 const MENU_ITEM_CLASS =
   "gap-3.5 rounded-surface-lg px-4 py-3 text-[15px] font-normal leading-6 text-foreground focus:bg-accent focus:text-foreground";
 const MENU_ICON_CLASS = "h-[22px] w-[22px] shrink-0 text-foreground";
 const PANEL_SHEET_CLASS =
   "workspace-shell w-[min(100vw,30rem)] border-l border-border bg-ws-raised p-0 text-foreground sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-full [&>button]:bg-accent [&>button]:p-2 [&>button]:text-foreground/80 [&>button]:hover:bg-accent [&>button]:hover:text-foreground";
+const COMPACT_PANEL_SHEET_CLASS =
+  "workspace-shell w-[min(100vw,30rem)] border-l border-border bg-ws-raised p-0 text-foreground shadow-none sm:max-w-[30rem] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-[2px] [&>button]:bg-accent [&>button]:p-2 [&>button]:text-foreground/80 [&>button]:hover:bg-accent [&>button]:hover:text-foreground";
 const PANEL_CARD_CLASS = "rounded-surface-lg border border-border bg-muted p-4";
 const NOTIFICATION_BADGE_CLASS =
   "rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300";
@@ -1555,6 +1561,7 @@ export function WorkspaceAccountMenu({
               : activePanel === "keyboard-shortcuts"
                 ? "Shortcuts already implemented in this workspace."
                 : "";
+  const menuItemClass = cn(MENU_ITEM_CLASS, compact && "rounded-[2px]");
 
   return (
     <>
@@ -1567,13 +1574,20 @@ export function WorkspaceAccountMenu({
             className={cn(
               "workspace-shell group/account flex items-center text-left text-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-60",
               compact
-                ? "h-10 w-auto gap-2 rounded-[2px] px-1.5 py-0"
+                ? "h-11 w-auto gap-2 rounded-[2px] px-1.5 py-0 sm:h-10"
                 : "w-full gap-3 rounded-surface-lg px-3 py-2.5",
               menuOpen ? "bg-accent" : "bg-transparent hover:bg-accent focus-visible:bg-accent",
             )}
           >
-            <Avatar className={cn("shrink-0", compact ? "h-8 w-8" : "h-11 w-11")}>
-              <AvatarFallback className={cn("bg-emerald-500 font-medium text-foreground", compact ? "text-[12px]" : "text-[18px]")}>
+            <Avatar className={cn("shrink-0", compact ? "h-8 w-8 rounded-[2px]" : "h-11 w-11")}>
+              <AvatarFallback
+                className={cn(
+                  "font-medium",
+                  compact
+                    ? "rounded-[2px] bg-paper-inset text-[12px] text-paper-ink"
+                    : "bg-emerald-500 text-[18px] text-foreground",
+                )}
+              >
                 {profile.initials}
               </AvatarFallback>
             </Avatar>
@@ -1589,7 +1603,9 @@ export function WorkspaceAccountMenu({
               <span
                 className={cn(
                   "hidden h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/10 text-[11px] font-medium text-emerald-300",
-                  compact ? "lg:inline-flex" : "md:inline-flex",
+                  compact
+                    ? "rounded-[2px] border-paper-hairline bg-paper-inset text-paper-muted lg:inline-flex"
+                    : "md:inline-flex",
                 )}
                 aria-label={`${notifications.unseenCount} unseen notifications`}
               >
@@ -1598,10 +1614,10 @@ export function WorkspaceAccountMenu({
             ) : null}
             <div
               className={cn(
-                "pointer-events-none hidden h-8 w-8 items-center justify-center rounded-full bg-accent text-foreground/80 transition",
+                "pointer-events-none hidden h-8 w-8 items-center justify-center bg-accent text-foreground/80 transition",
                 compact
-                  ? "lg:flex lg:group-hover/account:flex lg:group-focus-visible/account:flex"
-                  : "group-hover/account:flex group-focus-visible/account:flex md:flex",
+                  ? "rounded-[2px] lg:flex lg:group-hover/account:flex lg:group-focus-visible/account:flex"
+                  : "rounded-full group-hover/account:flex group-focus-visible/account:flex md:flex",
                 menuOpen ? "opacity-100" : "md:opacity-0 md:group-hover/account:opacity-100 md:group-focus-visible/account:opacity-100",
               )}
             >
@@ -1615,40 +1631,48 @@ export function WorkspaceAccountMenu({
           align="start"
           sideOffset={12}
           collisionPadding={16}
-          className={MENU_CONTENT_CLASS}
+          className={compact ? COMPACT_MENU_CONTENT_CLASS : MENU_CONTENT_CLASS}
         >
-          <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => openPanel("notifications")}>
+          <DropdownMenuItem className={menuItemClass} onSelect={() => openPanel("notifications")}>
             <Bell className={MENU_ICON_CLASS} strokeWidth={1.85} />
             <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
               <span>Notifications</span>
-              {notifications.unseenCount > 0 ? <span className={NOTIFICATION_BADGE_CLASS}>{notifications.unseenCount}</span> : null}
+              {notifications.unseenCount > 0 ? (
+                <span
+                  className={compact
+                    ? "rounded-[2px] border border-paper-hairline bg-paper-inset px-2.5 py-1 text-[11px] font-medium text-paper-muted"
+                    : NOTIFICATION_BADGE_CLASS}
+                >
+                  {notifications.unseenCount}
+                </span>
+              ) : null}
             </span>
           </DropdownMenuItem>
 
-          <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => openPanel("settings")}>
+          <DropdownMenuItem className={menuItemClass} onSelect={() => openPanel("settings")}>
             <Settings className={MENU_ICON_CLASS} strokeWidth={1.85} />
             <span>Settings</span>
           </DropdownMenuItem>
 
-          <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => openPanel("archive")}>
+          <DropdownMenuItem className={menuItemClass} onSelect={() => openPanel("archive")}>
             <Archive className={MENU_ICON_CLASS} strokeWidth={1.85} />
             <span>Archive</span>
           </DropdownMenuItem>
 
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className={cn(MENU_ITEM_CLASS, "data-[state=open]:bg-accent")}>
+            <DropdownMenuSubTrigger className={cn(menuItemClass, "data-[state=open]:bg-accent")}>
               <CircleHelp className={MENU_ICON_CLASS} strokeWidth={1.85} />
               <span>Help</span>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent
               sideOffset={10}
               collisionPadding={16}
-              className={SUBMENU_CONTENT_CLASS}
+              className={compact ? COMPACT_SUBMENU_CONTENT_CLASS : SUBMENU_CONTENT_CLASS}
             >
               {HELP_ITEMS.map((item) => (
                 <DropdownMenuItem
                   key={item.id}
-                  className={MENU_ITEM_CLASS}
+                  className={menuItemClass}
                   onSelect={() => handleHelpAction(item.id)}
                 >
                   <item.icon className={MENU_ICON_CLASS} strokeWidth={1.85} />
@@ -1661,7 +1685,7 @@ export function WorkspaceAccountMenu({
           <DropdownMenuSeparator className="my-1 bg-border" />
 
           <DropdownMenuItem
-            className={MENU_ITEM_CLASS}
+            className={menuItemClass}
             onSelect={() => setTheme(isDarkTheme ? "light" : "dark")}
           >
             {isDarkTheme ? (
@@ -1673,28 +1697,28 @@ export function WorkspaceAccountMenu({
           </DropdownMenuItem>
 
           {showExtractionLauncher ? (
-            <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={openExtractionLauncher}>
+            <DropdownMenuItem className={menuItemClass} onSelect={openExtractionLauncher}>
               <ScanSearch className={MENU_ICON_CLASS} strokeWidth={1.85} />
               <span>Extraction</span>
             </DropdownMenuItem>
           ) : null}
 
           {showFixtures ? (
-            <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={openFixturePanel}>
+            <DropdownMenuItem className={menuItemClass} onSelect={openFixturePanel}>
               <FlaskConical className={MENU_ICON_CLASS} strokeWidth={1.85} />
               <span>Fixtures</span>
             </DropdownMenuItem>
           ) : null}
 
           {showExtractionLauncher || diagnosticsSnapshot.enabled || import.meta.env.DEV ? (
-            <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={openDiagnosticsPanel}>
+            <DropdownMenuItem className={menuItemClass} onSelect={openDiagnosticsPanel}>
               <Bug className={MENU_ICON_CLASS} strokeWidth={1.85} />
               <span>Diagnostics</span>
             </DropdownMenuItem>
           ) : null}
 
           <DropdownMenuItem
-            className={MENU_ITEM_CLASS}
+            className={menuItemClass}
             onSelect={() => {
               setMenuOpen(false);
               setSignOutDialogOpen(true);
@@ -1723,7 +1747,7 @@ export function WorkspaceAccountMenu({
           side="right"
           ref={panelContentRef}
           tabIndex={-1}
-          className={PANEL_SHEET_CLASS}
+          className={compact ? COMPACT_PANEL_SHEET_CLASS : PANEL_SHEET_CLASS}
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             panelContentRef.current?.focus();
@@ -1744,7 +1768,12 @@ export function WorkspaceAccountMenu({
             </ScrollArea>
 
             {activePanel === "settings" && editingSection !== null && (
-              <div className="border-t border-border bg-ws-raised px-6 pb-6 pt-5 shadow-[0_-8px_24px_rgba(0,0,0,0.4)]">
+              <div
+                className={cn(
+                  "border-t border-border bg-ws-raised px-6 pb-6 pt-5",
+                  compact ? "shadow-none" : "shadow-[0_-8px_24px_rgba(0,0,0,0.4)]",
+                )}
+              >
                 <p className="mb-4 text-[15px] font-medium text-foreground">
                   {editingSection === "company" && "Edit Company"}
                   {editingSection === "billing" && "Edit Billing Address"}

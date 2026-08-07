@@ -1,6 +1,6 @@
 # Design System — OverDrafter
 
-Last updated: 2026-07-28
+Last updated: 2026-08-07
 
 > Pretty good design follows pretty good rules. This is the canonical source of truth for OverDrafter's visual system. Read this before any UI or visual decision. If you change anything here, log a row in the Decisions section at the bottom and explain why.
 
@@ -175,6 +175,9 @@ Composition-first, not component-first. The application is laid out like an engi
 The July 28, 2026 launch direction supersedes the persistent left ledger as the default client entry shell while preserving it on legacy/internal construction surfaces.
 
 - Responsive web navigation is `PARTS | QUOTES | SEARCH`.
+- Authenticated web uses one stable application frame: a 52px collapsed / 224px expanded left rail at tablet width and above, and a 224px navigation drawer on narrower screens. Collapsing changes rail width and label opacity only; navigation icon nodes remain mounted and position-stable.
+- Every authenticated client route uses one 56px page header and one primary workspace scroll container. Document-level scrolling and route-specific shell variants are not permitted.
+- A contextual inspector is optional. It occupies 336px beside the workspace at wide desktop sizes and becomes a 336px sheet on tablet and phone so the central artifact view never gets squeezed.
 - The approved iPhone shell is `INBOX | PARTS | QUOTES | MORE`, with a
   separate `ASK` action adjacent to the bottom destination bar. iPad may adapt
   the same destinations to a native sidebar.

@@ -1059,7 +1059,7 @@ describe("ClientPart", () => {
       return deferredMemberships.promise;
     });
 
-    await renderClientPartOnTab("Request");
+    const { queryClient } = await renderClientPartOnTab("Request");
 
     fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
 
@@ -1070,13 +1070,23 @@ describe("ClientPart", () => {
       expect(api.fetchProjectJobMembershipsByJobIds).toHaveBeenCalledWith(["job-1", "job-2"]);
     });
 
-    deferredMemberships.resolve([
+    const pendingMembershipQuery = queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ["client-project-job-memberships"] })
+      .find((query) => {
+        const jobIds = query.queryKey.at(-1);
+        return Array.isArray(jobIds) && jobIds.includes("job-2");
+      });
+    expect(pendingMembershipQuery?.state.fetchStatus).toBe("fetching");
+
+    const resolvedMemberships = [
       { job_id: "job-1", project_id: "project-1" },
       { job_id: "job-2", project_id: "project-1" },
-    ]);
+    ];
+    deferredMemberships.resolve(resolvedMemberships);
 
     await waitFor(() => {
-      expect(projectMembershipFetchCount).toBeGreaterThanOrEqual(2);
+      expect(queryClient.getQueryData(pendingMembershipQuery!.queryKey)).toEqual(resolvedMemberships);
     });
   });
 

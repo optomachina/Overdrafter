@@ -101,7 +101,8 @@ describe("QuoteIntelligenceShell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
 
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
-    expect(screen.getByRole("dialog")).toHaveClass("w-[224px]", "shadow-none");
+    expect(screen.getByRole("dialog")).toHaveClass("shadow-none");
+    expect(screen.getByRole("dialog")).toHaveStyle({ width: "224px" });
   });
 
   it("keeps the native iOS shell free of web navigation chrome", () => {
@@ -115,16 +116,21 @@ describe("QuoteIntelligenceShell", () => {
   it("restores the persisted desktop preference after a narrow viewport", () => {
     globalThis.localStorage.setItem("workspace-shell.desktop-collapsed-v1", "0");
     let viewportChangeListener: ((event: MediaQueryListEvent) => void) | undefined;
-    const mediaQuery = {
+    const narrowMediaQuery = {
       matches: false,
       addEventListener: vi.fn((_type: string, listener: (event: MediaQueryListEvent) => void) => {
         viewportChangeListener = listener;
       }),
       removeEventListener: vi.fn(),
     };
+    const wideMediaQuery = {
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
     Object.defineProperty(globalThis.window, "matchMedia", {
       configurable: true,
-      value: vi.fn().mockReturnValue(mediaQuery),
+      value: vi.fn((query: string) => query.includes("max-width") ? narrowMediaQuery : wideMediaQuery),
     });
 
     renderShell();
@@ -132,12 +138,12 @@ describe("QuoteIntelligenceShell", () => {
 
     expect(sidebar).toHaveStyle({ width: "224px" });
 
-    mediaQuery.matches = true;
+    narrowMediaQuery.matches = true;
     act(() => viewportChangeListener?.({ matches: true } as MediaQueryListEvent));
     expect(sidebar).toHaveStyle({ width: "52px" });
     expect(globalThis.localStorage.getItem("workspace-shell.desktop-collapsed-v1")).toBe("0");
 
-    mediaQuery.matches = false;
+    narrowMediaQuery.matches = false;
     act(() => viewportChangeListener?.({ matches: false } as MediaQueryListEvent));
     expect(sidebar).toHaveStyle({ width: "224px" });
     expect(globalThis.localStorage.getItem("workspace-shell.desktop-collapsed-v1")).toBe("0");
