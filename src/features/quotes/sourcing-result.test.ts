@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createClientQuoteWorkspaceItemFixture } from "@/features/quotes/client-workspace-fixtures";
-import { buildClientSourcingResult } from "@/features/quotes/sourcing-result";
+import {
+  buildClientSourcingResult,
+  isClientQuoteComparisonOffer,
+} from "@/features/quotes/sourcing-result";
 import type {
   PartAggregate,
   VendorCapabilityProfileRecord,
@@ -45,6 +48,56 @@ function makeSupportedPart(): PartAggregate {
   };
   return part;
 }
+
+describe("isClientQuoteComparisonOffer", () => {
+  const persistedOffer = {
+    offerKey: "offer-1",
+    vendorKey: "fastdms" as const,
+    vendorStatus: "official_quote_received" as const,
+    requestedQuantity: 1,
+    quoteDateIso: "2026-03-02",
+  };
+
+  it("admits official spreadsheet imports without labeling them as live", () => {
+    expect(
+      isClientQuoteComparisonOffer(
+        {
+          ...persistedOffer,
+          quoteResultRawPayload: {
+            importSource: {
+              batch: "QB00001",
+              workbookName: "Quotes.xlsx",
+            },
+          },
+        },
+        new Set(),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects official results without recognized import provenance", () => {
+    expect(
+      isClientQuoteComparisonOffer(
+        { ...persistedOffer, quoteResultRawPayload: null },
+        new Set(),
+      ),
+    ).toBe(false);
+  });
+
+  it("admits trusted current adapter offers through their live key", () => {
+    expect(
+      isClientQuoteComparisonOffer(
+        {
+          ...persistedOffer,
+          vendorKey: "xometry",
+          vendorStatus: "instant_quote_received",
+          quoteResultRawPayload: { automationVersion: "xometry-worker-v1" },
+        },
+        new Set(["offer-1"]),
+      ),
+    ).toBe(true);
+  });
+});
 
 describe("buildClientSourcingResult", () => {
   it("returns ranked potential providers for a supported Free package", () => {

@@ -899,6 +899,86 @@ describe("ClientPart", () => {
     expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 1 });
   });
 
+  it("renders valid imported quote options without labeling them as live adapter offers", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValue(
+      createPartDetail({
+        summary: {
+          ...createPartDetail().summary,
+          selectedSupplier: null,
+        },
+        part: {
+          ...createPartDetail().part,
+          vendorQuotes: [
+            {
+              id: "quote-imported-1",
+              quote_run_id: "run-imported-1",
+              part_id: "part-1",
+              organization_id: "org-1",
+              vendor: "fastdms",
+              requested_quantity: 10,
+              status: "official_quote_received",
+              unit_price_usd: 58.392,
+              total_price_usd: 583.92,
+              lead_time_business_days: 12,
+              quote_url: null,
+              dfm_issues: [],
+              notes: ["Imported from Quotes Spreadsheet.xlsx batch QB00001."],
+              raw_payload: {
+                importSource: {
+                  batch: "QB00001",
+                  workbookName: "Quotes Spreadsheet.xlsx",
+                },
+              },
+              created_at: "2026-03-20T18:14:11Z",
+              updated_at: "2026-03-20T18:14:11Z",
+              offers: [
+                {
+                  id: "offer-imported-1",
+                  vendor_quote_result_id: "quote-imported-1",
+                  organization_id: "org-1",
+                  offer_key: "fastdms-standard",
+                  supplier: "FastDMS",
+                  lane_label: "Standard",
+                  sourcing: "USA",
+                  tier: "Standard",
+                  quote_ref: "QB00001-1",
+                  quote_date: "2026-03-02",
+                  unit_price_usd: 58.392,
+                  total_price_usd: 583.92,
+                  lead_time_business_days: 12,
+                  ship_receive_by: null,
+                  due_date: null,
+                  process: "CNC milling",
+                  material: "6061-T6 aluminum",
+                  finish: "Black anodize",
+                  tightest_tolerance: "±.005\"",
+                  tolerance_source: "Drawing",
+                  thread_callouts: null,
+                  thread_match_notes: null,
+                  notes: null,
+                  sort_rank: 0,
+                  raw_payload: {},
+                  created_at: "2026-03-20T18:14:11Z",
+                  updated_at: "2026-03-20T18:14:11Z",
+                },
+              ],
+              artifacts: [],
+            },
+          ],
+        },
+      }),
+    );
+
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("FastDMS · Standard")).toBeInTheDocument();
+    });
+
+    expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 1 });
+    expect(screen.queryByText("Live offers available")).not.toBeInTheDocument();
+  });
+
   it("canonicalizes legacy part-id routes onto the owning job route", async () => {
     api.resolveClientPartDetailRoute.mockResolvedValueOnce({
       routeId: "part-1",

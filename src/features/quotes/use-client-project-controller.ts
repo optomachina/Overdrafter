@@ -92,6 +92,7 @@ import {
 import { logQuoteFetchDiagnostics } from "@/features/quotes/quote-chart-diagnostics";
 import {
   buildClientSourcingResult,
+  isClientQuoteComparisonOffer,
   type ClientSourcingResult,
 } from "@/features/quotes/sourcing-result";
 import type {
@@ -458,7 +459,12 @@ export function useClientProjectController() {
             jobId,
             {
               ...result,
-              options: result.options.filter((option) => liveOfferKeys.has(option.key)),
+              options: result.options.filter((option) =>
+                isClientQuoteComparisonOffer(
+                  { ...option, offerKey: option.key },
+                  liveOfferKeys,
+                ),
+              ),
             },
           ];
         }),

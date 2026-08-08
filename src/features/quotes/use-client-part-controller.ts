@@ -74,7 +74,10 @@ import {
   type QuotePreset,
 } from "@/features/quotes/selection";
 import { logQuoteFetchDiagnostics } from "@/features/quotes/quote-chart-diagnostics";
-import { buildClientSourcingResult } from "@/features/quotes/sourcing-result";
+import {
+  buildClientSourcingResult,
+  isClientQuoteComparisonOffer,
+} from "@/features/quotes/sourcing-result";
 import type {
   ClientPartPropertyOverrideField,
   ClientPartRequestUpdateInput,
@@ -803,12 +806,18 @@ export function useClientPartController(
     ],
   );
   const rankedQuoteOptions = useMemo(() => {
-    if (sourcingResult?.outcome !== "live_offers_available") {
-      return [];
-    }
+    const liveOfferKeys = new Set(
+      sourcingResult?.outcome === "live_offers_available"
+        ? sourcingResult.liveOfferKeys
+        : [],
+    );
 
-    const liveOfferKeys = new Set(sourcingResult.liveOfferKeys);
-    return sourcingCandidates.filter((option) => liveOfferKeys.has(option.key));
+    return sourcingCandidates.filter((option) =>
+      isClientQuoteComparisonOffer(
+        { ...option, offerKey: option.key },
+        liveOfferKeys,
+      ),
+    );
   }, [sourcingCandidates, sourcingResult]);
   const selectedQuoteOption =
     getSelectedOption(rankedQuoteOptions, partDetail?.job.selected_vendor_quote_offer_id) ??
