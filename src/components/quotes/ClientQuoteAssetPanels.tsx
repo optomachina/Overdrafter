@@ -5,7 +5,11 @@ import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { GeometryProjectionView } from "@/components/workspace/GeometryProjectionView";
 import { Button } from "@/components/ui/button";
 import type { DrawingExtractionData, DrawingPreviewData, JobFileRecord } from "@/features/quotes/types";
-import { createCadPreviewSourceFromJobFile, isStepPreviewableFile } from "@/lib/cad-preview";
+import {
+  createCadPreviewSourceFromJobFile,
+  isStepPreviewableFile,
+  type CadPreviewSource,
+} from "@/lib/cad-preview";
 import type { StoredFileViewerMode } from "@/lib/file-viewer";
 import { resolveStoredFileViewerMode } from "@/lib/file-viewer";
 import { downloadStoredFileBlob, loadStoredDrawingPreviewPages } from "@/lib/stored-file";
@@ -355,59 +359,104 @@ export function ClientCadPreviewPanel({
         data-artifact-viewport="cad"
         className={cn("overflow-hidden rounded-[22px] border border-border bg-muted", showManufacturingView ? "mt-4" : "mt-3")}
       >
-        {tab === "manufacturing" ? (
-          geometryProjection ? (
-            <GeometryProjectionView
-              projection={geometryProjection}
-              highlightedFeatureIds={selectedFeatureIds}
-              onSelectFeature={onSelectFeature}
-              overlayEnabled={overlayEnabled}
-            />
-          ) : (
-            <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
-              <div className="rounded-full border border-border bg-accent p-3 text-foreground/80">
-                <FileText className="h-6 w-6" />
-              </div>
-              <p className="mt-4 text-sm font-medium text-foreground">Manufacturing view unavailable</p>
-              <p className="mt-2 max-w-[22rem] text-sm text-muted-foreground">
-                Geometry projection data has not been generated for this part yet.
-              </p>
-            </div>
-          )
-        ) : !cadFile ? (
-          <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
-            <div className="rounded-full border border-border bg-accent p-3 text-foreground/80">
-              <Box className="h-6 w-6" />
-            </div>
-            <p className="mt-4 text-sm font-medium text-foreground">CAD missing</p>
-            <p className="mt-2 max-w-[18rem] text-sm text-muted-foreground">
-              Upload a STEP or native CAD file to review geometry beside the drawing.
-            </p>
-          </div>
-        ) : previewable && previewSource ? (
-          <CadModelThumbnail
-            source={previewSource}
-            className="h-[320px] w-full"
-            fallbackActionLabel={`Download ${cadFile.original_name}`}
-            onFallbackAction={() => {
-              void downloadStoredFile(cadFile).catch((error) => {
-                console.error("Failed to download CAD file", error);
-                toast.error("Failed to download CAD file.");
-              });
-            }}
-          />
-        ) : (
-          <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
-            <div className="rounded-full border border-border bg-accent p-3 text-foreground/80">
-              <FileText className="h-6 w-6" />
-            </div>
-            <p className="mt-4 text-sm font-medium text-foreground">{cadFile.original_name}</p>
-            <p className="mt-2 max-w-[18rem] text-sm text-muted-foreground">
-              Interactive preview currently supports `.step` and `.stp`. Other CAD formats remain downloadable.
-            </p>
-          </div>
-        )}
+        <CadViewportContent
+          tab={tab}
+          cadFile={cadFile}
+          previewSource={previewSource}
+          previewable={previewable}
+          geometryProjection={geometryProjection}
+          selectedFeatureIds={selectedFeatureIds}
+          onSelectFeature={onSelectFeature}
+          overlayEnabled={overlayEnabled}
+        />
       </div>
     </section>
+  );
+}
+
+function CadViewportContent({
+  tab,
+  cadFile,
+  previewSource,
+  previewable,
+  geometryProjection,
+  selectedFeatureIds,
+  onSelectFeature,
+  overlayEnabled,
+}: Readonly<{
+  tab: "cad" | "manufacturing";
+  cadFile: JobFileRecord | null;
+  previewSource: CadPreviewSource | null;
+  previewable: boolean;
+  geometryProjection: DrawingExtractionData["geometryProjection"];
+  selectedFeatureIds: string[];
+  onSelectFeature?: (featureId: string) => void;
+  overlayEnabled: boolean;
+}>) {
+  if (tab === "manufacturing") {
+    if (geometryProjection) {
+      return (
+        <GeometryProjectionView
+          projection={geometryProjection}
+          highlightedFeatureIds={selectedFeatureIds}
+          onSelectFeature={onSelectFeature}
+          overlayEnabled={overlayEnabled}
+        />
+      );
+    }
+
+    return (
+      <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
+        <div className="rounded-full border border-border bg-accent p-3 text-foreground/80">
+          <FileText className="h-6 w-6" />
+        </div>
+        <p className="mt-4 text-sm font-medium text-foreground">Manufacturing view unavailable</p>
+        <p className="mt-2 max-w-[22rem] text-sm text-muted-foreground">
+          Geometry projection data has not been generated for this part yet.
+        </p>
+      </div>
+    );
+  }
+
+  if (!cadFile) {
+    return (
+      <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
+        <div className="rounded-full border border-border bg-accent p-3 text-foreground/80">
+          <Box className="h-6 w-6" />
+        </div>
+        <p className="mt-4 text-sm font-medium text-foreground">CAD missing</p>
+        <p className="mt-2 max-w-[18rem] text-sm text-muted-foreground">
+          Upload a STEP or native CAD file to review geometry beside the drawing.
+        </p>
+      </div>
+    );
+  }
+
+  if (previewable && previewSource) {
+    return (
+      <CadModelThumbnail
+        source={previewSource}
+        className="h-[320px] w-full"
+        fallbackActionLabel={`Download ${cadFile.original_name}`}
+        onFallbackAction={() => {
+          void downloadStoredFile(cadFile).catch((error) => {
+            console.error("Failed to download CAD file", error);
+            toast.error("Failed to download CAD file.");
+          });
+        }}
+      />
+    );
+  }
+
+  return (
+    <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
+      <div className="rounded-full border border-border bg-accent p-3 text-foreground/80">
+        <FileText className="h-6 w-6" />
+      </div>
+      <p className="mt-4 text-sm font-medium text-foreground">{cadFile.original_name}</p>
+      <p className="mt-2 max-w-[18rem] text-sm text-muted-foreground">
+        Interactive preview currently supports `.step` and `.stp`. Other CAD formats remain downloadable.
+      </p>
+    </div>
   );
 }

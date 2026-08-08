@@ -574,24 +574,17 @@ const ClientPart = () => {
         inspector={partInfoPanel}
       >
         <div className="flex w-full flex-1 flex-col gap-6">
-          {(() => {
-            if (isPartDetailLoading) {
-              return (
-                <div className="flex min-h-[320px] items-center justify-center">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              );
-            }
-
-            if (!partDetail?.job || !presentation) {
-              return (
-                <div className="rounded-[26px] border border-border bg-ws-card px-6 py-12 text-center text-muted-foreground">
-                  This part could not be loaded.
-                </div>
-              );
-            }
-
-            return (
+          {isPartDetailLoading ? (
+            <div className="flex min-h-[320px] items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : null}
+          {!isPartDetailLoading && (!partDetail?.job || !presentation) ? (
+            <div className="rounded-[26px] border border-border bg-ws-card px-6 py-12 text-center text-muted-foreground">
+              This part could not be loaded.
+            </div>
+          ) : null}
+          {!isPartDetailLoading && partDetail?.job && presentation ? (
             <>
               <ClientPartHeader
                 className="rounded-[12px]"
@@ -920,8 +913,7 @@ const ClientPart = () => {
                 ) : null}
               </section>
             </>
-            );
-          })()}
+          ) : null}
         </div>
       </QuoteIntelligenceShell>
 
