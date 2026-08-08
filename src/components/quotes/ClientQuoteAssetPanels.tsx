@@ -314,7 +314,10 @@ export function ClientCadPreviewPanel({
             title={`Download ${cadFile.original_name}`}
             className="h-9 w-9 rounded-[2px] border-border bg-transparent text-foreground hover:bg-accent"
             onClick={() => {
-              void downloadStoredFile(cadFile);
+              void downloadStoredFile(cadFile).catch((error) => {
+                console.error("Failed to download CAD file", error);
+                toast.error("Failed to download CAD file.");
+              });
             }}
           >
             <Download className="h-4 w-4" aria-hidden="true" />

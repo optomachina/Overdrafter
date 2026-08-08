@@ -87,7 +87,12 @@ test.describe("authenticated client shell contract", () => {
 
     await page.getByRole("button", { name: "Exit" }).click();
 
-    await expect(page).toHaveURL(/\/?\?auth=signin$/);
+    await expect
+      .poll(() => {
+        const currentUrl = new URL(page.url());
+        return `${currentUrl.pathname}${currentUrl.search}`;
+      })
+      .toBe("/?auth=signin");
     await expect(fixturePanel).toHaveCount(0);
   });
 

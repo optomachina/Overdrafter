@@ -499,7 +499,7 @@ const ClientPart = () => {
             type="button"
             aria-label="Upload"
             onClick={newJobFilePicker.openFilePicker}
-            className="inline-flex min-h-9 items-center gap-2 rounded-[2px] border border-paper-hairline bg-paper-surface px-3 text-[12px] font-medium text-paper-ink hover:bg-paper-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red"
+            className="inline-flex h-11 w-11 items-center justify-center gap-2 rounded-[2px] border border-paper-hairline bg-paper-surface text-[12px] font-medium text-paper-ink hover:bg-paper-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red sm:h-auto sm:min-h-9 sm:w-auto sm:px-3"
           >
             <Upload className="h-4 w-4" aria-hidden="true" />
             <span className="hidden sm:inline">Upload</span>
@@ -524,11 +524,24 @@ const ClientPart = () => {
         inspector={partInfoPanel}
       >
         <div className="flex w-full flex-1 flex-col gap-6">
-          {isPartDetailLoading ? (
-            <div className="flex min-h-[320px] items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : partDetail?.job && presentation ? (
+          {(() => {
+            if (isPartDetailLoading) {
+              return (
+                <div className="flex min-h-[320px] items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              );
+            }
+
+            if (!partDetail?.job || !presentation) {
+              return (
+                <div className="rounded-[26px] border border-border bg-ws-card px-6 py-12 text-center text-muted-foreground">
+                  This part could not be loaded.
+                </div>
+              );
+            }
+
+            return (
             <>
               <ClientPartHeader
                 title={null}
@@ -888,11 +901,8 @@ const ClientPart = () => {
                 </TabsContent>
               </Tabs>
             </>
-          ) : (
-            <div className="rounded-[26px] border border-border bg-ws-card px-6 py-12 text-center text-muted-foreground">
-              This part could not be loaded.
-            </div>
-          )}
+            );
+          })()}
         </div>
       </QuoteIntelligenceShell>
 
