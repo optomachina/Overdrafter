@@ -74,7 +74,10 @@ import {
   type QuotePreset,
 } from "@/features/quotes/selection";
 import { logQuoteFetchDiagnostics } from "@/features/quotes/quote-chart-diagnostics";
-import { buildClientSourcingResult } from "@/features/quotes/sourcing-result";
+import {
+  buildClientSourcingResult,
+  isClientQuoteComparisonOffer,
+} from "@/features/quotes/sourcing-result";
 import type {
   ClientPartPropertyOverrideField,
   ClientPartRequestUpdateInput,
@@ -205,9 +208,9 @@ function requestDraftIncludesPatch(
  */
 export function useClientPartController(
   explicitJobId?: string,
-  options: { redirectUnauthenticated?: boolean } = {},
+  options: { redirectUnauthenticated?: boolean; warmNavigation?: boolean } = {},
 ) {
-  const { redirectUnauthenticated = true } = options;
+  const { redirectUnauthenticated = true, warmNavigation = true } = options;
   const { jobId: routeJobIdParam = "" } = useParams();
   const routeJobId = explicitJobId ?? routeJobIdParam;
   const navigate = useNavigate();
@@ -622,7 +625,7 @@ export function useClientPartController(
     });
 
   useWarmClientWorkspaceNavigation({
-    enabled: Boolean(user),
+    enabled: Boolean(user) && warmNavigation,
     accessScope: workspaceAccessScope,
     canPrefetchProjects: !projectCollaborationUnavailable,
     projects: sidebarProjects,
@@ -803,12 +806,18 @@ export function useClientPartController(
     ],
   );
   const rankedQuoteOptions = useMemo(() => {
-    if (sourcingResult?.outcome !== "live_offers_available") {
-      return [];
-    }
+    const liveOfferKeys = new Set(
+      sourcingResult?.outcome === "live_offers_available"
+        ? sourcingResult.liveOfferKeys
+        : [],
+    );
 
-    const liveOfferKeys = new Set(sourcingResult.liveOfferKeys);
-    return sourcingCandidates.filter((option) => liveOfferKeys.has(option.key));
+    return sourcingCandidates.filter((option) =>
+      isClientQuoteComparisonOffer(
+        { ...option, offerKey: option.key },
+        liveOfferKeys,
+      ),
+    );
   }, [sourcingCandidates, sourcingResult]);
   const selectedQuoteOption =
     getSelectedOption(rankedQuoteOptions, partDetail?.job.selected_vendor_quote_offer_id) ??

@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 type ClientPartHeaderProps = {
   eyebrow?: string | null;
-  title: string;
+  title?: string | null;
   description?: string | null;
   badges?: ReactNode;
   details?: ReactNode;
@@ -32,7 +32,7 @@ export function ClientPartHeader({
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 flex-1">
           {eyebrow ? <p className="ws-section-label">{eyebrow}</p> : null}
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">{title}</h1>
+          {title ? <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">{title}</h1> : null}
           {description ? <p className="mt-2 max-w-4xl text-sm text-muted-foreground">{description}</p> : null}
           {badges ? <div className="mt-4 flex flex-wrap gap-2">{badges}</div> : null}
           {details ? <div className="mt-4">{details}</div> : null}

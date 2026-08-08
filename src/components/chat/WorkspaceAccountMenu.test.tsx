@@ -329,6 +329,29 @@ describe("WorkspaceAccountMenu", () => {
     expect(screen.getByRole("menu")).toHaveClass("w-[var(--radix-dropdown-menu-trigger-width)]");
   });
 
+  it("keeps compact account access usable without reintroducing elevated shell chrome", async () => {
+    const notificationCenter = makeNotificationCenter();
+    render(
+      <WorkspaceAccountMenu
+        user={makeUser()}
+        compact
+        activeMembership={membership}
+        notificationCenter={notificationCenter}
+        onSignOut={vi.fn()}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: /open account menu/i });
+    expect(trigger).toHaveClass("h-11", "sm:h-10", "rounded-[2px]");
+    expect(trigger.querySelector(".h-8.w-8")).not.toBeNull();
+    expect(screen.getByLabelText("1 unseen notifications")).toHaveClass("lg:inline-flex");
+
+    await openMainMenu();
+
+    expect(screen.getByRole("menu")).toHaveClass("rounded-[4px]", "shadow-none");
+    expect(screen.getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
+  });
+
   it("toggles dark mode from the account menu", async () => {
     render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
 

@@ -1157,15 +1157,54 @@ describe("ClientProject", () => {
 
     const inspector = screen.getByRole("complementary", { name: "Project inspector" });
     expect(within(inspector).getByText("Provider recommendations available")).toBeInTheDocument();
-    expect(
-      within(inspector).getByText(/potential providers ranked from reviewed capability data/i),
-    ).toBeInTheDocument();
+    expect(within(inspector).queryByText(/potential providers ranked/i)).not.toBeInTheDocument();
     const officialRfqLink = within(inspector).getByRole("link", { name: /open official rfq/i });
     expect(officialRfqLink).toHaveAttribute(
       "href",
       "https://www.xometry.com/quoting/home/",
     );
     expect(officialRfqLink.closest("article")?.parentElement).not.toHaveClass("lg:grid-cols-3");
+  });
+
+  it("keeps valid imported quotes available in the project comparison", async () => {
+    const workspaceItem = createWorkspaceItemFixture();
+    const importedQuote = createVendorQuoteFixture({
+      resultId: "result-imported-1",
+      offerId: "offer-imported-1",
+      vendor: "fastdms",
+      supplier: "FastDMS",
+      totalPriceUsd: 583.92,
+      leadTimeBusinessDays: 12,
+    });
+
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([
+      {
+        ...workspaceItem,
+        part: workspaceItem.part
+          ? {
+              ...workspaceItem.part,
+              vendorQuotes: [
+                {
+                  ...importedQuote,
+                  status: "official_quote_received",
+                  quote_url: null,
+                  raw_payload: {
+                    importSource: {
+                      batch: "QB00001",
+                      workbookName: "Quotes Spreadsheet.xlsx",
+                    },
+                  },
+                },
+              ],
+            }
+          : null,
+      },
+    ]);
+
+    renderWithClient("/projects/project-1");
+
+    expect(await screen.findByText("All parts quoted")).toBeInTheDocument();
+    expect(screen.getByText("Every part in this project has at least one quote.")).toBeInTheDocument();
   });
 
   it("shows an explicit reviewing state while provider capabilities load", async () => {
@@ -1287,8 +1326,9 @@ describe("ClientProject", () => {
       const inspector = screen.getByRole("complementary", { name: "Project inspector" });
       expect(within(inspector).getByText("Provider recommendations available")).toBeInTheDocument();
       expect(
-        within(inspector).getByText(/automatic collection has not produced a live offer yet/i),
+        within(inspector).getByRole("heading", { name: "Qualified next steps, available now" }),
       ).toBeInTheDocument();
+      expect(within(inspector).queryByText(/automatic collection has not produced/i)).not.toBeInTheDocument();
     },
   );
 

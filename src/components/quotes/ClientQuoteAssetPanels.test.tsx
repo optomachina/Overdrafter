@@ -1,9 +1,13 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ClientCadPreviewPanel, ClientDrawingPreviewPanel } from "./ClientQuoteAssetPanels";
 import type { DrawingPreviewData, JobFileRecord } from "@/features/quotes/types";
 import { downloadStoredFileBlob } from "@/lib/stored-file";
+
+const toastMock = vi.hoisted(() => ({ error: vi.fn() }));
+
+vi.mock("sonner", () => ({ toast: toastMock }));
 
 vi.mock("@/components/CadModelThumbnail", () => ({
   CadModelThumbnail: ({
@@ -33,6 +37,13 @@ const drawingFile = {
   storage_bucket: "job-files",
   storage_path: "org/drawing.pdf",
   original_name: "drawing.pdf",
+} as unknown as JobFileRecord;
+
+const cadFile = {
+  id: "cad-1",
+  storage_bucket: "job-files",
+  storage_path: "org/model.step",
+  original_name: "model.step",
 } as unknown as JobFileRecord;
 
 const emptyPreview = {
@@ -171,21 +182,39 @@ describe("ClientDrawingPreviewPanel", () => {
 });
 
 describe("ClientCadPreviewPanel", () => {
-  it("wires thumbnail fallback download action to CAD download", async () => {
+  it("wires the icon and thumbnail fallback actions to CAD download", async () => {
     vi.mocked(downloadStoredFileBlob).mockImplementation(() => new Promise(() => {}));
-
-    const cadFile = {
-      id: "cad-1",
-      storage_bucket: "job-files",
-      storage_path: "org/model.step",
-      original_name: "model.step",
-    } as unknown as JobFileRecord;
 
     render(<ClientCadPreviewPanel cadFile={cadFile} />);
 
     expect(screen.queryByText("CAD / isometric")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download CAD file" })).toHaveAttribute(
+      "title",
+      "Download model.step",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Download CAD file" }));
+    expect(downloadStoredFileBlob).toHaveBeenCalledWith(cadFile);
+
+    vi.mocked(downloadStoredFileBlob).mockClear();
     fireEvent.click(screen.getByRole("button", { name: /download model\.step/i }));
 
     expect(downloadStoredFileBlob).toHaveBeenCalledWith(cadFile);
+  });
+
+  it("reports CAD download failures from the icon action", async () => {
+    const downloadError = new Error("storage unavailable");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    toastMock.error.mockClear();
+    vi.mocked(downloadStoredFileBlob).mockRejectedValueOnce(downloadError);
+
+    render(<ClientCadPreviewPanel cadFile={cadFile} />);
+    fireEvent.click(screen.getByRole("button", { name: "Download CAD file" }));
+
+    await waitFor(() => {
+      expect(toastMock.error).toHaveBeenCalledWith("Failed to download CAD file.");
+    });
+    expect(consoleError).toHaveBeenCalledWith("Failed to download CAD file", downloadError);
+
+    consoleError.mockRestore();
   });
 });

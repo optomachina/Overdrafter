@@ -121,7 +121,7 @@ Example URLs:
 
 For client part pages, the fixture and gallery routes use canonical job IDs in `/parts/:jobId`. The internal-only Extraction Lab is not part of the State Gallery; it lives on the internal job detail page.
 
-The in-app `Fixtures` launcher lets you switch scenarios quickly in dev/test.
+The in-shell `Fixtures` controls let you switch scenarios quickly in dev/test. Open the strip from the account menu when no fixture is active.
 
 Fixture mode is intentionally narrow. It supports:
 
@@ -157,7 +157,7 @@ Playwright uses the same diagnostics surface and stores the snapshot as a test a
 ### Global Extraction Launcher
 
 Internal users, and local debug/dev sessions, now get a bottom-right `Extraction` launcher above the
-`Fixtures` and `Diagnostics` buttons.
+`Diagnostics` button. Fixture controls live inside the client application frame.
 
 - It opens a lightweight global extraction sheet from any route.
 - On `/internal/jobs/:jobId`, it prefills the current job and exposes quick `Queue extraction` and

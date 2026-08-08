@@ -79,7 +79,7 @@ const {
 let lastAccountMenuProps: Record<string, unknown> | null = null;
 let lastDrawingPreviewDialogProps: Record<string, unknown> | null = null;
 let lastQuoteDecisionPanelProps: Record<string, unknown> | null = null;
-let lastSidebarProps: Record<string, unknown> | null = null;
+let lastShellProps: Record<string, unknown> | null = null;
 
 vi.mock("@/features/quotes/api", () => api);
 vi.mock("@/features/quotes/api/archive-api", () => ({
@@ -165,52 +165,28 @@ vi.mock("sonner", () => ({
   toast: toastMock,
 }));
 
-vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
-  ClientWorkspaceShell: ({
+vi.mock("@/components/quote-intelligence/QuoteIntelligenceShell", () => ({
+  QuoteIntelligenceShell: ({
     children,
-    sidebarContent,
-    sidebarFooter,
-    rightRailContent,
-    rightRailFooter,
+    accountSlot,
+    inspector,
+    title,
+    uploadSlot,
   }: {
     children?: ReactNode;
-    sidebarContent?: ReactNode;
-    sidebarFooter?: ReactNode;
-    rightRailContent?: ReactNode;
-    rightRailFooter?: ReactNode;
-  }) => (
-    <div>
-      <div>{sidebarContent}</div>
+    accountSlot?: ReactNode;
+    inspector?: ReactNode;
+    title?: string;
+    uploadSlot?: ReactNode;
+  }) => {
+    lastShellProps = { title };
+    return <div data-testid="client-shell">
+      <h1 data-testid="shell-title">{title}</h1>
+      <div>{uploadSlot}</div>
+      <div>{accountSlot}</div>
       <div>{children}</div>
-      <div>{sidebarFooter}</div>
-      <div>{rightRailContent}</div>
-      <div>{rightRailFooter}</div>
-    </div>
-  ),
-}));
-
-vi.mock("@/components/chat/WorkspaceSidebar", () => ({
-  WorkspaceSidebar: (props: Record<string, unknown>) => {
-    lastSidebarProps = props;
-    const jobs = Array.isArray(props.jobs)
-      ? (props.jobs as Array<{ id: string; title: string }>)
-      : [];
-    const resolveProjectIdsForJob =
-      (props.resolveProjectIdsForJob as ((job: { id: string; title: string }) => string[]) | undefined) ?? null;
-
-    return (
-      <div>
-        <button type="button" onClick={() => void (props.onPrefetchProject as ((id: string) => void) | undefined)?.("project-2")}>
-          Prefetch project
-        </button>
-        Sidebar
-        {jobs.map((job) => (
-          <div key={job.id} data-testid={`sidebar-job-${job.id}`}>
-            {job.title}:{(resolveProjectIdsForJob?.(job) ?? []).join(",") || "ungrouped"}
-          </div>
-        ))}
-      </div>
-    );
+      <aside>{inspector}</aside>
+    </div>;
   },
 }));
 
@@ -221,9 +197,6 @@ vi.mock("@/components/chat/WorkspaceAccountMenu", () => ({
   },
 }));
 
-vi.mock("@/components/chat/SearchPartsDialog", () => ({
-  SearchPartsDialog: () => null,
-}));
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
@@ -627,7 +600,7 @@ describe("ClientPart", () => {
     lastAccountMenuProps = null;
     lastDrawingPreviewDialogProps = null;
     lastQuoteDecisionPanelProps = null;
-    lastSidebarProps = null;
+    lastShellProps = null;
     vi.resetAllMocks();
     mockQuoteCollectionMode.automaticEnabled = true;
     mockQuoteCollectionMode.hasAutomaticEntitlement = true;
@@ -773,9 +746,9 @@ describe("ClientPart", () => {
     expect(screen.getByRole("button", { name: "Review order" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Attach files" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Files" })).not.toBeInTheDocument();
-    // PartInfoPanel moved into the shell right rail on desktop, with a mobile-only
-    // Request tab fallback so small screens can still reach quote-request controls.
-    expect(screen.getByRole("tab", { name: "Request" })).toHaveClass("md:hidden");
+    // PartInfoPanel is owned by the shell inspector at every viewport so the
+    // request form has one live instance and one set of field IDs.
+    expect(screen.queryByRole("tab", { name: "Request" })).not.toBeInTheDocument();
     expect(screen.getByTestId("part-viewer-row")).toBeInTheDocument();
     expect(screen.getByTestId("part-product-data-bar")).toBeInTheDocument();
     // Right rail renders PartInfoPanel without any tab switch.
@@ -926,6 +899,86 @@ describe("ClientPart", () => {
     expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 1 });
   });
 
+  it("renders valid imported quote options without labeling them as live adapter offers", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValue(
+      createPartDetail({
+        summary: {
+          ...createPartDetail().summary,
+          selectedSupplier: null,
+        },
+        part: {
+          ...createPartDetail().part,
+          vendorQuotes: [
+            {
+              id: "quote-imported-1",
+              quote_run_id: "run-imported-1",
+              part_id: "part-1",
+              organization_id: "org-1",
+              vendor: "fastdms",
+              requested_quantity: 10,
+              status: "official_quote_received",
+              unit_price_usd: 58.392,
+              total_price_usd: 583.92,
+              lead_time_business_days: 12,
+              quote_url: null,
+              dfm_issues: [],
+              notes: ["Imported from Quotes Spreadsheet.xlsx batch QB00001."],
+              raw_payload: {
+                importSource: {
+                  batch: "QB00001",
+                  workbookName: "Quotes Spreadsheet.xlsx",
+                },
+              },
+              created_at: "2026-03-20T18:14:11Z",
+              updated_at: "2026-03-20T18:14:11Z",
+              offers: [
+                {
+                  id: "offer-imported-1",
+                  vendor_quote_result_id: "quote-imported-1",
+                  organization_id: "org-1",
+                  offer_key: "fastdms-standard",
+                  supplier: "FastDMS",
+                  lane_label: "Standard",
+                  sourcing: "USA",
+                  tier: "Standard",
+                  quote_ref: "QB00001-1",
+                  quote_date: "2026-03-02",
+                  unit_price_usd: 58.392,
+                  total_price_usd: 583.92,
+                  lead_time_business_days: 12,
+                  ship_receive_by: null,
+                  due_date: null,
+                  process: "CNC milling",
+                  material: "6061-T6 aluminum",
+                  finish: "Black anodize",
+                  tightest_tolerance: "±.005\"",
+                  tolerance_source: "Drawing",
+                  thread_callouts: null,
+                  thread_match_notes: null,
+                  notes: null,
+                  sort_rank: 0,
+                  raw_payload: {},
+                  created_at: "2026-03-20T18:14:11Z",
+                  updated_at: "2026-03-20T18:14:11Z",
+                },
+              ],
+              artifacts: [],
+            },
+          ],
+        },
+      }),
+    );
+
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("FastDMS · Standard")).toBeInTheDocument();
+    });
+
+    expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 1 });
+    expect(screen.queryByText("Live offers available")).not.toBeInTheDocument();
+  });
+
   it("canonicalizes legacy part-id routes onto the owning job route", async () => {
     api.resolveClientPartDetailRoute.mockResolvedValueOnce({
       routeId: "part-1",
@@ -953,25 +1006,16 @@ describe("ClientPart", () => {
     ).toEqual(createPartDetail());
   });
 
-  it("passes the collaboration gate through sidebar project prefetch", async () => {
+  it("uses the global client shell without project-tree prefetch", async () => {
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(true);
 
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByText("Sidebar")).toBeInTheDocument();
+      expect(screen.getByTestId("client-shell")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Prefetch project" }));
-
-    expect(prefetchProjectPage).toHaveBeenCalledWith(expect.anything(), "project-2", {
-      accessScope: createWorkspaceAccessScope({
-        userId: "user-1",
-        organizationId: "org-1",
-        role: "client",
-      }),
-      enabled: false,
-    });
+    expect(prefetchProjectPage).not.toHaveBeenCalled();
   });
 
   it("invalidates shared and part-specific queries when saving request details", async () => {
@@ -991,7 +1035,7 @@ describe("ClientPart", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["part-detail", "job-1"] });
   });
 
-  it("keeps the prior sidebar jobs grouped while the membership refetch is unresolved", async () => {
+  it("keeps membership refetches ordered while request details are saved", async () => {
     const deferredMemberships = createDeferredPromise<Array<{ job_id: string; project_id: string }>>();
     let accessibleJobsFetchCount = 0;
     let projectMembershipFetchCount = 0;
@@ -1095,11 +1139,7 @@ describe("ClientPart", () => {
       return deferredMemberships.promise;
     });
 
-    await renderClientPartOnTab("Request");
-
-    await waitFor(() => {
-      expect(screen.getByTestId("sidebar-job-job-1")).toHaveTextContent("Bracket:project-1");
-    });
+    const { queryClient } = await renderClientPartOnTab("Request");
 
     fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
 
@@ -1110,16 +1150,23 @@ describe("ClientPart", () => {
       expect(api.fetchProjectJobMembershipsByJobIds).toHaveBeenCalledWith(["job-1", "job-2"]);
     });
 
-    expect(screen.getByTestId("sidebar-job-job-1")).toHaveTextContent("Bracket:project-1");
-    expect(screen.queryByTestId("sidebar-job-job-2")).not.toBeInTheDocument();
+    const pendingMembershipQuery = queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ["client-project-job-memberships"] })
+      .find((query) => {
+        const jobIds = query.queryKey.at(-1);
+        return Array.isArray(jobIds) && jobIds.includes("job-2");
+      });
+    expect(pendingMembershipQuery?.state.fetchStatus).toBe("fetching");
 
-    deferredMemberships.resolve([
+    const resolvedMemberships = [
       { job_id: "job-1", project_id: "project-1" },
       { job_id: "job-2", project_id: "project-1" },
-    ]);
+    ];
+    deferredMemberships.resolve(resolvedMemberships);
 
     await waitFor(() => {
-      expect(screen.getByTestId("sidebar-job-job-2")).toHaveTextContent("Plate:project-1");
+      expect(queryClient.getQueryData(pendingMembershipQuery!.queryKey)).toEqual(resolvedMemberships);
     });
   });
 
@@ -1544,7 +1591,7 @@ describe("ClientPart", () => {
     expect(screen.queryByText("Need by Apr 15, 2026")).toBeNull();
   });
 
-  it("passes the active parent project into the sidebar while viewing a part", async () => {
+  it("keeps the active parent project available in the part workspace", async () => {
     api.fetchAccessibleProjects.mockResolvedValueOnce([
       {
         project: {
@@ -1581,8 +1628,7 @@ describe("ClientPart", () => {
       expect(screen.getByRole("button", { name: "QB00001" })).toBeInTheDocument();
     });
 
-    expect(lastSidebarProps?.activeProjectId).toBe("project-1");
-    expect(lastSidebarProps?.activeJobId).toBe("job-1");
+    expect(lastShellProps?.title).toBe("BRKT-001 rev A");
   });
 
   it("drops title-derived revision suffixes from the normalized part heading", async () => {

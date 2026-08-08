@@ -137,6 +137,31 @@ function asRecord(value: Json | undefined): Record<string, Json | undefined> | n
   return value;
 }
 
+/**
+ * Returns whether a validated persisted offer belongs in client quote comparison.
+ * Fresh trusted adapter offers qualify through their live key, while official
+ * persisted quotes remain comparable without being presented as live results.
+ */
+export function isClientQuoteComparisonOffer(
+  offer: SourcingLiveOfferCandidate,
+  liveOfferKeys: ReadonlySet<string>,
+) {
+  if (liveOfferKeys.has(offer.offerKey)) {
+    return true;
+  }
+
+  if (offer.vendorStatus !== "official_quote_received") {
+    return false;
+  }
+
+  const payload = asRecord(offer.quoteResultRawPayload);
+  const importSource = asRecord(payload?.importSource);
+  return (
+    typeof importSource?.batch === "string" &&
+    typeof importSource.workbookName === "string"
+  );
+}
+
 function isTrustedLiveAdapterOffer(offer: SourcingLiveOfferCandidate) {
   if (!offer.vendorStatus || !LIVE_OFFER_STATUSES.has(offer.vendorStatus)) {
     return false;
