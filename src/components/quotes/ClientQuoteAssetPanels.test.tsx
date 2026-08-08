@@ -210,11 +210,13 @@ describe("ClientCadPreviewPanel", () => {
     render(<ClientCadPreviewPanel cadFile={cadFile} />);
     fireEvent.click(screen.getByRole("button", { name: "Download CAD file" }));
 
-    await waitFor(() => {
-      expect(toastMock.error).toHaveBeenCalledWith("Failed to download CAD file.");
-    });
-    expect(consoleError).toHaveBeenCalledWith("Failed to download CAD file", downloadError);
-
-    consoleError.mockRestore();
+    try {
+      await waitFor(() => {
+        expect(toastMock.error).toHaveBeenCalledWith("Failed to download CAD file.");
+      });
+      expect(consoleError).toHaveBeenCalledWith("Failed to download CAD file", downloadError);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });
