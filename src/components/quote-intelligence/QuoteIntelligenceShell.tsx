@@ -405,8 +405,7 @@ function MobileInspector({ children, onOpenChange, open, title }: MobileInspecto
         side="right"
         aria-describedby={undefined}
         data-workspace-inspector="sheet"
-        className="max-w-[calc(100vw-32px)] gap-0 border-paper-hairline bg-paper p-0 text-paper-ink shadow-none sm:max-w-[336px] [&>button]:rounded-[2px] xl:hidden"
-        style={{ width: `${INSPECTOR_WIDTH}px` }}
+        className="w-screen max-w-none gap-0 border-paper-hairline bg-paper p-0 text-paper-ink shadow-none sm:w-[336px] sm:max-w-[336px] [&>button]:rounded-[2px] xl:hidden"
       >
         <SheetHeader className="h-14 justify-center border-b border-paper-hairline px-4 text-left">
           <SheetTitle className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-paper-muted">

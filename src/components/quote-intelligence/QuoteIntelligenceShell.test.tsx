@@ -96,6 +96,22 @@ describe("QuoteIntelligenceShell", () => {
     expect(screen.getByRole("button", { name: "Open inspector" })).toHaveClass("xl:hidden");
   });
 
+  it("opens the inspector full-screen on phones and at a fixed width above the phone breakpoint", () => {
+    renderShell({
+      inspector: <div>Requirements</div>,
+      inspectorTitle: "Part info",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open inspector" }));
+
+    expect(screen.getByRole("dialog")).toHaveClass(
+      "w-screen",
+      "max-w-none",
+      "sm:w-[336px]",
+      "sm:max-w-[336px]",
+    );
+  });
+
   it("uses a phone navigation drawer instead of a persistent visible icon rail", () => {
     Object.defineProperty(globalThis.window, "matchMedia", {
       configurable: true,

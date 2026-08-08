@@ -63,6 +63,22 @@ async function expectTooltipAboveWorkspace(page: Page, tooltip: Locator) {
   expect(geometry.bottom).toBeLessThanOrEqual(await page.evaluate(() => window.innerHeight));
 }
 
+async function expectContainedBy(container: Locator, content: Locator) {
+  const containerBounds = await container.boundingBox();
+  const contentBounds = await content.boundingBox();
+
+  expect(containerBounds).not.toBeNull();
+  expect(contentBounds).not.toBeNull();
+  expect(contentBounds!.x).toBeGreaterThanOrEqual(containerBounds!.x);
+  expect(contentBounds!.y).toBeGreaterThanOrEqual(containerBounds!.y);
+  expect(contentBounds!.x + contentBounds!.width).toBeLessThanOrEqual(
+    containerBounds!.x + containerBounds!.width,
+  );
+  expect(contentBounds!.y + contentBounds!.height).toBeLessThanOrEqual(
+    containerBounds!.y + containerBounds!.height,
+  );
+}
+
 test.describe("authenticated client shell contract", () => {
   test("keeps one application frame across every launch client route", async ({ page }) => {
     await page.setViewportSize({ width: 1512, height: 751 });
@@ -158,6 +174,103 @@ test.describe("authenticated client shell contract", () => {
     expect(workspaceScrollTop).toBeGreaterThan(0);
     await expect(page.getByRole("banner")).toHaveCSS("height", "56px");
     await expectNoDocumentOverflow(page);
+  });
+
+  test("keeps the part evidence and quote comparison in a stable responsive hierarchy", async ({ page }) => {
+    const partRoute = "/parts/fx-job-published?fixture=client-published&debug=1";
+
+    for (const viewport of [
+      { width: 1512, height: 751 },
+      { width: 768, height: 786 },
+      { width: 390, height: 786 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.goto(partRoute);
+
+      const preview = page.getByRole("region", { name: "Part preview" });
+      const partInformation = page.getByRole("heading", { name: "Part information" });
+      const quoteInformation = page.getByRole("region", { name: "Quote information" });
+      const quoteCriteria = page.getByRole("group", { name: "Quote preset" });
+      const scatterChart = page.getByRole("group", {
+        name: "Quote comparison by ready-to-ship working days and quoted total",
+      });
+
+      await expect(preview).toBeVisible();
+      await expect(partInformation).toBeVisible();
+      await expect(quoteInformation).toBeAttached();
+      await expect(quoteCriteria).toBeAttached();
+      await expect(scatterChart).toBeAttached();
+      await expect(page.getByRole("tab", { name: "CAD" })).toHaveAttribute("aria-selected", "true");
+      await expect(page.getByText("Manufacturing view", { exact: true })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Activity and history" })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+
+      const ordered = await page.evaluate(() => {
+        const previewElement = document.querySelector('[aria-label="Part preview"]');
+        const partInformationElement = document.querySelector("#part-information-heading");
+        const quoteInformationElement = document.querySelector('[aria-label="Quote information"]');
+        const quoteCriteriaElement = document.querySelector('[aria-label="Quote preset"]');
+        const scatterChartElement = document.querySelector(
+          '[aria-label="Quote comparison by ready-to-ship working days and quoted total"]',
+        );
+
+        if (
+          !previewElement ||
+          !partInformationElement ||
+          !quoteInformationElement ||
+          !quoteCriteriaElement ||
+          !scatterChartElement
+        ) {
+          return false;
+        }
+
+        const follows = (earlier: Element, later: Element) =>
+          Boolean(earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+        return (
+          follows(previewElement, partInformationElement) &&
+          follows(partInformationElement, quoteInformationElement) &&
+          follows(quoteInformationElement, quoteCriteriaElement) &&
+          follows(quoteCriteriaElement, scatterChartElement)
+        );
+      });
+
+      expect(ordered).toBe(true);
+      await expectNoDocumentOverflow(page);
+    }
+
+    for (const viewport of [
+      { width: 1512, height: 751 },
+      { width: 768, height: 786 },
+      { width: 390, height: 786 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.goto("/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
+      const preview = page.getByRole("region", { name: "Part preview" });
+      const cadViewport = page.locator('[data-artifact-viewport="cad"]');
+      await expectContainedBy(preview, cadViewport);
+
+      const cadVisual = cadViewport.locator('canvas, [aria-label^="CAD preview for"]').first();
+      if (await cadVisual.count()) {
+        await expectContainedBy(cadViewport, cadVisual);
+      }
+
+      await page.getByRole("tab", { name: "Drawing" }).click();
+      const drawingViewport = page.locator('[data-artifact-viewport="drawing"]');
+      await expectContainedBy(preview, drawingViewport);
+
+      const drawingVisual = drawingViewport.locator("iframe, img").first();
+      if (await drawingVisual.count()) {
+        await expectContainedBy(drawingViewport, drawingVisual);
+      }
+    }
+
+    await page.setViewportSize({ width: 390, height: 786 });
+    await page.goto(partRoute);
+    await page.getByRole("button", { name: "Open inspector" }).click();
+    await expect(page.getByRole("dialog")).toHaveCSS("width", "390px");
   });
 
   test("uses sheets at tablet and phone widths without horizontal overflow", async ({ page }) => {

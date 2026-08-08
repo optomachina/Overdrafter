@@ -243,7 +243,7 @@ export function ClientDrawingPreviewPanel({
       </div>
 
       <div className="mt-4 overflow-hidden rounded-[22px] border border-border bg-muted">
-        <div className="h-[clamp(360px,58vh,680px)] bg-background">
+        <div data-artifact-viewport="drawing" className="h-[clamp(360px,58vh,680px)] bg-background">
           <DrawingViewport
             activePage={activePage}
             drawingName={drawingFile?.original_name ?? "Drawing"}
@@ -286,6 +286,7 @@ export function ClientCadPreviewPanel({
   selectedFeatureIds = [],
   onSelectFeature,
   overlayEnabled = false,
+  showManufacturingView = true,
   className,
 }: {
   cadFile: JobFileRecord | null;
@@ -293,6 +294,7 @@ export function ClientCadPreviewPanel({
   selectedFeatureIds?: string[];
   onSelectFeature?: (featureId: string) => void;
   overlayEnabled?: boolean;
+  showManufacturingView?: boolean;
   className?: string;
 }) {
   const [tab, setTab] = useState<"cad" | "manufacturing">("cad");
@@ -324,30 +326,35 @@ export function ClientCadPreviewPanel({
           </Button>
         ) : null}
       </div>
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setTab("cad")}
-          className={cn(
-            "rounded-full border px-3 py-1 text-xs transition",
-            tab === "cad" ? "border-border bg-accent text-foreground" : "border-border text-muted-foreground",
-          )}
-        >
-          CAD preview
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("manufacturing")}
-          className={cn(
-            "rounded-full border px-3 py-1 text-xs transition",
-            tab === "manufacturing" ? "border-border bg-accent text-foreground" : "border-border text-muted-foreground",
-          )}
-        >
-          Manufacturing view
-        </button>
-      </div>
+      {showManufacturingView ? (
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setTab("cad")}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs transition",
+              tab === "cad" ? "border-border bg-accent text-foreground" : "border-border text-muted-foreground",
+            )}
+          >
+            CAD preview
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("manufacturing")}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs transition",
+              tab === "manufacturing" ? "border-border bg-accent text-foreground" : "border-border text-muted-foreground",
+            )}
+          >
+            Manufacturing view
+          </button>
+        </div>
+      ) : null}
 
-      <div className="mt-4 overflow-hidden rounded-[22px] border border-border bg-muted">
+      <div
+        data-artifact-viewport="cad"
+        className={cn("overflow-hidden rounded-[22px] border border-border bg-muted", showManufacturingView ? "mt-4" : "mt-3")}
+      >
         {tab === "manufacturing" ? (
           geometryProjection ? (
             <GeometryProjectionView
