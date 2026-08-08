@@ -9,6 +9,7 @@ import {
   Loader2,
   MessageSquare,
   MoreHorizontal,
+  PlusSquare,
   Star,
   MoveRight,
   Upload,
@@ -501,7 +502,7 @@ const ClientPart = () => {
             onClick={newJobFilePicker.openFilePicker}
             className="inline-flex h-11 w-11 items-center justify-center gap-2 rounded-[2px] border border-paper-hairline bg-paper-surface text-[12px] font-medium text-paper-ink hover:bg-paper-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red sm:h-auto sm:min-h-9 sm:w-auto sm:px-3"
           >
-            <Upload className="h-4 w-4" aria-hidden="true" />
+            <PlusSquare className="h-4 w-4" aria-hidden="true" />
             <span className="hidden sm:inline">Upload</span>
           </button>
         }

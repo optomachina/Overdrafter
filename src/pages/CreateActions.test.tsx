@@ -614,11 +614,11 @@ describe("top-level create actions", () => {
       "/parts/job-1",
     );
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Upload" })).not.toBeNull();
-    });
+    const uploadButton = await screen.findByRole("button", { name: "Upload" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    expect(uploadButton.querySelector(".lucide-square-plus")).not.toBeNull();
+
+    fireEvent.click(uploadButton);
 
     expect(mockOpenFilePicker).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Create project")).toBeNull();

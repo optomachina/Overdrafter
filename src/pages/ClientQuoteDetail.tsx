@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowUpRight, Copy, FileText, Upload } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Copy, FileText, PlusSquare } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
@@ -161,7 +161,7 @@ const ClientQuoteDetail = () => {
         className="h-11 w-11 rounded-[4px] p-0 sm:h-9 sm:w-auto sm:px-3"
         onClick={newJobFilePicker.openFilePicker}
       >
-        <Upload className="h-4 w-4 sm:mr-2" />
+        <PlusSquare className="h-4 w-4 sm:mr-2" aria-hidden="true" />
         <span className="hidden sm:inline">Upload</span>
       </Button>
       <input

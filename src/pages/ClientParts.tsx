@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Box, FolderKanban, Search, Upload } from "lucide-react";
+import { Box, FolderKanban, PlusSquare, Search } from "lucide-react";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { CadPreviewThumbnail } from "@/components/CadPreviewThumbnail";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
@@ -184,7 +184,7 @@ export default function ClientParts() {
         onClick={controller.newJobFilePicker.openFilePicker}
         className="inline-flex h-11 w-11 items-center justify-center gap-2 border border-paper-hairline bg-paper-surface text-[12px] font-medium transition-colors hover:bg-paper-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red sm:h-auto sm:min-h-10 sm:w-auto sm:px-3"
       >
-        <Upload className="h-4 w-4" aria-hidden="true" />
+        <PlusSquare className="h-4 w-4" aria-hidden="true" />
         <span className="hidden sm:inline">Upload</span>
       </button>
     </>
