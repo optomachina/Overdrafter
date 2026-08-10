@@ -460,18 +460,16 @@ function renderWithClient(initialEntry: string) {
 async function renderClientPartOnTab(tab?: "Request" | "Activity") {
   const result = renderWithClient("/parts/job-1");
   if (tab === "Activity") {
-    await openWorkspaceTab(tab);
+    await openActivitySection();
   } else if (tab === "Request") {
     await screen.findByTestId("part-info-panel");
   }
   return result;
 }
 
-async function openWorkspaceTab(name: "Quote" | "Activity") {
-  const [tab] = await screen.findAllByRole("tab", { name });
-  fireEvent.pointerDown(tab, { button: 0, ctrlKey: false });
-  fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
-  fireEvent.click(tab);
+async function openActivitySection() {
+  const summary = await screen.findByText("Activity and history");
+  fireEvent.click(summary);
 }
 
 async function findRequestButton(name: string | RegExp) {
@@ -492,7 +490,9 @@ async function clickRequestQuoteButton() {
 }
 
 async function findActivityCommentField() {
-  await openWorkspaceTab("Activity");
+  if (!screen.queryByLabelText("Leave a comment")) {
+    await openActivitySection();
+  }
   return screen.findByLabelText("Leave a comment");
 }
 
@@ -726,22 +726,26 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "A" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Issue detail actions" })).toBeInTheDocument();
     });
 
     expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
     expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
     await screen.findByTestId("part-info-panel");
-    expect(screen.getByText("Part information")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /prev rev/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Part information" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Revision navigation" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /previous revision/i })).not.toBeInTheDocument();
     expect(screen.queryByText("This part could not be loaded.")).not.toBeInTheDocument();
     expect(api.fetchPartDetailByJobId).toHaveBeenCalledTimes(1);
   });
 
-  it("renders the workspace tabs plus the right-rail part info panel", async () => {
+  it("keeps the part evidence and quote comparison in one ordered workspace", async () => {
     renderWithClient("/parts/job-1");
 
-    expect(await screen.findByRole("tab", { name: "Quote" })).toBeInTheDocument();
+    await screen.findByText("Quote decision panel");
+    expect(screen.queryByRole("tab", { name: "Quote" })).not.toBeInTheDocument();
     expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review order" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Attach files" })).toBeInTheDocument();
@@ -755,8 +759,96 @@ describe("ClientPart", () => {
     expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
     expect(screen.queryByLabelText("Leave a comment")).not.toBeInTheDocument();
 
-    await openWorkspaceTab("Activity");
+    const viewer = screen.getByTestId("part-viewer-row");
+    const productData = screen.getByTestId("part-product-data-bar");
+    const quoteDecision = screen.getByTestId("quote-decision-panel");
+    expect(viewer.compareDocumentPosition(productData) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(productData.compareDocumentPosition(quoteDecision) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await openActivitySection();
     await screen.findByLabelText("Leave a comment");
+  });
+
+  it("puts provider-only sourcing guidance before an empty quote comparison", async () => {
+    const cadFile = {
+      id: "cad-file-1",
+      job_id: "job-1",
+      organization_id: "org-1",
+      file_kind: "cad" as const,
+      blob_id: "blob-1",
+      storage_bucket: "job-files",
+      storage_path: "org-1/job-1/bracket.step",
+      normalized_name: "bracket.step",
+      original_name: "bracket.step",
+      mime_type: "application/step",
+      size_bytes: 1024,
+      content_sha256: "hash",
+      matched_part_key: null,
+      uploaded_by: "user-1",
+      created_at: "2026-03-01T00:00:00Z",
+    };
+    const baseDetail = createPartDetail();
+
+    api.fetchVendorCapabilityProfiles.mockResolvedValue([
+      {
+        vendor_name: "xometry",
+        process_types: ["cnc_milling"],
+        materials: ["aluminum"],
+        tolerance_min_mm: 0.005,
+        tolerance_max_mm: 0.2,
+        max_part_size_mm: 1000,
+        min_quantity: 1,
+        max_quantity: null,
+        geographic_region: "US",
+        certifications: ["ISO9001"],
+        quality_score: 80,
+        lead_time_reliability: 80,
+        cost_competitiveness: 70,
+        domestic_us: true,
+        updated_at: "2026-07-30T00:00:00.000Z",
+      },
+    ]);
+    api.fetchPartDetailByJobId.mockResolvedValue(
+      createPartDetail({
+        files: [cadFile],
+        part: {
+          ...baseDetail.part,
+          cadFile,
+          approvedRequirement: {
+            id: "requirement-1",
+            part_id: "part-1",
+            organization_id: "org-1",
+            description: "Bracket",
+            part_number: "BRKT-001",
+            revision: "A",
+            material: "6061-T6 aluminum",
+            finish: "Black anodize",
+            tightest_tolerance_inch: 0.005,
+            quantity: 10,
+            quote_quantities: [10],
+            requested_by_date: "2026-04-15",
+            applicable_vendors: ["xometry"],
+            spec_snapshot: { process: "CNC milling" },
+            approved_by: "user-1",
+            approved_at: "2026-03-01T00:00:00Z",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+          vendorQuotes: [],
+        },
+      }),
+    );
+
+    renderWithClient("/parts/job-1");
+
+    const recommendations = await screen.findByRole("heading", {
+      name: "Qualified next steps, available now",
+    });
+    const quoteDecision = screen.getByTestId("quote-decision-panel");
+    expect(
+      recommendations.compareDocumentPosition(quoteDecision) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 0 });
   });
 
   it("shows Free sourcing guidance without exposing the manual quote path", async () => {
@@ -1554,9 +1646,8 @@ describe("ClientPart", () => {
   it("toggles favorite with the F hotkey", async () => {
     renderWithClient("/parts/job-1");
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /favorite part/i })).toBeInTheDocument();
-    });
+    await screen.findByRole("heading", { name: "BRKT-001 rev A" });
+    expect(screen.queryByRole("button", { name: /favorite part/i })).not.toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "f" });
 
@@ -1565,16 +1656,13 @@ describe("ClientPart", () => {
     });
   });
 
-  it("uses a filled accent treatment for an active favorite", async () => {
+  it("keeps favorite state in the overflow menu instead of duplicating it in the header", async () => {
     api.fetchSidebarPins.mockResolvedValueOnce({ projectIds: [], jobIds: ["job-1"] });
 
     renderWithClient("/parts/job-1");
 
-    const favoriteButton = await screen.findByRole("button", { name: /unfavorite part/i });
-    expect(favoriteButton.className).toContain("bg-amber-500/16");
-    expect(favoriteButton.className).toContain("text-amber-200");
-    const icon = favoriteButton.querySelector("svg");
-    expect(icon?.className.baseVal ?? "").toContain("fill-current");
+    expect(await screen.findByRole("menuitem", { name: /unfavorite f/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /unfavorite part/i })).not.toBeInTheDocument();
   });
 
   it("does not render the dead workspace breadcrumb button or request summary badges in the header", async () => {

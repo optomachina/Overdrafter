@@ -639,7 +639,8 @@ describe("top-level create actions", () => {
       expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
     });
 
-    expect(screen.getByRole("button", { name: "Manage projects" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
+    expect(await screen.findByRole("menuitem", { name: "Manage projects" })).not.toBeNull();
     fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
 
     await waitFor(() => {
@@ -679,11 +680,9 @@ describe("top-level create actions", () => {
       "/parts/job-1",
     );
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Manage projects" })).not.toBeNull();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Manage projects" }));
+    const actionsButton = await screen.findByRole("button", { name: /issue detail actions/i });
+    fireEvent.click(actionsButton);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Manage projects" }));
     const dialog = await screen.findByRole("dialog", { name: /manage project membership/i });
     fireEvent.click(within(dialog).getByRole("button", { name: /project one/i }));
 

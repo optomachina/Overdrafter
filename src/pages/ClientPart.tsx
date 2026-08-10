@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import {
   Archive,
   Bell,
+  ChevronRight,
   Copy,
   FolderInput,
   History,
@@ -59,7 +60,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useWorkspaceNotifications } from "@/features/notifications/use-workspace-notifications";
 import { buildAppAwareHref } from "@/features/quotes/quote-intelligence-view-model";
 import { useClientPartController } from "@/features/quotes/use-client-part-controller";
@@ -244,6 +244,7 @@ const ClientPart = () => {
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(selectedQuoteOption?.offerId ?? null);
   const [comments, setComments] = useState<LocalComment[]>([]);
   const [commentDraft, setCommentDraft] = useState("");
+  const [isActivityOpen, setIsActivityOpen] = useState(false);
   const [showCancelRequestDialog, setShowCancelRequestDialog] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(true);
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
@@ -344,6 +345,20 @@ const ClientPart = () => {
   const isFavorite = pinnedJobIds.includes(jobId);
   const currentUrl = typeof window === "undefined" ? `/parts/${jobId}` : window.location.href;
 
+  const navigateToAdjacentRevision = (direction: "previous" | "next") => {
+    if (revisionOptions.length < 2) {
+      return;
+    }
+
+    const offset = direction === "previous" ? -1 : 1;
+    const nextIndex = (selectedRevisionIndex + offset + revisionOptions.length) % revisionOptions.length;
+    const revisionJobId = revisionOptions[nextIndex]?.jobId;
+
+    if (revisionJobId) {
+      navigate(appAwareHref(`/parts/${revisionJobId}`));
+    }
+  };
+
   const handleCopyLink = async () => {
     try {
       await navigator.clipboard.writeText(currentUrl);
@@ -416,6 +431,40 @@ const ClientPart = () => {
         fieldDefaults={partFieldDefaults}
         statusContent={
           <>
+            {revisionOptions.length > 1 ? (
+              <section aria-label="Revision navigation" className="border-b border-border pb-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      Revision
+                    </p>
+                    <p className="mt-1 truncate text-sm text-foreground">
+                      {revisionOptions[selectedRevisionIndex]?.title ?? displayPartTitle}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-[4px]"
+                      onClick={() => navigateToAdjacentRevision("previous")}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-[4px]"
+                      onClick={() => navigateToAdjacentRevision("next")}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              </section>
+            ) : null}
             <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
             {quoteRequestViewModel ? (
               <ClientQuoteRequestStatusCard
@@ -525,26 +574,20 @@ const ClientPart = () => {
         inspector={partInfoPanel}
       >
         <div className="flex w-full flex-1 flex-col gap-6">
-          {(() => {
-            if (isPartDetailLoading) {
-              return (
-                <div className="flex min-h-[320px] items-center justify-center">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              );
-            }
-
-            if (!partDetail?.job || !presentation) {
-              return (
-                <div className="rounded-[26px] border border-border bg-ws-card px-6 py-12 text-center text-muted-foreground">
-                  This part could not be loaded.
-                </div>
-              );
-            }
-
-            return (
+          {isPartDetailLoading ? (
+            <div className="flex min-h-[320px] items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : null}
+          {!isPartDetailLoading && (!partDetail?.job || !presentation) ? (
+            <div className="rounded-[26px] border border-border bg-ws-card px-6 py-12 text-center text-muted-foreground">
+              This part could not be loaded.
+            </div>
+          ) : null}
+          {!isPartDetailLoading && partDetail?.job && presentation ? (
             <>
               <ClientPartHeader
+                className="rounded-[12px]"
                 title={null}
                 description={presentation.description}
                 details={
@@ -570,85 +613,6 @@ const ClientPart = () => {
                 }
                 actions={
                   <>
-                    <TooltipProvider delayDuration={150}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon"
-                            aria-label={isFavorite ? "Unfavorite part" : "Favorite part"}
-                            className={cn(
-                              "rounded-full border-border bg-transparent text-foreground hover:bg-accent",
-                              isFavorite &&
-                                "border-amber-400/30 bg-amber-500/16 text-amber-200 hover:bg-amber-500/22",
-                            )}
-                            onClick={() => void handleToggleCurrentPartPin()}
-                          >
-                            <Star className={cn(isFavorite && "fill-current")} />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {isFavorite ? "Remove favorite" : "Add favorite"} <span className="ml-2 text-muted-foreground">F</span>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-
-                    {revisionOptions.length > 1 ? (
-                      <>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
-                          onClick={() => {
-                            const previousId =
-                              revisionOptions[
-                                (selectedRevisionIndex - 1 + revisionOptions.length) % revisionOptions.length
-                              ]?.jobId;
-                            if (previousId) {
-                              navigate(appAwareHref(`/parts/${previousId}`));
-                            }
-                          }}
-                        >
-                          Prev rev
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
-                          onClick={() => {
-                            const nextId =
-                              revisionOptions[(selectedRevisionIndex + 1) % revisionOptions.length]?.jobId;
-                            if (nextId) {
-                              navigate(appAwareHref(`/parts/${nextId}`));
-                            }
-                          }}
-                        >
-                          {revisionOptions[selectedRevisionIndex]?.revision ?? "Rev"}
-                        </Button>
-                      </>
-                    ) : null}
-                    {projectMemberships.length === 1 ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
-                        onClick={() => navigate(appAwareHref(`/projects/${projectMemberships[0]!.project.id}`))}
-                      >
-                        Open project
-                      </Button>
-                    ) : null}
-                    {!projectCollaborationUnavailable ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
-                        onClick={() => setShowMoveDialog(true)}
-                      >
-                        <FolderInput className="mr-2 h-4 w-4" />
-                        Manage projects
-                      </Button>
-                    ) : null}
                     <Button
                       type="button"
                       variant="outline"
@@ -674,6 +638,33 @@ const ClientPart = () => {
                         align="end"
                         className="w-64 border-border bg-ws-overlay p-2 text-foreground"
                       >
+                        {projectMemberships.length === 1 ? (
+                          <DropdownMenuItem
+                            onSelect={(event) => {
+                              event.preventDefault();
+                              setIsPartOptionsOpen(false);
+                              navigate(appAwareHref(`/projects/${projectMemberships[0]!.project.id}`));
+                            }}
+                          >
+                            <FolderInput className="mr-2 h-4 w-4" />
+                            Open project
+                          </DropdownMenuItem>
+                        ) : null}
+                        {!projectCollaborationUnavailable ? (
+                          <DropdownMenuItem
+                            onSelect={(event) => {
+                              event.preventDefault();
+                              setIsPartOptionsOpen(false);
+                              setShowMoveDialog(true);
+                            }}
+                          >
+                            <FolderInput className="mr-2 h-4 w-4" />
+                            Manage projects
+                          </DropdownMenuItem>
+                        ) : null}
+                        {projectMemberships.length === 1 || !projectCollaborationUnavailable ? (
+                          <DropdownMenuSeparator className="bg-border" />
+                        ) : null}
                         <DropdownMenuItem
                           onSelect={(event) => {
                             event.preventDefault();
@@ -754,14 +745,9 @@ const ClientPart = () => {
                   </>
                 }
               >
-                <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,300px)_minmax(0,1fr)] xl:gap-6">
-                  <PartProductDataBar
-                    part={partDetail.part}
-                    summary={summary}
-                    extraction={extraction}
-                    draft={effectiveRequestDraft}
-                  />
+                <div className="space-y-5">
                   <PartViewerRow
+                    itemKey={jobId}
                     cadFile={cadFile}
                     drawingFile={drawingFile}
                     drawingPreview={drawingPreview}
@@ -773,30 +759,34 @@ const ClientPart = () => {
                     isLoading={isDrawingPreviewLoading}
                     onOpenDialog={drawingFile ? () => setShowDrawingPreview(true) : undefined}
                   />
+                  <section aria-labelledby="part-information-heading" className="border-t border-border pt-4">
+                    <h2 id="part-information-heading" className="mb-3 text-sm font-medium text-foreground">
+                      Part information
+                    </h2>
+                    <PartProductDataBar
+                      part={partDetail.part}
+                      summary={summary}
+                      extraction={extraction}
+                      draft={effectiveRequestDraft}
+                    />
+                  </section>
                 </div>
               </ClientPartHeader>
 
-              <Tabs defaultValue="quote" className="flex flex-col gap-4">
-                <TabsList className="h-auto flex-wrap justify-start gap-2 rounded-[22px] border border-border bg-ws-card p-2">
-                  <TabsTrigger value="quote" className="rounded-full px-4 py-2">
-                    Quote
-                  </TabsTrigger>
-                  <TabsTrigger value="activity" className="rounded-full px-4 py-2">
-                    Activity
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="quote" className="mt-0">
-                  <div className="space-y-4">
-                    {sourcingResult ? (
-                      <ClientSourcingResultPanel
-                        result={sourcingResult}
-                        selectedProcess={effectiveRequestDraft?.process}
-                        isProcessSaving={saveRequestMutation.isPending}
-                        onProcessSelect={(process) => handleSaveRequestPatch({ process })}
-                      />
-                    ) : null}
-                    <ClientQuoteDecisionPanel
+              <section aria-label="Quote information" className="space-y-4 border-t border-border pt-5">
+                {sourcingResult?.outcome === "unsupported_package" ||
+                sourcingResult?.outcome === "provider_recommendations_available" ? (
+                  <ClientSourcingResultPanel
+                    result={sourcingResult}
+                    selectedProcess={effectiveRequestDraft?.process}
+                    isProcessSaving={saveRequestMutation.isPending}
+                    onProcessSelect={(process) => handleSaveRequestPatch({ process })}
+                  />
+                ) : null}
+                <ClientQuoteDecisionPanel
+                    className="rounded-[12px]"
+                    title="Quote comparison"
+                    description="Set the sourcing criteria, then compare every quote by price and lead time."
                     options={rankedQuoteOptions}
                     selectedOption={
                       rankedQuoteOptions.find((option) => option.offerId === selectedOfferId) ?? selectedQuoteOption
@@ -837,12 +827,33 @@ const ClientPart = () => {
                         dueDateHelpText="Highlights which vendors can meet the requested delivery date and dims the rest immediately."
                       />
                     }
-                    />
-                  </div>
-                </TabsContent>
+                />
+                {sourcingResult?.outcome === "live_offers_available" ? (
+                  <ClientSourcingResultPanel
+                    result={sourcingResult}
+                    selectedProcess={effectiveRequestDraft?.process}
+                    isProcessSaving={saveRequestMutation.isPending}
+                    onProcessSelect={(process) => handleSaveRequestPatch({ process })}
+                  />
+                ) : null}
+              </section>
 
-                <TabsContent value="activity" className="mt-0">
-                  <section className="rounded-[30px] border border-border bg-ws-card p-5 md:p-6">
+              <section className="border-t border-border pt-4">
+                <button
+                  type="button"
+                  aria-expanded={isActivityOpen}
+                  aria-controls="part-activity"
+                  onClick={() => setIsActivityOpen((isOpen) => !isOpen)}
+                  className="flex w-full items-center justify-between rounded-[4px] px-2 py-3 text-sm font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span>Activity and history</span>
+                  <ChevronRight
+                    aria-hidden="true"
+                    className={cn("h-4 w-4 text-muted-foreground transition-transform", isActivityOpen && "rotate-90")}
+                  />
+                </button>
+                {isActivityOpen ? (
+                  <div id="part-activity" className="mt-3 border-t border-border pt-5">
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div>
                         <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Activity</p>
@@ -898,12 +909,11 @@ const ClientPart = () => {
                         </div>
                       </TabsContent>
                     </Tabs>
-                  </section>
-                </TabsContent>
-              </Tabs>
+                  </div>
+                ) : null}
+              </section>
             </>
-            );
-          })()}
+          ) : null}
         </div>
       </QuoteIntelligenceShell>
 

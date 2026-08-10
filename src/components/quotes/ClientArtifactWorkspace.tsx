@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Box, FileText, LayoutPanelTop } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Box, FileText } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-export type ArtifactWorkspaceView = "cad" | "drawing" | "split";
+export type ArtifactWorkspaceView = "cad" | "drawing";
 
 type ClientArtifactWorkspaceProps = {
   itemKey: string;
   hasCad: boolean;
+  hasCadPreview?: boolean;
   hasDrawing: boolean;
   cadPanel: ReactNode;
   drawingPanel: ReactNode;
@@ -16,13 +17,21 @@ type ClientArtifactWorkspaceProps = {
   className?: string;
 };
 
-function getDefaultArtifactView(hasCad: boolean, hasDrawing: boolean): ArtifactWorkspaceView {
-  if (hasCad && hasDrawing) {
-    return "split";
+function getDefaultArtifactView(
+  hasCad: boolean,
+  hasCadPreview: boolean,
+  hasDrawing: boolean,
+): ArtifactWorkspaceView {
+  if (hasCad && hasCadPreview) {
+    return "cad";
   }
 
   if (hasDrawing) {
     return "drawing";
+  }
+
+  if (hasCad) {
+    return "cad";
   }
 
   return "cad";
@@ -48,54 +57,36 @@ function WorkspaceEmptyState({
 export function ClientArtifactWorkspace({
   itemKey,
   hasCad,
+  hasCadPreview = hasCad,
   hasDrawing,
   cadPanel,
   drawingPanel,
-  title = "Artifact workspace",
-  description = "Use the engineering package as the primary surface. Conversation stays contextual.",
+  title = "Part preview",
+  description,
   className,
 }: ClientArtifactWorkspaceProps) {
-  const availableStateKey = `${itemKey}:${hasCad ? "cad" : "no-cad"}:${hasDrawing ? "drawing" : "no-drawing"}`;
+  const availableStateKey = `${itemKey}:${hasCad ? "cad" : "no-cad"}:${hasCadPreview ? "preview" : "no-preview"}:${hasDrawing ? "drawing" : "no-drawing"}`;
   const [activeView, setActiveView] = useState<ArtifactWorkspaceView>(
-    getDefaultArtifactView(hasCad, hasDrawing),
+    getDefaultArtifactView(hasCad, hasCadPreview, hasDrawing),
   );
 
   useEffect(() => {
-    setActiveView(getDefaultArtifactView(hasCad, hasDrawing));
-  }, [availableStateKey, hasCad, hasDrawing]);
-
-  const splitDisabled = !hasCad || !hasDrawing;
-  const activeLabel = useMemo(() => {
-    switch (activeView) {
-      case "cad":
-        return "CAD focus";
-      case "drawing":
-        return "Drawing focus";
-      case "split":
-        return "Split view";
-      default:
-        return "Artifact workspace";
-    }
-  }, [activeView]);
+    setActiveView(getDefaultArtifactView(hasCad, hasCadPreview, hasDrawing));
+  }, [availableStateKey, hasCad, hasCadPreview, hasDrawing]);
 
   return (
-    <section className={cn("rounded-[30px] border border-ws-border-strong bg-ws-raised p-5 shadow-[0_2px_24px_rgba(0,0,0,0.35)]", className)}>
-      <div className="flex flex-col gap-4 border-b border-border pb-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+    <section className={cn("border-t border-border pt-4", className)} aria-label={title}>
+      <Tabs value={activeView} onValueChange={(value) => setActiveView(value as ArtifactWorkspaceView)}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
-            <p className="mt-2 text-sm text-muted-foreground">{description}</p>
+            <h2 className="text-sm font-medium text-foreground">{title}</h2>
+            {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
           </div>
-          <div className="inline-flex w-fit items-center rounded-full border border-border bg-muted px-3 py-1 text-xs text-muted-foreground">
-            {activeLabel}
-          </div>
-        </div>
-        <Tabs value={activeView} onValueChange={(value) => setActiveView(value as ArtifactWorkspaceView)}>
-          <TabsList className="h-auto flex-wrap justify-start gap-2 rounded-[16px] bg-muted p-1.5">
+          <TabsList className="h-12 rounded-[4px] border border-border bg-muted p-0.5 sm:h-9">
             <TabsTrigger
               value="cad"
               disabled={!hasCad}
-              className="rounded-[12px] px-3 py-2 text-foreground/80 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              className="h-11 rounded-[3px] px-3 text-foreground/80 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-none sm:h-8"
             >
               <Box className="mr-2 h-4 w-4" />
               CAD
@@ -103,72 +94,38 @@ export function ClientArtifactWorkspace({
             <TabsTrigger
               value="drawing"
               disabled={!hasDrawing}
-              className="rounded-[12px] px-3 py-2 text-foreground/80 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              className="h-11 rounded-[3px] px-3 text-foreground/80 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-none sm:h-8"
             >
               <FileText className="mr-2 h-4 w-4" />
               Drawing
             </TabsTrigger>
-            <TabsTrigger
-              value="split"
-              disabled={splitDisabled}
-              className="rounded-[12px] px-3 py-2 text-foreground/80 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-            >
-              <LayoutPanelTop className="mr-2 h-4 w-4" />
-              Split
-            </TabsTrigger>
           </TabsList>
+        </div>
 
-          <TabsContent value="cad" className="mt-4">
-            {hasCad ? (
-              cadPanel
-            ) : (
-              <WorkspaceEmptyState
-                title="CAD model not available"
-                body="Upload or attach a CAD file to make the 3D package the primary workspace surface."
-              />
-            )}
-          </TabsContent>
+        <TabsContent value="cad" className="mt-4">
+          {hasCad ? (
+            cadPanel
+          ) : (
+            <WorkspaceEmptyState
+              title={hasDrawing ? "CAD model not available" : "Artifacts will appear here"}
+              body={hasDrawing
+                ? "Attach a CAD file to add the 3D model to this part."
+                : "CAD and drawing previews will populate as files become available."}
+            />
+          )}
+        </TabsContent>
 
-          <TabsContent value="drawing" className="mt-4">
-            {hasDrawing ? (
-              drawingPanel
-            ) : (
-              <WorkspaceEmptyState
-                title="Drawing not available"
-                body="A PDF drawing will appear here once the part package includes one."
-              />
-            )}
-          </TabsContent>
-
-          <TabsContent value="split" className="mt-4">
-            {!hasCad && !hasDrawing ? (
-              <WorkspaceEmptyState
-                title="Artifacts will appear here"
-                body="Parts stay visible immediately after upload, even before extraction finishes. CAD and drawing previews will populate as files become available."
-              />
-            ) : (
-              <div className="grid gap-5 xl:grid-cols-2">
-                {hasDrawing ? (
-                  drawingPanel
-                ) : (
-                  <WorkspaceEmptyState
-                    title="Drawing missing"
-                    body="Attach a drawing to compare the source document alongside the CAD package."
-                  />
-                )}
-                {hasCad ? (
-                  cadPanel
-                ) : (
-                  <WorkspaceEmptyState
-                    title="CAD missing"
-                    body="Attach a CAD file to complete the engineering package and compare artifacts side by side."
-                  />
-                )}
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
-      </div>
+        <TabsContent value="drawing" className="mt-4">
+          {hasDrawing ? (
+            drawingPanel
+          ) : (
+            <WorkspaceEmptyState
+              title="Drawing not available"
+              body="A PDF drawing will appear here once the part package includes one."
+            />
+          )}
+        </TabsContent>
+      </Tabs>
     </section>
   );
 }
