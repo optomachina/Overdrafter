@@ -302,8 +302,25 @@ describe("WorkspaceSidebar", () => {
       ]),
     });
 
-    expect(screen.getAllByText("$124 · 7d").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("$369 · 11d")).toBeInTheDocument();
+    const partQuoteSummaries = screen.getAllByText("$124 · 7d");
+    expect(partQuoteSummaries).toHaveLength(1);
+
+    for (const summary of partQuoteSummaries) {
+      expect(summary).toHaveClass(
+        "font-mono",
+        "text-xs",
+        "font-semibold",
+        "tabular-nums",
+        "text-foreground",
+      );
+    }
+    expect(screen.getByText("$369 · 11d")).toHaveClass(
+      "font-mono",
+      "text-xs",
+      "font-semibold",
+      "tabular-nums",
+      "text-foreground",
+    );
   });
 
   it("hides a project summary badge when any project member lacks a selected quote", () => {

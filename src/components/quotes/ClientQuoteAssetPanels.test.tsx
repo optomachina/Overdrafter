@@ -151,7 +151,9 @@ describe("ClientDrawingPreviewPanel", () => {
     );
   });
 
-  it("allows drawing actions to wrap on narrow viewports", () => {
+  it("keeps drawing actions compact and downloads from the icon action", () => {
+    vi.mocked(downloadStoredFileBlob).mockImplementation(() => new Promise(() => {}));
+
     render(
       <ClientDrawingPreviewPanel
         drawingFile={drawingFile}
@@ -163,6 +165,38 @@ describe("ClientDrawingPreviewPanel", () => {
 
     const actionRow = screen.getByRole("button", { name: "Expand" }).parentElement;
     expect(actionRow).toHaveClass("flex-wrap", "sm:flex-nowrap");
+    const downloadButton = screen.getByRole("button", { name: "Download drawing" });
+    expect(downloadButton).toHaveAttribute("title", "Download drawing.pdf");
+    expect(downloadButton).toHaveClass("rounded-[2px]");
+    expect(downloadButton).not.toHaveTextContent(/download/i);
+    fireEvent.click(downloadButton);
+    expect(downloadStoredFileBlob).toHaveBeenCalledWith(drawingFile);
+    expect(screen.queryByText(/drawing remains the source of truth/i)).not.toBeInTheDocument();
+  });
+
+  it("reports drawing download failures from the icon action", async () => {
+    const downloadError = new Error("storage unavailable");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    toastMock.error.mockClear();
+    vi.mocked(downloadStoredFileBlob).mockRejectedValueOnce(downloadError);
+
+    render(
+      <ClientDrawingPreviewPanel
+        drawingFile={drawingFile}
+        drawingPreview={emptyPreview}
+        state="ready"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Download drawing" }));
+
+    try {
+      await waitFor(() => {
+        expect(toastMock.error).toHaveBeenCalledWith("Failed to download drawing file.");
+      });
+      expect(consoleError).toHaveBeenCalledWith("Failed to download drawing file", downloadError);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("never renders raw PDF header text when PDF mode is selected", () => {
@@ -188,11 +222,15 @@ describe("ClientCadPreviewPanel", () => {
     render(<ClientCadPreviewPanel cadFile={cadFile} />);
 
     expect(screen.queryByText("CAD / isometric")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Download CAD file" })).toHaveAttribute(
-      "title",
-      "Download model.step",
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Download CAD file" }));
+    expect(screen.queryByRole("button", { name: "Manufacturing view" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "CAD preview" })).not.toBeInTheDocument();
+    const downloadButton = screen.getByRole("button", { name: "Download CAD file" });
+    expect(downloadButton).toHaveAttribute("title", "Download model.step");
+    expect(downloadButton).toHaveClass("rounded-[2px]");
+    const controlRow = downloadButton.parentElement;
+    expect(controlRow).toHaveClass("flex", "items-center", "justify-between");
+    expect(controlRow).toContainElement(screen.getByText("CAD preview"));
+    fireEvent.click(downloadButton);
     expect(downloadStoredFileBlob).toHaveBeenCalledWith(cadFile);
 
     vi.mocked(downloadStoredFileBlob).mockClear();

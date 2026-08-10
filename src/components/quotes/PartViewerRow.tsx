@@ -43,7 +43,6 @@ export function PartViewerRow({
       cadPanel={(
         <ClientCadPreviewPanel
           cadFile={cadFile ?? null}
-          showManufacturingView={false}
           className="rounded-[8px] border-0 bg-transparent p-0"
         />
       )}

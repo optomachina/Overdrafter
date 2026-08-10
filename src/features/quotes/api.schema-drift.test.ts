@@ -152,6 +152,9 @@ describe("quotes api schema drift handling", () => {
   beforeEach(() => {
     supabaseMock.reset();
     supabaseMock.setResolver("cad_preview_assets", () => response([]));
+    supabaseMock.setResolver("published_quote_packages", () => response([]));
+    supabaseMock.setResolver("published_quote_options", () => response([]));
+    supabaseMock.setResolver("client_selections", () => response([]));
     resetClientActivityFeedAvailabilityForTests();
     resetClientIntakeSchemaAvailabilityForTests();
     resetJobArchivingSchemaAvailabilityForTests();

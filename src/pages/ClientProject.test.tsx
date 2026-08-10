@@ -8,6 +8,7 @@ import type {
   ClientPartRequirementView,
   ClientQuoteWorkspaceItem,
   ClientQuoteRequestStatus,
+  PublishedQuoteOptionRecord,
   QuoteRequestRecord,
   QuoteRunRecord,
   VendorCapabilityProfileRecord,
@@ -63,6 +64,7 @@ const {
     cancelQuoteRequest: vi.fn(),
     requestExtraction: vi.fn(),
     requestQuotes: vi.fn(),
+    persistClientQuoteSelection: vi.fn(),
     setJobVendorPreferences: vi.fn(),
     setJobSelectedVendorQuoteOffer: vi.fn(),
     setProjectVendorPreferences: vi.fn(),
@@ -128,6 +130,7 @@ vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   cancelQuoteRequest: api.cancelQuoteRequest,
   requestManualQuotes: api.requestQuotes,
   requestQuotes: api.requestQuotes,
+  persistClientQuoteSelection: api.persistClientQuoteSelection,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
 }));
 vi.mock("@/features/quotes/organization-entitlements", () => ({
@@ -1180,6 +1183,23 @@ describe("ClientProject", () => {
     api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([
       {
         ...workspaceItem,
+        publishedQuoteOptions: [
+          {
+            id: "published-option-imported-1",
+            package_id: "published-package-imported-1",
+            organization_id: "org-1",
+            option_kind: "lowest_cost",
+            label: "Lowest Cost",
+            requested_quantity: 10,
+            published_price_usd: 700.7,
+            lead_time_business_days: 12,
+            comparison_summary: "Best published price.",
+            source_vendor_quote_id: "result-imported-1",
+            source_vendor_quote_offer_id: "offer-imported-1",
+            markup_policy_version: "v1_markup_20",
+            created_at: "2026-03-20T18:20:00Z",
+          },
+        ] satisfies PublishedQuoteOptionRecord[],
         part: workspaceItem.part
           ? {
               ...workspaceItem.part,

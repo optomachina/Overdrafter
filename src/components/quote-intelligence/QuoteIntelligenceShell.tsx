@@ -150,7 +150,7 @@ function DestinationNavigation({ collapsed, onNavigate }: DestinationNavigationP
   const location = useLocation();
 
   return (
-    <nav aria-label="Primary" className="flex flex-col gap-1 p-2">
+    <nav aria-label="Primary" className="flex flex-col gap-1 px-2 pb-2 pt-0">
       {DESTINATIONS.map(({ href, label, icon: Icon }) => {
         const active = location.pathname === href || location.pathname.startsWith(`${href}/`);
         const link = (
@@ -222,7 +222,7 @@ function DesktopSidebar({ collapsed, onCollapse, onExpand, onGoHome }: DesktopSi
           aria-label={collapsed ? "Open sidebar" : "OverDrafter home"}
           aria-expanded={collapsed ? false : undefined}
           onClick={handleBrandClick}
-          className="group flex h-9 min-w-0 flex-1 items-center overflow-hidden pr-11 font-display text-[14px] font-bold uppercase tracking-[-0.04em] text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red"
+          className="group flex h-9 min-w-0 flex-1 translate-y-1 items-center overflow-hidden pr-11 font-display text-[14px] font-bold uppercase tracking-[-0.04em] text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red"
         >
           <span className="relative grid h-9 w-9 shrink-0 place-items-center">
             <OverDrafterMark
@@ -256,7 +256,7 @@ function DesktopSidebar({ collapsed, onCollapse, onExpand, onGoHome }: DesktopSi
           tabIndex={collapsed ? -1 : undefined}
           onClick={onCollapse}
           className={cn(
-            "absolute right-2 grid h-9 w-9 place-items-center rounded-[2px] text-paper-muted transition-[color,background-color,opacity] duration-150 hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red",
+            "absolute right-2 grid h-9 w-9 translate-y-1 place-items-center rounded-[2px] text-paper-muted transition-[color,background-color,opacity] duration-150 hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red",
             collapsed ? "pointer-events-none opacity-0" : "opacity-100",
           )}
         >

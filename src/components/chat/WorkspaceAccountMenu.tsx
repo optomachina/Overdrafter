@@ -1572,10 +1572,10 @@ export function WorkspaceAccountMenu({
             aria-label="Open account menu"
             disabled={isSigningOut}
             className={cn(
-              "workspace-shell group/account flex items-center text-left text-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-60",
+              "workspace-shell group/account flex items-center text-left text-foreground transition focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60",
               compact
-                ? "h-11 w-auto gap-2 rounded-[2px] px-1.5 py-0 sm:h-10"
-                : "w-full gap-3 rounded-surface-lg px-3 py-2.5",
+                ? "h-11 w-auto gap-2 rounded-[2px] px-1.5 py-0 focus-visible:ring-paper-red sm:h-10"
+                : "w-full gap-3 rounded-surface-lg px-3 py-2.5 focus-visible:ring-white/20",
               menuOpen ? "bg-accent" : "bg-transparent hover:bg-accent focus-visible:bg-accent",
             )}
           >

@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createClientQuoteWorkspaceItemFixture } from "@/features/quotes/client-workspace-fixtures";
+import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
 import {
+  buildClientQuoteComparisonOptions,
   buildClientSourcingResult,
-  isClientQuoteComparisonOffer,
 } from "@/features/quotes/sourcing-result";
 import type {
   PartAggregate,
+  PublishedQuoteOptionRecord,
   VendorCapabilityProfileRecord,
 } from "@/features/quotes/types";
 import type { VendorName } from "@/integrations/supabase/types";
@@ -49,53 +51,292 @@ function makeSupportedPart(): PartAggregate {
   return part;
 }
 
-describe("isClientQuoteComparisonOffer", () => {
-  const persistedOffer = {
-    offerKey: "offer-1",
-    vendorKey: "fastdms" as const,
-    vendorStatus: "official_quote_received" as const,
+describe("buildClientQuoteComparisonOptions", () => {
+  const candidate = {
+    key: "offer-row-1",
+    offerId: "vendor-offer-1",
+    persistedOfferId: "offer-row-1",
+    vendorKey: "fastdms",
+    vendorQuoteResultId: "vendor-result-1",
+    vendorStatus: "official_quote_received",
+    vendorLabel: "FastDMS",
+    supplier: "FastDMS",
     requestedQuantity: 1,
+    unitPriceUsd: 100,
+    totalPriceUsd: 100,
+    leadTimeBusinessDays: 10,
+    resolvedDeliveryDate: null,
+    domesticStatus: "domestic",
+    excluded: false,
+    dueDateEligible: true,
+    eligible: true,
+    isSelectable: true,
+    expedite: false,
+    shipReceiveBy: null,
+    dueDate: null,
     quoteDateIso: "2026-03-02",
-  };
+    quoteResultRawPayload: { importSource: { batch: "QB00001" } },
+    sourcing: "USA",
+    tier: "Standard",
+    laneLabel: "Standard",
+    process: "CNC milling",
+    material: "6061-T6 aluminum",
+    finish: "Black anodize",
+    tightestTolerance: "±.005\"",
+    notes: "Internal supplier note",
+    rawPayload: { supplierTotal: 100 },
+  } satisfies ClientQuoteSelectionOption;
+  const publishedOption = {
+    id: "published-option-1",
+    package_id: "published-package-1",
+    organization_id: "org-1",
+    option_kind: "lowest_cost",
+    label: "Lowest Cost",
+    requested_quantity: 1,
+    published_price_usd: 125,
+    lead_time_business_days: 8,
+    comparison_summary: "Best published price.",
+    source_vendor_quote_id: candidate.vendorQuoteResultId,
+    source_vendor_quote_offer_id: candidate.persistedOfferId,
+    markup_policy_version: "v1_markup_20",
+    created_at: "2026-03-02T00:00:00Z",
+  } satisfies PublishedQuoteOptionRecord;
 
-  it("admits official spreadsheet imports without labeling them as live", () => {
+  it("uses published client pricing instead of raw supplier amounts", () => {
+    const [result] = buildClientQuoteComparisonOptions({
+      candidates: [candidate],
+      liveOfferKeys: new Set(),
+      publishedOptions: [publishedOption],
+      requestedByDate: null,
+    });
+
+    expect(result).toMatchObject({
+      totalPriceUsd: 125,
+      unitPriceUsd: 125,
+      laneLabel: "Lowest Cost",
+      notes: "Best published price.",
+      persistedOfferId: candidate.persistedOfferId,
+      selectionTarget: {
+        kind: "published_quote_option",
+        packageId: publishedOption.package_id,
+        optionId: publishedOption.id,
+      },
+      rawPayload: null,
+      quoteResultRawPayload: null,
+    });
+  });
+
+  it("fails closed when published options cannot be matched to the current run", () => {
     expect(
-      isClientQuoteComparisonOffer(
-        {
-          ...persistedOffer,
-          quoteResultRawPayload: {
-            importSource: {
-              batch: "QB00001",
-              workbookName: "Quotes.xlsx",
-            },
+      buildClientQuoteComparisonOptions({
+        candidates: [candidate],
+        liveOfferKeys: new Set([candidate.key]),
+        publishedOptions: [
+          {
+            ...publishedOption,
+            source_vendor_quote_offer_id: "offer-from-older-published-run",
           },
-        },
-        new Set(),
-      ),
-    ).toBe(true);
+        ],
+        requestedByDate: null,
+      }),
+    ).toEqual([]);
   });
 
-  it("rejects official results without recognized import provenance", () => {
-    expect(
-      isClientQuoteComparisonOffer(
-        { ...persistedOffer, quoteResultRawPayload: null },
-        new Set(),
-      ),
-    ).toBe(false);
-  });
-
-  it("admits trusted current adapter offers through their live key", () => {
-    expect(
-      isClientQuoteComparisonOffer(
+  it("preserves distinct published choices that share one source offer", () => {
+    const results = buildClientQuoteComparisonOptions({
+      candidates: [candidate],
+      liveOfferKeys: new Set(),
+      publishedOptions: [
+        publishedOption,
         {
-          ...persistedOffer,
-          vendorKey: "xometry",
-          vendorStatus: "instant_quote_received",
-          quoteResultRawPayload: { automationVersion: "xometry-worker-v1" },
+          ...publishedOption,
+          id: "published-option-2",
+          option_kind: "fastest_delivery",
+          label: "Fastest Delivery",
+          published_price_usd: 150,
         },
-        new Set(["offer-1"]),
-      ),
-    ).toBe(true);
+      ],
+      requestedByDate: null,
+    });
+
+    expect(results).toHaveLength(2);
+    expect(results.map((result) => result.selectionTarget)).toEqual([
+      {
+        kind: "published_quote_option",
+        packageId: publishedOption.package_id,
+        optionId: publishedOption.id,
+      },
+      {
+        kind: "published_quote_option",
+        packageId: publishedOption.package_id,
+        optionId: "published-option-2",
+      },
+    ]);
+  });
+
+  it("falls back only to trusted live keys before publication", () => {
+    expect(
+      buildClientQuoteComparisonOptions({
+        candidates: [candidate],
+        liveOfferKeys: new Set(),
+        publishedOptions: [],
+        requestedByDate: null,
+      }),
+    ).toEqual([]);
+    expect(
+      buildClientQuoteComparisonOptions({
+        candidates: [candidate],
+        liveOfferKeys: new Set([candidate.key]),
+        publishedOptions: [],
+        requestedByDate: null,
+      }),
+    ).toEqual([candidate]);
+  });
+
+  it("makes a published faster lead time eligible when it meets the requested date", () => {
+    const [result] = buildClientQuoteComparisonOptions({
+      candidates: [
+        {
+          ...candidate,
+          resolvedDeliveryDate: "2026-03-16",
+          dueDateEligible: false,
+          eligible: false,
+        },
+      ],
+      liveOfferKeys: new Set(),
+      publishedOptions: [publishedOption],
+      requestedByDate: "2026-03-13",
+    });
+
+    expect(result).toMatchObject({
+      leadTimeBusinessDays: 8,
+      resolvedDeliveryDate: "2026-03-12",
+      dueDateEligible: true,
+      eligible: true,
+    });
+  });
+
+  it("makes a published slower lead time ineligible when it misses the requested date", () => {
+    const [result] = buildClientQuoteComparisonOptions({
+      candidates: [
+        {
+          ...candidate,
+          leadTimeBusinessDays: 8,
+          resolvedDeliveryDate: "2026-03-12",
+          dueDateEligible: true,
+          eligible: true,
+        },
+      ],
+      liveOfferKeys: new Set(),
+      publishedOptions: [
+        {
+          ...publishedOption,
+          lead_time_business_days: 10,
+        },
+      ],
+      requestedByDate: "2026-03-13",
+    });
+
+    expect(result).toMatchObject({
+      leadTimeBusinessDays: 10,
+      resolvedDeliveryDate: "2026-03-16",
+      dueDateEligible: false,
+      eligible: false,
+    });
+  });
+
+  it("preserves an authoritative fixed delivery date when publication changes lead time", () => {
+    const [result] = buildClientQuoteComparisonOptions({
+      candidates: [
+        {
+          ...candidate,
+          shipReceiveBy: "2026-03-10",
+          resolvedDeliveryDate: "2026-03-10",
+        },
+      ],
+      liveOfferKeys: new Set(),
+      publishedOptions: [
+        {
+          ...publishedOption,
+          lead_time_business_days: 20,
+        },
+      ],
+      requestedByDate: "2026-03-13",
+    });
+
+    expect(result).toMatchObject({
+      leadTimeBusinessDays: 20,
+      resolvedDeliveryDate: "2026-03-10",
+      dueDateEligible: true,
+      eligible: true,
+    });
+  });
+
+  it("uses a stable persisted timestamp when no quote date is available", () => {
+    const [result] = buildClientQuoteComparisonOptions({
+      candidates: [
+        {
+          ...candidate,
+          quoteDateIso: null,
+          offerCreatedAt: "2026-03-02T18:00:00Z",
+        },
+      ],
+      liveOfferKeys: new Set(),
+      publishedOptions: [publishedOption],
+      requestedByDate: "2026-03-13",
+    });
+
+    expect(result).toMatchObject({
+      resolvedDeliveryDate: "2026-03-12",
+      dueDateEligible: true,
+    });
+  });
+
+  it("recomputes from published lead time when fixed-date text is invalid", () => {
+    const [result] = buildClientQuoteComparisonOptions({
+      candidates: [
+        {
+          ...candidate,
+          shipReceiveBy: "TBD",
+          resolvedDeliveryDate: "2026-03-16",
+        },
+      ],
+      liveOfferKeys: new Set(),
+      publishedOptions: [publishedOption],
+      requestedByDate: "2026-03-13",
+    });
+
+    expect(result).toMatchObject({
+      resolvedDeliveryDate: "2026-03-12",
+      dueDateEligible: true,
+    });
+  });
+
+  it("preserves source-derived lead-time values when publication does not override lead time", () => {
+    const sourceDerivedCandidate = {
+      ...candidate,
+      resolvedDeliveryDate: "2026-03-16",
+      dueDateEligible: false,
+      eligible: false,
+    };
+    const [result] = buildClientQuoteComparisonOptions({
+      candidates: [sourceDerivedCandidate],
+      liveOfferKeys: new Set(),
+      publishedOptions: [
+        {
+          ...publishedOption,
+          lead_time_business_days: null,
+        },
+      ],
+      requestedByDate: "2026-03-20",
+    });
+
+    expect(result).toMatchObject({
+      leadTimeBusinessDays: sourceDerivedCandidate.leadTimeBusinessDays,
+      resolvedDeliveryDate: sourceDerivedCandidate.resolvedDeliveryDate,
+      dueDateEligible: sourceDerivedCandidate.dueDateEligible,
+      eligible: sourceDerivedCandidate.eligible,
+    });
   });
 });
 

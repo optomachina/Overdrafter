@@ -1,6 +1,12 @@
+import { addBusinessDays, format, isValid, parseISO, startOfDay } from "date-fns";
 import { scoreCapabilityMatch } from "@/features/quotes/scoring";
+import {
+  resolveOfferFixedDeliveryDate,
+  type ClientQuoteSelectionOption,
+} from "@/features/quotes/selection";
 import type {
   PartAggregate,
+  PublishedQuoteOptionRecord,
   VendorCapabilityProfileRecord,
 } from "@/features/quotes/types";
 import { getVendorDisplayName } from "@/features/quotes/vendor-colors";
@@ -137,29 +143,144 @@ function asRecord(value: Json | undefined): Record<string, Json | undefined> | n
   return value;
 }
 
-/**
- * Returns whether a validated persisted offer belongs in client quote comparison.
- * Fresh trusted adapter offers qualify through their live key, while official
- * persisted quotes remain comparable without being presented as live results.
- */
-export function isClientQuoteComparisonOffer(
-  offer: SourcingLiveOfferCandidate,
-  liveOfferKeys: ReadonlySet<string>,
-) {
-  if (liveOfferKeys.has(offer.offerKey)) {
-    return true;
+function projectPublishedLeadTime(input: {
+  candidate: ClientQuoteSelectionOption;
+  publishedLeadTimeBusinessDays: number | null;
+  publishedCreatedAt: string;
+  requestedByDate: string | null;
+}): Pick<
+  ClientQuoteSelectionOption,
+  "leadTimeBusinessDays" | "resolvedDeliveryDate" | "dueDateEligible" | "eligible"
+> {
+  const {
+    candidate,
+    publishedLeadTimeBusinessDays,
+    publishedCreatedAt,
+    requestedByDate,
+  } = input;
+
+  if (publishedLeadTimeBusinessDays === null) {
+    return {
+      leadTimeBusinessDays: candidate.leadTimeBusinessDays,
+      resolvedDeliveryDate: candidate.resolvedDeliveryDate,
+      dueDateEligible: candidate.dueDateEligible,
+      eligible: candidate.eligible,
+    };
   }
 
-  if (offer.vendorStatus !== "official_quote_received") {
-    return false;
+  const leadTimeBusinessDays = Math.max(0, Math.trunc(publishedLeadTimeBusinessDays));
+  const requestedByDateValue = requestedByDate?.trim().slice(0, 10) ?? null;
+  const fixedDeliveryDate = resolveOfferFixedDeliveryDate({
+    shipReceiveBy: candidate.shipReceiveBy,
+    dueDate: candidate.dueDate,
+  });
+  const hasFixedDeliveryDate = Boolean(candidate.resolvedDeliveryDate && fixedDeliveryDate);
+
+  if (hasFixedDeliveryDate) {
+    const resolvedDeliveryDate = candidate.resolvedDeliveryDate;
+    const dueDateEligible =
+      requestedByDateValue === null || resolvedDeliveryDate <= requestedByDateValue;
+
+    return {
+      leadTimeBusinessDays,
+      resolvedDeliveryDate,
+      dueDateEligible,
+      eligible: dueDateEligible && !candidate.excluded && candidate.isSelectable,
+    };
   }
 
-  const payload = asRecord(offer.quoteResultRawPayload);
-  const importSource = asRecord(payload?.importSource);
-  return (
-    typeof importSource?.batch === "string" &&
-    typeof importSource.workbookName === "string"
+  const stableDateValues = [
+    candidate.quoteDateIso,
+    candidate.offerCreatedAt,
+    candidate.quoteResultCreatedAt,
+    candidate.quoteResultUpdatedAt,
+    publishedCreatedAt,
+  ];
+  const quoteDate = stableDateValues.reduce<Date | null>((resolved, value) => {
+    if (resolved || !value) {
+      return resolved;
+    }
+
+    const parsed = parseISO(value.trim().slice(0, 10));
+    return isValid(parsed) ? startOfDay(parsed) : null;
+  }, null);
+  const stableQuoteDate = quoteDate ?? startOfDay(parseISO(publishedCreatedAt.slice(0, 10)));
+  const resolvedDeliveryDate = format(
+    addBusinessDays(stableQuoteDate, leadTimeBusinessDays),
+    "yyyy-MM-dd",
   );
+  const dueDateEligible =
+    requestedByDateValue === null || resolvedDeliveryDate <= requestedByDateValue;
+
+  return {
+    leadTimeBusinessDays,
+    resolvedDeliveryDate,
+    dueDateEligible,
+    eligible: dueDateEligible && !candidate.excluded && candidate.isSelectable,
+  };
+}
+
+/**
+ * Builds the client-visible comparison set at the publication boundary.
+ * Published package prices take precedence over raw supplier amounts. Before a
+ * package exists, only fresh offers validated by the trusted live adapter path
+ * may be shown.
+ */
+export function buildClientQuoteComparisonOptions(input: {
+  candidates: readonly ClientQuoteSelectionOption[];
+  liveOfferKeys: ReadonlySet<string>;
+  publishedOptions: readonly PublishedQuoteOptionRecord[];
+  requestedByDate: string | null;
+}): ClientQuoteSelectionOption[] {
+  const candidatesByPersistedOfferId = new Map(
+    input.candidates.flatMap((candidate) =>
+      candidate.persistedOfferId ? [[candidate.persistedOfferId, candidate] as const] : [],
+    ),
+  );
+  const publishedCandidates = input.publishedOptions.flatMap((publishedOption) => {
+    const sourceOfferId = publishedOption.source_vendor_quote_offer_id;
+    if (!sourceOfferId) {
+      return [];
+    }
+
+    const candidate = candidatesByPersistedOfferId.get(sourceOfferId);
+    if (!candidate) {
+      return [];
+    }
+
+    const requestedQuantity = Math.max(1, publishedOption.requested_quantity);
+    const leadTimeProjection = projectPublishedLeadTime({
+      candidate,
+      publishedLeadTimeBusinessDays: publishedOption.lead_time_business_days,
+      publishedCreatedAt: publishedOption.created_at,
+      requestedByDate: input.requestedByDate,
+    });
+    return [
+      {
+        ...candidate,
+        ...leadTimeProjection,
+        key: `published:${publishedOption.id}`,
+        selectionTarget: {
+          kind: "published_quote_option" as const,
+          packageId: publishedOption.package_id,
+          optionId: publishedOption.id,
+        },
+        requestedQuantity,
+        unitPriceUsd: publishedOption.published_price_usd / requestedQuantity,
+        totalPriceUsd: publishedOption.published_price_usd,
+        laneLabel: publishedOption.label,
+        notes: publishedOption.comparison_summary,
+        quoteResultRawPayload: null,
+        rawPayload: null,
+      },
+    ];
+  });
+
+  if (input.publishedOptions.length > 0) {
+    return publishedCandidates;
+  }
+
+  return input.candidates.filter((candidate) => input.liveOfferKeys.has(candidate.key));
 }
 
 function isTrustedLiveAdapterOffer(offer: SourcingLiveOfferCandidate) {

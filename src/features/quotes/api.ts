@@ -99,6 +99,7 @@ export {
   requestManualQuotes,
   requestQuote,
   requestQuotes,
+  persistClientQuoteSelection,
   setJobSelectedVendorQuoteOffer,
   startQuoteRun,
 } from "./api/quote-requests-api";

@@ -26,6 +26,7 @@ import {
 import { reconcileJobParts, requestExtraction } from "@/features/quotes/api/extraction-api";
 import {
   cancelQuoteRequest,
+  persistClientQuoteSelection,
   requestQuote,
   setJobSelectedVendorQuoteOffer,
 } from "@/features/quotes/api/quote-requests-api";
@@ -75,8 +76,8 @@ import {
 } from "@/features/quotes/selection";
 import { logQuoteFetchDiagnostics } from "@/features/quotes/quote-chart-diagnostics";
 import {
+  buildClientQuoteComparisonOptions,
   buildClientSourcingResult,
-  isClientQuoteComparisonOffer,
 } from "@/features/quotes/sourcing-result";
 import type {
   ClientPartPropertyOverrideField,
@@ -445,7 +446,29 @@ export function useClientPartController(
   });
 
   const selectOfferMutation = useMutation({
-    mutationFn: (offerId: string | null) => setJobSelectedVendorQuoteOffer(canonicalJobId, offerId),
+    mutationFn: (option: ClientQuoteSelectionOption | null) => {
+      if (!option) {
+        if (partDetail?.publishedQuoteSelection) {
+          throw new Error(
+            "Published quote selections cannot be cleared. Select another quote to replace it.",
+          );
+        }
+
+        return setJobSelectedVendorQuoteOffer(canonicalJobId, null);
+      }
+
+      if (!option.persistedOfferId) {
+        throw new Error("This quote option is not ready to select yet.");
+      }
+
+      return persistClientQuoteSelection({
+        jobId: canonicalJobId,
+        target: option.selectionTarget ?? {
+          kind: "vendor_quote_offer",
+          offerId: option.persistedOfferId,
+        },
+      });
+    },
     onSuccess: async () => {
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
       toast.success("Selected quote updated.");
@@ -812,15 +835,24 @@ export function useClientPartController(
         : [],
     );
 
-    return sourcingCandidates.filter((option) =>
-      isClientQuoteComparisonOffer(
-        { ...option, offerKey: option.key },
-        liveOfferKeys,
-      ),
-    );
-  }, [sourcingCandidates, sourcingResult]);
+    return buildClientQuoteComparisonOptions({
+      candidates: sourcingCandidates,
+      liveOfferKeys,
+      publishedOptions: partDetail?.publishedQuoteOptions ?? [],
+      requestedByDate: requestSummaryRequestedByDate,
+    });
+  }, [
+    partDetail?.publishedQuoteOptions,
+    requestSummaryRequestedByDate,
+    sourcingCandidates,
+    sourcingResult,
+  ]);
   const selectedQuoteOption =
-    getSelectedOption(rankedQuoteOptions, partDetail?.job.selected_vendor_quote_offer_id) ??
+    getSelectedOption(
+      rankedQuoteOptions,
+      partDetail?.job.selected_vendor_quote_offer_id,
+      partDetail?.publishedQuoteSelection?.option_id,
+    ) ??
     rankedQuoteOptions.find((option) => option.eligible) ??
     rankedQuoteOptions[0] ??
     null;
@@ -1307,18 +1339,18 @@ export function useClientPartController(
     }
 
     setActivePreset(null);
-    selectOfferMutation.mutate(option.persistedOfferId);
+    selectOfferMutation.mutate(option);
   };
 
   const handlePresetSelection = (preset: QuotePreset) => {
     setActivePreset(preset);
 
-    const nextOption = pickPresetOption(quoteOptions, preset);
+    const nextOption = pickPresetOption(rankedQuoteOptions, preset);
 
     if (!nextOption?.persistedOfferId) {
       toast.error(
         describeClientPresetUnavailableReason({
-          options: quoteOptions,
+          options: rankedQuoteOptions,
           preset,
           requestedByDate: requestSummaryRequestedByDate,
         }),
@@ -1326,7 +1358,7 @@ export function useClientPartController(
       return;
     }
 
-    selectOfferMutation.mutate(nextOption.persistedOfferId);
+    selectOfferMutation.mutate(nextOption);
   };
 
   const handleToggleVendorExclusion = (vendorKey: VendorName, shouldExclude: boolean) => {

@@ -46,6 +46,7 @@ const {
     requestQuote: vi.fn(),
     requestExtraction: vi.fn(),
     resetClientPartPropertyOverrides: vi.fn(),
+    persistClientQuoteSelection: vi.fn(),
     setJobSelectedVendorQuoteOffer: vi.fn(),
     unarchiveJob: vi.fn(),
     unarchiveProject: vi.fn(),
@@ -113,6 +114,7 @@ vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   cancelQuoteRequest: api.cancelQuoteRequest,
   requestManualQuote: api.requestQuote,
   requestQuote: api.requestQuote,
+  persistClientQuoteSelection: api.persistClientQuoteSelection,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
 }));
 vi.mock("@/features/quotes/organization-entitlements", () => ({
@@ -323,22 +325,45 @@ vi.mock("@/components/quotes/ClientWorkspacePanelContent", () => ({
 vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
   ClientQuoteDecisionPanel: ({
     options,
+    selectedOption,
     controls,
     headerActions,
+    onSelect,
   }: {
-    options?: Array<{ vendorLabel?: string; tier?: string | null }>;
+    options?: Array<{
+      key?: string;
+      vendorLabel?: string;
+      tier?: string | null;
+      totalPriceUsd?: number;
+      selectionTarget?: unknown;
+    }>;
+    selectedOption?: {
+      key?: string;
+      selectionTarget?: unknown;
+    } | null;
     controls?: ReactNode;
     headerActions?: ReactNode;
+    onSelect?: (option: unknown) => void;
   }) => {
-    lastQuoteDecisionPanelProps = { optionCount: options?.length ?? 0 };
+    lastQuoteDecisionPanelProps = {
+      optionCount: options?.length ?? 0,
+      totalPrices: options?.map((option) => option.totalPriceUsd) ?? [],
+      firstOption: options?.[0] ?? null,
+      lastOption: options?.at(-1) ?? null,
+      selectedOption,
+      onSelect,
+    };
 
     return (
       <div data-testid="quote-decision-panel">
         Quote decision panel
         {headerActions}
         {controls}
+        <button type="button" onClick={() => onSelect?.(null)}>
+          Clear quote selection
+        </button>
         {options?.map((quote) => (
-          <div key={`${quote.vendorLabel}-${quote.tier}`}>{[quote.vendorLabel, quote.tier].filter(Boolean).join(" · ")}</div>
+          <div key={quote.key ?? `${quote.vendorLabel}-${quote.tier}`}>{[quote.vendorLabel, quote.tier].filter(Boolean).join(" · ")}</div>
         ))}
       </div>
     );
@@ -348,9 +373,11 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
 vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
   QuoteSelectionFunctionBar: ({
     requestedByDate,
+    onModeChange,
     onRequestedByDateChange,
   }: {
     requestedByDate?: string | null;
+    onModeChange?: (next: "balanced" | "cheapest" | "fastest") => void;
     onRequestedByDateChange?: (next: string | null) => void;
   }) => (
     <div data-testid="quote-selection-function-bar">
@@ -364,8 +391,8 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
       <button type="button" onClick={() => onRequestedByDateChange?.(null)}>
         Clear
       </button>
-      <button type="button">Fast</button>
-      <button type="button">Cheap</button>
+      <button type="button" onClick={() => onModeChange?.("fastest")}>Fast</button>
+      <button type="button" onClick={() => onModeChange?.("cheapest")}>Cheap</button>
     </div>
   ),
 }));
@@ -988,7 +1015,10 @@ describe("ClientPart", () => {
     });
 
     expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
-    expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 1 });
+    expect(lastQuoteDecisionPanelProps).toMatchObject({
+      optionCount: 1,
+      totalPrices: [100],
+    });
   });
 
   it("renders valid imported quote options without labeling them as live adapter offers", async () => {
@@ -998,6 +1028,38 @@ describe("ClientPart", () => {
           ...createPartDetail().summary,
           selectedSupplier: null,
         },
+        publishedQuoteOptions: [
+          {
+            id: "published-option-imported-1",
+            package_id: "published-package-imported-1",
+            organization_id: "org-1",
+            option_kind: "lowest_cost",
+            label: "Lowest Cost",
+            requested_quantity: 10,
+            published_price_usd: 700.7,
+            lead_time_business_days: 12,
+            comparison_summary: "Best published price.",
+            source_vendor_quote_id: "quote-imported-1",
+            source_vendor_quote_offer_id: "offer-imported-1",
+            markup_policy_version: "v1_markup_20",
+            created_at: "2026-03-20T18:20:00Z",
+          },
+          {
+            id: "published-option-imported-2",
+            package_id: "published-package-imported-1",
+            organization_id: "org-1",
+            option_kind: "fastest_delivery",
+            label: "Fastest Delivery",
+            requested_quantity: 10,
+            published_price_usd: 800.8,
+            lead_time_business_days: 8,
+            comparison_summary: "Fastest published option.",
+            source_vendor_quote_id: "quote-imported-1",
+            source_vendor_quote_offer_id: "offer-imported-1",
+            markup_policy_version: "v1_markup_20",
+            created_at: "2026-03-20T18:20:00Z",
+          },
+        ],
         part: {
           ...createPartDetail().part,
           vendorQuotes: [
@@ -1064,11 +1126,83 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByText("FastDMS · Standard")).toBeInTheDocument();
+      expect(screen.getAllByText("FastDMS · Standard")).toHaveLength(2);
     });
 
-    expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 1 });
+    expect(lastQuoteDecisionPanelProps).toMatchObject({
+      optionCount: 2,
+      totalPrices: [700.7, 800.8],
+    });
+    await act(async () => {
+      const onSelect = lastQuoteDecisionPanelProps?.onSelect as
+        | ((option: unknown) => void)
+        | undefined;
+      onSelect?.(lastQuoteDecisionPanelProps?.lastOption);
+    });
+    await waitFor(() => {
+      expect(api.persistClientQuoteSelection).toHaveBeenCalledWith({
+        jobId: "job-1",
+        target: {
+          kind: "published_quote_option",
+          packageId: "published-package-imported-1",
+          optionId: "published-option-imported-2",
+        },
+      });
+    });
+    expect(lastQuoteDecisionPanelProps?.selectedOption).toMatchObject({
+      key: "published:published-option-imported-2",
+      selectionTarget: {
+        kind: "published_quote_option",
+        optionId: "published-option-imported-2",
+      },
+    });
+    expect(api.setJobSelectedVendorQuoteOffer).not.toHaveBeenCalledWith(
+      "job-1",
+      "offer-imported-1",
+    );
+
+    api.persistClientQuoteSelection.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Cheap" }));
+
+    await waitFor(() => {
+      expect(api.persistClientQuoteSelection).toHaveBeenCalledWith({
+        jobId: "job-1",
+        target: {
+          kind: "published_quote_option",
+          packageId: "published-package-imported-1",
+          optionId: "published-option-imported-1",
+        },
+      });
+    });
     expect(screen.queryByText("Live offers available")).not.toBeInTheDocument();
+  });
+
+  it("fails closed when clearing a package-scoped published selection", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(
+      createPartDetail({
+        publishedQuoteSelection: {
+          id: "selection-published-1",
+          package_id: "published-package-1",
+          option_id: "published-option-1",
+          organization_id: "org-1",
+          selected_by: "user-1",
+          note: null,
+          created_at: "2026-03-20T18:25:00Z",
+        },
+      }),
+    );
+
+    renderWithClient("/parts/job-1");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clear quote selection" }));
+
+    await waitFor(() => {
+      expect(toastMock.error).toHaveBeenCalledWith(
+        "Published quote selections cannot be cleared. Select another quote to replace it.",
+      );
+    });
+    expect(api.persistClientQuoteSelection).not.toHaveBeenCalled();
+    expect(api.setJobSelectedVendorQuoteOffer).not.toHaveBeenCalledWith("job-1", null);
   });
 
   it("canonicalizes legacy part-id routes onto the owning job route", async () => {

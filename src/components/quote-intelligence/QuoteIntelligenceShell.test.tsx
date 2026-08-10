@@ -78,6 +78,8 @@ describe("QuoteIntelligenceShell", () => {
     expect(document.querySelector('svg[data-navigation-icon="Quotes"]')).toBe(quotesIcon);
     expect(document.querySelector('svg[data-navigation-icon="Search"]')).toBe(searchIcon);
     expect(screen.getByRole("button", { name: "Open sidebar" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "Open sidebar" })).toHaveClass("translate-y-1");
+    expect(screen.getByRole("navigation", { name: "Primary" })).toHaveClass("pt-0");
   });
 
   it("provides a shrink-safe 336px inspector only when inspector content exists", () => {
@@ -134,6 +136,7 @@ describe("QuoteIntelligenceShell", () => {
     expect(navigationTrigger).toHaveAttribute("aria-controls", screen.getByRole("dialog").id);
     expect(screen.getByRole("dialog")).toHaveClass("shadow-none");
     expect(screen.getByRole("dialog")).toHaveStyle({ width: "224px" });
+    expect(screen.getByRole("button", { name: "Close" })).toHaveClass("h-11", "w-11");
   });
 
   it("keeps the native iOS shell free of web navigation chrome", () => {

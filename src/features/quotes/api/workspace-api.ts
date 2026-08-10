@@ -3,11 +3,13 @@ import type {
   ArchivedJobSummary,
   CadPreviewAssetRecord,
   ClientActivityEvent,
+  ClientSelectionRecord,
   ClientQuoteWorkspaceItem,
   DrawingPreviewAssetRecord,
   JobFileRecord,
   PartDetailAggregate,
   PartRecord,
+  PublishedQuoteOptionRecord,
   QuoteDataStatus,
   QuoteDiagnostics,
   QuoteRequestRecord,
@@ -48,6 +50,7 @@ import {
   fetchJobsByIds,
 } from "./jobs-api";
 import { fetchProjectJobMembershipsByJobIds } from "./projects-api";
+import { fetchPublishedPackagesByJobIds } from "./packages-api";
 
 const EMPTY_QUOTE_DIAGNOSTICS: QuoteDiagnostics = {
   rawQuoteRowCount: 0,
@@ -329,6 +332,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     latestQuoteRequestsByJobId,
     serviceRequestLineItemsByJobId,
     quoteWorkspaceByJobId,
+    publishedPackages,
   ] = await Promise.all([
     fetchJobsByIds(jobIds, {
       archived: false,
@@ -340,10 +344,56 @@ export async function fetchClientQuoteWorkspaceByJobIds(
     fetchLatestQuoteRequestsByJobIds(jobIds),
     fetchManufacturingQuoteLineItemsByJobIds(jobIds),
     fetchClientQuoteWorkspaceProjectionByJobIds(jobIds),
+    fetchPublishedPackagesByJobIds(jobIds),
   ]);
 
   const files = ensureData(filesResult.data, filesResult.error) as JobFileRecord[];
   const parts = ensureData(partsResult.data, partsResult.error) as PartRecord[];
+  const latestPublishedPackageByJobId = new Map<string, (typeof publishedPackages)[number]>();
+  publishedPackages.forEach((pkg) => {
+    if (!latestPublishedPackageByJobId.has(pkg.job_id)) {
+      latestPublishedPackageByJobId.set(pkg.job_id, pkg);
+    }
+  });
+  const publishedPackageIds = [...latestPublishedPackageByJobId.values()].map((pkg) => pkg.id);
+  const [publishedOptionsResult, publishedSelectionsResult] = await Promise.all([
+    publishedPackageIds.length > 0
+      ? supabase
+          .from("published_quote_options")
+          .select("*")
+          .in("package_id", publishedPackageIds)
+          .order("created_at", { ascending: true })
+      : emptyResponse<PublishedQuoteOptionRecord>(),
+    publishedPackageIds.length > 0
+      ? supabase
+          .from("client_selections")
+          .select("*")
+          .in("package_id", publishedPackageIds)
+          .order("created_at", { ascending: false })
+      : emptyResponse<ClientSelectionRecord>(),
+  ]);
+  const publishedOptions =
+    (ensureData(
+      publishedOptionsResult.data,
+      publishedOptionsResult.error,
+    ) as PublishedQuoteOptionRecord[] | null | undefined) ?? [];
+  const publishedOptionsByPackageId = new Map<string, PublishedQuoteOptionRecord[]>();
+  publishedOptions.forEach((option) => {
+    const options = publishedOptionsByPackageId.get(option.package_id) ?? [];
+    options.push(option);
+    publishedOptionsByPackageId.set(option.package_id, options);
+  });
+  const publishedSelections =
+    (ensureData(
+      publishedSelectionsResult.data,
+      publishedSelectionsResult.error,
+    ) as ClientSelectionRecord[] | null | undefined) ?? [];
+  const latestPublishedSelectionByPackageId = new Map<string, ClientSelectionRecord>();
+  publishedSelections.forEach((selection) => {
+    if (!latestPublishedSelectionByPackageId.has(selection.package_id)) {
+      latestPublishedSelectionByPackageId.set(selection.package_id, selection);
+    }
+  });
   const metadataRows = await fetchClientPartMetadataByJobIds(jobIds);
   const previewPartIds = [...new Set([...parts.map((part) => part.id), ...metadataRows.map((item) => item.partId)])];
   const [previewResult, cadPreviewResult] = await Promise.all([
@@ -434,6 +484,7 @@ export async function fetchClientQuoteWorkspaceByJobIds(
       quoteDataMessage: null,
     };
     const primaryPart = jobParts[0] ?? null;
+    const publishedPackage = latestPublishedPackageByJobId.get(jobId) ?? null;
     const fallbackMetadata = metadataRows.find((item) => item.jobId === jobId) ?? null;
     const basePartWithRelations =
       primaryPart === null
@@ -476,6 +527,12 @@ export async function fetchClientQuoteWorkspaceByJobIds(
         files: jobFiles,
         summary: summariesByJobId.get(jobId) ?? null,
         part: partWithRelations,
+        publishedQuoteOptions: publishedPackage
+          ? publishedOptionsByPackageId.get(publishedPackage.id) ?? []
+          : [],
+        publishedQuoteSelection: publishedPackage
+          ? latestPublishedSelectionByPackageId.get(publishedPackage.id) ?? null
+          : null,
         quoteDataStatus: quoteWorkspaceHealth.quoteDataStatus,
         quoteDataMessage: quoteWorkspaceHealth.quoteDataMessage,
         quoteDiagnostics: quoteWorkspaceHealth.quoteDiagnostics,
@@ -598,6 +655,8 @@ export async function fetchPartDetailByJobId(jobId: string): Promise<PartDetailA
     files: workspaceItem.files,
     summary,
     packages: [],
+    publishedQuoteOptions: workspaceItem.publishedQuoteOptions ?? [],
+    publishedQuoteSelection: workspaceItem.publishedQuoteSelection ?? null,
     part,
     quoteDataStatus: workspaceItem.quoteDataStatus,
     quoteDataMessage: workspaceItem.quoteDataMessage,

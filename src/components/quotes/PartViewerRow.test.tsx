@@ -4,14 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 import { PartViewerRow } from "./PartViewerRow";
 
 vi.mock("@/components/quotes/ClientQuoteAssetPanels", () => ({
-  ClientCadPreviewPanel: ({
-    cadFile,
-    showManufacturingView,
-  }: {
+  ClientCadPreviewPanel: ({ cadFile }: {
     cadFile: { original_name?: string } | null;
-    showManufacturingView?: boolean;
   }) => (
-    <div data-testid="cad-panel" data-manufacturing-view={String(showManufacturingView)}>
+    <div data-testid="cad-panel">
       {cadFile ? cadFile.original_name : "No CAD"}
     </div>
   ),
@@ -58,7 +54,6 @@ describe("PartViewerRow", () => {
 
     const cadPanel = screen.getByTestId("cad-panel");
     expect(cadPanel).toBeInTheDocument();
-    expect(cadPanel).toHaveAttribute("data-manufacturing-view", "false");
     expect(screen.queryByTitle("part.pdf PDF preview")).not.toBeInTheDocument();
 
     const drawingTab = screen.getByRole("tab", { name: /drawing/i });

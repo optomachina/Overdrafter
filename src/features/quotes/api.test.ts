@@ -283,6 +283,18 @@ const supabaseMock = vi.hoisted(() => {
   serviceRequestLineItemsOrder.mockImplementation(() => serviceRequestLineItemsQuery);
   const serviceRequestLineItemsSelect = vi.fn(() => serviceRequestLineItemsQuery);
 
+  const publishedPackagesOrder = vi.fn().mockResolvedValue({ data: [], error: null });
+  const publishedPackagesIn = vi.fn(() => ({ order: publishedPackagesOrder }));
+  const publishedPackagesSelect = vi.fn(() => ({ in: publishedPackagesIn }));
+
+  const publishedOptionsOrder = vi.fn().mockResolvedValue({ data: [], error: null });
+  const publishedOptionsIn = vi.fn(() => ({ order: publishedOptionsOrder }));
+  const publishedOptionsSelect = vi.fn(() => ({ in: publishedOptionsIn }));
+
+  const clientSelectionsOrder = vi.fn().mockResolvedValue({ data: [], error: null });
+  const clientSelectionsIn = vi.fn(() => ({ order: clientSelectionsOrder }));
+  const clientSelectionsSelect = vi.fn(() => ({ in: clientSelectionsIn }));
+
   const pinnedProjectsOrder = vi.fn();
   const pinnedProjectsEq = vi.fn(() => ({ order: pinnedProjectsOrder }));
   const pinnedProjectsSelect = vi.fn(() => ({ eq: pinnedProjectsEq }));
@@ -369,6 +381,24 @@ const supabaseMock = vi.hoisted(() => {
       };
     }
 
+    if (table === "published_quote_packages") {
+      return {
+        select: publishedPackagesSelect,
+      };
+    }
+
+    if (table === "published_quote_options") {
+      return {
+        select: publishedOptionsSelect,
+      };
+    }
+
+    if (table === "client_selections") {
+      return {
+        select: clientSelectionsSelect,
+      };
+    }
+
     if (table === "user_pinned_projects") {
       return {
         select: pinnedProjectsSelect,
@@ -440,6 +470,10 @@ const supabaseMock = vi.hoisted(() => {
     projectJobsOrder,
     projectJobsQuery,
     projectJobsSelect,
+    publishedPackagesOrder,
+    publishedOptionsIn,
+    publishedOptionsOrder,
+    clientSelectionsOrder,
     quoteRequestsIn,
     quoteRequestsOrder,
     quoteRequestsQuery,
@@ -563,6 +597,7 @@ import {
   inferFileKind,
   pinJob,
   pinProject,
+  persistClientQuoteSelection,
   requestDebugExtraction,
   requestManualQuote,
   requestManualQuotes,
@@ -752,6 +787,9 @@ describe("quotes api helpers", () => {
     }));
     supabaseMock.serviceRequestLineItemsOrder.mockImplementation(() => supabaseMock.serviceRequestLineItemsQuery);
     supabaseMock.serviceRequestLineItemsSelect.mockImplementation(() => supabaseMock.serviceRequestLineItemsQuery);
+    supabaseMock.publishedPackagesOrder.mockResolvedValue({ data: [], error: null });
+    supabaseMock.publishedOptionsOrder.mockResolvedValue({ data: [], error: null });
+    supabaseMock.clientSelectionsOrder.mockResolvedValue({ data: [], error: null });
     supabaseMock.authGetSession.mockResolvedValue({
       data: {
         session: {
@@ -1887,6 +1925,97 @@ describe("quotes api helpers", () => {
     expect(supabaseMock.quoteRequestsOrder).toHaveBeenNthCalledWith(2, "id", { ascending: false });
     expect(supabaseMock.serviceRequestLineItemsEqServiceType).toHaveBeenCalledWith("service_type", "manufacturing_quote");
     expect(supabaseMock.serviceRequestLineItemsEqScope).toHaveBeenCalledWith("scope", "part");
+  });
+
+  it("attaches options from the latest published package to the client workspace", async () => {
+    mockClientQuoteWorkspaceScaffolding();
+    supabaseMock.quoteRequestsOrder
+      .mockImplementationOnce(() => supabaseMock.quoteRequestsQuery)
+      .mockResolvedValueOnce({ data: [], error: null });
+    supabaseMock.serviceRequestLineItemsOrder
+      .mockImplementationOnce(() => supabaseMock.serviceRequestLineItemsQuery)
+      .mockResolvedValueOnce({ data: [], error: null });
+    supabaseMock.publishedPackagesOrder.mockResolvedValueOnce({
+      data: [
+        {
+          id: "package-latest",
+          organization_id: "org-1",
+          job_id: "job-1",
+          quote_run_id: "run-latest",
+          pricing_policy_id: "policy-1",
+          client_summary: null,
+          auto_published: true,
+          published_by: "user-1",
+          published_at: "2026-03-03T11:00:00Z",
+          created_at: "2026-03-03T11:00:00Z",
+        },
+        {
+          id: "package-older",
+          organization_id: "org-1",
+          job_id: "job-1",
+          quote_run_id: "run-older",
+          pricing_policy_id: "policy-1",
+          client_summary: null,
+          auto_published: true,
+          published_by: "user-1",
+          published_at: "2026-03-02T11:00:00Z",
+          created_at: "2026-03-02T11:00:00Z",
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.publishedOptionsOrder.mockResolvedValueOnce({
+      data: [
+        {
+          id: "option-1",
+          organization_id: "org-1",
+          package_id: "package-latest",
+          source_vendor_quote_id: "quote-1",
+          source_vendor_quote_offer_id: "offer-1",
+          option_kind: "balanced",
+          label: "Best overall",
+          comparison_summary: null,
+          requested_quantity: 1,
+          published_price_usd: 700.7,
+          lead_time_business_days: 12,
+          markup_policy_version: "v1_markup_20",
+          created_at: "2026-03-03T11:00:00Z",
+        },
+      ],
+      error: null,
+    });
+    supabaseMock.clientSelectionsOrder.mockResolvedValueOnce({
+      data: [
+        {
+          id: "selection-1",
+          package_id: "package-latest",
+          option_id: "option-1",
+          organization_id: "org-1",
+          selected_by: "user-1",
+          note: null,
+          created_at: "2026-03-03T11:05:00Z",
+        },
+      ],
+      error: null,
+    });
+
+    const [workspaceItem] = await fetchClientQuoteWorkspaceByJobIds(["job-1"]);
+
+    expect(supabaseMock.publishedOptionsIn).toHaveBeenCalledWith("package_id", ["package-latest"]);
+    expect(workspaceItem?.publishedQuoteOptions).toEqual([
+      expect.objectContaining({
+        id: "option-1",
+        package_id: "package-latest",
+        published_price_usd: 700.7,
+      }),
+    ]);
+    expect(workspaceItem?.publishedQuoteSelection).toEqual(
+      expect.objectContaining({
+        id: "selection-1",
+        package_id: "package-latest",
+        option_id: "option-1",
+      }),
+    );
   });
 
   it("keeps client lifecycle reads working when the service-request line-item table is unavailable", async () => {
@@ -4013,6 +4142,45 @@ describe("quotes api helpers", () => {
     expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_quote", {
       p_job_id: "job-1",
       p_force_retry: false,
+    });
+  });
+
+  it("persists published comparison choices against the published option only", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({ data: "selection-1", error: null });
+
+    await expect(
+      persistClientQuoteSelection({
+        jobId: "job-1",
+        target: {
+          kind: "published_quote_option",
+          packageId: "package-1",
+          optionId: "option-1",
+        },
+      }),
+    ).resolves.toBe("selection-1");
+
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(1);
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_select_quote_option", {
+      p_package_id: "package-1",
+      p_option_id: "option-1",
+      p_note: null,
+    });
+  });
+
+  it("keeps pre-publication comparison choices on the trusted offer path", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({ data: "job-1", error: null });
+
+    await expect(
+      persistClientQuoteSelection({
+        jobId: "job-1",
+        target: { kind: "vendor_quote_offer", offerId: "offer-1" },
+      }),
+    ).resolves.toBe("job-1");
+
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(1);
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_set_job_selected_vendor_quote_offer", {
+      p_job_id: "job-1",
+      p_vendor_quote_offer_id: "offer-1",
     });
   });
 

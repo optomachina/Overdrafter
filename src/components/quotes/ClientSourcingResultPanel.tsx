@@ -115,13 +115,6 @@ function buildSourcingSummary(result: RecommendationResult): SourcingSummary {
     };
   }
 
-  if (result.reason === "free_preview") {
-    return {
-      hasLiveOffers: false,
-      heading: "Qualified next steps, available now",
-    };
-  }
-
   return {
     hasLiveOffers: false,
     heading: "Qualified next steps, available now",

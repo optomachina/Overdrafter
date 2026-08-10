@@ -64,7 +64,12 @@ import { useWorkspaceNotifications } from "@/features/notifications/use-workspac
 import { buildAppAwareHref } from "@/features/quotes/quote-intelligence-view-model";
 import { useClientPartController } from "@/features/quotes/use-client-part-controller";
 import { buildQuoteRequestViewModel } from "@/features/quotes/quote-request";
-import { buildScopedPreset, getPresetMode, getPresetScope } from "@/features/quotes/selection";
+import {
+  buildScopedPreset,
+  getPresetMode,
+  getPresetScope,
+  type ClientQuoteSelectionOption,
+} from "@/features/quotes/selection";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -241,7 +246,7 @@ const ClientPart = () => {
 
   const storageScopeKey = user?.id ?? "anonymous";
 
-  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(selectedQuoteOption?.offerId ?? null);
+  const [selectedOptionKey, setSelectedOptionKey] = useState<string | null>(selectedQuoteOption?.key ?? null);
   const [comments, setComments] = useState<LocalComment[]>([]);
   const [commentDraft, setCommentDraft] = useState("");
   const [isActivityOpen, setIsActivityOpen] = useState(false);
@@ -250,8 +255,8 @@ const ClientPart = () => {
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
 
   useEffect(() => {
-    setSelectedOfferId(selectedQuoteOption?.offerId ?? null);
-  }, [selectedQuoteOption?.offerId]);
+    setSelectedOptionKey(selectedQuoteOption?.key ?? null);
+  }, [selectedQuoteOption?.key]);
 
   useEffect(() => {
     setComments(readStoredComments(storageScopeKey, jobId));
@@ -318,21 +323,15 @@ const ClientPart = () => {
     void handleRequestQuote(quoteRequestViewModel.action.kind === "retry");
   };
 
-  const handleWorkspaceOfferSelect = (offerId: string | null) => {
-    if (offerId === null) {
-      setSelectedOfferId(null);
+  const handleWorkspaceOfferSelect = (option: ClientQuoteSelectionOption | null) => {
+    if (option === null) {
+      setSelectedOptionKey(null);
       handleSelectQuoteOption(null);
       return;
     }
 
-    const nextOption = rankedQuoteOptions.find((option) => option.offerId === offerId) ?? null;
-
-    if (!nextOption) {
-      return;
-    }
-
-    setSelectedOfferId(offerId);
-    handleSelectQuoteOption(nextOption);
+    setSelectedOptionKey(option.key);
+    handleSelectQuoteOption(option);
   };
   const partPresetScope = getPresetScope(activePreset);
   const partPresetMode = getPresetMode(activePreset);
@@ -789,9 +788,9 @@ const ClientPart = () => {
                     description="Set the sourcing criteria, then compare every quote by price and lead time."
                     options={rankedQuoteOptions}
                     selectedOption={
-                      rankedQuoteOptions.find((option) => option.offerId === selectedOfferId) ?? selectedQuoteOption
+                      rankedQuoteOptions.find((option) => option.key === selectedOptionKey) ?? selectedQuoteOption
                     }
-                    onSelect={(option) => handleWorkspaceOfferSelect(option.offerId)}
+                    onSelect={handleWorkspaceOfferSelect}
                     requestedByDate={requestSummaryRequestedByDate}
                     quoteDataStatus={quoteDataStatus}
                     quoteDataMessage={quoteDataMessage}

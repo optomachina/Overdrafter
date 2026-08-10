@@ -7,6 +7,7 @@ import {
   buildClientQuoteSelectionResult,
   buildVendorLabelMap,
   filterVisibleQuoteOptions,
+  getSelectedOption,
   getPresetMode,
   getPresetScope,
   pickPresetOption,
@@ -724,5 +725,27 @@ describe("selection helpers", () => {
     expect(getPresetMode(null)).toBe("balanced");
     expect(buildScopedPreset("balanced", "global")).toBe("balanced_global");
     expect(buildScopedPreset("fastest", "global")).toBe("fastest_global");
+  });
+
+  it("resolves a rehydrated published selection before the legacy offer pointer", () => {
+    const [baseOption] = buildClientQuoteSelectionOptions({
+      vendorQuotes: [makeQuoteAggregate()],
+    });
+    const publishedOption = {
+      ...baseOption!,
+      selectionTarget: {
+        kind: "published_quote_option" as const,
+        packageId: "package-1",
+        optionId: "published-option-1",
+      },
+    };
+
+    expect(
+      getSelectedOption(
+        [publishedOption],
+        "different-legacy-offer",
+        "published-option-1",
+      ),
+    ).toBe(publishedOption);
   });
 });

@@ -342,7 +342,7 @@ describe("WorkspaceAccountMenu", () => {
     );
 
     const trigger = screen.getByRole("button", { name: /open account menu/i });
-    expect(trigger).toHaveClass("h-11", "sm:h-10", "rounded-[2px]");
+    expect(trigger).toHaveClass("h-11", "sm:h-10", "rounded-[2px]", "focus-visible:ring-paper-red");
     expect(trigger.querySelector(".h-8.w-8")).not.toBeNull();
     expect(screen.getByLabelText("1 unseen notifications")).toHaveClass("lg:inline-flex");
 

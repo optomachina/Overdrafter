@@ -41,7 +41,9 @@ export function QuoteIntelligenceLanding({
         <div className="w-full max-w-2xl">
           <p className="font-mono text-micro uppercase text-paper-red">Machined aluminum sourcing</p>
           <h1 className="mt-5 max-w-[12ch] font-display text-[44px] font-bold leading-[0.98] tracking-[-0.055em] sm:text-[64px]">
-            Files in. Parts out.
+            Files In
+            <br />
+            <span className="text-paper-muted">Parts Out</span>
           </h1>
           <p className="mt-6 max-w-2xl text-body-lg text-paper-muted">
             Upload CAD files and drawings to collect vendor quotes, compare price and lead time, and choose the best

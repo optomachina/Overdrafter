@@ -56,6 +56,7 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       requestQuote: vi.fn(),
       requestQuotes: vi.fn(),
       resendSignupConfirmation: vi.fn(),
+      persistClientQuoteSelection: vi.fn(),
       setJobSelectedVendorQuoteOffer: vi.fn(),
       unarchiveJob: vi.fn(),
       unarchiveProject: vi.fn(),
@@ -113,6 +114,7 @@ vi.mock("@/features/quotes/api/projects-api", () => ({
   updateProject: api.updateProject,
 }));
 vi.mock("@/features/quotes/api/quote-requests-api", () => ({
+  persistClientQuoteSelection: api.persistClientQuoteSelection,
   requestQuote: api.requestQuote,
   requestQuotes: api.requestQuotes,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
