@@ -791,6 +791,8 @@ export type PartDetailAggregate = {
   files: JobFileRecord[];
   summary: JobPartSummary | null;
   packages: PublishedQuotePackageRecord[];
+  publishedQuoteOptions?: PublishedQuoteOptionRecord[];
+  publishedQuoteSelection?: ClientSelectionRecord | null;
   part: PartAggregate | null;
   quoteDataStatus: QuoteDataStatus;
   quoteDataMessage: string | null;
@@ -838,6 +840,8 @@ export type ClientQuoteWorkspaceItem = {
   files: JobFileRecord[];
   summary: JobPartSummary | null;
   part: PartAggregate | null;
+  publishedQuoteOptions?: PublishedQuoteOptionRecord[];
+  publishedQuoteSelection?: ClientSelectionRecord | null;
   quoteDataStatus: QuoteDataStatus;
   quoteDataMessage: string | null;
   quoteDiagnostics: QuoteDiagnostics;

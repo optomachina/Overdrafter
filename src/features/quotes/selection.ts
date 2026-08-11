@@ -13,10 +13,15 @@ export type QuotePresetMode = "balanced" | "cheapest" | "fastest";
 
 export type DomesticStatus = "domestic" | "foreign" | "unknown";
 
+export type ClientQuoteSelectionTarget =
+  | { kind: "published_quote_option"; packageId: string; optionId: string }
+  | { kind: "vendor_quote_offer"; offerId: string };
+
 export type ClientQuoteSelectionOption = {
   key: string;
   offerId: string;
   persistedOfferId: string | null;
+  selectionTarget?: ClientQuoteSelectionTarget | null;
   vendorKey: VendorName;
   vendorQuoteResultId: string;
   vendorStatus?: VendorStatus;
@@ -191,6 +196,21 @@ function formatDateValue(value: Date | null): string | null {
   return value ? format(value, "yyyy-MM-dd") : null;
 }
 
+/**
+ * Resolves only an offer's explicit receive-by or due-date value. Invalid or
+ * absent fixed-date text returns null instead of falling back to lead time.
+ */
+export function resolveOfferFixedDeliveryDate(input: {
+  shipReceiveBy: string | null;
+  dueDate: string | null;
+  now?: Date;
+}): string | null {
+  const now = input.now ?? new Date();
+  return formatDateValue(
+    parseLooseDate(input.shipReceiveBy, now) ?? parseLooseDate(input.dueDate, now),
+  );
+}
+
 function resolveOfferDeliveryDate(input: {
   shipReceiveBy: string | null;
   dueDate: string | null;
@@ -199,16 +219,14 @@ function resolveOfferDeliveryDate(input: {
   now?: Date;
 }): string | null {
   const now = input.now ?? new Date();
-  const shipReceiveBy = parseLooseDate(input.shipReceiveBy, now);
+  const fixedDeliveryDate = resolveOfferFixedDeliveryDate({
+    shipReceiveBy: input.shipReceiveBy,
+    dueDate: input.dueDate,
+    now,
+  });
 
-  if (shipReceiveBy) {
-    return formatDateValue(shipReceiveBy);
-  }
-
-  const dueDate = parseLooseDate(input.dueDate, now);
-
-  if (dueDate) {
-    return formatDateValue(dueDate);
+  if (fixedDeliveryDate) {
+    return fixedDeliveryDate;
   }
 
   if (input.leadTimeBusinessDays === null || input.leadTimeBusinessDays === undefined) {
@@ -709,6 +727,9 @@ function buildOptionRecords(input: NormalizedOfferInput): QuoteOptionBuildResult
       key: offer.id ?? `${quote.id}:${offer.offerId}`,
       offerId: offer.offerId,
       persistedOfferId: offer.id,
+      selectionTarget: offer.id
+        ? { kind: "vendor_quote_offer", offerId: offer.id }
+        : null,
       vendorKey: quote.vendor,
       vendorQuoteResultId: quote.id,
       vendorStatus: quote.status,
@@ -1046,10 +1067,28 @@ export function summarizeSelectedQuoteOptions(
   );
 }
 
+/**
+ * Resolves the persisted client choice from the available comparison options.
+ * A matching published option takes precedence over the legacy vendor-offer
+ * pointer; when no published option matches, selection falls back to that
+ * legacy offer ID.
+ */
 export function getSelectedOption(
   options: readonly ClientQuoteSelectionOption[],
   selectedOfferId: string | null | undefined,
+  selectedPublishedOptionId?: string | null,
 ): ClientQuoteSelectionOption | null {
+  if (selectedPublishedOptionId) {
+    const publishedSelection = options.find(
+      (option) =>
+        option.selectionTarget?.kind === "published_quote_option" &&
+        option.selectionTarget.optionId === selectedPublishedOptionId,
+    );
+    if (publishedSelection) {
+      return publishedSelection;
+    }
+  }
+
   if (!selectedOfferId) {
     return null;
   }

@@ -8,12 +8,13 @@
 - Raw client read queries must not directly select optional request-intent columns such as `jobs.requested_service_kinds`. Client quote/workspace reads must go through the compatibility accessor in `src/features/quotes/api.ts` so older schemas keep loading with normalized defaults.
 
 ## Layout
-- Header with part title, project/batch badges, request summary badges, and actions for project membership, file attach, and review.
-- Main detail surface is split into four tabs: `Quote`, `Request`, `Files`, and `Activity`.
-- `Quote` is the default tab and contains the quote decision panel, preset controls, chart, and ranked quote list.
-- `Request` contains part information, request editing, quote-request status, and extraction-state messaging.
-- `Files` contains the CAD preview, drawing/PDF preview, and attached-file context.
-- `Activity` contains comment entry plus the activity/history and comment views.
+- The application header owns the part title. The part surface adds description and project context, one primary file-attach action, and an overflow menu for favorite and project actions. Revision navigation lives in the inspector.
+- The main workspace is a linear manufacturing record: part identity, one dominant artifact preview, compact part information, quote criteria, scatter chart, ranked quote list, then secondary activity/history.
+- The artifact preview uses a `CAD | Drawing` switch. Previewable STEP/STP CAD is selected by default; drawing is the fallback when CAD cannot be previewed. Native CAD remains selectable for download.
+- Quote comparison is always present in the main flow rather than hidden behind a tab. Criteria stay immediately above the chart, and the chart and ranked list continue to share selection state.
+- Unsupported-package guidance appears before comparison when the user must resolve a blocker. Provider-only recommendations also precede an otherwise empty comparison; fallback recommendations accompanying live offers follow the comparison.
+- Editable requirements, revisions, extraction state, and quote-request status remain in the right inspector. The inspector is a persistent rail on wide screens and a full-screen sheet on phones.
+- Activity and comments remain available in a collapsed secondary section below quote comparison.
 
 ## Quote Selection
 - Uses `src/features/quotes/selection.ts` for normalized client-facing quote options.
@@ -26,8 +27,9 @@
 - Vendor labels use real vendor names, and comparison rows keep the stored lane and sourcing text visible to the client.
 
 ## Preview Panels
-- Drawing panel uses `ClientDrawingPreviewPanel` with inline page switching and a download action.
-- CAD panel uses `ClientCadPreviewPanel` and reuses `CadModelThumbnail` for STEP/STP previews.
+- `ClientArtifactWorkspace` presents one selected artifact at a time and owns the `CAD | Drawing` switch.
+- Drawing uses `ClientDrawingPreviewPanel` with inline page switching and a download action.
+- CAD uses `ClientCadPreviewPanel` and reuses `CadModelThumbnail` for STEP/STP previews.
 - Missing PDF and missing CAD are explicit empty states instead of silent gaps.
 
 ## Editable Metadata

@@ -167,6 +167,7 @@ describe("ClientQuoteDetail", () => {
 
     expect(mocks.useClientPartController).toHaveBeenCalledWith("job-1", {
       redirectUnauthenticated: false,
+      warmNavigation: false,
     });
     expect(screen.getByRole("heading", { name: "COL-100 · Rev B" })).toBeInTheDocument();
     expect(screen.getByText("Supplier response comparison")).toBeInTheDocument();
@@ -178,6 +179,7 @@ describe("ClientQuoteDetail", () => {
 
     expect(mocks.useClientPartController).toHaveBeenCalledWith(undefined, {
       redirectUnauthenticated: false,
+      warmNavigation: false,
     });
     expect(screen.getByRole("heading", { name: "Quote NOPE24" })).toBeInTheDocument();
     expect(screen.getByText(/does not match a quote available to your account/i)).toBeInTheDocument();
@@ -191,6 +193,7 @@ describe("ClientQuoteDetail", () => {
 
     expect(mocks.useClientPartController).toHaveBeenCalledWith(undefined, {
       redirectUnauthenticated: false,
+      warmNavigation: false,
     });
     expect(screen.getByText(/matches more than one accessible quote/i)).toBeInTheDocument();
     expect(screen.getByText(/No quote was opened/i)).toBeInTheDocument();
@@ -206,6 +209,7 @@ describe("ClientQuoteDetail", () => {
     expect(screen.getByText(/locator, not an access credential/i)).toBeInTheDocument();
     expect(mocks.useClientPartController).toHaveBeenCalledWith(undefined, {
       redirectUnauthenticated: false,
+      warmNavigation: false,
     });
   });
 });

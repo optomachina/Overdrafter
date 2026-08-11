@@ -1,9 +1,12 @@
 import { ClientCadPreviewPanel, ClientDrawingPreviewPanel } from "@/components/quotes/ClientQuoteAssetPanels";
+import { ClientArtifactWorkspace } from "@/components/quotes/ClientArtifactWorkspace";
 import type { DrawingPreviewPage, DrawingPreviewState } from "@/components/quotes/ClientQuoteAssetPanels";
 import type { DrawingPreviewData, JobFileRecord } from "@/features/quotes/types";
+import { isStepPreviewableFile } from "@/lib/cad-preview";
 import type { StoredFileViewerMode } from "@/lib/file-viewer";
 
 type PartViewerRowProps = {
+  readonly itemKey: string;
   readonly cadFile: JobFileRecord | null | undefined;
   readonly drawingFile: JobFileRecord | null | undefined;
   readonly drawingPreview: DrawingPreviewData | null | undefined;
@@ -17,6 +20,7 @@ type PartViewerRowProps = {
 };
 
 export function PartViewerRow({
+  itemKey,
   cadFile,
   drawingFile,
   drawingPreview,
@@ -28,10 +32,21 @@ export function PartViewerRow({
   isLoading,
   onOpenDialog,
 }: PartViewerRowProps) {
+  const hasCadPreview = Boolean(cadFile && isStepPreviewableFile(cadFile.original_name));
+
   return (
-    <div className="flex flex-col gap-4">
-      <ClientCadPreviewPanel cadFile={cadFile ?? null} />
-      <ClientDrawingPreviewPanel
+    <ClientArtifactWorkspace
+      itemKey={itemKey}
+      hasCad={Boolean(cadFile)}
+      hasCadPreview={hasCadPreview}
+      hasDrawing={Boolean(drawingFile)}
+      cadPanel={(
+        <ClientCadPreviewPanel
+          cadFile={cadFile ?? null}
+          className="rounded-[8px] border-0 bg-transparent p-0"
+        />
+      )}
+      drawingPanel={<ClientDrawingPreviewPanel
         drawingFile={drawingFile ?? null}
         drawingPreview={drawingPreview ?? { pageCount: 0, thumbnail: null, pages: [] }}
         viewerMode={drawingViewerMode}
@@ -41,7 +56,8 @@ export function PartViewerRow({
         statusMessage={drawingPreviewStatusMessage}
         isLoading={isLoading}
         onOpenDialog={onOpenDialog}
-      />
-    </div>
+        className="rounded-[8px] border-0 bg-transparent p-0"
+      />}
+    />
   );
 }

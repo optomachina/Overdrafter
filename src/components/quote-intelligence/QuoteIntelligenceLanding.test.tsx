@@ -14,7 +14,8 @@ describe("QuoteIntelligenceLanding", () => {
     );
 
     expect(screen.getByText("Machined aluminum sourcing")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Files in. Parts out." })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Files In Parts Out" })).toBeInTheDocument();
+    expect(screen.getByText("Parts Out")).toHaveClass("text-paper-muted");
     expect(
       screen.getByText(/upload CAD files and drawings to collect vendor quotes, compare price and lead time/i),
     ).toBeInTheDocument();

@@ -432,7 +432,7 @@ Then open one of these URLs:
 - `http://127.0.0.1:5173/projects/fx-project-quoted?fixture=client-quoted&debug=1`
 - `http://127.0.0.1:5173/projects/fx-project-published/review?fixture=client-published&debug=1`
 
-The floating `Fixtures` launcher is available in local dev and test builds. It appears in the bottom-right corner, above the `Diagnostics` button.
+Fixture controls appear as a compact strip inside the client application frame in local dev and test builds. Open them from the account menu when no fixture is active.
 Use `/debug/state-gallery` when you want the auth states and the existing fixture-backed workspace states in one review surface.
 The quoted fixture and gallery sample now use the real `1093-05589-02` STEP/PDF pair plus workbook-backed quote lanes from batch `QB00002`.
 

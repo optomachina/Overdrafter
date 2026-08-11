@@ -116,6 +116,7 @@ const DEFAULT_SECTIONS: SidebarSections = {
 const SIDEBAR_COLUMN_INSET_CLASS = "px-2";
 const SIDEBAR_ACTION_BUTTON_PADDING_CLASS = "pl-2.5 pr-3";
 const SIDEBAR_ROW_PADDING_CLASS = "px-2 py-2";
+const SIDEBAR_QUOTE_SUMMARY_CLASS = "font-mono text-xs font-semibold leading-5 tabular-nums text-foreground";
 const SIDEBAR_PREFETCH_DELAY_MS = 75;
 
 function formatSidebarPrice(priceUsd: number) {
@@ -1026,7 +1027,7 @@ export function WorkspaceSidebar({
               <div className="flex items-center gap-2">
                 <p className="min-w-0 truncate text-sm leading-5">{presentation.title}</p>
                 {selectedQuote ? (
-                  <p className="ml-auto shrink-0 text-[11px] leading-5 text-emerald-300/90">{selectedQuote}</p>
+                  <p className={cn("ml-auto shrink-0", SIDEBAR_QUOTE_SUMMARY_CLASS)}>{selectedQuote}</p>
                 ) : null}
               </div>
               {!nestedInProject && parentProjectNames.length > 0 ? (
@@ -1230,7 +1231,7 @@ export function WorkspaceSidebar({
                 <div className="flex items-center gap-2">
                   <p className="min-w-0 truncate text-sm leading-5">{project.name}</p>
                   {selectedQuote ? (
-                    <p className="ml-auto shrink-0 text-[11px] leading-5 text-emerald-300/90">{selectedQuote}</p>
+                    <p className={cn("ml-auto shrink-0", SIDEBAR_QUOTE_SUMMARY_CLASS)}>{selectedQuote}</p>
                   ) : null}
                 </div>
               </div>

@@ -3,11 +3,10 @@ import { FlaskConical } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   CLIENT_WORKSPACE_FIXTURE_SCENARIOS,
-  getActiveFixtureScenario,
+  getFixtureScenarioIdFromSearch,
   isFixtureModeAvailable,
 } from "@/features/quotes/client-workspace-fixtures";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 function appendDebugQuery(target: string, currentSearch: string): string {
   const params = new URLSearchParams(currentSearch);
@@ -27,10 +26,13 @@ export function openFixturePanel() {
   _openFixturePanel?.();
 }
 
-export function FixturePanel({ hideFloatingButton = false }: { hideFloatingButton?: boolean }) {
+export function FixturePanel() {
   const location = useLocation();
   const navigate = useNavigate();
-  const activeScenario = getActiveFixtureScenario();
+  const activeScenarioId = getFixtureScenarioIdFromSearch(location.search);
+  const activeScenario = CLIENT_WORKSPACE_FIXTURE_SCENARIOS.find(
+    (scenario) => scenario.id === activeScenarioId,
+  );
   const [open, setOpen] = useState(Boolean(activeScenario));
 
   useEffect(() => {
@@ -40,6 +42,12 @@ export function FixturePanel({ hideFloatingButton = false }: { hideFloatingButto
     };
   }, []);
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
+
+  useEffect(() => {
+    if (activeScenario) {
+      setOpen(true);
+    }
+  }, [activeScenario]);
 
   const visible = isFixtureModeAvailable() && params.get("embed") !== "1";
   const exitHref = useMemo(() => {
@@ -53,76 +61,79 @@ export function FixturePanel({ hideFloatingButton = false }: { hideFloatingButto
     return null;
   }
 
+  if (!open) {
+    return null;
+  }
+
+  const handleExit = () => {
+    setOpen(false);
+    navigate(exitHref, { replace: true });
+  };
+
   return (
-    <div className="fixed bottom-20 right-4 z-40 flex max-w-[min(92vw,22rem)] flex-col items-end gap-3">
-      {open ? (
-        <div className="rounded-3xl border border-border bg-ws-deep/96 p-4 text-foreground shadow-2xl backdrop-blur">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Fixture mode</p>
-              <p className="mt-2 text-sm text-foreground/80">
-                Jump into repeatable client workspace scenarios without using Supabase.
-              </p>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
-              onClick={() => navigate(exitHref)}
-            >
-              Exit
-            </Button>
-          </div>
-
-          <div className="mt-4 flex flex-col gap-2">
-            <button
-              type="button"
-              className={cn(
-                "rounded-2xl border px-4 py-3 text-left transition",
-                location.pathname === "/debug/state-gallery"
-                  ? "border-border bg-accent"
-                  : "border-border bg-accent hover:bg-accent",
-              )}
-              onClick={() => navigate(appendDebugQuery("/debug/state-gallery", location.search))}
-            >
-              <p className="text-sm font-medium text-foreground">State gallery</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Review auth, workspace, part, and project fixture surfaces from one page.
-              </p>
-            </button>
-
-            {CLIENT_WORKSPACE_FIXTURE_SCENARIOS.map((scenario) => (
-              <button
-                key={scenario.id}
-                type="button"
-                className={cn(
-                  "rounded-2xl border px-4 py-3 text-left transition",
-                  activeScenario?.id === scenario.id
-                    ? "border-border bg-accent"
-                    : "border-border bg-accent hover:bg-accent",
-                )}
-                onClick={() => navigate(appendDebugQuery(scenario.canonicalPath, location.search))}
-              >
-                <p className="text-sm font-medium text-foreground">{scenario.label}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{scenario.description}</p>
-              </button>
-            ))}
-          </div>
+    <section
+      aria-label="Fixture controls"
+      className="shrink-0 border-b border-paper-hairline bg-paper-surface text-paper-ink"
+      data-fixture-panel
+    >
+      <div className="mx-auto flex min-h-11 w-full max-w-[1440px] flex-wrap items-center gap-2 px-4 py-2 sm:px-6">
+        <div className="mr-auto flex min-w-0 items-center gap-2">
+          <FlaskConical className="h-4 w-4 shrink-0 text-paper-muted" aria-hidden="true" />
+          <span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-paper-muted">
+            Fixture
+          </span>
+          {activeScenario ? (
+            <span className="truncate text-[12px] font-medium text-paper-ink">
+              {activeScenario.label}
+            </span>
+          ) : null}
         </div>
-      ) : null}
 
-      {!hideFloatingButton ? (
+        <label>
+          <span className="sr-only">Fixture scenario</span>
+          <select
+            aria-label="Fixture scenario"
+            className="h-8 rounded-[2px] border border-paper-hairline bg-paper px-2 text-[12px] text-paper-ink outline-none focus:border-paper-red focus:ring-1 focus:ring-paper-red"
+            value={activeScenarioId ?? ""}
+            onChange={(event) => {
+              const scenario = CLIENT_WORKSPACE_FIXTURE_SCENARIOS.find(
+                (candidate) => candidate.id === event.target.value,
+              );
+              if (scenario) {
+                navigate(appendDebugQuery(scenario.canonicalPath, location.search));
+              }
+            }}
+          >
+            <option value="" disabled>
+              Choose scenario
+            </option>
+            {CLIENT_WORKSPACE_FIXTURE_SCENARIOS.map((scenario) => (
+              <option key={scenario.id} value={scenario.id}>
+                {scenario.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <Button
           type="button"
           size="sm"
-          className="w-fit gap-2 rounded-full border border-border bg-ws-deep/92 text-foreground shadow-2xl hover:bg-accent"
-          onClick={() => setOpen((current) => !current)}
+          variant="ghost"
+          className="h-8 rounded-[2px] px-2 text-[12px] text-paper-muted hover:bg-paper-inset hover:text-paper-ink"
+          onClick={() => navigate(appendDebugQuery("/debug/state-gallery", location.search))}
         >
-          <FlaskConical className="h-4 w-4" />
-          Fixtures
+          State gallery
         </Button>
-      ) : null}
-    </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-8 rounded-[2px] border-paper-hairline bg-paper px-2 text-[12px] text-paper-ink hover:bg-paper-inset"
+          onClick={handleExit}
+        >
+          Exit
+        </Button>
+      </div>
+    </section>
   );
 }

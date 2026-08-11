@@ -56,6 +56,7 @@ const { mockUseAppSession, mockOpenFilePicker, mockHandleFileInputChange, mockUs
       requestQuote: vi.fn(),
       requestQuotes: vi.fn(),
       resendSignupConfirmation: vi.fn(),
+      persistClientQuoteSelection: vi.fn(),
       setJobSelectedVendorQuoteOffer: vi.fn(),
       unarchiveJob: vi.fn(),
       unarchiveProject: vi.fn(),
@@ -113,6 +114,7 @@ vi.mock("@/features/quotes/api/projects-api", () => ({
   updateProject: api.updateProject,
 }));
 vi.mock("@/features/quotes/api/quote-requests-api", () => ({
+  persistClientQuoteSelection: api.persistClientQuoteSelection,
   requestQuote: api.requestQuote,
   requestQuotes: api.requestQuotes,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
@@ -592,7 +594,7 @@ describe("top-level create actions", () => {
     expect(screen.queryByText("Create project")).toBeNull();
   });
 
-  it("uses the file picker for ClientPart new project", async () => {
+  it("uses the file picker for the ClientPart header upload action", async () => {
     mockUseClientJobFilePicker
       .mockImplementationOnce(() => ({
         accept: ".step,.pdf",
@@ -614,14 +616,13 @@ describe("top-level create actions", () => {
       "/parts/job-1",
     );
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "New Project" })).not.toBeNull();
-    });
+    const uploadButton = await screen.findByRole("button", { name: "Upload" });
 
-    fireEvent.click(screen.getByRole("button", { name: "New Job" }));
-    fireEvent.click(screen.getByRole("button", { name: "New Project" }));
+    expect(uploadButton.querySelector(".lucide-square-plus")).not.toBeNull();
 
-    expect(mockOpenFilePicker).toHaveBeenCalledTimes(2);
+    fireEvent.click(uploadButton);
+
+    expect(mockOpenFilePicker).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Create project")).toBeNull();
   });
 
@@ -640,7 +641,8 @@ describe("top-level create actions", () => {
       expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
     });
 
-    expect(screen.getByRole("button", { name: "Manage projects" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
+    expect(await screen.findByRole("menuitem", { name: "Manage projects" })).not.toBeNull();
     fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
 
     await waitFor(() => {
@@ -680,11 +682,9 @@ describe("top-level create actions", () => {
       "/parts/job-1",
     );
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Manage projects" })).not.toBeNull();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Manage projects" }));
+    const actionsButton = await screen.findByRole("button", { name: /issue detail actions/i });
+    fireEvent.click(actionsButton);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Manage projects" }));
     const dialog = await screen.findByRole("dialog", { name: /manage project membership/i });
     fireEvent.click(within(dialog).getByRole("button", { name: /project one/i }));
 

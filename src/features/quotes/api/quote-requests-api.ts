@@ -3,12 +3,14 @@ import type {
   QuoteRequestSubmissionResult,
   QuoteRunReadiness,
 } from "@/features/quotes/types";
+import type { ClientQuoteSelectionTarget } from "@/features/quotes/selection";
 import type {
   VendorName,
 } from "@/integrations/supabase/types";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
 import { callRpc } from "./shared/rpc";
 import { ensureData } from "./shared/response";
+import { selectQuoteOption } from "./packages-api";
 
 export async function setJobSelectedVendorQuoteOffer(jobId: string, offerId: string | null): Promise<string> {
   const fixtureGateway = getActiveClientWorkspaceGateway();
@@ -23,6 +25,25 @@ export async function setJobSelectedVendorQuoteOffer(jobId: string, offerId: str
   });
 
   return ensureData(data, error);
+}
+
+/**
+ * Persists a client comparison choice at the strongest available provenance boundary.
+ * Published choices remain package-scoped; only pre-publication choices use the
+ * legacy job-level offer pointer.
+ */
+export async function persistClientQuoteSelection(input: {
+  jobId: string;
+  target: ClientQuoteSelectionTarget;
+}): Promise<string> {
+  if (input.target.kind === "published_quote_option") {
+    return selectQuoteOption({
+      packageId: input.target.packageId,
+      optionId: input.target.optionId,
+    });
+  }
+
+  return setJobSelectedVendorQuoteOffer(input.jobId, input.target.offerId);
 }
 
 export async function startQuoteRun(

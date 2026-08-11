@@ -1,7 +1,28 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { Box, FileText, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
+import {
+  Box,
+  FileText,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightOpen,
+  Search,
+} from "lucide-react";
 import { OverDrafterMark } from "@/components/OverDrafterMark";
+import { FixturePanel } from "@/components/debug/FixturePanel";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { ClientShellSection } from "@/components/quote-intelligence/ClientShellPrimitives";
 import { cn } from "@/lib/utils";
 
 type QuoteIntelligenceShellProps = {
@@ -10,6 +31,8 @@ type QuoteIntelligenceShellProps = {
   readonly description?: string;
   readonly uploadSlot?: ReactNode;
   readonly accountSlot?: ReactNode;
+  readonly inspector?: ReactNode;
+  readonly inspectorTitle?: string;
   readonly children: ReactNode;
   readonly contentClassName?: string;
 };
@@ -23,6 +46,11 @@ const DESTINATIONS = [
 const DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY = "workspace-shell.desktop-collapsed-v1";
 const SIDEBAR_EXPANDED_WIDTH = 224;
 const SIDEBAR_COLLAPSED_WIDTH = 52;
+const INSPECTOR_WIDTH = 336;
+const MOBILE_NAVIGATION_SHEET_ID = "client-mobile-navigation-sheet";
+const MOBILE_INSPECTOR_SHEET_ID = "client-mobile-inspector-sheet";
+const SHELL_TOOLTIP_CLASS_NAME =
+  "z-[100] rounded-[2px] border border-paper-hairline bg-paper-ink px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-paper shadow-none";
 
 function readDesktopSidebarCollapsed() {
   try {
@@ -38,6 +66,11 @@ function readDesktopSidebarCollapsed() {
 function readNarrowViewport() {
   return globalThis.window !== undefined &&
     globalThis.window.matchMedia?.("(max-width: 767px)").matches === true;
+}
+
+function readWideInspectorViewport() {
+  return globalThis.window !== undefined &&
+    globalThis.window.matchMedia?.("(min-width: 1280px)").matches === true;
 }
 
 function persistDesktopSidebarCollapsed(collapsed: boolean) {
@@ -88,27 +121,51 @@ function useSidebarCollapseState() {
   return [collapsed, setCollapsedFromUser] as const;
 }
 
-function DestinationNavigation({ collapsed }: Readonly<{ collapsed: boolean }>) {
+function useWideInspectorViewport() {
+  const [wide, setWide] = useState(readWideInspectorViewport);
+
+  useEffect(() => {
+    if (!globalThis.window?.matchMedia) {
+      return;
+    }
+
+    const mediaQuery = globalThis.window.matchMedia("(min-width: 1280px)");
+    const handleViewportChange = (event: MediaQueryListEvent) => setWide(event.matches);
+
+    setWide(mediaQuery.matches);
+    mediaQuery.addEventListener?.("change", handleViewportChange);
+
+    return () => mediaQuery.removeEventListener?.("change", handleViewportChange);
+  }, []);
+
+  return wide;
+}
+
+type DestinationNavigationProps = Readonly<{
+  collapsed: boolean;
+  onNavigate?: () => void;
+}>;
+
+function DestinationNavigation({ collapsed, onNavigate }: DestinationNavigationProps) {
   const location = useLocation();
 
   return (
-    <nav aria-label="Primary" className="flex flex-col gap-1 p-2">
+    <nav aria-label="Primary" className="flex flex-col gap-1 px-2 pb-2 pt-0">
       {DESTINATIONS.map(({ href, label, icon: Icon }) => {
         const active = location.pathname === href || location.pathname.startsWith(`${href}/`);
-
-        return (
+        const link = (
           <NavLink
-            key={href}
             to={href}
             aria-current={active ? "page" : undefined}
+            onClick={onNavigate}
             className={cn(
-              "group relative grid h-10 w-full grid-cols-[36px_minmax(0,1fr)] items-center overflow-hidden rounded px-0 text-[13px] font-medium text-paper-muted transition-colors hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red",
+              "group relative grid h-11 w-full grid-cols-[36px_minmax(0,1fr)] items-center overflow-hidden rounded-[2px] px-0 text-[13px] font-medium text-paper-muted transition-colors hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red md:h-10",
               active && "bg-paper-inset text-paper-ink",
             )}
           >
             {active ? <span className="absolute inset-y-2 left-0 w-0.5 bg-paper-red" aria-hidden="true" /> : null}
             <span className="grid h-9 w-9 place-items-center">
-              <Icon className="h-4 w-4" aria-hidden="true" />
+              <Icon className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" data-navigation-icon={label} />
             </span>
             <span
               className={cn(
@@ -119,6 +176,17 @@ function DestinationNavigation({ collapsed }: Readonly<{ collapsed: boolean }>) 
               {label}
             </span>
           </NavLink>
+        );
+
+        return (
+          <Tooltip key={href}>
+            <TooltipTrigger asChild>{link}</TooltipTrigger>
+            {collapsed ? (
+              <TooltipContent side="right" sideOffset={8} className={SHELL_TOOLTIP_CLASS_NAME}>
+                {label}
+              </TooltipContent>
+            ) : null}
+          </Tooltip>
         );
       })}
     </nav>
@@ -145,7 +213,7 @@ function DesktopSidebar({ collapsed, onCollapse, onExpand, onGoHome }: DesktopSi
   return (
     <aside
       data-state={collapsed ? "collapsed" : "expanded"}
-      className="fixed inset-y-0 left-0 z-50 overflow-hidden border-r border-paper-hairline bg-paper transition-[width] duration-200 ease-out"
+      className="hidden h-svh shrink-0 overflow-hidden border-r border-paper-hairline bg-paper transition-[width] duration-200 ease-out md:block"
       style={{ width: `${collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH}px` }}
     >
       <div className="relative flex h-14 items-center border-b border-paper-hairline px-2">
@@ -154,7 +222,7 @@ function DesktopSidebar({ collapsed, onCollapse, onExpand, onGoHome }: DesktopSi
           aria-label={collapsed ? "Open sidebar" : "OverDrafter home"}
           aria-expanded={collapsed ? false : undefined}
           onClick={handleBrandClick}
-          className="group flex h-9 min-w-0 flex-1 items-center overflow-hidden pr-11 font-display text-[14px] font-bold uppercase tracking-[-0.04em] text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red"
+          className="group flex h-9 min-w-0 flex-1 translate-y-1 items-center overflow-hidden pr-11 font-display text-[14px] font-bold uppercase tracking-[-0.04em] text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red"
         >
           <span className="relative grid h-9 w-9 shrink-0 place-items-center">
             <OverDrafterMark
@@ -168,6 +236,7 @@ function DesktopSidebar({ collapsed, onCollapse, onExpand, onGoHome }: DesktopSi
                 "pointer-events-none absolute h-4 w-4 opacity-0 transition-opacity duration-150",
                 collapsed && "group-hover:opacity-100 group-focus-visible:opacity-100",
               )}
+              strokeWidth={1.5}
             />
           </span>
           <span
@@ -187,11 +256,11 @@ function DesktopSidebar({ collapsed, onCollapse, onExpand, onGoHome }: DesktopSi
           tabIndex={collapsed ? -1 : undefined}
           onClick={onCollapse}
           className={cn(
-            "absolute right-2 grid h-9 w-9 place-items-center rounded text-paper-muted transition-[color,background-color,opacity] duration-150 hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red",
+            "absolute right-2 grid h-9 w-9 translate-y-1 place-items-center rounded-[2px] text-paper-muted transition-[color,background-color,opacity] duration-150 hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-paper-red",
             collapsed ? "pointer-events-none opacity-0" : "opacity-100",
           )}
         >
-          <PanelLeftClose className="h-4 w-4" />
+          <PanelLeftClose className="h-4 w-4" strokeWidth={1.5} />
         </button>
       </div>
       <DestinationNavigation collapsed={collapsed} />
@@ -199,51 +268,153 @@ function DesktopSidebar({ collapsed, onCollapse, onExpand, onGoHome }: DesktopSi
   );
 }
 
+type MobileNavigationProps = Readonly<{
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}>;
+
+function MobileNavigation({ open, onOpenChange }: MobileNavigationProps) {
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        id={MOBILE_NAVIGATION_SHEET_ID}
+        side="left"
+        aria-describedby={undefined}
+        className="max-w-[calc(100vw-32px)] gap-0 border-paper-hairline bg-paper p-0 text-paper-ink shadow-none [&>button]:rounded-[2px]"
+        style={{ width: `${SIDEBAR_EXPANDED_WIDTH}px` }}
+      >
+        <SheetHeader className="h-14 justify-center border-b border-paper-hairline px-3 text-left">
+          <SheetTitle className="font-display text-[14px] font-bold uppercase tracking-[-0.04em]">
+            OverDrafter
+          </SheetTitle>
+        </SheetHeader>
+        <DestinationNavigation collapsed={false} onNavigate={() => onOpenChange(false)} />
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 type WorkspaceHeaderProps = Readonly<{
   accountSlot?: ReactNode;
+  hasInspector: boolean;
+  inspectorOpen: boolean;
+  inspectorTriggerRef: RefObject<HTMLButtonElement | null>;
   isIosApp: boolean;
+  mobileNavigationOpen: boolean;
+  mobileNavigationTriggerRef: RefObject<HTMLButtonElement | null>;
+  onOpenInspector: () => void;
+  onOpenMobileNavigation: () => void;
   title: string;
   uploadSlot?: ReactNode;
 }>;
 
-function WorkspaceHeader({ accountSlot, isIosApp, title, uploadSlot }: WorkspaceHeaderProps) {
+function WorkspaceHeader({
+  accountSlot,
+  hasInspector,
+  inspectorOpen,
+  inspectorTriggerRef,
+  isIosApp,
+  mobileNavigationOpen,
+  mobileNavigationTriggerRef,
+  onOpenInspector,
+  onOpenMobileNavigation,
+  title,
+  uploadSlot,
+}: WorkspaceHeaderProps) {
   return (
-    <header className="sticky top-0 z-40 border-b border-paper-hairline bg-paper/95 backdrop-blur-sm">
-      <div className="mx-auto flex h-14 w-full max-w-[1440px] items-center gap-4 px-4 sm:px-6">
-        {isIosApp ? (
-          <NavLink
-            to="/parts?app=ios"
-            className="shrink-0 font-display text-[14px] font-bold uppercase tracking-[-0.04em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red"
+    <header className="relative z-40 flex h-14 shrink-0 items-center gap-3 border-b border-paper-hairline bg-paper px-3 sm:px-4">
+      {!isIosApp ? (
+        <button
+          ref={mobileNavigationTriggerRef}
+          type="button"
+          aria-label="Open navigation"
+          aria-controls={MOBILE_NAVIGATION_SHEET_ID}
+          aria-expanded={mobileNavigationOpen}
+          aria-haspopup="dialog"
+          onClick={onOpenMobileNavigation}
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-[2px] text-paper-muted hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red md:hidden"
+        >
+          <PanelLeftOpen className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+        </button>
+      ) : (
+        <NavLink
+          to="/parts?app=ios"
+          className="shrink-0 font-display text-[14px] font-bold uppercase tracking-[-0.04em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red"
+        >
+          OverDrafter
+        </NavLink>
+      )}
+
+      <h1 className="min-w-0 truncate font-mono text-[11px] font-medium uppercase tracking-[0.08em] text-paper-ink">
+        {title}
+      </h1>
+
+      <div className="ml-auto flex min-w-0 items-center gap-2">
+        {uploadSlot}
+        {hasInspector ? (
+          <button
+            ref={inspectorTriggerRef}
+            type="button"
+            aria-label="Open inspector"
+            aria-controls={MOBILE_INSPECTOR_SHEET_ID}
+            aria-expanded={inspectorOpen}
+            aria-haspopup="dialog"
+            onClick={onOpenInspector}
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-[2px] text-paper-muted hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red sm:h-9 sm:w-9 xl:hidden"
           >
-            OverDrafter
-          </NavLink>
-        ) : (
-          <span className="truncate font-mono text-[10px] uppercase tracking-[0.08em] text-paper-muted">{title}</span>
-        )}
-        <div className="ml-auto flex min-w-0 items-center gap-2">
-          {uploadSlot}
-          {accountSlot}
-        </div>
+            <PanelRightOpen className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+          </button>
+        ) : null}
+        {accountSlot}
       </div>
     </header>
   );
 }
 
-function WorkspaceHeading({
-  description,
-  eyebrow,
-  title,
-}: Readonly<Pick<QuoteIntelligenceShellProps, "description" | "eyebrow" | "title">>) {
+type InspectorProps = Readonly<{
+  children: ReactNode;
+  title: string;
+}>;
+
+function DesktopInspector({ children, title }: InspectorProps) {
   return (
-    <div className="mb-7 border-b border-paper-hairline pb-5">
-      {eyebrow ? (
-        <p className="mb-2 font-mono text-micro uppercase text-paper-muted">{eyebrow}</p>
-      ) : null}
-      <h1 className="font-display text-[30px] font-bold leading-none tracking-[-0.04em] sm:text-[38px]">
-        {title}
-      </h1>
-      {description ? <p className="mt-3 max-w-2xl text-body-sm text-paper-muted">{description}</p> : null}
-    </div>
+    <aside
+      aria-label={title}
+      data-workspace-inspector="desktop"
+      className="hidden h-full shrink-0 flex-col overflow-hidden border-l border-paper-hairline bg-paper xl:flex"
+      style={{ width: `${INSPECTOR_WIDTH}px` }}
+    >
+      <div className="flex h-14 shrink-0 items-center border-b border-paper-hairline px-4">
+        <h2 className="truncate font-mono text-[10px] uppercase tracking-[0.08em] text-paper-muted">{title}</h2>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">{children}</div>
+    </aside>
+  );
+}
+
+type MobileInspectorProps = InspectorProps & Readonly<{
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+}>;
+
+function MobileInspector({ children, onOpenChange, open, title }: MobileInspectorProps) {
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        id={MOBILE_INSPECTOR_SHEET_ID}
+        side="right"
+        aria-describedby={undefined}
+        data-workspace-inspector="sheet"
+        className="w-screen max-w-none gap-0 border-paper-hairline bg-paper p-0 text-paper-ink shadow-none sm:w-[336px] sm:max-w-[336px] [&>button]:rounded-[2px] xl:hidden"
+      >
+        <SheetHeader className="h-14 justify-center border-b border-paper-hairline px-4 text-left">
+          <SheetTitle className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-paper-muted">
+            {title}
+          </SheetTitle>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">{children}</div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -253,6 +424,8 @@ export function QuoteIntelligenceShell({
   description,
   uploadSlot,
   accountSlot,
+  inspector,
+  inspectorTitle = "Inspector",
   children,
   contentClassName,
 }: QuoteIntelligenceShellProps) {
@@ -260,42 +433,125 @@ export function QuoteIntelligenceShell({
   const navigate = useNavigate();
   const isIosApp = searchParams.get("app") === "ios";
   const [sidebarCollapsed, setSidebarCollapsed] = useSidebarCollapseState();
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
+  const mobileNavigationTriggerRef = useRef<HTMLButtonElement>(null);
+  const mobileInspectorTriggerRef = useRef<HTMLButtonElement>(null);
+  const hasInspector = inspector != null;
+  const wideInspectorViewport = useWideInspectorViewport();
 
-  const sidebarWidth = sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH;
+  useEffect(() => {
+    if (!globalThis.window?.matchMedia) {
+      return;
+    }
+
+    const mediaQuery = globalThis.window.matchMedia("(min-width: 768px)");
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      if (event.matches) {
+        setMobileNavigationOpen(false);
+      }
+    };
+
+    if (mediaQuery.matches) {
+      setMobileNavigationOpen(false);
+    }
+    mediaQuery.addEventListener?.("change", handleViewportChange);
+
+    return () => mediaQuery.removeEventListener?.("change", handleViewportChange);
+  }, []);
+
+  useEffect(() => {
+    if (wideInspectorViewport || !hasInspector) {
+      setMobileInspectorOpen(false);
+    }
+  }, [hasInspector, wideInspectorViewport]);
+
+  const handleMobileNavigationOpenChange = (open: boolean) => {
+    setMobileNavigationOpen(open);
+    if (!open) {
+      globalThis.window?.setTimeout(() => mobileNavigationTriggerRef.current?.focus(), 0);
+    }
+  };
+
+  const handleMobileInspectorOpenChange = (open: boolean) => {
+    setMobileInspectorOpen(open);
+    if (!open) {
+      globalThis.window?.setTimeout(() => mobileInspectorTriggerRef.current?.focus(), 0);
+    }
+  };
 
   return (
-    <div
-      className={cn(
-        "min-h-svh bg-paper text-paper-ink",
-        !isIosApp && "transition-[padding-left] duration-200 ease-out",
-      )}
-      style={{ paddingLeft: isIosApp ? undefined : `${sidebarWidth}px` }}
-    >
-      {isIosApp ? null : (
-        <DesktopSidebar
-          collapsed={sidebarCollapsed}
-          onCollapse={() => setSidebarCollapsed(true)}
-          onExpand={() => setSidebarCollapsed(false)}
-          onGoHome={() => navigate("/")}
-        />
-      )}
-
-      <WorkspaceHeader
-        accountSlot={accountSlot}
-        isIosApp={isIosApp}
-        title={title}
-        uploadSlot={uploadSlot}
-      />
-
-      <main
-        className={cn(
-          "mx-auto w-full max-w-[1440px] px-4 pb-12 pt-8 sm:px-6 md:pt-10",
-          contentClassName,
+    <TooltipProvider delayDuration={120}>
+      <div className="flex h-svh overflow-hidden bg-paper text-paper-ink" data-client-shell>
+        {isIosApp ? null : (
+          <DesktopSidebar
+            collapsed={sidebarCollapsed}
+            onCollapse={() => setSidebarCollapsed(true)}
+            onExpand={() => setSidebarCollapsed(false)}
+            onGoHome={() => navigate("/")}
+          />
         )}
-      >
-        <WorkspaceHeading description={description} eyebrow={eyebrow} title={title} />
-        {children}
-      </main>
-    </div>
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <MobileNavigation
+            open={mobileNavigationOpen}
+            onOpenChange={handleMobileNavigationOpenChange}
+          />
+          <WorkspaceHeader
+            accountSlot={accountSlot}
+            hasInspector={hasInspector}
+            inspectorOpen={mobileInspectorOpen}
+            inspectorTriggerRef={mobileInspectorTriggerRef}
+            isIosApp={isIosApp}
+            mobileNavigationOpen={mobileNavigationOpen}
+            mobileNavigationTriggerRef={mobileNavigationTriggerRef}
+            onOpenInspector={() => setMobileInspectorOpen(true)}
+            onOpenMobileNavigation={() => setMobileNavigationOpen(true)}
+            title={title}
+            uploadSlot={uploadSlot}
+          />
+          <FixturePanel />
+
+          <div className="flex min-h-0 min-w-0 flex-1">
+            <main
+              data-workspace-scroll="primary"
+              className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain"
+            >
+              <div
+                className={cn(
+                  "mx-auto w-full max-w-[1440px] px-4 pb-12 pt-6 sm:px-6 md:pt-8",
+                  contentClassName,
+                )}
+              >
+                {eyebrow || description ? (
+                  <ClientShellSection
+                    className="mb-5 py-0 pb-4"
+                    title={eyebrow}
+                    description={description}
+                  />
+                ) : null}
+                {children}
+              </div>
+            </main>
+
+            {hasInspector ? (
+              <DesktopInspector title={inspectorTitle}>
+                {wideInspectorViewport ? inspector : null}
+              </DesktopInspector>
+            ) : null}
+          </div>
+        </div>
+
+        {hasInspector && !wideInspectorViewport ? (
+          <MobileInspector
+            open={mobileInspectorOpen}
+            onOpenChange={handleMobileInspectorOpenChange}
+            title={inspectorTitle}
+          >
+            {inspector}
+          </MobileInspector>
+        ) : null}
+      </div>
+    </TooltipProvider>
   );
 }

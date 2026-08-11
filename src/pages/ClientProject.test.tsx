@@ -8,6 +8,7 @@ import type {
   ClientPartRequirementView,
   ClientQuoteWorkspaceItem,
   ClientQuoteRequestStatus,
+  PublishedQuoteOptionRecord,
   QuoteRequestRecord,
   QuoteRunRecord,
   VendorCapabilityProfileRecord,
@@ -63,6 +64,7 @@ const {
     cancelQuoteRequest: vi.fn(),
     requestExtraction: vi.fn(),
     requestQuotes: vi.fn(),
+    persistClientQuoteSelection: vi.fn(),
     setJobVendorPreferences: vi.fn(),
     setJobSelectedVendorQuoteOffer: vi.fn(),
     setProjectVendorPreferences: vi.fn(),
@@ -128,6 +130,7 @@ vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   cancelQuoteRequest: api.cancelQuoteRequest,
   requestManualQuotes: api.requestQuotes,
   requestQuotes: api.requestQuotes,
+  persistClientQuoteSelection: api.persistClientQuoteSelection,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
 }));
 vi.mock("@/features/quotes/organization-entitlements", () => ({
@@ -1157,15 +1160,71 @@ describe("ClientProject", () => {
 
     const inspector = screen.getByRole("complementary", { name: "Project inspector" });
     expect(within(inspector).getByText("Provider recommendations available")).toBeInTheDocument();
-    expect(
-      within(inspector).getByText(/potential providers ranked from reviewed capability data/i),
-    ).toBeInTheDocument();
+    expect(within(inspector).queryByText(/potential providers ranked/i)).not.toBeInTheDocument();
     const officialRfqLink = within(inspector).getByRole("link", { name: /open official rfq/i });
     expect(officialRfqLink).toHaveAttribute(
       "href",
       "https://www.xometry.com/quoting/home/",
     );
     expect(officialRfqLink.closest("article")?.parentElement).not.toHaveClass("lg:grid-cols-3");
+  });
+
+  it("keeps valid imported quotes available in the project comparison", async () => {
+    const workspaceItem = createWorkspaceItemFixture();
+    const importedQuote = createVendorQuoteFixture({
+      resultId: "result-imported-1",
+      offerId: "offer-imported-1",
+      vendor: "fastdms",
+      supplier: "FastDMS",
+      totalPriceUsd: 583.92,
+      leadTimeBusinessDays: 12,
+    });
+
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([
+      {
+        ...workspaceItem,
+        publishedQuoteOptions: [
+          {
+            id: "published-option-imported-1",
+            package_id: "published-package-imported-1",
+            organization_id: "org-1",
+            option_kind: "lowest_cost",
+            label: "Lowest Cost",
+            requested_quantity: 10,
+            published_price_usd: 700.7,
+            lead_time_business_days: 12,
+            comparison_summary: "Best published price.",
+            source_vendor_quote_id: "result-imported-1",
+            source_vendor_quote_offer_id: "offer-imported-1",
+            markup_policy_version: "v1_markup_20",
+            created_at: "2026-03-20T18:20:00Z",
+          },
+        ] satisfies PublishedQuoteOptionRecord[],
+        part: workspaceItem.part
+          ? {
+              ...workspaceItem.part,
+              vendorQuotes: [
+                {
+                  ...importedQuote,
+                  status: "official_quote_received",
+                  quote_url: null,
+                  raw_payload: {
+                    importSource: {
+                      batch: "QB00001",
+                      workbookName: "Quotes Spreadsheet.xlsx",
+                    },
+                  },
+                },
+              ],
+            }
+          : null,
+      },
+    ]);
+
+    renderWithClient("/projects/project-1");
+
+    expect(await screen.findByText("All parts quoted")).toBeInTheDocument();
+    expect(screen.getByText("Every part in this project has at least one quote.")).toBeInTheDocument();
   });
 
   it("shows an explicit reviewing state while provider capabilities load", async () => {
@@ -1287,8 +1346,9 @@ describe("ClientProject", () => {
       const inspector = screen.getByRole("complementary", { name: "Project inspector" });
       expect(within(inspector).getByText("Provider recommendations available")).toBeInTheDocument();
       expect(
-        within(inspector).getByText(/automatic collection has not produced a live offer yet/i),
+        within(inspector).getByRole("heading", { name: "Qualified next steps, available now" }),
       ).toBeInTheDocument();
+      expect(within(inspector).queryByText(/automatic collection has not produced/i)).not.toBeInTheDocument();
     },
   );
 

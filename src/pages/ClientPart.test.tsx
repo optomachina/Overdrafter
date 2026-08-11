@@ -46,6 +46,7 @@ const {
     requestQuote: vi.fn(),
     requestExtraction: vi.fn(),
     resetClientPartPropertyOverrides: vi.fn(),
+    persistClientQuoteSelection: vi.fn(),
     setJobSelectedVendorQuoteOffer: vi.fn(),
     unarchiveJob: vi.fn(),
     unarchiveProject: vi.fn(),
@@ -79,7 +80,7 @@ const {
 let lastAccountMenuProps: Record<string, unknown> | null = null;
 let lastDrawingPreviewDialogProps: Record<string, unknown> | null = null;
 let lastQuoteDecisionPanelProps: Record<string, unknown> | null = null;
-let lastSidebarProps: Record<string, unknown> | null = null;
+let lastShellProps: Record<string, unknown> | null = null;
 
 vi.mock("@/features/quotes/api", () => api);
 vi.mock("@/features/quotes/api/archive-api", () => ({
@@ -113,6 +114,7 @@ vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   cancelQuoteRequest: api.cancelQuoteRequest,
   requestManualQuote: api.requestQuote,
   requestQuote: api.requestQuote,
+  persistClientQuoteSelection: api.persistClientQuoteSelection,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
 }));
 vi.mock("@/features/quotes/organization-entitlements", () => ({
@@ -165,52 +167,28 @@ vi.mock("sonner", () => ({
   toast: toastMock,
 }));
 
-vi.mock("@/components/workspace/ClientWorkspaceShell", () => ({
-  ClientWorkspaceShell: ({
+vi.mock("@/components/quote-intelligence/QuoteIntelligenceShell", () => ({
+  QuoteIntelligenceShell: ({
     children,
-    sidebarContent,
-    sidebarFooter,
-    rightRailContent,
-    rightRailFooter,
+    accountSlot,
+    inspector,
+    title,
+    uploadSlot,
   }: {
     children?: ReactNode;
-    sidebarContent?: ReactNode;
-    sidebarFooter?: ReactNode;
-    rightRailContent?: ReactNode;
-    rightRailFooter?: ReactNode;
-  }) => (
-    <div>
-      <div>{sidebarContent}</div>
+    accountSlot?: ReactNode;
+    inspector?: ReactNode;
+    title?: string;
+    uploadSlot?: ReactNode;
+  }) => {
+    lastShellProps = { title };
+    return <div data-testid="client-shell">
+      <h1 data-testid="shell-title">{title}</h1>
+      <div>{uploadSlot}</div>
+      <div>{accountSlot}</div>
       <div>{children}</div>
-      <div>{sidebarFooter}</div>
-      <div>{rightRailContent}</div>
-      <div>{rightRailFooter}</div>
-    </div>
-  ),
-}));
-
-vi.mock("@/components/chat/WorkspaceSidebar", () => ({
-  WorkspaceSidebar: (props: Record<string, unknown>) => {
-    lastSidebarProps = props;
-    const jobs = Array.isArray(props.jobs)
-      ? (props.jobs as Array<{ id: string; title: string }>)
-      : [];
-    const resolveProjectIdsForJob =
-      (props.resolveProjectIdsForJob as ((job: { id: string; title: string }) => string[]) | undefined) ?? null;
-
-    return (
-      <div>
-        <button type="button" onClick={() => void (props.onPrefetchProject as ((id: string) => void) | undefined)?.("project-2")}>
-          Prefetch project
-        </button>
-        Sidebar
-        {jobs.map((job) => (
-          <div key={job.id} data-testid={`sidebar-job-${job.id}`}>
-            {job.title}:{(resolveProjectIdsForJob?.(job) ?? []).join(",") || "ungrouped"}
-          </div>
-        ))}
-      </div>
-    );
+      <aside>{inspector}</aside>
+    </div>;
   },
 }));
 
@@ -221,9 +199,6 @@ vi.mock("@/components/chat/WorkspaceAccountMenu", () => ({
   },
 }));
 
-vi.mock("@/components/chat/SearchPartsDialog", () => ({
-  SearchPartsDialog: () => null,
-}));
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
@@ -350,22 +325,45 @@ vi.mock("@/components/quotes/ClientWorkspacePanelContent", () => ({
 vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
   ClientQuoteDecisionPanel: ({
     options,
+    selectedOption,
     controls,
     headerActions,
+    onSelect,
   }: {
-    options?: Array<{ vendorLabel?: string; tier?: string | null }>;
+    options?: Array<{
+      key?: string;
+      vendorLabel?: string;
+      tier?: string | null;
+      totalPriceUsd?: number;
+      selectionTarget?: unknown;
+    }>;
+    selectedOption?: {
+      key?: string;
+      selectionTarget?: unknown;
+    } | null;
     controls?: ReactNode;
     headerActions?: ReactNode;
+    onSelect?: (option: unknown) => void;
   }) => {
-    lastQuoteDecisionPanelProps = { optionCount: options?.length ?? 0 };
+    lastQuoteDecisionPanelProps = {
+      optionCount: options?.length ?? 0,
+      totalPrices: options?.map((option) => option.totalPriceUsd) ?? [],
+      firstOption: options?.[0] ?? null,
+      lastOption: options?.at(-1) ?? null,
+      selectedOption,
+      onSelect,
+    };
 
     return (
       <div data-testid="quote-decision-panel">
         Quote decision panel
         {headerActions}
         {controls}
+        <button type="button" onClick={() => onSelect?.(null)}>
+          Clear quote selection
+        </button>
         {options?.map((quote) => (
-          <div key={`${quote.vendorLabel}-${quote.tier}`}>{[quote.vendorLabel, quote.tier].filter(Boolean).join(" · ")}</div>
+          <div key={quote.key ?? `${quote.vendorLabel}-${quote.tier}`}>{[quote.vendorLabel, quote.tier].filter(Boolean).join(" · ")}</div>
         ))}
       </div>
     );
@@ -375,9 +373,11 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
 vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
   QuoteSelectionFunctionBar: ({
     requestedByDate,
+    onModeChange,
     onRequestedByDateChange,
   }: {
     requestedByDate?: string | null;
+    onModeChange?: (next: "balanced" | "cheapest" | "fastest") => void;
     onRequestedByDateChange?: (next: string | null) => void;
   }) => (
     <div data-testid="quote-selection-function-bar">
@@ -391,8 +391,8 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
       <button type="button" onClick={() => onRequestedByDateChange?.(null)}>
         Clear
       </button>
-      <button type="button">Fast</button>
-      <button type="button">Cheap</button>
+      <button type="button" onClick={() => onModeChange?.("fastest")}>Fast</button>
+      <button type="button" onClick={() => onModeChange?.("cheapest")}>Cheap</button>
     </div>
   ),
 }));
@@ -487,18 +487,16 @@ function renderWithClient(initialEntry: string) {
 async function renderClientPartOnTab(tab?: "Request" | "Activity") {
   const result = renderWithClient("/parts/job-1");
   if (tab === "Activity") {
-    await openWorkspaceTab(tab);
+    await openActivitySection();
   } else if (tab === "Request") {
     await screen.findByTestId("part-info-panel");
   }
   return result;
 }
 
-async function openWorkspaceTab(name: "Quote" | "Activity") {
-  const [tab] = await screen.findAllByRole("tab", { name });
-  fireEvent.pointerDown(tab, { button: 0, ctrlKey: false });
-  fireEvent.mouseDown(tab, { button: 0, ctrlKey: false });
-  fireEvent.click(tab);
+async function openActivitySection() {
+  const summary = await screen.findByText("Activity and history");
+  fireEvent.click(summary);
 }
 
 async function findRequestButton(name: string | RegExp) {
@@ -519,7 +517,9 @@ async function clickRequestQuoteButton() {
 }
 
 async function findActivityCommentField() {
-  await openWorkspaceTab("Activity");
+  if (!screen.queryByLabelText("Leave a comment")) {
+    await openActivitySection();
+  }
   return screen.findByLabelText("Leave a comment");
 }
 
@@ -627,7 +627,7 @@ describe("ClientPart", () => {
     lastAccountMenuProps = null;
     lastDrawingPreviewDialogProps = null;
     lastQuoteDecisionPanelProps = null;
-    lastSidebarProps = null;
+    lastShellProps = null;
     vi.resetAllMocks();
     mockQuoteCollectionMode.automaticEnabled = true;
     mockQuoteCollectionMode.hasAutomaticEntitlement = true;
@@ -753,37 +753,129 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "A" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Issue detail actions" })).toBeInTheDocument();
     });
 
     expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
     expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
     await screen.findByTestId("part-info-panel");
-    expect(screen.getByText("Part information")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /prev rev/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Part information" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Revision navigation" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /previous revision/i })).not.toBeInTheDocument();
     expect(screen.queryByText("This part could not be loaded.")).not.toBeInTheDocument();
     expect(api.fetchPartDetailByJobId).toHaveBeenCalledTimes(1);
   });
 
-  it("renders the workspace tabs plus the right-rail part info panel", async () => {
+  it("keeps the part evidence and quote comparison in one ordered workspace", async () => {
     renderWithClient("/parts/job-1");
 
-    expect(await screen.findByRole("tab", { name: "Quote" })).toBeInTheDocument();
+    await screen.findByText("Quote decision panel");
+    expect(screen.queryByRole("tab", { name: "Quote" })).not.toBeInTheDocument();
     expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review order" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Attach files" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Files" })).not.toBeInTheDocument();
-    // PartInfoPanel moved into the shell right rail on desktop, with a mobile-only
-    // Request tab fallback so small screens can still reach quote-request controls.
-    expect(screen.getByRole("tab", { name: "Request" })).toHaveClass("md:hidden");
+    // PartInfoPanel is owned by the shell inspector at every viewport so the
+    // request form has one live instance and one set of field IDs.
+    expect(screen.queryByRole("tab", { name: "Request" })).not.toBeInTheDocument();
     expect(screen.getByTestId("part-viewer-row")).toBeInTheDocument();
     expect(screen.getByTestId("part-product-data-bar")).toBeInTheDocument();
     // Right rail renders PartInfoPanel without any tab switch.
     expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
     expect(screen.queryByLabelText("Leave a comment")).not.toBeInTheDocument();
 
-    await openWorkspaceTab("Activity");
+    const viewer = screen.getByTestId("part-viewer-row");
+    const productData = screen.getByTestId("part-product-data-bar");
+    const quoteDecision = screen.getByTestId("quote-decision-panel");
+    expect(viewer.compareDocumentPosition(productData) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(productData.compareDocumentPosition(quoteDecision) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await openActivitySection();
     await screen.findByLabelText("Leave a comment");
+  });
+
+  it("puts provider-only sourcing guidance before an empty quote comparison", async () => {
+    const cadFile = {
+      id: "cad-file-1",
+      job_id: "job-1",
+      organization_id: "org-1",
+      file_kind: "cad" as const,
+      blob_id: "blob-1",
+      storage_bucket: "job-files",
+      storage_path: "org-1/job-1/bracket.step",
+      normalized_name: "bracket.step",
+      original_name: "bracket.step",
+      mime_type: "application/step",
+      size_bytes: 1024,
+      content_sha256: "hash",
+      matched_part_key: null,
+      uploaded_by: "user-1",
+      created_at: "2026-03-01T00:00:00Z",
+    };
+    const baseDetail = createPartDetail();
+
+    api.fetchVendorCapabilityProfiles.mockResolvedValue([
+      {
+        vendor_name: "xometry",
+        process_types: ["cnc_milling"],
+        materials: ["aluminum"],
+        tolerance_min_mm: 0.005,
+        tolerance_max_mm: 0.2,
+        max_part_size_mm: 1000,
+        min_quantity: 1,
+        max_quantity: null,
+        geographic_region: "US",
+        certifications: ["ISO9001"],
+        quality_score: 80,
+        lead_time_reliability: 80,
+        cost_competitiveness: 70,
+        domestic_us: true,
+        updated_at: "2026-07-30T00:00:00.000Z",
+      },
+    ]);
+    api.fetchPartDetailByJobId.mockResolvedValue(
+      createPartDetail({
+        files: [cadFile],
+        part: {
+          ...baseDetail.part,
+          cadFile,
+          approvedRequirement: {
+            id: "requirement-1",
+            part_id: "part-1",
+            organization_id: "org-1",
+            description: "Bracket",
+            part_number: "BRKT-001",
+            revision: "A",
+            material: "6061-T6 aluminum",
+            finish: "Black anodize",
+            tightest_tolerance_inch: 0.005,
+            quantity: 10,
+            quote_quantities: [10],
+            requested_by_date: "2026-04-15",
+            applicable_vendors: ["xometry"],
+            spec_snapshot: { process: "CNC milling" },
+            approved_by: "user-1",
+            approved_at: "2026-03-01T00:00:00Z",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          },
+          vendorQuotes: [],
+        },
+      }),
+    );
+
+    renderWithClient("/parts/job-1");
+
+    const recommendations = await screen.findByRole("heading", {
+      name: "Qualified next steps, available now",
+    });
+    const quoteDecision = screen.getByTestId("quote-decision-panel");
+    expect(
+      recommendations.compareDocumentPosition(quoteDecision) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 0 });
   });
 
   it("shows Free sourcing guidance without exposing the manual quote path", async () => {
@@ -923,7 +1015,194 @@ describe("ClientPart", () => {
     });
 
     expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
-    expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 1 });
+    expect(lastQuoteDecisionPanelProps).toMatchObject({
+      optionCount: 1,
+      totalPrices: [100],
+    });
+  });
+
+  it("renders valid imported quote options without labeling them as live adapter offers", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValue(
+      createPartDetail({
+        summary: {
+          ...createPartDetail().summary,
+          selectedSupplier: null,
+        },
+        publishedQuoteOptions: [
+          {
+            id: "published-option-imported-1",
+            package_id: "published-package-imported-1",
+            organization_id: "org-1",
+            option_kind: "lowest_cost",
+            label: "Lowest Cost",
+            requested_quantity: 10,
+            published_price_usd: 700.7,
+            lead_time_business_days: 12,
+            comparison_summary: "Best published price.",
+            source_vendor_quote_id: "quote-imported-1",
+            source_vendor_quote_offer_id: "offer-imported-1",
+            markup_policy_version: "v1_markup_20",
+            created_at: "2026-03-20T18:20:00Z",
+          },
+          {
+            id: "published-option-imported-2",
+            package_id: "published-package-imported-1",
+            organization_id: "org-1",
+            option_kind: "fastest_delivery",
+            label: "Fastest Delivery",
+            requested_quantity: 10,
+            published_price_usd: 800.8,
+            lead_time_business_days: 8,
+            comparison_summary: "Fastest published option.",
+            source_vendor_quote_id: "quote-imported-1",
+            source_vendor_quote_offer_id: "offer-imported-1",
+            markup_policy_version: "v1_markup_20",
+            created_at: "2026-03-20T18:20:00Z",
+          },
+        ],
+        part: {
+          ...createPartDetail().part,
+          vendorQuotes: [
+            {
+              id: "quote-imported-1",
+              quote_run_id: "run-imported-1",
+              part_id: "part-1",
+              organization_id: "org-1",
+              vendor: "fastdms",
+              requested_quantity: 10,
+              status: "official_quote_received",
+              unit_price_usd: 58.392,
+              total_price_usd: 583.92,
+              lead_time_business_days: 12,
+              quote_url: null,
+              dfm_issues: [],
+              notes: ["Imported from Quotes Spreadsheet.xlsx batch QB00001."],
+              raw_payload: {
+                importSource: {
+                  batch: "QB00001",
+                  workbookName: "Quotes Spreadsheet.xlsx",
+                },
+              },
+              created_at: "2026-03-20T18:14:11Z",
+              updated_at: "2026-03-20T18:14:11Z",
+              offers: [
+                {
+                  id: "offer-imported-1",
+                  vendor_quote_result_id: "quote-imported-1",
+                  organization_id: "org-1",
+                  offer_key: "fastdms-standard",
+                  supplier: "FastDMS",
+                  lane_label: "Standard",
+                  sourcing: "USA",
+                  tier: "Standard",
+                  quote_ref: "QB00001-1",
+                  quote_date: "2026-03-02",
+                  unit_price_usd: 58.392,
+                  total_price_usd: 583.92,
+                  lead_time_business_days: 12,
+                  ship_receive_by: null,
+                  due_date: null,
+                  process: "CNC milling",
+                  material: "6061-T6 aluminum",
+                  finish: "Black anodize",
+                  tightest_tolerance: "±.005\"",
+                  tolerance_source: "Drawing",
+                  thread_callouts: null,
+                  thread_match_notes: null,
+                  notes: null,
+                  sort_rank: 0,
+                  raw_payload: {},
+                  created_at: "2026-03-20T18:14:11Z",
+                  updated_at: "2026-03-20T18:14:11Z",
+                },
+              ],
+              artifacts: [],
+            },
+          ],
+        },
+      }),
+    );
+
+    renderWithClient("/parts/job-1");
+
+    await waitFor(() => {
+      expect(screen.getAllByText("FastDMS · Standard")).toHaveLength(2);
+    });
+
+    expect(lastQuoteDecisionPanelProps).toMatchObject({
+      optionCount: 2,
+      totalPrices: [700.7, 800.8],
+    });
+    await act(async () => {
+      const onSelect = lastQuoteDecisionPanelProps?.onSelect as
+        | ((option: unknown) => void)
+        | undefined;
+      onSelect?.(lastQuoteDecisionPanelProps?.lastOption);
+    });
+    await waitFor(() => {
+      expect(api.persistClientQuoteSelection).toHaveBeenCalledWith({
+        jobId: "job-1",
+        target: {
+          kind: "published_quote_option",
+          packageId: "published-package-imported-1",
+          optionId: "published-option-imported-2",
+        },
+      });
+    });
+    expect(lastQuoteDecisionPanelProps?.selectedOption).toMatchObject({
+      key: "published:published-option-imported-2",
+      selectionTarget: {
+        kind: "published_quote_option",
+        optionId: "published-option-imported-2",
+      },
+    });
+    expect(api.setJobSelectedVendorQuoteOffer).not.toHaveBeenCalledWith(
+      "job-1",
+      "offer-imported-1",
+    );
+
+    api.persistClientQuoteSelection.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Cheap" }));
+
+    await waitFor(() => {
+      expect(api.persistClientQuoteSelection).toHaveBeenCalledWith({
+        jobId: "job-1",
+        target: {
+          kind: "published_quote_option",
+          packageId: "published-package-imported-1",
+          optionId: "published-option-imported-1",
+        },
+      });
+    });
+    expect(screen.queryByText("Live offers available")).not.toBeInTheDocument();
+  });
+
+  it("fails closed when clearing a package-scoped published selection", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValueOnce(
+      createPartDetail({
+        publishedQuoteSelection: {
+          id: "selection-published-1",
+          package_id: "published-package-1",
+          option_id: "published-option-1",
+          organization_id: "org-1",
+          selected_by: "user-1",
+          note: null,
+          created_at: "2026-03-20T18:25:00Z",
+        },
+      }),
+    );
+
+    renderWithClient("/parts/job-1");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clear quote selection" }));
+
+    await waitFor(() => {
+      expect(toastMock.error).toHaveBeenCalledWith(
+        "Published quote selections cannot be cleared. Select another quote to replace it.",
+      );
+    });
+    expect(api.persistClientQuoteSelection).not.toHaveBeenCalled();
+    expect(api.setJobSelectedVendorQuoteOffer).not.toHaveBeenCalledWith("job-1", null);
   });
 
   it("canonicalizes legacy part-id routes onto the owning job route", async () => {
@@ -953,25 +1232,16 @@ describe("ClientPart", () => {
     ).toEqual(createPartDetail());
   });
 
-  it("passes the collaboration gate through sidebar project prefetch", async () => {
+  it("uses the global client shell without project-tree prefetch", async () => {
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(true);
 
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByText("Sidebar")).toBeInTheDocument();
+      expect(screen.getByTestId("client-shell")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Prefetch project" }));
-
-    expect(prefetchProjectPage).toHaveBeenCalledWith(expect.anything(), "project-2", {
-      accessScope: createWorkspaceAccessScope({
-        userId: "user-1",
-        organizationId: "org-1",
-        role: "client",
-      }),
-      enabled: false,
-    });
+    expect(prefetchProjectPage).not.toHaveBeenCalled();
   });
 
   it("invalidates shared and part-specific queries when saving request details", async () => {
@@ -991,7 +1261,7 @@ describe("ClientPart", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["part-detail", "job-1"] });
   });
 
-  it("keeps the prior sidebar jobs grouped while the membership refetch is unresolved", async () => {
+  it("keeps membership refetches ordered while request details are saved", async () => {
     const deferredMemberships = createDeferredPromise<Array<{ job_id: string; project_id: string }>>();
     let accessibleJobsFetchCount = 0;
     let projectMembershipFetchCount = 0;
@@ -1095,11 +1365,7 @@ describe("ClientPart", () => {
       return deferredMemberships.promise;
     });
 
-    await renderClientPartOnTab("Request");
-
-    await waitFor(() => {
-      expect(screen.getByTestId("sidebar-job-job-1")).toHaveTextContent("Bracket:project-1");
-    });
+    const { queryClient } = await renderClientPartOnTab("Request");
 
     fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
 
@@ -1110,16 +1376,23 @@ describe("ClientPart", () => {
       expect(api.fetchProjectJobMembershipsByJobIds).toHaveBeenCalledWith(["job-1", "job-2"]);
     });
 
-    expect(screen.getByTestId("sidebar-job-job-1")).toHaveTextContent("Bracket:project-1");
-    expect(screen.queryByTestId("sidebar-job-job-2")).not.toBeInTheDocument();
+    const pendingMembershipQuery = queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ["client-project-job-memberships"] })
+      .find((query) => {
+        const jobIds = query.queryKey.at(-1);
+        return Array.isArray(jobIds) && jobIds.includes("job-2");
+      });
+    expect(pendingMembershipQuery?.state.fetchStatus).toBe("fetching");
 
-    deferredMemberships.resolve([
+    const resolvedMemberships = [
       { job_id: "job-1", project_id: "project-1" },
       { job_id: "job-2", project_id: "project-1" },
-    ]);
+    ];
+    deferredMemberships.resolve(resolvedMemberships);
 
     await waitFor(() => {
-      expect(screen.getByTestId("sidebar-job-job-2")).toHaveTextContent("Plate:project-1");
+      expect(queryClient.getQueryData(pendingMembershipQuery!.queryKey)).toEqual(resolvedMemberships);
     });
   });
 
@@ -1507,9 +1780,8 @@ describe("ClientPart", () => {
   it("toggles favorite with the F hotkey", async () => {
     renderWithClient("/parts/job-1");
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /favorite part/i })).toBeInTheDocument();
-    });
+    await screen.findByRole("heading", { name: "BRKT-001 rev A" });
+    expect(screen.queryByRole("button", { name: /favorite part/i })).not.toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "f" });
 
@@ -1518,16 +1790,13 @@ describe("ClientPart", () => {
     });
   });
 
-  it("uses a filled accent treatment for an active favorite", async () => {
+  it("keeps favorite state in the overflow menu instead of duplicating it in the header", async () => {
     api.fetchSidebarPins.mockResolvedValueOnce({ projectIds: [], jobIds: ["job-1"] });
 
     renderWithClient("/parts/job-1");
 
-    const favoriteButton = await screen.findByRole("button", { name: /unfavorite part/i });
-    expect(favoriteButton.className).toContain("bg-amber-500/16");
-    expect(favoriteButton.className).toContain("text-amber-200");
-    const icon = favoriteButton.querySelector("svg");
-    expect(icon?.className.baseVal ?? "").toContain("fill-current");
+    expect(await screen.findByRole("menuitem", { name: /unfavorite f/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /unfavorite part/i })).not.toBeInTheDocument();
   });
 
   it("does not render the dead workspace breadcrumb button or request summary badges in the header", async () => {
@@ -1544,7 +1813,7 @@ describe("ClientPart", () => {
     expect(screen.queryByText("Need by Apr 15, 2026")).toBeNull();
   });
 
-  it("passes the active parent project into the sidebar while viewing a part", async () => {
+  it("keeps the active parent project available in the part workspace", async () => {
     api.fetchAccessibleProjects.mockResolvedValueOnce([
       {
         project: {
@@ -1581,8 +1850,7 @@ describe("ClientPart", () => {
       expect(screen.getByRole("button", { name: "QB00001" })).toBeInTheDocument();
     });
 
-    expect(lastSidebarProps?.activeProjectId).toBe("project-1");
-    expect(lastSidebarProps?.activeJobId).toBe("job-1");
+    expect(lastShellProps?.title).toBe("BRKT-001 rev A");
   });
 
   it("drops title-derived revision suffixes from the normalized part heading", async () => {
