@@ -43,6 +43,8 @@ const {
     reconcileJobParts: vi.fn(),
     removeJobFromProject: vi.fn(),
     cancelQuoteRequest: vi.fn(),
+    getQuoteLaneEligibility: vi.fn(),
+    fetchJobVendorPreferenceContext: vi.fn(),
     requestQuote: vi.fn(),
     requestExtraction: vi.fn(),
     resetClientPartPropertyOverrides: vi.fn(),
@@ -112,11 +114,21 @@ vi.mock("@/features/quotes/api/projects-api", () => ({
 }));
 vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   cancelQuoteRequest: api.cancelQuoteRequest,
+  getQuoteLaneEligibility: api.getQuoteLaneEligibility,
   requestManualQuote: api.requestQuote,
   requestQuote: api.requestQuote,
   persistClientQuoteSelection: api.persistClientQuoteSelection,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
 }));
+vi.mock("@/features/quotes/api/vendor-preferences-api", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/features/quotes/api/vendor-preferences-api")
+  >("@/features/quotes/api/vendor-preferences-api");
+  return {
+    ...actual,
+    fetchJobVendorPreferenceContext: api.fetchJobVendorPreferenceContext,
+  };
+});
 vi.mock("@/features/quotes/organization-entitlements", () => ({
   useOrganizationQuoteCollectionMode: () => mockQuoteCollectionMode,
 }));
@@ -514,6 +526,8 @@ async function clickRequestQuoteButton() {
     expect(requestQuoteButton).toBeEnabled();
   });
   fireEvent.click(requestQuoteButton);
+  fireEvent.click(await screen.findByRole("button", { name: "Review what will be shared" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Send to 1 vendor" }));
 }
 
 async function findActivityCommentField() {
@@ -733,6 +747,22 @@ describe("ClientPart", () => {
       reason: null,
       requestedVendors: ["xometry", "fictiv", "protolabs"],
     });
+    api.fetchJobVendorPreferenceContext.mockResolvedValue({
+      availableVendors: ["xometry"],
+      projectVendorPreferences: { includedVendors: [], excludedVendors: [] },
+      jobVendorPreferences: { includedVendors: ["xometry"], excludedVendors: [] },
+    });
+    api.getQuoteLaneEligibility.mockResolvedValue([
+      {
+        vendor: "xometry",
+        partId: "part-1",
+        requestedQuantity: 10,
+        state: "requestable",
+        currentOfferId: null,
+        validUntil: null,
+        retryAt: null,
+      },
+    ]);
     api.cancelQuoteRequest.mockResolvedValue({
       jobId: "job-1",
       accepted: true,
@@ -1466,7 +1496,7 @@ describe("ClientPart", () => {
     await clickRequestQuoteButton();
 
     await waitFor(() => {
-      expect(api.requestQuote).toHaveBeenCalledWith("job-1", false);
+      expect(api.requestQuote).toHaveBeenCalledWith("job-1", ["xometry"]);
     });
   });
 
@@ -1648,20 +1678,23 @@ describe("ClientPart", () => {
     expect(button).toBeEnabled();
 
     fireEvent.click(button);
-    fireEvent.click(button);
+    fireEvent.click(await screen.findByRole("button", { name: "Review what will be shared" }));
+    const sendButton = await screen.findByRole("button", { name: "Send to 1 vendor" });
+    fireEvent.click(sendButton);
+    fireEvent.click(sendButton);
 
     await waitFor(() => {
       expect(api.requestQuote).toHaveBeenCalledTimes(1);
     });
 
     await waitFor(() => {
-      expect(button).toBeDisabled();
+      expect(sendButton).toBeDisabled();
     });
 
     deferred.reject(new Error("Request failed"));
 
     await waitFor(() => {
-      expect(button).toBeEnabled();
+      expect(sendButton).toBeEnabled();
     });
   });
 

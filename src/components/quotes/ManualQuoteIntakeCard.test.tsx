@@ -18,6 +18,11 @@ const internalReviewApiMock = vi.hoisted(() => ({
   uploadManualQuoteEvidence: vi.fn(),
 }));
 
+const toastMock = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+}));
+
 vi.mock("@/features/quotes/api/manual-quote-admin-api", () => ({
   completeAdminManualQuoteRequest: adminApiMock.completeAdminManualQuoteRequest,
 }));
@@ -30,10 +35,7 @@ vi.mock("@/features/quotes/api/internal-review", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-  },
+  toast: toastMock,
 }));
 
 function makePart(overrides: Partial<PartAggregate> = {}): PartAggregate {
@@ -136,6 +138,12 @@ describe("ManualQuoteIntakeCard exact completion", () => {
     fireEvent.change(screen.getByPlaceholderText("1250.00"), {
       target: { value: "1499.50" },
     });
+    fireEvent.change(screen.getByLabelText("Or valid for (days)"), {
+      target: { value: "30" },
+    });
+    fireEvent.change(screen.getByLabelText("Original validity terms"), {
+      target: { value: "Pricing valid for 30 calendar days" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Complete exact request" }));
 
     await waitFor(() => {
@@ -153,6 +161,9 @@ describe("ManualQuoteIntakeCard exact completion", () => {
             expect.objectContaining({
               laneLabel: "Primary offer",
               totalPriceUsd: 1499.5,
+              validityDurationDays: 30,
+              validitySource: "operator_duration",
+              validityTerms: "Pricing valid for 30 calendar days",
             }),
           ],
         }),
@@ -167,6 +178,66 @@ describe("ManualQuoteIntakeCard exact completion", () => {
       },
     );
     expect(internalReviewApiMock.recordManualVendorQuote).not.toHaveBeenCalled();
+  });
+
+  it("captures an explicit validity date separately from the quote date", async () => {
+    renderCard(makeCompletionTarget());
+
+    fireEvent.change(screen.getByLabelText("Operator reason"), {
+      target: { value: "Reviewed dated supplier quote" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("1250.00"), {
+      target: { value: "875" },
+    });
+    fireEvent.change(screen.getByLabelText("Quote date"), {
+      target: { value: "2026-08-12" },
+    });
+    fireEvent.change(screen.getByLabelText("Valid until"), {
+      target: { value: "2026-09-12" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Complete exact request" }));
+
+    await waitFor(() => {
+      expect(adminApiMock.completeAdminManualQuoteRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          offers: [
+            expect.objectContaining({
+              quoteDateIso: "2026-08-12",
+              validUntilIso: "2026-09-12",
+              validityDurationDays: null,
+              validitySource: "operator_date",
+            }),
+          ],
+        }),
+      );
+    });
+  });
+
+  it("preserves unknown validity when the vendor supplied no terms", async () => {
+    renderCard(makeCompletionTarget());
+
+    fireEvent.change(screen.getByLabelText("Operator reason"), {
+      target: { value: "Vendor omitted validity" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("1250.00"), {
+      target: { value: "920" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Complete exact request" }));
+
+    await waitFor(() => {
+      expect(adminApiMock.completeAdminManualQuoteRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          offers: [
+            expect.objectContaining({
+              validUntilIso: null,
+              validityDurationDays: null,
+              validitySource: null,
+              validityTerms: null,
+            }),
+          ],
+        }),
+      );
+    });
   });
 
   it("cleans up unregistered evidence when exact completion is rejected", async () => {

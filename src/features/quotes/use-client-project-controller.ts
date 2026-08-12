@@ -782,12 +782,12 @@ export function useClientProjectController() {
   });
 
   const requestProjectQuotesMutation = useMutation({
-    mutationFn: ({ jobIds, forceRetry = false }: { jobIds: string[]; forceRetry?: boolean }) => {
+    mutationFn: ({ jobIds }: { jobIds: string[] }) => {
       if (!quoteCollectionMode.automaticEnabled) {
         throw new Error("Automatic quote collection requires Pro.");
       }
 
-      return requestQuotes(jobIds, forceRetry);
+      return requestQuotes(jobIds);
     },
     onSuccess: async (results, variables) => {
       const jobIds = variables.jobIds;
@@ -1593,7 +1593,7 @@ export function useClientProjectController() {
     });
   };
 
-  const handleRequestProjectQuotes = async (jobIds: string[], forceRetry = false) => {
+  const handleRequestProjectQuotes = async (jobIds: string[]) => {
     if (isRequestProjectQuotesLockedRef.current || requestProjectQuotesMutation.isPending) {
       return;
     }
@@ -1606,7 +1606,7 @@ export function useClientProjectController() {
     isRequestProjectQuotesLockedRef.current = true;
 
     try {
-      await requestProjectQuotesMutation.mutateAsync({ jobIds, forceRetry });
+      await requestProjectQuotesMutation.mutateAsync({ jobIds });
     } catch {
       return;
     } finally {

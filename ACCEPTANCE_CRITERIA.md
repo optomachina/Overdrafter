@@ -97,6 +97,8 @@ This document defines what it means for the current repository-hardening phase t
 - Every persisted vendor/part/quantity request lane records a versioned fingerprint of the exact disclosed files and manufacturing fields without exposing that fingerprint through client APIs.
 - Offer capture accepts an explicit expiration or explicit duration, derives the counterpart when possible, preserves the original vendor terms and source, and leaves commercial validity unknown when not supplied.
 - Collection freshness and vendor-stated commercial validity remain separate signals; historical offers are not assigned invented expiration dates.
+- Quote selection disables covered or cooling vendor lanes with explicit validity or retry timing, and a fully covered selection routes to the current comparison instead of failing.
+- Manual intake accepts either a valid-until date or a positive validity duration, while billing-admin invalidation requires AAL2, a reason, idempotency, and append-only audit evidence.
 - Relevant product, planning, architecture, and test documents are updated in the same change.
 
 ### Feature addendum — Supplier discovery foundation

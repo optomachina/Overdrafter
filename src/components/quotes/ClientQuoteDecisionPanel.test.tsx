@@ -125,11 +125,32 @@ describe("ClientQuoteDecisionPanel", () => {
       expect(screen.getByText("Quote Chart")).toBeInTheDocument();
     });
     expect(screen.getByText("Current selection")).toBeInTheDocument();
+    expect(screen.getByText(/Validity not provided/)).toBeInTheDocument();
     expect(screen.getByText("Proto Labs")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Proto Labs"));
 
     expect(onSelect).toHaveBeenCalledWith(second);
+  });
+
+  it("shows collection freshness separately from commercial validity", async () => {
+    const selected = makeClientQuoteOption({
+      offerCreatedAt: new Date().toISOString(),
+      validUntil: "2026-09-30T23:59:59.999Z",
+    });
+
+    render(
+      <ClientQuoteDecisionPanel
+        options={[selected]}
+        selectedOption={selected}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+      />,
+    );
+
+    expect(await screen.findByText(/Recently collected/)).toHaveTextContent(
+      /Valid through/,
+    );
   });
 
   it("shows a supported vendor purchasing link without selecting the row", async () => {

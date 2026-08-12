@@ -174,6 +174,19 @@ describe("ClientQuoteDetail", () => {
     expect(screen.getByText(/OverDrafter login and workspace access required/i)).toBeInTheDocument();
   });
 
+  it("shows the selected offer's commercial validity date", () => {
+    mocks.useClientPartController.mockReturnValue({
+      ...createPartState(),
+      selectedQuoteOption: {
+        validUntil: "2026-09-10T23:59:59.999Z",
+      },
+    });
+
+    renderQuote("ABC234");
+
+    expect(screen.getByText("Sep 10, 2026")).toBeInTheDocument();
+  });
+
   it("fails closed when the code is not available to the account", () => {
     renderQuote("NOPE24");
 

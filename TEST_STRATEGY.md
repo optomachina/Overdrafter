@@ -129,6 +129,8 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - validate authorization and idempotency outcomes
 - validate disclosure fingerprints include worker-trusted CAD/drawing hashes, reviewed manufacturing fields, vendor, quantity, and requested delivery date
 - validate date validity, duration validity, derived counterpart values, missing validity, malformed/conflicting terms, trusted provenance, and the independent 14-day collection-freshness rule
+- validate covered/cooling vendor presentation, all-covered comparison routing, and the absence of client force-retry bypasses
+- validate quote invalidation denies AAL1, requires billing-admin capability and a reason, appends an immutable audit event, and releases only the matching lane for one replacement request
 - validate per-user rate-limit blockers and org-level pending-cost ceiling blockers
 - validate worker- or queue-adjacent state transitions where the request lifecycle depends on asynchronous vendor updates
 - run `npm run verify:worker` when worker payload or queue integration changes

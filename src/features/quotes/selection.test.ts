@@ -748,4 +748,49 @@ describe("selection helpers", () => {
       ),
     ).toBe(publishedOption);
   });
+
+  it("does not resolve an invalidated legacy offer as the active selection", () => {
+    const [option] = buildClientQuoteSelectionOptions({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              invalidated_at: "2026-03-02T00:00:00.000Z",
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(option?.isSelectable).toBe(false);
+    expect(getSelectedOption([option!], "offer-1")).toBeNull();
+  });
+
+  it("does not resolve an invalidated published option as the active selection", () => {
+    const [option] = buildClientQuoteSelectionOptions({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          offers: [
+            {
+              ...makeQuoteAggregate().offers[0]!,
+              invalidated_at: "2026-03-02T00:00:00.000Z",
+            },
+          ],
+        }),
+      ],
+    });
+    const publishedOption = {
+      ...option!,
+      selectionTarget: {
+        kind: "published_quote_option" as const,
+        packageId: "package-1",
+        optionId: "published-option-1",
+      },
+    };
+
+    expect(
+      getSelectedOption([publishedOption], "offer-1", "published-option-1"),
+    ).toBeNull();
+  });
 });

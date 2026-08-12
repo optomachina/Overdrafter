@@ -26,10 +26,15 @@ import {
 import { reconcileJobParts, requestExtraction } from "@/features/quotes/api/extraction-api";
 import {
   cancelQuoteRequest,
+  getQuoteLaneEligibility,
   persistClientQuoteSelection,
   requestQuote,
   setJobSelectedVendorQuoteOffer,
 } from "@/features/quotes/api/quote-requests-api";
+import {
+  fetchJobVendorPreferenceContext,
+  resolveEffectiveJobVendorSelection,
+} from "@/features/quotes/api/vendor-preferences-api";
 import { useOrganizationQuoteCollectionMode } from "@/features/quotes/organization-entitlements";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import { createJobsFromUploadFiles, uploadFilesToJob } from "@/features/quotes/api/uploads-api";
@@ -372,6 +377,34 @@ export function useClientPartController(
   });
   const partDetail = partDetailQuery.data;
   const canonicalJobId = resolvedJobId ?? partDetail?.job?.id ?? routeJobId;
+  const vendorPreferenceQuery = useQuery({
+    queryKey: ["job-vendor-preferences", canonicalJobId],
+    queryFn: () => fetchJobVendorPreferenceContext(canonicalJobId),
+    enabled: Boolean(user) && Boolean(canonicalJobId),
+    retry: false,
+  });
+  const selectedQuoteVendors = useMemo(
+    () =>
+      vendorPreferenceQuery.data
+        ? resolveEffectiveJobVendorSelection(vendorPreferenceQuery.data)
+        : [],
+    [vendorPreferenceQuery.data],
+  );
+  const availableQuoteVendors = vendorPreferenceQuery.data?.availableVendors ?? [];
+  const quoteLaneEligibilityQuery = useQuery({
+    queryKey: ["quote-lane-eligibility", canonicalJobId, availableQuoteVendors],
+    queryFn: () =>
+      getQuoteLaneEligibility(
+        canonicalJobId,
+        availableQuoteVendors,
+      ),
+    enabled:
+      Boolean(user) &&
+      Boolean(canonicalJobId) &&
+      Boolean(vendorPreferenceQuery.data) &&
+      !vendorPreferenceQuery.isLoading,
+    retry: false,
+  });
   const isPartDetailLoading =
     partRouteQuery.isLoading || partDetailQuery.isLoading;
 
@@ -593,23 +626,27 @@ export function useClientPartController(
   });
 
   const requestQuoteMutation = useMutation({
-    mutationFn: ({ forceRetry = false }: { forceRetry?: boolean }) => {
+    mutationFn: ({ selectedVendors }: { selectedVendors: VendorName[] }) => {
       if (!quoteCollectionMode.automaticEnabled) {
         throw new Error("Automatic quote collection requires Pro.");
       }
 
-      return requestQuote(canonicalJobId, forceRetry);
+      return requestQuote(canonicalJobId, selectedVendors);
     },
-    onSuccess: async (result, variables) => {
+    onSuccess: async (result) => {
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
 
       if (!result.accepted) {
+        if (result.reasonCode === "all_lanes_covered") {
+          toast.info("Current quotes already cover this selection.");
+          return;
+        }
         toast.error(result.reason || "Quote request could not be started.");
         return;
       }
 
       if (result.created) {
-        toast.success(variables.forceRetry ? "Quote retry queued." : "Quote request queued.");
+        toast.success("Quote request queued.");
         return;
       }
 
@@ -1452,17 +1489,22 @@ export function useClientPartController(
     });
   };
 
-  const handleRequestQuote = async (forceRetry = false) => {
+  const handleRequestQuote = async (vendors: VendorName[]) => {
     if (isRequestQuoteLockedRef.current || requestQuoteMutation.isPending) {
-      return;
+      return false;
     }
 
     isRequestQuoteLockedRef.current = true;
 
     try {
-      await requestQuoteMutation.mutateAsync({ forceRetry });
+      if (vendors.length === 0) {
+        toast.error("Select at least one vendor before requesting quotes.");
+        return false;
+      }
+      const result = await requestQuoteMutation.mutateAsync({ selectedVendors: vendors });
+      return result.accepted || result.reasonCode === "all_lanes_covered";
     } catch {
-      return;
+      return false;
     } finally {
       isRequestQuoteLockedRef.current = false;
     }
@@ -1517,12 +1559,31 @@ export function useClientPartController(
     });
   };
   const sidebarJobs = navigationModel.parts;
+  let quoteVendorScopeError: string | null = null;
+  if (vendorPreferenceQuery.error instanceof Error) {
+    quoteVendorScopeError = vendorPreferenceQuery.error.message;
+  } else if (vendorPreferenceQuery.error) {
+    quoteVendorScopeError = "Vendor scope could not be loaded.";
+  } else if (quoteLaneEligibilityQuery.error instanceof Error) {
+    quoteVendorScopeError = quoteLaneEligibilityQuery.error.message;
+  } else if (quoteLaneEligibilityQuery.error) {
+    quoteVendorScopeError = "Quote eligibility could not be loaded.";
+  }
 
   return {
     accessibleJobs: sidebarJobs,
     accessibleJobsQuery,
     activeMembership,
     automaticQuoteCollectionEnabled: quoteCollectionMode.automaticEnabled,
+    availableQuoteVendors,
+    quoteLaneEligibility: quoteLaneEligibilityQuery.data ?? [],
+    selectedQuoteVendors,
+    quoteVendorScopeError,
+    isQuoteVendorScopeLoading:
+      vendorPreferenceQuery.isLoading ||
+      vendorPreferenceQuery.isFetching ||
+      quoteLaneEligibilityQuery.isLoading ||
+      quoteLaneEligibilityQuery.isFetching,
     isQuoteCollectionModeLoading: quoteCollectionMode.isLoading,
     activePreset,
     activityEntries,

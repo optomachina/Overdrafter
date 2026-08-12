@@ -261,6 +261,14 @@ function PanelHeader({
 }
 
 function SelectedOptionBanner({ option }: { option: ClientQuoteSelectionOption }) {
+  const collectedAt = option.offerCreatedAt ?? option.quoteResultUpdatedAt;
+  const collectedRecently = collectedAt
+    ? Date.now() - new Date(collectedAt).getTime() <= 14 * 24 * 60 * 60 * 1000
+    : false;
+  const validityLabel = option.validUntil
+    ? `Valid through ${new Date(option.validUntil).toLocaleDateString()}`
+    : "Validity not provided";
+
   return (
     <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
       <p className="text-[10px] uppercase tracking-[0.18em] text-emerald-800 dark:text-emerald-200">
@@ -287,6 +295,9 @@ function SelectedOptionBanner({ option }: { option: ClientQuoteSelectionOption }
               Expedite
             </Badge>
           ) : null}
+          <Badge className="border border-border bg-muted text-foreground">
+            {collectedRecently ? "Recently collected" : "Previously collected"} · {validityLabel}
+          </Badge>
         </div>
       </div>
     </div>

@@ -1713,7 +1713,7 @@ describe("ClientProject", () => {
     fireEvent.click(screen.getByRole("button", { name: /request (manual )?1 quote/i }));
 
     await waitFor(() => {
-      expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
+      expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"]);
     });
   });
 
@@ -1796,7 +1796,7 @@ describe("ClientProject", () => {
     fireEvent.click(screen.getByRole("button", { name: /request (manual )?1 quote/i }));
 
     await waitFor(() => {
-      expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
+      expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"]);
       expect(toastMock.success).toHaveBeenCalledWith("Queued 1 quote request and skipped 1 part.");
     });
   });
@@ -1833,7 +1833,7 @@ describe("ClientProject", () => {
       expect(api.requestQuotes).toHaveBeenCalledTimes(1);
     });
 
-    expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
+    expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"]);
 
     await waitFor(() => {
       expect(headerButton).toBeDisabled();
