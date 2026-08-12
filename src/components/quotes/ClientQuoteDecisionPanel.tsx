@@ -262,7 +262,10 @@ function formatDate(value: string | null | undefined): string {
     return "Unavailable";
   }
 
-  const date = new Date(value);
+  const normalizedValue = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? `${value}T00:00:00`
+    : value;
+  const date = new Date(normalizedValue);
   return Number.isNaN(date.getTime()) ? "Unavailable" : date.toLocaleDateString();
 }
 
@@ -338,6 +341,7 @@ function RecommendationSummary({ mode, rankedCount }: Readonly<{ mode: QuotePres
 
 function QuoteComparisonTable({
   options,
+  excludedOffers,
   selectedOption,
   hoveredKey,
   onSelect,
@@ -349,6 +353,7 @@ function QuoteComparisonTable({
   recommendedKey,
 }: Readonly<{
   options: readonly ClientQuoteSelectionOption[];
+  excludedOffers: QuoteDiagnostics["excludedOffers"];
   selectedOption: ClientQuoteSelectionOption | null;
   hoveredKey: string | null;
   onSelect: (option: ClientQuoteSelectionOption) => void;
@@ -547,6 +552,32 @@ function QuoteComparisonTable({
               </TableRow>
             );
           })}
+          {excludedOffers.map((offer, index) => (
+            <TableRow
+              key={`${offer.vendorQuoteResultId}:${offer.offerId ?? index}`}
+              aria-disabled="true"
+              className="border-border bg-muted/30 text-muted-foreground"
+            >
+              <TableCell className="px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-muted-foreground/50" />
+                  <span className="text-sm font-medium text-foreground/80">
+                    {offer.supplier ?? offer.vendorKey}
+                  </span>
+                </div>
+              </TableCell>
+              <TableCell className="max-w-64 px-3 py-2.5 text-xs text-muted-foreground">
+                <p>{offer.laneLabel ?? "Noncomparable response"}</p>
+                <p className="mt-0.5 text-[10px]">
+                  {offer.reasons.map(formatQuotePlotExclusionReason).join(" · ")}
+                </p>
+              </TableCell>
+              <TableCell className="px-3 py-2.5 text-right font-mono text-xs">Unavailable</TableCell>
+              <TableCell className="px-3 py-2.5 text-right font-mono text-xs">Unavailable</TableCell>
+              <TableCell className="px-3 py-2.5 text-right font-mono text-xs">Unavailable</TableCell>
+              <TableCell className="px-3 py-2.5 text-right font-mono text-xs">Unavailable</TableCell>
+            </TableRow>
+          ))}
         </TableBody>
       </Table>
     </div>
@@ -598,12 +629,28 @@ function renderDecisionPanelContent({
 
   if (quoteDataStatus === "invalid_for_plotting") {
     return (
-      <QuoteDataStatusCard
-        icon={TriangleAlert}
-        title="Quote rows were loaded but could not be plotted"
-        body={quoteDataMessage ?? "The quote rows for this part are missing required plotting fields."}
-        diagnostics={quoteDiagnostics}
-      />
+      <div className="space-y-3">
+        <QuoteDataStatusCard
+          icon={TriangleAlert}
+          title="Quote rows were loaded but could not be plotted"
+          body={quoteDataMessage ?? "The quote rows for this part are missing required plotting fields."}
+          diagnostics={quoteDiagnostics}
+        />
+        {quoteDiagnostics?.excludedOffers.length ? (
+          <QuoteComparisonTable
+            options={[]}
+            excludedOffers={quoteDiagnostics.excludedOffers}
+            selectedOption={null}
+            hoveredKey={null}
+            onSelect={onSelect}
+            onHover={setHoveredKey}
+            requestedByDate={requestedByDate}
+            activePreset={activePreset}
+            topRankedKeys={new Set<string>()}
+            recommendedKey={null}
+          />
+        ) : null}
+      </div>
     );
   }
 
@@ -650,6 +697,7 @@ function renderDecisionPanelContent({
 
       <QuoteComparisonTable
         options={rankedOptions}
+        excludedOffers={quoteDiagnostics?.excludedOffers ?? []}
         selectedOption={selectedOption}
         hoveredKey={hoveredKey}
         onSelect={onSelect}
@@ -664,24 +712,6 @@ function renderDecisionPanelContent({
       <RecommendationSummary mode={getPresetMode(activePreset)} rankedCount={topRankedKeys.size} />
 
       <QuoteStatsBar options={options} />
-
-      {quoteDiagnostics?.excludedOffers.length ? (
-        <details className="border-t border-border pt-2">
-          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-            {quoteDiagnostics.excludedOffers.length} noncomparable response{quoteDiagnostics.excludedOffers.length === 1 ? "" : "s"}
-          </summary>
-          <div className="mt-2 space-y-2">
-            {quoteDiagnostics.excludedOffers.map((offer, index) => (
-              <div key={`${offer.vendorQuoteResultId}:${offer.offerId ?? index}`} className="flex flex-wrap justify-between gap-2 border-t border-border py-2 text-xs">
-                <span className="text-foreground">{offer.supplier ?? offer.vendorKey}</span>
-                <span className="text-muted-foreground">
-                  {offer.reasons.map(formatQuotePlotExclusionReason).join(" · ")}
-                </span>
-              </div>
-            ))}
-          </div>
-        </details>
-      ) : null}
 
       {options.some((option) => resolveVendorPurchasingLink(option)) ? (
         <p className="text-xs text-muted-foreground">

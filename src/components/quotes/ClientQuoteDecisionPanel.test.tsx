@@ -156,6 +156,28 @@ describe("ClientQuoteDecisionPanel", () => {
     );
   });
 
+  it("preserves date-only vendor terms in the user's local timezone", async () => {
+    const selected = makeClientQuoteOption({
+      quoteDateIso: "2026-04-15",
+      validUntil: "2026-04-30",
+    });
+
+    render(
+      <ClientQuoteDecisionPanel
+        options={[selected]}
+        selectedOption={selected}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+      />,
+    );
+
+    await screen.findByText("Quote Chart");
+    fireEvent.click(screen.getByText("Response source facts"));
+
+    expect(screen.getByText("4/15/2026")).toBeInTheDocument();
+    expect(screen.getAllByText("4/30/2026")).not.toHaveLength(0);
+  });
+
   it("shows a supported vendor purchasing link without selecting the row", async () => {
     const onSelect = vi.fn();
     const option = makeClientQuoteOption({
@@ -361,8 +383,27 @@ describe("ClientQuoteDecisionPanel", () => {
     );
 
     expect(screen.getByText("Quote rows were loaded but could not be plotted")).toBeInTheDocument();
-    expect(screen.getAllByText(/invalid total price format/i)).toHaveLength(2);
+    expect(screen.getAllByText(/invalid total price format/i)).toHaveLength(3);
+    expect(screen.getByRole("row", { name: /Xometry USA.*Invalid total price format/i })).toBeInTheDocument();
     expect(screen.queryByText("Quote Chart")).not.toBeInTheDocument();
+  });
+
+  it("keeps noncomparable responses in the vendor table beside comparable offers", async () => {
+    render(
+      <ClientQuoteDecisionPanel
+        options={[makeClientQuoteOption()]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+        quoteDiagnostics={makeDiagnostics({ plottableOfferCount: 1 })}
+      />,
+    );
+
+    await screen.findByText("Quote Chart");
+
+    const excludedRow = screen.getByRole("row", { name: /Xometry USA.*Invalid total price format/i });
+    expect(excludedRow).toHaveAttribute("aria-disabled", "true");
+    expect(within(excludedRow).getAllByText("Unavailable")).toHaveLength(4);
   });
 
   it("renders custom controls instead of the legacy preset row when provided", () => {
