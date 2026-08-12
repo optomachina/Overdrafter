@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { JobFileRecord, StagedFile, VendorArtifact, WorkerConfig } from "./types.js";
 
@@ -36,6 +37,15 @@ export async function stageStorageObject(
   const localPath = path.join(targetDir, sanitizeFileName(file.original_name));
   const buffer = Buffer.from(await data.arrayBuffer());
 
+  const trustedContentSha256 = createHash("sha256").update(buffer).digest("hex");
+  const { error: trustedHashError } = await supabase.rpc("api_register_trusted_file_hash", {
+    p_job_file_id: file.id,
+    p_content_sha256: trustedContentSha256,
+  });
+  if (trustedHashError) {
+    throw trustedHashError;
+  }
+
   await fs.writeFile(localPath, buffer);
 
   return {
@@ -43,6 +53,7 @@ export async function stageStorageObject(
     localPath,
     storageBucket: file.storage_bucket,
     storagePath: file.storage_path,
+    trustedContentSha256,
   };
 }
 

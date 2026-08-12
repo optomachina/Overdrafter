@@ -27,6 +27,7 @@ import {
   stageStorageObject,
   uploadArtifact,
 } from "./files.js";
+import { buildQuoteLaneScopeSnapshot } from "./quoteScope.js";
 import {
   claimNextTask,
   createServiceClient,
@@ -1133,6 +1134,26 @@ async function handleVendorQuoteTask(
     stageDir = await createRunDir(config, ["staging", task.quote_run_id, task.part_id]);
     const stagedCadFile = await stageStorageObject(supabase, context.cadFile, stageDir);
     const stagedDrawingFile = await stageStorageObject(supabase, context.drawingFile, stageDir);
+    const scopeSnapshot = buildQuoteLaneScopeSnapshot({
+      part: context.part,
+      cadFile: context.cadFile,
+      drawingFile: context.drawingFile,
+      stagedCadFile,
+      stagedDrawingFile,
+      requirement: context.requirement,
+      vendor,
+      requestedQuantity: currentResult.requested_quantity,
+    });
+    const { error: laneRegistrationError } = await supabase.rpc(
+      "api_register_quote_request_lane",
+      {
+        p_vendor_quote_result_id: currentResult.id,
+        p_scope_snapshot: scopeSnapshot,
+      },
+    );
+    if (laneRegistrationError) {
+      throw laneRegistrationError;
+    }
     vendorAutomationStarted = true;
     const result = await adapter.quote({
       organizationId: task.organization_id,

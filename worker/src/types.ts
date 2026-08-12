@@ -100,6 +100,9 @@ export type JobFileRecord = {
   storage_path: string;
   original_name: string;
   content_sha256?: string | null;
+  trusted_content_sha256?: string | null;
+  mime_type?: string | null;
+  size_bytes?: number | null;
   file_kind: "cad" | "drawing" | "artifact" | "other";
 };
 
@@ -246,6 +249,8 @@ export type StagedFile = {
   localPath: string;
   storageBucket: string;
   storagePath: string;
+  /** Digest computed from the bytes downloaded by this worker. */
+  trustedContentSha256?: string;
 };
 
 export type VendorArtifact = {
@@ -262,6 +267,15 @@ export type VendorQuoteAdapterOutput = {
   totalPriceUsd: number | null;
   leadTimeBusinessDays: number | null;
   quoteUrl: string | null;
+  /** Vendor-stated quote timestamp, when the adapter can establish it. */
+  quotedAt?: string | null;
+  /** Explicit vendor expiration. Never inferred from collection freshness. */
+  validUntil?: string | null;
+  /** Explicit vendor duration, normalized to whole days. */
+  validityDurationDays?: number | null;
+  validitySource?: "vendor_date" | "vendor_duration" | null;
+  /** Original vendor wording retained for operator review. */
+  validityTerms?: string | null;
   dfmIssues: string[];
   notes: string[];
   artifacts: VendorArtifact[];

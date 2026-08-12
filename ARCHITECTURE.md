@@ -153,6 +153,8 @@ device release gate before this flow replaces the current embedded sign-in.
 - retaining manual quote entry and imported quote paths as internal-only compatibility mechanisms
 - normalizing quote outputs into a canonical internal model
 - materializing spreadsheet or manual lane data into `vendor_quote_results` and canonical per-lane `vendor_quote_offers`
+- snapshotting each outbound vendor/part/quantity disclosure into an immutable `quote_request_lanes` record with an internal-only versioned fingerprint
+- storing vendor-stated offer validity, its normalized source/duration, original terms, and provenance separately from collection freshness
 - exposing client-safe quote comparison data through `public.api_list_client_quote_workspace`, rather than direct client reads from internal-only quote tables
 
 Free sourcing and Pro automatic collection are separate launch contracts:

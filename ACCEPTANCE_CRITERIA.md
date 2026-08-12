@@ -94,6 +94,9 @@ This document defines what it means for the current repository-hardening phase t
 - The worker picks up the queued work and starts vendor quote collection through the adapter boundary for each queued vendor lane.
 - The client UI clearly shows quote request lifecycle state: `not requested`, `queued`, `requesting`, `received`, `failed`, or `canceled`.
 - Cross-org users cannot request or inspect quote request state for jobs they do not own or cannot access.
+- Every persisted vendor/part/quantity request lane records a versioned fingerprint of the exact disclosed files and manufacturing fields without exposing that fingerprint through client APIs.
+- Offer capture accepts an explicit expiration or explicit duration, derives the counterpart when possible, preserves the original vendor terms and source, and leaves commercial validity unknown when not supplied.
+- Collection freshness and vendor-stated commercial validity remain separate signals; historical offers are not assigned invented expiration dates.
 - Relevant product, planning, architecture, and test documents are updated in the same change.
 
 ### Feature addendum — Supplier discovery foundation

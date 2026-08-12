@@ -602,6 +602,7 @@ export type Database = {
           size_bytes: number | null
           storage_bucket: string
           storage_path: string
+          trusted_content_sha256: string | null
           uploaded_by: string
         }
         Insert: {
@@ -619,6 +620,7 @@ export type Database = {
           size_bytes?: number | null
           storage_bucket?: string
           storage_path: string
+          trusted_content_sha256?: string | null
           uploaded_by: string
         }
         Update: {
@@ -636,6 +638,7 @@ export type Database = {
           size_bytes?: number | null
           storage_bucket?: string
           storage_path?: string
+          trusted_content_sha256?: string | null
           uploaded_by?: string
         }
         Relationships: [
@@ -831,6 +834,7 @@ export type Database = {
           size_bytes: number | null
           storage_bucket: string
           storage_path: string
+          trusted_content_sha256: string | null
         }
         Insert: {
           content_sha256: string
@@ -841,6 +845,7 @@ export type Database = {
           size_bytes?: number | null
           storage_bucket?: string
           storage_path: string
+          trusted_content_sha256?: string | null
         }
         Update: {
           content_sha256?: string
@@ -851,6 +856,7 @@ export type Database = {
           size_bytes?: number | null
           storage_bucket?: string
           storage_path?: string
+          trusted_content_sha256?: string | null
         }
         Relationships: [
           {
@@ -1498,6 +1504,87 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: true
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quote_request_lanes: {
+        Row: {
+          created_at: string
+          id: string
+          organization_id: string
+          part_id: string
+          quote_request_id: string
+          quote_run_id: string
+          requested_quantity: number
+          scope_fingerprint: string
+          scope_snapshot: Json
+          scope_version: number
+          vendor: Database["public"]["Enums"]["vendor_name"]
+          vendor_quote_result_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          organization_id: string
+          part_id: string
+          quote_request_id: string
+          quote_run_id: string
+          requested_quantity: number
+          scope_fingerprint: string
+          scope_snapshot: Json
+          scope_version?: number
+          vendor: Database["public"]["Enums"]["vendor_name"]
+          vendor_quote_result_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          organization_id?: string
+          part_id?: string
+          quote_request_id?: string
+          quote_run_id?: string
+          requested_quantity?: number
+          scope_fingerprint?: string
+          scope_snapshot?: Json
+          scope_version?: number
+          vendor?: Database["public"]["Enums"]["vendor_name"]
+          vendor_quote_result_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_request_lanes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_request_lanes_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_request_lanes_quote_request_id_fkey"
+            columns: ["quote_request_id"]
+            isOneToOne: false
+            referencedRelation: "quote_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_request_lanes_quote_run_id_fkey"
+            columns: ["quote_run_id"]
+            isOneToOne: false
+            referencedRelation: "quote_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_request_lanes_vendor_quote_result_id_fkey"
+            columns: ["vendor_quote_result_id"]
+            isOneToOne: true
+            referencedRelation: "vendor_quote_results"
             referencedColumns: ["id"]
           },
         ]
@@ -2506,8 +2593,10 @@ export type Database = {
           offer_key: string
           organization_id: string
           process: string | null
+          provenance_status: string
           quote_date: string | null
           quote_ref: string | null
+          quoted_at: string | null
           raw_payload: Json
           ship_receive_by: string | null
           sort_rank: number
@@ -2521,6 +2610,10 @@ export type Database = {
           total_price_usd: number | null
           unit_price_usd: number | null
           updated_at: string
+          valid_until: string | null
+          validity_duration_days: number | null
+          validity_source: string | null
+          validity_terms: string | null
           vendor_quote_result_id: string
         }
         Insert: {
@@ -2535,8 +2628,10 @@ export type Database = {
           offer_key: string
           organization_id: string
           process?: string | null
+          provenance_status?: string
           quote_date?: string | null
           quote_ref?: string | null
+          quoted_at?: string | null
           raw_payload?: Json
           ship_receive_by?: string | null
           sort_rank?: number
@@ -2550,6 +2645,10 @@ export type Database = {
           total_price_usd?: number | null
           unit_price_usd?: number | null
           updated_at?: string
+          valid_until?: string | null
+          validity_duration_days?: number | null
+          validity_source?: string | null
+          validity_terms?: string | null
           vendor_quote_result_id: string
         }
         Update: {
@@ -2564,8 +2663,10 @@ export type Database = {
           offer_key?: string
           organization_id?: string
           process?: string | null
+          provenance_status?: string
           quote_date?: string | null
           quote_ref?: string | null
+          quoted_at?: string | null
           raw_payload?: Json
           ship_receive_by?: string | null
           sort_rank?: number
@@ -2579,6 +2680,10 @@ export type Database = {
           total_price_usd?: number | null
           unit_price_usd?: number | null
           updated_at?: string
+          valid_until?: string | null
+          validity_duration_days?: number | null
+          validity_source?: string | null
+          validity_terms?: string | null
           vendor_quote_result_id?: string
         }
         Relationships: [
@@ -3286,6 +3391,14 @@ export type Database = {
           p_vendor: Database["public"]["Enums"]["vendor_name"]
         }
         Returns: Json
+      }
+      api_register_quote_request_lane: {
+        Args: { p_scope_snapshot: Json; p_vendor_quote_result_id: string }
+        Returns: undefined
+      }
+      api_register_trusted_file_hash: {
+        Args: { p_content_sha256: string; p_job_file_id: string }
+        Returns: undefined
       }
       api_release_organization_billing_checkout: {
         Args: { p_organization_id: string; p_reservation_token: string }

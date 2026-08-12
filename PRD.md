@@ -101,6 +101,13 @@ Current implementation foundation:
 - durable quote request lifecycle visibility in the client UI
 - provider recommendations ranked from authenticated, reviewed capability profiles
 - official provider RFQ links that remain useful when automation is unavailable
+- immutable request lanes keyed by vendor, exact disclosed package and requirements, and quantity
+- vendor-stated commercial validity stored separately from the 14-day collection-freshness signal
+
+Quote freshness rules:
+- The 14-day trusted-adapter rule answers whether a collected offer is recent enough to present as live; it does not assert that the vendor price is still commercially valid.
+- Commercial validity is vendor-stated or operator-entered. It may be an explicit expiration date or an explicit duration, and it is never inferred when missing.
+- Quote scope fingerprints are versioned, internal-only, and derived from the exact outbound files and manufacturing fields disclosed to one vendor for one quantity.
 
 Planned commercial additions:
 - replay-safe Stripe subscription synchronization
