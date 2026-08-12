@@ -11,7 +11,6 @@ type StatCell = {
   label: string;
   value: string;
   detail: string;
-  color: string;
 };
 
 type QuoteStatsModel = {
@@ -84,25 +83,21 @@ function buildStats(options: readonly ClientQuoteSelectionOption[]): StatCell[] 
       label: "Best Unit Price",
       value: bestPrice === null ? "—" : formatCurrency(bestPrice),
       detail: formatOptionDetail(bestPriceOption),
-      color: "text-emerald-700 dark:text-emerald-300",
     },
     {
       label: "Fastest Lead",
       value: fastestLead === null ? "—" : `${fastestLead} days`,
       detail: formatOptionDetail(fastestOption),
-      color: "text-amber-700 dark:text-amber-300",
     },
     {
       label: "Options Quoted",
       value: String(options.length),
       detail: `${suppliers.size} supplier${suppliers.size === 1 ? "" : "s"}`,
-      color: "text-blue-700 dark:text-blue-300",
     },
     {
       label: "Price Range",
       value: range,
       detail: spread,
-      color: "text-foreground",
     },
   ];
 }
@@ -128,13 +123,13 @@ export function QuoteStatsBar({ options }: QuoteStatsBarProps) {
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-accent md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-px overflow-hidden border border-border bg-border md:grid-cols-4">
         {stats.map((stat) => (
           <div key={stat.label} className="bg-ws-inset px-4 py-3">
             <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
               {stat.label}
             </p>
-            <p className={`mt-1 text-xl font-bold tracking-tight ${stat.color}`}>
+            <p className="mt-1 font-mono text-sm font-medium tabular-nums text-foreground">
               {stat.value}
             </p>
             {stat.detail ? (
@@ -145,8 +140,8 @@ export function QuoteStatsBar({ options }: QuoteStatsBarProps) {
       </div>
 
       {highSpreadGuidance ? (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-400/10 px-4 py-3 text-sm text-foreground">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-800 dark:text-amber-200">
+        <div className="border-l-2 border-[var(--accent-red)] bg-ws-inset px-4 py-3 text-sm text-foreground">
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Decision Prompt
           </p>
           <p className="mt-1 leading-6 text-foreground/80">{highSpreadGuidance}</p>

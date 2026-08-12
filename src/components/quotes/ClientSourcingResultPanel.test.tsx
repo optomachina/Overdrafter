@@ -47,4 +47,30 @@ describe("ClientSourcingResultPanel", () => {
 
     expect(screen.queryByRole("button", { name: "CNC milling" })).not.toBeInTheDocument();
   });
+
+  it("keeps provider recommendations collapsed as secondary sourcing paths", () => {
+    render(
+      <ClientSourcingResultPanel
+        result={{
+          outcome: "provider_recommendations_available",
+          recommendations: [
+            {
+              vendorName: "xometry",
+              vendorLabel: "Xometry",
+              fitScore: 91,
+              fitReasons: ["Matches CNC milling and 6061 aluminum"],
+              capabilityReviewedAt: "2026-08-01T00:00:00.000Z",
+              officialRfqUrl: "https://www.xometry.com/quoting/home/",
+              provenance: "reviewed_provider_capability_profile",
+            },
+          ],
+          reason: "free_preview",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Additional sourcing paths")).toBeInTheDocument();
+    expect(screen.queryByText("Potential provider #1")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open RFQ" })).not.toBeVisible();
+  });
 });

@@ -1113,8 +1113,9 @@ describe("ClientProject", () => {
 
     fireEvent.click(screen.getByText("BRKT-001"));
     const inspector = screen.getByRole("complementary", { name: "Project inspector" });
-    expect(within(inspector).getByText("Provider recommendations available")).toBeInTheDocument();
-    expect(within(inspector).queryByText("Live offers available")).not.toBeInTheDocument();
+    expect(within(inspector).queryByText("Additional sourcing paths")).not.toBeInTheDocument();
+    const sourcingPaths = screen.getByRole("region", { name: "Additional sourcing paths" });
+    expect(within(sourcingPaths).getByText(/No live quotes yet/)).toBeInTheDocument();
   });
 
   it("selects a row and updates the docked inspector without navigating away", async () => {
@@ -1159,14 +1160,16 @@ describe("ClientProject", () => {
     fireEvent.click(partNumber);
 
     const inspector = screen.getByRole("complementary", { name: "Project inspector" });
-    expect(within(inspector).getByText("Provider recommendations available")).toBeInTheDocument();
+    expect(within(inspector).queryByText("Additional sourcing paths")).not.toBeInTheDocument();
     expect(within(inspector).queryByText(/potential providers ranked/i)).not.toBeInTheDocument();
-    const officialRfqLink = within(inspector).getByRole("link", { name: /open official rfq/i });
+    const sourcingPaths = screen.getByRole("region", { name: "Additional sourcing paths" });
+    fireEvent.click(within(sourcingPaths).getByText("Additional sourcing paths"));
+    const officialRfqLink = within(sourcingPaths).getByRole("link", { name: /open rfq/i });
     expect(officialRfqLink).toHaveAttribute(
       "href",
       "https://www.xometry.com/quoting/home/",
     );
-    expect(officialRfqLink.closest("article")?.parentElement).not.toHaveClass("lg:grid-cols-3");
+    expect(officialRfqLink.closest("li")?.parentElement).not.toHaveClass("lg:grid-cols-3");
   });
 
   it("keeps valid imported quotes available in the project comparison", async () => {
@@ -1236,7 +1239,8 @@ describe("ClientProject", () => {
     expect(await screen.findByText("Reviewing")).toBeInTheDocument();
     fireEvent.click(screen.getByText("BRKT-001"));
     const inspector = screen.getByRole("complementary", { name: "Project inspector" });
-    expect(within(inspector).getByText(/Reviewing sourcing options/i)).toBeInTheDocument();
+    expect(within(inspector).queryByText(/Reviewing sourcing options/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Reviewing sourcing options/i)).toBeInTheDocument();
 
     await act(async () => {
       capabilityProfiles.resolve([createVendorCapabilityProfile()]);
@@ -1244,7 +1248,7 @@ describe("ClientProject", () => {
     });
 
     expect(await screen.findByText("1 provider")).toBeInTheDocument();
-    expect(within(inspector).getByText("Provider recommendations available")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Additional sourcing paths" })).toBeInTheDocument();
   });
 
   it("shows an explicit action when provider capability data fails", async () => {
@@ -1256,7 +1260,10 @@ describe("ClientProject", () => {
     fireEvent.click(screen.getByText("BRKT-001"));
     const inspector = screen.getByRole("complementary", { name: "Project inspector" });
     expect(
-      within(inspector).getByRole("heading", { name: "Provider guidance is temporarily unavailable" }),
+      within(inspector).queryByRole("heading", { name: "Provider guidance is temporarily unavailable" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Provider guidance is temporarily unavailable" }),
     ).toBeInTheDocument();
   });
 
@@ -1295,8 +1302,9 @@ describe("ClientProject", () => {
     fireEvent.click(partNumber);
 
     const inspector = screen.getByRole("complementary", { name: "Project inspector" });
-    expect(within(inspector).getByText("Live offers available")).toBeInTheDocument();
-    expect(within(inspector).getByRole("heading", { name: /1 live offer/i })).toBeInTheDocument();
+    expect(within(inspector).queryByText("Additional sourcing paths")).not.toBeInTheDocument();
+    const sourcingPaths = screen.getByRole("region", { name: "Additional sourcing paths" });
+    expect(within(sourcingPaths).getByText(/1 live offer shown in comparison/i)).toBeInTheDocument();
   });
 
   it("shows an explicit unsupported-package result in the project ledger and inspector", async () => {
@@ -1325,9 +1333,12 @@ describe("ClientProject", () => {
 
     const inspector = screen.getByRole("complementary", { name: "Project inspector" });
     expect(
-      within(inspector).getByRole("heading", { name: "This material is outside the launch scope" }),
+      within(inspector).queryByRole("heading", { name: "This material is outside the launch scope" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "This material is outside the launch scope" }),
     ).toBeInTheDocument();
-    expect(within(inspector).getByText(/currently supports machined aluminum parts/i)).toBeInTheDocument();
+    expect(screen.getByText(/currently supports machined aluminum parts/i)).toBeInTheDocument();
   });
 
   it.each(["queued", "failed"] as const)(
@@ -1344,10 +1355,9 @@ describe("ClientProject", () => {
       fireEvent.click(partNumber);
 
       const inspector = screen.getByRole("complementary", { name: "Project inspector" });
-      expect(within(inspector).getByText("Provider recommendations available")).toBeInTheDocument();
-      expect(
-        within(inspector).getByRole("heading", { name: "Qualified next steps, available now" }),
-      ).toBeInTheDocument();
+      expect(within(inspector).queryByText("Additional sourcing paths")).not.toBeInTheDocument();
+      const sourcingPaths = screen.getByRole("region", { name: "Additional sourcing paths" });
+      expect(within(sourcingPaths).getByText(/No live quotes yet/)).toBeInTheDocument();
       expect(within(inspector).queryByText(/automatic collection has not produced/i)).not.toBeInTheDocument();
     },
   );
@@ -1626,12 +1636,15 @@ describe("ClientProject", () => {
     expect(within(inspectorSheet).getAllByText("Machined mounting bracket").length).toBeGreaterThan(0);
     expect(within(inspectorSheet).getByText("Material")).toBeInTheDocument();
     expect(within(inspectorSheet).getByText("6061-T6")).toBeInTheDocument();
-    expect(within(inspectorSheet).getByText("Provider recommendations available")).toBeInTheDocument();
-    expect(within(inspectorSheet).getByRole("link", { name: /open official rfq/i })).toHaveAttribute(
+    expect(within(inspectorSheet).queryByText("Additional sourcing paths")).not.toBeInTheDocument();
+    expect(within(inspectorSheet).getByRole("button", { name: "Full workspace" })).toBeInTheDocument();
+    fireEvent.click(within(inspectorSheet).getByRole("button", { name: "Close" }));
+    const sourcingPaths = screen.getByRole("region", { name: "Additional sourcing paths" });
+    fireEvent.click(within(sourcingPaths).getByText("Additional sourcing paths"));
+    expect(within(sourcingPaths).getByRole("link", { name: /open rfq/i })).toHaveAttribute(
       "href",
       "https://www.xometry.com/quoting/home/",
     );
-    expect(within(inspectorSheet).getByRole("button", { name: "Full workspace" })).toBeInTheDocument();
     expect(screen.getByTestId("location-path")).toHaveTextContent("/projects/project-1");
   });
 
