@@ -2845,6 +2845,13 @@ describe("quotes api helpers", () => {
         });
       }
 
+      if (fn === "api_prepare_part_intake") {
+        return Promise.resolve({
+          data: { result: "new_identity", partVersionId: null },
+          error: null,
+        });
+      }
+
       if (fn === "api_create_job") {
         return Promise.resolve({
           data: "job-fallback-1",
@@ -3242,7 +3249,11 @@ describe("quotes api helpers", () => {
       p_name: "alpha + 1 parts",
       p_description: null,
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_create_client_draft", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_prepare_part_intake", {
+      p_cad_content_sha256: createHash("sha256").update("a").digest("hex"),
+      p_drawing_content_sha256: null,
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(3, "api_create_client_draft", {
       p_title: "alpha",
       p_description: "I need 10 of these by April 15",
       p_project_id: "project-1",
@@ -3253,7 +3264,11 @@ describe("quotes api helpers", () => {
       p_requested_quote_quantities: [10],
       p_requested_by_date: "2026-04-15",
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(7, "api_create_client_draft", {
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(8, "api_prepare_part_intake", {
+      p_cad_content_sha256: createHash("sha256").update("b").digest("hex"),
+      p_drawing_content_sha256: null,
+    });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(9, "api_create_client_draft", {
       p_title: "beta",
       p_description: "I need 10 of these by April 15",
       p_project_id: "project-1",
