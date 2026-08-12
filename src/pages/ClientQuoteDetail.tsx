@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowUpRight, Copy, FileText, PlusSquare } from "lucide-react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
@@ -77,6 +77,7 @@ function QuoteFact({
 const ClientQuoteDetail = () => {
   const { quoteCode: routeQuoteCode = "" } = useParams();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const appMode = searchParams.get("app") === "ios" ? "ios" : null;
   const quoteCode = routeQuoteCode.trim().toUpperCase();
   const quotesHref = buildAppAwareHref("/quotes", appMode);
@@ -291,7 +292,9 @@ const ClientQuoteDetail = () => {
       return;
     }
 
-    void controller.handleRequestQuote();
+    navigate(
+      buildAppAwareHref(`/parts/${resolvedJobId}?quote=request`, appMode),
+    );
   };
 
   const handleSaveReference = () => {
@@ -388,7 +391,15 @@ const ClientQuoteDetail = () => {
             value={`${controller.rankedQuoteOptions.length}`}
             unavailable={controller.rankedQuoteOptions.length === 0}
           />
-          <QuoteFact label="Valid through" value="Not provided by source" unavailable />
+          <QuoteFact
+            label="Valid through"
+            value={
+              controller.selectedQuoteOption?.validUntil
+                ? formatDate(controller.selectedQuoteOption.validUntil)
+                : "Not provided by source"
+            }
+            unavailable={!controller.selectedQuoteOption?.validUntil}
+          />
           <QuoteFact label="Supplier response time" value="Not available in current records" unavailable />
           <QuoteFact label="Link access" value="OverDrafter login and workspace access required" />
         </dl>

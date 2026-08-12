@@ -141,7 +141,12 @@ const ClientPartReview = () => {
                   <MoveLeft className="mr-2 h-4 w-4" />
                   Back to edit
                 </Button>
-                <Button type="button" className="rounded-full" onClick={() => setShowHandoffSummary(true)}>
+                <Button
+                  type="button"
+                  className="rounded-full"
+                  onClick={() => setShowHandoffSummary(true)}
+                  disabled={!selectedOption}
+                >
                   Review handoff
                   <MoveRight className="ml-2 h-4 w-4" />
                 </Button>
@@ -172,7 +177,9 @@ const ClientPartReview = () => {
                       </p>
                     </div>
                   ) : (
-                    <p className="mt-4 text-sm text-muted-foreground">No quote has been selected yet for this part.</p>
+                    <p className="mt-4 text-sm text-muted-foreground">
+                      No current quote is selected. Choose a valid quote before reviewing the procurement handoff.
+                    </p>
                   )}
                 </div>
 

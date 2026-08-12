@@ -249,6 +249,25 @@ describe("client review pages", () => {
     expect(await screen.findByText("Part Edit")).toBeInTheDocument();
   });
 
+  it("blocks procurement handoff when the persisted offer was invalidated", async () => {
+    const [workspaceItem] = await api.fetchClientQuoteWorkspaceByJobIds();
+    workspaceItem.part.vendorQuotes[0].offers[0].invalidated_at =
+      "2026-03-02T00:00:00Z";
+    api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValue([workspaceItem]);
+
+    renderWithClient(
+      <Routes>
+        <Route path="/parts/:jobId/review" element={<ClientPartReview />} />
+      </Routes>,
+      "/parts/job-1/review",
+    );
+
+    expect(
+      await screen.findByText(/No current quote is selected/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /review handoff/i })).toBeDisabled();
+  });
+
   it("renders the project review summary with the same procurement handoff model", async () => {
     renderWithClient(
       <Routes>

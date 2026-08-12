@@ -390,12 +390,13 @@ export function useClientPartController(
         : [],
     [vendorPreferenceQuery.data],
   );
+  const availableQuoteVendors = vendorPreferenceQuery.data?.availableVendors ?? [];
   const quoteLaneEligibilityQuery = useQuery({
-    queryKey: ["quote-lane-eligibility", canonicalJobId, selectedQuoteVendors],
+    queryKey: ["quote-lane-eligibility", canonicalJobId, availableQuoteVendors],
     queryFn: () =>
       getQuoteLaneEligibility(
         canonicalJobId,
-        vendorPreferenceQuery.data?.availableVendors,
+        availableQuoteVendors,
       ),
     enabled:
       Boolean(user) &&
@@ -1488,7 +1489,7 @@ export function useClientPartController(
     });
   };
 
-  const handleRequestQuote = async (vendors?: VendorName[]) => {
+  const handleRequestQuote = async (vendors: VendorName[]) => {
     if (isRequestQuoteLockedRef.current || requestQuoteMutation.isPending) {
       return false;
     }
@@ -1496,12 +1497,11 @@ export function useClientPartController(
     isRequestQuoteLockedRef.current = true;
 
     try {
-      const selectedVendors = vendors ?? selectedQuoteVendors;
-      if (selectedVendors.length === 0) {
+      if (vendors.length === 0) {
         toast.error("Select at least one vendor before requesting quotes.");
         return false;
       }
-      const result = await requestQuoteMutation.mutateAsync({ selectedVendors });
+      const result = await requestQuoteMutation.mutateAsync({ selectedVendors: vendors });
       return result.accepted || result.reasonCode === "all_lanes_covered";
     } catch {
       return false;
@@ -1559,21 +1559,26 @@ export function useClientPartController(
     });
   };
   const sidebarJobs = navigationModel.parts;
+  let quoteVendorScopeError: string | null = null;
+  if (vendorPreferenceQuery.error instanceof Error) {
+    quoteVendorScopeError = vendorPreferenceQuery.error.message;
+  } else if (vendorPreferenceQuery.error) {
+    quoteVendorScopeError = "Vendor scope could not be loaded.";
+  } else if (quoteLaneEligibilityQuery.error instanceof Error) {
+    quoteVendorScopeError = quoteLaneEligibilityQuery.error.message;
+  } else if (quoteLaneEligibilityQuery.error) {
+    quoteVendorScopeError = "Quote eligibility could not be loaded.";
+  }
 
   return {
     accessibleJobs: sidebarJobs,
     accessibleJobsQuery,
     activeMembership,
     automaticQuoteCollectionEnabled: quoteCollectionMode.automaticEnabled,
-    availableQuoteVendors: vendorPreferenceQuery.data?.availableVendors ?? [],
+    availableQuoteVendors,
     quoteLaneEligibility: quoteLaneEligibilityQuery.data ?? [],
     selectedQuoteVendors,
-    quoteVendorScopeError:
-      vendorPreferenceQuery.error instanceof Error
-        ? vendorPreferenceQuery.error.message
-        : vendorPreferenceQuery.error
-          ? "Vendor scope could not be loaded."
-          : null,
+    quoteVendorScopeError,
     isQuoteVendorScopeLoading:
       vendorPreferenceQuery.isLoading ||
       vendorPreferenceQuery.isFetching ||

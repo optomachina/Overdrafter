@@ -149,7 +149,7 @@ function writeStoredSubscribed(storageScopeKey: string, jobId: string, subscribe
 }
 
 const ClientPart = () => {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const appMode = searchParams.get("app") === "ios" ? "ios" : null;
   const appAwareHref = (href: string) => buildAppAwareHref(href, appMode);
   const {
@@ -262,6 +262,17 @@ const ClientPart = () => {
   const [isQuoteRequestFlowOpen, setIsQuoteRequestFlowOpen] = useState(false);
 
   useEffect(() => {
+    if (searchParams.get("quote") !== "request") {
+      return;
+    }
+
+    setIsQuoteRequestFlowOpen(true);
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete("quote");
+    setSearchParams(nextSearchParams, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
     setSelectedOptionKey(selectedQuoteOption?.key ?? null);
   }, [selectedQuoteOption?.key]);
 
@@ -328,6 +339,14 @@ const ClientPart = () => {
     }
 
     setIsQuoteRequestFlowOpen(true);
+  };
+
+  const handleQuoteRequestFlowOpenChange = (open: boolean) => {
+    if (open && saveRequestMutation.isPending) {
+      return;
+    }
+
+    setIsQuoteRequestFlowOpen(open);
   };
 
   const handleConfirmQuoteRequest = async (vendors: typeof selectedQuoteVendors) => {
@@ -564,13 +583,13 @@ const ClientPart = () => {
       </AlertDialog>
       <ClientQuoteRequestFlow
         open={isQuoteRequestFlowOpen}
-        onOpenChange={setIsQuoteRequestFlowOpen}
+        onOpenChange={handleQuoteRequestFlowOpenChange}
         partLabel={displayPartTitle || currentPartName}
         availableVendors={availableQuoteVendors}
         laneEligibility={quoteLaneEligibility}
         initialSelectedVendors={selectedQuoteVendors}
         canSubmit={automaticQuoteCollectionEnabled}
-        isLoading={isQuoteVendorScopeLoading}
+        isLoading={isQuoteVendorScopeLoading || saveRequestMutation.isPending}
         isSubmitting={isRequestingQuote}
         loadError={quoteVendorScopeError}
         blockerReasons={quoteRequestViewModel?.blockerReasons ?? []}
@@ -584,21 +603,49 @@ const ClientPart = () => {
         ]}
         disclosureFields={[
           {
+            label: "Description",
+            value: partDetail?.part?.approvedRequirement?.description || "Not specified",
+          },
+          {
             label: "Quantity",
-            value: effectiveRequestDraft?.requestedQuoteQuantities.length
-              ? `${effectiveRequestDraft.requestedQuoteQuantities.join(", ")} pcs`
+            value: partDetail?.part?.approvedRequirement?.quote_quantities.length
+              ? `${partDetail.part.approvedRequirement.quote_quantities.join(", ")} pcs`
               : "Not specified",
           },
-          { label: "Process", value: effectiveRequestDraft?.process || "Not specified" },
-          { label: "Material", value: effectiveRequestDraft?.material || "Not specified" },
-          { label: "Finish", value: effectiveRequestDraft?.finish || "Not specified" },
+          {
+            label: "Process",
+            value:
+              typeof partDetail?.part?.approvedRequirement?.spec_snapshot === "object" &&
+              partDetail.part.approvedRequirement.spec_snapshot !== null &&
+              !Array.isArray(partDetail.part.approvedRequirement.spec_snapshot) &&
+              typeof partDetail.part.approvedRequirement.spec_snapshot.process === "string"
+                ? partDetail.part.approvedRequirement.spec_snapshot.process
+                : "Not specified",
+          },
+          {
+            label: "Material",
+            value: partDetail?.part?.approvedRequirement?.material || "Not specified",
+          },
+          {
+            label: "Finish",
+            value: partDetail?.part?.approvedRequirement?.finish || "Not specified",
+          },
           {
             label: "Tightest tolerance",
-            value: effectiveRequestDraft?.tightestToleranceInch != null
-              ? `±${effectiveRequestDraft.tightestToleranceInch} in`
+            value: partDetail?.part?.approvedRequirement?.tightest_tolerance_inch != null
+              ? `±${partDetail.part.approvedRequirement.tightest_tolerance_inch} in`
               : "Not specified",
           },
-          { label: "Needed by", value: effectiveRequestDraft?.requestedByDate || "Not specified" },
+          {
+            label: "Needed by",
+            value: partDetail?.part?.approvedRequirement?.requested_by_date || "Not specified",
+          },
+          {
+            label: "Specification",
+            value: partDetail?.part?.approvedRequirement?.spec_snapshot
+              ? JSON.stringify(partDetail.part.approvedRequirement.spec_snapshot)
+              : "Not specified",
+          },
         ]}
         onConfirm={handleConfirmQuoteRequest}
       />

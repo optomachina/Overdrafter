@@ -761,8 +761,9 @@ export function ManualQuoteIntakeCard({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Quote date</Label>
+                    <Label htmlFor={`offer-${offer.id}-quote-date`}>Quote date</Label>
                     <Input
+                      id={`offer-${offer.id}-quote-date`}
                       type="date"
                       className="border-border bg-muted"
                       value={offer.quoteDateIso}

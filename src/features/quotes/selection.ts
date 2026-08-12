@@ -1087,6 +1087,7 @@ export function getSelectedOption(
   if (selectedPublishedOptionId) {
     const publishedSelection = options.find(
       (option) =>
+        option.isSelectable &&
         option.selectionTarget?.kind === "published_quote_option" &&
         option.selectionTarget.optionId === selectedPublishedOptionId,
     );
@@ -1099,5 +1100,7 @@ export function getSelectedOption(
     return null;
   }
 
-  return options.find((option) => option.persistedOfferId === selectedOfferId) ?? null;
+  return options.find(
+    (option) => option.isSelectable && option.persistedOfferId === selectedOfferId,
+  ) ?? null;
 }

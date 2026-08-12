@@ -91,12 +91,6 @@ export function ClientQuoteRequestFlow({
     [selectedVendors],
   );
   const hasBlockingRequirement = blockerReasons.length > 0;
-  const canContinue =
-    canSubmit &&
-    !isLoading &&
-    !loadError &&
-    !hasBlockingRequirement &&
-    selectedVendors.length > 0;
 
   const toggleVendor = (vendor: VendorName) => {
     if (!canSubmit || isSubmitting) {
@@ -122,15 +116,37 @@ export function ClientQuoteRequestFlow({
     });
     return byVendor;
   }, [laneEligibility]);
-  const selectionHasRequestableLane = selectedVendors.some((vendor) =>
-    (eligibilityByVendor.get(vendor) ?? []).some(
-      (lane) => lane.state === "requestable",
-    ),
-  );
-  const selectionIsFullyCovered =
+  const requestableSelectedVendors = selectedVendors.filter((vendor) => {
+    const lanes = eligibilityByVendor.get(vendor) ?? [];
+    return lanes.length === 0 || lanes.some((lane) => lane.state === "requestable");
+  });
+  const selectionIsFullyCoveredByValidQuotes =
     selectedVendors.length > 0 &&
     laneEligibility.length > 0 &&
-    !selectionHasRequestableLane;
+    selectedVendors.every((vendor) => {
+      const lanes = eligibilityByVendor.get(vendor) ?? [];
+      return lanes.length > 0 && lanes.every((lane) => lane.state === "valid_quote");
+    });
+  const reviewVendors = selectionIsFullyCoveredByValidQuotes
+    ? selectedVendors
+    : requestableSelectedVendors;
+  const canContinue =
+    canSubmit &&
+    !isLoading &&
+    !loadError &&
+    !hasBlockingRequirement &&
+    (requestableSelectedVendors.length > 0 || selectionIsFullyCoveredByValidQuotes);
+
+  const confirmRequest = async () => {
+    setSubmissionError(null);
+    const accepted = await onConfirm(reviewVendors);
+
+    if (!accepted) {
+      setSubmissionError(
+        "The request was not started. Your vendor selection is still here so you can retry.",
+      );
+    }
+  };
 
   const vendorAvailability = (vendor: VendorName) => {
     const lanes = eligibilityByVendor.get(vendor) ?? [];
@@ -164,17 +180,6 @@ export function ClientQuoteRequestFlow({
     }
 
     return { disabled: true, message: "Request already in progress" };
-  };
-
-  const confirmRequest = async () => {
-    setSubmissionError(null);
-    const accepted = await onConfirm(selectedVendors);
-
-    if (!accepted) {
-      setSubmissionError(
-        "The request was not started. Your vendor selection is still here so you can retry.",
-      );
-    }
   };
 
   let title = "Choose where to request quotes";
@@ -281,7 +286,7 @@ export function ClientQuoteRequestFlow({
                 Recipients
               </h3>
               <div className="mt-2 divide-y divide-paper-hairline border-y border-paper-hairline">
-                {selectedVendors.map((vendor) => (
+                {reviewVendors.map((vendor) => (
                   <div key={vendor} className="flex min-h-11 items-center gap-3 py-2 text-sm">
                     <Check className="h-4 w-4 text-paper-red" aria-hidden="true" />
                     {getVendorDisplayName(vendor)}
@@ -370,9 +375,9 @@ export function ClientQuoteRequestFlow({
               onClick={() => void confirmRequest()}
             >
               {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-              {selectionIsFullyCovered
+              {selectionIsFullyCoveredByValidQuotes
                 ? "View current comparison"
-                : `Send to ${selectedVendors.length} ${selectedVendors.length === 1 ? "vendor" : "vendors"}`}
+                : `Send to ${requestableSelectedVendors.length} ${requestableSelectedVendors.length === 1 ? "vendor" : "vendors"}`}
             </Button>
           )}
         </DialogFooter>

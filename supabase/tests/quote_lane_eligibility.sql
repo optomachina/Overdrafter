@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(17);
+select plan(22);
 
 insert into auth.users (
   id, aud, role, email, email_confirmed_at, raw_app_meta_data
@@ -210,6 +210,113 @@ select is(
   '2026-09-11 00:00:00+00'::timestamptz,
   'duration validity derives a commercial expiration date'
 );
+
+insert into public.vendor_quote_offers (
+  id, vendor_quote_result_id, organization_id, offer_key, supplier,
+  lane_label, unit_price_usd, total_price_usd,
+  validity_terms, provenance_status, raw_payload
+) values (
+  '81000000-0000-4000-8000-000000000013',
+  '81000000-0000-4000-8000-000000000010',
+  '81000000-0000-4000-8000-000000000002',
+  'fictiv-operator-duration',
+  'Fictiv',
+  'Manual',
+  140,
+  140,
+  'Valid for 10 days',
+  'manual_verified',
+  '{
+    "source":"manual-quote-admin-inbox",
+    "validityDurationDays":"10",
+    "validitySource":"operator_duration"
+  }'::jsonb
+);
+
+select ok(
+  (
+    select quoted_at is not null
+      and valid_until = quoted_at + interval '10 days'
+    from public.vendor_quote_offers
+    where id = '81000000-0000-4000-8000-000000000013'
+  ),
+  'operator duration validity anchors to the trusted capture timestamp'
+);
+
+insert into public.vendor_quote_offers (
+  id, vendor_quote_result_id, organization_id, offer_key, supplier,
+  lane_label, unit_price_usd, total_price_usd, provenance_status, raw_payload
+) values (
+  '81000000-0000-4000-8000-000000000014',
+  '81000000-0000-4000-8000-000000000010',
+  '81000000-0000-4000-8000-000000000002',
+  'fictiv-conflicting-validity',
+  'Fictiv',
+  'Manual alternate',
+  145,
+  145,
+  'manual_verified',
+  '{
+    "source":"manual-quote-admin-inbox",
+    "quotedAt":"2026-08-12T00:00:00Z",
+    "validUntil":"2026-08-31",
+    "validityDurationDays":"90",
+    "validitySource":"operator_duration"
+  }'::jsonb
+);
+
+select ok(
+  (
+    select validity_source = 'operator_date'
+      and valid_until = '2026-08-31 23:59:59.999999+00'::timestamptz
+      and validity_duration_days = 20
+    from public.vendor_quote_offers
+    where id = '81000000-0000-4000-8000-000000000014'
+  ),
+  'an explicit validity date wins when vendor terms also provide a duration'
+);
+
+update public.vendor_quote_offers
+set invalidated_at = timezone('utc', now()),
+    invalidated_by = '81000000-0000-4000-8000-000000000001',
+    invalidation_reason = 'Keep validity normalization fixtures out of lane coverage.'
+where id in (
+  '81000000-0000-4000-8000-000000000013',
+  '81000000-0000-4000-8000-000000000014'
+);
+
+select set_config('request.jwt.claim.sub', '81000000-0000-4000-8000-000000000001', true);
+
+update public.jobs
+set selected_vendor_quote_offer_id = '81000000-0000-4000-8000-000000000011'
+where id = '81000000-0000-4000-8000-000000000003';
+
+select ok(
+  (
+    with workspace as (
+      select public.api_list_client_quote_workspace(
+        array['81000000-0000-4000-8000-000000000003']::uuid[]
+      ) -> 0 as payload
+    )
+    select not (
+      select projected_offer ? 'invalidated_by'
+        or projected_offer ? 'invalidation_reason'
+      from workspace,
+        pg_catalog.jsonb_array_elements(
+          workspace.payload -> 'vendorQuotes' -> 0 -> 'offers'
+        ) projected_offer
+      limit 1
+    )
+    and not (workspace.payload -> 'selectedOffer' ? 'invalidated_by')
+    and not (workspace.payload -> 'selectedOffer' ? 'invalidation_reason')
+    from workspace
+  ),
+  'client quote projection omits privileged invalidation metadata'
+);
+
+update public.jobs
+set selected_vendor_quote_offer_id = null
+where id = '81000000-0000-4000-8000-000000000003';
 
 select is(
   (
@@ -423,6 +530,10 @@ select ok(
 
 reset role;
 
+update public.jobs
+set selected_vendor_quote_offer_id = '81000000-0000-4000-8000-000000000011'
+where id = '81000000-0000-4000-8000-000000000003';
+
 insert into private.platform_admin_capabilities (
   user_id, capability, granted_by_user_id, grant_reason
 ) values (
@@ -500,6 +611,37 @@ select ok(
   ),
   'invalidation is persisted, append-only audited, and releases one lane cooldown'
 );
+
+select is(
+  (
+    select job.selected_vendor_quote_offer_id
+    from public.jobs job
+    where job.id = '81000000-0000-4000-8000-000000000003'
+  ),
+  null::uuid,
+  'invalidation atomically clears a job currently selecting the withdrawn offer'
+);
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"81000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal2"}',
+  true
+);
+
+select throws_ok(
+  $$
+    select public.api_set_job_selected_vendor_quote_offer(
+      '81000000-0000-4000-8000-000000000003',
+      '81000000-0000-4000-8000-000000000011'
+    )
+  $$,
+  'P0001',
+  'Offer 81000000-0000-4000-8000-000000000011 has been invalidated and cannot be selected.',
+  'authenticated clients cannot reselect an invalidated vendor offer'
+);
+
+reset role;
 
 select * from finish();
 
