@@ -5,6 +5,8 @@ select plan(8);
 create temporary table ovd314_test_constants (
   automatic_wrapper regprocedure,
   automatic_wrapper_definition text,
+  automatic_access_guard regprocedure,
+  automatic_access_guard_definition text,
   rollout_guard regprocedure,
   rollout_guard_definition_needle text not null,
   authenticated_role text not null,
@@ -15,6 +17,8 @@ create temporary table ovd314_test_constants (
 
 insert into ovd314_test_constants values (
   pg_catalog.to_regprocedure('public.api_request_quote(uuid,boolean)'),
+  null,
+  pg_catalog.to_regprocedure('private.require_automatic_quote_access(uuid)'),
   null,
   pg_catalog.to_regprocedure(
     'private.automatic_quote_rollout_enabled_with_lock()'
@@ -27,13 +31,13 @@ insert into ovd314_test_constants values (
 );
 
 update ovd314_test_constants
-set automatic_wrapper_definition = pg_catalog.pg_get_functiondef(
-  automatic_wrapper
-)
+set automatic_wrapper_definition = pg_catalog.pg_get_functiondef(automatic_wrapper),
+    automatic_access_guard_definition = pg_catalog.pg_get_functiondef(automatic_access_guard)
 where automatic_wrapper is not null;
 
 select ok(
   (select automatic_wrapper from ovd314_test_constants) is not null
+  and (select automatic_access_guard from ovd314_test_constants) is not null
   and (select rollout_guard from ovd314_test_constants) is not null,
   'the public wrapper and owner-only automatic quote rollout guard exist'
 );
@@ -96,14 +100,14 @@ select ok(
 
 select ok(
   pg_catalog.strpos(
-    (select automatic_wrapper_definition from ovd314_test_constants),
+    (select automatic_access_guard_definition from ovd314_test_constants),
     'perform public.require_verified_auth()'
   ) > 0
   and pg_catalog.strpos(
-    (select automatic_wrapper_definition from ovd314_test_constants),
+    (select automatic_access_guard_definition from ovd314_test_constants),
     'public.user_can_edit_job(v_job.id)'
   ) > pg_catalog.strpos(
-    (select automatic_wrapper_definition from ovd314_test_constants),
+    (select automatic_access_guard_definition from ovd314_test_constants),
     'perform public.require_verified_auth()'
   ),
   'verified authentication precedes job authorization'
@@ -111,14 +115,14 @@ select ok(
 
 select ok(
   pg_catalog.strpos(
-    (select automatic_wrapper_definition from ovd314_test_constants),
+    (select automatic_access_guard_definition from ovd314_test_constants),
     'private.resolve_organization_entitlements_at'
   ) > 0
   and pg_catalog.strpos(
-    (select automatic_wrapper_definition from ovd314_test_constants),
+    (select automatic_access_guard_definition from ovd314_test_constants),
     (select rollout_guard_definition_needle from ovd314_test_constants)
   ) > pg_catalog.strpos(
-    (select automatic_wrapper_definition from ovd314_test_constants),
+    (select automatic_access_guard_definition from ovd314_test_constants),
     'private.resolve_organization_entitlements_at'
   ),
   'the Pro entitlement decision precedes rollout inspection'
@@ -126,21 +130,18 @@ select ok(
 
 select ok(
   pg_catalog.strpos(
-    (select automatic_wrapper_definition from ovd314_test_constants),
+    (select automatic_access_guard_definition from ovd314_test_constants),
     (select rollout_guard_definition_needle from ovd314_test_constants)
   ) > 0
   and pg_catalog.strpos(
     (select automatic_wrapper_definition from ovd314_test_constants),
-    'private.request_automatic_quote_impl'
-  ) > pg_catalog.strpos(
-    (select automatic_wrapper_definition from ovd314_test_constants),
-    (select rollout_guard_definition_needle from ovd314_test_constants)
-  ),
+    'private.request_scoped_automatic_quote_impl'
+  ) > 0,
   'the rollout decision precedes vendor resolution and lifecycle writes'
 );
 
 select ok(
-  (select automatic_wrapper_definition from ovd314_test_constants)
+  (select automatic_access_guard_definition from ovd314_test_constants)
     like '%automatic_quote_disabled%manual quote%',
   'the disabled Pro result has a stable reason code and manual fallback'
 );
