@@ -705,10 +705,7 @@ $$;
 revoke all on function private.request_scoped_automatic_quote_impl(uuid, public.vendor_name[])
 from public, anon, authenticated, service_role;
 
-create or replace function public.api_request_quote_scoped(
-  p_job_id uuid,
-  p_selected_vendors public.vendor_name[]
-)
+create or replace function private.require_automatic_quote_access(p_job_id uuid)
 returns jsonb
 language plpgsql
 security definer
@@ -757,6 +754,30 @@ begin
       'laneEligibility', pg_catalog.jsonb_build_array(),
       'quoteMode', 'automatic'
     );
+  end if;
+
+  return null;
+end;
+$$;
+
+revoke all on function private.require_automatic_quote_access(uuid)
+from public, anon, authenticated, service_role;
+
+create or replace function public.api_request_quote_scoped(
+  p_job_id uuid,
+  p_selected_vendors public.vendor_name[]
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+declare
+  v_denial jsonb;
+begin
+  v_denial := private.require_automatic_quote_access(p_job_id);
+  if v_denial is not null then
+    return v_denial;
   end if;
 
   return private.request_scoped_automatic_quote_impl(p_job_id, p_selected_vendors)
@@ -781,48 +802,11 @@ security definer
 set search_path = pg_catalog
 as $$
 declare
-  v_job public.jobs%rowtype;
-  v_entitlements jsonb;
+  v_denial jsonb;
 begin
-  perform public.require_verified_auth();
-
-  select job_row.* into v_job
-  from public.jobs job_row
-  where job_row.id = p_job_id;
-
-  if v_job.id is null then
-    raise exception 'Job % not found.', p_job_id;
-  end if;
-  if not public.user_can_edit_job(v_job.id) then
-    raise exception 'You do not have permission to request quotes for job %.', p_job_id;
-  end if;
-
-  v_entitlements := private.resolve_organization_entitlements_at(
-    v_job.organization_id,
-    pg_catalog.now()
-  );
-  if coalesce(v_entitlements -> 'automaticQuoteCollection' = 'true'::jsonb, false) is not true then
-    return pg_catalog.jsonb_build_object(
-      'jobId', v_job.id, 'accepted', false, 'created', false, 'deduplicated', false,
-      'quoteRequestId', null, 'quoteRunId', null, 'serviceRequestLineItemId', null,
-      'status', 'not_requested', 'reasonCode', 'pro_required',
-      'reason', 'Automatic quote collection requires a Pro account.',
-      'requestedVendors', pg_catalog.jsonb_build_array(),
-      'laneEligibility', pg_catalog.jsonb_build_array(),
-      'quoteMode', 'automatic'
-    );
-  end if;
-
-  if not private.automatic_quote_rollout_enabled_with_lock() then
-    return pg_catalog.jsonb_build_object(
-      'jobId', v_job.id, 'accepted', false, 'created', false, 'deduplicated', false,
-      'quoteRequestId', null, 'quoteRunId', null, 'serviceRequestLineItemId', null,
-      'status', 'not_requested', 'reasonCode', 'automatic_quote_disabled',
-      'reason', 'Automatic quote collection is temporarily unavailable. You can still request a manual quote.',
-      'requestedVendors', pg_catalog.jsonb_build_array(),
-      'laneEligibility', pg_catalog.jsonb_build_array(),
-      'quoteMode', 'automatic'
-    );
+  v_denial := private.require_automatic_quote_access(p_job_id);
+  if v_denial is not null then
+    return v_denial;
   end if;
 
   -- Keep the established implementation marker in this wrapper so rollout

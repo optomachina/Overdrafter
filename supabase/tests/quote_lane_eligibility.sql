@@ -382,7 +382,7 @@ select is(
 select ok(
   pg_catalog.strpos(
     pg_catalog.pg_get_functiondef(
-      'public.api_request_quote_scoped(uuid,public.vendor_name[])'::regprocedure
+      'private.require_automatic_quote_access(uuid)'::regprocedure
     ),
     'private.resolve_organization_entitlements_at'
   ) > 0,
