@@ -51,112 +51,49 @@ values
     'Identity B source'
   );
 
-insert into public.organization_file_blobs (
-  id, organization_id, content_sha256, trusted_content_sha256,
-  storage_bucket, storage_path, size_bytes, mime_type
-) values
-  (
-    '82000000-0000-4000-8000-000000000007',
-    '82000000-0000-4000-8000-000000000003',
-    repeat('c', 64), repeat('c', 64), 'job-files',
-    'identity-a/cad.step', 100, 'application/step'
-  ),
-  (
-    '82000000-0000-4000-8000-000000000008',
-    '82000000-0000-4000-8000-000000000003',
-    repeat('d', 64), repeat('d', 64), 'job-files',
-    'identity-a/drawing.pdf', 100, 'application/pdf'
-  ),
-  (
-    '82000000-0000-4000-8000-000000000009',
-    '82000000-0000-4000-8000-000000000003',
-    repeat('e', 64), repeat('e', 64), 'job-files',
-    'identity-a/drawing-v2.pdf', 100, 'application/pdf'
-  ),
-  (
-    '82000000-0000-4000-8000-000000000010',
-    '82000000-0000-4000-8000-000000000004',
-    repeat('c', 64), repeat('c', 64), 'job-files',
-    'identity-b/cad.step', 100, 'application/step'
-  ),
-  (
-    '82000000-0000-4000-8000-000000000011',
-    '82000000-0000-4000-8000-000000000004',
-    repeat('d', 64), repeat('d', 64), 'job-files',
-    'identity-b/drawing.pdf', 100, 'application/pdf'
-  ),
-  (
-    '82000000-0000-4000-8000-000000000018',
-    '82000000-0000-4000-8000-000000000004',
-    repeat('f', 64), repeat('f', 64), 'job-files',
-    'identity-b/private-cad.step', 100, 'application/step'
-  ),
-  (
-    '82000000-0000-4000-8000-000000000019',
-    '82000000-0000-4000-8000-000000000004',
-    repeat('9', 64), repeat('9', 64), 'job-files',
-    'identity-b/private-drawing.pdf', 100, 'application/pdf'
+create function pg_temp.add_identity_blob(
+  p_id uuid, p_organization_id uuid, p_hash_seed text,
+  p_storage_path text, p_mime_type text
+) returns void language sql as $$
+  insert into public.organization_file_blobs (
+    id, organization_id, content_sha256, trusted_content_sha256,
+    storage_bucket, storage_path, size_bytes, mime_type
+  ) values (
+    p_id, p_organization_id, repeat(p_hash_seed, 64), repeat(p_hash_seed, 64),
+    'job-files', p_storage_path, 100, p_mime_type
   );
+$$;
 
-insert into public.job_files (
-  id, job_id, organization_id, uploaded_by, blob_id, content_sha256,
-  trusted_content_sha256, storage_bucket, storage_path, original_name,
-  normalized_name, file_kind, size_bytes
-) values
-  (
-    '82000000-0000-4000-8000-000000000012',
-    '82000000-0000-4000-8000-000000000005',
-    '82000000-0000-4000-8000-000000000003',
-    '82000000-0000-4000-8000-000000000001',
-    '82000000-0000-4000-8000-000000000007',
-    repeat('c', 64), repeat('c', 64), 'job-files', 'identity-a/cad.step',
-    'bracket.step', 'bracket', 'cad', 100
-  ),
-  (
-    '82000000-0000-4000-8000-000000000013',
-    '82000000-0000-4000-8000-000000000005',
-    '82000000-0000-4000-8000-000000000003',
-    '82000000-0000-4000-8000-000000000001',
-    '82000000-0000-4000-8000-000000000008',
-    repeat('d', 64), repeat('d', 64), 'job-files', 'identity-a/drawing.pdf',
-    'bracket.pdf', 'bracket', 'drawing', 100
-  ),
-  (
-    '82000000-0000-4000-8000-000000000014',
-    '82000000-0000-4000-8000-000000000006',
-    '82000000-0000-4000-8000-000000000004',
-    '82000000-0000-4000-8000-000000000002',
-    '82000000-0000-4000-8000-000000000010',
-    repeat('c', 64), repeat('c', 64), 'job-files', 'identity-b/cad.step',
-    'different-name.step', 'different-name', 'cad', 100
-  ),
-  (
-    '82000000-0000-4000-8000-000000000015',
-    '82000000-0000-4000-8000-000000000006',
-    '82000000-0000-4000-8000-000000000004',
-    '82000000-0000-4000-8000-000000000002',
-    '82000000-0000-4000-8000-000000000011',
-    repeat('d', 64), repeat('d', 64), 'job-files', 'identity-b/drawing.pdf',
-    'different-name.pdf', 'different-name', 'drawing', 100
-  ),
-  (
-    '82000000-0000-4000-8000-000000000020',
-    '82000000-0000-4000-8000-000000000006',
-    '82000000-0000-4000-8000-000000000004',
-    '82000000-0000-4000-8000-000000000002',
-    '82000000-0000-4000-8000-000000000018',
-    repeat('f', 64), repeat('f', 64), 'job-files', 'identity-b/private-cad.step',
-    'private.step', 'private', 'cad', 100
-  ),
-  (
-    '82000000-0000-4000-8000-000000000021',
-    '82000000-0000-4000-8000-000000000006',
-    '82000000-0000-4000-8000-000000000004',
-    '82000000-0000-4000-8000-000000000002',
-    '82000000-0000-4000-8000-000000000019',
-    repeat('9', 64), repeat('9', 64), 'job-files', 'identity-b/private-drawing.pdf',
-    'private.pdf', 'private', 'drawing', 100
+create function pg_temp.add_identity_file(
+  p_id uuid, p_job_id uuid, p_organization_id uuid, p_uploaded_by uuid,
+  p_blob_id uuid, p_hash_seed text, p_storage_path text,
+  p_original_name text, p_normalized_name text, p_file_kind text
+) returns void language sql as $$
+  insert into public.job_files (
+    id, job_id, organization_id, uploaded_by, blob_id, content_sha256,
+    trusted_content_sha256, storage_bucket, storage_path, original_name,
+    normalized_name, file_kind, size_bytes
+  ) values (
+    p_id, p_job_id, p_organization_id, p_uploaded_by, p_blob_id,
+    repeat(p_hash_seed, 64), repeat(p_hash_seed, 64), 'job-files',
+    p_storage_path, p_original_name, p_normalized_name, p_file_kind::public.job_file_kind, 100
   );
+$$;
+
+select pg_temp.add_identity_blob('82000000-0000-4000-8000-000000000007', '82000000-0000-4000-8000-000000000003', 'c', 'identity-a/cad.step', 'application/step');
+select pg_temp.add_identity_blob('82000000-0000-4000-8000-000000000008', '82000000-0000-4000-8000-000000000003', 'd', 'identity-a/drawing.pdf', 'application/pdf');
+select pg_temp.add_identity_blob('82000000-0000-4000-8000-000000000009', '82000000-0000-4000-8000-000000000003', 'e', 'identity-a/drawing-v2.pdf', 'application/pdf');
+select pg_temp.add_identity_blob('82000000-0000-4000-8000-000000000010', '82000000-0000-4000-8000-000000000004', 'c', 'identity-b/cad.step', 'application/step');
+select pg_temp.add_identity_blob('82000000-0000-4000-8000-000000000011', '82000000-0000-4000-8000-000000000004', 'd', 'identity-b/drawing.pdf', 'application/pdf');
+select pg_temp.add_identity_blob('82000000-0000-4000-8000-000000000018', '82000000-0000-4000-8000-000000000004', 'f', 'identity-b/private-cad.step', 'application/step');
+select pg_temp.add_identity_blob('82000000-0000-4000-8000-000000000019', '82000000-0000-4000-8000-000000000004', '9', 'identity-b/private-drawing.pdf', 'application/pdf');
+
+select pg_temp.add_identity_file('82000000-0000-4000-8000-000000000012', '82000000-0000-4000-8000-000000000005', '82000000-0000-4000-8000-000000000003', '82000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000007', 'c', 'identity-a/cad.step', 'bracket.step', 'bracket', 'cad');
+select pg_temp.add_identity_file('82000000-0000-4000-8000-000000000013', '82000000-0000-4000-8000-000000000005', '82000000-0000-4000-8000-000000000003', '82000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000008', 'd', 'identity-a/drawing.pdf', 'bracket.pdf', 'bracket', 'drawing');
+select pg_temp.add_identity_file('82000000-0000-4000-8000-000000000014', '82000000-0000-4000-8000-000000000006', '82000000-0000-4000-8000-000000000004', '82000000-0000-4000-8000-000000000002', '82000000-0000-4000-8000-000000000010', 'c', 'identity-b/cad.step', 'different-name.step', 'different-name', 'cad');
+select pg_temp.add_identity_file('82000000-0000-4000-8000-000000000015', '82000000-0000-4000-8000-000000000006', '82000000-0000-4000-8000-000000000004', '82000000-0000-4000-8000-000000000002', '82000000-0000-4000-8000-000000000011', 'd', 'identity-b/drawing.pdf', 'different-name.pdf', 'different-name', 'drawing');
+select pg_temp.add_identity_file('82000000-0000-4000-8000-000000000020', '82000000-0000-4000-8000-000000000006', '82000000-0000-4000-8000-000000000004', '82000000-0000-4000-8000-000000000002', '82000000-0000-4000-8000-000000000018', 'f', 'identity-b/private-cad.step', 'private.step', 'private', 'cad');
+select pg_temp.add_identity_file('82000000-0000-4000-8000-000000000021', '82000000-0000-4000-8000-000000000006', '82000000-0000-4000-8000-000000000004', '82000000-0000-4000-8000-000000000002', '82000000-0000-4000-8000-000000000019', '9', 'identity-b/private-drawing.pdf', 'private.pdf', 'private', 'drawing');
 
 insert into public.parts (
   id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id
@@ -280,29 +217,8 @@ values (
   'Identity A duplicate placement'
 );
 
-insert into public.job_files (
-  id, job_id, organization_id, uploaded_by, blob_id, content_sha256,
-  trusted_content_sha256, storage_bucket, storage_path, original_name,
-  normalized_name, file_kind, size_bytes
-) values
-  (
-    '82000000-0000-4000-8000-000000000025',
-    '82000000-0000-4000-8000-000000000024',
-    '82000000-0000-4000-8000-000000000003',
-    '82000000-0000-4000-8000-000000000001',
-    '82000000-0000-4000-8000-000000000007',
-    repeat('c', 64), repeat('c', 64), 'job-files', 'identity-a/cad.step',
-    'bracket-copy.step', 'bracket-copy', 'cad', 100
-  ),
-  (
-    '82000000-0000-4000-8000-000000000026',
-    '82000000-0000-4000-8000-000000000024',
-    '82000000-0000-4000-8000-000000000003',
-    '82000000-0000-4000-8000-000000000001',
-    '82000000-0000-4000-8000-000000000008',
-    repeat('d', 64), repeat('d', 64), 'job-files', 'identity-a/drawing.pdf',
-    'bracket-copy.pdf', 'bracket-copy', 'drawing', 100
-  );
+select pg_temp.add_identity_file('82000000-0000-4000-8000-000000000025', '82000000-0000-4000-8000-000000000024', '82000000-0000-4000-8000-000000000003', '82000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000007', 'c', 'identity-a/cad.step', 'bracket-copy.step', 'bracket-copy', 'cad');
+select pg_temp.add_identity_file('82000000-0000-4000-8000-000000000026', '82000000-0000-4000-8000-000000000024', '82000000-0000-4000-8000-000000000003', '82000000-0000-4000-8000-000000000001', '82000000-0000-4000-8000-000000000008', 'd', 'identity-a/drawing.pdf', 'bracket-copy.pdf', 'bracket-copy', 'drawing');
 
 insert into public.parts (
   id, job_id, organization_id, name, normalized_key, cad_file_id, drawing_file_id
