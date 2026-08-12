@@ -34,7 +34,10 @@ type GeneratedJobFileRecord = Database["public"]["Tables"]["job_files"]["Row"];
 export type JobFileRecord = Omit<GeneratedJobFileRecord, "trusted_content_sha256"> & {
   trusted_content_sha256?: string | null;
 };
-export type PartRecord = Database["public"]["Tables"]["parts"]["Row"];
+type GeneratedPartRecord = Database["public"]["Tables"]["parts"]["Row"];
+export type PartRecord = Omit<GeneratedPartRecord, "part_version_id"> & {
+  part_version_id?: string | null;
+};
 export type DrawingExtractionRecord = Database["public"]["Tables"]["drawing_extractions"]["Row"];
 export type DrawingPreviewAssetRecord = Database["public"]["Tables"]["drawing_preview_assets"]["Row"];
 export type CadPreviewAssetRecord = Database["public"]["Tables"]["cad_preview_assets"]["Row"];

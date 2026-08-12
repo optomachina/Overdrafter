@@ -249,6 +249,41 @@ export type Database = {
           },
         ]
       }
+      canonical_parts: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          display_name: string | null
+          id: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          display_name?: string | null
+          id?: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          display_name?: string | null
+          id?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canonical_parts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_selections: {
         Row: {
           created_at: string
@@ -966,6 +1001,90 @@ export type Database = {
         }
         Relationships: []
       }
+      part_versions: {
+        Row: {
+          cad_blob_id: string | null
+          cad_content_sha256: string | null
+          canonical_part_id: string
+          created_at: string
+          created_by: string | null
+          drawing_blob_id: string | null
+          drawing_content_sha256: string | null
+          id: string
+          organization_id: string
+          package_fingerprint: string
+          source_part_id: string | null
+          updated_at: string
+          version_state: Database["public"]["Enums"]["part_version_state"]
+        }
+        Insert: {
+          cad_blob_id?: string | null
+          cad_content_sha256?: string | null
+          canonical_part_id: string
+          created_at?: string
+          created_by?: string | null
+          drawing_blob_id?: string | null
+          drawing_content_sha256?: string | null
+          id?: string
+          organization_id: string
+          package_fingerprint: string
+          source_part_id?: string | null
+          updated_at?: string
+          version_state: Database["public"]["Enums"]["part_version_state"]
+        }
+        Update: {
+          cad_blob_id?: string | null
+          cad_content_sha256?: string | null
+          canonical_part_id?: string
+          created_at?: string
+          created_by?: string | null
+          drawing_blob_id?: string | null
+          drawing_content_sha256?: string | null
+          id?: string
+          organization_id?: string
+          package_fingerprint?: string
+          source_part_id?: string | null
+          updated_at?: string
+          version_state?: Database["public"]["Enums"]["part_version_state"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "part_versions_cad_blob_id_fkey"
+            columns: ["cad_blob_id"]
+            isOneToOne: false
+            referencedRelation: "organization_file_blobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "part_versions_canonical_part_id_fkey"
+            columns: ["canonical_part_id"]
+            isOneToOne: false
+            referencedRelation: "canonical_parts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "part_versions_drawing_blob_id_fkey"
+            columns: ["drawing_blob_id"]
+            isOneToOne: false
+            referencedRelation: "organization_file_blobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "part_versions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "part_versions_source_part_id_fkey"
+            columns: ["source_part_id"]
+            isOneToOne: false
+            referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       parts: {
         Row: {
           cad_file_id: string | null
@@ -976,6 +1095,7 @@ export type Database = {
           name: string
           normalized_key: string
           organization_id: string
+          part_version_id: string | null
           quantity: number
           updated_at: string
         }
@@ -988,6 +1108,7 @@ export type Database = {
           name: string
           normalized_key: string
           organization_id: string
+          part_version_id?: string | null
           quantity?: number
           updated_at?: string
         }
@@ -1000,6 +1121,7 @@ export type Database = {
           name?: string
           normalized_key?: string
           organization_id?: string
+          part_version_id?: string | null
           quantity?: number
           updated_at?: string
         }
@@ -1030,6 +1152,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parts_part_version_id_fkey"
+            columns: ["part_version_id"]
+            isOneToOne: false
+            referencedRelation: "part_versions"
             referencedColumns: ["id"]
           },
         ]
@@ -3355,6 +3484,13 @@ export type Database = {
         Args: { p_organization_id: string }
         Returns: Json
       }
+      api_prepare_part_intake: {
+        Args: {
+          p_cad_content_sha256: string
+          p_drawing_content_sha256?: string
+        }
+        Returns: Json
+      }
       api_process_stripe_event: {
         Args: { p_stripe_event_id: string }
         Returns: Json
@@ -3449,6 +3585,18 @@ export type Database = {
       api_reset_client_part_property_overrides: {
         Args: { p_fields?: string[]; p_job_id: string }
         Returns: string
+      }
+      api_resolve_trusted_part_intake: {
+        Args: { p_part_id: string }
+        Returns: Json
+      }
+      api_reuse_trusted_part_version_artifacts: {
+        Args: {
+          p_part_version_id: string
+          p_source_part_id: string
+          p_target_part_id: string
+        }
+        Returns: Json
       }
       api_select_quote_option: {
         Args: { p_note?: string; p_option_id: string; p_package_id: string }
@@ -3831,6 +3979,7 @@ export type Database = {
         | "published"
         | "client_selected"
         | "closed"
+      part_version_state: "unverified" | "provisional" | "complete"
       process_types:
         | "cnc_milling"
         | "cnc_turning"
@@ -4039,6 +4188,7 @@ export const Constants = {
         "client_selected",
         "closed",
       ],
+      part_version_state: ["unverified", "provisional", "complete"],
       process_types: [
         "cnc_milling",
         "cnc_turning",
