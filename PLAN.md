@@ -41,9 +41,9 @@ Operational workflow alignment:
 ## Active objective
 
 Use the responsive-web `Parts | Quotes | Search` experience to demonstrate the
-current Free sourcing path and gather customer-interest and pricing feedback.
-Preserve every working upload, provider-guidance, quote-result, and manual
-handoff path while this validation is underway.
+current upload and quote-comparison path and gather customer-interest and pricing
+feedback. Free workspaces may preview supported sourcing coverage; selecting
+recipients and sending part data for quote collection is a Pro action.
 
 The production launch dependency chain remains:
 
@@ -70,8 +70,9 @@ Build commercial access around the organization boundary without adding customer
 
 Current product behavior and operating constraints:
 
-- Free organizations can upload parts without a customer-facing quota and receive unattended provider guidance with official RFQ links.
+- Free organizations can upload parts without a customer-facing quota and preview supported sourcing coverage without sending part data externally.
 - Pro organizations have an automatic vendor quote capability, but production enablement remains off during the current hold.
+- The Part Quote action first selects current vendor integrations and then confirms the recipients, files, and requirements before sending.
 - The automatic-quote toggle remains visible to Free users; attempting to enable it opens an upgrade dialog and leaves it off.
 - Existing request throttles and organization cost ceilings remain invisible operational safeguards rather than plan quotas.
 - Billing admins may issue audited trial and complimentary Pro grants under step-up authentication.

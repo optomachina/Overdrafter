@@ -14,7 +14,7 @@ create temporary table ovd314_test_constants (
 ) on commit drop;
 
 insert into ovd314_test_constants values (
-  pg_catalog.to_regprocedure('public.api_request_quote(uuid,boolean)'),
+  pg_catalog.to_regprocedure('public.api_request_quote_scoped(uuid,public.vendor_name[])'),
   null,
   pg_catalog.to_regprocedure(
     'private.automatic_quote_rollout_enabled_with_lock()'
@@ -131,7 +131,7 @@ select ok(
   ) > 0
   and pg_catalog.strpos(
     (select automatic_wrapper_definition from ovd314_test_constants),
-    'private.request_automatic_quote_impl'
+    'private.request_scoped_automatic_quote_impl'
   ) > pg_catalog.strpos(
     (select automatic_wrapper_definition from ovd314_test_constants),
     (select rollout_guard_definition_needle from ovd314_test_constants)

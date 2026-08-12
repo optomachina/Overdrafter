@@ -28,7 +28,7 @@ export function AnonymousHomeLanding({ onSignIn, onSignUp }: AnonymousHomeLandin
         </p>
 
         <h1 className="font-display text-[44px] font-bold leading-[0.94] tracking-[-0.05em] text-foreground sm:text-[60px] lg:text-[76px]">
-          Files In
+          CAD In
           <br />
           <span className="text-muted-foreground">Parts Out</span>
         </h1>

@@ -281,7 +281,7 @@ export function AuthPanel({
   return (
     <section
       className={cn(
-        "w-full rounded-surface-lg border border-border bg-ws-deep/96 p-5 text-foreground shadow-[0_32px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-6",
+        "w-full rounded-surface-lg border border-paper-red bg-ws-deep p-5 text-foreground shadow-[0_32px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-6",
         className,
       )}
     >
@@ -361,12 +361,13 @@ export function AuthPanel({
           {showSocialAuth ? (
             <>
               <SocialAuthButtons
-                className="mt-5"
-                buttonClassName="h-12 rounded-2xl border-border bg-accent text-foreground hover:bg-accent hover:text-foreground"
+                compact
+                className="mt-4 grid grid-cols-3 gap-2 space-y-0"
+                buttonClassName="h-11 justify-center gap-1 rounded-xl border-border bg-accent px-1 text-[10px] text-foreground hover:bg-accent hover:text-foreground sm:px-2 sm:text-[11px] [&_svg]:mr-0"
                 redirectPath={redirectPath}
               />
 
-              <div className="relative my-5">
+              <div className="relative my-4">
                 <Separator className="bg-accent" />
                 <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-ws-deep px-3 text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
                   Or with email

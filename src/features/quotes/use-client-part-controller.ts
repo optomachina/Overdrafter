@@ -26,10 +26,16 @@ import {
 import { reconcileJobParts, requestExtraction } from "@/features/quotes/api/extraction-api";
 import {
   cancelQuoteRequest,
+  getQuoteLaneEligibility,
   persistClientQuoteSelection,
   requestQuote,
   setJobSelectedVendorQuoteOffer,
 } from "@/features/quotes/api/quote-requests-api";
+import {
+  fetchJobVendorPreferenceContext,
+  resolveEffectiveJobVendorSelection,
+  setJobVendorPreferences,
+} from "@/features/quotes/api/vendor-preferences-api";
 import { useOrganizationQuoteCollectionMode } from "@/features/quotes/organization-entitlements";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
 import { createJobsFromUploadFiles, uploadFilesToJob } from "@/features/quotes/api/uploads-api";
@@ -372,6 +378,29 @@ export function useClientPartController(
   });
   const partDetail = partDetailQuery.data;
   const canonicalJobId = resolvedJobId ?? partDetail?.job?.id ?? routeJobId;
+  const vendorPreferenceQuery = useQuery({
+    queryKey: ["job-vendor-preferences", canonicalJobId],
+    queryFn: () => fetchJobVendorPreferenceContext(canonicalJobId),
+    enabled: Boolean(user) && Boolean(canonicalJobId),
+    retry: false,
+  });
+  const selectedQuoteVendors = useMemo(
+    () =>
+      vendorPreferenceQuery.data
+        ? resolveEffectiveJobVendorSelection(vendorPreferenceQuery.data)
+        : [],
+    [vendorPreferenceQuery.data],
+  );
+  const quoteLaneEligibilityQuery = useQuery({
+    queryKey: ["quote-lane-eligibility", canonicalJobId, selectedQuoteVendors],
+    queryFn: () => getQuoteLaneEligibility(canonicalJobId, selectedQuoteVendors),
+    enabled:
+      Boolean(user) &&
+      Boolean(canonicalJobId) &&
+      selectedQuoteVendors.length > 0 &&
+      !vendorPreferenceQuery.isLoading,
+    retry: false,
+  });
   const isPartDetailLoading =
     partRouteQuery.isLoading || partDetailQuery.isLoading;
 
@@ -593,23 +622,27 @@ export function useClientPartController(
   });
 
   const requestQuoteMutation = useMutation({
-    mutationFn: ({ forceRetry = false }: { forceRetry?: boolean }) => {
+    mutationFn: ({ selectedVendors }: { selectedVendors: VendorName[] }) => {
       if (!quoteCollectionMode.automaticEnabled) {
         throw new Error("Automatic quote collection requires Pro.");
       }
 
-      return requestQuote(canonicalJobId, forceRetry);
+      return requestQuote(canonicalJobId, selectedVendors);
     },
-    onSuccess: async (result, variables) => {
+    onSuccess: async (result) => {
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
 
       if (!result.accepted) {
+        if (result.reasonCode === "all_lanes_covered") {
+          toast.info("Current quotes already cover this selection.");
+          return;
+        }
         toast.error(result.reason || "Quote request could not be started.");
         return;
       }
 
       if (result.created) {
-        toast.success(variables.forceRetry ? "Quote retry queued." : "Quote request queued.");
+        toast.success("Quote request queued.");
         return;
       }
 
@@ -617,6 +650,32 @@ export function useClientPartController(
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to request a quote.");
+    },
+  });
+
+  const saveJobVendorScopeMutation = useMutation({
+    mutationFn: (selectedVendors: VendorName[]) => {
+      const availableVendors =
+        vendorPreferenceQuery.data?.availableVendors ?? [];
+      const selectedVendorSet = new Set(selectedVendors);
+
+      return setJobVendorPreferences({
+        jobId: canonicalJobId,
+        includedVendors: availableVendors.filter((vendor) =>
+          selectedVendorSet.has(vendor),
+        ),
+        excludedVendors: availableVendors.filter(
+          (vendor) => !selectedVendorSet.has(vendor),
+        ),
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["job-vendor-preferences", canonicalJobId],
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to save the vendor scope.");
     },
   });
 
@@ -1403,11 +1462,36 @@ export function useClientPartController(
       ...effectiveRequestDraft,
       requestedQuoteQuantities: nextQuantities,
     } satisfies ClientPartRequestUpdateInput;
+    const requestId = patchDraftRequestIdRef.current + 1;
+    patchDraftRequestIdRef.current = requestId;
 
-    patchDraftPreservationRef.current = null;
+    patchDraftPreservationRef.current = {
+      requestId,
+      draft: payload,
+      patch: payload,
+      mutationCompleted: false,
+    };
     setRequestDraft(payload);
     setQuoteQuantityInput(formatRequestedQuoteQuantitiesInput(nextQuantities));
-    saveRequestMutation.mutate(payload);
+    saveRequestMutation.mutate(payload, {
+      onSuccess: () => {
+        const preservation = patchDraftPreservationRef.current;
+        if (preservation?.requestId !== requestId) {
+          return;
+        }
+
+        patchDraftPreservationRef.current = {
+          ...preservation,
+          mutationCompleted: true,
+        };
+        setRequestDraft({ ...preservation.draft });
+      },
+      onError: () => {
+        if (patchDraftPreservationRef.current?.requestId === requestId) {
+          patchDraftPreservationRef.current = null;
+        }
+      },
+    });
   };
 
   const handleSaveRequestPatch = (next: Partial<ClientPartRequestUpdateInput>) => {
@@ -1452,19 +1536,41 @@ export function useClientPartController(
     });
   };
 
-  const handleRequestQuote = async (forceRetry = false) => {
+  const handleRequestQuote = async (vendors?: VendorName[]) => {
     if (isRequestQuoteLockedRef.current || requestQuoteMutation.isPending) {
-      return;
+      return false;
     }
 
     isRequestQuoteLockedRef.current = true;
 
     try {
-      await requestQuoteMutation.mutateAsync({ forceRetry });
+      const selectedVendors = vendors ?? selectedQuoteVendors;
+      if (selectedVendors.length === 0) {
+        toast.error("Select at least one vendor before requesting quotes.");
+        return false;
+      }
+      const result = await requestQuoteMutation.mutateAsync({ selectedVendors });
+      return result.accepted || result.reasonCode === "all_lanes_covered";
     } catch {
-      return;
+      return false;
     } finally {
       isRequestQuoteLockedRef.current = false;
+    }
+  };
+
+  const handleSaveQuoteVendorScope = async (
+    selectedVendors: VendorName[],
+  ) => {
+    if (selectedVendors.length === 0) {
+      toast.error("Select at least one vendor before requesting quotes.");
+      return false;
+    }
+
+    try {
+      await saveJobVendorScopeMutation.mutateAsync(selectedVendors);
+      return true;
+    } catch {
+      return false;
     }
   };
 
@@ -1517,12 +1623,30 @@ export function useClientPartController(
     });
   };
   const sidebarJobs = navigationModel.parts;
+  let quoteVendorScopeError: string | null = null;
+
+  if (vendorPreferenceQuery.error instanceof Error) {
+    quoteVendorScopeError = vendorPreferenceQuery.error.message;
+  } else if (vendorPreferenceQuery.error) {
+    quoteVendorScopeError = "Vendor scope could not be loaded.";
+  }
 
   return {
     accessibleJobs: sidebarJobs,
     accessibleJobsQuery,
     activeMembership,
     automaticQuoteCollectionEnabled: quoteCollectionMode.automaticEnabled,
+    availableQuoteVendors:
+      vendorPreferenceQuery.data?.availableVendors ?? [],
+    quoteLaneEligibility: quoteLaneEligibilityQuery.data ?? [],
+    selectedQuoteVendors,
+    quoteVendorScopeError,
+    isQuoteVendorScopeLoading:
+      vendorPreferenceQuery.isLoading ||
+      vendorPreferenceQuery.isFetching ||
+      quoteLaneEligibilityQuery.isLoading ||
+      quoteLaneEligibilityQuery.isFetching,
+    isSavingQuoteVendorScope: saveJobVendorScopeMutation.isPending,
     isQuoteCollectionModeLoading: quoteCollectionMode.isLoading,
     activePreset,
     activityEntries,
@@ -1561,6 +1685,7 @@ export function useClientPartController(
     handleRenamePart,
     handleRenameProject,
     handleRequestQuote,
+    handleSaveQuoteVendorScope,
     handleResetField,
     handleResetAllFields,
     handleSaveRequest,

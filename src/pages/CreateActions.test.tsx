@@ -638,10 +638,10 @@ describe("top-level create actions", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
+      expect(screen.getByRole("button", { name: /more actions/i })).not.toBeNull();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
+    fireEvent.click(screen.getByRole("button", { name: /more actions/i }));
     expect(await screen.findByRole("menuitem", { name: "Manage projects" })).not.toBeNull();
     fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
 
@@ -682,7 +682,7 @@ describe("top-level create actions", () => {
       "/parts/job-1",
     );
 
-    const actionsButton = await screen.findByRole("button", { name: /issue detail actions/i });
+    const actionsButton = await screen.findByRole("button", { name: /more actions/i });
     fireEvent.click(actionsButton);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Manage projects" }));
     const dialog = await screen.findByRole("dialog", { name: /manage project membership/i });
@@ -693,7 +693,7 @@ describe("top-level create actions", () => {
     });
   });
 
-  it("deletes the current part from the issue detail actions menu", async () => {
+  it("deletes the current part from the more actions menu", async () => {
     api.archiveJob.mockResolvedValue("job-1");
 
     renderWithClient(
@@ -705,10 +705,10 @@ describe("top-level create actions", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
+      expect(screen.getByRole("button", { name: /more actions/i })).not.toBeNull();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
+    fireEvent.click(screen.getByRole("button", { name: /more actions/i }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /archive part/i }));
 
     await waitFor(() => {

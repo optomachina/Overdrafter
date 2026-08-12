@@ -10,14 +10,10 @@ import {
   resetStartupAuthBootstrapForTests,
   STARTUP_AUTH_TIMEOUT_MS,
 } from "@/features/quotes/api/shared/startup-auth";
-import { getSupabaseAuthStorageKey } from "@/hooks/use-app-session";
+import { AppSessionProvider, getSupabaseAuthStorageKey } from "@/hooks/use-app-session";
 import ClientHome from "./ClientHome";
 
-const guestLandingHeading = /^files in\s+parts out$/i;
-
-vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
-  ClientQuoteComparisonChart: () => <div data-testid="anonymous-quote-chart" />,
-}));
+const guestLandingHeading = /^cad in\s+parts out$/i;
 
 const fetchAppSessionDataMock = vi.fn<() => Promise<AppSessionData>>();
 const requestPasswordResetMock = vi.fn();
@@ -248,7 +244,9 @@ function renderClientHome() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/"]}>
-        <ClientHome />
+        <AppSessionProvider>
+          <ClientHome />
+        </AppSessionProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -313,14 +311,15 @@ async function submitPasswordLogin(email: string, password = "Overdrafter123!") 
 
 function expectGuestLandingVisible() {
   expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Multiple quotes. One obvious tradeoff." })).toBeInTheDocument();
-  expect(screen.getByTestId("anonymous-quote-chart")).toBeInTheDocument();
-  expect(screen.getByText("How it works")).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Drop your part package." })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Specs pulled from your drawing." })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Start with useful supplier direction." })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Compare and choose the best fit." })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /^get started free$/i })).toBeInTheDocument();
+  expect(screen.getByText("Quote comparison")).toBeInTheDocument();
+  expect(
+    screen.getByRole("img", { name: /vendor quotes plotted by total price and lead time/i }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(/include the PDF drawing to extract material, finish, tolerances, and threads/i),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^upload a part package$/i })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^create account$/i })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /^sign in$/i })).toBeInTheDocument();
   expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
   expect(screen.queryByTestId("sidebar-footer")).not.toBeInTheDocument();
@@ -394,7 +393,7 @@ describe("ClientHome auth flow", () => {
     expect(screen.queryByText("Restoring your workspace.")).not.toBeInTheDocument();
   });
 
-  it.each(["Sign up for free", "Get started free", "Compare your quotes"])(
+  it.each(["Upload a part package", "Create account"])(
     "opens sign-up mode from the %s call to action",
     async (callToAction) => {
       fetchAppSessionDataMock.mockResolvedValue({

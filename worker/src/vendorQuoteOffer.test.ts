@@ -55,6 +55,12 @@ describe("buildVendorQuoteOfferPayload", () => {
       lane_label: "xometry quote",
       sourcing: "automated",
       tier: "Instant",
+      quoted_at: null,
+      valid_until: null,
+      validity_duration_days: null,
+      validity_source: null,
+      validity_terms: null,
+      provenance_status: "unverified",
       unit_price_usd: 9.2,
       total_price_usd: 92,
       lead_time_business_days: 6,
@@ -66,9 +72,40 @@ describe("buildVendorQuoteOfferPayload", () => {
       raw_payload: {
         source: "simulate",
         quoteUrl: "https://example.com/quote/1",
+        quotedAt: null,
+        validUntil: null,
+        validityDurationDays: null,
+        validitySource: null,
+        validityTerms: null,
         requestedQuantity: 10,
         requirementCapturedAt: "2026-07-30T11:55:00.000Z",
       },
+    });
+  });
+
+  it("persists explicit vendor validity independently from collection freshness", () => {
+    expect(buildVendorQuoteOfferPayload({
+      vendorQuoteResultId: "result-1",
+      organizationId: "organization-1",
+      vendor: "xometry",
+      requestedQuantity: 10,
+      requirement,
+      requirementCapturedAt: "2026-07-30T11:55:00.000Z",
+      result: {
+        ...result,
+        quotedAt: "2026-07-30T12:00:00.000Z",
+        validityDurationDays: 30,
+        validitySource: "vendor_duration",
+        validityTerms: "Pricing valid for 30 days",
+        rawPayload: { source: "xometry-live-adapter" },
+      },
+    })).toMatchObject({
+      quoted_at: "2026-07-30T12:00:00.000Z",
+      valid_until: null,
+      validity_duration_days: 30,
+      validity_source: "vendor_duration",
+      validity_terms: "Pricing valid for 30 days",
+      provenance_status: "trusted_adapter",
     });
   });
 
@@ -87,5 +124,23 @@ describe("buildVendorQuoteOfferPayload", () => {
         result,
       }).process,
     ).toBeNull();
+  });
+
+  it("recognizes a non-simulated Xometry automation result as trusted provenance", () => {
+    expect(buildVendorQuoteOfferPayload({
+      vendorQuoteResultId: "result-1",
+      organizationId: "organization-1",
+      vendor: "xometry",
+      requestedQuantity: 10,
+      requirement,
+      requirementCapturedAt: "2026-07-30T11:55:00.000Z",
+      result: {
+        ...result,
+        rawPayload: {
+          automationVersion: "xometry-worker-2026-08-12",
+          detectedFlow: "instant_quote",
+        },
+      },
+    })).toMatchObject({ provenance_status: "trusted_adapter" });
   });
 });

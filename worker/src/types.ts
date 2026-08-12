@@ -262,6 +262,15 @@ export type VendorQuoteAdapterOutput = {
   totalPriceUsd: number | null;
   leadTimeBusinessDays: number | null;
   quoteUrl: string | null;
+  /** Vendor-stated quote timestamp, when the adapter can establish it. */
+  quotedAt?: string | null;
+  /** Explicit vendor expiration. Never inferred from collection freshness. */
+  validUntil?: string | null;
+  /** Explicit vendor duration, normalized to whole days. */
+  validityDurationDays?: number | null;
+  validitySource?: "vendor_date" | "vendor_duration" | null;
+  /** Original vendor wording retained for operator review. */
+  validityTerms?: string | null;
   dfmIssues: string[];
   notes: string[];
   artifacts: VendorArtifact[];

@@ -35,6 +35,10 @@ vi.mock("@/components/debug/AppErrorBoundary", () => ({
   AppErrorBoundary: ({ children }: PropsWithChildren) => <>{children}</>,
 }));
 
+vi.mock("@/hooks/use-app-session", () => ({
+  AppSessionProvider: ({ children }: PropsWithChildren) => <>{children}</>,
+}));
+
 vi.mock("./pages/Index", () => ({
   default: () => <div>Index Page</div>,
 }));

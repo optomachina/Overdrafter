@@ -1,6 +1,6 @@
 # Commercial Account Administration Guide
 
-Last reviewed: August 2, 2026
+Last reviewed: August 11, 2026
 
 Audience: provisioned billing administrators and service operators
 
@@ -45,11 +45,11 @@ server-only procedures documented in [Commercial Rollout Controls](./commercial-
 
 Account search and read-only detail work at AAL1. Any trial, complimentary, or
 revocation mutation requires AAL2 through a verified authenticator-app code.
-The operator's factor must have been independently established before the
-`billing_admin` capability is provisioned. If the interface offers TOTP
-enrollment to an AAL1 session, do not use it for commercial access. There is no
-compliant in-product bootstrap path for a new commercial operator yet; stop and
-do not provision or mutate access until the approved security workflow exists.
+The commercial account detail page provides an explicit **Set up or verify
+MFA** action. Enrollment attaches a TOTP factor to the signed-in operator; the
+operator must then verify a current code before Supabase upgrades the session
+to AAL2. The database still rejects the commercial mutation unless that AAL2
+session, the `billing_admin` capability, and the rollout control are all valid.
 
 Every successful manual access change records the signed-in operator, exact
 organization or grant, reason, time, before and after state, and idempotency
@@ -101,8 +101,9 @@ Use a trial for approved, time-limited evaluation access.
 2. In **Manual Pro access**, choose **Trial**.
 3. Set **Starts** and the required **Trial expiration**. Expiration must be after the start time.
 4. Enter a specific reason that another operator can understand later. Do not include passwords, tokens, payment-card data, or other secrets.
-5. Choose **Grant trial Pro**. If the page shows **Verify with MFA to grant**, verify with the independently established factor. If the dialog offers factor setup instead, stop without changing access.
-6. Confirm the success message, the effective-access summary, the new grant-history row, and the corresponding commercial-audit event.
+5. If the page shows **MFA required**, choose **Set up or verify MFA**. Enroll an authenticator if needed, enter its current code, and verify the session.
+6. Choose **Grant trial Pro**.
+7. Confirm the success message, the effective-access summary, the new grant-history row, and the corresponding commercial-audit event.
 
 Do not represent a trial as paid. Extending access requires another explicit,
 reasoned grant; do not edit or delete history.
@@ -115,8 +116,9 @@ Use complimentary access only for an approved non-paid relationship.
 2. In **Manual Pro access**, choose **Complimentary**.
 3. Set **Starts** and the required **Complimentary review date**. The review date must be after the start time.
 4. Enter the business reason and owner for the next review.
-5. Choose **Grant complimentary Pro**, verifying with the independently established factor when prompted. If the dialog offers factor setup instead, stop.
-6. Confirm the effective-access summary, grant history, and commercial audit.
+5. If the page shows **MFA required**, choose **Set up or verify MFA** and complete enrollment or verification.
+6. Choose **Grant complimentary Pro**.
+7. Confirm the effective-access summary, grant history, and commercial audit.
 
 A review date is not an automatic expiration. The grant remains explicitly
 complimentary until it expires, is revoked, or is superseded by other effective
@@ -128,7 +130,7 @@ Revocation removes only the selected manual grant. It does not cancel or alter
 a paid Stripe subscription.
 
 1. In **Grant history**, identify the exact trial or complimentary grant.
-2. Choose **Revoke**. Verify with the independently established factor if the button says **Verify to revoke**. If the dialog offers factor setup instead, stop.
+2. Choose **Revoke**. If the button says **Verify to revoke**, complete authenticator setup or verification first.
 3. Enter a specific revocation reason.
 4. Confirm **Revoke grant**.
 5. Verify the grant is labeled **Revoked**, the effective-access summary is recalculated, and a commercial-audit event is present.
@@ -174,7 +176,7 @@ updated or deleted.
 | What the operator sees | Meaning | Response |
 | --- | --- | --- |
 | **Not authorized** | The signed-in user lacks an active `billing_admin` capability. | Verify the auth user ID, assignment, expiration, and revocation state through the server-only procedure. |
-| **MFA required** | Reads are allowed, but the current session is not AAL2. | Verify the independently established factor. If the dialog offers factor setup or no verified factor exists, stop; do not enroll from the AAL1 commercial session. |
+| **MFA required** | Reads are allowed, but the current session is not AAL2. | Choose **Set up or verify MFA**, enroll an authenticator if needed, and verify a current code. The mutation remains blocked until the refreshed session reports AAL2. |
 | Mutation-disabled error | `commercial_admin_mutations` is off or was disabled while the operator was working. | Leave it off until the incident or rollout owner approves enablement. Check the control and latest event; do not bypass it. |
 | Account, audit, or authorization load failure | The guarded API or session could not return current truth. | Use **Retry** once. If it persists, stop changing access and investigate auth, migration, PostgREST, and service health. |
 | Unexpected Free or Pro result | Another grant, subscription, grace period, expiry, or rollout control affects the result. | Reconcile all displayed sources before taking another action. Do not add a compensating grant merely to hide stale state. |
@@ -189,7 +191,7 @@ Before:
 - choose trial or complimentary truthfully;
 - use required expiration or review dates;
 - write a reason without secrets or payment data;
-- confirm an independently established MFA factor and rollout-control readiness.
+- confirm an MFA-verified AAL2 session and rollout-control readiness.
 
 After:
 

@@ -68,19 +68,20 @@ This document defines what it means for the current repository-hardening phase t
 - The commercial plan is owned by the organization, not by an individual user or membership role.
 - Every organization resolves to either Free or Pro through a server-side effective-entitlement contract.
 - Free users may upload parts and create projects without a customer-facing usage quota.
-- A supported Free upload returns ranked potential providers, fit explanations, and official RFQ links without starting worker or operator work.
-- Every sourcing result is explicitly one of: live offers available, provider recommendations available, or unsupported package.
+- A supported Free upload may preview current sourcing coverage without selecting recipients, transmitting part data, or starting worker or operator work.
+- The primary Part Quote action opens vendor-scope selection and a disclosure confirmation before any automatic quote request is created.
+- The disclosure identifies selected recipients, attached CAD/drawing files, and the normalized requirements that will be transmitted.
 - The same sourcing result is visible in the single-part workspace and for the selected part in a project workspace.
 - Potential providers are never presented as returned quotes, and synthetic or stale prices are never labeled live.
-- A live offer must come from a successful trusted Xometry or Fictiv live-adapter result and be no more than 14 days old; all other persisted offers fall back to recommendations.
+- A live offer must come from a successful trusted Xometry or Fictiv live-adapter result and be no more than 14 days old; all other persisted offers must remain explicitly non-live or unavailable.
 - Pro adds the `automatic_quote_collection` entitlement.
 - Automatic quote APIs independently enforce Pro and return a stable `pro_required` result when the UI is bypassed.
-- Vendor authentication expiry, timeout, disabled adapters, and portal failures expose provider guidance rather than stranding the customer.
+- Vendor authentication expiry, timeout, disabled adapters, and portal failures expose a bounded retry or unavailable state rather than a dead external RFQ link.
 - Existing operational throttles and organization cost ceilings remain invisible safeguards, not plan quotas.
 - Authorized billing admins may create and revoke audited trial and complimentary Pro grants under AAL2.
 - Trial grants require an expiration. Complimentary grants require a reason and review date and may optionally expire.
 - Self-service launch Pro costs $49/month through hosted Stripe Checkout.
-- Eligible past-due Pro subscriptions retain Pro access for a seven-day grace period, then resolve to Free without affecting uploads or sourcing guidance.
+- Eligible past-due Pro subscriptions retain Pro access for a seven-day grace period, then resolve to Free without affecting uploads, organization, or coverage preview.
 - Stripe subscription and invoice facts are synchronized through signed, replay-safe webhooks before they affect access.
 - Annual billing, coupons, promotion codes, procurement handoffs, orders, manufacturing payment collection, automated supplier order placement, tax automation, and ERP/accounting integration remain excluded.
 
@@ -94,6 +95,18 @@ This document defines what it means for the current repository-hardening phase t
 - The worker picks up the queued work and starts vendor quote collection through the adapter boundary for each queued vendor lane.
 - The client UI clearly shows quote request lifecycle state: `not requested`, `queued`, `requesting`, `received`, `failed`, or `canceled`.
 - Cross-org users cannot request or inspect quote request state for jobs they do not own or cannot access.
+- Quote submission accepts explicit selected vendors and derives lane eligibility on the server without exposing internal fingerprints.
+- A trusted selectable offer with explicit, unexpired validity blocks only the matching vendor, exact disclosure, and quantity lane through its inclusive expiration date.
+- Unknown validity never becomes a commercial-validity lock; the unchanged lane uses the configurable 1,440-minute organization cooldown.
+- Changed CAD/drawing content, reviewed requirements, quantity, requested delivery date, or other disclosed data is immediately requestable as a new scope.
+- Mixed covered and uncovered selections queue only uncovered lanes; an entirely covered selection routes to the current comparison instead of producing an error.
+- Historical received, completed, published, or selected quote state with unknown/expired validity does not permanently block a later request.
+- Billing-admin invalidation requires AAL2, a reason, and idempotency, writes append-only audit evidence, and permits one immediate replacement request.
+- Exact worker-trusted CAD-plus-drawing duplicates reuse one organization version while independent placements retain their own project/request/quote context.
+- Same CAD with a changed drawing produces a new version; missing drawing matches only missing drawing; filenames and client hashes never establish final identity.
+- Cross-organization matches cause no observable intake-response difference and cannot expose customer files, metadata, counts, or ownership.
+- Concurrent identical intake resolves to one organization version and avoids duplicate technical extraction work.
+- Global fingerprints and geometry candidates remain service-only and non-actionable.
 - Relevant product, planning, architecture, and test documents are updated in the same change.
 
 ### Feature addendum — Supplier discovery foundation

@@ -174,6 +174,7 @@ async function insertTestCadFile(admin, jobId, uploadedBy) {
       size_bytes: 100,
       mime_type: "application/step",
       content_sha256: contentSha256,
+      trusted_content_sha256: contentSha256,
       uploaded_by: uploadedBy,
     })
     .select("id")
@@ -493,6 +494,25 @@ describe("api_request_quote gating paths", () => {
         revoked_at = null,
         revoked_by_user_id = null,
         revocation_reason = null;
+
+      insert into public.quote_request_guardrails (
+        organization_id,
+        user_max_requests_per_window,
+        org_pending_cost_ceiling_usd,
+        default_cost_per_requested_lane_usd,
+        same_scope_cooldown_minutes
+      ) values (
+        '${ORG_ID}'::uuid,
+        1000,
+        1000000,
+        1,
+        1440
+      )
+      on conflict (organization_id) do update set
+        user_max_requests_per_window = excluded.user_max_requests_per_window,
+        org_pending_cost_ceiling_usd = excluded.org_pending_cost_ceiling_usd,
+        default_cost_per_requested_lane_usd = excluded.default_cost_per_requested_lane_usd,
+        same_scope_cooldown_minutes = excluded.same_scope_cooldown_minutes;
     `);
   });
 
@@ -501,6 +521,9 @@ describe("api_request_quote gating paths", () => {
       delete from private.organization_entitlement_grants
       where organization_id = '${ORG_ID}'::uuid
         and grant_reason = 'Local automatic quote integration coverage';
+
+      delete from public.quote_request_guardrails
+      where organization_id = '${ORG_ID}'::uuid;
     `);
     disableAllCommercialRolloutControls();
   });
@@ -679,7 +702,7 @@ describe("api_request_quote gating paths", () => {
     expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
   });
 
-  it("deduplicates an in-flight request without creating a second quote run", async () => {
+  it("reports all active lanes as covered without creating a second quote run", async () => {
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
@@ -688,12 +711,10 @@ describe("api_request_quote gating paths", () => {
 
     expect(first.error).toBeNull();
     expect(second.error).toBeNull();
-    expect(second.data.accepted).toBe(true);
+    expect(second.data.accepted).toBe(false);
     expect(second.data.created).toBe(false);
     expect(second.data.deduplicated).toBe(true);
-    expect(second.data.reasonCode).toBe("already_in_progress");
-    expect(second.data.quoteRequestId).toBe(first.data.quoteRequestId);
-    expect(second.data.quoteRunId).toBe(first.data.quoteRunId);
+    expect(second.data.reasonCode).toBe("all_lanes_covered");
     expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(1);
     expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
   });
@@ -801,7 +822,7 @@ describe("api_request_quote gating paths", () => {
     expect(job.status).toBe("ready_to_quote");
   });
 
-  it("requires an explicit retry after a canceled manual request", async () => {
+  it("does not let an authenticated force flag bypass manual request lifecycle", async () => {
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
@@ -820,13 +841,13 @@ describe("api_request_quote gating paths", () => {
     });
     expect(forcedRetry.error).toBeNull();
     expect(forcedRetry.data).toMatchObject({
-      accepted: true,
-      created: true,
+      accepted: false,
+      created: false,
       quoteMode: "manual",
-      status: "queued",
+      reasonCode: "retry_required",
     });
-    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(2);
-    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(2);
+    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(1);
+    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
   });
 
   it("does not reopen a terminal job without prior quote lineage", async () => {
@@ -855,15 +876,27 @@ describe("api_request_quote gating paths", () => {
     expect(job.status).toBe("published");
   });
 
-  it("rejects with already_received when the job already has a published quote run", async () => {
-    const { data, error } = await requestQuote(client, PUBLISHED_JOB_ID);
+  it("allows a new round when an old published quote has no matching valid lane", async () => {
+    executeLocalDatabaseSql(`
+      delete from public.quote_requests
+      where job_id = '${PUBLISHED_JOB_ID}'::uuid;
+    `);
 
-    expect(error).toBeNull();
-    expect(data.accepted).toBe(false);
-    expect(data.reasonCode).toBe("already_received");
+    try {
+      const { data, error } = await requestQuote(client, PUBLISHED_JOB_ID);
+
+      expect(error).toBeNull();
+      expect(data.accepted).toBe(true);
+      expect(data.created).toBe(true);
+    } finally {
+      executeLocalDatabaseSql(`
+        delete from public.quote_requests
+        where job_id = '${PUBLISHED_JOB_ID}'::uuid;
+      `);
+    }
   });
 
-  it("rejects with retry_required when the latest request failed and force_retry is false", async () => {
+  it("creates a fresh lane request after a historical failed request", async () => {
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
@@ -872,12 +905,12 @@ describe("api_request_quote gating paths", () => {
     const { data, error } = await requestQuote(client, jobId, false);
 
     expect(error).toBeNull();
-    expect(data.accepted).toBe(false);
-    expect(data.reasonCode).toBe("retry_required");
-    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(1);
+    expect(data.accepted).toBe(true);
+    expect(data.created).toBe(true);
+    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(2);
   });
 
-  it("creates a fresh request when force_retry is true after a failed request", async () => {
+  it("ignores the legacy force flag while still using lane eligibility", async () => {
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
@@ -926,8 +959,8 @@ describe("api_request_quote gating paths", () => {
     {
       name: "no_enabled_vendors",
       prepare: () => buildQuoteReadyJob({}, { applicable_vendors: [] }),
-      reasonCode: "no_enabled_vendors",
-      requestedVendors: [],
+      reasonCode: "no_applicable_lanes",
+      requestedVendors: ["xometry", "fictiv", "protolabs"],
     },
   ])("rejects with $reasonCode when $name blocks quote collection", async ({ prepare, reasonCode, requestedVendors }) => {
     const { jobId } = await prepare();

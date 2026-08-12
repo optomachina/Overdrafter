@@ -41,6 +41,11 @@ export type ClientQuoteSelectionOption = {
   shipReceiveBy: string | null;
   dueDate: string | null;
   quoteDateIso: string | null;
+  validUntil?: string | null;
+  validityDurationDays?: number | null;
+  validitySource?: string | null;
+  validityTerms?: string | null;
+  invalidatedAt?: string | null;
   offerCreatedAt?: string;
   quoteUrl?: string | null;
   quoteResultCreatedAt?: string;
@@ -647,6 +652,11 @@ function buildOptionRecords(input: NormalizedOfferInput): QuoteOptionBuildResult
           tier: offer.tier,
           quoteRef: offer.quote_ref,
           quoteDateIso: offer.quote_date,
+          validUntil: offer.valid_until ?? null,
+          validityDurationDays: offer.validity_duration_days ?? null,
+          validitySource: offer.validity_source ?? null,
+          validityTerms: offer.validity_terms ?? null,
+          invalidatedAt: offer.invalidated_at ?? null,
           totalPriceUsd: offer.total_price_usd as number | string | null,
           unitPriceUsd: offer.unit_price_usd as number | string | null,
           leadTimeBusinessDays: offer.lead_time_business_days as number | string | null,
@@ -756,6 +766,11 @@ function buildOptionRecords(input: NormalizedOfferInput): QuoteOptionBuildResult
       shipReceiveBy: offer.shipReceiveBy,
       dueDate: offer.dueDate,
       quoteDateIso: offer.quoteDateIso,
+      validUntil: offer.validUntil,
+      validityDurationDays: offer.validityDurationDays,
+      validitySource: offer.validitySource,
+      validityTerms: offer.validityTerms,
+      invalidatedAt: offer.invalidatedAt,
       ...(rawOfferRecord?.created_at
         ? { offerCreatedAt: rawOfferRecord.created_at }
         : {}),

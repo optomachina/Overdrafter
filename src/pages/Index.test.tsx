@@ -7,13 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobRecord } from "@/features/quotes/types";
 import Index from "./Index";
 
-const guestLandingHeading = /^files in\s+parts out$/i;
+const guestLandingHeading = /^cad in\s+parts out$/i;
 const guestLandingBody =
   /upload CAD files and drawings to collect vendor quotes, compare price and lead time, and choose the best source for your budget and deadline/i;
-
-vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
-  ClientQuoteComparisonChart: () => <div data-testid="anonymous-quote-chart" />,
-}));
 
 const mockUseAppSession = vi.fn();
 const mockFetchCommercialAdminAccess = vi.hoisted(() => vi.fn());
@@ -110,16 +106,8 @@ function ClientPartsLocationProbe() {
   );
 }
 
-function renderIndex(initialEntry = "/") {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-      },
-    },
-  });
-
-  return render(
+function createIndexTestTree(queryClient: QueryClient, initialEntry: string) {
+  return (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
@@ -131,8 +119,25 @@ function renderIndex(initialEntry = "/") {
           />
         </Routes>
       </MemoryRouter>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+}
+
+function renderIndex(initialEntry = "/") {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  });
+
+  const result = render(createIndexTestTree(queryClient, initialEntry));
+
+  return {
+    ...result,
+    rerenderIndex: () => result.rerender(createIndexTestTree(queryClient, initialEntry)),
+  };
 }
 
 describe("Index client home", () => {
@@ -167,16 +172,17 @@ describe("Index client home", () => {
     renderIndex();
 
     expect(screen.getByRole("button", { name: /^sign in$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /sign up for free/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /get started free/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /create account/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /upload a part package/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
     expect(screen.getByText(guestLandingBody)).toBeInTheDocument();
-    expect(screen.getByText(/launch scope · machined aluminum · STEP \+ PDF/i)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /multiple quotes\. one obvious tradeoff/i })).toBeInTheDocument();
-    expect(await screen.findByTestId("anonymous-quote-chart")).toBeInTheDocument();
-    expect(screen.getByText(/how it works/i)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /drop your part package/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /compare and choose the best fit/i })).toBeInTheDocument();
+    expect(
+      screen.getByText(/include the PDF drawing to extract material, finish, tolerances, and threads/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Quote comparison")).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: /vendor quotes plotted by total price and lead time/i }),
+    ).toBeInTheDocument();
   });
 
   it("routes an established client workspace to the parts collection", async () => {
@@ -263,7 +269,7 @@ describe("Index client home", () => {
     expect(screen.getByText("Restoring your workspace.")).toBeInTheDocument();
     expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
   });
-  it("renders the client home while membership recovery continues for an authenticated user", async () => {
+  it("keeps a neutral restoration frame while membership recovery continues for an authenticated user", () => {
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
       activeMembership: null,
@@ -275,11 +281,53 @@ describe("Index client home", () => {
 
     renderIndex();
 
-    expect(screen.queryByText("Restoring your workspace.")).not.toBeInTheDocument();
+    expect(screen.getByText("Restoring your workspace.")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Keep projects moving with the next highest-impact action."),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Parts Collection")).not.toBeInTheDocument();
+  });
+
+  it("mounts the client destination only after membership recovery resolves", async () => {
+    const restoringSession = {
+      user: { id: "user-1", email: "client@example.com" },
+      activeMembership: null,
+      isLoading: true,
+      isVerifiedAuth: true,
+      isAuthInitializing: true,
+      signOut: vi.fn(),
+    };
+    const readySession = {
+      ...restoringSession,
+      activeMembership: {
+        id: "membership-1",
+        role: "client",
+        organizationId: "org-1",
+        organizationName: "Client Org",
+        organizationSlug: "client-org",
+      },
+      isLoading: false,
+      isAuthInitializing: false,
+    };
+    let session = restoringSession;
+    mockUseAppSession.mockImplementation(() => session);
+
+    const { rerenderIndex } = renderIndex();
+
+    expect(screen.getByText("Restoring your workspace.")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Keep projects moving with the next highest-impact action."),
+    ).not.toBeInTheDocument();
+
+    session = readySession;
+    rerenderIndex();
 
     await waitFor(() => {
-      expect(screen.getByText("Keep projects moving with the next highest-impact action.")).toBeInTheDocument();
+      expect(screen.getByText("Parts Collection")).toBeInTheDocument();
     });
+    expect(
+      screen.queryByText("Keep projects moving with the next highest-impact action."),
+    ).not.toBeInTheDocument();
   });
 
   it("routes a capability-only administrator into commercial operations", async () => {
@@ -301,6 +349,30 @@ describe("Index client home", () => {
     expect(
       await screen.findByText("Commercial Accounts"),
     ).toBeInTheDocument();
+  });
+
+  it("keeps workspace provisioning neutral when a resolved user has no membership or capability", async () => {
+    mockUseAppSession.mockReturnValue({
+      user: { id: "new-user", email: "new-client@example.com" },
+      activeMembership: null,
+      memberships: [],
+      isLoading: false,
+      isFetching: false,
+      isVerifiedAuth: true,
+      isPlatformAdmin: false,
+      authState: "authenticated",
+      membershipError: null,
+      isAuthInitializing: false,
+      signOut: vi.fn(),
+    });
+
+    renderIndex();
+
+    expect(await screen.findByText("Preparing your workspace.")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Keep projects moving with the next highest-impact action."),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Parts Collection")).not.toBeInTheDocument();
   });
 
   it("fails closed with a retry when commercial access cannot be checked", async () => {

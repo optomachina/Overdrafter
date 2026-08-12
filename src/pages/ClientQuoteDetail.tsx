@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowUpRight, Copy, FileText, PlusSquare } from "lucide-react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
@@ -75,6 +75,7 @@ function QuoteFact({
 }
 
 const ClientQuoteDetail = () => {
+  const navigate = useNavigate();
   const { quoteCode: routeQuoteCode = "" } = useParams();
   const [searchParams] = useSearchParams();
   const appMode = searchParams.get("app") === "ios" ? "ios" : null;
@@ -291,7 +292,9 @@ const ClientQuoteDetail = () => {
       return;
     }
 
-    void controller.handleRequestQuote(quoteRequest.action.kind === "retry");
+    navigate(buildAppAwareHref(`/parts/${resolvedJobId}`, appMode), {
+      state: { openQuoteRequestFlow: true },
+    });
   };
 
   const handleSaveReference = () => {

@@ -999,6 +999,11 @@ export type ImportedVendorOffer = {
   tier: string | null;
   quoteRef: string | null;
   quoteDateIso: string | null;
+  validUntil: string | null;
+  validityDurationDays: number | null;
+  validitySource: string | null;
+  validityTerms: string | null;
+  invalidatedAt: string | null;
   totalPriceUsd: number;
   unitPriceUsd: number;
   leadTimeBusinessDays: number | null;
@@ -1080,6 +1085,11 @@ function mapOfferRecord(offer: VendorQuoteOfferRecord, requestedQuantity: number
     tier: offer.tier,
     quoteRef: offer.quote_ref,
     quoteDateIso: offer.quote_date,
+    validUntil: offer.valid_until ?? null,
+    validityDurationDays: offer.validity_duration_days ?? null,
+    validitySource: offer.validity_source ?? null,
+    validityTerms: offer.validity_terms ?? null,
+    invalidatedAt: offer.invalidated_at ?? null,
     totalPriceUsd: offer.total_price_usd ?? Number.NaN,
     unitPriceUsd: offer.unit_price_usd ?? Number.NaN,
     leadTimeBusinessDays: offer.lead_time_business_days,
@@ -1137,6 +1147,11 @@ export function getImportedVendorOffers(
       tier: offer.tier ? String(offer.tier) : null,
       quoteRef: offer.quoteRef ? String(offer.quoteRef) : null,
       quoteDateIso: offer.quoteDateIso ? String(offer.quoteDateIso) : null,
+      validUntil: offer.validUntil ? String(offer.validUntil) : null,
+      validityDurationDays: parseLooseIntegerValue(offer.validityDurationDays),
+      validitySource: offer.validitySource ? String(offer.validitySource) : null,
+      validityTerms: offer.validityTerms ? String(offer.validityTerms) : null,
+      invalidatedAt: offer.invalidatedAt ? String(offer.invalidatedAt) : null,
       totalPriceUsd: parseLooseCurrencyValue(offer.totalPriceUsd),
       unitPriceUsd: parseLooseCurrencyValue(offer.unitPriceUsd),
       leadTimeBusinessDays: parseLooseIntegerValue(offer.leadTimeBusinessDays),

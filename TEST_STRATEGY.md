@@ -127,9 +127,22 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - validate RPC behavior for single-part and bulk quote requests
 - validate `requestedVendors` semantics for multi-vendor fan-out and `no_enabled_vendors` blockers
 - validate authorization and idempotency outcomes
+- validate exact disclosure fingerprint changes for CAD, drawing, revision, manufacturing fields, quantity, and requested delivery date without returning fingerprints to clients
+- validate lane eligibility for active work, explicit valid offers, unknown-validity cooldown, expired offers, invalidated offers, and partial vendor/quantity coverage
+- validate serial and concurrent submissions under the per-job lock, including disjoint lanes and no duplicate active lane work
+- validate date validity, duration validity, derived counterpart values, missing validity, malformed/conflicting terms, trusted provenance, and the independent 14-day collection-freshness rule
+- validate AAL2 billing-admin invalidation, reason/idempotency requirements, append-only audit behavior, immediate replacement, and restored cooldown after replacement
 - validate per-user rate-limit blockers and org-level pending-cost ceiling blockers
 - validate worker- or queue-adjacent state transitions where the request lifecycle depends on asynchronous vendor updates
 - run `npm run verify:worker` when worker payload or queue integration changes
+
+### Canonical part identity and intake changes
+- validate exact CAD-plus-drawing reuse, same-CAD/different-drawing versioning, missing-drawing semantics, and drawing-only provisional promotion
+- validate client hashes remain hints until worker-trusted digests are registered
+- validate concurrent exact intake converges on one organization version without orphan jobs or duplicate extraction work
+- validate reused placements keep project/request overrides and quote history isolated while sharing only organization-owned files and technical artifacts
+- use two-organization RLS fixtures to prove global matches do not change responses or reveal files, metadata, counts, ownership, or match existence
+- validate private fingerprint/geometry tables have no `authenticated` grants or client-facing API and geometry candidates never block intake
 
 ### Commercial plans, entitlements, and quote-mode changes
 - treat organization plan resolution, automatic-quote access, grants, billing-admin authorization, Stripe synchronization, and order administration as release-confidence, high-risk work

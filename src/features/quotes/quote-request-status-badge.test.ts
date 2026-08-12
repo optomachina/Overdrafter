@@ -3,13 +3,18 @@ import { getQuoteRequestStatusBadgeClassName } from "@/features/quotes/quote-req
 
 describe("getQuoteRequestStatusBadgeClassName", () => {
   it.each([
-    ["not_requested", "border border-border bg-accent text-foreground/80"],
-    ["queued", "border-amber-400/20 bg-amber-500/10 text-amber-100"],
-    ["requesting", "border-amber-400/20 bg-amber-500/10 text-amber-100"],
-    ["received", "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"],
-    ["failed", "border-rose-400/20 bg-rose-500/10 text-rose-100"],
-    ["canceled", "border-rose-400/20 bg-rose-500/10 text-rose-100"],
-  ] as const)("returns the canonical badge classes for %s", (status, className) => {
-    expect(getQuoteRequestStatusBadgeClassName(status)).toContain(className);
+    "not_requested",
+    "queued",
+    "requesting",
+    "received",
+    "failed",
+    "canceled",
+  ] as const)("returns the neutral, high-contrast badge treatment for %s", (status) => {
+    const className = getQuoteRequestStatusBadgeClassName(status);
+
+    expect(className).toContain("border-paper-hairline");
+    expect(className).toContain("bg-paper-surface");
+    expect(className).toContain("text-paper-ink");
+    expect(className).not.toMatch(/(?:amber|emerald|rose)-/);
   });
 });

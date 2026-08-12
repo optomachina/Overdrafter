@@ -1,6 +1,12 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,6 +39,7 @@ const {
     fetchVendorCapabilityProfiles: vi.fn(),
     fetchPartDetailByJobId: vi.fn(),
     fetchJobPartSummariesByJobIds: vi.fn(),
+    fetchJobVendorPreferenceContext: vi.fn(),
     fetchProjectJobMembershipsByJobIds: vi.fn(),
     resolveClientPartDetailRoute: vi.fn(),
     fetchSidebarPins: vi.fn(),
@@ -48,6 +55,7 @@ const {
     resetClientPartPropertyOverrides: vi.fn(),
     persistClientQuoteSelection: vi.fn(),
     setJobSelectedVendorQuoteOffer: vi.fn(),
+    setJobVendorPreferences: vi.fn(),
     unarchiveJob: vi.fn(),
     unarchiveProject: vi.fn(),
     unpinJob: vi.fn(),
@@ -117,11 +125,23 @@ vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   persistClientQuoteSelection: api.persistClientQuoteSelection,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
 }));
+vi.mock("@/features/quotes/api/vendor-preferences-api", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/features/quotes/api/vendor-preferences-api")
+  >("@/features/quotes/api/vendor-preferences-api");
+
+  return {
+    ...actual,
+    fetchJobVendorPreferenceContext: api.fetchJobVendorPreferenceContext,
+    setJobVendorPreferences: api.setJobVendorPreferences,
+  };
+});
 vi.mock("@/features/quotes/organization-entitlements", () => ({
   useOrganizationQuoteCollectionMode: () => mockQuoteCollectionMode,
 }));
 vi.mock("@/features/quotes/api/shared/schema-runtime", () => ({
-  isProjectCollaborationSchemaUnavailable: api.isProjectCollaborationSchemaUnavailable,
+  isProjectCollaborationSchemaUnavailable:
+    api.isProjectCollaborationSchemaUnavailable,
 }));
 vi.mock("@/features/quotes/api/uploads-api", () => ({
   createJobsFromUploadFiles: api.createJobsFromUploadFiles,
@@ -142,9 +162,9 @@ vi.mock("@/features/quotes/api/workspace-access", () => ({
 }));
 
 vi.mock("@/features/quotes/workspace-navigation", async () => {
-  const actual = await vi.importActual<typeof import("@/features/quotes/workspace-navigation")>(
-    "@/features/quotes/workspace-navigation",
-  );
+  const actual = await vi.importActual<
+    typeof import("@/features/quotes/workspace-navigation")
+  >("@/features/quotes/workspace-navigation");
 
   return {
     ...actual,
@@ -181,14 +201,16 @@ vi.mock("@/components/quote-intelligence/QuoteIntelligenceShell", () => ({
     title?: string;
     uploadSlot?: ReactNode;
   }) => {
-    lastShellProps = { title };
-    return <div data-testid="client-shell">
-      <h1 data-testid="shell-title">{title}</h1>
-      <div>{uploadSlot}</div>
-      <div>{accountSlot}</div>
-      <div>{children}</div>
-      <aside>{inspector}</aside>
-    </div>;
+    lastShellProps = { title, inspector };
+    return (
+      <div data-testid="client-shell">
+        <h1 data-testid="shell-title">{title}</h1>
+        <div>{uploadSlot}</div>
+        <div>{accountSlot}</div>
+        <main>{children}</main>
+        {inspector ? <aside data-testid="shell-inspector">{inspector}</aside> : null}
+      </div>
+    );
   },
 }));
 
@@ -199,11 +221,16 @@ vi.mock("@/components/chat/WorkspaceAccountMenu", () => ({
   },
 }));
 
-
 vi.mock("@/components/ui/dropdown-menu", () => ({
-  DropdownMenu: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
-  DropdownMenuTrigger: ({ children }: { children?: ReactNode }) => <>{children}</>,
-  DropdownMenuContent: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  DropdownMenu: ({ children }: { children?: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DropdownMenuTrigger: ({ children }: { children?: ReactNode }) => (
+    <>{children}</>
+  ),
+  DropdownMenuContent: ({ children }: { children?: ReactNode }) => (
+    <div>{children}</div>
+  ),
   DropdownMenuItem: ({
     children,
     onSelect,
@@ -223,7 +250,9 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     </button>
   ),
   DropdownMenuSeparator: () => <div />,
-  DropdownMenuShortcut: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+  DropdownMenuShortcut: ({ children }: { children?: ReactNode }) => (
+    <span>{children}</span>
+  ),
 }));
 
 vi.mock("@/components/chat/PartActionsMenu", () => ({
@@ -232,7 +261,10 @@ vi.mock("@/components/chat/PartActionsMenu", () => ({
 
 vi.mock("@/components/quotes/ClientQuoteAssetPanels", () => ({
   ClientCadPreviewPanel: () => <div>CAD</div>,
-  ClientDrawingPreviewPanel: (props: { drawingFile?: { original_name?: string | null } | null; pdfUrl?: string | null }) =>
+  ClientDrawingPreviewPanel: (props: {
+    drawingFile?: { original_name?: string | null } | null;
+    pdfUrl?: string | null;
+  }) =>
     props.pdfUrl ? (
       <iframe
         title={`${props.drawingFile?.original_name ?? "Drawing"} PDF preview`}
@@ -314,7 +346,11 @@ vi.mock("@/components/quotes/ClientWorkspacePanelContent", () => ({
       {heading ? <div>{heading}</div> : null}
       {detail ? <div>{detail}</div> : null}
       {onAction ? (
-        <button type="button" disabled={Boolean(actionDisabled || isBusy)} onClick={() => onAction()}>
+        <button
+          type="button"
+          disabled={Boolean(actionDisabled || isBusy)}
+          onClick={() => onAction()}
+        >
           {actionLabel ?? "Request Quote"}
         </button>
       ) : null}
@@ -363,7 +399,9 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
           Clear quote selection
         </button>
         {options?.map((quote) => (
-          <div key={quote.key ?? `${quote.vendorLabel}-${quote.tier}`}>{[quote.vendorLabel, quote.tier].filter(Boolean).join(" · ")}</div>
+          <div key={quote.key ?? `${quote.vendorLabel}-${quote.tier}`}>
+            {[quote.vendorLabel, quote.tier].filter(Boolean).join(" · ")}
+          </div>
         ))}
       </div>
     );
@@ -386,13 +424,19 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
         id="mock-due-by"
         aria-label="Need by date"
         value={requestedByDate ?? ""}
-        onChange={(event) => onRequestedByDateChange?.(event.target.value || null)}
+        onChange={(event) =>
+          onRequestedByDateChange?.(event.target.value || null)
+        }
       />
       <button type="button" onClick={() => onRequestedByDateChange?.(null)}>
         Clear
       </button>
-      <button type="button" onClick={() => onModeChange?.("fastest")}>Fast</button>
-      <button type="button" onClick={() => onModeChange?.("cheapest")}>Cheap</button>
+      <button type="button" onClick={() => onModeChange?.("fastest")}>
+        Fast
+      </button>
+      <button type="button" onClick={() => onModeChange?.("cheapest")}>
+        Cheap
+      </button>
     </div>
   ),
 }));
@@ -405,26 +449,40 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
     onSave,
     onResetField,
   }: {
-    effectiveRequestDraft?: { description?: string | null; notes?: string | null } | null;
-    onDraftChange?: (next: { description?: string; notes?: string }) => void;
+    effectiveRequestDraft?: {
+      description?: string | null;
+      notes?: string | null;
+      process?: string | null;
+    } | null;
+    onDraftChange?: (next: {
+      description?: string;
+      notes?: string;
+      process?: string;
+    }) => void;
     statusContent?: ReactNode;
     onSave?: () => void;
     onResetField?: (field: "description") => void;
   }) => {
-
     return (
       <div data-testid="part-info-panel">
-        <div>Part information</div>
+        <h2>Part requirements</h2>
         {statusContent}
         <input
           aria-label="Description"
           value={effectiveRequestDraft?.description ?? ""}
-          onChange={(event) => onDraftChange?.({ description: event.target.value })}
+          onChange={(event) =>
+            onDraftChange?.({ description: event.target.value })
+          }
         />
         <input
           aria-label="Notes"
           value={effectiveRequestDraft?.notes ?? ""}
           onChange={(event) => onDraftChange?.({ notes: event.target.value })}
+        />
+        <input
+          aria-label="Process"
+          value={effectiveRequestDraft?.process ?? ""}
+          onChange={(event) => onDraftChange?.({ process: event.target.value })}
         />
         <button type="button" onClick={() => onSave?.()}>
           Save Request
@@ -438,7 +496,9 @@ vi.mock("@/components/workspace/PartInfoPanel", () => ({
 }));
 
 vi.mock("@/components/quotes/PartProductDataBar", () => ({
-  PartProductDataBar: () => <div data-testid="part-product-data-bar">Product data</div>,
+  PartProductDataBar: () => (
+    <div data-testid="part-product-data-bar">Product data</div>
+  ),
 }));
 
 vi.mock("@/components/quotes/PartViewerRow", () => ({
@@ -482,8 +542,8 @@ function renderWithClient(initialEntry: string) {
   };
 }
 
-// PartInfoPanel (the "Request" surface) moved from a workspace tab into the
-// shell's right rail (PR-B), so it is always mounted — no tab switch.
+// PartInfoPanel (the "Request" surface) lives inline in the primary workspace,
+// so it is always mounted without a tab switch or inspector copy.
 async function renderClientPartOnTab(tab?: "Request" | "Activity") {
   const result = renderWithClient("/parts/job-1");
   if (tab === "Activity") {
@@ -505,7 +565,7 @@ async function findRequestButton(name: string | RegExp) {
 }
 
 async function findRequestQuoteButton() {
-  return findRequestButton(/request (manual )?quote/i);
+  return findRequestButton(/^quote$/i);
 }
 
 async function clickRequestQuoteButton() {
@@ -514,6 +574,17 @@ async function clickRequestQuoteButton() {
     expect(requestQuoteButton).toBeEnabled();
   });
   fireEvent.click(requestQuoteButton);
+}
+
+async function confirmQuoteRequest() {
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Review what will be shared",
+    }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: /send to \d+ vendors?/i }),
+  );
 }
 
 async function findActivityCommentField() {
@@ -631,6 +702,7 @@ describe("ClientPart", () => {
     vi.resetAllMocks();
     mockQuoteCollectionMode.automaticEnabled = true;
     mockQuoteCollectionMode.hasAutomaticEntitlement = true;
+    mockQuoteCollectionMode.isLoading = false;
     mockQuoteCollectionMode.plan = "pro";
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -670,9 +742,32 @@ describe("ClientPart", () => {
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
     storedFile.downloadStoredFileBlob.mockResolvedValue(new Blob(["download"]));
     storedFile.loadStoredDrawingPreviewPages.mockResolvedValue([]);
-    storedFile.loadStoredPdfObjectUrl.mockResolvedValue("blob:part-drawing-pdf");
+    storedFile.loadStoredPdfObjectUrl.mockResolvedValue(
+      "blob:part-drawing-pdf",
+    );
     api.fetchClientActivityEventsByJobIds.mockResolvedValue([]);
     api.fetchVendorCapabilityProfiles.mockResolvedValue([]);
+    api.fetchJobVendorPreferenceContext.mockResolvedValue({
+      jobId: "job-1",
+      projectId: null,
+      organizationId: "org-1",
+      availableVendors: ["fictiv", "protolabs", "xometry"],
+      projectVendorPreferences: {
+        includedVendors: [],
+        excludedVendors: [],
+        updatedAt: null,
+      },
+      jobVendorPreferences: {
+        includedVendors: [],
+        excludedVendors: [],
+        updatedAt: null,
+      },
+    });
+    api.setJobVendorPreferences.mockResolvedValue({
+      includedVendors: ["fictiv", "protolabs", "xometry"],
+      excludedVendors: [],
+      updatedAt: "2026-08-11T00:00:00Z",
+    });
     api.fetchAccessibleProjects.mockResolvedValue([]);
     api.fetchAccessibleJobs.mockResolvedValue([
       {
@@ -753,18 +848,32 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Issue detail actions" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "More actions" }),
+      ).toBeInTheDocument();
     });
 
     expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
-    expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("quote-selection-function-bar"),
+    ).toBeInTheDocument();
     await screen.findByTestId("part-info-panel");
-    expect(screen.getByRole("heading", { name: "Part information" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Revision navigation" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Previous" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Part requirements" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Revision navigation" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Previous" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next" })).toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: /previous revision/i })).not.toBeInTheDocument();
-    expect(screen.queryByText("This part could not be loaded.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("menuitem", { name: /previous revision/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("This part could not be loaded."),
+    ).not.toBeInTheDocument();
     expect(api.fetchPartDetailByJobId).toHaveBeenCalledTimes(1);
   });
 
@@ -772,31 +881,94 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await screen.findByText("Quote decision panel");
-    expect(screen.queryByRole("tab", { name: "Quote" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("tab", { name: "Quote" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Review order" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Attach files" })).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "Files" })).not.toBeInTheDocument();
-    // PartInfoPanel is owned by the shell inspector at every viewport so the
-    // request form has one live instance and one set of field IDs.
-    expect(screen.queryByRole("tab", { name: "Request" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Review order" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Quote" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Download files" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Upload files" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Share part" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "More actions" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("tab", { name: "Files" }),
+    ).not.toBeInTheDocument();
+    // The request form has one live instance in the primary workspace and one
+    // set of field IDs at every viewport.
+    expect(
+      screen.queryByRole("tab", { name: "Request" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId("part-viewer-row")).toBeInTheDocument();
     expect(screen.getByTestId("part-product-data-bar")).toBeInTheDocument();
-    // Right rail renders PartInfoPanel without any tab switch.
     expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("shell-inspector")).not.toBeInTheDocument();
+    expect(lastShellProps?.inspector).toBeUndefined();
     expect(screen.queryByLabelText("Leave a comment")).not.toBeInTheDocument();
 
     const viewer = screen.getByTestId("part-viewer-row");
     const productData = screen.getByTestId("part-product-data-bar");
+    const partRequirements = screen.getByTestId("part-info-panel");
     const quoteDecision = screen.getByTestId("quote-decision-panel");
-    expect(viewer.compareDocumentPosition(productData) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(productData.compareDocumentPosition(quoteDecision) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      viewer.compareDocumentPosition(productData) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      productData.compareDocumentPosition(quoteDecision) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      productData.compareDocumentPosition(partRequirements) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      partRequirements.compareDocumentPosition(quoteDecision) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
 
     await openActivitySection();
     await screen.findByLabelText("Leave a comment");
   });
 
-  it("puts provider-only sourcing guidance before an empty quote comparison", async () => {
+  it("opens vendor scope from Quote when quote results already exist", async () => {
+    renderWithClient("/parts/job-1");
+
+    fireEvent.click(await findRequestQuoteButton());
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Choose where to request quotes",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens vendor scope from Quote while the workspace plan is loading", async () => {
+    mockQuoteCollectionMode.isLoading = true;
+    renderWithClient("/parts/job-1");
+
+    const quoteButton = await findRequestQuoteButton();
+    expect(quoteButton).toBeEnabled();
+    fireEvent.click(quoteButton);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Choose where to request quotes",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps quote comparison primary without provider recommendation links", async () => {
     const cadFile = {
       id: "cad-file-1",
       job_id: "job-1",
@@ -868,13 +1040,15 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    const recommendations = await screen.findByRole("heading", {
-      name: "Qualified next steps, available now",
-    });
-    const quoteDecision = screen.getByTestId("quote-decision-panel");
+    await screen.findByTestId("quote-decision-panel");
     expect(
-      recommendations.compareDocumentPosition(quoteDecision) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+      screen.queryByRole("heading", {
+        name: "Qualified next steps, available now",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /open official rfq/i }),
+    ).not.toBeInTheDocument();
     expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 0 });
   });
 
@@ -885,13 +1059,23 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    expect(await screen.findByText("Free sourcing preview")).toBeInTheDocument();
-    expect(screen.getByText(/Pro enables automatic vendor quote collection/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /request manual quote/i })).not.toBeInTheDocument();
+    expect(
+      await screen.findByText("Free sourcing preview"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Pro enables automatic vendor quote collection/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /request manual quote/i }),
+    ).not.toBeInTheDocument();
+    await clickRequestQuoteButton();
+    expect(
+      await screen.findByText("Pro sourcing required"),
+    ).toBeInTheDocument();
     expect(api.requestQuote).not.toHaveBeenCalled();
   });
 
-  it("renders PartInfoPanel in the right rail and omits the old workspace badge cluster", async () => {
+  it("renders PartInfoPanel inline and omits the old workspace badge cluster", async () => {
     await renderClientPartOnTab("Request");
     expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
 
@@ -902,7 +1086,9 @@ describe("ClientPart", () => {
 
   it("renders real vendor quote options instead of the empty comparison state", async () => {
     const liveTimestamp = new Date().toISOString();
-    api.fetchVendorCapabilityProfiles.mockReturnValue(new Promise(() => undefined));
+    api.fetchVendorCapabilityProfiles.mockReturnValue(
+      new Promise(() => undefined),
+    );
     api.fetchPartDetailByJobId.mockResolvedValue(
       createPartDetail({
         summary: {
@@ -990,7 +1176,7 @@ describe("ClientPart", () => {
                   process: "CNC Machining",
                   material: "6061-T6",
                   finish: "Black anodize",
-                  tightest_tolerance: "±.005\"",
+                  tightest_tolerance: '±.005"',
                   tolerance_source: "Drawing",
                   thread_callouts: null,
                   thread_match_notes: null,
@@ -1105,7 +1291,7 @@ describe("ClientPart", () => {
                   process: "CNC milling",
                   material: "6061-T6 aluminum",
                   finish: "Black anodize",
-                  tightest_tolerance: "±.005\"",
+                  tightest_tolerance: '±.005"',
                   tolerance_source: "Drawing",
                   thread_callouts: null,
                   thread_match_notes: null,
@@ -1135,8 +1321,7 @@ describe("ClientPart", () => {
     });
     await act(async () => {
       const onSelect = lastQuoteDecisionPanelProps?.onSelect as
-        | ((option: unknown) => void)
-        | undefined;
+        ((option: unknown) => void) | undefined;
       onSelect?.(lastQuoteDecisionPanelProps?.lastOption);
     });
     await waitFor(() => {
@@ -1194,7 +1379,9 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    fireEvent.click(await screen.findByRole("button", { name: "Clear quote selection" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Clear quote selection" }),
+    );
 
     await waitFor(() => {
       expect(toastMock.error).toHaveBeenCalledWith(
@@ -1202,7 +1389,10 @@ describe("ClientPart", () => {
       );
     });
     expect(api.persistClientQuoteSelection).not.toHaveBeenCalled();
-    expect(api.setJobSelectedVendorQuoteOffer).not.toHaveBeenCalledWith("job-1", null);
+    expect(api.setJobSelectedVendorQuoteOffer).not.toHaveBeenCalledWith(
+      "job-1",
+      null,
+    );
   });
 
   it("canonicalizes legacy part-id routes onto the owning job route", async () => {
@@ -1215,7 +1405,9 @@ describe("ClientPart", () => {
     const { queryClient } = renderWithClient("/parts/part-1");
 
     await waitFor(() => {
-      expect(screen.getByTestId("location-path")).toHaveTextContent("/parts/job-1");
+      expect(screen.getByTestId("location-path")).toHaveTextContent(
+        "/parts/job-1",
+      );
     });
 
     expect(api.fetchPartDetailByJobId).toHaveBeenCalledWith("job-1");
@@ -1247,7 +1439,9 @@ describe("ClientPart", () => {
   it("invalidates shared and part-specific queries when saving request details", async () => {
     const { queryClient } = await renderClientPartOnTab("Request");
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
-    expect(screen.getByRole("button", { name: "Save Request" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Save Request" }),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
 
@@ -1256,13 +1450,18 @@ describe("ClientPart", () => {
     });
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["client-jobs"] });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["client-part-summaries"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["client-part-summaries"],
+    });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["part-detail"] });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["part-detail", "job-1"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["part-detail", "job-1"],
+    });
   });
 
   it("keeps membership refetches ordered while request details are saved", async () => {
-    const deferredMemberships = createDeferredPromise<Array<{ job_id: string; project_id: string }>>();
+    const deferredMemberships =
+      createDeferredPromise<Array<{ job_id: string; project_id: string }>>();
     let accessibleJobsFetchCount = 0;
     let projectMembershipFetchCount = 0;
 
@@ -1354,16 +1553,18 @@ describe("ClientPart", () => {
         },
       ];
     });
-    api.fetchProjectJobMembershipsByJobIds.mockImplementation(async (jobIds: string[]) => {
-      projectMembershipFetchCount += 1;
+    api.fetchProjectJobMembershipsByJobIds.mockImplementation(
+      async (jobIds: string[]) => {
+        projectMembershipFetchCount += 1;
 
-      if (projectMembershipFetchCount === 1) {
-        return [{ job_id: "job-1", project_id: "project-1" }];
-      }
+        if (projectMembershipFetchCount === 1) {
+          return [{ job_id: "job-1", project_id: "project-1" }];
+        }
 
-      expect(jobIds).toEqual(["job-1", "job-2"]);
-      return deferredMemberships.promise;
-    });
+        expect(jobIds).toEqual(["job-1", "job-2"]);
+        return deferredMemberships.promise;
+      },
+    );
 
     const { queryClient } = await renderClientPartOnTab("Request");
 
@@ -1373,7 +1574,10 @@ describe("ClientPart", () => {
       expect(api.updateClientPartRequest).toHaveBeenCalled();
     });
     await waitFor(() => {
-      expect(api.fetchProjectJobMembershipsByJobIds).toHaveBeenCalledWith(["job-1", "job-2"]);
+      expect(api.fetchProjectJobMembershipsByJobIds).toHaveBeenCalledWith([
+        "job-1",
+        "job-2",
+      ]);
     });
 
     const pendingMembershipQuery = queryClient
@@ -1392,7 +1596,9 @@ describe("ClientPart", () => {
     deferredMemberships.resolve(resolvedMemberships);
 
     await waitFor(() => {
-      expect(queryClient.getQueryData(pendingMembershipQuery!.queryKey)).toEqual(resolvedMemberships);
+      expect(
+        queryClient.getQueryData(pendingMembershipQuery!.queryKey),
+      ).toEqual(resolvedMemberships);
     });
   });
 
@@ -1464,9 +1670,14 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await clickRequestQuoteButton();
+    await confirmQuoteRequest();
 
     await waitFor(() => {
-      expect(api.requestQuote).toHaveBeenCalledWith("job-1", false);
+      expect(api.requestQuote).toHaveBeenCalledWith("job-1", [
+        "fictiv",
+        "protolabs",
+        "xometry",
+      ]);
     });
   });
 
@@ -1481,7 +1692,8 @@ describe("ClientPart", () => {
       serviceRequestLineItemId: null,
       status: "not_requested",
       reasonCode: "rate_limited_user",
-      reason: "You have reached the quote request limit for now. Try again later or contact your estimator.",
+      reason:
+        "You have reached the quote request limit for now. Try again later or contact your estimator.",
       requestedVendors: ["xometry", "fictiv", "protolabs"],
     });
 
@@ -1552,6 +1764,7 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await clickRequestQuoteButton();
+    await confirmQuoteRequest();
 
     await waitFor(() => {
       expect(toastMock.error).toHaveBeenCalledWith(
@@ -1643,25 +1856,30 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    const button = await findRequestQuoteButton();
-
-    expect(button).toBeEnabled();
-
-    fireEvent.click(button);
-    fireEvent.click(button);
+    await clickRequestQuoteButton();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Review what will be shared",
+      }),
+    );
+    const sendButton = await screen.findByRole("button", {
+      name: /send to \d+ vendors?/i,
+    });
+    fireEvent.click(sendButton);
+    fireEvent.click(sendButton);
 
     await waitFor(() => {
       expect(api.requestQuote).toHaveBeenCalledTimes(1);
     });
 
     await waitFor(() => {
-      expect(button).toBeDisabled();
+      expect(sendButton).toBeDisabled();
     });
 
     deferred.reject(new Error("Request failed"));
 
     await waitFor(() => {
-      expect(button).toBeEnabled();
+      expect(sendButton).toBeEnabled();
     });
   });
 
@@ -1707,14 +1925,18 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     fireEvent.click(await findRequestButton("Cancel request"));
-    expect(await screen.findByText("Cancel quote request?")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Cancel quote request?"),
+    ).toBeInTheDocument();
     expect(
       await screen.findByText(
         "This stops the current vendor quote request for this package. You can request a new quote again after canceling.",
       ),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Cancel request" })[0]!);
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Cancel request" })[0]!,
+    );
 
     await waitFor(() => {
       expect(api.cancelQuoteRequest).toHaveBeenCalledWith("request-1");
@@ -1725,14 +1947,21 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
+      expect(
+        screen.getByTestId("quote-selection-function-bar"),
+      ).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
+    fireEvent.change(screen.getByLabelText("Need by date"), {
+      target: { value: "2026-04-22" },
+    });
 
     await waitFor(() => {
       expect(api.updateClientPartRequest).toHaveBeenCalledWith(
-        expect.objectContaining({ jobId: "job-1", requestedByDate: "2026-04-22" }),
+        expect.objectContaining({
+          jobId: "job-1",
+          requestedByDate: "2026-04-22",
+        }),
       );
     });
   });
@@ -1773,7 +2002,9 @@ describe("ClientPart", () => {
 
     await findActivityCommentField();
     await waitFor(() => {
-      expect(window.localStorage.getItem).toHaveBeenCalledWith("client-part-comments:user-2:job-1");
+      expect(window.localStorage.getItem).toHaveBeenCalledWith(
+        "client-part-comments:user-2:job-1",
+      );
     });
   });
 
@@ -1781,7 +2012,9 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await screen.findByRole("heading", { name: "BRKT-001 rev A" });
-    expect(screen.queryByRole("button", { name: /favorite part/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /favorite part/i }),
+    ).not.toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "f" });
 
@@ -1791,19 +2024,28 @@ describe("ClientPart", () => {
   });
 
   it("keeps favorite state in the overflow menu instead of duplicating it in the header", async () => {
-    api.fetchSidebarPins.mockResolvedValueOnce({ projectIds: [], jobIds: ["job-1"] });
+    api.fetchSidebarPins.mockResolvedValueOnce({
+      projectIds: [],
+      jobIds: ["job-1"],
+    });
 
     renderWithClient("/parts/job-1");
 
-    expect(await screen.findByRole("menuitem", { name: /unfavorite f/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /unfavorite part/i })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole("menuitem", { name: /unfavorite f/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /unfavorite part/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("does not render the dead workspace breadcrumb button or request summary badges in the header", async () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "BRKT-001 rev A" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { name: "BRKT-001 rev A" }),
+      ).toBeInTheDocument();
     });
 
     expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
@@ -1847,7 +2089,9 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "QB00001" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "QB00001" }),
+      ).toBeInTheDocument();
     });
 
     expect(lastShellProps?.title).toBe("BRKT-001 rev A");
@@ -1883,15 +2127,21 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    expect(await screen.findByRole("heading", { name: "1093-05589" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "1093-05589 rev 2" })).toBeNull();
+    expect(
+      await screen.findByRole("heading", { name: "1093-05589" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "1093-05589 rev 2" }),
+    ).toBeNull();
   });
 
   it("clears the inline due date from the function bar", async () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
+      expect(
+        screen.getByTestId("quote-selection-function-bar"),
+      ).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
@@ -1907,11 +2157,17 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
+      expect(
+        screen.getByRole("button", { name: /more actions/i }),
+      ).not.toBeNull();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
-    expect(await screen.findByRole("menuitem", { name: /archive part/i })).not.toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: /more actions/i }),
+    );
+    expect(
+      await screen.findByRole("menuitem", { name: /archive part/i }),
+    ).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: /^delete$/i })).toBeNull();
   });
 
@@ -1965,7 +2221,9 @@ describe("ClientPart", () => {
     );
 
     await renderClientPartOnTab("Request");
-    expect(await screen.findAllByText(/drawing extraction in progress/i)).not.toHaveLength(0);
+    expect(
+      await screen.findAllByText(/drawing extraction in progress/i),
+    ).not.toHaveLength(0);
   });
 
   it("renders an embedded PDF in the part detail pane for uploaded drawing files", async () => {
@@ -2002,7 +2260,10 @@ describe("ClientPart", () => {
     );
 
     await renderClientPartOnTab();
-    expect(await screen.findByTitle("bracket.pdf PDF preview")).toHaveAttribute("src", "blob:part-drawing-pdf");
+    expect(await screen.findByTitle("bracket.pdf PDF preview")).toHaveAttribute(
+      "src",
+      "blob:part-drawing-pdf",
+    );
     expect(storedFile.loadStoredPdfObjectUrl).toHaveBeenCalledWith(
       expect.objectContaining({
         original_name: "bracket.pdf",
@@ -2013,7 +2274,9 @@ describe("ClientPart", () => {
   });
 
   it("keeps the PDF preview usable when optional extracted page images fail", async () => {
-    storedFile.loadStoredDrawingPreviewPages.mockRejectedValueOnce(new Error("preview asset unavailable"));
+    storedFile.loadStoredDrawingPreviewPages.mockRejectedValueOnce(
+      new Error("preview asset unavailable"),
+    );
     api.fetchPartDetailByJobId.mockResolvedValueOnce(
       createPartDetail({
         drawingPreview: {
@@ -2072,8 +2335,12 @@ describe("ClientPart", () => {
   });
 
   it("keeps dialog page previews hydrated when PDF loading falls back to extracted page images", async () => {
-    storedFile.loadStoredPdfObjectUrl.mockRejectedValueOnce(new Error("expired"));
-    storedFile.loadStoredDrawingPreviewPages.mockResolvedValueOnce([{ pageNumber: 1, url: "blob:page-1" }]);
+    storedFile.loadStoredPdfObjectUrl.mockRejectedValueOnce(
+      new Error("expired"),
+    );
+    storedFile.loadStoredDrawingPreviewPages.mockResolvedValueOnce([
+      { pageNumber: 1, url: "blob:page-1" },
+    ]);
 
     api.fetchPartDetailByJobId.mockResolvedValueOnce(
       createPartDetail({
@@ -2123,7 +2390,9 @@ describe("ClientPart", () => {
     await renderClientPartOnTab();
     await waitFor(() => {
       expect(storedFile.loadStoredDrawingPreviewPages).toHaveBeenCalled();
-      expect(lastDrawingPreviewDialogProps?.pages).toEqual([{ pageNumber: 1, url: "blob:page-1" }]);
+      expect(lastDrawingPreviewDialogProps?.pages).toEqual([
+        { pageNumber: 1, url: "blob:page-1" },
+      ]);
     });
   });
 
@@ -2138,7 +2407,8 @@ describe("ClientPart", () => {
             warnings: [],
             missingFields: ["material"],
             lastFailureCode: "pdf_parse_failed",
-            lastFailureMessage: "Could not read text from the uploaded drawing PDF.",
+            lastFailureMessage:
+              "Could not read text from the uploaded drawing PDF.",
             extractedAt: null,
             failedAt: "2026-03-01T01:00:00Z",
             updatedAt: "2026-03-01T01:00:00Z",
@@ -2151,8 +2421,14 @@ describe("ClientPart", () => {
     );
 
     await renderClientPartOnTab("Request");
-    expect(await screen.findAllByText(/drawing extraction failed/i)).not.toHaveLength(0);
-    expect(await screen.findAllByText(/could not read text from the uploaded drawing pdf/i)).not.toHaveLength(0);
+    expect(
+      await screen.findAllByText(/drawing extraction failed/i),
+    ).not.toHaveLength(0);
+    expect(
+      await screen.findAllByText(
+        /could not read text from the uploaded drawing pdf/i,
+      ),
+    ).not.toHaveLength(0);
   });
 
   it("shows a partial notice when drawing extraction is incomplete", async () => {
@@ -2193,12 +2469,16 @@ describe("ClientPart", () => {
 
     await renderClientPartOnTab("Request");
     await waitFor(() => {
-      expect(screen.getByText(/partial drawing metadata found/i)).toBeInTheDocument();
-      expect(screen.getByText(/missing: material, finish/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/partial drawing metadata found/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/missing: material, finish/i),
+      ).toBeInTheDocument();
     });
   });
 
-  it("preserves unsaved request edits until a process patch refresh is acknowledged", async () => {
+  it("preserves newer request edits while an explicit save is pending", async () => {
     const updateRequest = createDeferredPromise<void>();
     const baseDetail = createPartDetail();
     let persistedDescription = "Bracket";
@@ -2241,9 +2521,12 @@ describe("ClientPart", () => {
           },
         },
       });
-    api.fetchPartDetailByJobId.mockImplementation(async () => buildPersistedDetail());
+    api.fetchPartDetailByJobId.mockImplementation(async () =>
+      buildPersistedDetail(),
+    );
     api.updateClientPartRequest.mockImplementationOnce(async (input) => {
       await updateRequest.promise;
+      persistedDescription = input.description;
       persistedProcess = input.process;
     });
 
@@ -2252,14 +2535,17 @@ describe("ClientPart", () => {
     fireEvent.change(await screen.findByLabelText("Description"), {
       target: { value: "Pending unsaved description" },
     });
-    fireEvent.click(await screen.findByRole("button", { name: "CNC milling" }));
+    fireEvent.change(await screen.findByLabelText("Process"), {
+      target: { value: "CNC milling" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save Request" }));
 
     await waitFor(() => {
       expect(api.updateClientPartRequest).toHaveBeenCalledWith(
         expect.objectContaining({
           jobId: "job-1",
           process: "CNC milling",
-          description: "Bracket",
+          description: "Pending unsaved description",
         }),
       );
     });
@@ -2267,7 +2553,8 @@ describe("ClientPart", () => {
       target: { value: "Newer unsaved description" },
     });
 
-    const fetchCountBeforeUnrelatedRefresh = api.fetchPartDetailByJobId.mock.calls.length;
+    const fetchCountBeforeUnrelatedRefresh =
+      api.fetchPartDetailByJobId.mock.calls.length;
     await act(async () => {
       await queryClient.invalidateQueries({ queryKey: ["part-detail"] });
     });
@@ -2275,12 +2562,16 @@ describe("ClientPart", () => {
     expect(api.fetchPartDetailByJobId.mock.calls.length).toBeGreaterThan(
       fetchCountBeforeUnrelatedRefresh,
     );
-    expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
+    expect(screen.getByLabelText("Description")).toHaveValue(
+      "Newer unsaved description",
+    );
 
     await act(async () => updateRequest.resolve());
 
     await waitFor(() => {
-      expect(screen.getByLabelText("Description")).toHaveValue("Newer unsaved description");
+      expect(screen.getByLabelText("Description")).toHaveValue(
+        "Newer unsaved description",
+      );
     });
 
     persistedDescription = "Server description after acknowledgement";
@@ -2318,7 +2609,9 @@ describe("ClientPart", () => {
           },
         },
       });
-    api.fetchPartDetailByJobId.mockImplementation(async () => buildPersistedDetail());
+    api.fetchPartDetailByJobId.mockImplementation(async () =>
+      buildPersistedDetail(),
+    );
     api.updateClientPartRequest.mockImplementationOnce(
       (input) =>
         new Promise<void>((resolve) => {
@@ -2357,8 +2650,12 @@ describe("ClientPart", () => {
         jobId: "job-1",
         fields: ["description"],
       });
-      expect(screen.getByLabelText("Description")).toHaveValue("Extracted bracket description");
-      expect(screen.getByLabelText("Notes")).toHaveValue("Keep this unsaved sourcing note");
+      expect(screen.getByLabelText("Description")).toHaveValue(
+        "Extracted bracket description",
+      );
+      expect(screen.getByLabelText("Notes")).toHaveValue(
+        "Keep this unsaved sourcing note",
+      );
     });
     expect(persistedDescription).toBe("Extracted bracket description");
   });
@@ -2385,7 +2682,9 @@ describe("ClientPart", () => {
         },
       }),
     );
-    api.resetClientPartPropertyOverrides.mockRejectedValueOnce(new Error("Reset failed"));
+    api.resetClientPartPropertyOverrides.mockRejectedValueOnce(
+      new Error("Reset failed"),
+    );
 
     renderWithClient("/parts/job-1");
 
@@ -2400,12 +2699,16 @@ describe("ClientPart", () => {
         fields: ["description"],
       });
       expect(screen.getByLabelText("Description")).toHaveValue("Bracket");
-      expect(screen.getByLabelText("Notes")).toHaveValue("Keep this unsaved sourcing note");
+      expect(screen.getByLabelText("Notes")).toHaveValue(
+        "Keep this unsaved sourcing note",
+      );
     });
   });
 
   it("logs structured archived delete failures through the account menu callback", async () => {
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     api.deleteArchivedJobs.mockRejectedValueOnce({
       message:
         "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
@@ -2415,7 +2718,8 @@ describe("ClientPart", () => {
         failureCategory: "edge_unreachable",
         failureSummary:
           "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
-        likelyCause: "The app could not reach the job-archive-fallback Edge Function endpoint.",
+        likelyCause:
+          "The app could not reach the job-archive-fallback Edge Function endpoint.",
         recommendedChecks: [
           "Verify Edge Function deployment status for job-archive-fallback.",
           "Verify the Supabase function endpoint is reachable from the current environment.",
@@ -2434,7 +2738,11 @@ describe("ClientPart", () => {
       });
 
       await expect(
-        (lastAccountMenuProps!.onDeleteArchivedParts as (jobIds: string[]) => Promise<void>)(["job-1"]),
+        (
+          lastAccountMenuProps!.onDeleteArchivedParts as (
+            jobIds: string[],
+          ) => Promise<void>
+        )(["job-1"]),
       ).rejects.toThrow(
         "Archived part deletion is temporarily unavailable because the cleanup service could not be reached. Please try again.",
       );
@@ -2483,8 +2791,12 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    expect(screen.getByText("Restoring your part workspace.")).toBeInTheDocument();
-    expect(screen.getByTestId("location-path")).toHaveTextContent("/parts/job-1");
+    expect(
+      screen.getByText("Restoring your part workspace."),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("location-path")).toHaveTextContent(
+      "/parts/job-1",
+    );
   });
 
   it("preserves iOS app mode after account sign-out completes", async () => {

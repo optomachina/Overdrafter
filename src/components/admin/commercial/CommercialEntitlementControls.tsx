@@ -247,13 +247,9 @@ export function CommercialEntitlementControls({
       idempotencyKey: revokeIntentKey,
     });
   };
-  let grantButtonLabel = "Grant trial Pro";
-
-  if (!hasAal2) {
-    grantButtonLabel = "Verify with MFA to grant";
-  } else if (grantType === "complimentary") {
-    grantButtonLabel = "Grant complimentary Pro";
-  }
+  const grantButtonLabel = grantType === "complimentary"
+    ? "Grant complimentary Pro"
+    : "Grant trial Pro";
 
   return (
     <>
@@ -267,14 +263,27 @@ export function CommercialEntitlementControls({
                 is never presented as a paid subscription.
               </p>
             </div>
-            <Badge variant={hasAal2 ? "default" : "outline"}>
-              {hasAal2 ? (
-                <ShieldCheck className="mr-1 h-3.5 w-3.5" />
-              ) : (
-                <KeyRound className="mr-1 h-3.5 w-3.5" />
-              )}
-              {hasAal2 ? "AAL2 verified" : "MFA required"}
-            </Badge>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Badge variant={hasAal2 ? "default" : "outline"}>
+                {hasAal2 ? (
+                  <ShieldCheck className="mr-1 h-3.5 w-3.5" />
+                ) : (
+                  <KeyRound className="mr-1 h-3.5 w-3.5" />
+                )}
+                {hasAal2 ? "MFA verified" : "MFA required"}
+              </Badge>
+              {!hasAal2 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMfaOpen(true)}
+                >
+                  <KeyRound className="mr-2 h-4 w-4" />
+                  Set up or verify MFA
+                </Button>
+              ) : null}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -383,10 +392,19 @@ export function CommercialEntitlementControls({
                 )}
               </p>
             ) : null}
-            <div className="flex justify-end lg:col-span-2">
+            <div className="flex flex-col items-end gap-2 lg:col-span-2">
+              {!hasAal2 ? (
+                <p className="text-xs text-muted-foreground">
+                  Complete MFA before granting Pro access.
+                </p>
+              ) : null}
               <Button
                 type="submit"
-                disabled={grantMutation.isPending || reason.trim().length === 0}
+                disabled={
+                  !hasAal2
+                  || grantMutation.isPending
+                  || reason.trim().length === 0
+                }
               >
                 {grantMutation.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

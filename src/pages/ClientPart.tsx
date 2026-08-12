@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import {
   Archive,
   Bell,
   ChevronRight,
   Copy,
+  Download,
   FolderInput,
   History,
   Loader2,
   MessageSquare,
   MoreHorizontal,
   PlusSquare,
+  Share2,
   Star,
   MoveRight,
   Upload,
@@ -19,7 +21,7 @@ import {
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
-import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
+import { ClientQuoteRequestFlow } from "@/components/quotes/ClientQuoteRequestFlow";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
 import { PartProductDataBar } from "@/components/quotes/PartProductDataBar";
 import { PartViewerRow } from "@/components/quotes/PartViewerRow";
@@ -84,12 +86,16 @@ function CommentCard({ comment }: { comment: LocalComment }) {
   return (
     <article className="rounded-lg border border-border bg-muted p-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-medium text-foreground">{comment.authorLabel}</p>
+        <p className="text-sm font-medium text-foreground">
+          {comment.authorLabel}
+        </p>
         <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
           {new Date(comment.createdAt).toLocaleString()}
         </p>
       </div>
-      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-foreground/80">{comment.body}</p>
+      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-foreground/80">
+        {comment.body}
+      </p>
     </article>
   );
 }
@@ -98,17 +104,25 @@ function getStoredCommentsKey(storageScopeKey: string, jobId: string): string {
   return `client-part-comments:${storageScopeKey}:${jobId}`;
 }
 
-function getStoredSubscribedKey(storageScopeKey: string, jobId: string): string {
+function getStoredSubscribedKey(
+  storageScopeKey: string,
+  jobId: string,
+): string {
   return `client-part-subscribed:${storageScopeKey}:${jobId}`;
 }
 
-function readStoredComments(storageScopeKey: string, jobId: string): LocalComment[] {
+function readStoredComments(
+  storageScopeKey: string,
+  jobId: string,
+): LocalComment[] {
   if (typeof window === "undefined") {
     return [];
   }
 
   try {
-    const raw = window.localStorage.getItem(getStoredCommentsKey(storageScopeKey, jobId));
+    const raw = window.localStorage.getItem(
+      getStoredCommentsKey(storageScopeKey, jobId),
+    );
     if (!raw) {
       return [];
     }
@@ -120,12 +134,19 @@ function readStoredComments(storageScopeKey: string, jobId: string): LocalCommen
   }
 }
 
-function writeStoredComments(storageScopeKey: string, jobId: string, comments: LocalComment[]) {
+function writeStoredComments(
+  storageScopeKey: string,
+  jobId: string,
+  comments: LocalComment[],
+) {
   if (typeof window === "undefined") {
     return;
   }
 
-  window.localStorage.setItem(getStoredCommentsKey(storageScopeKey, jobId), JSON.stringify(comments));
+  window.localStorage.setItem(
+    getStoredCommentsKey(storageScopeKey, jobId),
+    JSON.stringify(comments),
+  );
 }
 
 function readStoredSubscribed(storageScopeKey: string, jobId: string): boolean {
@@ -133,10 +154,18 @@ function readStoredSubscribed(storageScopeKey: string, jobId: string): boolean {
     return true;
   }
 
-  return window.localStorage.getItem(getStoredSubscribedKey(storageScopeKey, jobId)) !== "false";
+  return (
+    window.localStorage.getItem(
+      getStoredSubscribedKey(storageScopeKey, jobId),
+    ) !== "false"
+  );
 }
 
-function writeStoredSubscribed(storageScopeKey: string, jobId: string, subscribed: boolean) {
+function writeStoredSubscribed(
+  storageScopeKey: string,
+  jobId: string,
+  subscribed: boolean,
+) {
   if (typeof window === "undefined") {
     return;
   }
@@ -148,13 +177,18 @@ function writeStoredSubscribed(storageScopeKey: string, jobId: string, subscribe
 }
 
 const ClientPart = () => {
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const appMode = searchParams.get("app") === "ios" ? "ios" : null;
   const appAwareHref = (href: string) => buildAppAwareHref(href, appMode);
   const {
     activeMembership,
     automaticQuoteCollectionEnabled,
+    availableQuoteVendors,
+    quoteLaneEligibility,
     isQuoteCollectionModeLoading,
+    isQuoteVendorScopeLoading,
+    isSavingQuoteVendorScope,
     activityEntries,
     activePreset,
     archivedJobsQuery,
@@ -183,6 +217,7 @@ const ClientPart = () => {
     handlePresetSelection,
     handleRenamePart,
     handleRequestQuote,
+    handleSaveQuoteVendorScope,
     handleResetField,
     handleResetAllFields,
     handleSaveRequest,
@@ -211,14 +246,15 @@ const ClientPart = () => {
     quoteDataStatus,
     quoteDiagnostics,
     quoteQuantityInput,
+    quoteVendorScopeError,
     rankedQuoteOptions,
     removeJobMutation,
     requestSummaryRequestedByDate,
     revisionOptions,
     saveRequestMutation,
     selectedQuoteOption,
+    selectedQuoteVendors,
     selectedRevisionIndex,
-    sourcingResult,
     setIsPartArchiveBusy,
     setIsPartOptionsOpen,
     setPartRenameValue,
@@ -246,13 +282,31 @@ const ClientPart = () => {
 
   const storageScopeKey = user?.id ?? "anonymous";
 
-  const [selectedOptionKey, setSelectedOptionKey] = useState<string | null>(selectedQuoteOption?.key ?? null);
+  const [selectedOptionKey, setSelectedOptionKey] = useState<string | null>(
+    selectedQuoteOption?.key ?? null,
+  );
   const [comments, setComments] = useState<LocalComment[]>([]);
   const [commentDraft, setCommentDraft] = useState("");
   const [isActivityOpen, setIsActivityOpen] = useState(false);
   const [showCancelRequestDialog, setShowCancelRequestDialog] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(true);
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
+  const [isQuoteRequestFlowOpen, setIsQuoteRequestFlowOpen] = useState(false);
+
+  useEffect(() => {
+    const locationState = location.state as {
+      openQuoteRequestFlow?: boolean;
+    } | null;
+    if (!locationState?.openQuoteRequestFlow) {
+      return;
+    }
+
+    setIsQuoteRequestFlowOpen(true);
+    navigate(`${location.pathname}${location.search}`, {
+      replace: true,
+      state: null,
+    });
+  }, [location.pathname, location.search, location.state, navigate]);
 
   useEffect(() => {
     setSelectedOptionKey(selectedQuoteOption?.key ?? null);
@@ -300,18 +354,20 @@ const ClientPart = () => {
     return null;
   }
 
-  const quoteRequestViewModel =
-    partDetail?.job
-      ? buildQuoteRequestViewModel({
-          job: partDetail.job,
-          part: partDetail.part,
-          latestQuoteRequest: partDetail.latestQuoteRequest,
-          latestQuoteRun: partDetail.latestQuoteRun,
-        })
-      : null;
+  const quoteRequestViewModel = partDetail?.job
+    ? buildQuoteRequestViewModel({
+        job: partDetail.job,
+        part: partDetail.part,
+        latestQuoteRequest: partDetail.latestQuoteRequest,
+        latestQuoteRun: partDetail.latestQuoteRun,
+      })
+    : null;
 
   const handleQuoteRequestAction = () => {
-    if (!quoteRequestViewModel || quoteRequestViewModel.action.kind === "none") {
+    if (
+      !quoteRequestViewModel ||
+      quoteRequestViewModel.action.kind === "none"
+    ) {
       return;
     }
 
@@ -320,10 +376,12 @@ const ClientPart = () => {
       return;
     }
 
-    void handleRequestQuote(quoteRequestViewModel.action.kind === "retry");
+    setIsQuoteRequestFlowOpen(true);
   };
 
-  const handleWorkspaceOfferSelect = (option: ClientQuoteSelectionOption | null) => {
+  const handleWorkspaceOfferSelect = (
+    option: ClientQuoteSelectionOption | null,
+  ) => {
     if (option === null) {
       setSelectedOptionKey(null);
       handleSelectQuoteOption(null);
@@ -336,13 +394,17 @@ const ClientPart = () => {
   const partPresetScope = getPresetScope(activePreset);
   const partPresetMode = getPresetMode(activePreset);
 
-  const applyPartPreset = (mode: "balanced" | "cheapest" | "fastest", scope: "domestic" | "global") => {
+  const applyPartPreset = (
+    mode: "balanced" | "cheapest" | "fastest",
+    scope: "domestic" | "global",
+  ) => {
     handlePresetSelection(buildScopedPreset(mode, scope));
   };
 
   const breadcrumbProject = projectMemberships[0]?.project ?? null;
   const isFavorite = pinnedJobIds.includes(jobId);
-  const currentUrl = typeof window === "undefined" ? `/parts/${jobId}` : window.location.href;
+  const currentUrl =
+    typeof window === "undefined" ? `/parts/${jobId}` : window.location.href;
 
   const navigateToAdjacentRevision = (direction: "previous" | "next") => {
     if (revisionOptions.length < 2) {
@@ -350,7 +412,9 @@ const ClientPart = () => {
     }
 
     const offset = direction === "previous" ? -1 : 1;
-    const nextIndex = (selectedRevisionIndex + offset + revisionOptions.length) % revisionOptions.length;
+    const nextIndex =
+      (selectedRevisionIndex + offset + revisionOptions.length) %
+      revisionOptions.length;
     const revisionJobId = revisionOptions[nextIndex]?.jobId;
 
     if (revisionJobId) {
@@ -365,6 +429,55 @@ const ClientPart = () => {
     } catch {
       toast.error("Unable to copy the part link.");
     }
+  };
+
+  const handleSharePart = async () => {
+    if (typeof navigator.share !== "function") {
+      await handleCopyLink();
+      return;
+    }
+
+    try {
+      await navigator.share({
+        title: displayPartTitle || "Part",
+        url: currentUrl,
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+
+      toast.error("Unable to share the part link.");
+    }
+  };
+
+  const handleHeaderQuoteAction = () => {
+    setIsQuoteRequestFlowOpen(true);
+  };
+
+  const handleConfirmQuoteRequest = async (
+    vendors: typeof selectedQuoteVendors,
+  ) => {
+    const scopeSaved = await handleSaveQuoteVendorScope(vendors);
+
+    if (!scopeSaved) {
+      return false;
+    }
+
+    const accepted = await handleRequestQuote(vendors);
+
+    if (!accepted) {
+      return false;
+    }
+
+    setIsQuoteRequestFlowOpen(false);
+    window.requestAnimationFrame(() => {
+      document.getElementById("quote-information")?.scrollIntoView?.({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+    return true;
   };
 
   const handleAddComment = () => {
@@ -394,10 +507,13 @@ const ClientPart = () => {
     const next = !isSubscribed;
     setIsSubscribed(next);
     writeStoredSubscribed(storageScopeKey, jobId, next);
-    toast.success(next ? "Subscribed to updates." : "Unsubscribed from updates.");
+    toast.success(
+      next ? "Subscribed to updates." : "Unsubscribed from updates.",
+    );
   };
 
-  const dbDefaults = partDetail?.part?.clientRequirement?.projectPartProperties?.defaults;
+  const dbDefaults =
+    partDetail?.part?.clientRequirement?.projectPartProperties?.defaults;
   const extractionDefaults = extraction
     ? {
         description: extraction.description,
@@ -431,14 +547,18 @@ const ClientPart = () => {
         statusContent={
           <>
             {revisionOptions.length > 1 ? (
-              <section aria-label="Revision navigation" className="border-b border-border pb-4">
+              <section
+                aria-label="Revision navigation"
+                className="rounded-[4px] border border-paper-hairline bg-paper-surface p-4"
+              >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                       Revision
                     </p>
                     <p className="mt-1 truncate text-sm text-foreground">
-                      {revisionOptions[selectedRevisionIndex]?.title ?? displayPartTitle}
+                      {revisionOptions[selectedRevisionIndex]?.title ??
+                        displayPartTitle}
                     </p>
                   </div>
                   <div className="flex shrink-0 gap-1">
@@ -464,7 +584,10 @@ const ClientPart = () => {
                 </div>
               </section>
             ) : null}
-            <ClientExtractionStatusNotice diagnostics={extractionDiagnostics} />
+            <ClientExtractionStatusNotice
+              diagnostics={extractionDiagnostics}
+              className="rounded-[4px] border border-paper-hairline bg-paper-surface p-4"
+            />
             {quoteRequestViewModel ? (
               <ClientQuoteRequestStatusCard
                 status={quoteRequestViewModel.status}
@@ -478,26 +601,21 @@ const ClientPart = () => {
                     : quoteRequestViewModel.detail
                 }
                 actionLabel={
-                  !automaticQuoteCollectionEnabled &&
-                  (quoteRequestViewModel.action.kind === "request" ||
-                    quoteRequestViewModel.action.kind === "retry")
-                    ? null
-                    : quoteRequestViewModel.action.label
+                  quoteRequestViewModel.action.kind === "cancel"
+                    ? quoteRequestViewModel.action.label
+                    : null
                 }
                 actionDisabled={
-                  quoteRequestViewModel.action.disabled
-                  || isCancelingQuoteRequest
-                  || isQuoteCollectionModeLoading
+                  quoteRequestViewModel.action.disabled ||
+                  isCancelingQuoteRequest ||
+                  isQuoteCollectionModeLoading
                 }
                 blockerReasons={quoteRequestViewModel.blockerReasons}
                 isBusy={isRequestingQuote || isCancelingQuoteRequest}
                 onAction={
-                  quoteRequestViewModel.action.kind === "none" ||
-                  (!automaticQuoteCollectionEnabled &&
-                    (quoteRequestViewModel.action.kind === "request" ||
-                      quoteRequestViewModel.action.kind === "retry"))
-                    ? null
-                    : handleQuoteRequestAction
+                  quoteRequestViewModel.action.kind === "cancel"
+                    ? handleQuoteRequestAction
+                    : null
                 }
                 heading={
                   automaticQuoteCollectionEnabled
@@ -513,12 +631,16 @@ const ClientPart = () => {
 
   return (
     <>
-      <AlertDialog open={showCancelRequestDialog} onOpenChange={setShowCancelRequestDialog}>
+      <AlertDialog
+        open={showCancelRequestDialog}
+        onOpenChange={setShowCancelRequestDialog}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Cancel quote request?</AlertDialogTitle>
             <AlertDialogDescription>
-              This stops the current vendor quote request for this package. You can request a new quote again after canceling.
+              This stops the current vendor quote request for this package. You
+              can request a new quote again after canceling.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -535,12 +657,79 @@ const ClientPart = () => {
               }}
               disabled={isCancelingQuoteRequest}
             >
-              {isCancelingQuoteRequest ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {isCancelingQuoteRequest ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
               Cancel request
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <ClientQuoteRequestFlow
+        open={isQuoteRequestFlowOpen}
+        onOpenChange={setIsQuoteRequestFlowOpen}
+        partLabel={displayPartTitle || currentPartName}
+        availableVendors={availableQuoteVendors}
+        laneEligibility={quoteLaneEligibility}
+        initialSelectedVendors={selectedQuoteVendors}
+        canSubmit={automaticQuoteCollectionEnabled}
+        isLoading={isQuoteVendorScopeLoading}
+        isSubmitting={isSavingQuoteVendorScope || isRequestingQuote}
+        loadError={quoteVendorScopeError}
+        blockerReasons={quoteRequestViewModel?.blockerReasons ?? []}
+        files={[
+          ...(cadFile
+            ? [
+                {
+                  kind: "CAD" as const,
+                  name: cadFile.original_name,
+                  sizeBytes: cadFile.size_bytes,
+                },
+              ]
+            : []),
+          ...(drawingFile
+            ? [
+                {
+                  kind: "Drawing" as const,
+                  name: drawingFile.original_name,
+                  sizeBytes: drawingFile.size_bytes,
+                },
+              ]
+            : []),
+        ]}
+        disclosureFields={[
+          {
+            label: "Quantity",
+            value: effectiveRequestDraft?.requestedQuoteQuantities.length
+              ? `${effectiveRequestDraft.requestedQuoteQuantities.join(", ")} pcs`
+              : "Not specified",
+          },
+          {
+            label: "Process",
+            value: effectiveRequestDraft?.process || "Not specified",
+          },
+          {
+            label: "Material",
+            value: effectiveRequestDraft?.material || "Not specified",
+          },
+          {
+            label: "Finish",
+            value: effectiveRequestDraft?.finish || "Not specified",
+          },
+          {
+            label: "Tightest tolerance",
+            value:
+              effectiveRequestDraft?.tightestToleranceInch != null
+                ? `±${effectiveRequestDraft.tightestToleranceInch} in`
+                : "Not specified",
+          },
+          {
+            label: "Needed by",
+            value: effectiveRequestDraft?.requestedByDate || "Not specified",
+          },
+        ]}
+        onConfirm={handleConfirmQuoteRequest}
+      />
       <QuoteIntelligenceShell
         title={displayPartTitle || "Part"}
         uploadSlot={
@@ -564,13 +753,13 @@ const ClientPart = () => {
             onSignedOut={() => navigate(appAwareHref("/"), { replace: true })}
             archivedProjects={archivedProjectsQuery.data}
             archivedJobs={archivedJobsQuery.data}
-            isArchiveLoading={archivedProjectsQuery.isLoading || archivedJobsQuery.isLoading}
+            isArchiveLoading={
+              archivedProjectsQuery.isLoading || archivedJobsQuery.isLoading
+            }
             onUnarchivePart={handleUnarchivePart}
             onDeleteArchivedParts={handleDeleteArchivedParts}
           />
         }
-        inspectorTitle="Part info"
-        inspector={partInfoPanel}
       >
         <div className="flex w-full flex-1 flex-col gap-6">
           {isPartDetailLoading ? (
@@ -597,7 +786,13 @@ const ClientPart = () => {
                           <button
                             type="button"
                             className="rounded-full border border-border bg-muted px-3 py-1 text-foreground/80 transition hover:bg-accent hover:text-foreground"
-                            onClick={() => navigate(appAwareHref(`/projects/${breadcrumbProject.id}`))}
+                            onClick={() =>
+                              navigate(
+                                appAwareHref(
+                                  `/projects/${breadcrumbProject.id}`,
+                                ),
+                              )
+                            }
                           >
                             {breadcrumbProject.name}
                           </button>
@@ -614,20 +809,86 @@ const ClientPart = () => {
                   <>
                     <Button
                       type="button"
-                      variant="outline"
-                      className="rounded-full border-border bg-accent text-foreground hover:bg-accent/70"
-                      onClick={attachFilesPicker.openFilePicker}
+                      className="rounded-full"
+                      onClick={handleHeaderQuoteAction}
+                      disabled={isRequestingQuote || isSavingQuoteVendorScope}
                     >
-                      <Upload className="mr-2 h-4 w-4" />
-                      Attach files
+                      {isRequestingQuote ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : null}
+                      Quote
                     </Button>
-                    <DropdownMenu open={isPartOptionsOpen} onOpenChange={setIsPartOptionsOpen}>
+                    <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
                           type="button"
                           variant="outline"
                           size="icon"
-                          aria-label="Issue detail actions"
+                          aria-label="Download files"
+                          title="Download files"
+                          className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
+                          disabled={!cadFile && !drawingFile}
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="end"
+                        className="w-64 border-border bg-ws-overlay p-2 text-foreground"
+                      >
+                        {cadFile ? (
+                          <DropdownMenuItem
+                            onSelect={() => void handleDownloadFile(cadFile)}
+                          >
+                            <Download className="mr-2 h-4 w-4" />
+                            Download CAD
+                          </DropdownMenuItem>
+                        ) : null}
+                        {drawingFile ? (
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              void handleDownloadFile(drawingFile)
+                            }
+                          >
+                            <Download className="mr-2 h-4 w-4" />
+                            Download drawing
+                          </DropdownMenuItem>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label="Upload files"
+                      title="Upload files"
+                      className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
+                      onClick={attachFilesPicker.openFilePicker}
+                    >
+                      <Upload className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label="Share part"
+                      title="Share part"
+                      className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
+                      onClick={() => void handleSharePart()}
+                    >
+                      <Share2 className="h-4 w-4" />
+                    </Button>
+                    <DropdownMenu
+                      open={isPartOptionsOpen}
+                      onOpenChange={setIsPartOptionsOpen}
+                    >
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          aria-label="More actions"
+                          title="More actions"
                           className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
                         >
                           <MoreHorizontal className="h-4 w-4" />
@@ -642,7 +903,11 @@ const ClientPart = () => {
                             onSelect={(event) => {
                               event.preventDefault();
                               setIsPartOptionsOpen(false);
-                              navigate(appAwareHref(`/projects/${projectMemberships[0]!.project.id}`));
+                              navigate(
+                                appAwareHref(
+                                  `/projects/${projectMemberships[0]!.project.id}`,
+                                ),
+                              );
                             }}
                           >
                             <FolderInput className="mr-2 h-4 w-4" />
@@ -661,14 +926,17 @@ const ClientPart = () => {
                             Manage projects
                           </DropdownMenuItem>
                         ) : null}
-                        {projectMemberships.length === 1 || !projectCollaborationUnavailable ? (
+                        {projectMemberships.length === 1 ||
+                        !projectCollaborationUnavailable ? (
                           <DropdownMenuSeparator className="bg-border" />
                         ) : null}
                         <DropdownMenuItem
                           onSelect={(event) => {
                             event.preventDefault();
                             setIsPartOptionsOpen(false);
-                            toast.message("Make a copy is not wired for part workspaces yet.");
+                            toast.message(
+                              "Make a copy is not wired for part workspaces yet.",
+                            );
                           }}
                         >
                           <Copy className="mr-2 h-4 w-4" />
@@ -731,7 +999,9 @@ const ClientPart = () => {
                             event.preventDefault();
                             setIsPartOptionsOpen(false);
                             setIsPartArchiveBusy(true);
-                            void handleArchivePart(jobId).finally(() => setIsPartArchiveBusy(false));
+                            void handleArchivePart(jobId).finally(() =>
+                              setIsPartArchiveBusy(false),
+                            );
                           }}
                           disabled={isPartArchiveBusy}
                           className="text-rose-200 focus:bg-rose-500/10 focus:text-rose-100"
@@ -756,10 +1026,20 @@ const ClientPart = () => {
                     drawingPreviewState={drawingPreviewState}
                     drawingPreviewStatusMessage={drawingPreviewStatusMessage}
                     isLoading={isDrawingPreviewLoading}
-                    onOpenDialog={drawingFile ? () => setShowDrawingPreview(true) : undefined}
+                    onOpenDialog={
+                      drawingFile
+                        ? () => setShowDrawingPreview(true)
+                        : undefined
+                    }
                   />
-                  <section aria-labelledby="part-information-heading" className="border-t border-border pt-4">
-                    <h2 id="part-information-heading" className="mb-3 text-sm font-medium text-foreground">
+                  <section
+                    aria-labelledby="part-information-heading"
+                    className="border-t border-border pt-4"
+                  >
+                    <h2
+                      id="part-information-heading"
+                      className="mb-3 text-sm font-medium text-foreground"
+                    >
                       Part information
                     </h2>
                     <PartProductDataBar
@@ -772,69 +1052,70 @@ const ClientPart = () => {
                 </div>
               </ClientPartHeader>
 
-              <section aria-label="Quote information" className="space-y-4 border-t border-border pt-5">
-                {sourcingResult?.outcome === "unsupported_package" ||
-                sourcingResult?.outcome === "provider_recommendations_available" ? (
-                  <ClientSourcingResultPanel
-                    result={sourcingResult}
-                    selectedProcess={effectiveRequestDraft?.process}
-                    isProcessSaving={saveRequestMutation.isPending}
-                    onProcessSelect={(process) => handleSaveRequestPatch({ process })}
-                  />
-                ) : null}
+              {partInfoPanel}
+
+              <section
+                id="quote-information"
+                aria-label="Quote information"
+                className="scroll-mt-6 space-y-4 border-t border-border pt-5"
+              >
                 <ClientQuoteDecisionPanel
-                    className="rounded-[12px]"
-                    title="Quote comparison"
-                    description="Set the sourcing criteria, then compare every quote by price and lead time."
-                    options={rankedQuoteOptions}
-                    selectedOption={
-                      rankedQuoteOptions.find((option) => option.key === selectedOptionKey) ?? selectedQuoteOption
-                    }
-                    onSelect={handleWorkspaceOfferSelect}
-                    requestedByDate={requestSummaryRequestedByDate}
-                    quoteDataStatus={quoteDataStatus}
-                    quoteDataMessage={quoteDataMessage}
-                    quoteDiagnostics={quoteDiagnostics}
-                    activePreset={activePreset}
-                    onToggleVendorExclusion={handleToggleVendorExclusion}
-                    headerActions={
-                      <Button
-                        type="button"
-                        className="rounded-full shadow-sm"
-                        onClick={() => navigate(appAwareHref(`/parts/${jobId}/review`))}
-                        disabled={rankedQuoteOptions.length === 0}
-                      >
-                        Review order
-                        <MoveRight className="ml-2 h-4 w-4" />
-                      </Button>
-                    }
-                    controls={
-                      <QuoteSelectionFunctionBar
-                        scope={partPresetScope}
-                        mode={partPresetMode}
-                        requestedByDate={requestSummaryRequestedByDate}
-                        matchingOptionCount={
-                          requestSummaryRequestedByDate
-                            ? rankedQuoteOptions.filter((option) => option.dueDateEligible).length
-                            : null
-                        }
-                        totalOptionCount={rankedQuoteOptions.length}
-                        onScopeChange={(nextScope) => applyPartPreset(partPresetMode, nextScope)}
-                        onModeChange={(nextMode) => applyPartPreset(nextMode, partPresetScope)}
-                        onRequestedByDateChange={(nextDate) => handleSaveRequestPatch({ requestedByDate: nextDate })}
-                        disabled={saveRequestMutation.isPending}
-                        dueDateHelpText="Highlights which vendors can meet the requested delivery date and dims the rest immediately."
-                      />
-                    }
+                  className="rounded-[12px]"
+                  title="Quote comparison"
+                  description="Set the sourcing criteria, then compare every quote by price and lead time."
+                  options={rankedQuoteOptions}
+                  selectedOption={
+                    rankedQuoteOptions.find(
+                      (option) => option.key === selectedOptionKey,
+                    ) ?? selectedQuoteOption
+                  }
+                  onSelect={handleWorkspaceOfferSelect}
+                  requestedByDate={requestSummaryRequestedByDate}
+                  quoteDataStatus={quoteDataStatus}
+                  quoteDataMessage={quoteDataMessage}
+                  quoteDiagnostics={quoteDiagnostics}
+                  activePreset={activePreset}
+                  onToggleVendorExclusion={handleToggleVendorExclusion}
+                  headerActions={
+                    <Button
+                      type="button"
+                      className="rounded-full shadow-sm"
+                      onClick={() =>
+                        navigate(appAwareHref(`/parts/${jobId}/review`))
+                      }
+                      disabled={rankedQuoteOptions.length === 0}
+                    >
+                      Review order
+                      <MoveRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  }
+                  controls={
+                    <QuoteSelectionFunctionBar
+                      scope={partPresetScope}
+                      mode={partPresetMode}
+                      requestedByDate={requestSummaryRequestedByDate}
+                      matchingOptionCount={
+                        requestSummaryRequestedByDate
+                          ? rankedQuoteOptions.filter(
+                              (option) => option.dueDateEligible,
+                            ).length
+                          : null
+                      }
+                      totalOptionCount={rankedQuoteOptions.length}
+                      onScopeChange={(nextScope) =>
+                        applyPartPreset(partPresetMode, nextScope)
+                      }
+                      onModeChange={(nextMode) =>
+                        applyPartPreset(nextMode, partPresetScope)
+                      }
+                      onRequestedByDateChange={(nextDate) =>
+                        handleSaveRequestPatch({ requestedByDate: nextDate })
+                      }
+                      disabled={saveRequestMutation.isPending}
+                      dueDateHelpText="Highlights which vendors can meet the requested delivery date and dims the rest immediately."
+                    />
+                  }
                 />
-                {sourcingResult?.outcome === "live_offers_available" ? (
-                  <ClientSourcingResultPanel
-                    result={sourcingResult}
-                    selectedProcess={effectiveRequestDraft?.process}
-                    isProcessSaving={saveRequestMutation.isPending}
-                    onProcessSelect={(process) => handleSaveRequestPatch({ process })}
-                  />
-                ) : null}
               </section>
 
               <section className="border-t border-border pt-4">
@@ -848,37 +1129,58 @@ const ClientPart = () => {
                   <span>Activity and history</span>
                   <ChevronRight
                     aria-hidden="true"
-                    className={cn("h-4 w-4 text-muted-foreground transition-transform", isActivityOpen && "rotate-90")}
+                    className={cn(
+                      "h-4 w-4 text-muted-foreground transition-transform",
+                      isActivityOpen && "rotate-90",
+                    )}
                   />
                 </button>
                 {isActivityOpen ? (
-                  <div id="part-activity" className="mt-3 border-t border-border pt-5">
+                  <div
+                    id="part-activity"
+                    className="mt-3 border-t border-border pt-5"
+                  >
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div>
-                        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Activity</p>
-                        <h2 className="mt-2 text-xl font-semibold text-foreground">Comments and history</h2>
+                        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                          Activity
+                        </p>
+                        <h2 className="mt-2 text-xl font-semibold text-foreground">
+                          Comments and history
+                        </h2>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          Leave context for collaborators and review the part activity feed.
+                          Leave context for collaborators and review the part
+                          activity feed.
                         </p>
                       </div>
                     </div>
 
                     <div className="mt-5 rounded-surface-lg border border-border bg-muted p-4">
-                      <label htmlFor="activity-comment" className="text-sm font-medium text-foreground/80">
+                      <label
+                        htmlFor="activity-comment"
+                        className="text-sm font-medium text-foreground/80"
+                      >
                         Leave a comment
                       </label>
                       <Textarea
                         id="activity-comment"
                         value={commentDraft}
-                        onChange={(event) => setCommentDraft(event.target.value)}
+                        onChange={(event) =>
+                          setCommentDraft(event.target.value)
+                        }
                         placeholder="Add context, decisions, or a follow-up note."
                         className="mt-3 min-h-28 border-border bg-ws-shell text-foreground placeholder:text-muted-foreground"
                       />
                       <div className="mt-3 flex items-center justify-between gap-3">
                         <p className="text-xs text-muted-foreground">
-                          Comments stay attached to this part in your current browser.
+                          Comments stay attached to this part in your current
+                          browser.
                         </p>
-                        <Button type="button" onClick={handleAddComment} disabled={commentDraft.trim().length === 0}>
+                        <Button
+                          type="button"
+                          onClick={handleAddComment}
+                          disabled={commentDraft.trim().length === 0}
+                        >
                           <MessageSquare className="mr-2 h-4 w-4" />
                           Comment
                         </Button>
@@ -897,11 +1199,16 @@ const ClientPart = () => {
                       <TabsContent value="comments" className="mt-4">
                         <div className="rounded-surface-lg border border-border bg-ws-card p-5">
                           {comments.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">No comments yet.</p>
+                            <p className="text-sm text-muted-foreground">
+                              No comments yet.
+                            </p>
                           ) : (
                             <div className="space-y-3">
                               {comments.map((comment) => (
-                                <CommentCard key={comment.id} comment={comment} />
+                                <CommentCard
+                                  key={comment.id}
+                                  comment={comment}
+                                />
                               ))}
                             </div>
                           )}
@@ -972,7 +1279,10 @@ const ClientPart = () => {
         submitLabel="Save"
         placeholder="Part name"
         isPending={isRenamingPart}
-        isSubmitDisabled={partRenameValue.trim().length === 0 || partRenameValue.trim() === currentPartName}
+        isSubmitDisabled={
+          partRenameValue.trim().length === 0 ||
+          partRenameValue.trim() === currentPartName
+        }
         onSubmit={() => handleRenamePart(jobId, partRenameValue.trim())}
       />
 
@@ -981,13 +1291,16 @@ const ClientPart = () => {
           <DialogHeader>
             <DialogTitle>Manage project membership</DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Add this part to more projects or remove it from projects it already belongs to.
+              Add this part to more projects or remove it from projects it
+              already belongs to.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-2">
             {currentProjectOptions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No compatible projects are available for this part.</p>
+              <p className="text-sm text-muted-foreground">
+                No compatible projects are available for this part.
+              </p>
             ) : (
               currentProjectOptions.map((project) => (
                 <button
@@ -995,9 +1308,12 @@ const ClientPart = () => {
                   type="button"
                   className={cn(
                     "flex w-full items-center justify-between rounded-lg border border-border bg-muted px-4 py-3 text-left transition hover:bg-accent",
-                    partDetail?.projectIds.includes(project.project.id) && "border-foreground/30",
+                    partDetail?.projectIds.includes(project.project.id) &&
+                      "border-foreground/30",
                   )}
-                  disabled={assignJobMutation.isPending || removeJobMutation.isPending}
+                  disabled={
+                    assignJobMutation.isPending || removeJobMutation.isPending
+                  }
                   onClick={() => {
                     if (partDetail?.projectIds.includes(project.project.id)) {
                       removeJobMutation.mutate(project.project.id);
@@ -1008,8 +1324,12 @@ const ClientPart = () => {
                   }}
                 >
                   <div>
-                    <p className="text-sm font-medium text-foreground">{project.project.name}</p>
-                    <p className="text-xs text-muted-foreground">{project.partCount} parts</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {project.project.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {project.partCount} parts
+                    </p>
                   </div>
                   {partDetail?.projectIds.includes(project.project.id) ? (
                     <XCircle className="h-4 w-4 text-muted-foreground" />
@@ -1033,21 +1353,29 @@ const ClientPart = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isVersionHistoryOpen} onOpenChange={setIsVersionHistoryOpen}>
+      <Dialog
+        open={isVersionHistoryOpen}
+        onOpenChange={setIsVersionHistoryOpen}
+      >
         <DialogContent className="max-w-3xl border-border bg-ws-overlay text-foreground">
           <DialogHeader>
             <DialogTitle>Version history</DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Current client-visible history combines activity events with browser-local comments.
+              Current client-visible history combines activity events with
+              browser-local comments.
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <ActivityLog entries={activityEntries} className="bg-ws-card" />
             <div className="rounded-surface-lg border border-border bg-ws-card p-5">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Comments</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                Comments
+              </p>
               {comments.length === 0 ? (
-                <p className="mt-4 text-sm text-muted-foreground">No comments yet.</p>
+                <p className="mt-4 text-sm text-muted-foreground">
+                  No comments yet.
+                </p>
               ) : (
                 <div className="mt-4 space-y-3">
                   {comments.map((comment) => (

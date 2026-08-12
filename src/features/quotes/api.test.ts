@@ -2890,7 +2890,7 @@ describe("quotes api helpers", () => {
       p_requested_quote_quantities: [],
       p_requested_by_date: null,
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_create_client_draft", {
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_create_client_draft", {
       p_title: "Bracket",
       p_description: "Upload test",
       p_project_id: null,
@@ -3242,7 +3242,11 @@ describe("quotes api helpers", () => {
       p_name: "alpha + 1 parts",
       p_description: null,
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, "api_create_client_draft", {
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_prepare_part_intake", {
+      p_cad_content_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      p_drawing_content_sha256: null,
+    });
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_create_client_draft", {
       p_title: "alpha",
       p_description: "I need 10 of these by April 15",
       p_project_id: "project-1",
@@ -3253,7 +3257,7 @@ describe("quotes api helpers", () => {
       p_requested_quote_quantities: [10],
       p_requested_by_date: "2026-04-15",
     });
-    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(7, "api_create_client_draft", {
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_create_client_draft", {
       p_title: "beta",
       p_description: "I need 10 of these by April 15",
       p_project_id: "project-1",
@@ -3264,6 +3268,71 @@ describe("quotes api helpers", () => {
       p_requested_quote_quantities: [10],
       p_requested_by_date: "2026-04-15",
     });
+  });
+
+  it("treats an accessible client-hash match as a hint until worker verification", async () => {
+    supabaseMock.storageUpload.mockResolvedValue({ error: null });
+    supabaseMock.rpc.mockImplementation((fn: string) => {
+      if (fn === "api_prepare_part_intake") {
+        return Promise.resolve({
+          data: {
+            result: "existing_version",
+            partVersionId: null,
+          },
+          error: null,
+        });
+      }
+
+      if (fn === "api_create_client_draft") {
+        return Promise.resolve({ data: "job-verified-later-1", error: null });
+      }
+
+      if (fn === "api_prepare_job_file_upload") {
+        return Promise.resolve({
+          data: {
+            status: "upload_required",
+            storageBucket: "job-files",
+            storagePath: `org-sha256/org-1/${crypto.randomUUID()}`,
+          },
+          error: null,
+        });
+      }
+
+      if (fn === "api_finalize_job_file_upload") {
+        return Promise.resolve({ data: crypto.randomUUID(), error: null });
+      }
+
+      if (fn === "api_reconcile_job_parts") {
+        return Promise.resolve({ data: {}, error: null });
+      }
+
+      if (fn === "api_request_extraction") {
+        return Promise.resolve({ data: 1, error: null });
+      }
+
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    await expect(createJobsFromUploadFiles({
+      files: [
+        createMockFile("same-cad", "bracket.step", { type: "model/step" }),
+        createMockFile("same-drawing", "bracket.pdf", { type: "application/pdf" }),
+      ],
+      prompt: "I need 25 pieces",
+    })).resolves.toEqual({
+      jobIds: ["job-verified-later-1"],
+      projectId: null,
+    });
+
+    expect(supabaseMock.rpc).not.toHaveBeenCalledWith(
+      "api_finalize_existing_part_intake",
+      expect.anything(),
+    );
+    expect(supabaseMock.storageUpload).toHaveBeenCalledTimes(2);
+    expect(supabaseMock.rpc).toHaveBeenCalledWith(
+      "api_request_extraction",
+      { p_job_id: "job-verified-later-1" },
+    );
   });
 
   it("retries project creation against the legacy one-argument RPC signature", async () => {
@@ -4132,16 +4201,16 @@ describe("quotes api helpers", () => {
       error: null,
     });
 
-    await expect(requestQuote("job-1")).resolves.toMatchObject({
+    await expect(requestQuote("job-1", ["xometry", "fictiv"])).resolves.toMatchObject({
       jobId: "job-1",
       status: "queued",
       quoteRequestId: "request-1",
       serviceRequestLineItemId: "line-item-1",
     });
 
-    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_quote", {
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_quote_scoped", {
       p_job_id: "job-1",
-      p_force_retry: false,
+      p_selected_vendors: ["xometry", "fictiv"],
     });
   });
 

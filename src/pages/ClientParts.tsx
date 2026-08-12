@@ -1,12 +1,10 @@
 import { useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { Box, FolderKanban, PlusSquare, Search } from "lucide-react";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { CadPreviewThumbnail } from "@/components/CadPreviewThumbnail";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
-import { QuoteIntelligenceLanding } from "@/components/quote-intelligence/QuoteIntelligenceLanding";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
-import { SignInDialog } from "@/components/SignInDialog";
 import {
   buildPartCollection,
   filterPartCollection,
@@ -71,6 +69,7 @@ function formatUpdatedAt(value: string | null): string {
 
 export default function ClientParts() {
   const controller = useClientHomeController();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const appMode = searchParams.get("app") === "ios" ? "ios" : null;
   const [query, setQuery] = useState("");
@@ -152,18 +151,10 @@ export default function ClientParts() {
 
   if (!controller.user) {
     return (
-      <>
-        <QuoteIntelligenceLanding
-          onUpload={controller.newJobFilePicker.openFilePicker}
-          onSignIn={() => controller.openAuth("signin")}
-          onCreateAccount={() => controller.openAuth("signup")}
-        />
-        <SignInDialog
-          open={controller.isAuthDialogOpen}
-          onOpenChange={controller.setIsAuthDialogOpen}
-          initialMode={controller.authDialogMode}
-        />
-      </>
+      <Navigate
+        to={{ pathname: "/", search: location.search, hash: location.hash }}
+        replace
+      />
     );
   }
 
@@ -206,7 +197,7 @@ export default function ClientParts() {
     if (isLoading) {
       return (
         <p className="border-b border-paper-hairline py-12 text-center text-body-sm text-paper-muted" role="status">
-          Loading accessible parts…
+          Loading workspace…
         </p>
       );
     }

@@ -8,8 +8,10 @@ vi.mock("@/components/quotes/ClientPartRequestEditor", () => ({
   ClientPartRequestEditor: () => <div>Request editor</div>,
 }));
 
-function renderPartInfoPanel(overrides: Partial<ComponentProps<typeof PartInfoPanel>> = {}) {
-  render(
+function renderPartInfoPanel(
+  overrides: Partial<ComponentProps<typeof PartInfoPanel>> = {},
+) {
+  return render(
     <PartInfoPanel
       effectiveRequestDraft={null}
       quoteQuantityInput=""
@@ -23,6 +25,19 @@ function renderPartInfoPanel(overrides: Partial<ComponentProps<typeof PartInfoPa
 }
 
 describe("PartInfoPanel", () => {
+  it("renders as a flat primary-workspace section", () => {
+    const { container } = renderPartInfoPanel();
+
+    expect(
+      screen.getByRole("heading", { name: "Part requirements" }),
+    ).toBeInTheDocument();
+    expect(container.firstElementChild).toHaveClass(
+      "border-t",
+      "border-paper-hairline",
+    );
+    expect(container.firstElementChild).not.toHaveClass("rounded-[12px]");
+  });
+
   it("renders the request editor when a draft is provided", () => {
     renderPartInfoPanel({
       effectiveRequestDraft: {
@@ -49,5 +64,9 @@ describe("PartInfoPanel", () => {
 
     expect(screen.getByText("Status notice")).toBeInTheDocument();
     expect(screen.getByText("Request editor")).toBeInTheDocument();
+    expect(screen.getByTestId("part-status-content")).toHaveClass(
+      "grid",
+      "lg:grid-cols-2",
+    );
   });
 });

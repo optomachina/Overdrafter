@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppSessionData } from "@/features/quotes/types";
+import { AppSessionProvider } from "@/hooks/use-app-session";
 import { MISSING_WORKSPACE_MEMBERSHIP_ERROR_MESSAGE } from "@/hooks/workspace-readiness";
 import type { Session } from "@supabase/supabase-js";
 import { useClientHomeController } from "./use-client-home-controller";
@@ -191,7 +192,12 @@ function createWrapper() {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/"]}>{children}</MemoryRouter>
+        <MemoryRouter
+          initialEntries={["/"]}
+          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        >
+          <AppSessionProvider>{children}</AppSessionProvider>
+        </MemoryRouter>
       </QueryClientProvider>
     );
   };

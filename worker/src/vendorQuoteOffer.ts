@@ -28,6 +28,14 @@ export function buildVendorQuoteOfferPayload(input: VendorQuoteOfferPayloadInput
     lane_label: `${input.vendor} quote`,
     sourcing: "automated",
     tier: input.result.status === "official_quote_received" ? "Official" : "Instant",
+    quoted_at: input.result.quotedAt ?? null,
+    valid_until: input.result.validUntil ?? null,
+    validity_duration_days: input.result.validityDurationDays ?? null,
+    validity_source: input.result.validitySource ?? null,
+    validity_terms: input.result.validityTerms ?? null,
+    provenance_status: isTrustedLiveAdapter(input.result.rawPayload)
+      ? "trusted_adapter"
+      : "unverified",
     unit_price_usd: input.result.unitPriceUsd,
     total_price_usd: input.result.totalPriceUsd,
     lead_time_business_days: input.result.leadTimeBusinessDays,
@@ -40,8 +48,28 @@ export function buildVendorQuoteOfferPayload(input: VendorQuoteOfferPayloadInput
     raw_payload: {
       ...input.result.rawPayload,
       quoteUrl: input.result.quoteUrl,
+      quotedAt: input.result.quotedAt ?? null,
+      validUntil: input.result.validUntil ?? null,
+      validityDurationDays: input.result.validityDurationDays ?? null,
+      validitySource: input.result.validitySource ?? null,
+      validityTerms: input.result.validityTerms ?? null,
       requestedQuantity: input.requestedQuantity,
       requirementCapturedAt: input.requirementCapturedAt,
     },
   };
+}
+
+function isTrustedLiveAdapter(rawPayload: Record<string, unknown>) {
+  const source = typeof rawPayload.source === "string" ? rawPayload.source : "";
+  if (source.endsWith("-live-adapter")) {
+    return true;
+  }
+
+  const automationVersion =
+    typeof rawPayload.automationVersion === "string"
+      ? rawPayload.automationVersion
+      : "";
+  const detectedFlow =
+    typeof rawPayload.detectedFlow === "string" ? rawPayload.detectedFlow : "";
+  return automationVersion.startsWith("xometry-worker-") && detectedFlow !== "simulate";
 }

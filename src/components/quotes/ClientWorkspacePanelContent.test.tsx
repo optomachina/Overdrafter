@@ -107,13 +107,13 @@ describe("ClientQuoteRequestStatusCard", () => {
   });
 
   it.each([
-    ["not_requested", "Quote Not requested", ["border", "border-border", "bg-accent", "text-foreground/80"]],
-    ["queued", "Quote Queued", ["border-amber-400/20", "bg-amber-500/10", "text-amber-100"]],
-    ["requesting", "Quote Requesting", ["border-amber-400/20", "bg-amber-500/10", "text-amber-100"]],
-    ["received", "Quote Quoted", ["border-emerald-400/20", "bg-emerald-500/10", "text-emerald-100"]],
-    ["failed", "Quote Failed", ["border-rose-400/20", "bg-rose-500/10", "text-rose-100"]],
-    ["canceled", "Quote Canceled", ["border-rose-400/20", "bg-rose-500/10", "text-rose-100"]],
-  ] as const)("renders %s with the shared badge mapping", (status, badgeLabel, classes) => {
+    ["not_requested", "Quote Not requested"],
+    ["queued", "Quote Queued"],
+    ["requesting", "Quote Requesting"],
+    ["received", "Quote Quoted"],
+    ["failed", "Quote Failed"],
+    ["canceled", "Quote Canceled"],
+  ] as const)("renders %s with the shared neutral badge mapping", (status, badgeLabel) => {
     render(
       <ClientQuoteRequestStatusCard
         status={status}
@@ -123,6 +123,29 @@ describe("ClientQuoteRequestStatusCard", () => {
       />,
     );
 
-    expect(screen.getByText(badgeLabel)).toHaveClass(...classes);
+    expect(screen.getByText(badgeLabel)).toHaveClass(
+      "border-paper-hairline",
+      "bg-paper-surface",
+      "text-paper-ink",
+    );
+    expect(screen.getByText(badgeLabel).className).not.toMatch(
+      /(?:amber|emerald|rose)-/,
+    );
+  });
+
+  it("uses a neutral card surface instead of color-coding the request tone", () => {
+    render(
+      <ClientQuoteRequestStatusCard
+        status="received"
+        tone="ready"
+        label="Quoted"
+        detail="A vendor quote is ready to review."
+      />,
+    );
+
+    expect(screen.getByText("Automatic quote status").closest("section")).toHaveClass(
+      "border-paper-hairline",
+      "bg-paper-surface",
+    );
   });
 });

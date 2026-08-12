@@ -30,8 +30,19 @@ export type UserPinnedProjectRecord = Database["public"]["Tables"]["user_pinned_
 export type UserPinnedJobRecord = Database["public"]["Tables"]["user_pinned_jobs"]["Row"];
 export type PricingPolicyRecord = Database["public"]["Tables"]["pricing_policies"]["Row"];
 export type JobRecord = Database["public"]["Tables"]["jobs"]["Row"];
-export type JobFileRecord = Database["public"]["Tables"]["job_files"]["Row"];
-export type PartRecord = Database["public"]["Tables"]["parts"]["Row"];
+export type JobFileRecord = Omit<
+  Database["public"]["Tables"]["job_files"]["Row"],
+  "trusted_content_sha256"
+> & {
+  trusted_content_sha256?: string | null;
+};
+export type PartRecord = Omit<
+  Database["public"]["Tables"]["parts"]["Row"],
+  "part_version_id"
+> & {
+  // Compatibility while legacy fixture/API reads migrate to canonical versions.
+  part_version_id?: string | null;
+};
 export type DrawingExtractionRecord = Database["public"]["Tables"]["drawing_extractions"]["Row"];
 export type DrawingPreviewAssetRecord = Database["public"]["Tables"]["drawing_preview_assets"]["Row"];
 export type CadPreviewAssetRecord = Database["public"]["Tables"]["cad_preview_assets"]["Row"];
@@ -41,7 +52,32 @@ export type QuoteRequestRecord = Database["public"]["Tables"]["quote_requests"][
 export type ServiceRequestLineItemRecord = Database["public"]["Tables"]["service_request_line_items"]["Row"];
 export type QuoteRunRecord = Database["public"]["Tables"]["quote_runs"]["Row"];
 export type VendorQuoteResultRecord = Database["public"]["Tables"]["vendor_quote_results"]["Row"];
-export type VendorQuoteOfferRecord = Database["public"]["Tables"]["vendor_quote_offers"]["Row"];
+type GeneratedVendorQuoteOfferRecord = Database["public"]["Tables"]["vendor_quote_offers"]["Row"];
+export type VendorQuoteOfferRecord = Omit<
+  GeneratedVendorQuoteOfferRecord,
+  | "invalidated_at"
+  | "invalidated_by"
+  | "invalidation_reason"
+  | "provenance_status"
+  | "quoted_at"
+  | "valid_until"
+  | "validity_duration_days"
+  | "validity_source"
+  | "validity_terms"
+> & Partial<
+  Pick<
+    GeneratedVendorQuoteOfferRecord,
+    | "invalidated_at"
+    | "invalidated_by"
+    | "invalidation_reason"
+    | "provenance_status"
+    | "quoted_at"
+    | "valid_until"
+    | "validity_duration_days"
+    | "validity_source"
+    | "validity_terms"
+  >
+>;
 export type VendorQuoteArtifactRecord = Database["public"]["Tables"]["vendor_quote_artifacts"]["Row"];
 export type PublishedQuotePackageRecord = Database["public"]["Tables"]["published_quote_packages"]["Row"];
 export type PublishedQuoteOptionRecord = Database["public"]["Tables"]["published_quote_options"]["Row"];
@@ -457,6 +493,10 @@ export type ManualQuoteOfferInput = {
   tier?: string | null;
   quoteRef?: string | null;
   quoteDateIso?: string | null;
+  validUntilIso?: string | null;
+  validityDurationDays?: number | null;
+  validitySource?: "operator_date" | "operator_duration" | null;
+  validityTerms?: string | null;
   totalPriceUsd: number;
   unitPriceUsd?: number | null;
   leadTimeBusinessDays?: number | null;
@@ -773,6 +813,23 @@ export type QuoteRequestSubmissionResult = {
   quoteMode: QuoteRequestMode;
   // Phase 2 semantics: this is the actual vendor set requested or blocked for the job.
   requestedVendors: VendorName[];
+  laneEligibility?: QuoteLaneEligibility[];
+};
+
+export type QuoteLaneEligibilityState =
+  | "requestable"
+  | "active"
+  | "valid_quote"
+  | "cooldown";
+
+export type QuoteLaneEligibility = {
+  vendor: VendorName;
+  partId: string;
+  requestedQuantity: number;
+  state: QuoteLaneEligibilityState;
+  currentOfferId: string | null;
+  validUntil: string | null;
+  retryAt: string | null;
 };
 
 export type QuoteRequestCancellationResult = {

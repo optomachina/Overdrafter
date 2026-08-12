@@ -35,7 +35,24 @@ vi.mock("@/features/quotes/api/session-access", () => ({
 }));
 
 vi.mock("@/components/SocialAuthButtons", () => ({
-  SocialAuthButtons: () => <div>Social login providers</div>,
+  SocialAuthButtons: ({
+    buttonClassName,
+    className,
+    compact,
+  }: {
+    buttonClassName?: string;
+    className?: string;
+    compact?: boolean;
+  }) => (
+    <div
+      className={className}
+      data-button-class-name={buttonClassName}
+      data-compact={compact ? "true" : "false"}
+      data-testid="social-auth-providers"
+    >
+      Social login providers
+    </div>
+  ),
 }));
 
 function renderPanel(path: string) {
@@ -59,5 +76,33 @@ describe("AuthPanel app workspace mode", () => {
     renderPanel("/quotes/ABC234");
 
     expect(screen.getByText("Social login providers")).toBeInTheDocument();
+  });
+
+  it("lays social providers out in one compact row inside the viewport-bound dialog", () => {
+    renderPanel("/?auth=signin");
+
+    expect(screen.getByTestId("social-auth-providers")).toHaveClass(
+      "grid",
+      "grid-cols-3",
+      "space-y-0",
+    );
+    expect(screen.getByTestId("social-auth-providers")).toHaveAttribute(
+      "data-button-class-name",
+      expect.stringContaining("h-11"),
+    );
+    expect(screen.getByTestId("social-auth-providers")).toHaveAttribute(
+      "data-compact",
+      "true",
+    );
+  });
+
+  it("uses an inset paper surface with an accent outline", () => {
+    const { container } = renderPanel("/?auth=signin");
+
+    expect(container.querySelector("section")).toHaveClass(
+      "bg-ws-deep",
+      "border-paper-red",
+    );
+    expect(screen.getByText("Or with email")).toHaveClass("bg-ws-deep");
   });
 });

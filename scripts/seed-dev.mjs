@@ -875,6 +875,9 @@ function createJobFileRow(input) {
     uploaded_by: input.uploadedBy,
     blob_id: null,
     content_sha256: input.asset.contentSha256,
+    // These assets are read from this repository and uploaded by the trusted
+    // seed process, so the server-observed digest is already authoritative.
+    trusted_content_sha256: input.asset.contentSha256,
     storage_bucket: "job-files",
     storage_path: input.storagePath,
     original_name: input.originalName,

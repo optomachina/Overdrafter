@@ -14,7 +14,7 @@ describe("QuoteIntelligenceLanding", () => {
     );
 
     expect(screen.getByText("Machined aluminum sourcing")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Files In Parts Out" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "CAD In Parts Out" })).toBeInTheDocument();
     expect(screen.getByText("Parts Out")).toHaveClass("text-paper-muted");
     expect(
       screen.getByText(/upload CAD files and drawings to collect vendor quotes, compare price and lead time/i),
@@ -24,6 +24,11 @@ describe("QuoteIntelligenceLanding", () => {
     expect(screen.queryByText("Illustrative Pro workspace · sample data")).not.toBeInTheDocument();
     expect(screen.queryByText("Example returned offers")).not.toBeInTheDocument();
     expect(screen.queryByText("Three exact responses")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /include the PDF drawing to extract material, finish, tolerances, and threads/i,
+      ),
+    ).toBeInTheDocument();
     const quoteChart = screen.getByRole("img", { name: /vendor quotes plotted by total price and lead time/i });
     expect(quoteChart).toBeInTheDocument();
     expect(quoteChart).toHaveAccessibleDescription(

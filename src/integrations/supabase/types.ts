@@ -249,6 +249,41 @@ export type Database = {
           },
         ]
       }
+      canonical_parts: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          display_name: string | null
+          id: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          display_name?: string | null
+          id?: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          display_name?: string | null
+          id?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canonical_parts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_selections: {
         Row: {
           created_at: string
@@ -602,6 +637,7 @@ export type Database = {
           size_bytes: number | null
           storage_bucket: string
           storage_path: string
+          trusted_content_sha256: string | null
           uploaded_by: string
         }
         Insert: {
@@ -619,6 +655,7 @@ export type Database = {
           size_bytes?: number | null
           storage_bucket?: string
           storage_path: string
+          trusted_content_sha256?: string | null
           uploaded_by: string
         }
         Update: {
@@ -636,6 +673,7 @@ export type Database = {
           size_bytes?: number | null
           storage_bucket?: string
           storage_path?: string
+          trusted_content_sha256?: string | null
           uploaded_by?: string
         }
         Relationships: [
@@ -831,6 +869,7 @@ export type Database = {
           size_bytes: number | null
           storage_bucket: string
           storage_path: string
+          trusted_content_sha256: string | null
         }
         Insert: {
           content_sha256: string
@@ -841,6 +880,7 @@ export type Database = {
           size_bytes?: number | null
           storage_bucket?: string
           storage_path: string
+          trusted_content_sha256?: string | null
         }
         Update: {
           content_sha256?: string
@@ -851,6 +891,7 @@ export type Database = {
           size_bytes?: number | null
           storage_bucket?: string
           storage_path?: string
+          trusted_content_sha256?: string | null
         }
         Relationships: [
           {
@@ -960,6 +1001,96 @@ export type Database = {
         }
         Relationships: []
       }
+      part_versions: {
+        Row: {
+          cad_blob_id: string | null
+          cad_content_sha256: string | null
+          canonical_part_id: string
+          created_at: string
+          created_by: string | null
+          drawing_blob_id: string | null
+          drawing_content_sha256: string | null
+          geometry_fingerprint: string | null
+          geometry_fingerprint_version: string | null
+          id: string
+          organization_id: string
+          package_fingerprint: string
+          source_part_id: string | null
+          updated_at: string
+          version_state: Database["public"]["Enums"]["part_version_state"]
+        }
+        Insert: {
+          cad_blob_id?: string | null
+          cad_content_sha256?: string | null
+          canonical_part_id: string
+          created_at?: string
+          created_by?: string | null
+          drawing_blob_id?: string | null
+          drawing_content_sha256?: string | null
+          geometry_fingerprint?: string | null
+          geometry_fingerprint_version?: string | null
+          id?: string
+          organization_id: string
+          package_fingerprint: string
+          source_part_id?: string | null
+          updated_at?: string
+          version_state: Database["public"]["Enums"]["part_version_state"]
+        }
+        Update: {
+          cad_blob_id?: string | null
+          cad_content_sha256?: string | null
+          canonical_part_id?: string
+          created_at?: string
+          created_by?: string | null
+          drawing_blob_id?: string | null
+          drawing_content_sha256?: string | null
+          geometry_fingerprint?: string | null
+          geometry_fingerprint_version?: string | null
+          id?: string
+          organization_id?: string
+          package_fingerprint?: string
+          source_part_id?: string | null
+          updated_at?: string
+          version_state?: Database["public"]["Enums"]["part_version_state"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "part_versions_cad_blob_id_fkey"
+            columns: ["cad_blob_id"]
+            isOneToOne: false
+            referencedRelation: "organization_file_blobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "part_versions_canonical_part_id_fkey"
+            columns: ["canonical_part_id"]
+            isOneToOne: false
+            referencedRelation: "canonical_parts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "part_versions_drawing_blob_id_fkey"
+            columns: ["drawing_blob_id"]
+            isOneToOne: false
+            referencedRelation: "organization_file_blobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "part_versions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "part_versions_source_part_id_fkey"
+            columns: ["source_part_id"]
+            isOneToOne: false
+            referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       parts: {
         Row: {
           cad_file_id: string | null
@@ -970,6 +1101,7 @@ export type Database = {
           name: string
           normalized_key: string
           organization_id: string
+          part_version_id: string | null
           quantity: number
           updated_at: string
         }
@@ -982,6 +1114,7 @@ export type Database = {
           name: string
           normalized_key: string
           organization_id: string
+          part_version_id?: string | null
           quantity?: number
           updated_at?: string
         }
@@ -994,6 +1127,7 @@ export type Database = {
           name?: string
           normalized_key?: string
           organization_id?: string
+          part_version_id?: string | null
           quantity?: number
           updated_at?: string
         }
@@ -1024,6 +1158,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parts_part_version_id_fkey"
+            columns: ["part_version_id"]
+            isOneToOne: false
+            referencedRelation: "part_versions"
             referencedColumns: ["id"]
           },
         ]
@@ -1468,6 +1609,7 @@ export type Database = {
           enabled: boolean
           org_pending_cost_ceiling_usd: number
           organization_id: string
+          same_scope_cooldown_minutes: number
           updated_at: string
           user_max_requests_per_window: number
           user_window_minutes: number
@@ -1478,6 +1620,7 @@ export type Database = {
           enabled?: boolean
           org_pending_cost_ceiling_usd?: number
           organization_id: string
+          same_scope_cooldown_minutes?: number
           updated_at?: string
           user_max_requests_per_window?: number
           user_window_minutes?: number
@@ -1488,6 +1631,7 @@ export type Database = {
           enabled?: boolean
           org_pending_cost_ceiling_usd?: number
           organization_id?: string
+          same_scope_cooldown_minutes?: number
           updated_at?: string
           user_max_requests_per_window?: number
           user_window_minutes?: number
@@ -1498,6 +1642,100 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: true
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quote_request_lanes: {
+        Row: {
+          cooldown_released_at: string | null
+          cooldown_released_by_offer_id: string | null
+          created_at: string
+          id: string
+          organization_id: string
+          part_id: string
+          quote_request_id: string
+          quote_run_id: string
+          requested_quantity: number
+          scope_fingerprint: string
+          scope_snapshot: Json
+          scope_version: number
+          vendor: Database["public"]["Enums"]["vendor_name"]
+          vendor_quote_result_id: string | null
+        }
+        Insert: {
+          cooldown_released_at?: string | null
+          cooldown_released_by_offer_id?: string | null
+          created_at?: string
+          id?: string
+          organization_id: string
+          part_id: string
+          quote_request_id: string
+          quote_run_id: string
+          requested_quantity: number
+          scope_fingerprint: string
+          scope_snapshot: Json
+          scope_version?: number
+          vendor: Database["public"]["Enums"]["vendor_name"]
+          vendor_quote_result_id?: string | null
+        }
+        Update: {
+          cooldown_released_at?: string | null
+          cooldown_released_by_offer_id?: string | null
+          created_at?: string
+          id?: string
+          organization_id?: string
+          part_id?: string
+          quote_request_id?: string
+          quote_run_id?: string
+          requested_quantity?: number
+          scope_fingerprint?: string
+          scope_snapshot?: Json
+          scope_version?: number
+          vendor?: Database["public"]["Enums"]["vendor_name"]
+          vendor_quote_result_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_request_lanes_cooldown_released_by_offer_id_fkey"
+            columns: ["cooldown_released_by_offer_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_quote_offers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_request_lanes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_request_lanes_part_id_fkey"
+            columns: ["part_id"]
+            isOneToOne: false
+            referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_request_lanes_quote_request_id_fkey"
+            columns: ["quote_request_id"]
+            isOneToOne: false
+            referencedRelation: "quote_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_request_lanes_quote_run_id_fkey"
+            columns: ["quote_run_id"]
+            isOneToOne: false
+            referencedRelation: "quote_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_request_lanes_vendor_quote_result_id_fkey"
+            columns: ["vendor_quote_result_id"]
+            isOneToOne: true
+            referencedRelation: "vendor_quote_results"
             referencedColumns: ["id"]
           },
         ]
@@ -2499,6 +2737,9 @@ export type Database = {
           due_date: string | null
           finish: string | null
           id: string
+          invalidated_at: string | null
+          invalidated_by: string | null
+          invalidation_reason: string | null
           lane_label: string
           lead_time_business_days: number | null
           material: string | null
@@ -2506,8 +2747,10 @@ export type Database = {
           offer_key: string
           organization_id: string
           process: string | null
+          provenance_status: string
           quote_date: string | null
           quote_ref: string | null
+          quoted_at: string | null
           raw_payload: Json
           ship_receive_by: string | null
           sort_rank: number
@@ -2521,6 +2764,10 @@ export type Database = {
           total_price_usd: number | null
           unit_price_usd: number | null
           updated_at: string
+          valid_until: string | null
+          validity_duration_days: number | null
+          validity_source: string | null
+          validity_terms: string | null
           vendor_quote_result_id: string
         }
         Insert: {
@@ -2528,6 +2775,9 @@ export type Database = {
           due_date?: string | null
           finish?: string | null
           id?: string
+          invalidated_at?: string | null
+          invalidated_by?: string | null
+          invalidation_reason?: string | null
           lane_label: string
           lead_time_business_days?: number | null
           material?: string | null
@@ -2535,8 +2785,10 @@ export type Database = {
           offer_key: string
           organization_id: string
           process?: string | null
+          provenance_status?: string
           quote_date?: string | null
           quote_ref?: string | null
+          quoted_at?: string | null
           raw_payload?: Json
           ship_receive_by?: string | null
           sort_rank?: number
@@ -2550,6 +2802,10 @@ export type Database = {
           total_price_usd?: number | null
           unit_price_usd?: number | null
           updated_at?: string
+          valid_until?: string | null
+          validity_duration_days?: number | null
+          validity_source?: string | null
+          validity_terms?: string | null
           vendor_quote_result_id: string
         }
         Update: {
@@ -2557,6 +2813,9 @@ export type Database = {
           due_date?: string | null
           finish?: string | null
           id?: string
+          invalidated_at?: string | null
+          invalidated_by?: string | null
+          invalidation_reason?: string | null
           lane_label?: string
           lead_time_business_days?: number | null
           material?: string | null
@@ -2564,8 +2823,10 @@ export type Database = {
           offer_key?: string
           organization_id?: string
           process?: string | null
+          provenance_status?: string
           quote_date?: string | null
           quote_ref?: string | null
+          quoted_at?: string | null
           raw_payload?: Json
           ship_receive_by?: string | null
           sort_rank?: number
@@ -2579,6 +2840,10 @@ export type Database = {
           total_price_usd?: number | null
           unit_price_usd?: number | null
           updated_at?: string
+          valid_until?: string | null
+          validity_duration_days?: number | null
+          validity_source?: string | null
+          validity_terms?: string | null
           vendor_quote_result_id?: string
         }
         Relationships: [
@@ -2905,6 +3170,14 @@ export type Database = {
         }
         Returns: Json
       }
+      api_admin_invalidate_vendor_quote_offer: {
+        Args: {
+          p_idempotency_key: string
+          p_offer_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       api_admin_list_all_jobs: { Args: never; Returns: Json }
       api_admin_list_all_projects: { Args: never; Returns: Json }
       api_admin_list_all_users: { Args: never; Returns: Json }
@@ -3048,6 +3321,21 @@ export type Database = {
         }
         Returns: Json
       }
+      api_finalize_existing_part_intake: {
+        Args: {
+          p_description?: string
+          p_part_version_id: string
+          p_primary_service_kind?: string
+          p_project_id?: string
+          p_requested_by_date?: string
+          p_requested_quote_quantities?: number[]
+          p_requested_service_kinds?: string[]
+          p_service_notes?: string
+          p_tags?: string[]
+          p_title: string
+        }
+        Returns: Json
+      }
       api_finalize_job_file_upload: {
         Args: {
           p_content_sha256?: string
@@ -3078,6 +3366,13 @@ export type Database = {
       }
       api_get_organization_entitlements: {
         Args: { p_organization_id: string }
+        Returns: Json
+      }
+      api_get_quote_lane_eligibility: {
+        Args: {
+          p_job_id: string
+          p_selected_vendors?: Database["public"]["Enums"]["vendor_name"][]
+        }
         Returns: Json
       }
       api_get_quote_run_readiness: {
@@ -3250,6 +3545,13 @@ export type Database = {
         Args: { p_organization_id: string }
         Returns: Json
       }
+      api_prepare_part_intake: {
+        Args: {
+          p_cad_content_sha256: string
+          p_drawing_content_sha256?: string
+        }
+        Returns: Json
+      }
       api_process_stripe_event: {
         Args: { p_stripe_event_id: string }
         Returns: Json
@@ -3287,6 +3589,19 @@ export type Database = {
         }
         Returns: Json
       }
+      api_register_part_geometry_candidate: {
+        Args: {
+          p_algorithm_version: string
+          p_evidence?: Json
+          p_geometry_fingerprint: string
+          p_part_id: string
+        }
+        Returns: number
+      }
+      api_register_trusted_file_hash: {
+        Args: { p_content_sha256: string; p_job_file_id: string }
+        Returns: string
+      }
       api_release_organization_billing_checkout: {
         Args: { p_organization_id: string; p_reservation_token: string }
         Returns: boolean
@@ -3320,6 +3635,13 @@ export type Database = {
         Args: { p_force_retry?: boolean; p_job_id: string }
         Returns: Json
       }
+      api_request_quote_scoped: {
+        Args: {
+          p_job_id: string
+          p_selected_vendors: Database["public"]["Enums"]["vendor_name"][]
+        }
+        Returns: Json
+      }
       api_request_quotes: {
         Args: { p_force_retry?: boolean; p_job_ids: string[] }
         Returns: Json
@@ -3336,6 +3658,18 @@ export type Database = {
       api_reset_client_part_property_overrides: {
         Args: { p_fields?: string[]; p_job_id: string }
         Returns: string
+      }
+      api_resolve_trusted_part_intake: {
+        Args: { p_part_id: string }
+        Returns: Json
+      }
+      api_reuse_trusted_part_version_artifacts: {
+        Args: {
+          p_part_version_id: string
+          p_source_part_id: string
+          p_target_part_id: string
+        }
+        Returns: Json
       }
       api_select_quote_option: {
         Args: { p_note?: string; p_option_id: string; p_package_id: string }
@@ -3718,6 +4052,7 @@ export type Database = {
         | "published"
         | "client_selected"
         | "closed"
+      part_version_state: "unverified" | "provisional" | "complete"
       process_types:
         | "cnc_milling"
         | "cnc_turning"
@@ -3926,6 +4261,7 @@ export const Constants = {
         "client_selected",
         "closed",
       ],
+      part_version_state: ["unverified", "provisional", "complete"],
       process_types: [
         "cnc_milling",
         "cnc_turning",

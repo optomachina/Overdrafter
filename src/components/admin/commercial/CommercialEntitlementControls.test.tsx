@@ -92,7 +92,7 @@ function renderControls({
 
 function submitGrant(): void {
   const button = screen.getByRole("button", {
-    name: /Grant (trial|complimentary) Pro|Verify with MFA to grant/,
+    name: /Grant (trial|complimentary) Pro/,
   });
   fireEvent.submit(button.closest("form") as HTMLFormElement);
 }
@@ -222,7 +222,7 @@ describe("CommercialEntitlementControls", () => {
     expect(commercialApiMock.grantCommercialEntitlement).not.toHaveBeenCalled();
   });
 
-  it("opens MFA at AAL1 and does not attempt either privileged mutation", async () => {
+  it("offers MFA setup independently of grant-form completion at AAL1", async () => {
     const onAccessRefresh = vi.fn().mockResolvedValue(undefined);
     renderControls({
       hasAal2: false,
@@ -230,10 +230,14 @@ describe("CommercialEntitlementControls", () => {
       onAccessRefresh,
     });
 
-    fireEvent.change(screen.getByLabelText("Reason"), {
-      target: { value: "Pilot access" },
+    expect(
+      screen.getByRole("button", { name: "Grant trial Pro" }),
+    ).toBeDisabled();
+    const setupButton = screen.getByRole("button", {
+      name: "Set up or verify MFA",
     });
-    submitGrant();
+    expect(setupButton).toBeEnabled();
+    fireEvent.click(setupButton);
 
     expect(screen.getByRole("dialog", { name: "MFA step-up" })).toBeInTheDocument();
     expect(commercialApiMock.grantCommercialEntitlement).not.toHaveBeenCalled();

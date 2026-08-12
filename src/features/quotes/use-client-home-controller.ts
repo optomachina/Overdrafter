@@ -178,14 +178,6 @@ export function useClientHomeController() {
     },
     mutationFn: (organizationName: string) => createSelfServiceOrganization(organizationName),
     retry: false,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["app-session"] });
-    },
-    onError: async (error: Error) => {
-      if (error.message.toLowerCase().includes("already has an organization membership")) {
-        await queryClient.invalidateQueries({ queryKey: ["app-session"] });
-      }
-    },
   });
 
   const bootstrapErrorMessage =
@@ -451,7 +443,6 @@ export function useClientHomeController() {
           },
         );
 
-        await queryClient.invalidateQueries({ queryKey: APP_SESSION_QUERY_KEY, exact: true });
         await queryClient.refetchQueries({ queryKey: APP_SESSION_QUERY_KEY, exact: true });
 
         if (cancelled) {

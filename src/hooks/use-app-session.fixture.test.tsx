@@ -3,7 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useAppSession } from "@/hooks/use-app-session";
+import { AppSessionProvider, useAppSession } from "@/hooks/use-app-session";
 import { resetClientWorkspaceFixtureStateForTests } from "@/features/quotes/client-workspace-fixtures";
 
 function SessionProbe() {
@@ -24,7 +24,9 @@ function renderWithRoute(route: string) {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[route]}>
-        <SessionProbe />
+        <AppSessionProvider>
+          <SessionProbe />
+        </AppSessionProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );

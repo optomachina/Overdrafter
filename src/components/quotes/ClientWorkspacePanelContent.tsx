@@ -69,7 +69,6 @@ function formatMaybeNumber(value: number | null | undefined, fallback = "Not ava
 
 export function ClientQuoteRequestStatusCard({
   status,
-  tone,
   label,
   detail,
   actionLabel,
@@ -85,19 +84,14 @@ export function ClientQuoteRequestStatusCard({
   return (
     <section
       className={cn(
-        "rounded-surface-lg border p-4",
-        tone === "ready"
-          ? "border-emerald-400/20 bg-emerald-500/8"
-          : tone === "warning"
-            ? "border-amber-400/20 bg-amber-500/8"
-            : "border-rose-400/20 bg-rose-500/8",
+        "rounded-[4px] border border-paper-hairline bg-paper-surface p-4",
         className,
       )}
     >
       <div className="flex flex-col gap-3">
         <div aria-live="polite" aria-atomic="true" className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge className={cn(getQuoteRequestStatusBadgeClassName(status), "tracking-normal normal-case")}>
+            <Badge className={getQuoteRequestStatusBadgeClassName(status)}>
               Quote {label}
             </Badge>
             <p className="text-sm font-medium text-foreground">{heading}</p>

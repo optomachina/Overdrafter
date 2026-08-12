@@ -17,6 +17,39 @@ export type JobVendorPreferenceContext = {
   jobVendorPreferences: VendorPreferenceState;
 };
 
+/**
+ * Resolves the vendors that are effectively enabled for a job after applying
+ * the same precedence used by the server-side quote fan-out resolver.
+ */
+export function resolveEffectiveJobVendorSelection(
+  context: JobVendorPreferenceContext,
+): VendorName[] {
+  const projectIncludes = new Set(
+    context.projectVendorPreferences.includedVendors,
+  );
+  const projectExcludes = new Set(
+    context.projectVendorPreferences.excludedVendors,
+  );
+  const jobIncludes = new Set(context.jobVendorPreferences.includedVendors);
+  const jobExcludes = new Set(context.jobVendorPreferences.excludedVendors);
+
+  return context.availableVendors.filter((vendor) => {
+    if (jobIncludes.has(vendor)) {
+      return true;
+    }
+
+    if (jobExcludes.has(vendor)) {
+      return false;
+    }
+
+    if (projectIncludes.size > 0 && !projectIncludes.has(vendor)) {
+      return false;
+    }
+
+    return !projectExcludes.has(vendor);
+  });
+}
+
 const EMPTY_VENDOR_PREFERENCES: VendorPreferenceState = {
   includedVendors: [],
   excludedVendors: [],

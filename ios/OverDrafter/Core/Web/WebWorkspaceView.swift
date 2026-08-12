@@ -18,6 +18,10 @@ struct WebWorkspaceView: View {
                 pageState: pageState
             )
 
+            if !pageState.hasLoadedContent, pageState.errorMessage == nil {
+                initialLoadingView
+            }
+
             if let errorMessage = pageState.errorMessage, !pageState.hasLoadedContent {
                 failureView(message: errorMessage)
             }
@@ -29,17 +33,19 @@ struct WebWorkspaceView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                if pageState.canGoBack {
+                if pageState.hasLoadedContent, pageState.canGoBack {
                     Button(action: pageState.goBack) {
                         Image(systemName: "chevron.backward")
                     }
                     .accessibilityLabel("Back in \(destination.title)")
                 }
 
-                Button(action: pageState.reload) {
-                    Image(systemName: "arrow.clockwise")
+                if pageState.hasLoadedContent || pageState.errorMessage != nil {
+                    Button(action: pageState.reload) {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .accessibilityLabel("Reload \(destination.title)")
                 }
-                .accessibilityLabel("Reload \(destination.title)")
             }
         }
         .alert(
@@ -98,6 +104,39 @@ struct WebWorkspaceView: View {
             .foregroundStyle(Color.overDrafterInk)
     }
 
+    private var initialLoadingView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Spacer()
+
+            Text("OVERDRAFTER")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .tracking(1.4)
+                .foregroundStyle(Color.overDrafterRed)
+
+            Text("OPENING \(destination.title.uppercased())")
+                .font(.system(size: 25, weight: .semibold, design: .rounded))
+                .tracking(-0.5)
+                .padding(.top, 8)
+
+            Text("Preparing your manufacturing workspace.")
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundStyle(Color.overDrafterMuted)
+                .padding(.top, 7)
+
+            ProgressView(value: max(pageState.progress, 0.08))
+                .progressViewStyle(.linear)
+                .tint(Color.overDrafterRed)
+                .padding(.top, 22)
+
+            Spacer()
+        }
+        .frame(maxWidth: 440, alignment: .leading)
+        .padding(.horizontal, 28)
+        .background(Color.overDrafterCanvas.ignoresSafeArea())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Opening \(destination.title)")
+    }
+
     private func failureView(message: String) -> some View {
         VStack(spacing: 18) {
             Image(systemName: connectivity.isOnline ? "exclamationmark.triangle" : "wifi.slash")
@@ -126,37 +165,4 @@ struct WebWorkspaceView: View {
         }
         .padding(24)
     }
-}
-
-private extension Color {
-    static let overDrafterCanvas = Color(
-        red: 242.0 / 255.0,
-        green: 239.0 / 255.0,
-        blue: 232.0 / 255.0
-    )
-    static let overDrafterSurface = Color(
-        red: 251.0 / 255.0,
-        green: 249.0 / 255.0,
-        blue: 244.0 / 255.0
-    )
-    static let overDrafterInk = Color(
-        red: 28.0 / 255.0,
-        green: 27.0 / 255.0,
-        blue: 25.0 / 255.0
-    )
-    static let overDrafterMuted = Color(
-        red: 107.0 / 255.0,
-        green: 102.0 / 255.0,
-        blue: 92.0 / 255.0
-    )
-    static let overDrafterRule = Color(
-        red: 216.0 / 255.0,
-        green: 210.0 / 255.0,
-        blue: 196.0 / 255.0
-    )
-    static let overDrafterRed = Color(
-        red: 194.0 / 255.0,
-        green: 65.0 / 255.0,
-        blue: 12.0 / 255.0
-    )
 }

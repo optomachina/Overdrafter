@@ -80,16 +80,16 @@ contract is defined in
 
 ## Client-triggered quote request capability
 
-For the August 9, 2026 launch, OverDrafter turns a reviewed machined-aluminum STEP/PDF package into an unattended sourcing result. Every result ends in one of three client-safe outcomes: live offers, ranked potential-provider recommendations, or a bounded unsupported-package explanation with a useful next action.
+For the August 9, 2026 launch, OverDrafter turns a reviewed machined-aluminum STEP/PDF package into an explicit quote request and a comparable sourcing result. The part workspace moves directly from selecting the supported vendor integrations to reviewing the files and requirements that will be shared, then to quote comparison.
 
 Canonical feature statement:
 
-`Free organizations receive ranked provider guidance and official RFQ links from reviewed capability data. Pro organizations may request automatic quote collection and receive persisted live offers when a vendor succeeds. A failed or unavailable vendor lane degrades to the same useful provider guidance; it never creates a customer-visible dependency on internal manual fulfillment.`
+`Free organizations may upload, organize, and preview supported sourcing coverage. Pro organizations may select current vendor integrations, confirm the exact part package being shared, request automatic quote collection, and receive persisted live offers when a vendor succeeds. The primary part flow does not promote providers through recommendation cards or dead-end RFQ links.`
 
 Commercial access rules:
 - The commercial plan belongs to the organization, not an individual membership.
 - Free and Pro organizations may upload parts without a customer-facing quota.
-- Free organizations receive provider recommendations without starting a worker or creating internal fulfillment work.
+- Free organizations may preview current vendor coverage but may not select recipients or send part data for quoting.
 - Automatic vendor collection is a Pro entitlement enforced by the server before vendor work is queued.
 - Potential providers must be labeled separately from returned quotes. Synthetic or stale prices must never be presented as live.
 - Existing operational throttles and cost ceilings remain invisible safety controls. They are not customer quotas and must not create upload anxiety.
@@ -99,8 +99,26 @@ Current implementation foundation:
 - project-scoped bulk automatic requests for ready parts
 - multi-vendor dispatch across org-enabled, part-applicable vendor lanes
 - durable quote request lifecycle visibility in the client UI
-- provider recommendations ranked from authenticated, reviewed capability profiles
-- official provider RFQ links that remain useful when automation is unavailable
+- explicit vendor-scope selection from the organization's current integrations
+- a disclosure review of recipients, files, and normalized requirements before quote collection starts
+- immutable request lanes keyed by vendor, exact disclosed package and requirements, and quantity
+- vendor-stated commercial validity stored separately from the 14-day collection-freshness signal
+- organization-scoped canonical parts with exact CAD-plus-drawing versions and lightweight project/job placements
+
+Quote freshness and repeat-request rules:
+- The 14-day trusted-adapter rule answers whether a collected offer is recent enough to present as live; it does not assert that the vendor price is still commercially valid.
+- Commercial validity is vendor-stated or operator-entered. It may be an explicit expiration date or an explicit duration, and it is never inferred when missing.
+- A matching unexpired, trusted, selectable offer blocks only its exact vendor/part/quantity/disclosure lane.
+- Unknown validity does not lock a lane beyond the organization-wide same-scope cooldown, which defaults to 24 hours.
+- Changed files, revision, requirements, quantity, requested delivery date, or other disclosed fields create a new request scope.
+- Historical `published`, `completed`, or `client_selected` state is not a permanent quote-request block.
+
+Canonical part identity rules:
+- One organization-scoped canonical part may have multiple immutable versions and multiple placements in projects/jobs.
+- Exact complete versions require a worker-trusted CAD hash plus the drawing hash; missing drawing matches only missing drawing.
+- The same CAD with a different drawing is a new version under the same canonical part. Drawing-only uploads remain provisional until CAD is attached.
+- Exact versions may reuse files and technical extraction/preview artifacts only inside the same organization. Placement/request overrides and quote history remain isolated.
+- Cross-organization fingerprints are service-only aggregate analytics. They never expose, reuse, alter, or source from another customer's data.
 
 Planned commercial additions:
 - replay-safe Stripe subscription synchronization
@@ -108,8 +126,8 @@ Planned commercial additions:
 - production funnel events from signup through live offer receipt
 
 Current non-goals:
-- client-side vendor choice or multi-vendor comparison at request time
-- automatic reruns after a successful request
+- independent-shop directory search, email outreach, and response intake in the current integration-only request flow
+- automatic reruns while an exact lane has a valid offer or is inside its same-scope cooldown
 - richer DFM or release-gate workflows beyond the existing request metadata and package validation
 - annual pricing, coupons, manufacturing payments, orders, and complex account administration
 
@@ -220,11 +238,11 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 
 ### Primary goals
 - Reduce friction in part intake.
-- Make supported uploads immediately useful through live offers or reviewed provider guidance.
+- Make supported uploads immediately useful through sourcing coverage, explicit quote requests, and comparable live offers.
 - Centralize vendor comparison in one canonical record of quoting work.
 - Provide a clean client experience for collaboration and quote selection.
 - Maintain secure access boundaries between workspaces, projects, collaborators, and internal-only data.
-- Let users receive useful sourcing guidance without quota anxiety while monetizing cost-bearing automatic quote collection.
+- Let users prepare requests without quota anxiety while monetizing cost-bearing quote collection.
 - Give trusted operators safe, auditable controls for commercial access and order visibility.
 
 ### Secondary goals
@@ -240,7 +258,7 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 
 OverDrafter should support two complementary sourcing lanes after a customer uploads a part:
 
-1. `instant_quote`: free automated quote collection from supported high-volume vendor platforms.
+1. `instant_quote`: Pro quote collection from supported high-volume vendor platforms after explicit recipient selection and disclosure confirmation.
 2. `supplier_discovery`: search and assisted RFQ preparation for independent shops selected by capability, geography, certification, customer preference, or other reviewed fit criteria.
 
 The supplier directory is a continuously maintained coverage system rather than a claim that every possible shop is permanently known. Supplier companies, individual facilities, capabilities, certifications, service areas, source evidence, and verification history must be represented separately so results can be deduplicated and audited.
@@ -286,8 +304,8 @@ the application.
 
 OverDrafter supports an organization-level `Free` plan and a `Pro` plan.
 
-- Free includes unlimited part uploads, project organization, request preparation, ranked provider guidance, and official RFQ links.
-- Pro adds the `automatic_quote_collection` entitlement.
+- Free includes unlimited part uploads, project organization, request preparation, and a read-only preview of supported sourcing coverage.
+- Pro adds vendor-scope selection, outbound part-package confirmation, and the `automatic_quote_collection` entitlement.
 - Membership roles such as client, estimator, and internal admin remain authorization roles; they are not commercial plans.
 - Trial grants are explicit entitlement grants with actor, reason, effective dates, required expiration, revocation history, and immutable audit.
 - Complimentary grants are explicit entitlement grants with actor, required reason, effective dates, required review date, optional expiration, revocation history, and immutable audit.

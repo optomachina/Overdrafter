@@ -1,10 +1,15 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { ClientPartPropertyOverrideField, ClientPartRequestUpdateInput } from "@/features/quotes/types";
+import type {
+  ClientPartPropertyOverrideField,
+  ClientPartRequestUpdateInput,
+} from "@/features/quotes/types";
 import { ClientPartRequestEditor } from "./ClientPartRequestEditor";
 
-type FieldDefaults = Partial<Record<ClientPartPropertyOverrideField, string | number | null>>;
+type FieldDefaults = Partial<
+  Record<ClientPartPropertyOverrideField, string | number | null>
+>;
 
 vi.mock("@/components/quotes/RfqLineItemMetadataFields", () => ({
   RfqLineItemMetadataFields: () => <div data-testid="rfq-metadata" />,
@@ -14,7 +19,9 @@ vi.mock("@/components/quotes/RequestServiceIntentFields", () => ({
   RequestServiceIntentFields: () => <div data-testid="service-intent-fields" />,
 }));
 
-function makeDraft(overrides: Partial<ClientPartRequestUpdateInput> = {}): ClientPartRequestUpdateInput {
+function makeDraft(
+  overrides: Partial<ClientPartRequestUpdateInput> = {},
+): ClientPartRequestUpdateInput {
   return {
     jobId: "job-1",
     description: null,
@@ -63,6 +70,53 @@ function makeDraft(overrides: Partial<ClientPartRequestUpdateInput> = {}): Clien
 const noop = () => {};
 
 describe("ClientPartRequestEditor — reset buttons", () => {
+  it("lays out requirements responsively in the primary workspace", () => {
+    render(
+      <ClientPartRequestEditor
+        draft={makeDraft()}
+        quoteQuantityInput=""
+        onQuoteQuantityInputChange={noop}
+        onChange={noop}
+        onSave={noop}
+        onUploadRevision={noop}
+      />,
+    );
+
+    expect(screen.getByTestId("part-requirements-grid")).toHaveClass(
+      "md:grid-cols-2",
+      "xl:grid-cols-3",
+    );
+    expect(screen.getByLabelText("Description").parentElement?.parentElement).toHaveClass(
+      "md:col-span-2",
+      "xl:col-span-3",
+    );
+    expect(screen.getByLabelText("Threads").parentElement?.parentElement).toHaveClass(
+      "md:col-span-2",
+    );
+    expect(screen.getByLabelText("Notes").parentElement).toHaveClass(
+      "md:col-span-2",
+      "xl:col-span-3",
+    );
+  });
+
+  it("keeps the client editor quote-only without requested-service controls", () => {
+    render(
+      <ClientPartRequestEditor
+        draft={makeDraft({ requestedServiceKinds: [] })}
+        quoteQuantityInput=""
+        onQuoteQuantityInputChange={noop}
+        onChange={noop}
+        onSave={noop}
+        onUploadRevision={noop}
+      />,
+    );
+
+    expect(
+      screen.queryByTestId("service-intent-fields"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Quote quantities")).toBeInTheDocument();
+  });
+
   it("renders a reset button when onResetField is provided and draft differs from default", () => {
     const draft = makeDraft({ material: "modified material" });
     const fieldDefaults: FieldDefaults = {
@@ -82,7 +136,9 @@ describe("ClientPartRequestEditor — reset buttons", () => {
       />,
     );
 
-    const resetButton = screen.getByTitle("Reset to extracted: 6061-T6 aluminum");
+    const resetButton = screen.getByTitle(
+      "Reset to extracted: 6061-T6 aluminum",
+    );
     expect(resetButton).toBeInTheDocument();
   });
 
@@ -105,7 +161,9 @@ describe("ClientPartRequestEditor — reset buttons", () => {
       />,
     );
 
-    expect(screen.queryByTitle("Reset to extracted: 6061-T6 aluminum")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTitle("Reset to extracted: 6061-T6 aluminum"),
+    ).not.toBeInTheDocument();
   });
 
   it("does not render a reset button when no default exists for the field", () => {
@@ -125,7 +183,9 @@ describe("ClientPartRequestEditor — reset buttons", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: /reset to extracted/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /reset to extracted/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("does not render reset buttons when onResetField is not provided", () => {
@@ -146,7 +206,9 @@ describe("ClientPartRequestEditor — reset buttons", () => {
       />,
     );
 
-    expect(screen.queryByTitle("Reset to extracted: 6061-T6 aluminum")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTitle("Reset to extracted: 6061-T6 aluminum"),
+    ).not.toBeInTheDocument();
   });
 
   it("calls onResetField with the correct field name when clicked", () => {

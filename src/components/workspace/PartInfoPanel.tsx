@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 import { ClientPartRequestEditor } from "@/components/quotes/ClientPartRequestEditor";
-import type { ClientPartPropertyOverrideField, ClientPartRequestUpdateInput } from "@/features/quotes/types";
+import type {
+  ClientPartPropertyOverrideField,
+  ClientPartRequestUpdateInput,
+} from "@/features/quotes/types";
 
 type PartInfoPanelProps = {
   effectiveRequestDraft: ClientPartRequestUpdateInput | null;
@@ -13,7 +16,9 @@ type PartInfoPanelProps = {
   statusContent?: ReactNode;
   onResetField?: (field: ClientPartPropertyOverrideField) => void;
   onResetAllFields?: () => void;
-  fieldDefaults?: Partial<Record<ClientPartPropertyOverrideField, string | number | null>>;
+  fieldDefaults?: Partial<
+    Record<ClientPartPropertyOverrideField, string | number | null>
+  >;
 };
 
 export function PartInfoPanel({
@@ -30,31 +35,55 @@ export function PartInfoPanel({
   fieldDefaults,
 }: PartInfoPanelProps) {
   return (
-    <div className="min-w-0">
-      <p className="mb-[6px] text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Part information</p>
-      <section className="min-w-0 overflow-hidden rounded-[12px] border border-ws-border-subtle bg-ws-card p-4">
-        {statusContent ? <div className="mb-4 space-y-4">{statusContent}</div> : null}
+    <section
+      aria-labelledby="part-requirements-heading"
+      className="min-w-0 border-t border-paper-hairline pt-5"
+    >
+      <div className="mb-5 max-w-3xl">
+        <p className="font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-paper-red">
+          Part setup
+        </p>
+        <h2
+          id="part-requirements-heading"
+          className="mt-1 font-display text-xl font-bold text-paper-ink"
+        >
+          Part requirements
+        </h2>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          Review extracted values and complete the details used for quoting.
+        </p>
+      </div>
 
-        <div>
-          {effectiveRequestDraft ? (
-            <ClientPartRequestEditor
-              draft={effectiveRequestDraft}
-              quoteQuantityInput={quoteQuantityInput}
-              onQuoteQuantityInputChange={onQuoteQuantityInputChange}
-              onChange={onDraftChange}
-              onSave={onSave}
-              onUploadRevision={onUploadRevision}
-              isSaving={isSaving}
-              onResetField={onResetField}
-              onResetAllFields={onResetAllFields}
-              fieldDefaults={fieldDefaults}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">Part details are still loading.</p>
-          )}
+      {statusContent ? (
+        <div
+          data-testid="part-status-content"
+          className="mb-5 grid min-w-0 gap-3 lg:grid-cols-2 [&>*:only-child]:lg:col-span-2 [&>*]:min-w-0"
+        >
+          {statusContent}
         </div>
-      </section>
-    </div>
+      ) : null}
+
+      <div className="min-w-0 border-t border-paper-hairline pt-5">
+        {effectiveRequestDraft ? (
+          <ClientPartRequestEditor
+            draft={effectiveRequestDraft}
+            quoteQuantityInput={quoteQuantityInput}
+            onQuoteQuantityInputChange={onQuoteQuantityInputChange}
+            onChange={onDraftChange}
+            onSave={onSave}
+            onUploadRevision={onUploadRevision}
+            isSaving={isSaving}
+            onResetField={onResetField}
+            onResetAllFields={onResetAllFields}
+            fieldDefaults={fieldDefaults}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Part details are still loading.
+          </p>
+        )}
+      </div>
+    </section>
   );
 }
 

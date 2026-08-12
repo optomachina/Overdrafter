@@ -84,6 +84,21 @@ function formatEstimatedDeliveryDays(
   return resolvedDeliveryDate ?? "Pending";
 }
 
+function formatOfferFreshness(option: ClientQuoteSelectionOption) {
+  const collectedAt = option.quoteDateIso ?? option.offerCreatedAt ?? option.quoteResultCreatedAt;
+  const collectedLabel = collectedAt
+    ? `Collected ${new Date(collectedAt).toLocaleDateString()}`
+    : "Collection date unavailable";
+
+  if (option.invalidatedAt) {
+    return `${collectedLabel} · invalidated`;
+  }
+  if (option.validUntil) {
+    return `${collectedLabel} · valid through ${new Date(option.validUntil).toLocaleDateString()}`;
+  }
+  return `${collectedLabel} · validity not provided`;
+}
+
 function getVendorStatusDisplay(status: string | undefined) {
   if (!status) return null;
 
@@ -424,6 +439,9 @@ function QuoteComparisonTable({
                 </TableCell>
                 <TableCell className="py-2.5 text-xs text-muted-foreground">
                   <p>{option.laneLabel ?? option.tier ?? "Standard"}</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {formatOfferFreshness(option)}
+                  </p>
                   {option.sourcing ? (
                     <p className="text-[10px] text-muted-foreground">{option.sourcing}</p>
                   ) : null}
@@ -543,6 +561,9 @@ function QuoteComparisonCards({
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {[option.laneLabel ?? option.tier ?? "Standard", option.sourcing].filter(Boolean).join(" · ")}
+                      <span className="mt-1 block text-[11px] font-normal text-muted-foreground">
+                        {formatOfferFreshness(option)}
+                      </span>
                     </p>
                   </div>
                 </div>
@@ -660,6 +681,9 @@ function MobileQuoteReviewDeck({
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {[option.laneLabel ?? option.tier ?? "Standard", option.sourcing].filter(Boolean).join(" · ")}
+                    <span className="mt-1 block text-[11px] font-normal text-muted-foreground">
+                      {formatOfferFreshness(option)}
+                    </span>
                   </p>
                 </div>
                 {showTopRankBadge ? (

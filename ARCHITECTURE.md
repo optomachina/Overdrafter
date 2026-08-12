@@ -28,9 +28,14 @@ The intended end state is a multi-agent manufacturing co-pilot: CAD-native intak
 - authentication entry points
 - client auth bootstrap performs one browser-local Supabase session restore before protected-route decisions run, and later session refreshes use live auth reads rather than the memoized startup snapshot
 - route guards must wait for initial auth restoration before treating the user as signed out
+- the root route keeps workspace chrome neutral until membership and capability resolution selects the client, internal, provisioning, or public experience; a restored user identity alone never selects a workspace shell
+- the root route is the canonical anonymous entry point and renders the single-page quote comparison experience; anonymous collection routes redirect there while preserving sign-in intent
 - workspace-facing navigation and application shell
 - client launch navigation presents `Parts | Quotes | Search`; `Project` remains the backing collaboration and
   procurement-workflow container rather than the first navigation decision
+- client part workspaces keep quote, download, upload, share, and overflow actions in the part header; artifact preview panes do not duplicate file actions
+- client-facing coating summaries display a concise normalized manufacturing finish while preserving the customer or drawing wording as visible provenance
+- client request editing is quote-only; broader requested-service intent remains a backend/internal concern until the product supports those services
 - client intake UI
 - artifact-first client workspaces with contextual intelligence rails and chat as a secondary tool
 - project browsing and creation flows remain reachable from part context and legacy routes
@@ -147,20 +152,24 @@ device release gate before this flow replaces the current embedded sign-in.
 ### 6. Quote orchestration layer
 - validating whether a client-facing part package is ready for quote collection
 - recording quote request intent and collection mode separately from quote run execution
-- returning ranked provider recommendations and official RFQ links for supported Free packages without creating worker or operator work
+- returning a read-only sourcing coverage preview for supported Free packages without transmitting part data or creating worker or operator work
+- persisting job-scoped vendor inclusion/exclusion before an entitled automatic request is dispatched
 - resolving the organization-level `automatic_quote_collection` entitlement before automatic vendor work is queued
 - initiating automated quote retrieval where supported
 - retaining manual quote entry and imported quote paths as internal-only compatibility mechanisms
 - normalizing quote outputs into a canonical internal model
 - materializing spreadsheet or manual lane data into `vendor_quote_results` and canonical per-lane `vendor_quote_offers`
+- snapshotting each outbound vendor/part/quantity disclosure into an immutable `quote_request_lanes` record with an internal-only versioned fingerprint
+- storing vendor-stated offer validity, its normalized source/duration, original terms, provenance, and append-only invalidation audit separately from collection freshness
 - exposing client-safe quote comparison data through `public.api_list_client_quote_workspace`, rather than direct client reads from internal-only quote tables
 
-Free sourcing and Pro automatic collection are separate launch contracts:
+Free coverage preview and Pro automatic collection are separate launch contracts:
 
-- Free sourcing ranks only reviewed provider capability profiles and never represents a potential provider as a returned quote
+- Free sourcing exposes only a read-only coverage preview and never represents a potential provider as a returned quote
 - `automatic` retains vendor fan-out and requires a server-resolved Pro entitlement
+- the client must collect an explicit vendor scope and show recipients, files, and normalized requirements before dispatch
 - client UI may explain or upsell Pro, but UI state is never the enforcement boundary
-- entitlement lookup and vendor automation failures fail closed for automatic execution while preserving recommendations and direct RFQ links
+- entitlement lookup and vendor automation failures fail closed for automatic execution with a bounded retry or unavailable state
 - only successful Xometry or Fictiv live-adapter offers no older than 14 days may produce the `live_offers_available` sourcing outcome
 - operational rate limits and pending-cost ceilings continue to protect automatic execution but are not customer quotas
 
@@ -354,19 +363,29 @@ See `docs/service-request-taxonomy.md` for the canonical service types and mixed
 The current client-triggered request flow keeps the existing queue and worker path, but adds a separate client-safe request-intent record:
 
 - client part or project workspace validates the package and calls a quote request RPC
-- the backend creates an idempotent quote request record when no active request already exists
+- the backend resolves `requestable`, `active`, `valid_quote`, or `cooldown` for every exact vendor/part/quantity disclosure lane under a per-job transaction lock
 - the backend creates a linked quote run execution record
-- the backend resolves org-enabled client-request vendors, intersects them with part-level applicable vendors, and seeds one vendor lane per part, quantity, and enabled vendor
+- the client submits selected vendors explicitly; the backend intersects them with org-enabled and part-applicable vendors and queues only uncovered lanes
 - the backend enforces per-user throttling plus an org-level pending-cost circuit breaker before new client-triggered vendor work is enqueued
 - the backend enqueues `run_vendor_quote` work items in `work_queue`
 - the worker claims the task, stages the files, and calls the adapter named in the queue payload vendor lane
 - vendor result transitions roll up into both request lifecycle state and existing job lifecycle state
 - client UI reads the latest quote request, with quote-run fallback for pre-existing data, to show request status
 - client-visible failed request reasons are allowlisted and sanitized; raw worker exception text stays in internal logs or internal-only records
+- completed/published job history never blocks a changed or expired lane; a trusted selectable offer blocks only through its inclusive explicit expiration, while unknown validity receives the configured same-scope organization cooldown
+- billing admins may invalidate a bad offer only at AAL2 with a required reason and idempotency key; invalidation releases one immediate replacement before the new lane restores normal cooldown behavior
+
+## Canonical part identity and version reuse
+
+- `canonical_parts` is the organization-scoped technical identity.
+- `part_versions` stores an exact CAD-plus-drawing package identity; `parts` remains the placement that owns project/request/quote context.
+- Browser-computed hashes are intake hints only. A version remains unverified/provisional until the worker downloads the stored object and registers its own SHA-256 digest.
+- Exact same-organization versions can create a new lightweight placement backed by the existing organization blobs and version-level technical artifacts. No cross-organization file or record is reused.
+- `private.part_fingerprint_observations` supports global aggregate analysis with no authenticated grants or client API. `private.part_geometry_candidates` is asynchronous, non-blocking staging until rotation/unit/export invariance is proven against a representative corpus.
 
 The launch commercial contract extends that lifecycle without replacing internal compatibility paths:
 
-- Free organizations receive client-safe provider recommendations without submitting a customer-facing manual request
+- Free organizations receive a read-only sourcing coverage preview without submitting a customer-facing request or transmitting part data
 - internal manual requests may still create request/run records and follow-up visibility, but they are hidden and non-critical to launch fulfillment
 - only organizations with the effective `automatic_quote_collection` entitlement may submit `automatic` requests
 - the database/RPC boundary enforces automatic access even when a client bypasses the UI

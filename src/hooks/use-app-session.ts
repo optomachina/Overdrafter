@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type PropsWithChildren,
+} from "react";
 import {
   useQuery,
   useQueryClient,
@@ -57,7 +66,7 @@ export { getSupabaseAuthStorageKey } from "@/features/quotes/api/shared/startup-
 
 type InitialAuthCheckState = "checking" | "none" | "present";
 
-export function useAppSession() {
+function useAppSessionState() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const pendingAuthTransitionRef = useRef(false);
@@ -631,4 +640,32 @@ export function useAppSession() {
     activeMembership,
     signOut,
   };
+}
+
+type AppSessionContextValue = ReturnType<typeof useAppSessionState>;
+
+const AppSessionContext = createContext<AppSessionContextValue | null>(null);
+
+/**
+ * Owns the browser auth subscription and initial session restoration once for
+ * the whole application. Route and shell consumers share the resolved result
+ * instead of racing separate hook-local restoration flags.
+ */
+export function AppSessionProvider({ children }: Readonly<PropsWithChildren>) {
+  const value = useAppSessionState();
+
+  return createElement(AppSessionContext.Provider, { value }, children);
+}
+
+/**
+ * Reads the shared application session established by {@link AppSessionProvider}.
+ */
+export function useAppSession(): AppSessionContextValue {
+  const value = useContext(AppSessionContext);
+
+  if (!value) {
+    throw new Error("useAppSession must be used within AppSessionProvider.");
+  }
+
+  return value;
 }

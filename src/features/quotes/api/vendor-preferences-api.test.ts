@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   fetchJobVendorPreferenceContext,
+  resolveEffectiveJobVendorSelection,
   setJobVendorPreferences,
   setProjectVendorPreferences,
 } from "./vendor-preferences-api";
@@ -16,6 +17,27 @@ vi.mock("./shared/rpc", () => ({
 describe("vendor-preferences-api", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("resolves project defaults with exact job-level overrides", () => {
+    expect(
+      resolveEffectiveJobVendorSelection({
+        jobId: "job-1",
+        projectId: "project-1",
+        organizationId: "org-1",
+        availableVendors: ["fictiv", "protolabs", "xometry"],
+        projectVendorPreferences: {
+          includedVendors: ["fictiv", "xometry"],
+          excludedVendors: [],
+          updatedAt: null,
+        },
+        jobVendorPreferences: {
+          includedVendors: ["protolabs"],
+          excludedVendors: ["xometry"],
+          updatedAt: null,
+        },
+      }),
+    ).toEqual(["fictiv", "protolabs"]);
   });
 
   it("loads and normalizes job vendor preference context", async () => {

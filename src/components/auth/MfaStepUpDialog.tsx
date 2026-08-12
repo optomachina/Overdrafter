@@ -233,12 +233,13 @@ export function MfaStepUpDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-primary" />
-            Verify this commercial change
+            Set up or verify MFA
           </DialogTitle>
           <DialogDescription>
-            Trial, complimentary, and revocation changes require an
-            authenticator-app code. Your account remains the actor; this does
-            not switch or impersonate a customer.
+            Commercial changes require an authenticator-app code. Set up an
+            authenticator if this is your first time, or enter a current code
+            to continue. Your account remains the actor; this does not switch
+            or impersonate a customer.
           </DialogDescription>
         </DialogHeader>
 

@@ -1,5 +1,4 @@
-import { AlertTriangle, CheckCircle2, Clock3, FileSearch, XCircle } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { AlertTriangle, Clock3, FileSearch, XCircle } from "lucide-react";
 import type { ClientExtractionDiagnostics } from "@/features/quotes/types";
 import { cn } from "@/lib/utils";
 
@@ -35,18 +34,36 @@ export function ClientExtractionStatusNotice({
     diagnostics.reviewFields && diagnostics.reviewFields.length > 0
       ? diagnostics.reviewFields.map(sentenceCaseField).join(", ")
       : null;
+  const reviewFieldCount =
+    diagnostics.missingFields.length + (diagnostics.reviewFields?.length ?? 0);
+  const partialActions: string[] = [];
+
+  if (missingLabel) {
+    partialActions.push(`add ${missingLabel.toLowerCase()}`);
+  }
+
+  if (reviewLabel) {
+    partialActions.push(`verify ${reviewLabel.toLowerCase()}`);
+  }
+
+  partialActions.push("then save request details");
 
   switch (diagnostics.lifecycle) {
     case "queued":
     case "extracting":
       return (
-        <div className={cn("rounded-2xl border border-sky-400/20 bg-sky-500/10 p-4", className)}>
-          <div className="flex items-start gap-3">
-            <Clock3 className="mt-0.5 h-5 w-5 text-sky-200" />
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">Drawing extraction in progress</p>
-              <p className="text-sm text-sky-100/85">
-                Uploaded drawing metadata is still being processed. Available fields will populate automatically when extraction finishes.
+        <div
+          className={cn("border-l-2 border-sky-400/60 py-1.5 pl-3", className)}
+        >
+          <div className="flex items-start gap-2.5">
+            <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">
+                Drawing extraction in progress
+              </p>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                Drawing fields will populate automatically when processing
+                finishes.
               </p>
             </div>
           </div>
@@ -54,82 +71,59 @@ export function ClientExtractionStatusNotice({
       );
     case "failed":
       return (
-        <div className={cn("rounded-2xl border border-rose-400/20 bg-rose-500/10 p-4", className)}>
-          <div className="flex items-start gap-3">
-            <XCircle className="mt-0.5 h-5 w-5 text-rose-200" />
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">Drawing extraction failed</p>
-              <p className="text-sm text-rose-100/85">
+        <div
+          className={cn("border-l-2 border-rose-400/60 py-1.5 pl-3", className)}
+        >
+          <div className="flex items-start gap-2.5">
+            <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-300" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">
+                Drawing extraction failed
+              </p>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
                 {diagnostics.lastFailureMessage ??
                   "The drawing PDF could not be processed yet. Review the upload and try again if needed."}
               </p>
-              {diagnostics.lastFailureCode ? (
-                <Badge className="border border-rose-300/20 bg-rose-400/10 text-rose-100">
-                  {diagnostics.lastFailureCode}
-                </Badge>
-              ) : null}
             </div>
           </div>
         </div>
       );
     case "partial":
       return (
-        <div className={cn("rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4", className)}>
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-200" />
-            <div className="min-w-0 space-y-2">
-              <p className="text-sm font-medium text-foreground">Review drawing details before sourcing</p>
-              <p className="text-sm text-amber-100/85">
-                We filled the request fields we could read from the PDF. Complete anything marked Missing and verify anything marked Review in the request details below.
+        <div
+          className={cn(
+            "border-l-2 border-amber-400/60 py-1.5 pl-3",
+            className,
+          )}
+        >
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">
+                Review {reviewFieldCount || diagnostics.warningCount} drawing{" "}
+                {reviewFieldCount === 1 ? "field" : "fields"}
               </p>
-              <div className="flex flex-wrap gap-2">
-                {diagnostics.warningCount > 0 ? (
-                  <Badge className="max-w-full whitespace-normal border border-amber-300/20 bg-amber-400/10 text-left text-amber-100">
-                    {diagnostics.warningCount} warning{diagnostics.warningCount === 1 ? "" : "s"}
-                  </Badge>
-                ) : null}
-                {missingLabel ? (
-                  <Badge className="max-w-full whitespace-normal break-words border border-amber-300/20 bg-amber-400/10 text-left text-amber-100">
-                    Missing: {missingLabel}
-                  </Badge>
-                ) : null}
-                {reviewLabel ? (
-                  <Badge className="max-w-full whitespace-normal break-words border border-amber-300/20 bg-amber-400/10 text-left text-amber-100">
-                    Review: {reviewLabel}
-                  </Badge>
-                ) : null}
-              </div>
-              <p className="text-xs leading-5 text-amber-100/75">
-                When the values are correct, select Save request details. Provider matching uses the saved values, not this extraction warning.
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                {partialActions.join("; ")}.
               </p>
             </div>
           </div>
         </div>
       );
     case "succeeded":
-      return (
-        <div className={cn("rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4", className)}>
-          <div className="flex items-start gap-3">
-            <CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-200" />
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">Drawing metadata extracted</p>
-              <p className="text-sm text-emerald-100/85">
-                Drawing-derived fields were applied to this request and are ready for review.
-              </p>
-            </div>
-          </div>
-        </div>
-      );
+      return null;
     case "uploaded":
     default:
       return (
-        <div className={cn("rounded-2xl border border-border bg-accent p-4", className)}>
-          <div className="flex items-start gap-3">
-            <FileSearch className="mt-0.5 h-5 w-5 text-foreground/80" />
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">Waiting for drawing metadata</p>
-              <p className="text-sm text-foreground/80">
-                A drawing PDF has not produced extracted metadata yet. Upload a PDF drawing or wait for processing to begin.
+        <div className={cn("border-l-2 border-border py-1.5 pl-3", className)}>
+          <div className="flex items-start gap-2.5">
+            <FileSearch className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">
+                Waiting for drawing metadata
+              </p>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                Upload a PDF drawing or wait for processing to begin.
               </p>
             </div>
           </div>

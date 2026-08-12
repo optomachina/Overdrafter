@@ -21,13 +21,25 @@ const partialDiagnostics: ClientExtractionDiagnostics = {
 };
 
 describe("ClientExtractionStatusNotice", () => {
-  it("turns a partial extraction into explicit review and save instructions", () => {
+  it("turns a partial extraction into one compact, explicit next action", () => {
     render(<ClientExtractionStatusNotice diagnostics={partialDiagnostics} />);
 
-    expect(screen.getByText("Review drawing details before sourcing")).toBeInTheDocument();
-    expect(screen.getByText(/complete anything marked missing/i)).toBeInTheDocument();
-    expect(screen.getByText("Missing: Part number")).toBeInTheDocument();
-    expect(screen.getByText("Review: Tightest tolerance")).toBeInTheDocument();
-    expect(screen.getByText(/select save request details/i)).toBeInTheDocument();
+    expect(screen.getByText("Review 2 drawing fields")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /add part number; verify tightest tolerance; then save/i,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/warning/i)).not.toBeInTheDocument();
+  });
+
+  it("does not occupy inspector space after extraction succeeds", () => {
+    const { container } = render(
+      <ClientExtractionStatusNotice
+        diagnostics={{ ...partialDiagnostics, lifecycle: "succeeded" }}
+      />,
+    );
+
+    expect(container).toBeEmptyDOMElement();
   });
 });

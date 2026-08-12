@@ -3,7 +3,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getSupabaseAuthStorageKey, useAppSession } from "@/hooks/use-app-session";
+import {
+  AppSessionProvider,
+  getSupabaseAuthStorageKey,
+  useAppSession,
+} from "@/hooks/use-app-session";
 import type { AppSessionData } from "@/features/quotes/types";
 import {
   resetStartupAuthBootstrapForTests,
@@ -57,6 +61,16 @@ function SessionProbe() {
   );
 }
 
+function SessionInitializationProbe({ id }: Readonly<{ id: string }>) {
+  const session = useAppSession();
+
+  return (
+    <span data-testid={`auth-initializing-${id}`}>
+      {session.isAuthInitializing ? "yes" : "no"}
+    </span>
+  );
+}
+
 function renderProbe() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -68,8 +82,13 @@ function renderProbe() {
 
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/"]}>
-        <SessionProbe />
+      <MemoryRouter
+        initialEntries={["/"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <AppSessionProvider>
+          <SessionProbe />
+        </AppSessionProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -83,8 +102,13 @@ function renderProbe() {
 function renderProbeWithQueryClient(queryClient: QueryClient) {
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/internal/jobs/job-1"]}>
-        <SessionProbe />
+      <MemoryRouter
+        initialEntries={["/internal/jobs/job-1"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <AppSessionProvider>
+          <SessionProbe />
+        </AppSessionProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -165,6 +189,70 @@ describe("useAppSession", () => {
     vi.useRealTimers();
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+  });
+
+  it("shares one auth restoration lifecycle across multiple consumers", async () => {
+    const deferred = deferredPromise<AppSessionData>();
+    const tokenKey = getSupabaseAuthStorageKey();
+    const localSession = {
+      access_token: "token-1",
+      refresh_token: "refresh-token-1",
+      expires_in: 3600,
+      token_type: "bearer",
+      user: {
+        id: "user-1",
+        email: "client@example.com",
+        app_metadata: {},
+        user_metadata: {},
+        aud: "authenticated",
+        created_at: "2026-03-11T00:00:00.000Z",
+      },
+    } as Session;
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
+
+    storageMock.setItem(tokenKey, JSON.stringify({ access_token: "token-1" }));
+    getSessionMock.mockResolvedValueOnce({
+      data: { session: localSession },
+      error: null,
+    });
+    fetchAppSessionDataMock.mockReturnValueOnce(deferred.promise);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter
+          initialEntries={["/internal/commercial"]}
+          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        >
+          <AppSessionProvider>
+            <SessionInitializationProbe id="one" />
+            <SessionInitializationProbe id="two" />
+          </AppSessionProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-initializing-one")).toHaveTextContent("yes");
+      expect(screen.getByTestId("auth-initializing-two")).toHaveTextContent("yes");
+      expect(onAuthStateChangeMock).toHaveBeenCalledTimes(1);
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
+    });
+
+    deferred.resolve({
+      user: localSession.user as AppSessionData["user"],
+      memberships: [],
+      isVerifiedAuth: true,
+      authState: "authenticated",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("auth-initializing-one")).toHaveTextContent("no");
+      expect(screen.getByTestId("auth-initializing-two")).toHaveTextContent("no");
+    });
   });
 
   it("hydrates the user immediately from a signed-in auth event before the session refetch completes", async () => {
@@ -464,7 +552,10 @@ describe("useAppSession", () => {
 
     renderProbe();
 
-    expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    await waitFor(() => {
+      expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("auth-initializing")).toHaveTextContent("no");
+    });
   });
 
   it("supports signing out and then signing back in from the same tab", async () => {

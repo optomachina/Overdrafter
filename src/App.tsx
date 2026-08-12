@@ -15,6 +15,7 @@ import { DiagnosticsBootstrap } from "@/components/debug/DiagnosticsBootstrap";
 import { ExtractionLauncher } from "@/components/debug/ExtractionLauncher";
 import { captureDiagnosticError } from "@/lib/diagnostics";
 import { shouldCaptureMutationDiagnostic } from "@/lib/react-query-diagnostics";
+import { AppSessionProvider } from "@/hooks/use-app-session";
 import Index from "./pages/Index";
 import SignIn from "./pages/SignIn";
 import NotFound from "./pages/NotFound";
@@ -112,11 +113,12 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <DiagnosticsBootstrap />
-          <ExtractionLauncher hideFloatingButton />
-          {shouldRenderAgentation() && <Agentation />}
-          <AppErrorBoundary>
-            <Routes>
+          <AppSessionProvider>
+            <DiagnosticsBootstrap />
+            <ExtractionLauncher hideFloatingButton />
+            {shouldRenderAgentation() && <Agentation />}
+            <AppErrorBoundary>
+              <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/parts" element={<ClientParts />} />
               <Route path="/projects/:projectId" element={<ClientProject />} />
@@ -143,8 +145,9 @@ const App = () => (
               <Route path="/debug/concepts" element={<ConceptsGallery />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
-            </Routes>
-          </AppErrorBoundary>
+              </Routes>
+            </AppErrorBoundary>
+          </AppSessionProvider>
         </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>

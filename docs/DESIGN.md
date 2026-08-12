@@ -178,6 +178,7 @@ The July 28, 2026 launch direction supersedes the persistent left ledger as the 
 - Authenticated web uses one stable application frame: a 52px collapsed / 224px expanded left rail at tablet width and above, and a 224px navigation drawer on narrower screens. Collapsing changes rail width and label opacity only; navigation icon nodes remain mounted and position-stable.
 - The launch client routes—Parts, Quotes, Search, part detail, and quote detail—use one 56px page header and one primary workspace scroll container. Document-level scrolling and route-specific shell variants are not permitted within those launch surfaces; legacy project and review construction shells remain out of scope.
 - A contextual inspector is optional. It occupies 336px beside the workspace at wide desktop sizes and becomes a 336px sheet on tablet and phone so the central artifact view never gets squeezed.
+- Part setup is not inspector content. Revision context, extraction and quote-request status, and editable requirements live inline in the part-detail workspace between the artifact viewer and quote comparison so the form has enough width and remains in the primary scroll at every viewport.
 - The approved iPhone shell is `INBOX | PARTS | QUOTES | MORE`, with a
   separate `ASK` action adjacent to the bottom destination bar. iPad may adapt
   the same destinations to a native sidebar.
@@ -296,6 +297,7 @@ Reject any UI work that includes:
 
 | Date | Decision | Rationale |
 |---|---|---|
+| 2026-08-10 | Part setup and requirements move from the contextual inspector into the primary part-detail workspace | These are core, persistent quoting inputs rather than optional context. Inline placement removes the cramped third column, gives long manufacturing fields responsive width, and preserves one primary scroll across desktop, tablet, and phone. The shell inspector remains available for truly contextual tools. |
 | 2026-04-25 | Initial design system created | `/design-consultation` ran with Codex + Claude subagent + competitive research (Xometry, Fictiv, Anduril, SpaceX, Hermeus, Onshape, Linear). All three voices independently converged on warm-bone-on-paper with single oxidized-red accent and mono filename hero. Memorable thing: "the most elegant way to get great parts fast." Reference class: Hadrian / Anduril / SpaceX, NOT Xometry / Fictiv. |
 | 2026-04-25 | Mono = Lab Mono (free) with Letter Gothic Mono on the future-license roadmap | Berkeley Mono rejected (no real ASME heritage). Courier Prime considered (real heritage, free, but slightly looser feel). Lab Mono picked as the modern Letter Gothic homage — same shape, free, ships now. Letter Gothic Mono is the eventual upgrade for authentic mechanical-drafting heritage. |
 | 2026-04-25 | Display = Suisse Int'l Condensed (default) + GT America Mono (alternate) | Both sanctioned. Codex argued for Suisse Condensed (mechanical pressure, brand presence); subagent argued for GT America Mono (part number as protagonist). Default is Suisse; mono allowed where artifact-as-protagonist needs to dominate. |

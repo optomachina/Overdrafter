@@ -40,6 +40,7 @@ const SOCIAL_AUTH_PROVIDERS: SocialAuthProviderConfig[] = [
 type SocialAuthButtonsProps = {
   buttonClassName?: string;
   className?: string;
+  compact?: boolean;
   disabled?: boolean;
   redirectPath?: string;
 };
@@ -51,6 +52,7 @@ function getErrorMessage(error: unknown) {
 export function SocialAuthButtons({
   buttonClassName,
   className,
+  compact = false,
   disabled = false,
   redirectPath = "/auth/callback",
 }: SocialAuthButtonsProps) {
@@ -80,12 +82,20 @@ export function SocialAuthButtons({
     <div className={cn("space-y-2", className)}>
       {SOCIAL_AUTH_PROVIDERS.map((provider) => {
         const isPending = pendingProvider === provider.id;
+        let visibleLabel = `Continue with ${provider.label}`;
+
+        if (compact) {
+          visibleLabel = provider.providerName;
+        } else if (isPending) {
+          visibleLabel = `Connecting to ${provider.providerName}`;
+        }
 
         return (
           <Button
             key={provider.id}
             type="button"
             variant="outline"
+            aria-label={isPending ? `Connecting to ${provider.providerName}` : `Continue with ${provider.label}`}
             className={cn("w-full justify-start", buttonClassName)}
             disabled={disabled || pendingProvider !== null}
             onClick={() => {
@@ -93,11 +103,11 @@ export function SocialAuthButtons({
             }}
           >
             {isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <provider.Icon className="mr-2 h-4 w-4" />
+              <provider.Icon className="h-4 w-4" />
             )}
-            {isPending ? `Connecting to ${provider.providerName}` : `Continue with ${provider.label}`}
+            {visibleLabel}
           </Button>
         );
       })}

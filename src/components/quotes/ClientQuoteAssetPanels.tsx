@@ -1,25 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Box, Download, Expand, FileText, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { AlertCircle, Box, Expand, FileText, Loader2 } from "lucide-react";
 import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { Button } from "@/components/ui/button";
-import type { DrawingPreviewData, JobFileRecord } from "@/features/quotes/types";
+import type {
+  DrawingPreviewData,
+  JobFileRecord,
+} from "@/features/quotes/types";
 import {
   createCadPreviewSourceFromJobFile,
   isStepPreviewableFile,
 } from "@/lib/cad-preview";
 import type { StoredFileViewerMode } from "@/lib/file-viewer";
 import { resolveStoredFileViewerMode } from "@/lib/file-viewer";
-import { downloadStoredFileBlob, loadStoredDrawingPreviewPages } from "@/lib/stored-file";
+import { loadStoredDrawingPreviewPages } from "@/lib/stored-file";
 import { cn } from "@/lib/utils";
 
-type DownloadableFile = Pick<JobFileRecord, "storage_bucket" | "storage_path" | "original_name">;
 export type DrawingPreviewPage = {
   pageNumber: number;
   url: string;
 };
 
-export type DrawingPreviewState = "missing" | "ready" | "pending" | "failed" | "unavailable";
+export type DrawingPreviewState =
+  "missing" | "ready" | "pending" | "failed" | "unavailable";
 
 type DrawingViewportProps = Readonly<{
   activePage: DrawingPreviewPage | null;
@@ -73,7 +75,9 @@ function DrawingViewport({
   const showErrorIcon = state === "failed" || state === "unavailable";
   return (
     <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
-      {showErrorIcon ? <AlertCircle className="h-6 w-6 text-muted-foreground" /> : null}
+      {showErrorIcon ? (
+        <AlertCircle className="h-6 w-6 text-muted-foreground" />
+      ) : null}
       <div>{emptyState}</div>
       {state === "unavailable" && statusMessage ? (
         <div className="text-xs text-muted-foreground">{statusMessage}</div>
@@ -85,18 +89,6 @@ function DrawingViewport({
 function fitPdfPreviewToViewport(url: string) {
   const separator = url.includes("#") ? "&" : "#";
   return `${url}${separator}view=FitH&zoom=page-fit`;
-}
-
-async function downloadStoredFile(file: DownloadableFile) {
-  const blob = await downloadStoredFileBlob(file);
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = file.original_name;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
 }
 
 export function ClientDrawingPreviewPanel({
@@ -126,12 +118,18 @@ export function ClientDrawingPreviewPanel({
   const [localPages, setLocalPages] = useState<DrawingPreviewPage[]>([]);
   const [isLocalLoading, setIsLocalLoading] = useState(false);
   const resolvedState: DrawingPreviewState =
-    state ?? (!drawingFile ? "missing" : drawingPreview.pages.length > 0 ? "ready" : "pending");
+    state ??
+    (!drawingFile
+      ? "missing"
+      : drawingPreview.pages.length > 0
+        ? "ready"
+        : "pending");
   const resolvedPages = pages ?? localPages;
   const resolvedLoading = pages ? isLoading : isLocalLoading;
   const hasPdfPreview = typeof pdfUrl === "string" && pdfUrl.length > 0;
   const fittedPdfUrl = hasPdfPreview ? fitPdfPreviewToViewport(pdfUrl) : null;
-  const resolvedViewerMode = viewerMode ?? resolveStoredFileViewerMode(drawingFile);
+  const resolvedViewerMode =
+    viewerMode ?? resolveStoredFileViewerMode(drawingFile);
 
   useEffect(() => {
     if (pages) {
@@ -181,14 +179,17 @@ export function ClientDrawingPreviewPanel({
 
   useEffect(() => {
     setActivePageNumber((current) =>
-      current !== null && resolvedPages.some((page) => page.pageNumber === current)
+      current !== null &&
+      resolvedPages.some((page) => page.pageNumber === current)
         ? current
-        : resolvedPages[0]?.pageNumber ?? null,
+        : (resolvedPages[0]?.pageNumber ?? null),
     );
   }, [resolvedPages]);
 
   const activePage =
-    resolvedPages.find((page) => page.pageNumber === activePageNumber) ?? resolvedPages[0] ?? null;
+    resolvedPages.find((page) => page.pageNumber === activePageNumber) ??
+    resolvedPages[0] ??
+    null;
 
   const emptyState = useMemo(() => {
     switch (resolvedState) {
@@ -199,7 +200,10 @@ export function ClientDrawingPreviewPanel({
       case "failed":
         return "Drawing preview generation failed. Download the original PDF while this is investigated.";
       case "unavailable":
-        return statusMessage ?? "Drawing preview could not be loaded. The original PDF can still be downloaded.";
+        return (
+          statusMessage ??
+          "Drawing preview could not be loaded. The original PDF can still be downloaded."
+        );
       default:
         return resolvedViewerMode === "text"
           ? "Text previews are not available in the drawing pane. Download the original file instead."
@@ -208,46 +212,38 @@ export function ClientDrawingPreviewPanel({
   }, [resolvedState, resolvedViewerMode, statusMessage]);
 
   return (
-    <section className={cn("rounded-[26px] border border-border bg-ws-card p-5", className)}>
+    <section
+      className={cn(
+        "rounded-[26px] border border-border bg-ws-card p-5",
+        className,
+      )}
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Drawing</p>
+          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+            Drawing
+          </p>
         </div>
-        {drawingFile ? (
+        {drawingFile && onOpenDialog && resolvedState !== "missing" ? (
           <div className="flex flex-wrap gap-2 sm:shrink-0 sm:flex-nowrap">
-            {onOpenDialog && resolvedState !== "missing" ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
-                onClick={onOpenDialog}
-              >
-                <Expand className="mr-2 h-4 w-4" />
-                Expand
-              </Button>
-            ) : null}
             <Button
               type="button"
-              size="icon"
               variant="outline"
-              aria-label="Download drawing"
-              title={`Download ${drawingFile.original_name}`}
-              className="h-9 w-9 rounded-[2px] border-border bg-transparent text-foreground hover:bg-accent"
-              onClick={() => {
-                void downloadStoredFile(drawingFile).catch((error) => {
-                  console.error("Failed to download drawing file", error);
-                  toast.error("Failed to download drawing file.");
-                });
-              }}
+              className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
+              onClick={onOpenDialog}
             >
-              <Download className="h-4 w-4" />
+              <Expand className="mr-2 h-4 w-4" />
+              Expand
             </Button>
           </div>
         ) : null}
       </div>
 
       <div className="mt-4 overflow-hidden rounded-[22px] border border-border bg-muted">
-        <div data-artifact-viewport="drawing" className="h-[clamp(360px,58vh,680px)] bg-background">
+        <div
+          data-artifact-viewport="drawing"
+          className="h-[clamp(360px,58vh,680px)] bg-background"
+        >
           <DrawingViewport
             activePage={activePage}
             drawingName={drawingFile?.original_name ?? "Drawing"}
@@ -295,30 +291,21 @@ export function ClientCadPreviewPanel({
     () => (cadFile ? createCadPreviewSourceFromJobFile(cadFile) : null),
     [cadFile],
   );
-  const previewable = cadFile ? isStepPreviewableFile(cadFile.original_name) : false;
+  const previewable = cadFile
+    ? isStepPreviewableFile(cadFile.original_name)
+    : false;
 
   return (
-    <section className={cn("rounded-[26px] border border-border bg-ws-card p-5", className)}>
-      <div className="flex items-center justify-between gap-3">
-        <p className="rounded-full border border-border bg-accent px-3 py-1 text-xs text-foreground">CAD preview</p>
-        {cadFile ? (
-          <Button
-            type="button"
-            size="icon"
-            variant="outline"
-            aria-label="Download CAD file"
-            title={`Download ${cadFile.original_name}`}
-            className="h-9 w-9 rounded-[2px] border-border bg-transparent text-foreground hover:bg-accent"
-            onClick={() => {
-              void downloadStoredFile(cadFile).catch((error) => {
-                console.error("Failed to download CAD file", error);
-                toast.error("Failed to download CAD file.");
-              });
-            }}
-          >
-            <Download className="h-4 w-4" aria-hidden="true" />
-          </Button>
-        ) : null}
+    <section
+      className={cn(
+        "rounded-[26px] border border-border bg-ws-card p-5",
+        className,
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <p className="rounded-full border border-border bg-accent px-3 py-1 text-xs text-foreground">
+          CAD preview
+        </p>
       </div>
       <div className="mt-4 overflow-hidden rounded-[22px] border border-border bg-muted">
         {!cadFile ? (
@@ -326,31 +313,30 @@ export function ClientCadPreviewPanel({
             <div className="rounded-full border border-border bg-accent p-3 text-foreground/80">
               <Box className="h-6 w-6" />
             </div>
-            <p className="mt-4 text-sm font-medium text-foreground">CAD missing</p>
+            <p className="mt-4 text-sm font-medium text-foreground">
+              CAD missing
+            </p>
             <p className="mt-2 max-w-[18rem] text-sm text-muted-foreground">
-              Upload a STEP or native CAD file to review geometry beside the drawing.
+              Upload a STEP or native CAD file to review geometry beside the
+              drawing.
             </p>
           </div>
         ) : previewable && previewSource ? (
           <CadModelThumbnail
             source={previewSource}
             className="h-[320px] w-full"
-            fallbackActionLabel={`Download ${cadFile.original_name}`}
-            onFallbackAction={() => {
-              void downloadStoredFile(cadFile).catch((error) => {
-                console.error("Failed to download CAD file", error);
-                toast.error("Failed to download CAD file.");
-              });
-            }}
           />
         ) : (
           <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
             <div className="rounded-full border border-border bg-accent p-3 text-foreground/80">
               <FileText className="h-6 w-6" />
             </div>
-            <p className="mt-4 text-sm font-medium text-foreground">{cadFile.original_name}</p>
+            <p className="mt-4 text-sm font-medium text-foreground">
+              {cadFile.original_name}
+            </p>
             <p className="mt-2 max-w-[18rem] text-sm text-muted-foreground">
-              Interactive preview currently supports `.step` and `.stp`. Other CAD formats remain downloadable.
+              Interactive preview currently supports `.step` and `.stp`. Other
+              CAD formats remain downloadable.
             </p>
           </div>
         )}

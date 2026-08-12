@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { buildDraftTitleFromPrompt } from "@/features/quotes/file-validation";
 import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { buildAutoProjectName, groupUploadFiles } from "@/features/quotes/upload-groups";
-import { callRpc } from "./shared/rpc";
+import { callRpc, callUntypedRpc } from "./shared/rpc";
 import { ensureData } from "./shared/response";
 import { createClientDraft } from "./jobs-api";
 import { createProject } from "./projects-api";
@@ -33,6 +33,11 @@ const DRAWING_EXTENSIONS = new Set(["pdf"]);
 type HashedUploadFile = {
   file: File;
   contentSha256: string;
+};
+
+type PreparePartIntakeResult = {
+  result: "new_identity" | "new_version" | "existing_version";
+  partVersionId: string | null;
 };
 
 function sanitizeStorageFileName(fileName: string): string {
@@ -134,6 +139,36 @@ export async function createJobsFromUploadFiles(input: {
 
   for (const group of groups) {
     const title = buildDraftTitleFromPrompt("", group.files);
+    const hashedGroupFiles = await hashUploadFiles(group.files);
+    const cadHash = hashedGroupFiles.find(
+      ({ file }) => inferFileKind(file.name) === "cad",
+    )?.contentSha256 ?? null;
+    const drawingHash = hashedGroupFiles.find(
+      ({ file }) => inferFileKind(file.name) === "drawing",
+    )?.contentSha256 ?? null;
+
+    if (cadHash) {
+      const prepareResponse = await callUntypedRpc("api_prepare_part_intake", {
+        p_cad_content_sha256: cadHash,
+        p_drawing_content_sha256: drawingHash,
+      });
+      const missingPrepareRpc = prepareResponse.error &&
+        String((prepareResponse.error as { message?: unknown }).message ?? "")
+          .toLowerCase()
+          .includes("api_prepare_part_intake");
+      if (prepareResponse.error && !missingPrepareRpc) {
+        throw prepareResponse.error;
+      }
+      const prepareResult = prepareResponse.data && typeof prepareResponse.data === "object"
+        ? prepareResponse.data as PreparePartIntakeResult
+        : null;
+
+      // Client hashes are preflight hints only. Even when an exact package may
+      // exist, upload normally so the worker can independently verify bytes
+      // before it establishes canonical identity or reuses technical artifacts.
+      void prepareResult;
+    }
+
     const jobId = await createClientDraft({
       title,
       description: input.prompt?.trim() || undefined,

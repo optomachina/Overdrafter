@@ -97,7 +97,7 @@ struct RootView: View {
     }
 }
 
-private extension Color {
+extension Color {
     static let overDrafterBackground = Color(
         red: 242.0 / 255.0,
         green: 239.0 / 255.0,
@@ -113,4 +113,21 @@ private extension Color {
         green: 65.0 / 255.0,
         blue: 12.0 / 255.0
     )
+    static let overDrafterCanvas = overDrafterBackground
+    static let overDrafterInk = Color(
+        red: 28.0 / 255.0,
+        green: 27.0 / 255.0,
+        blue: 25.0 / 255.0
+    )
+    static let overDrafterMuted = Color(
+        red: 107.0 / 255.0,
+        green: 102.0 / 255.0,
+        blue: 92.0 / 255.0
+    )
+    static let overDrafterRule = Color(
+        red: 216.0 / 255.0,
+        green: 210.0 / 255.0,
+        blue: 196.0 / 255.0
+    )
+    static let overDrafterRed = overDrafterAccent
 }

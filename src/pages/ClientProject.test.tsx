@@ -1570,32 +1570,26 @@ describe("ClientProject", () => {
     {
       status: "queued" as const,
       label: "Queued",
-      classes: ["border-amber-400/20", "bg-amber-500/10", "text-amber-100"],
     },
     {
       status: "requesting" as const,
       label: "Requesting",
-      classes: ["border-amber-400/20", "bg-amber-500/10", "text-amber-100"],
     },
     {
       status: "received" as const,
       label: "Quoted",
-      classes: ["border-emerald-400/20", "bg-emerald-500/10", "text-emerald-100"],
     },
     {
       status: "failed" as const,
       label: "Failed",
-      classes: ["border-rose-400/20", "bg-rose-500/10", "text-rose-100"],
     },
     {
       status: "canceled" as const,
       label: "Canceled",
-      classes: ["border-rose-400/20", "bg-rose-500/10", "text-rose-100"],
     },
-  ])("renders the inspector quote badge for %s status with the correct color treatment", async ({
+  ])("renders the inspector quote badge for %s status with the neutral treatment", async ({
     status,
     label,
-    classes,
   }) => {
     api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([buildWorkspaceItemWithQuoteStatus(status)]);
 
@@ -1609,7 +1603,12 @@ describe("ClientProject", () => {
 
     const inspector = screen.getByRole("complementary", { name: "Project inspector" });
     const quoteBadge = within(inspector).getByText(label);
-    expect(quoteBadge).toHaveClass(...classes);
+    expect(quoteBadge).toHaveClass(
+      "border-paper-hairline",
+      "bg-paper-surface",
+      "text-paper-ink",
+    );
+    expect(quoteBadge.className).not.toMatch(/(?:amber|emerald|rose)-/);
   });
 
   it("opens the inspector in a sheet on mobile row selection", async () => {
@@ -1713,7 +1712,7 @@ describe("ClientProject", () => {
     fireEvent.click(screen.getByRole("button", { name: /request (manual )?1 quote/i }));
 
     await waitFor(() => {
-      expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
+      expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"]);
     });
   });
 
@@ -1796,7 +1795,7 @@ describe("ClientProject", () => {
     fireEvent.click(screen.getByRole("button", { name: /request (manual )?1 quote/i }));
 
     await waitFor(() => {
-      expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
+      expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"]);
       expect(toastMock.success).toHaveBeenCalledWith("Queued 1 quote request and skipped 1 part.");
     });
   });
@@ -1833,7 +1832,7 @@ describe("ClientProject", () => {
       expect(api.requestQuotes).toHaveBeenCalledTimes(1);
     });
 
-    expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"], false);
+    expect(api.requestQuotes).toHaveBeenCalledWith(["job-1"]);
 
     await waitFor(() => {
       expect(headerButton).toBeDisabled();

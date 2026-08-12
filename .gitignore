@@ -52,3 +52,4 @@ output/playwright/
 # Stray browser-automation cookie/output dumps
 worker/#
 \#
+.env*.local

@@ -1,5 +1,6 @@
 import "dotenv/config";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import type { PostgrestResponse, SupabaseClient } from "@supabase/supabase-js";
 import { buildAdapterRegistry } from "./adapters/index.js";
 import { autoApproveJobRequirements } from "./autoApprove.js";
@@ -91,6 +92,13 @@ const MODEL_CALL_SPEND_ESTIMATE_USD = 0.25;
 
 /** Booked per vendor automation lane, covering its browser container time. */
 const VENDOR_RUN_SPEND_ESTIMATE_USD = 0.05;
+
+class CanonicalArtifactsPendingError extends Error {
+  constructor(sourcePartId: string) {
+    super(`Canonical part artifacts are still being prepared by source part ${sourcePartId}.`);
+    this.name = "CanonicalArtifactsPendingError";
+  }
+}
 
 function buildTaskContext(task: QueueTaskRecord) {
   return {
@@ -652,6 +660,65 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
   let organizationIdForError: string | null = null;
   let partIdForError: string | null = task.part_id;
   try {
+    const identityContext = await fetchPartContext(supabase, task.part_id!);
+    const identityStageDir = await createRunDir(config, ["identity", task.id]);
+    runDir = identityStageDir;
+    await stageStorageObject(supabase, identityContext.cadFile, identityStageDir);
+    await stageStorageObject(supabase, identityContext.drawingFile, identityStageDir);
+
+    const { data: trustedIntake, error: trustedIntakeError } = await supabase.rpc(
+      "api_resolve_trusted_part_intake",
+      { p_part_id: task.part_id },
+    );
+    if (trustedIntakeError) {
+      throw trustedIntakeError;
+    }
+
+    const trustedResult = trustedIntake && typeof trustedIntake === "object"
+      ? trustedIntake as {
+          result?: unknown;
+          partVersionId?: unknown;
+          sourcePartId?: unknown;
+        }
+      : null;
+    const sourcePartId = typeof trustedResult?.sourcePartId === "string"
+      ? trustedResult.sourcePartId
+      : null;
+    const partVersionId = typeof trustedResult?.partVersionId === "string"
+      ? trustedResult.partVersionId
+      : null;
+
+    if (trustedResult?.result === "existing_version" && sourcePartId && partVersionId) {
+      const { data: reuseResult, error: reuseError } = await supabase.rpc(
+        "api_reuse_trusted_part_version_artifacts",
+        {
+          p_target_part_id: task.part_id,
+          p_source_part_id: sourcePartId,
+          p_part_version_id: partVersionId,
+        },
+      );
+      if (reuseError) {
+        throw reuseError;
+      }
+      const artifactsReady = reuseResult && typeof reuseResult === "object"
+        ? (reuseResult as { artifactsReady?: unknown }).artifactsReady === true
+        : false;
+      if (!artifactsReady) {
+        throw new CanonicalArtifactsPendingError(sourcePartId);
+      }
+
+      const autoApprovedPartCount = await autoApproveJobRequirements(supabase, task.job_id!);
+      await markTaskCompleted(supabase, task, {
+        canonicalPartVersionId: partVersionId,
+        reusedCanonicalPartVersion: true,
+        sourcePartId,
+        autoApprovedPartCount,
+      });
+      return;
+    }
+
+    await cleanupPaths([identityStageDir]);
+    runDir = null;
     const extractionRun = await runDrawingExtractionForTask(supabase, task, config);
     runDir = extractionRun.runDir;
     const { context, extraction, extractionOutcome, pdfText, previewAssets, extractorVersion, geometryProjection } =
@@ -714,6 +781,24 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
       } catch (enqueueError) {
         logCadPreviewWarning(task, enqueueError);
       }
+    }
+    const geometryFingerprint = createHash("sha256")
+      .update(JSON.stringify(geometryProjection))
+      .digest("hex");
+    const { error: geometryCandidateError } = await supabase.rpc(
+      "api_register_part_geometry_candidate",
+      {
+        p_part_id: context.part.id,
+        p_geometry_fingerprint: geometryFingerprint,
+        p_algorithm_version: geometryProjection.schemaVersion,
+        p_evidence: {
+          source: "extraction-geometry-projection",
+          candidateOnly: true,
+        },
+      },
+    );
+    if (geometryCandidateError) {
+      logCadPreviewWarning(task, geometryCandidateError);
     }
     const autoApprovedPartCount = await autoApproveJobRequirements(supabase, task.job_id!);
     const completedAt = new Date().toISOString();
@@ -1692,6 +1777,7 @@ async function main() {
       let retryAt: string | null = null;
       const shouldRetry =
         (task.task_type === "generate_cad_preview" && isRetryableCadPreviewError(error)) ||
+        (task.task_type === "extract_part" && error instanceof CanonicalArtifactsPendingError) ||
         (task.task_type === "run_vendor_quote" && isRetryableVendorTaskError(error));
       if (shouldRetry) {
         retryAt = nextRetryAt(task.attempts);
