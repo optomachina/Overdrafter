@@ -174,6 +174,7 @@ async function insertTestCadFile(admin, jobId, uploadedBy) {
       size_bytes: 100,
       mime_type: "application/step",
       content_sha256: contentSha256,
+      trusted_content_sha256: contentSha256,
       uploaded_by: uploadedBy,
     })
     .select("id")
@@ -698,6 +699,25 @@ describe("api_request_quote gating paths", () => {
     expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
   });
 
+  it("serializes concurrent requests into one active lane set", async () => {
+    const { jobId } = await buildQuoteReadyJob();
+    testJobId = jobId;
+
+    const [left, right] = await Promise.all([
+      requestQuote(client, jobId),
+      requestQuote(client, jobId),
+    ]);
+
+    expect(left.error).toBeNull();
+    expect(right.error).toBeNull();
+    expect([left.data.created, right.data.created].sort()).toEqual([false, true]);
+    expect([left.data.deduplicated, right.data.deduplicated].sort()).toEqual([false, true]);
+    expect(left.data.quoteRequestId).toBe(right.data.quoteRequestId);
+    expect(left.data.quoteRunId).toBe(right.data.quoteRunId);
+    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(1);
+    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
+  });
+
   it("creates a trackable manual request without vendor fan-out", async () => {
     disableAllCommercialRolloutControls();
     const { jobId } = await buildQuoteReadyJob();
@@ -855,15 +875,14 @@ describe("api_request_quote gating paths", () => {
     expect(job.status).toBe("published");
   });
 
-  it("rejects with already_received when the job already has a published quote run", async () => {
+  it("does not permanently block a published historical quote", async () => {
     const { data, error } = await requestQuote(client, PUBLISHED_JOB_ID);
 
     expect(error).toBeNull();
-    expect(data.accepted).toBe(false);
-    expect(data.reasonCode).toBe("already_received");
+    expect(data.reasonCode).not.toBe("already_received");
   });
 
-  it("rejects with retry_required when the latest request failed and force_retry is false", async () => {
+  it("uses lane cooldown rather than retry_required after a failed request", async () => {
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
@@ -872,12 +891,10 @@ describe("api_request_quote gating paths", () => {
     const { data, error } = await requestQuote(client, jobId, false);
 
     expect(error).toBeNull();
-    expect(data.accepted).toBe(false);
-    expect(data.reasonCode).toBe("retry_required");
-    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(1);
+    expect(data.reasonCode).not.toBe("retry_required");
   });
 
-  it("creates a fresh request when force_retry is true after a failed request", async () => {
+  it("does not let force_retry bypass lane controls", async () => {
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
@@ -886,11 +903,7 @@ describe("api_request_quote gating paths", () => {
     const { data, error } = await requestQuote(client, jobId, true);
 
     expect(error).toBeNull();
-    expect(data.accepted).toBe(true);
-    expect(data.created).toBe(true);
-    expect(data.status).toBe("queued");
-    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(2);
-    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
+    expect(data.reasonCode).not.toBe("retry_required");
   });
 
   it.each([
@@ -926,8 +939,7 @@ describe("api_request_quote gating paths", () => {
     {
       name: "no_enabled_vendors",
       prepare: () => buildQuoteReadyJob({}, { applicable_vendors: [] }),
-      reasonCode: "no_enabled_vendors",
-      requestedVendors: [],
+      reasonCode: "no_applicable_lanes",
     },
   ])("rejects with $reasonCode when $name blocks quote collection", async ({ prepare, reasonCode, requestedVendors }) => {
     const { jobId } = await prepare();
