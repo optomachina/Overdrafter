@@ -30,7 +30,10 @@ export type UserPinnedProjectRecord = Database["public"]["Tables"]["user_pinned_
 export type UserPinnedJobRecord = Database["public"]["Tables"]["user_pinned_jobs"]["Row"];
 export type PricingPolicyRecord = Database["public"]["Tables"]["pricing_policies"]["Row"];
 export type JobRecord = Database["public"]["Tables"]["jobs"]["Row"];
-export type JobFileRecord = Database["public"]["Tables"]["job_files"]["Row"];
+type GeneratedJobFileRecord = Database["public"]["Tables"]["job_files"]["Row"];
+export type JobFileRecord = Omit<GeneratedJobFileRecord, "trusted_content_sha256"> & {
+  trusted_content_sha256?: string | null;
+};
 export type PartRecord = Database["public"]["Tables"]["parts"]["Row"];
 export type DrawingExtractionRecord = Database["public"]["Tables"]["drawing_extractions"]["Row"];
 export type DrawingPreviewAssetRecord = Database["public"]["Tables"]["drawing_preview_assets"]["Row"];
@@ -41,7 +44,16 @@ export type QuoteRequestRecord = Database["public"]["Tables"]["quote_requests"][
 export type ServiceRequestLineItemRecord = Database["public"]["Tables"]["service_request_line_items"]["Row"];
 export type QuoteRunRecord = Database["public"]["Tables"]["quote_runs"]["Row"];
 export type VendorQuoteResultRecord = Database["public"]["Tables"]["vendor_quote_results"]["Row"];
-export type VendorQuoteOfferRecord = Database["public"]["Tables"]["vendor_quote_offers"]["Row"];
+type GeneratedVendorQuoteOfferRecord = Database["public"]["Tables"]["vendor_quote_offers"]["Row"];
+type QuoteValidityField =
+  | "provenance_status"
+  | "quoted_at"
+  | "valid_until"
+  | "validity_duration_days"
+  | "validity_source"
+  | "validity_terms";
+export type VendorQuoteOfferRecord = Omit<GeneratedVendorQuoteOfferRecord, QuoteValidityField> &
+  Partial<Pick<GeneratedVendorQuoteOfferRecord, QuoteValidityField>>;
 export type VendorQuoteArtifactRecord = Database["public"]["Tables"]["vendor_quote_artifacts"]["Row"];
 export type PublishedQuotePackageRecord = Database["public"]["Tables"]["published_quote_packages"]["Row"];
 export type PublishedQuoteOptionRecord = Database["public"]["Tables"]["published_quote_options"]["Row"];
