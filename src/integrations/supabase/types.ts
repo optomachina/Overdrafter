@@ -1603,6 +1603,7 @@ export type Database = {
           enabled: boolean
           org_pending_cost_ceiling_usd: number
           organization_id: string
+          same_scope_cooldown_minutes: number
           updated_at: string
           user_max_requests_per_window: number
           user_window_minutes: number
@@ -1613,6 +1614,7 @@ export type Database = {
           enabled?: boolean
           org_pending_cost_ceiling_usd?: number
           organization_id: string
+          same_scope_cooldown_minutes?: number
           updated_at?: string
           user_max_requests_per_window?: number
           user_window_minutes?: number
@@ -1623,6 +1625,7 @@ export type Database = {
           enabled?: boolean
           org_pending_cost_ceiling_usd?: number
           organization_id?: string
+          same_scope_cooldown_minutes?: number
           updated_at?: string
           user_max_requests_per_window?: number
           user_window_minutes?: number
@@ -1639,6 +1642,8 @@ export type Database = {
       }
       quote_request_lanes: {
         Row: {
+          cooldown_released_at: string | null
+          cooldown_released_by_offer_id: string | null
           created_at: string
           id: string
           organization_id: string
@@ -1653,6 +1658,8 @@ export type Database = {
           vendor_quote_result_id: string | null
         }
         Insert: {
+          cooldown_released_at?: string | null
+          cooldown_released_by_offer_id?: string | null
           created_at?: string
           id?: string
           organization_id: string
@@ -1667,6 +1674,8 @@ export type Database = {
           vendor_quote_result_id?: string | null
         }
         Update: {
+          cooldown_released_at?: string | null
+          cooldown_released_by_offer_id?: string | null
           created_at?: string
           id?: string
           organization_id?: string
@@ -1681,6 +1690,13 @@ export type Database = {
           vendor_quote_result_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "quote_request_lanes_cooldown_released_by_offer_id_fkey"
+            columns: ["cooldown_released_by_offer_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_quote_offers"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "quote_request_lanes_organization_id_fkey"
             columns: ["organization_id"]
@@ -2715,6 +2731,9 @@ export type Database = {
           due_date: string | null
           finish: string | null
           id: string
+          invalidated_at: string | null
+          invalidated_by: string | null
+          invalidation_reason: string | null
           lane_label: string
           lead_time_business_days: number | null
           material: string | null
@@ -2750,6 +2769,9 @@ export type Database = {
           due_date?: string | null
           finish?: string | null
           id?: string
+          invalidated_at?: string | null
+          invalidated_by?: string | null
+          invalidation_reason?: string | null
           lane_label: string
           lead_time_business_days?: number | null
           material?: string | null
@@ -2785,6 +2807,9 @@ export type Database = {
           due_date?: string | null
           finish?: string | null
           id?: string
+          invalidated_at?: string | null
+          invalidated_by?: string | null
+          invalidation_reason?: string | null
           lane_label?: string
           lead_time_business_days?: number | null
           material?: string | null
@@ -3314,6 +3339,13 @@ export type Database = {
         Args: { p_organization_id: string }
         Returns: Json
       }
+      api_get_quote_lane_eligibility: {
+        Args: {
+          p_job_id: string
+          p_selected_vendors?: Database["public"]["Enums"]["vendor_name"][]
+        }
+        Returns: Json
+      }
       api_get_quote_run_readiness: {
         Args: { p_quote_run_id: string }
         Returns: Json
@@ -3576,6 +3608,13 @@ export type Database = {
       }
       api_request_quote: {
         Args: { p_force_retry?: boolean; p_job_id: string }
+        Returns: Json
+      }
+      api_request_quote_scoped: {
+        Args: {
+          p_job_id: string
+          p_selected_vendors: Database["public"]["Enums"]["vendor_name"][]
+        }
         Returns: Json
       }
       api_request_quotes: {
