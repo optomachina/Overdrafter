@@ -3,6 +3,7 @@ import {
   completeAdminManualQuoteRequest,
   fetchAdminManualQuoteRequests,
   fetchManualQuoteOperatorAccess,
+  invalidateAdminVendorQuoteOffer,
 } from "./manual-quote-admin-api";
 
 const { callUntypedRpcMock } = vi.hoisted(() => ({
@@ -236,6 +237,39 @@ describe("manual-quote-admin-api", () => {
       }),
     ).rejects.toThrow(
       "Manual quote completion returned an unexpected lifecycle state.",
+    );
+  });
+
+  it("passes a reason and idempotency key through the audited invalidation RPC", async () => {
+    callUntypedRpcMock.mockResolvedValue({
+      data: {
+        offerId: "offer-1",
+        invalidatedAt: "2026-08-12T12:00:00.000Z",
+        alreadyInvalidated: false,
+        auditEventId: "event-1",
+      },
+      error: null,
+    });
+
+    await expect(
+      invalidateAdminVendorQuoteOffer({
+        offerId: "offer-1",
+        reason: "Vendor withdrew pricing",
+        idempotencyKey: "invalidate-offer-1",
+      }),
+    ).resolves.toEqual({
+      offerId: "offer-1",
+      invalidatedAt: "2026-08-12T12:00:00.000Z",
+      alreadyInvalidated: false,
+      auditEventId: "event-1",
+    });
+    expect(callUntypedRpcMock).toHaveBeenCalledWith(
+      "api_admin_invalidate_vendor_quote_offer",
+      {
+        p_offer_id: "offer-1",
+        p_reason: "Vendor withdrew pricing",
+        p_idempotency_key: "invalidate-offer-1",
+      },
     );
   });
 });

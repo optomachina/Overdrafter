@@ -1,5 +1,6 @@
 import type {
   QuoteRequestCancellationResult,
+  QuoteLaneEligibility,
   QuoteRequestSubmissionResult,
   QuoteRunReadiness,
 } from "@/features/quotes/types";
@@ -8,7 +9,7 @@ import type {
   VendorName,
 } from "@/integrations/supabase/types";
 import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-workspace-fixtures";
-import { callRpc } from "./shared/rpc";
+import { callRpc, callUntypedRpc } from "./shared/rpc";
 import { ensureData } from "./shared/response";
 import { selectQuoteOption } from "./packages-api";
 
@@ -60,11 +61,11 @@ export async function startQuoteRun(
 
 export async function requestQuote(
   jobId: string,
-  forceRetry = false,
+  selectedVendors: VendorName[] = [],
 ): Promise<QuoteRequestSubmissionResult> {
-  const { data, error } = await callRpc("api_request_quote", {
+  const { data, error } = await callUntypedRpc("api_request_quote_scoped", {
     p_job_id: jobId,
-    p_force_retry: forceRetry,
+    p_selected_vendors: selectedVendors,
   });
 
   const result = ensureData(data, error) as QuoteRequestSubmissionResult;
@@ -75,13 +76,28 @@ export async function requestQuote(
   };
 }
 
+export async function getQuoteLaneEligibility(
+  jobId: string,
+  selectedVendors?: VendorName[],
+): Promise<QuoteLaneEligibility[]> {
+  const { data, error } = await callUntypedRpc("api_get_quote_lane_eligibility", {
+    p_job_id: jobId,
+    p_selected_vendors: selectedVendors ?? null,
+  });
+
+  const result = ensureData(data, error);
+  if (!Array.isArray(result)) {
+    throw new Error("Expected quote lane eligibility to be returned as an array.");
+  }
+  return result as QuoteLaneEligibility[];
+}
+
 export async function requestManualQuote(
   jobId: string,
-  forceRetry = false,
 ): Promise<QuoteRequestSubmissionResult> {
   const { data, error } = await callRpc("api_request_manual_quote", {
     p_job_id: jobId,
-    p_force_retry: forceRetry,
+    p_force_retry: false,
   });
 
   return ensureData(data, error) as QuoteRequestSubmissionResult;
@@ -89,7 +105,6 @@ export async function requestManualQuote(
 
 export async function requestQuotes(
   jobIds: string[],
-  forceRetry = false,
 ): Promise<QuoteRequestSubmissionResult[]> {
   const distinctJobIds = [...new Set(jobIds.filter(Boolean))];
 
@@ -99,7 +114,7 @@ export async function requestQuotes(
 
   const { data, error } = await callRpc("api_request_quotes", {
     p_job_ids: distinctJobIds,
-    p_force_retry: forceRetry,
+    p_force_retry: false,
   });
 
   const results = ensureData(data, error);
@@ -116,7 +131,6 @@ export async function requestQuotes(
 
 export async function requestManualQuotes(
   jobIds: string[],
-  forceRetry = false,
 ): Promise<QuoteRequestSubmissionResult[]> {
   const distinctJobIds = [...new Set(jobIds.filter(Boolean))];
 
@@ -126,7 +140,7 @@ export async function requestManualQuotes(
 
   const { data, error } = await callRpc("api_request_manual_quotes", {
     p_job_ids: distinctJobIds,
-    p_force_retry: forceRetry,
+    p_force_retry: false,
   });
 
   const results = ensureData(data, error);

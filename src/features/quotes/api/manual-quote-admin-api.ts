@@ -57,6 +57,13 @@ export type AdminManualQuoteCompletionResult = {
   replayed: boolean;
 };
 
+export type AdminQuoteOfferInvalidationResult = {
+  offerId: string;
+  invalidatedAt: string;
+  alreadyInvalidated: boolean;
+  auditEventId: string | null;
+};
+
 export type ManualQuoteOperatorAccess = CommercialAdminAccess;
 
 type UnknownRecord = Record<string, unknown>;
@@ -262,4 +269,25 @@ export async function completeAdminManualQuoteRequest(input: {
   );
 
   return normalizeManualQuoteCompletion(ensureData(data, error));
+}
+
+/** Invalidates one offer through the audited billing-admin/AAL2 boundary. */
+export async function invalidateAdminVendorQuoteOffer(input: {
+  offerId: string;
+  reason: string;
+  idempotencyKey: string;
+}): Promise<AdminQuoteOfferInvalidationResult> {
+  const { data, error } = await callUntypedRpc("api_admin_invalidate_vendor_quote_offer", {
+    p_offer_id: input.offerId,
+    p_reason: input.reason,
+    p_idempotency_key: input.idempotencyKey,
+  });
+  const record = requireRecord(ensureData(data, error), "quote offer invalidation");
+
+  return {
+    offerId: requireString(record, "offerId", "Quote offer invalidation"),
+    invalidatedAt: requireString(record, "invalidatedAt", "Quote offer invalidation"),
+    alreadyInvalidated: record.alreadyInvalidated === true,
+    auditEventId: nullableString(record.auditEventId),
+  };
 }

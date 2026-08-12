@@ -97,6 +97,9 @@ type OfferDraft = {
   unitPriceUsd: string;
   quoteRef: string;
   quoteDateIso: string;
+  validUntilIso: string;
+  validityDurationDays: string;
+  validityTerms: string;
   sourcing: string;
   tier: string;
   process: string;
@@ -114,6 +117,9 @@ function createOfferDraft(index: number): OfferDraft {
     unitPriceUsd: "",
     quoteRef: "",
     quoteDateIso: "",
+    validUntilIso: "",
+    validityDurationDays: "",
+    validityTerms: "",
     sourcing: "",
     tier: "",
     process: "",
@@ -140,6 +146,26 @@ function buildOfferPayloads(offers: OfferDraft[]): ManualQuoteOfferInput[] {
       throw new Error(`Offer lane ${index + 1} is missing a valid total price.`);
     }
 
+    const validityDurationDays = toNullableNumber(offer.validityDurationDays);
+    if (
+      validityDurationDays !== null &&
+      (!Number.isInteger(validityDurationDays) || validityDurationDays <= 0)
+    ) {
+      throw new Error(`Offer lane ${index + 1} has an invalid validity duration.`);
+    }
+    if (offer.validUntilIso && validityDurationDays !== null) {
+      throw new Error(
+        `Offer lane ${index + 1} must use either a valid-until date or a duration, not both.`,
+      );
+    }
+
+    let validitySource: ManualQuoteOfferInput["validitySource"] = null;
+    if (offer.validUntilIso) {
+      validitySource = "operator_date";
+    } else if (validityDurationDays !== null) {
+      validitySource = "operator_duration";
+    }
+
     return {
       laneLabel: offer.laneLabel.trim() || `Offer ${index + 1}`,
       totalPriceUsd,
@@ -147,6 +173,10 @@ function buildOfferPayloads(offers: OfferDraft[]): ManualQuoteOfferInput[] {
       unitPriceUsd: toNullableNumber(offer.unitPriceUsd),
       quoteRef: offer.quoteRef.trim() || null,
       quoteDateIso: offer.quoteDateIso || null,
+      validUntilIso: offer.validUntilIso || null,
+      validityDurationDays,
+      validitySource,
+      validityTerms: offer.validityTerms.trim() || null,
       sourcing: offer.sourcing.trim() || null,
       tier: offer.tier.trim() || null,
       process: offer.process.trim() || null,
@@ -738,6 +768,44 @@ export function ManualQuoteIntakeCard({
                       value={offer.quoteDateIso}
                       disabled={formDisabled}
                       onChange={(event) => updateOffer(offer.id, { quoteDateIso: event.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={`offer-${offer.id}-valid-until`}>Valid until</Label>
+                    <Input
+                      id={`offer-${offer.id}-valid-until`}
+                      type="date"
+                      className="border-border bg-muted"
+                      value={offer.validUntilIso}
+                      disabled={formDisabled || Boolean(offer.validityDurationDays)}
+                      onChange={(event) => updateOffer(offer.id, { validUntilIso: event.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={`offer-${offer.id}-validity-days`}>Or valid for (days)</Label>
+                    <Input
+                      id={`offer-${offer.id}-validity-days`}
+                      type="number"
+                      min="1"
+                      step="1"
+                      className="border-border bg-muted"
+                      value={offer.validityDurationDays}
+                      disabled={formDisabled || Boolean(offer.validUntilIso)}
+                      onChange={(event) =>
+                        updateOffer(offer.id, { validityDurationDays: event.target.value })
+                      }
+                      placeholder="30"
+                    />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor={`offer-${offer.id}-validity-terms`}>Original validity terms</Label>
+                    <Input
+                      id={`offer-${offer.id}-validity-terms`}
+                      className="border-border bg-muted"
+                      value={offer.validityTerms}
+                      disabled={formDisabled}
+                      onChange={(event) => updateOffer(offer.id, { validityTerms: event.target.value })}
+                      placeholder="Pricing valid for 30 calendar days"
                     />
                   </div>
                   <div className="space-y-2">

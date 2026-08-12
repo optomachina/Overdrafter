@@ -291,7 +291,7 @@ const ClientQuoteDetail = () => {
       return;
     }
 
-    void controller.handleRequestQuote(quoteRequest.action.kind === "retry");
+    void controller.handleRequestQuote();
   };
 
   const handleSaveReference = () => {

@@ -115,8 +115,8 @@ Planned commercial additions:
 - production funnel events from signup through live offer receipt
 
 Current non-goals:
-- client-side vendor choice or multi-vendor comparison at request time
-- automatic reruns after a successful request
+- client-controlled bypasses of vendor-lane validity or cooldown eligibility
+- automatic reruns that ignore unchanged disclosure scope or a still-valid offer
 - richer DFM or release-gate workflows beyond the existing request metadata and package validation
 - annual pricing, coupons, manufacturing payments, orders, and complex account administration
 

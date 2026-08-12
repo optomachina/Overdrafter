@@ -475,6 +475,10 @@ export type ManualQuoteOfferInput = {
   tier?: string | null;
   quoteRef?: string | null;
   quoteDateIso?: string | null;
+  validUntilIso?: string | null;
+  validityDurationDays?: number | null;
+  validitySource?: "operator_date" | "operator_duration" | null;
+  validityTerms?: string | null;
   totalPriceUsd: number;
   unitPriceUsd?: number | null;
   leadTimeBusinessDays?: number | null;
@@ -791,6 +795,23 @@ export type QuoteRequestSubmissionResult = {
   quoteMode: QuoteRequestMode;
   // Phase 2 semantics: this is the actual vendor set requested or blocked for the job.
   requestedVendors: VendorName[];
+  laneEligibility?: QuoteLaneEligibility[];
+};
+
+export type QuoteLaneEligibilityState =
+  | "requestable"
+  | "active"
+  | "valid_quote"
+  | "cooldown";
+
+export type QuoteLaneEligibility = {
+  vendor: VendorName;
+  partId: string;
+  requestedQuantity: number;
+  state: QuoteLaneEligibilityState;
+  currentOfferId: string | null;
+  validUntil: string | null;
+  retryAt: string | null;
 };
 
 export type QuoteRequestCancellationResult = {

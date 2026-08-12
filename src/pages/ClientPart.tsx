@@ -20,6 +20,7 @@ import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
 import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
+import { ClientQuoteRequestFlow } from "@/components/quotes/ClientQuoteRequestFlow";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
 import { PartProductDataBar } from "@/components/quotes/PartProductDataBar";
 import { PartViewerRow } from "@/components/quotes/PartViewerRow";
@@ -154,7 +155,10 @@ const ClientPart = () => {
   const {
     activeMembership,
     automaticQuoteCollectionEnabled,
+    availableQuoteVendors,
+    quoteLaneEligibility,
     isQuoteCollectionModeLoading,
+    isQuoteVendorScopeLoading,
     activityEntries,
     activePreset,
     archivedJobsQuery,
@@ -211,12 +215,14 @@ const ClientPart = () => {
     quoteDataStatus,
     quoteDiagnostics,
     quoteQuantityInput,
+    quoteVendorScopeError,
     rankedQuoteOptions,
     removeJobMutation,
     requestSummaryRequestedByDate,
     revisionOptions,
     saveRequestMutation,
     selectedQuoteOption,
+    selectedQuoteVendors,
     selectedRevisionIndex,
     sourcingResult,
     setIsPartArchiveBusy,
@@ -253,6 +259,7 @@ const ClientPart = () => {
   const [showCancelRequestDialog, setShowCancelRequestDialog] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(true);
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
+  const [isQuoteRequestFlowOpen, setIsQuoteRequestFlowOpen] = useState(false);
 
   useEffect(() => {
     setSelectedOptionKey(selectedQuoteOption?.key ?? null);
@@ -320,7 +327,21 @@ const ClientPart = () => {
       return;
     }
 
-    void handleRequestQuote(quoteRequestViewModel.action.kind === "retry");
+    setIsQuoteRequestFlowOpen(true);
+  };
+
+  const handleConfirmQuoteRequest = async (vendors: typeof selectedQuoteVendors) => {
+    const accepted = await handleRequestQuote(vendors);
+    if (!accepted) return false;
+
+    setIsQuoteRequestFlowOpen(false);
+    window.requestAnimationFrame(() => {
+      const quoteInformation = document.getElementById("quote-information");
+      if (typeof quoteInformation?.scrollIntoView === "function") {
+        quoteInformation.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+    return true;
   };
 
   const handleWorkspaceOfferSelect = (option: ClientQuoteSelectionOption | null) => {
@@ -541,6 +562,46 @@ const ClientPart = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <ClientQuoteRequestFlow
+        open={isQuoteRequestFlowOpen}
+        onOpenChange={setIsQuoteRequestFlowOpen}
+        partLabel={displayPartTitle || currentPartName}
+        availableVendors={availableQuoteVendors}
+        laneEligibility={quoteLaneEligibility}
+        initialSelectedVendors={selectedQuoteVendors}
+        canSubmit={automaticQuoteCollectionEnabled}
+        isLoading={isQuoteVendorScopeLoading}
+        isSubmitting={isRequestingQuote}
+        loadError={quoteVendorScopeError}
+        blockerReasons={quoteRequestViewModel?.blockerReasons ?? []}
+        files={[
+          ...(cadFile
+            ? [{ kind: "CAD" as const, name: cadFile.original_name, sizeBytes: cadFile.size_bytes }]
+            : []),
+          ...(drawingFile
+            ? [{ kind: "Drawing" as const, name: drawingFile.original_name, sizeBytes: drawingFile.size_bytes }]
+            : []),
+        ]}
+        disclosureFields={[
+          {
+            label: "Quantity",
+            value: effectiveRequestDraft?.requestedQuoteQuantities.length
+              ? `${effectiveRequestDraft.requestedQuoteQuantities.join(", ")} pcs`
+              : "Not specified",
+          },
+          { label: "Process", value: effectiveRequestDraft?.process || "Not specified" },
+          { label: "Material", value: effectiveRequestDraft?.material || "Not specified" },
+          { label: "Finish", value: effectiveRequestDraft?.finish || "Not specified" },
+          {
+            label: "Tightest tolerance",
+            value: effectiveRequestDraft?.tightestToleranceInch != null
+              ? `±${effectiveRequestDraft.tightestToleranceInch} in`
+              : "Not specified",
+          },
+          { label: "Needed by", value: effectiveRequestDraft?.requestedByDate || "Not specified" },
+        ]}
+        onConfirm={handleConfirmQuoteRequest}
+      />
       <QuoteIntelligenceShell
         title={displayPartTitle || "Part"}
         uploadSlot={
@@ -612,6 +673,13 @@ const ClientPart = () => {
                 }
                 actions={
                   <>
+                    <Button
+                      type="button"
+                      onClick={() => setIsQuoteRequestFlowOpen(true)}
+                      disabled={isQuoteCollectionModeLoading}
+                    >
+                      Quote
+                    </Button>
                     <Button
                       type="button"
                       variant="outline"
@@ -772,7 +840,11 @@ const ClientPart = () => {
                 </div>
               </ClientPartHeader>
 
-              <section aria-label="Quote information" className="space-y-4 border-t border-border pt-5">
+              <section
+                id="quote-information"
+                aria-label="Quote information"
+                className="scroll-mt-6 space-y-4 border-t border-border pt-5"
+              >
                 {sourcingResult?.outcome === "unsupported_package" ||
                 sourcingResult?.outcome === "provider_recommendations_available" ? (
                   <ClientSourcingResultPanel

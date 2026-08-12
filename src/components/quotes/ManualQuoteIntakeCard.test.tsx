@@ -136,6 +136,12 @@ describe("ManualQuoteIntakeCard exact completion", () => {
     fireEvent.change(screen.getByPlaceholderText("1250.00"), {
       target: { value: "1499.50" },
     });
+    fireEvent.change(screen.getByLabelText("Or valid for (days)"), {
+      target: { value: "30" },
+    });
+    fireEvent.change(screen.getByLabelText("Original validity terms"), {
+      target: { value: "Pricing valid for 30 calendar days" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Complete exact request" }));
 
     await waitFor(() => {
@@ -153,6 +159,9 @@ describe("ManualQuoteIntakeCard exact completion", () => {
             expect.objectContaining({
               laneLabel: "Primary offer",
               totalPriceUsd: 1499.5,
+              validityDurationDays: 30,
+              validitySource: "operator_duration",
+              validityTerms: "Pricing valid for 30 calendar days",
             }),
           ],
         }),

@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(14);
+select plan(17);
 
 insert into auth.users (
   id, aud, role, email, email_confirmed_at, raw_app_meta_data
@@ -419,6 +419,86 @@ select ok(
     'authenticated', 'public.quote_request_lanes', 'SELECT'
   ),
   'authenticated callers receive eligibility without internal scope fingerprints'
+);
+
+reset role;
+
+insert into private.platform_admin_capabilities (
+  user_id, capability, granted_by_user_id, grant_reason
+) values (
+  '81000000-0000-4000-8000-000000000001',
+  'billing_admin',
+  '81000000-0000-4000-8000-000000000001',
+  'Quote offer invalidation acceptance test'
+);
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"81000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal1"}',
+  true
+);
+
+select throws_ok(
+  $$
+    select public.api_admin_invalidate_vendor_quote_offer(
+      '81000000-0000-4000-8000-000000000011',
+      'Vendor withdrew pricing',
+      'invalidate-aal1'
+    )
+  $$,
+  'P0001',
+  'Multi-factor authentication is required for this commercial operation.',
+  'quote invalidation requires an AAL2 session'
+);
+
+reset role;
+update private.commercial_rollout_controls
+set enabled = true,
+    revision = revision + 1,
+    change_reason = 'Enable quote invalidation acceptance test'
+where capability = 'commercial_admin_mutations';
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"81000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal2"}',
+  true
+);
+
+select lives_ok(
+  $$
+    select public.api_admin_invalidate_vendor_quote_offer(
+      '81000000-0000-4000-8000-000000000011',
+      'Vendor withdrew pricing',
+      'invalidate-aal2'
+    )
+  $$,
+  'AAL2 billing admins can invalidate with a reason and idempotency key'
+);
+
+reset role;
+
+select ok(
+  (
+    select offer.invalidated_at is not null
+      and offer.invalidation_reason = 'Vendor withdrew pricing'
+    from public.vendor_quote_offers offer
+    where offer.id = '81000000-0000-4000-8000-000000000011'
+  )
+  and exists (
+    select 1
+    from public.commercial_admin_audit_events event
+    where event.action = 'commercial.quote_offer.invalidate'
+      and event.target_id = '81000000-0000-4000-8000-000000000011'
+  )
+  and exists (
+    select 1
+    from public.quote_request_lanes lane
+    where lane.vendor_quote_result_id = '81000000-0000-4000-8000-000000000009'
+      and lane.cooldown_released_at is not null
+  ),
+  'invalidation is persisted, append-only audited, and releases one lane cooldown'
 );
 
 select * from finish();

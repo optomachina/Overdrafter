@@ -17,6 +17,23 @@ export type JobVendorPreferenceContext = {
   jobVendorPreferences: VendorPreferenceState;
 };
 
+/** Resolves the effective vendor set using the same precedence as quote fan-out. */
+export function resolveEffectiveJobVendorSelection(
+  context: JobVendorPreferenceContext,
+): VendorName[] {
+  const projectIncludes = new Set(context.projectVendorPreferences.includedVendors);
+  const projectExcludes = new Set(context.projectVendorPreferences.excludedVendors);
+  const jobIncludes = new Set(context.jobVendorPreferences.includedVendors);
+  const jobExcludes = new Set(context.jobVendorPreferences.excludedVendors);
+
+  return context.availableVendors.filter((vendor) => {
+    if (jobIncludes.has(vendor)) return true;
+    if (jobExcludes.has(vendor)) return false;
+    if (projectIncludes.size > 0 && !projectIncludes.has(vendor)) return false;
+    return !projectExcludes.has(vendor);
+  });
+}
+
 const EMPTY_VENDOR_PREFERENCES: VendorPreferenceState = {
   includedVendors: [],
   excludedVendors: [],

@@ -4154,9 +4154,9 @@ describe("quotes api helpers", () => {
       serviceRequestLineItemId: "line-item-1",
     });
 
-    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_quote", {
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_quote_scoped", {
       p_job_id: "job-1",
-      p_force_retry: false,
+      p_selected_vendors: [],
     });
   });
 

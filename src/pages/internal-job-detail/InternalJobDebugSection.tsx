@@ -4,6 +4,7 @@ import {
   type ManualQuoteCompletionTarget,
 } from "@/components/quotes/ManualQuoteIntakeCard";
 import { XometryDebugCard } from "@/components/quotes/XometryDebugCard";
+import { AdminQuoteOfferInvalidationCard } from "@/components/admin/AdminQuoteOfferInvalidationCard";
 import type { JobAggregate, QuoteRunAggregate } from "@/features/quotes/types";
 
 type InternalJobDebugSectionProps = {
@@ -25,6 +26,10 @@ export function InternalJobDebugSection({
   manualQuoteDisabled,
   showDebugTools,
 }: InternalJobDebugSectionProps) {
+  const quoteOffers = job.quoteRuns.flatMap((run) =>
+    run.vendorQuotes.flatMap((quote) => quote.offers),
+  );
+
   return (
     <>
       <ManualQuoteIntakeCard
@@ -33,6 +38,8 @@ export function InternalJobDebugSection({
         disabled={manualQuoteDisabled}
         completionTarget={completionTarget}
       />
+
+      <AdminQuoteOfferInvalidationCard jobId={jobId} offers={quoteOffers} />
 
       {showDebugTools ? (
         <ExtractionLabCard
