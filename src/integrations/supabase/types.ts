@@ -3528,6 +3528,15 @@ export type Database = {
         }
         Returns: Json
       }
+      api_register_part_geometry_candidate: {
+        Args: {
+          p_algorithm_version: string
+          p_evidence?: Json
+          p_geometry_fingerprint: string
+          p_part_id: string
+        }
+        Returns: number
+      }
       api_register_quote_request_lane: {
         Args: { p_scope_snapshot: Json; p_vendor_quote_result_id: string }
         Returns: undefined
