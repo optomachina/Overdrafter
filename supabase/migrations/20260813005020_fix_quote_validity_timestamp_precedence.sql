@@ -50,4 +50,58 @@ $$;
 revoke all on function private.anchor_operator_quote_validity()
 from public, anon, authenticated, service_role;
 
+-- Repair offers captured after the original anchoring trigger shipped. Reset
+-- valid_until so the existing normalizer derives it again from the corrected
+-- quote timestamp and the vendor/operator terms already stored on the row.
+do $$
+declare
+  v_offer record;
+  v_explicit_quoted_at timestamptz;
+begin
+  for v_offer in
+    select
+      offer.id,
+      offer.quote_date,
+      offer.quoted_at,
+      nullif(offer.raw_payload ->> 'quotedAt', '') as raw_quoted_at
+    from public.vendor_quote_offers offer
+    where coalesce(
+      nullif(offer.raw_payload ->> 'validitySource', ''),
+      offer.validity_source
+    ) = 'operator_duration'
+      and (
+        nullif(offer.raw_payload ->> 'quotedAt', '') is not null
+        or offer.quote_date is not null
+      )
+      and (
+        offer.validity_duration_days is not null
+        or coalesce(
+          nullif(offer.raw_payload ->> 'validityDurationDays', ''),
+          nullif(offer.raw_payload ->> 'validForDays', '')
+        ) ~ '^[1-9]\d*$'
+      )
+  loop
+    begin
+      if v_offer.raw_quoted_at is not null then
+        v_explicit_quoted_at := v_offer.raw_quoted_at::timestamptz;
+      else
+        v_explicit_quoted_at := v_offer.quote_date::timestamp at time zone 'UTC';
+      end if;
+
+      if v_offer.quoted_at is distinct from v_explicit_quoted_at then
+        update public.vendor_quote_offers
+        set quoted_at = v_explicit_quoted_at,
+            valid_until = null
+        where id = v_offer.id;
+      end if;
+    exception
+      when invalid_datetime_format or datetime_field_overflow then
+        -- The normalizer owns malformed-term handling. Do not let one legacy
+        -- payload prevent the safe rows in this migration from being repaired.
+        continue;
+    end;
+  end loop;
+end;
+$$;
+
 commit;

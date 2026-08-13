@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(22);
+select plan(23);
 
 insert into auth.users (
   id, aud, role, email, email_confirmed_at, raw_app_meta_data
@@ -275,6 +275,16 @@ select ok(
     where id = '81000000-0000-4000-8000-000000000014'
   ),
   'an explicit validity date wins when vendor terms also provide a duration'
+);
+
+select ok(
+  pg_catalog.strpos(
+    pg_catalog.pg_get_functiondef(
+      'private.anchor_operator_quote_validity()'::regprocedure
+    ),
+    'new.quoted_at := v_raw_quoted_at::timestamptz'
+  ) > 0,
+  'the deployed anchor preserves an explicit payload quote timestamp'
 );
 
 update public.vendor_quote_offers
