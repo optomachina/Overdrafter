@@ -13,7 +13,7 @@ import {
 import { getSupabaseAuthStorageKey } from "@/hooks/use-app-session";
 import ClientHome from "./ClientHome";
 
-const guestLandingHeading = /^files in\s+parts out$/i;
+const guestLandingHeading = /^cad in\s+parts out$/i;
 
 vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
   ClientQuoteComparisonChart: () => <div data-testid="anonymous-quote-chart" />,

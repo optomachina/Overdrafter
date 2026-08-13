@@ -41,7 +41,7 @@ export function QuoteIntelligenceLanding({
         <div className="w-full max-w-2xl">
           <p className="font-mono text-micro uppercase text-paper-red">Machined aluminum sourcing</p>
           <h1 className="mt-5 max-w-[12ch] font-display text-[44px] font-bold leading-[0.98] tracking-[-0.055em] sm:text-[64px]">
-            Files In
+            CAD In
             <br />
             <span className="text-paper-muted">Parts Out</span>
           </h1>
@@ -70,9 +70,6 @@ export function QuoteIntelligenceLanding({
               </button>
             ) : null}
           </div>
-          <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.08em] text-paper-muted">
-            Launch scope · machined aluminum · STEP + PDF
-          </p>
         </div>
 
         <figure className="min-w-0 border-t border-paper-hairline pt-5 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">

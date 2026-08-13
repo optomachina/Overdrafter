@@ -17,14 +17,14 @@ function renderBar(overrides: Partial<ComponentProps<typeof PartProductDataBar>>
 }
 
 describe("PartProductDataBar", () => {
-  it("shows em dashes when no data is available", () => {
+  it("shows unavailable core fields and omits an empty thread field", () => {
     renderBar();
 
     expect(screen.getByText("Material").nextElementSibling).toHaveTextContent("—");
     expect(screen.getByText("Finish").nextElementSibling).toHaveTextContent("—");
     expect(screen.getByText("Tolerance").nextElementSibling).toHaveTextContent("—");
     expect(screen.getByText("Quantity").nextElementSibling).toHaveTextContent("—");
-    expect(screen.getByText("Thread").nextElementSibling).toHaveTextContent("—");
+    expect(screen.queryByText("Thread")).not.toBeInTheDocument();
   });
 
   it("prefers draft values over extraction data", () => {

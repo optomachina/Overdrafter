@@ -299,26 +299,8 @@ export function ClientCadPreviewPanel({
 
   return (
     <section className={cn("rounded-[26px] border border-border bg-ws-card p-5", className)}>
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3">
         <p className="rounded-full border border-border bg-accent px-3 py-1 text-xs text-foreground">CAD preview</p>
-        {cadFile ? (
-          <Button
-            type="button"
-            size="icon"
-            variant="outline"
-            aria-label="Download CAD file"
-            title={`Download ${cadFile.original_name}`}
-            className="h-9 w-9 rounded-[2px] border-border bg-transparent text-foreground hover:bg-accent"
-            onClick={() => {
-              void downloadStoredFile(cadFile).catch((error) => {
-                console.error("Failed to download CAD file", error);
-                toast.error("Failed to download CAD file.");
-              });
-            }}
-          >
-            <Download className="h-4 w-4" aria-hidden="true" />
-          </Button>
-        ) : null}
       </div>
       <div className="mt-4 overflow-hidden rounded-[22px] border border-border bg-muted">
         {!cadFile ? (

@@ -31,8 +31,8 @@ export function PartInfoPanel({
 }: PartInfoPanelProps) {
   return (
     <div className="min-w-0">
-      <p className="mb-[6px] text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Part information</p>
-      <section className="min-w-0 overflow-hidden rounded-[12px] border border-ws-border-subtle bg-ws-card p-4">
+      <h2 className="text-sm font-medium text-foreground">Part information</h2>
+      <section className="mt-3 min-w-0 border-t border-ws-border-subtle pt-4">
         {statusContent ? <div className="mb-4 space-y-4">{statusContent}</div> : null}
 
         <div>

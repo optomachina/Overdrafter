@@ -216,7 +216,7 @@ describe("ClientDrawingPreviewPanel", () => {
 });
 
 describe("ClientCadPreviewPanel", () => {
-  it("wires the icon and thumbnail fallback actions to CAD download", async () => {
+  it("keeps only the preview fallback CAD download inside the panel", async () => {
     vi.mocked(downloadStoredFileBlob).mockImplementation(() => new Promise(() => {}));
 
     render(<ClientCadPreviewPanel cadFile={cadFile} />);
@@ -224,29 +224,20 @@ describe("ClientCadPreviewPanel", () => {
     expect(screen.queryByText("CAD / isometric")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Manufacturing view" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "CAD preview" })).not.toBeInTheDocument();
-    const downloadButton = screen.getByRole("button", { name: "Download CAD file" });
-    expect(downloadButton).toHaveAttribute("title", "Download model.step");
-    expect(downloadButton).toHaveClass("rounded-[2px]");
-    const controlRow = downloadButton.parentElement;
-    expect(controlRow).toHaveClass("flex", "items-center", "justify-between");
-    expect(controlRow).toContainElement(screen.getByText("CAD preview"));
-    fireEvent.click(downloadButton);
-    expect(downloadStoredFileBlob).toHaveBeenCalledWith(cadFile);
-
-    vi.mocked(downloadStoredFileBlob).mockClear();
+    expect(screen.queryByRole("button", { name: "Download CAD file" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /download model\.step/i }));
 
     expect(downloadStoredFileBlob).toHaveBeenCalledWith(cadFile);
   });
 
-  it("reports CAD download failures from the icon action", async () => {
+  it("reports CAD download failures from the preview fallback action", async () => {
     const downloadError = new Error("storage unavailable");
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     toastMock.error.mockClear();
     vi.mocked(downloadStoredFileBlob).mockRejectedValueOnce(downloadError);
 
     render(<ClientCadPreviewPanel cadFile={cadFile} />);
-    fireEvent.click(screen.getByRole("button", { name: "Download CAD file" }));
+    fireEvent.click(screen.getByRole("button", { name: /download model\.step/i }));
 
     try {
       await waitFor(() => {

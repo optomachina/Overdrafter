@@ -21,13 +21,19 @@ const partialDiagnostics: ClientExtractionDiagnostics = {
 };
 
 describe("ClientExtractionStatusNotice", () => {
-  it("turns a partial extraction into explicit review and save instructions", () => {
+  it("turns a partial extraction into a compact field review summary", () => {
     render(<ClientExtractionStatusNotice diagnostics={partialDiagnostics} />);
 
-    expect(screen.getByText("Review drawing details before sourcing")).toBeInTheDocument();
-    expect(screen.getByText(/complete anything marked missing/i)).toBeInTheDocument();
-    expect(screen.getByText("Missing: Part number")).toBeInTheDocument();
-    expect(screen.getByText("Review: Tightest tolerance")).toBeInTheDocument();
-    expect(screen.getByText(/select save request details/i)).toBeInTheDocument();
+    expect(screen.getByText("Review 2 drawing fields")).toBeInTheDocument();
+    expect(screen.getByText(/Missing: Part number.*Verify: Tightest tolerance/i)).toBeInTheDocument();
+    expect(screen.queryByText(/select save request details/i)).not.toBeInTheDocument();
+  });
+
+  it("suppresses the redundant success notice", () => {
+    const { container } = render(
+      <ClientExtractionStatusNotice diagnostics={{ ...partialDiagnostics, lifecycle: "succeeded" }} />,
+    );
+
+    expect(container).toBeEmptyDOMElement();
   });
 });

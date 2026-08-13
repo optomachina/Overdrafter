@@ -37,7 +37,7 @@ import {
 } from "@/features/quotes/api/vendor-preferences-api";
 import { useOrganizationQuoteCollectionMode } from "@/features/quotes/organization-entitlements";
 import { isProjectCollaborationSchemaUnavailable } from "@/features/quotes/api/shared/schema-runtime";
-import { createJobsFromUploadFiles, uploadFilesToJob } from "@/features/quotes/api/uploads-api";
+import { uploadFilesToJob } from "@/features/quotes/api/uploads-api";
 import { shouldPollClientWorkspaceState } from "@/features/quotes/client-workspace-polling";
 import {
   fetchClientActivityEventsByJobIds,
@@ -297,23 +297,6 @@ export function useClientPartController(
   });
   const sidebarProjects = navigationModel.sidebarProjects;
   const sidebarProjectIdsByJobId = navigationModel.partToProjectIds;
-
-  const newJobFilePicker = useClientJobFilePicker({
-    isSignedIn: Boolean(user),
-    onRequireAuth: () => navigate("/?auth=signin"),
-    onFilesSelected: async (files) => {
-      const result = await createJobsFromUploadFiles({ files });
-
-      await invalidateClientWorkspaceQueries(queryClient, { jobId: routeJobId });
-
-      if (result.projectId && result.jobIds.length > 1) {
-        navigate(`/projects/${result.projectId}`);
-        return;
-      }
-
-      navigate(`/parts/${result.jobIds[0]}`);
-    },
-  });
 
   const partRouteQuery = useQuery({
     queryKey: workspaceQueryKeys.partDetailRoute(
@@ -1643,7 +1626,6 @@ export function useClientPartController(
     isSearchOpen,
     jobId: canonicalJobId,
     navigate,
-    newJobFilePicker,
     partDetail,
     partRouteQuery,
     partDetailQuery,

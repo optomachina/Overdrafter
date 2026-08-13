@@ -41,8 +41,11 @@ function resolveQuantityValue(input: PartProductDataBarProps): string {
 
 function buildDataFields(input: PartProductDataBarProps): DataField[] {
   const { part, extraction, draft } = input;
+  const threadValue =
+    formatTextValue(draft?.threads) ||
+    formatTextValue(extraction?.threads?.join(", "));
 
-  return [
+  const fields = [
     {
       label: "Material",
       value:
@@ -78,14 +81,13 @@ function buildDataFields(input: PartProductDataBarProps): DataField[] {
       label: "Quantity",
       value: resolveQuantityValue(input),
     },
-    {
-      label: "Thread",
-      value:
-        formatTextValue(draft?.threads) ||
-        formatTextValue(extraction?.threads?.join(", ")) ||
-        "—",
-    },
   ];
+
+  if (threadValue) {
+    fields.push({ label: "Thread", value: threadValue });
+  }
+
+  return fields;
 }
 
 export function PartProductDataBar({ part, summary, extraction, draft }: PartProductDataBarProps) {

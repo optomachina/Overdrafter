@@ -28,7 +28,7 @@ export function AnonymousHomeLanding({ onSignIn, onSignUp }: AnonymousHomeLandin
         </p>
 
         <h1 className="font-display text-[44px] font-bold leading-[0.94] tracking-[-0.05em] text-foreground sm:text-[60px] lg:text-[76px]">
-          Files In
+          CAD In
           <br />
           <span className="text-muted-foreground">Parts Out</span>
         </h1>
@@ -37,10 +37,6 @@ export function AnonymousHomeLanding({ onSignIn, onSignUp }: AnonymousHomeLandin
           Upload CAD files and drawings to collect vendor quotes, compare price and lead time, and choose the best
           source for your budget and deadline.
         </p>
-        <p className="mt-3 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-          Launch scope · machined aluminum · STEP + PDF
-        </p>
-
         <div className="mt-8 flex flex-col items-stretch gap-2.5 sm:flex-row sm:items-center">
           <Button type="button" className="min-h-11" onClick={onSignUp}>
             Get started free
