@@ -108,11 +108,11 @@ describe("ClientQuoteRequestStatusCard", () => {
 
   it.each([
     ["not_requested", "Quote Not requested", ["border", "border-border", "bg-accent", "text-foreground/80"]],
-    ["queued", "Quote Queued", ["border-amber-400/20", "bg-amber-500/10", "text-amber-100"]],
-    ["requesting", "Quote Requesting", ["border-amber-400/20", "bg-amber-500/10", "text-amber-100"]],
-    ["received", "Quote Quoted", ["border-emerald-400/20", "bg-emerald-500/10", "text-emerald-100"]],
-    ["failed", "Quote Failed", ["border-rose-400/20", "bg-rose-500/10", "text-rose-100"]],
-    ["canceled", "Quote Canceled", ["border-rose-400/20", "bg-rose-500/10", "text-rose-100"]],
+    ["queued", "Quote Queued", ["border", "border-amber-300", "bg-amber-300", "text-amber-950"]],
+    ["requesting", "Quote Requesting", ["border", "border-amber-300", "bg-amber-300", "text-amber-950"]],
+    ["received", "Quote Quoted", ["border", "border-emerald-700", "bg-emerald-700", "text-white"]],
+    ["failed", "Quote Failed", ["border", "border-rose-700", "bg-rose-700", "text-white"]],
+    ["canceled", "Quote Canceled", ["border", "border-rose-700", "bg-rose-700", "text-white"]],
   ] as const)("renders %s with the shared badge mapping", (status, badgeLabel, classes) => {
     render(
       <ClientQuoteRequestStatusCard

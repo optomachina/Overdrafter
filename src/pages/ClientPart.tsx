@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   Archive,
   Bell,
@@ -709,13 +709,12 @@ const ClientPart = () => {
                     <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                       {breadcrumbProject ? (
                         <>
-                          <button
-                            type="button"
+                          <Link
+                            to={appAwareHref(`/projects/${breadcrumbProject.id}`)}
                             className="rounded-full border border-border bg-muted px-3 py-1 text-foreground/80 transition hover:bg-accent hover:text-foreground"
-                            onClick={() => navigate(appAwareHref(`/projects/${breadcrumbProject.id}`))}
                           >
                             {breadcrumbProject.name}
-                          </button>
+                          </Link>
                           <span className="text-muted-foreground">/</span>
                         </>
                       ) : null}

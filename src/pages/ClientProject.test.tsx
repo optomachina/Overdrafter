@@ -1580,27 +1580,27 @@ describe("ClientProject", () => {
     {
       status: "queued" as const,
       label: "Queued",
-      classes: ["border-amber-400/20", "bg-amber-500/10", "text-amber-100"],
+      classes: ["border-amber-300", "bg-amber-300", "text-amber-950"],
     },
     {
       status: "requesting" as const,
       label: "Requesting",
-      classes: ["border-amber-400/20", "bg-amber-500/10", "text-amber-100"],
+      classes: ["border-amber-300", "bg-amber-300", "text-amber-950"],
     },
     {
       status: "received" as const,
       label: "Quoted",
-      classes: ["border-emerald-400/20", "bg-emerald-500/10", "text-emerald-100"],
+      classes: ["border-emerald-700", "bg-emerald-700", "text-white"],
     },
     {
       status: "failed" as const,
       label: "Failed",
-      classes: ["border-rose-400/20", "bg-rose-500/10", "text-rose-100"],
+      classes: ["border-rose-700", "bg-rose-700", "text-white"],
     },
     {
       status: "canceled" as const,
       label: "Canceled",
-      classes: ["border-rose-400/20", "bg-rose-500/10", "text-rose-100"],
+      classes: ["border-rose-700", "bg-rose-700", "text-white"],
     },
   ])("renders the inspector quote badge for %s status with the correct color treatment", async ({
     status,
@@ -1621,6 +1621,25 @@ describe("ClientProject", () => {
     const quoteBadge = within(inspector).getByText(label);
     expect(quoteBadge).toHaveClass(...classes);
   });
+
+  it.each(["failed", "canceled"] as const)(
+    "renders the %s project quote summary with the shared high-contrast treatment",
+    async (status) => {
+      api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([
+        buildWorkspaceItemWithQuoteStatus(status),
+      ]);
+
+      renderWithClient("/projects/project-1");
+
+      const needsAttentionBadge = await screen.findByText("Needs attention: 1");
+      expect(needsAttentionBadge).toHaveClass(
+        "border-rose-700",
+        "bg-rose-700",
+        "text-white",
+        "hover:bg-rose-700",
+      );
+    },
+  );
 
   it("opens the inspector in a sheet on mobile row selection", async () => {
     mockUseIsMobile.mockReturnValue(true);
