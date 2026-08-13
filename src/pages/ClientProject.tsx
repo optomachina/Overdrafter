@@ -1361,7 +1361,7 @@ const ClientProject = () => {
                 </Badge>
               ) : null}
               {projectQuoteRequestSummary.needsAttention > 0 ? (
-                <Badge className="border border-rose-400/20 bg-rose-500/10 text-rose-100">
+                <Badge className={getQuoteRequestStatusBadgeClassName("failed")}>
                   Needs attention: {projectQuoteRequestSummary.needsAttention}
                 </Badge>
               ) : null}

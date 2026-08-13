@@ -1933,10 +1933,10 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "QB00001" })).toBeInTheDocument();
-    });
+    const projectLink = await screen.findByRole("link", { name: "QB00001" });
 
+    expect(projectLink).toHaveAttribute("href", "/projects/project-1");
+    expect(screen.queryByRole("button", { name: "QB00001" })).not.toBeInTheDocument();
     expect(lastShellProps?.title).toBe("BRKT-001 rev A");
   });
 
