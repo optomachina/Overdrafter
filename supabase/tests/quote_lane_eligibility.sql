@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(23);
+select plan(24);
 
 insert into auth.users (
   id, aud, role, email, email_confirmed_at, raw_app_meta_data
@@ -287,13 +287,47 @@ select ok(
   'the deployed anchor preserves an explicit payload quote timestamp'
 );
 
+insert into public.vendor_quote_offers (
+  id, vendor_quote_result_id, organization_id, offer_key, supplier,
+  lane_label, unit_price_usd, total_price_usd, provenance_status, raw_payload
+) values (
+  '81000000-0000-4000-8000-000000000015',
+  '81000000-0000-4000-8000-000000000010',
+  '81000000-0000-4000-8000-000000000002',
+  'fictiv-malformed-validity',
+  'Fictiv',
+  'Malformed legacy fixture',
+  150,
+  150,
+  'manual_verified',
+  '{
+    "source":"manual-quote-admin-inbox",
+    "quotedAt":"2026-08-12T00:00:00+99",
+    "validityDurationDays":"10",
+    "validitySource":"operator_duration"
+  }'::jsonb
+);
+
+select ok(
+  (
+    select quoted_at is null
+      and valid_until is null
+      and validity_duration_days is null
+      and validity_source is null
+    from public.vendor_quote_offers
+    where id = '81000000-0000-4000-8000-000000000015'
+  ),
+  'malformed timestamp subclasses leave commercial validity unknown without aborting'
+);
+
 update public.vendor_quote_offers
 set invalidated_at = timezone('utc', now()),
     invalidated_by = '81000000-0000-4000-8000-000000000001',
     invalidation_reason = 'Keep validity normalization fixtures out of lane coverage.'
 where id in (
   '81000000-0000-4000-8000-000000000013',
-  '81000000-0000-4000-8000-000000000014'
+  '81000000-0000-4000-8000-000000000014',
+  '81000000-0000-4000-8000-000000000015'
 );
 
 select set_config('request.jwt.claim.sub', '81000000-0000-4000-8000-000000000001', true);
