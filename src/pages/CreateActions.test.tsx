@@ -616,9 +616,9 @@ describe("top-level create actions", () => {
       "/parts/job-1",
     );
 
-    const uploadButton = await screen.findByRole("button", { name: "Upload" });
+    const uploadButton = await screen.findByRole("button", { name: "Upload part files" });
 
-    expect(uploadButton.querySelector(".lucide-square-plus")).not.toBeNull();
+    expect(uploadButton.querySelector(".lucide-upload")).not.toBeNull();
 
     fireEvent.click(uploadButton);
 
@@ -638,10 +638,10 @@ describe("top-level create actions", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
+      expect(screen.getByRole("button", { name: /more part actions/i })).not.toBeNull();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
+    fireEvent.click(screen.getByRole("button", { name: /more part actions/i }));
     expect(await screen.findByRole("menuitem", { name: "Manage projects" })).not.toBeNull();
     fireEvent.change(screen.getByLabelText("Need by date"), { target: { value: "2026-04-22" } });
 
@@ -682,7 +682,7 @@ describe("top-level create actions", () => {
       "/parts/job-1",
     );
 
-    const actionsButton = await screen.findByRole("button", { name: /issue detail actions/i });
+    const actionsButton = await screen.findByRole("button", { name: /more part actions/i });
     fireEvent.click(actionsButton);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Manage projects" }));
     const dialog = await screen.findByRole("dialog", { name: /manage project membership/i });
@@ -693,7 +693,7 @@ describe("top-level create actions", () => {
     });
   });
 
-  it("deletes the current part from the issue detail actions menu", async () => {
+  it("archives the current part from the header actions menu", async () => {
     api.archiveJob.mockResolvedValue("job-1");
 
     renderWithClient(
@@ -705,10 +705,10 @@ describe("top-level create actions", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
+      expect(screen.getByRole("button", { name: /more part actions/i })).not.toBeNull();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
+    fireEvent.click(screen.getByRole("button", { name: /more part actions/i }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /archive part/i }));
 
     await waitFor(() => {
