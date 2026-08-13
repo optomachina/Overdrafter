@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(22);
+select plan(24);
 
 insert into auth.users (
   id, aud, role, email, email_confirmed_at, raw_app_meta_data
@@ -267,7 +267,8 @@ insert into public.vendor_quote_offers (
 
 select ok(
   (
-    select validity_source = 'operator_date'
+    select quoted_at = '2026-08-12 00:00:00+00'::timestamptz
+      and validity_source = 'operator_date'
       and valid_until = '2026-08-31 23:59:59.999999+00'::timestamptz
       and validity_duration_days = 20
     from public.vendor_quote_offers
@@ -276,13 +277,57 @@ select ok(
   'an explicit validity date wins when vendor terms also provide a duration'
 );
 
+select ok(
+  pg_catalog.strpos(
+    pg_catalog.pg_get_functiondef(
+      'private.anchor_operator_quote_validity()'::regprocedure
+    ),
+    'new.quoted_at := v_raw_quoted_at::timestamptz'
+  ) > 0,
+  'the deployed anchor preserves an explicit payload quote timestamp'
+);
+
+insert into public.vendor_quote_offers (
+  id, vendor_quote_result_id, organization_id, offer_key, supplier,
+  lane_label, unit_price_usd, total_price_usd, provenance_status, raw_payload
+) values (
+  '81000000-0000-4000-8000-000000000015',
+  '81000000-0000-4000-8000-000000000010',
+  '81000000-0000-4000-8000-000000000002',
+  'fictiv-malformed-validity',
+  'Fictiv',
+  'Malformed legacy fixture',
+  150,
+  150,
+  'manual_verified',
+  '{
+    "source":"manual-quote-admin-inbox",
+    "quotedAt":"2026-08-12T00:00:00+99",
+    "validityDurationDays":"10",
+    "validitySource":"operator_duration"
+  }'::jsonb
+);
+
+select ok(
+  (
+    select quoted_at is null
+      and valid_until is null
+      and validity_duration_days is null
+      and validity_source is null
+    from public.vendor_quote_offers
+    where id = '81000000-0000-4000-8000-000000000015'
+  ),
+  'malformed timestamp subclasses leave commercial validity unknown without aborting'
+);
+
 update public.vendor_quote_offers
 set invalidated_at = timezone('utc', now()),
     invalidated_by = '81000000-0000-4000-8000-000000000001',
     invalidation_reason = 'Keep validity normalization fixtures out of lane coverage.'
 where id in (
   '81000000-0000-4000-8000-000000000013',
-  '81000000-0000-4000-8000-000000000014'
+  '81000000-0000-4000-8000-000000000014',
+  '81000000-0000-4000-8000-000000000015'
 );
 
 select set_config('request.jwt.claim.sub', '81000000-0000-4000-8000-000000000001', true);
@@ -383,8 +428,13 @@ set finish = null
 where part_id = '81000000-0000-4000-8000-000000000006';
 
 update public.vendor_quote_offers
-set valid_until = '2026-08-13 00:00:00+00', validity_duration_days = 1
+set valid_until = timezone('utc', now()) - interval '1 hour',
+    validity_duration_days = 1
 where id = '81000000-0000-4000-8000-000000000011';
+
+update public.quote_request_lanes
+set created_at = timezone('utc', now()) - interval '25 hours'
+where vendor = 'xometry';
 
 select is(
   (
@@ -392,13 +442,17 @@ select is(
     from private.resolve_quote_lane_eligibility(
       '81000000-0000-4000-8000-000000000003',
       '{xometry}'::public.vendor_name[],
-      '2026-08-14 00:00:00+00'
+      timezone('utc', now())
     )
     where requested_quantity = 1
   ),
   'requestable',
   'an expired historical offer no longer permanently blocks its lane'
 );
+
+update public.vendor_quote_offers
+set valid_until = timezone('utc', now()) + interval '1 day'
+where id = '81000000-0000-4000-8000-000000000011';
 
 update public.quote_request_lanes
 set created_at = timezone('utc', now()) - interval '25 hours'
