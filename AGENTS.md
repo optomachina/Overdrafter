@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Last updated: April 10, 2026
+Last updated: August 12, 2026
 
 ## Purpose
 
@@ -24,14 +24,20 @@ When instructions overlap, use this order:
 
 1. `PRD.md`
 2. `PLAN.md`
-3. `ARCHITECTURE.md`
-4. `TEST_STRATEGY.md`
-5. `ACCEPTANCE_CRITERIA.md`
-6. specialized docs for the specific area
-7. `README.md`
-8. local mirrored tool files such as `CLAUDE.md`, `.github/copilot-instructions.md`, or prompt files
+3. `ROADMAP.md`
+4. `ARCHITECTURE.md`
+5. `TEST_STRATEGY.md`
+6. `ACCEPTANCE_CRITERIA.md`
+7. specialized docs for the specific area
+8. `README.md`
+9. local mirrored tool files such as `CLAUDE.md`, `.github/copilot-instructions.md`, or prompt files
 
 Mirrored tool-specific instruction files may restate this file for compatibility, but they may not override it.
+
+`ROADMAP.md` has precedence only for release sequencing, classification, and
+promotion decisions. It may not weaken architecture, security, privacy,
+testing, acceptance, or implementation constraints defined by the applicable
+specialized source-of-truth document.
 
 If documents conflict:
 - do not guess
@@ -244,11 +250,11 @@ Default behavior:
   - `README.md`
   - `PRD.md`
   - `PLAN.md`
+  - `ROADMAP.md`
   - `ARCHITECTURE.md`
   - `ACCEPTANCE_CRITERIA.md`
   - `TEST_STRATEGY.md`
-  - `roadmap.md`
-  - `horizon1-6.md`
+  - `horizon1.md` through `horizon6.md`
   - `capabilitymap.md`
 - Preserve product intent from repo docs and conversation context.
 - Prefer a small number of high-signal issues instead of vague tickets.
@@ -547,6 +553,7 @@ When changing any of the following, update the relevant docs in the same change 
 Common doc targets:
 - `PRD.md`
 - `PLAN.md`
+- `ROADMAP.md`
 - `ARCHITECTURE.md`
 - `TEST_STRATEGY.md`
 - `ACCEPTANCE_CRITERIA.md`

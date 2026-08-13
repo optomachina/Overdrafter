@@ -1,5 +1,9 @@
 # OverDrafter TODOs
 
+> **Planning status:** Idea and implementation-history archive. This is not the
+> active queue. Use `PLAN.md` for the next task and `ROADMAP.md` to promote a
+> deferred item. A priority recorded below does not override the active release.
+
 Deferred work with context. Each item captures what, why, and where to start so it can be picked up independently.
 
 ---

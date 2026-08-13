@@ -2,6 +2,9 @@
 
 Last updated: March 13, 2026
 
+> **Planning status:** Incubator source material. `ROADMAP.md` and `PLAN.md`
+> supersede this file for commitment and sequencing.
+
 ## Purpose
 
 This horizon establishes the file lifecycle and revision-management foundation needed for OverDrafter to evolve toward a PDM-class system.

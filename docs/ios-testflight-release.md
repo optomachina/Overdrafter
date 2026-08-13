@@ -1,5 +1,9 @@
 # iOS TestFlight Release
 
+Portfolio status: deferred. This is a technical reactivation runbook, not an
+active release plan. `PLAN.md` owns the current queue and `ROADMAP.md` owns any
+future promotion of native iOS work.
+
 This runbook is the source of truth for archiving and uploading the OverDrafter iOS app. It keeps credentials out of the
 repository and separates the binary upload from the additional work required for an external-testing public link.
 

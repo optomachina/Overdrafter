@@ -2,6 +2,9 @@
 
 Last updated: March 13, 2026
 
+> **Planning status:** Incubator source material. `ROADMAP.md` and `PLAN.md`
+> supersede this file for commitment and sequencing.
+
 ## Purpose
 
 This horizon expands OverDrafter from a quoting portal into a broader manufacturing workspace that can represent more types of work and more operational states.

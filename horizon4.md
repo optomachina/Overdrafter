@@ -2,6 +2,9 @@
 
 Last updated: July 28, 2026
 
+> **Planning status:** Incubator source material. `ROADMAP.md` and `PLAN.md`
+> supersede this file for commitment and sequencing.
+
 ## Purpose
 
 This horizon extends OverDrafter beyond the browser and makes the platform more usable in real operational environments across devices.

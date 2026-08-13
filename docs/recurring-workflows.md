@@ -1,6 +1,6 @@
 # Recurring Contributor and Codex Workflows
 
-Last updated: March 20, 2026
+Last updated: August 12, 2026
 
 ## Purpose
 
@@ -12,11 +12,16 @@ Use the root source-of-truth hierarchy first:
 
 1. `PRD.md`
 2. `PLAN.md`
-3. `ARCHITECTURE.md`
-4. `TEST_STRATEGY.md`
-5. `ACCEPTANCE_CRITERIA.md`
-6. specialized docs such as `docs/debugging-workflows.md`
-7. `README.md`
+3. `ROADMAP.md`
+4. `ARCHITECTURE.md`
+5. `TEST_STRATEGY.md`
+6. `ACCEPTANCE_CRITERIA.md`
+7. specialized docs such as `docs/debugging-workflows.md`
+8. `README.md`
+
+`ROADMAP.md` precedence is limited to sequencing and classification. Use the
+applicable architecture, security/privacy, test, acceptance, and specialized
+documents for implementation constraints.
 
 Use repo-local skills when the task is procedural rather than policy-oriented:
 

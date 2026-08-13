@@ -4,7 +4,9 @@ Last updated: August 7, 2026
 
 ## Status and purpose
 
-This document captures a deferred long-term product direction for OverDrafter. It is not an active implementation plan, a committed delivery sequence, or permission to displace the current web-first customer-interest and pricing-validation work.
+This document captures a deferred long-term product direction for OverDrafter.
+It is not an active implementation plan, a committed delivery sequence, or
+permission to displace the controlled 1.0 Part-to-Quote beta in `PLAN.md`.
 
 The long-term opportunity is broader than adding drafting tools to a quoting product. OverDrafter should eventually help customers complete a missing side of a manufacturable design package, preserve the result as editable engineering data, and carry the reviewed package into quoting and purchasing workflows.
 
@@ -220,4 +222,7 @@ Each stage should prove accuracy, editability, provenance, and downstream quote-
 
 ## Relationship to current execution
 
-The active plan remains web-first validation of the existing upload, sourcing, quote, and manual handoff experience. This roadmap is retained so future CAD-native, drafting, modeling, PDM, and procurement work composes toward one coherent product instead of becoming disconnected features.
+The active plan is the bounded web Part-to-Quote beta in `PLAN.md`. This roadmap
+is retained in the CAD/Design Lifecycle incubator so future CAD-native,
+drafting, modeling, PDM, and procurement work composes toward one coherent
+product instead of becoming disconnected features.

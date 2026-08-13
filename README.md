@@ -1,8 +1,14 @@
-# OverDrafter – Manufacturing Co-Pilot
+# OverDrafter — Part to Quote
 
-OverDrafter is a multi-agent CAD-native platform that lets users upload CAD files and drawings and receive DFM reviews, quotes, assembly plans, fulfillment, modeling updates, drafting updates, remodeling/redrafting, and PDM—all driven by invisible specialist agents via natural language.
+OverDrafter helps a hands-on buyer upload a supported machined part, review its
+requirements, receive a trustworthy sourcing outcome, compare real offers, and
+continue with the selected vendor.
 
-The primary interface lives inside the user’s CAD tool (plugins for SolidWorks, Fusion 360, Onshape, etc.) or a live 3D web viewer. Complexity (queues, extraction steps, vendor tabs, cards) is hidden until the exact moment it adds value.
+The active 1.0 product is a controlled design-partner beta: an authenticated
+responsive-web journey for one exact machined-aluminum STEP/STP envelope and
+one production-certified automatic quote lane. It is not general availability.
+The broader CAD-native manufacturing co-pilot remains a captured incubator
+vision; it is not the current product promise or execution queue.
 
 `npm` is the authoritative package manager for both the repo root and `worker/`. Use the committed
 `package-lock.json` files and do not introduce Bun, pnpm, or Yarn lockfiles unless the repo policy changes.
@@ -17,19 +23,28 @@ Use repo documentation in this order when documents overlap:
 
 1. `PRD.md` - canonical product intent
 2. `PLAN.md` - active execution sequencing
-3. `ARCHITECTURE.md` - system boundaries and subsystem model
-4. `TEST_STRATEGY.md` - verification expectations
-5. `ACCEPTANCE_CRITERIA.md` - hardening-phase definition of done
-6. specialized docs for a specific area
-7. `README.md` - repo entry point and setup guidance
+3. `ROADMAP.md` - release ladder, exclusions, and idea-promotion rules
+4. `ARCHITECTURE.md` - system boundaries and subsystem model
+5. `TEST_STRATEGY.md` - verification expectations
+6. `ACCEPTANCE_CRITERIA.md` - evidence required to release 1.0
+7. specialized docs for a specific area
+8. `README.md` - repo entry point and setup guidance
 
-If a lower-priority doc disagrees with one of the files above, the higher-priority doc wins.
+If a lower-priority doc disagrees with one of the files above, the higher-priority doc wins. `ROADMAP.md` precedence is limited to sequencing and classification; it cannot weaken architecture, security, privacy, testing, acceptance, or implementation constraints.
 
 ## Planning Material Status
 
 - `docs/reconstruction-prd.md` is retained as source material only and is superseded by `PRD.md`.
 - `REPO_MAP.md` is a non-canonical orientation aid for navigating the repo layout.
-- `ROADMAP.md` is currently a placeholder and is not an active planning surface.
+- `ROADMAP.md` defines the release ladder, explicit exclusions, incubators, and
+  the evidence required to promote a future idea.
+- `docs/1-0-beta-runbook.md` defines the exact package, disclosure,
+  data-handling gate, browser checks, evidence record, and rollback rules for
+  the active controlled beta.
+- `docs/founding-beta-program.md` defines the Founding Beta cohort, safeguards,
+  run limits, evidence, and decision protocol after production readiness.
+- `capabilitymap.md`, `horizon1.md` through `horizon6.md`, and `TODOS.md` preserve planning history
+  and idea detail; they do not override the current execution queue.
 
 Important specialized planning docs include:
 
@@ -47,24 +62,33 @@ and audit checks. Its linked references keep the detailed rules in one place:
 - [Commercial Rollout Controls](docs/workflows/commercial-rollout-controls.md) defines capability provisioning, staged enablement, monitoring, and rollback.
 - [Architecture: commercial access and operations](ARCHITECTURE.md#9-commercial-access-and-operations-layer) defines the authorization and data boundaries.
 
-## Current Launch Posture
+## Current Release Posture
 
-OverDrafter is in a web-first customer-interest and pricing-validation phase.
-Use the responsive `Parts | Quotes | Search` experience for controlled customer
-demonstrations and feedback. Production billing and unattended automatic-quote
-enablement are paused until the product owner approves pricing and resumes the
-launch dependency chain.
+OverDrafter is preparing **1.0 — Part to Quote** as a controlled design-partner
+beta, not a public general-availability launch. Release proof is repeatable
+production completion of the signed-in upload-to-vendor-handoff journey, plus
+unaided completion by external design partners. There is no calendar target.
 
-The preserved launch sequence is `OVD-228` and `OVD-206`, then `OVD-319`, then
-`OVD-320`. Do not resume those issues without explicit direction. iOS production
-readiness, CAD-native workspace expansion, supplier-network development, and
-manufacturing estimates are deferred Low-priority tracks. Draft iOS PR #271 is
-closed unmerged with its branch preserved.
+The current next task is `OVD-359`, approval and enforcement of the data-
+handling, disclosure, export-control, beta-organization, Xometry-only, and exact
+golden-fixture safety contract. `OVD-206` hosted Xometry repeatability follows
+that gate. The single authoritative queue and the reason for that ordering are
+in `PLAN.md`; the exact package and operating boundary are in
+[`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md).
 
-The PRD's current $49 monthly price remains the canonical offer and the pricing
-hypothesis being tested during this phase. Keep production Checkout disabled.
-Any later price change must update the canonical product contract, customer
-copy, billing validation, and Stripe catalog together before activation.
+After production certification, `OVD-358` runs the Founding Beta. Qualified
+friends of the founder are the first intended cohort under the same safeguards
+as any participant; the program contract is in
+[`docs/founding-beta-program.md`](docs/founding-beta-program.md).
+
+Billing is not a blocker for this sequence. `OVD-228` and the first external paid
+organization (`OVD-320`) belong to 1.1 after 1.0 proves value. Automatic quote
+access during 1.0 is limited to explicitly enrolled, audited design-partner
+organizations; it is not opened to every signed-in organization.
+
+iOS production readiness, CAD-native workspace expansion, supplier-network
+development, manufacturing intelligence, and downstream fulfillment are
+deferred in `ROADMAP.md`.
 
 ## Execution Workflow
 
@@ -148,9 +172,12 @@ appear in old diffs or stale local artifacts, do not treat them as canonical run
 
 ## What Was Implemented
 
-### What Was Implemented (scaffolding)
+### What Was Implemented (foundation)
 
-The current React + Supabase + worker implementation provides the solid foundation (job intake, extraction, quote orchestration, OpenClaw harness) that will now be progressively wrapped and hidden behind the ideal multi-agent UX.
+The current React + Supabase + worker implementation provides foundations for
+job intake, extraction/review, quote orchestration, live and manual sourcing,
+comparison/selection, and vendor handoff. The 1.0 task is to certify this narrow
+customer journey in production, not to wrap it in a broader agent experience.
 
 The active client launch surface is `Parts | Quotes | Search` on responsive web.
 Projects remain the collaboration/procurement-workflow container behind those
@@ -265,7 +292,7 @@ npm run db:push
 ```
 
 When schema changes affect the generated Supabase surface, regenerate
-[`src/integrations/supabase/types.ts`](/Users/blainewilson/Documents/GitHub/Overdrafter/src/integrations/supabase/types.ts)
+[`src/integrations/supabase/types.ts`](src/integrations/supabase/types.ts)
 from local migration head after the local stack is running:
 
 ```bash
@@ -454,7 +481,7 @@ Use `docs/recurring-workflows.md` instead of relying on pasted handoff snippets.
 - PR evidence expectations from `.github/pull_request_template.md`
 - repo-local procedural skills in `.codex/skills/`
 
-## Current State
+## Implemented foundation and release blockers
 
 The portal and Supabase foundation are implemented. The historical no-Stripe MVP established a live quote-request loop for `dmrifles@gmail.com`: sign in, upload parts, request quotes, and receive live vendor results or explicit manual-follow-up states.
 
@@ -464,18 +491,24 @@ Recent live-adapter status:
 - Xometry live automation uses standard Playwright Chromium by default. This matches Xometry's current authenticated configurator behavior; Patchright can cause the material-options API to return `401` and render `No options` despite a valid session. `XOMETRY_BROWSER_ENGINE=patchright` and `XOMETRY_BROWSER_ENGINE=camoufox` remain explicit rollback options, with Camoufox requiring a persistent `XOMETRY_USER_DATA_DIR`.
 - Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
 
-Commercial account administration has a staged foundation under Linear parent
-`OVD-227`, but billing activation is paused during customer-interest and pricing
-validation:
+Commercial-access and Stripe foundations exist, but they are not the current
+product promise. The controlled 1.0 beta must use a dedicated audited
+organization boundary implemented under `OVD-359`; an existing manual grant or
+subscription is not sufficient. Self-service billing, Free/paid packaging, and
+the implemented `$49/month` price remain disabled 1.1 hypotheses. The current
+customer-facing `$49/month` and upgrade copy must be removed, hidden, or
+replaced with truthful invitation-only beta language before external testing.
 
-Target contract and sequence:
-
-- Free organizations will keep unlimited uploads and receive unattended provider guidance with official RFQ links.
-- Pro organizations will gain server-enforced automatic vendor quote collection.
-- Free users will continue to see the automatic-quote toggle; attempting to enable it will open the Pro upgrade dialog.
-- The current PRD's $49 monthly Checkout price is the pricing hypothesis being validated with prospective customers.
-- No Stripe catalog change, Checkout activation, or automatic-quote production enablement is authorized during the hold.
-- Annual pricing, promotion codes, and order administration remain deferred until the web product records revenue.
+The app's current Terms and Privacy surfaces are placeholders. External
+proprietary-part testing is therefore blocked until the data-handling and
+disclosure gate in
+[`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md) is approved and
+published. The candidate internal fixture is not documented as sanitized, so
+even its Xometry certification waits for explicit owner and export-control
+approval in `OVD-359`.
+The same STEP bytes are currently served from the deployed app's public
+`/fixtures/` path; `OVD-359` must separately confirm public-distribution rights
+or remove/replace that artifact before beta certification.
 
 Manufacturing card collection, order discounts, automated supplier order placement, tax automation, and ERP/accounting integration remain deferred. For controlled tests, a local live worker is acceptable; unattended use still requires hosting the live worker on a long-lived platform.
 

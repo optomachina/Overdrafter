@@ -1,18 +1,19 @@
 # OverDrafter Repo Map
 
-Last updated: March 19, 2026
+Last updated: August 12, 2026
 
 > Status: Non-canonical support document. Use this file for orientation only.
 >
-> Canonical repo guidance lives in `PRD.md`, `PLAN.md`, `ARCHITECTURE.md`, `TEST_STRATEGY.md`, `ACCEPTANCE_CRITERIA.md`, and `AGENTS.md`. If this map conflicts with those docs, the canonical docs win.
+> Canonical repo guidance lives in `PRD.md`, `PLAN.md`, `ROADMAP.md`, `ARCHITECTURE.md`, `TEST_STRATEGY.md`, `ACCEPTANCE_CRITERIA.md`, and `AGENTS.md`. If this map conflicts with those docs, the canonical docs win.
 
 ## Canonical docs
 
 - `PRD.md` - product intent
 - `PLAN.md` - active execution sequencing
+- `ROADMAP.md` - release classification, sequencing, incubators, and promotion
 - `ARCHITECTURE.md` - system boundaries
 - `TEST_STRATEGY.md` - verification policy
-- `ACCEPTANCE_CRITERIA.md` - hardening-phase definition of done
+- `ACCEPTANCE_CRITERIA.md` - active release evidence and definition of done
 - `AGENTS.md` - operating manual for contributors and agents
 - `README.md` - repo setup and entry-point guidance
 

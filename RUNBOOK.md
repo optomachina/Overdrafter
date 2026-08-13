@@ -3,6 +3,11 @@
 Operational commands for development, testing, and live vendor automation.
 Keep this file updated when adding new scripts or env vars.
 
+For the controlled 1.0 beta, `docs/1-0-beta-runbook.md` is the release-specific
+authority. Every 1.0 live worker uses Xometry only. Fictiv and hidden-vendor
+examples below are retained solely for explicitly approved internal or future
+roadmap validation.
+
 ---
 
 ## Local Development
@@ -19,9 +24,8 @@ npm --prefix worker run dev
 
 # Start the worker in live mode (real vendor calls — requires session + env vars)
 WORKER_MODE=live \
-WORKER_LIVE_ADAPTERS=xometry,fictiv \
+WORKER_LIVE_ADAPTERS=xometry \
 XOMETRY_STORAGE_STATE_PATH=/path/to/xometry-storage-state.json \
-FICTIV_STORAGE_STATE_PATH=/path/to/fictiv-storage-state.json \
 npm --prefix worker run dev
 ```
 
@@ -88,6 +92,9 @@ npm run e2e:prepare
 
 ### Step 1 — Bootstrap an Xometry session
 
+For local interactive diagnostics, Camoufox with a persistent profile remains
+an explicit fallback:
+
 ```bash
 XOMETRY_BROWSER_ENGINE=camoufox \
 XOMETRY_USER_DATA_DIR="$PWD/worker/state/xometry-camoufox-user-data" \
@@ -97,13 +104,14 @@ npm --prefix worker run auth:xometry
 # The persistent Firefox profile is saved in XOMETRY_USER_DATA_DIR.
 ```
 
-Camoufox with a persistent profile is the preferred Xometry path after PR #236. Patchright
-storage-state mode remains available for comparison, but it has been observed to silently
-degrade behind Xometry's Cloudflare wall.
+The current Cloud Run deployment does not mount that persistent profile. The
+1.0 hosted certification path uses standard Playwright plus an authenticated
+storage-state secret, matching the deployed worker's current default.
 
-Legacy Patchright/storage-state bootstrap:
+Hosted 1.0 Playwright/storage-state bootstrap:
 
 ```bash
+XOMETRY_BROWSER_ENGINE=playwright \
 npm --prefix worker run auth:xometry -- /custom/path/xometry.json
 ```
 
@@ -146,19 +154,19 @@ For batch mode, the script opens vendors sequentially and waits for Enter after 
 ### Step 2 — Export the session paths
 
 ```bash
-export XOMETRY_BROWSER_ENGINE="camoufox"
-export XOMETRY_USER_DATA_DIR="$PWD/worker/state/xometry-camoufox-user-data"
-export FICTIV_STORAGE_STATE_PATH="$PWD/worker/state/fictiv-storage-state.json"
-export QUOTE_VENDOR_STORAGE_STATE_DIR="$PWD/worker/state/vendor-sessions"
+export XOMETRY_BROWSER_ENGINE="playwright"
+export XOMETRY_STORAGE_STATE_PATH="$PWD/worker/state/xometry-storage-state.json"
 export WORKER_LIVE_ADAPTERS="xometry"
 ```
 
-Use `WORKER_LIVE_ADAPTERS=xometry` for the first controlled `dmrifles@gmail.com` app test.
-Expand to `xometry,fictiv` after the Xometry app-triggered path passes.
+Use `WORKER_LIVE_ADAPTERS=xometry` for every controlled 1.0 run. Do not expand
+the 1.0 worker to Fictiv or another vendor after Xometry passes; additional
+lanes must be promoted by `ROADMAP.md` and certified separately.
 For hidden candidates, set `WORKER_LIVE_ADAPTERS` to a narrow explicit list such as
 `oshcut` or `oshcut,fabworks` only during internal validation.
-These paths assume you are running commands from the repo root; adapt them for hosted or custom layouts.
-Add these values to your shell profile or `.env` in `worker/` so you don't have to repeat them.
+These paths assume commands run from the repo root. Fictiv and hidden-candidate
+session variables belong only to separately approved non-1.0 internal tests.
+Do not add them to the controlled-beta worker configuration.
 
 ### Step 2b — Run a hidden vendor workflow smoke
 
@@ -203,14 +211,14 @@ npm --prefix worker run validate:openclaw-gate -- --quote-run-id <quote_run_id>
 # Save output to a file
 npm --prefix worker run validate:openclaw-gate -- --quote-run-id <id> --out gate-report.json
 
-# Require both vendors after the single-vendor app path is stable
+# Internal/deferred two-vendor diagnostic; never a 1.0 beta gate
 npm --prefix worker run validate:openclaw-gate -- --quote-run-id <id> --required-vendors xometry,fictiv
 ```
 
 **Task A pass criteria (default):** `xometry` must return a real quote with non-null
 `total_price_usd` and `lead_time_business_days`, and `quote_url` must not start with `simulated://`.
 
-**Full gate pass criteria (`--required-vendors xometry,fictiv`):** both `xometry` and `fictiv`
+**Internal/deferred two-vendor gate (`--required-vendors xometry,fictiv`):** both `xometry` and `fictiv`
 must return real quotes with non-null `total_price_usd` and `lead_time_business_days`, and
 `quote_url` must not start with `simulated://`.
 
@@ -285,7 +293,7 @@ npm --prefix worker run install:browsers
 | `SUPABASE_URL` | yes | — | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | — | Service role key (never expose to client) |
 | `WORKER_MODE` | no | `simulate` | `simulate` or `live`. Live makes real vendor calls. |
-| `WORKER_LIVE_ADAPTERS` | no | `xometry` | Comma-separated list of live-enabled vendors (e.g. `xometry,fictiv`; hidden candidates require explicit opt-in) |
+| `WORKER_LIVE_ADAPTERS` | no | `xometry` | Comma-separated list of live-enabled vendors. The 1.0 beta requires exactly `xometry`; every additional adapter is an explicit internal/deferred opt-in. |
 | `WORKER_QUANTITY_PRICING_LADDER` | no | `1,10,100,1000` | Comma/slash/space-separated quantity ladder used for quantity-pricing sweeps |
 | `WORKER_VENDOR_RATE_LIMIT_MS` | no | `0` | Optional delay after each vendor quote task for live vendor-session throttling |
 | `WORKER_PRICING_MODEL_ENABLED` | no | `false` | Enables internal-only estimate helpers; estimates still require live vendor verification |
@@ -334,14 +342,20 @@ npm --prefix worker run install:browsers
 
 - Keep CI and staging on explicit `WORKER_MODE=simulate`.
 - Set production worker env to `WORKER_MODE=live`.
-- Start with `WORKER_LIVE_ADAPTERS=xometry` for the no-Stripe MVP; expand to `xometry,fictiv` after the app-triggered Xometry path is stable.
+- Keep `WORKER_LIVE_ADAPTERS=xometry` for the entire 1.0 controlled beta. Do not
+  expand the production beta worker after the Xometry path is stable.
 - Prefer `XOMETRY_BROWSER_ENGINE=camoufox` with persistent `XOMETRY_USER_DATA_DIR` for current Xometry live runs.
-- Enable Fictiv live credentials when two-vendor validation is required.
+- Enable Fictiv credentials only for a separately approved internal or future-
+  release environment, never the 1.0 beta worker.
 - Keep hidden vendor candidates out of client quote fan-out until their live portal flow has been validated with real quote evidence.
 - Provide vendor sessions via either mounted file paths or inline secret JSON:
   - `XOMETRY_STORAGE_STATE_PATH` or `XOMETRY_STORAGE_STATE_JSON`
   - `FICTIV_STORAGE_STATE_PATH` or `FICTIV_STORAGE_STATE_JSON`
   - `QUOTE_VENDOR_STORAGE_STATE_DIR`, `QUOTE_VENDOR_STORAGE_STATE_PATHS`, or `QUOTE_VENDOR_STORAGE_STATE_JSON`
 - Confirm startup logs include `Starting worker in live mode`.
+- Before a 1.0 window, verify the named organization has explicit vendor-config
+  rows and its effective enabled vendor list is exactly `xometry`; the no-row
+  multi-vendor default is unsafe for the beta.
 - Within 10 minutes of deploy, run one real quote and confirm quote URLs are not `simulated://`.
-- Refresh vendor sessions at least weekly with `auth:xometry`, `auth:fictiv`, and `auth:vendor`.
+- Refresh the 1.0 Xometry session at least weekly with `auth:xometry`; other
+  session tools are internal/deferred only.

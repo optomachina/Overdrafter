@@ -1,15 +1,15 @@
 # Quote Intelligence App Release
 
-Status: Responsive web delivered; iOS/TestFlight release deferred
+Status: Historical responsive-web delivery record; iOS/TestFlight deferred
 Task ID: `OVERNIGHT-QUOTE-INTELLIGENCE-APP`
 Authorized: July 28, 2026
 Approved product contract: Quote Intelligence design review approved July 28, 2026
 
-Current execution note: as of August 3, 2026, the responsive web product is the
-active customer-interest and pricing-validation surface. iOS production
-readiness and every unchecked TestFlight gate below are paused until explicit
-product-owner re-authorization. Draft PR #271 was closed unmerged with its
-branch preserved.
+This document records an earlier approved design milestone; it no longer sets
+execution order or the release contract. `PLAN.md` owns the current 1.0 queue,
+and `ROADMAP.md` keeps native iOS work deferred. Every unchecked TestFlight gate
+below remains paused until a future roadmap promotion. Draft PR #271 was closed
+unmerged with its branch preserved.
 
 ## Problem
 

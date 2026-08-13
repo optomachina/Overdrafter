@@ -1,127 +1,182 @@
 # OverDrafter Capability Map
 
-Last updated: July 29, 2026
+Last updated: August 12, 2026
 
 ## Purpose
 
-This document classifies OverDrafter capabilities by planning horizon so future work can be turned into coherent epics and issue cards without mixing present-state product behavior with later-stage platform ambitions.
+This map gives every substantial product idea a home without turning every idea
+into active work. `ROADMAP.md` owns promotion rules and release outcomes;
+`PLAN.md` owns the single execution queue.
+
+Classification describes product commitment, not code existence. A capability
+may be substantially implemented and still be deferred until customer evidence
+justifies operating, hardening, or exposing it.
 
 ## Classification legend
 
-- **Now**: already present, partially present, or directly adjacent to the current product
-- **Next**: logical near-term expansion after current hardening and current workspace improvements
-- **Later**: meaningful future work that depends on stronger foundations
-- **Eventually**: long-range capability, not appropriate for immediate execution planning
+- **1.0 committed:** required for Part to Quote
+- **1.1 candidate:** monetization and the first paid pilot after 1.0
+- **1.2 candidate:** quote reliability or coverage after paid-pilot evidence
+- **2.0 candidate:** team procurement after repeat-use evidence
+- **Incubator:** captured but not committed to a numbered release
 
-## Capability map
+## 1.0 — Part to Quote controlled beta
 
-| Capability | Classification | Notes |
-|---|---|---|
-| client part upload | Now | core product capability |
-| project grouping | Now | already present in current product shape |
-| client/internal role separation | Now | foundational and already modeled |
-| quote comparison | Now | core current workflow |
-| published package review | Now | current product capability |
-| worker-based async processing | Now | core implementation foundation |
-| universal iPhone/iPad app | Now | native shell and route-specific web workspaces exist |
-| part workspace redesign | Next | direct continuation of current work |
-| project workspace redesign | Next | direct continuation of current work |
-| quote preset selection | Next | directly adjacent to existing compare flow |
-| review routes before manual procurement | Now | existing part/project review routes with client-side handoff state |
-| organization Free/Pro entitlements | Next | Free preserves unlimited uploads/manual quoting; Pro unlocks automatic collection |
-| commercial account administration | Next | separately authorized, AAL2-protected grants and account inspection |
-| Stripe subscription synchronization | Next | account billing sidecar; not manufacturing-order payment |
-| subscription promotion codes | Next | subscription-only discounts, separate from quote/order totals |
-| persisted procurement handoffs | Next | promote existing client-side handoff state into an authenticated durable record |
-| manual order ledger | Next | explicit order snapshots and externally confirmed visibility without native payment/placement |
-| browser notifications | Next | useful extension of current web product |
-| iOS website-mediated sign-in | Next | contract first; bridge and native client remain dependency-ordered |
-| iOS growth shell | Next | `Inbox \| Parts \| Quotes \| More` plus capability-gated Ask |
-| actionable Quote Inbox | Next | unresolved client quote decisions and recoverable failures only |
-| contextual read-only agent | Next | structured answers over authorized current data; no writes |
-| richer RFQ metadata | Next | directly supports better quoting and review |
-| canonical manufacturing-process classification | Next | user-confirmable classification should normalize drawing/CAD evidence and drive vendor eligibility |
-| service request taxonomy | Next | adjacent product expansion |
-| assembly-aware project workflow | Later | project-scoped assembly context only; does not replace `Project` as the top-level container |
-| DFM / DFA status model | Later | product target is defined now in `docs/manufacturing-review-status-model.md`, but implementation still depends on richer RFQ metadata and service-line-item foundations |
-| fulfillment state tracking | Later | the manual ledger establishes reviewed/ordered visibility; deeper fulfillment remains later |
-| immutable version history | Later | start of PDM foundation |
-| official revisions | Later | part of PDM foundation |
-| part/assembly relationship graph | Later | follows the assembly workspace foundation and depends on a stronger revision model |
-| revision comparison | Later | depends on version graph |
-| Windows app | Later | after web flows are stable |
-| macOS app | Later | after web flows are stable |
-| Android app | Later | after mobile review use cases are defined |
-| consequential agent actions | Later | requires authorization, exact confirmation, idempotency, and audit contract |
-| standards-aware engineering assistant | Later | requires content rights, edition identity, retrieval controls, and citations |
-| SOLIDWORKS plugin | Later | high-value integration, but depends on stronger domain model |
-| Fusion / Inventor / Onshape plugins | Eventually | after first plugin contract proves out |
-| full PDM replacement of SOLIDWORKS PDM | Eventually | strategic ambition, not near-term scope |
-| GrabCAD Workbench-style collaboration replacement | Eventually | strategic direction, not immediate execution |
-| automated DFM assistant | Eventually | requires capability and data maturity |
-| feature-level costing heatmap | Later | depends on normalized geometry features, reviewed tolerances/process, and observed vendor quantity-price curves; estimates must retain confidence and require live verification |
-| vendor recommendation engine | Eventually | requires historical data and ranking logic |
-| autonomous orchestration | Eventually | requires strong auditability and control surfaces |
+| Capability | Disposition |
+|---|---|
+| responsive `Parts \| Quotes \| Search` web shell | certify current behavior |
+| authentication before upload | certify current behavior |
+| STEP/STP part upload and durable retrieval | certify the supported launch package |
+| optional PDF requirement evidence | preserve truth; no PDF-only launch claim |
+| extraction, unknown/conflict handling, and customer correction | certify current review path |
+| durable quote request and run lifecycle | certify idempotency and terminal states |
+| hosted worker | certify health, recovery, and rollback |
+| Xometry automatic quote lane | sole production-certified 1.0 lane |
+| provider guidance and unsupported outcome | certify as honest fallback, not a live quote |
+| quote comparison and selection | certify with trustworthy offers |
+| existing quote preset selection | preserve current behavior; no separate redesign or expansion gate |
+| official vendor purchasing link | safe external handoff only; no order claim |
+| Founding Beta design-partner validation | certify under the cohort, cap, safeguard, and evidence protocol in `docs/founding-beta-program.md` |
 
-## Suggested theme groups
+## 1.1 — Monetization and First Paid Pilot
 
-### Current web product
-- intake
-- workspace navigation
-- part/project workspaces
-- quote comparison
-- review handoff
+| Capability | Promotion evidence needed |
+|---|---|
+| Free/paid packaging | 1.0 usage and interview evidence |
+| monthly Stripe Checkout and Billing Portal activation | approved price and completed 1.0 |
+| grants, grace period, and subscription synchronization | packaging decision and security review |
+| first external paid organization | production certification and buyer commitment |
+| signup-to-quote and handoff conversion | stable event definitions |
+| anonymous upload/quote claim | evidence that pre-auth friction blocks valuable users |
 
-### Manufacturing workspace expansion
-- service requests
-- richer metadata
-- assembly context
-- review states
-- fulfillment states
+## 1.2 — Quote Reliability and Coverage
 
-### PDM and revision control
-- versions
-- revisions
-- file provenance
-- relationships
-- compare and audit
+| Capability | Promotion evidence needed |
+|---|---|
+| Fictiv production certification | unmet demand or resilience need after 1.1 |
+| additional Xometry/Fictiv session and portal hardening | measured production failures |
+| Protolabs, SendCutSend, OSH Cut, RapidDirect, or other provider | observed eligible volume and expected coverage gain |
+| additional materials, processes, quantities, or package types | repeated unsupported customer packages |
+| deterministic-first drawing extraction evaluation | labeled corpus, field-level accuracy baseline, bounded model-fallback policy, and observed quote-path errors |
+| internal manual-request inbox and completion handoff | manual demand that preserves a trustworthy outcome |
+| quote-status notifications | measured customer waiting or return-friction problem |
+| email/voice status follow-up for known quote requests | repeated manual status cost with consent and audit plan |
 
-### Cross-platform access
-- browser notifications
-- desktop clients
-- universal iPhone/iPad client
-- website-mediated mobile authentication
-- actionable mobile Inbox
-- scalable mobile navigation
+## 2.0 — Team Procurement
 
-### CAD-native integrations
-- plugin contract
-- direct upload
-- revision-aware sync
-- CAD-context actions
+| Capability | Promotion evidence needed |
+|---|---|
+| organization/team administration | larger-buyer validation |
+| durable procurement handoffs and approvals | repeated decision-to-purchase coordination problem |
+| comments and notifications | demonstrated multi-person workflow |
+| quote validity, revision identity, and repeat sourcing | repeat-order behavior |
+| recurring demand and blanket-PO intent | repeated buyer need for quantity/cadence planning; no supplier commitment without a separately authorized issuance path |
+| projects and assembly context | coordination need beyond one-part quoting |
+| audit history and role-specific controls | procurement/security requirement |
+| manual order ledger and external order references | demand for post-handoff visibility |
+| responsive mobile access | observed field or approval use case |
 
-### Autonomous orchestration
-- DFM automation
-- vendor recommendation
-- cost prediction
-- assisted workflow progression
+## Incubators
 
-## How to use this map
+### Supplier network
 
-Use this map when:
+- supplier-company and facility directory
+- capability, process, material, certification, and service-area data
+- geographic search and Tucson-first discovery
+- provenance, aliases, deduplication, verification, and historical evidence
+- customer-suggested shops
+- supplier qualification and assisted RFQ preparation/intake
+- verified provider role: direct fabricator, marketplace/aggregator,
+  broker/agent, or unknown
+- customer filters for geography, capability, material, quality, certification,
+  provider role, and evidence freshness
+- quote adapters as transport-specific integrations (API, portal, email, or
+  assisted workflow), including brick-and-mortar/direct-fabricator adapters
+- email and voice agents for vendor qualification or quote follow-up
+- supplier performance, organic ranking, and clearly labeled sponsored placement
 
-- deciding whether an idea belongs in current execution or future roadmap
-- grouping future roadmap work into epics
-- deciding whether a capability should generate Linear cards yet
-- checking whether a proposed implementation is premature
+### Manufacturing intelligence
 
-## Rule for issue creation
+- canonical process, material, finish, tolerance, and feature models
+- deterministic geometry and feature characterization
+- labeled estimator/costing reference parts of increasing complexity: plate,
+  drilled plate, irregular plate, and special-feature/tolerance cases such as
+  surface grinding or EDM
+- manufacturability evidence and DFM/DFA review services
+- internal price estimation and observed quantity-price curves, improved only
+  from reviewed corrections, immutable predictions, and later firm outcomes
+- common-language plating input normalized to controlled requirements while
+  preserving raw text and user confirmation
+- feature-level price ranges, cost-driver heatmaps, and risk visualizations
+- quote benchmarking and supplier outcome cohorts
+- vendor recommendation and prediction-accuracy systems
+- standards-aware engineering assistance with rights, edition, and citations
 
-Create active implementation cards only for capabilities classified as:
+### Design lifecycle and PDM
 
-- Now
-- Next
+- CAD-to-drawing generation and editable drafting
+- revision-linked automatic 3D PDF generation with derivative provenance
+- drawing-to-CAD reconstruction for legacy/replacement parts
+- text-to-CAD and controlled model/drawing edits
+- bidirectional associative package editing
+- immutable versions, official revisions, branches/merges, provenance, and where-used
+- part/assembly relationship graph and revision comparison
+- a shared plug-in contract spanning customer-validated major platforms,
+  including SolidWorks, Fusion, Inventor, Onshape, Creo, Solid Edge, NX, and
+  CATIA/3DEXPERIENCE candidates
+- live 3D workspace plus a conversational read layer that can display any
+  authorized structured artifact or result
+- natural-language actions that remain capability-scoped, confirmed,
+  authorized, idempotent, and audited rather than an unbounded chatbot
 
-Create research, spike, or architecture notes for selected Later items only when they unblock a Now or Next capability.
+### Compliance and quality
 
-Do not create normal implementation backlog for Eventually-classified capabilities unless product direction changes materially.
+- ITAR, EAR jurisdiction/classification (including owner-asserted EAR99), CUI,
+  and other regulated-package designation without presenting legal advice
+- sticky classification with organization-admin designation and elevated,
+  reasoned, immutable review before declassification
+- regulated storage, access, transmission, geography, provider-eligibility,
+  retention/deletion, and incident controls
+- exact ISO/quality-system requirements and evidence with facility, scope,
+  issuer, validity, and provenance
+- material, plating/finish, conformance, and inspection certificate lifecycle
+- compliance-aware supplier and quote filtering that fails closed when current
+  evidence is absent
+
+### Services and fulfillment
+
+- CAD modeling, drawing redraft, FEA, DFM, DFA, assembly, and sourcing service lines
+- authorized purchase-order or supplier-order workflows
+- manufacturing payment, tax, refunds, and disputes
+- inspection and quality records
+- in-production, shipment, delivery, warehouse, and fulfillment coordination
+- ERP, accounting, CRM, and logistics integrations
+
+### Cross-platform experiences
+
+- iPhone/iPad production release and actionable Inbox
+- Android application
+- native macOS and Windows applications
+- contextual read-only assistant
+- consequential agent actions after confirmation, idempotency, and audit contracts
+
+## Implemented does not mean committed
+
+The repository contains meaningful work in several deferred areas, including
+Stripe, iOS, supplier-directory schema, geometry overlays, internal estimates,
+additional vendor adapters, and multiple design explorations. Preserve and
+reuse that work when its capability is promoted. Do not promote it merely to
+justify past effort.
+
+## Issue-creation rule
+
+- Create implementation issues only for the active release and the next bounded
+  proof in `PLAN.md`.
+- A later release may hold a small candidate backlog, but its issues should have
+  no urgency until the release becomes active.
+- An incubator gets a research note or issue only when it is needed to answer a
+  specific promotion question.
+- Every promoted capability must cite the evidence that moved it and identify
+  what active work it displaces.
+- Protect Linear free-plan capacity: the roadmap and project descriptions hold
+  unpromoted ideas; do not create an issue for each brainstorming bullet.

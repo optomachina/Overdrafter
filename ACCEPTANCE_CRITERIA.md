@@ -1,166 +1,197 @@
-# OverDrafter Acceptance Criteria
+# OverDrafter 1.0 Acceptance Criteria
 
-Last updated: August 3, 2026
+Last updated: August 12, 2026
 
 ## Purpose
 
-This document defines what it means for the current repository-hardening phase to be complete.
+This checklist defines the evidence required to release **OverDrafter 1.0 —
+Part to Quote** as a controlled design-partner beta, not general availability.
+It is intentionally limited to the product contract in
+`PRD.md` and the active queue in `PLAN.md`.
 
-## Acceptance criteria
+A passing build is necessary but insufficient. “Bug-free” is not measurable,
+and collecting revenue is a 1.1 milestone. Every checkbox below must have an
+artifact, production observation, test, or explicit human decision behind it.
 
-### Feature addendum — Quote Intelligence web launch and deferred iOS release
+## Supported-package promise
 
-- Authenticated clients can navigate directly to Parts, Quotes, Search, and quote detail.
-- Project remains the backend collaboration/procurement-workflow container and legacy Project/Part links remain compatible; Organization is the commercial account boundary.
-- All/Parts/Assemblies is one filter control over the accessible artifact collection.
-- Search updates while typing and explains structured engineering interpretations without using fabricated geometry.
-- Quote detail presents request facts and supplier offers directly.
-- Buyer comparison uses independent fixed-size points with working-day lead time on X and total quoted price on Y.
-- The chart has no connecting, trend, or Pareto line, and chart/table selection remains synchronized.
-- Missing quote validity, response time, estimate, or benchmark data is shown as unavailable or suppressed rather than inferred.
-- Existing sign-in, upload, quote-request, cancel/retry, and offer-selection behavior remains functional.
-- Signing out, switching accounts, or changing organization/role context cannot render cached workspace data from the prior access scope.
-- The universal iPhone/iPad implementation remains preserved, but its production-readiness and TestFlight gates are deferred until explicit product-owner re-authorization.
-- Responsive-web verification passes before web release; iPhone and iPad verification applies only when the iOS release track resumes.
-- The production website is smoke-tested against the web release build. TestFlight installation and link verification are not gates for the current web-first validation phase.
-- Product, architecture, design, test, and release documentation reflect the shipped behavior.
+- [ ] Customer-facing copy names the exact package envelope in
+      `docs/1-0-beta-runbook.md`: one STEP/STP file submitted as one part,
+      declared units,
+      CNC milling, aluminum 6061-T6, quantity one, as-machined finish, standard
+      `+/- 0.005 in` or looser tolerance, no special requirements, and the
+      stated non-ITAR limit.
+- [ ] Customer-facing copy says that only the explicitly owner-approved golden
+      geometry is certified for repeatable automatic pricing; customer geometry may end in
+      manual review, provider guidance, or unsupported without implying a size
+      or feature guarantee.
+- [ ] A PDF may supply drawing requirements, but missing or conflicting PDF
+      evidence cannot be silently invented and an unsupported PDF-only package
+      is explained honestly.
+- [ ] Quantity and the minimum vendor-required manufacturing facts are reviewed
+      or confirmed before quote dispatch.
+- [ ] Packages outside the boundary reach a bounded unsupported or provider-
+      guidance state with a useful next action.
 
-### Contract addendum — iOS browser authentication
+## Core customer journey
 
-- The versioned contract defines browser start, provider callback, browser
-  completion, claimed HTTPS app callback, and app-web-store bootstrap.
-- The app callback contains only an opaque handoff code and transaction state;
-  access and refresh tokens never enter a callback URL or native persistence.
-- Transaction-specific native state and PKCE S256 bind the callback and
-  one-time bootstrap to the initiating app instance.
-- Provider OAuth validation remains Supabase-owned; the website callback
-  validates its browser transaction before exchanging the Supabase code with a
-  ceremony-scoped PKCE verifier and never reuses the native handoff values or
-  the website's persistent Supabase client.
-- Handoff material contains at least 256 bits of entropy, expires within two
-  minutes, and is single-use under serial and concurrent redemption.
-- Shared-browser sign-in, ephemeral account switching, process death, external
-  email verification/recovery, relaunch, local-session logout, and revocation
-  behavior are explicit.
-- Cancellation, expiry, replay, state mismatch, provider failure, network loss,
-  and bootstrap failure have stable codes and retry behavior.
-- The threat review covers browser/app storage separation, callback
-  interception, token leakage, replay, CSRF, open redirects, cross-tenant
-  access, stale subject data, and logging boundaries.
-- Runtime, native UI, navigation, Ask OverDrafter, and standards-content
-  acceptance remain with their owning issues rather than `OVD-220`.
+- [ ] A new customer can create an account, sign in, and enter the responsive
+      web workspace without internal-only navigation.
+- [ ] The customer can upload one eligible STEP/STP part and optional drawing,
+      then find that part again after a refresh or new session.
+- [ ] Extracted requirements are shown as evidence, unknowns, or conflicts; the
+      customer can correct the quote-facing requirements before dispatch.
+- [ ] One customer action creates durable quote intent without uncontrolled
+      duplicate active requests or vendor runs.
+- [ ] The hosted worker processes the validated Xometry lane under a bounded
+      spend guard and without manufacturing-order authority.
+- [ ] A successful lane produces a persisted live offer with real total price,
+      lead time, vendor identity, source reference, collection time, disclosed
+      package identity, quantity, and commercial-validity facts when supplied.
+- [ ] The customer sees whether the outcome is a live offer, provider guidance,
+      or unsupported package; recommendations and estimates are never labeled
+      as returned quotes.
+- [ ] When more than one trustworthy offer exists, the customer can compare and
+      select one without unrelated offers being presented as a trend or Pareto
+      curve.
+- [ ] A selected offer exposes only a validated official vendor destination and
+      clearly states that vendor sign-in may be required.
+- [ ] The 1.0 journey never claims that OverDrafter placed an order, collected
+      manufacturing payment, or created a purchase order.
 
-### Historical MVP addendum — no-Stripe live quote path for `dmrifles@gmail.com`
-- This delivered milestone remains regression context but is no longer the complete commercial product boundary.
-- The existing `dmrifles@gmail.com` user can sign in to the target environment.
-- `dmrifles@gmail.com` has a client membership in the target organization.
-- The client user can upload supported CNC part files, including STEP/PDF packages.
-- Uploaded parts appear in the client workspace without requiring internal-only navigation.
-- STEP-backed parts receive a persistent isometric CAD preview tied to the current part and CAD file, with sketch styling used by default in collection thumbnails and matching local rendering retained as a fallback.
-- The client user can request a quote from a part or project workspace.
-- The request creates durable quote-request intent and worker queue records.
-- A live worker can process the request with `WORKER_MODE=live` and a narrow `WORKER_LIVE_ADAPTERS` rollout.
-- Xometry live runs use the Camoufox persistent-profile path unless a later validated path replaces it.
-- The client UI shows quote lifecycle state and either a received quote result or explicit manual-follow-up/failure state.
-- No Stripe, billing, card capture, or in-app order placement is required for this MVP.
+## Truth, authorization, and failure safety
 
-### Commercial account and quote-mode addendum
-- The commercial plan is owned by the organization, not by an individual user or membership role.
-- Every organization resolves to either Free or Pro through a server-side effective-entitlement contract.
-- Free users may upload parts and create projects without a customer-facing usage quota.
-- A supported Free upload returns ranked potential providers, fit explanations, and official RFQ links without starting worker or operator work.
-- Every sourcing result is explicitly one of: live offers available, provider recommendations available, or unsupported package.
-- The same sourcing result is visible in the single-part workspace and for the selected part in a project workspace.
-- Potential providers are never presented as returned quotes, and synthetic or stale prices are never labeled live.
-- A live offer must come from a successful trusted Xometry or Fictiv live-adapter result and be no more than 14 days old; all other persisted offers fall back to recommendations.
-- Pro adds the `automatic_quote_collection` entitlement.
-- Automatic quote APIs independently enforce Pro and return a stable `pro_required` result when the UI is bypassed.
-- Vendor authentication expiry, timeout, disabled adapters, and portal failures expose provider guidance rather than stranding the customer.
-- Existing operational throttles and organization cost ceilings remain invisible safeguards, not plan quotas.
-- Authorized billing admins may create and revoke audited trial and complimentary Pro grants under AAL2.
-- Trial grants require an expiration. Complimentary grants require a reason and review date and may optionally expire.
-- Self-service launch Pro costs $49/month through hosted Stripe Checkout.
-- Eligible past-due Pro subscriptions retain Pro access for a seven-day grace period, then resolve to Free without affecting uploads or sourcing guidance.
-- Stripe subscription and invoice facts are synchronized through signed, replay-safe webhooks before they affect access.
-- Annual billing, coupons, promotion codes, procurement handoffs, orders, manufacturing payment collection, automated supplier order placement, tax automation, and ERP/accounting integration remain excluded.
+- [ ] Cross-organization users cannot read or mutate another organization's
+      uploads, requirements, quote requests, offers, or selections.
+- [ ] Sign-out, account switching, organization switching, and role changes do
+      not render cached data from the prior access scope.
+- [ ] Server-side checks enforce package readiness, authorization, launch-lane
+      enablement, rate controls, and spend controls independently of the UI.
+- [ ] A server-enforced beta-organization boundary prevents every organization
+      outside the enrolled allowlist from queuing automatic vendor work, even
+      while the global rollout switch is on and that organization has an
+      unrelated manual grant or Stripe subscription.
+- [ ] The 1.0 worker is configured with exactly `xometry`, the enrolled
+      organization's effective vendor list is exactly `xometry`, and a missing
+      organization-vendor configuration fails closed instead of inheriting the
+      legacy multi-vendor defaults.
+- [ ] Simulated, synthetic, stale, mismatched-scope, or untrusted-adapter prices
+      cannot pass as live offers.
+- [ ] Vendor authentication expiry, portal change, timeout, disabled rollout,
+      and queue failure each reach a finite, customer-safe terminal state.
+- [ ] Retry and cancel behavior cannot create uncontrolled duplicate vendor work
+      or any supplier order.
+- [ ] Customer-visible errors contain no credentials, storage-state material,
+      internal stack traces, or unnecessary personal data.
+- [ ] Before dispatch, the customer sees Xometry, the exact outbound filenames,
+      and normalized requirements; affirms authority to disclose them and their
+      non-ITAR/export-control status; and accepts the applicable notice revision.
+- [ ] The server preserves the actor, organization, time, notice revision,
+      provider, file identities, normalized requirements, and immutable
+      disclosure-scope fingerprint; a scope change requires new confirmation.
+- [ ] Final Terms, Privacy Policy, external-provider disclosure, retention,
+      deletion, diagnostic-access, and incident/support paths are published and
+      linked from the product; placeholder policy copy is absent.
+- [ ] The currently public signup/upload path either requires the approved
+      notice before file upload or is restricted to enrolled organizations;
+      public signup is not represented as controlled-beta enrollment by itself.
 
-### Feature addendum — Client-triggered quote requests
-- A logged-in client user can request a quote from the part workspace for an uploaded part they can edit.
-- A client user can request quotes for the ready parts in a project workspace without using an internal-only surface.
-- Quote request creation is idempotent for active requests. Repeated clicks do not create uncontrolled duplicate active runs.
-- The backend validates ownership, readiness, and required package prerequisites before queueing work.
-- Client-triggered requests dispatch across the org-enabled vendors that are applicable to the current package.
-- Quote request intent is persisted separately from quote run execution and vendor-specific result records.
-- The worker picks up the queued work and starts vendor quote collection through the adapter boundary for each queued vendor lane.
-- The client UI clearly shows quote request lifecycle state: `not requested`, `queued`, `requesting`, `received`, `failed`, or `canceled`.
-- Cross-org users cannot request or inspect quote request state for jobs they do not own or cannot access.
-- Every persisted vendor/part/quantity request lane records a versioned fingerprint of the exact disclosed files and manufacturing fields without exposing that fingerprint through client APIs.
-- Offer capture accepts an explicit expiration or explicit duration, derives the counterpart when possible, preserves the original vendor terms and source, and leaves commercial validity unknown when not supplied.
-- Collection freshness and vendor-stated commercial validity remain separate signals; historical offers are not assigned invented expiration dates.
-- Quote selection disables covered or cooling vendor lanes with explicit validity or retry timing, and a fully covered selection routes to the current comparison instead of failing.
-- Manual intake accepts either a valid-until date or a positive validity duration, while billing-admin invalidation requires AAL2, a reason, idempotency, and append-only audit evidence.
-- Relevant product, planning, architecture, and test documents are updated in the same change.
+## Production certification
 
-### Feature addendum — Supplier discovery foundation
+- [ ] The human owner explicitly approves authority to disclose the exact
+      golden STEP hash to Xometry, confirms its non-ITAR/export-control status,
+      and approves the complete `quote-lane-scope.v1` record before dispatch.
+- [ ] The human owner separately confirms public-distribution rights for the
+      currently served golden STEP bytes, or the public artifact is removed or
+      replaced and any required incident/notification response is recorded.
+- [ ] Customer surfaces do not advertise the unapproved `$49/month` or a
+      self-service Pro upgrade during the Founding Beta; billing remains off and
+      beta access is described truthfully.
+- [ ] `OVD-206` records five consecutive hosted-worker runs of the controlled
+      golden package defined in `docs/1-0-beta-runbook.md` over at least two
+      separate sessions, each returning a real Xometry offer without database
+      repair or staff UI operation.
+- [ ] The same evidence records quote price, lead time, vendor/source reference,
+      timing, lifecycle transitions, and approximate run cost without exposing
+      secrets.
+- [ ] A forced vendor/session failure proves the bounded fallback and recovery
+      path; no request remains indefinitely queued or requesting.
+- [ ] Production health surfaces queue progress, worker health, session age, and
+      actionable failure context to the operator.
+- [ ] The automatic-quote rollout can be disabled without disabling upload,
+      requirement review, existing result access, or safe provider guidance.
+- [ ] A rollout preflight proves the named enrolled organization is the only
+      organization eligible for the certification window and that no quote-run
+      lane other than Xometry can be created.
+- [ ] The documented rollback and session re-authentication procedure has been
+      executed successfully by the named operator using the hosted worker's
+      supported Playwright storage-state deployment path.
 
-- Instant-quote vendor adapters remain distinct from supplier-directory companies and facilities.
-- Supplier records can preserve multiple facilities, capabilities, certifications, aliases, source records, and verification events.
-- Geographic search is facility-based and does not assume a company has only one location.
-- Imported historical records retain source and effective-date provenance and are not represented as currently verified by default.
-- Customer-suggested suppliers can enter a candidate state without becoming published or verified automatically.
-- Organic technical eligibility and match scoring are independent of paid placement.
-- Any future paid placement is explicitly labeled and cannot make an ineligible supplier appear qualified.
+## External design-partner proof
 
-### 1. Canonical root documentation
-- `PRD.md` exists at repo root.
-- `PLAN.md` exists at repo root.
-- `ARCHITECTURE.md` exists at repo root.
-- `TEST_STRATEGY.md` exists at repo root.
-- `ACCEPTANCE_CRITERIA.md` exists at repo root.
-- `README.md` points to the canonical docs.
+- [ ] The Founding Beta follows `docs/founding-beta-program.md`; personal
+      contacts receive the same qualification, terms, disclosures, access
+      controls, and evidence protocol as every participant.
+- [ ] At least three target users—tinkerer, student/freelance engineer, or very
+      small-company buyer—each test with an eligible part they supplied; five
+      participants is the operating target when capacity and segment diversity
+      support it.
+- [ ] Across those users, at least five production attempts reach a truthful
+      terminal state without OverDrafter staff repairing records or operating
+      the customer's interface.
+- [ ] At least three of the external attempts receive a real live offer and the
+      customer can explain the price, lead time, and next step correctly.
+- [ ] Every observed stop, misunderstanding, and unsupported package is logged;
+      launch-blocking failures are fixed and retested, while expansion requests
+      are routed to `ROADMAP.md`.
+- [ ] At least two participants say the resulting quote decision would replace
+      or materially shorten a sourcing step they perform today.
+- [ ] Every attempt has sanitized customer-time, elapsed-time, staff-
+      intervention, direct-cost, result-type, and comprehension evidence; no
+      filenames, file contents, raw quote payloads, credentials, or unnecessary
+      personal data enter analytics or Linear.
+- [ ] The program stops after four weeks from first activation or twenty
+      automatic-provider runs, and the completion report records value,
+      reliability, support burden, unit economics, incidents, expansion themes,
+      and an explicit proceed/change/manage/narrow/stop recommendation.
+- [ ] Paid-pilot reactions may inform the report, but a real offer, acceptance,
+      charge, or paid customer remains a 1.1 decision rather than a 1.0 gate.
 
-### 2. Source-of-truth hierarchy is explicit
-- The repo clearly states the hierarchy of truth.
-- `AGENTS.md` names the hierarchy explicitly.
+## Verification and release readiness
 
-### 3. `AGENTS.md` is a real operating manual
-- Root `AGENTS.md` is sufficient to guide an agent or contributor.
-- It includes verification expectations.
-- It includes package manager policy.
-- It includes branch/worktree guidance.
+- [ ] Targeted upload, authorization, extraction/review, quote lifecycle,
+      trusted-offer, comparison/selection, and vendor-link tests pass.
+- [ ] The full repository and worker verification gates pass against the release
+      candidate.
+- [ ] The authenticated production smoke covers signup/sign-in through vendor
+      handoff on the deployed release candidate.
+- [ ] The viewport, browser, keyboard, focus, label/status, and automated
+      accessibility checks in `docs/1-0-beta-runbook.md` pass or have an
+      explicitly narrowed customer-facing support claim.
+- [ ] There are no known P0/P1 defects in the scoped journey; lower-severity
+      known defects have an owner, workaround or risk statement, and Linear ID.
+- [ ] Monitoring owner, customer-support route, spend ceiling, rollout control,
+      rollback trigger, and vendor-session owner are recorded.
+- [ ] `README.md`, `PRD.md`, `PLAN.md`, `ROADMAP.md`,
+      `docs/1-0-beta-runbook.md`, `docs/founding-beta-program.md`, and public
+      copy describe the same 1.0 capability and exclusions.
+- [ ] Evidence and checkbox state are recorded in the single rolling Linear
+      comments for `OVD-206`, `OVD-359`, `OVD-319`, and `OVD-358` as assigned
+      in the runbook; proprietary customer files are not attached to Linear.
+- [ ] A human release decision records the evidence links and explicitly accepts
+      any remaining non-blocking risk.
 
-### 4. Package and tooling ambiguity is removed
-- One package manager is authoritative.
-- The unused lockfile is removed.
-- Standard local verification scripts are present and documented.
+## Non-gates
 
-### 5. Local verification is standardized
-- Lint is runnable locally.
-- Typecheck is runnable locally.
-- Tests are runnable locally.
-- Build is runnable locally.
+The following are not required for 1.0 and must not be used to hold the release:
 
-### 6. CI is stronger than build-only validation
-- CI runs more than just a basic build.
-- CI includes the key static checks and automated verification expected by the repo.
+- anonymous upload or quote claim into a new account
+- self-service subscription billing or a paid customer
+- additional automatic vendor lanes
+- native apps or CAD plug-ins
+- supplier discovery or supplier-communication agents
+- geometry characterization, estimates, heatmaps, or DFM/DFA
+- CAD/drawing automation or PDM
+- manufacturing payment, ordering, inspection, warehousing, or fulfillment
 
-### 7. Testing policy is explicit and enforceable
-- The repo defines when tests are expected by change type.
-- Bug fixes require tests when practical.
-- Behavior-changing changes require test evidence or an explicit rationale for omission.
-
-### 8. PR discipline is standardized
-- A PR template exists.
-- The template requests problem, scope, verification evidence, and risk notes.
-
-### 9. Branch and worktree discipline is documented
-- The repo states when worktrees should be used.
-- Branch naming conventions are documented.
-- Nontrivial work is expected to happen in isolated branches or worktrees.
-
-### 10. Vendor purchasing links fail closed
-- Customer quote comparisons expose stored vendor quote links for Xometry, Fictiv, Protolabs, and SendCutSend when
-  the URL uses HTTPS and matches the selected vendor's official domain.
-- Unsupported vendors, simulated URLs, credential-bearing URLs, insecure URLs, and mismatched domains do not render
-  as customer-visible purchasing actions.
-- The interface states that vendor sign-in or a vendor-issued guest link may still be required.
+Their promotion rules and future homes are in `ROADMAP.md`.

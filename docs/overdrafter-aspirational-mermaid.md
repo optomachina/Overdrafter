@@ -1,8 +1,15 @@
 # OverDrafter Aspirational Mermaid Chart
 
-This diagram shows the product's intended long-term shape from [PRD.md](/Users/blainewilson/Documents/GitHub/Overdrafter/PRD.md), [ARCHITECTURE.md](/Users/blainewilson/Documents/GitHub/Overdrafter/ARCHITECTURE.md), [capabilitymap.md](/Users/blainewilson/Documents/GitHub/Overdrafter/capabilitymap.md), and [docs/fulfillment-state-model.md](/Users/blainewilson/Documents/GitHub/Overdrafter/docs/fulfillment-state-model.md).
+This diagram shows the product's intended long-term shape from [PRD.md](../PRD.md),
+[ARCHITECTURE.md](../ARCHITECTURE.md), [capabilitymap.md](../capabilitymap.md),
+and [the fulfillment state model](fulfillment-state-model.md). It is an
+aspirational artifact and does not expand the active queue in `PLAN.md`.
 
-It intentionally separates the core manufacturing workspace from account-subscription infrastructure and later manufacturing integrations. Stripe subscription billing is an active staged sidecar; ERP sync, shipping carriers, supplier systems, manufacturing payment collection, and automated supplier placement remain outside the near-term core.
+It intentionally separates the core manufacturing workspace from account-
+subscription infrastructure and later manufacturing integrations. Stripe
+subscription machinery is an implemented but disabled 1.1 hypothesis; ERP
+sync, shipping carriers, supplier systems, manufacturing payment collection,
+and automated supplier placement remain deferred.
 
 ```mermaid
 flowchart LR

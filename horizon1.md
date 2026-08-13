@@ -2,6 +2,9 @@
 
 Last updated: July 29, 2026
 
+> **Planning status:** Incubator source material. `ROADMAP.md` and `PLAN.md`
+> supersede this file for commitment and sequencing.
+
 ## Purpose
 
 This horizon focuses on making the current web application more coherent, useful, and execution-ready without yet expanding into native apps, CAD plugins, or a full PDM system.

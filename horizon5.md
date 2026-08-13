@@ -2,6 +2,9 @@
 
 Last updated: March 11, 2026
 
+> **Planning status:** Incubator source material. `ROADMAP.md` and `PLAN.md`
+> supersede this file for commitment and sequencing.
+
 ## Purpose
 
 This horizon reduces the gap between CAD authoring tools and OverDrafter by meeting users inside their design environment.

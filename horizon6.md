@@ -2,6 +2,9 @@
 
 Last updated: March 11, 2026
 
+> **Planning status:** Incubator source material. `ROADMAP.md` and `PLAN.md`
+> supersede this file for commitment and sequencing.
+
 ## Purpose
 
 This horizon describes the long-range direction in which OverDrafter automates more of the manufacturing workflow while preserving operator control, reviewability, and auditability.
