@@ -382,7 +382,9 @@ const ClientPart = () => {
 
   const breadcrumbProject = projectMemberships[0]?.project ?? null;
   const isFavorite = pinnedJobIds.includes(jobId);
-  const currentUrl = typeof window === "undefined" ? `/parts/${jobId}` : window.location.href;
+  const currentUrl = typeof window === "undefined"
+    ? appAwareHref(`/parts/${jobId}`)
+    : new URL(appAwareHref(`/parts/${jobId}`), window.location.origin).toString();
 
   const navigateToAdjacentRevision = (direction: "previous" | "next") => {
     if (revisionOptions.length < 2) {

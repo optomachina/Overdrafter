@@ -806,6 +806,7 @@ describe("ClientPart", () => {
     expect(screen.getByRole("button", { name: "Upload part files" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Share part" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "More part actions" })).toBeInTheDocument();
+    expect(lastShellProps?.uploadSlot).toBeUndefined();
     expect(screen.queryByRole("tab", { name: "Files" })).not.toBeInTheDocument();
     // PartInfoPanel renders once in the primary workspace.
     expect(screen.queryByRole("tab", { name: "Request" })).not.toBeInTheDocument();
@@ -824,6 +825,59 @@ describe("ClientPart", () => {
 
     await openActivitySection();
     await screen.findByLabelText("Leave a comment");
+  });
+
+  it("downloads the CAD file from the Part header", async () => {
+    const cadFile = {
+      id: "cad-file-1",
+      job_id: "job-1",
+      organization_id: "org-1",
+      file_kind: "cad" as const,
+      blob_id: "blob-1",
+      storage_bucket: "job-files",
+      storage_path: "org-1/job-1/bracket.step",
+      normalized_name: "bracket.step",
+      original_name: "bracket.step",
+      mime_type: "application/step",
+      size_bytes: 1024,
+      content_sha256: "hash",
+      matched_part_key: null,
+      uploaded_by: "user-1",
+      created_at: "2026-03-01T00:00:00Z",
+    };
+    const baseDetail = createPartDetail();
+    api.fetchPartDetailByJobId.mockResolvedValue(
+      createPartDetail({
+        files: [cadFile],
+        part: { ...baseDetail.part, cad_file_id: cadFile.id, cadFile },
+      }),
+    );
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => "blob:cad-download"),
+    });
+
+    renderWithClient("/parts/job-1");
+    fireEvent.click(await screen.findByRole("button", { name: "Download CAD file" }));
+
+    await waitFor(() => {
+      expect(storedFile.downloadStoredFileBlob).toHaveBeenCalledWith(cadFile);
+      expect(click).toHaveBeenCalledTimes(1);
+    });
+    click.mockRestore();
+  });
+
+  it("shares the Part URL with a copy-link fallback", async () => {
+    renderWithClient("/parts/job-1");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Share part" }));
+
+    await waitFor(() => {
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("http://localhost:3000/parts/job-1");
+      expect(toastMock.success).toHaveBeenCalledWith("Part link copied.");
+    });
   });
 
   it("puts provider-only sourcing guidance before an empty quote comparison", async () => {
