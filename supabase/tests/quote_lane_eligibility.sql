@@ -267,7 +267,8 @@ insert into public.vendor_quote_offers (
 
 select ok(
   (
-    select validity_source = 'operator_date'
+    select quoted_at = '2026-08-12 00:00:00+00'::timestamptz
+      and validity_source = 'operator_date'
       and valid_until = '2026-08-31 23:59:59.999999+00'::timestamptz
       and validity_duration_days = 20
     from public.vendor_quote_offers
@@ -383,8 +384,13 @@ set finish = null
 where part_id = '81000000-0000-4000-8000-000000000006';
 
 update public.vendor_quote_offers
-set valid_until = '2026-08-13 00:00:00+00', validity_duration_days = 1
+set valid_until = timezone('utc', now()) - interval '1 hour',
+    validity_duration_days = 1
 where id = '81000000-0000-4000-8000-000000000011';
+
+update public.quote_request_lanes
+set created_at = timezone('utc', now()) - interval '25 hours'
+where vendor = 'xometry';
 
 select is(
   (
@@ -392,13 +398,17 @@ select is(
     from private.resolve_quote_lane_eligibility(
       '81000000-0000-4000-8000-000000000003',
       '{xometry}'::public.vendor_name[],
-      '2026-08-14 00:00:00+00'
+      timezone('utc', now())
     )
     where requested_quantity = 1
   ),
   'requestable',
   'an expired historical offer no longer permanently blocks its lane'
 );
+
+update public.vendor_quote_offers
+set valid_until = timezone('utc', now()) + interval '1 day'
+where id = '81000000-0000-4000-8000-000000000011';
 
 update public.quote_request_lanes
 set created_at = timezone('utc', now()) - interval '25 hours'
