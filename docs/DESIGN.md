@@ -177,7 +177,7 @@ The July 28, 2026 launch direction supersedes the persistent left ledger as the 
 - Responsive web navigation is `PARTS | QUOTES | SEARCH`.
 - Authenticated web uses one stable application frame: a 52px collapsed / 224px expanded left rail at tablet width and above, and a 224px navigation drawer on narrower screens. Collapsing changes rail width and label opacity only; navigation icon nodes remain mounted and position-stable.
 - The launch client routes—Parts, Quotes, Search, part detail, and quote detail—use one 56px page header and one primary workspace scroll container. Document-level scrolling and route-specific shell variants are not permitted within those launch surfaces; legacy project and review construction shells remain out of scope.
-- A contextual inspector is optional. It occupies 336px beside the workspace at wide desktop sizes and becomes a 336px sheet on tablet and phone so the central artifact view never gets squeezed.
+- The launch web workspace uses one primary content column. Requirements and contextual controls render inline with the artifact and decision surface; a persistent right inspector is not part of the launch shell.
 - The approved iPhone shell is `INBOX | PARTS | QUOTES | MORE`, with a
   separate `ASK` action adjacent to the bottom destination bar. iPad may adapt
   the same destinations to a native sidebar.
@@ -195,7 +195,7 @@ The July 28, 2026 launch direction supersedes the persistent left ledger as the 
 - Quote detail uses progressive hierarchy: estimate/request context leads before responses; actual offers lead after responses arrive.
 - Buyer quote scatter uses independent fixed-size points: working-day lead time on X, quoted total on Y. Never draw a connecting, trend, or Pareto line.
 - Chart and table are two views of one selection state.
-- Validity, source URL, and response timing live in the selected-response inspector when the source data exists; they do not permanently widen the core decision table on small screens.
+- Validity, source URL, and response timing live in the selected-response details when the source data exists; they do not permanently widen the core decision table on small screens.
 - In the first beta, `?app=ios` may suppress redundant web navigation because
   the native shell owns Parts/Quotes/Search. In the approved target it may
   suppress Inbox/Parts/Quotes/More and Search-under-More navigation. Both
@@ -206,7 +206,7 @@ The July 28, 2026 launch direction supersedes the persistent left ledger as the 
 
 ### Other layouts
 
-- **Project ledger:** dense parts table, full-width, hairline rows, mono numeric columns right-aligned, plain-word status, hover = `--surface-2`, selected row = inset accent border. Selecting a part reveals the canonical quote scatter and compact vendor table in the primary workspace; the side inspector remains metadata and controls. No card grids. No zebra striping.
+- **Project ledger:** dense parts table, full-width, hairline rows, mono numeric columns right-aligned, plain-word status, hover = `--surface-2`, selected row = inset accent border. Selecting a part reveals the canonical quote scatter and compact vendor table in the primary workspace; metadata and controls remain inline. No card grids. No zebra striping.
 - **Marketing surfaces:** if any exist, follow the same system. The bone background, hairline rules, and mono filenames hold up at landing-page scale.
 - **Settings / admin:** form fields use hairline borders, mono labels, no rounded inputs above 2px radius.
 - **Empty states:** plain mono text with one labelled action. No illustrations.
@@ -335,9 +335,9 @@ Reject any UI work that includes:
 
 The following patterns are the locked outcomes of the 2026-05-05 design-shotgun MVP exploration. They sit on top of the visual thesis, palette, typography, spacing, and layout sections above and refine specific interactions. The `Order Confirmation` material is preserved as historical design evidence only; its payment and direct-placement semantics are superseded by the July 29 commercial boundary and must not be implemented without the `OVD-232` exploration.
 
-### Slider rails
+### Legacy construction slider rails
 
-Both left and right rails on every workspace surface (Part, Project, Order Confirmation) are collapsible. The handle is a vertical hairline strip on the rail's inner edge containing 6 small dots stacked in 3 pairs and a thin chevron pointing toward the rail. Collapsed rails reduce to a 32px gutter showing only the handle. Body content reflows to fill the freed space.
+This contract applies only to legacy construction surfaces that still use paired rails. Launch client Part, Project, Quote, Parts, and Search routes use the single-column shell contract above and do not add a right rail.
 
 ### Left rail composition
 

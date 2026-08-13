@@ -5,7 +5,6 @@ import {
   FileText,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelRightOpen,
   Search,
 } from "lucide-react";
 import { OverDrafterMark } from "@/components/OverDrafterMark";
@@ -31,8 +30,6 @@ type QuoteIntelligenceShellProps = {
   readonly description?: string;
   readonly uploadSlot?: ReactNode;
   readonly accountSlot?: ReactNode;
-  readonly inspector?: ReactNode;
-  readonly inspectorTitle?: string;
   readonly children: ReactNode;
   readonly contentClassName?: string;
 };
@@ -46,9 +43,7 @@ const DESTINATIONS = [
 const DESKTOP_SIDEBAR_COLLAPSED_STORAGE_KEY = "workspace-shell.desktop-collapsed-v1";
 const SIDEBAR_EXPANDED_WIDTH = 224;
 const SIDEBAR_COLLAPSED_WIDTH = 52;
-const INSPECTOR_WIDTH = 336;
 const MOBILE_NAVIGATION_SHEET_ID = "client-mobile-navigation-sheet";
-const MOBILE_INSPECTOR_SHEET_ID = "client-mobile-inspector-sheet";
 const SHELL_TOOLTIP_CLASS_NAME =
   "z-[100] rounded-[2px] border border-paper-hairline bg-paper-ink px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-paper shadow-none";
 
@@ -66,11 +61,6 @@ function readDesktopSidebarCollapsed() {
 function readNarrowViewport() {
   return globalThis.window !== undefined &&
     globalThis.window.matchMedia?.("(max-width: 767px)").matches === true;
-}
-
-function readWideInspectorViewport() {
-  return globalThis.window !== undefined &&
-    globalThis.window.matchMedia?.("(min-width: 1280px)").matches === true;
 }
 
 function persistDesktopSidebarCollapsed(collapsed: boolean) {
@@ -119,26 +109,6 @@ function useSidebarCollapseState() {
   };
 
   return [collapsed, setCollapsedFromUser] as const;
-}
-
-function useWideInspectorViewport() {
-  const [wide, setWide] = useState(readWideInspectorViewport);
-
-  useEffect(() => {
-    if (!globalThis.window?.matchMedia) {
-      return;
-    }
-
-    const mediaQuery = globalThis.window.matchMedia("(min-width: 1280px)");
-    const handleViewportChange = (event: MediaQueryListEvent) => setWide(event.matches);
-
-    setWide(mediaQuery.matches);
-    mediaQuery.addEventListener?.("change", handleViewportChange);
-
-    return () => mediaQuery.removeEventListener?.("change", handleViewportChange);
-  }, []);
-
-  return wide;
 }
 
 type DestinationNavigationProps = Readonly<{
@@ -296,13 +266,9 @@ function MobileNavigation({ open, onOpenChange }: MobileNavigationProps) {
 
 type WorkspaceHeaderProps = Readonly<{
   accountSlot?: ReactNode;
-  hasInspector: boolean;
-  inspectorOpen: boolean;
-  inspectorTriggerRef: RefObject<HTMLButtonElement | null>;
   isIosApp: boolean;
   mobileNavigationOpen: boolean;
   mobileNavigationTriggerRef: RefObject<HTMLButtonElement | null>;
-  onOpenInspector: () => void;
   onOpenMobileNavigation: () => void;
   title: string;
   uploadSlot?: ReactNode;
@@ -310,13 +276,9 @@ type WorkspaceHeaderProps = Readonly<{
 
 function WorkspaceHeader({
   accountSlot,
-  hasInspector,
-  inspectorOpen,
-  inspectorTriggerRef,
   isIosApp,
   mobileNavigationOpen,
   mobileNavigationTriggerRef,
-  onOpenInspector,
   onOpenMobileNavigation,
   title,
   uploadSlot,
@@ -351,70 +313,9 @@ function WorkspaceHeader({
 
       <div className="ml-auto flex min-w-0 items-center gap-2">
         {uploadSlot}
-        {hasInspector ? (
-          <button
-            ref={inspectorTriggerRef}
-            type="button"
-            aria-label="Open inspector"
-            aria-controls={MOBILE_INSPECTOR_SHEET_ID}
-            aria-expanded={inspectorOpen}
-            aria-haspopup="dialog"
-            onClick={onOpenInspector}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-[2px] text-paper-muted hover:bg-paper-inset hover:text-paper-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red sm:h-9 sm:w-9 xl:hidden"
-          >
-            <PanelRightOpen className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
-          </button>
-        ) : null}
         {accountSlot}
       </div>
     </header>
-  );
-}
-
-type InspectorProps = Readonly<{
-  children: ReactNode;
-  title: string;
-}>;
-
-function DesktopInspector({ children, title }: InspectorProps) {
-  return (
-    <aside
-      aria-label={title}
-      data-workspace-inspector="desktop"
-      className="hidden h-full shrink-0 flex-col overflow-hidden border-l border-paper-hairline bg-paper xl:flex"
-      style={{ width: `${INSPECTOR_WIDTH}px` }}
-    >
-      <div className="flex h-14 shrink-0 items-center border-b border-paper-hairline px-4">
-        <h2 className="truncate font-mono text-[10px] uppercase tracking-[0.08em] text-paper-muted">{title}</h2>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">{children}</div>
-    </aside>
-  );
-}
-
-type MobileInspectorProps = InspectorProps & Readonly<{
-  onOpenChange: (open: boolean) => void;
-  open: boolean;
-}>;
-
-function MobileInspector({ children, onOpenChange, open, title }: MobileInspectorProps) {
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        id={MOBILE_INSPECTOR_SHEET_ID}
-        side="right"
-        aria-describedby={undefined}
-        data-workspace-inspector="sheet"
-        className="w-screen max-w-none gap-0 border-paper-hairline bg-paper p-0 text-paper-ink shadow-none sm:w-[336px] sm:max-w-[336px] [&>button]:rounded-[2px] xl:hidden"
-      >
-        <SheetHeader className="h-14 justify-center border-b border-paper-hairline px-4 text-left">
-          <SheetTitle className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-paper-muted">
-            {title}
-          </SheetTitle>
-        </SheetHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">{children}</div>
-      </SheetContent>
-    </Sheet>
   );
 }
 
@@ -424,8 +325,6 @@ export function QuoteIntelligenceShell({
   description,
   uploadSlot,
   accountSlot,
-  inspector,
-  inspectorTitle = "Inspector",
   children,
   contentClassName,
 }: QuoteIntelligenceShellProps) {
@@ -434,11 +333,7 @@ export function QuoteIntelligenceShell({
   const isIosApp = searchParams.get("app") === "ios";
   const [sidebarCollapsed, setSidebarCollapsed] = useSidebarCollapseState();
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
-  const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
   const mobileNavigationTriggerRef = useRef<HTMLButtonElement>(null);
-  const mobileInspectorTriggerRef = useRef<HTMLButtonElement>(null);
-  const hasInspector = inspector != null;
-  const wideInspectorViewport = useWideInspectorViewport();
 
   useEffect(() => {
     if (!globalThis.window?.matchMedia) {
@@ -460,23 +355,10 @@ export function QuoteIntelligenceShell({
     return () => mediaQuery.removeEventListener?.("change", handleViewportChange);
   }, []);
 
-  useEffect(() => {
-    if (wideInspectorViewport || !hasInspector) {
-      setMobileInspectorOpen(false);
-    }
-  }, [hasInspector, wideInspectorViewport]);
-
   const handleMobileNavigationOpenChange = (open: boolean) => {
     setMobileNavigationOpen(open);
     if (!open) {
       globalThis.window?.setTimeout(() => mobileNavigationTriggerRef.current?.focus(), 0);
-    }
-  };
-
-  const handleMobileInspectorOpenChange = (open: boolean) => {
-    setMobileInspectorOpen(open);
-    if (!open) {
-      globalThis.window?.setTimeout(() => mobileInspectorTriggerRef.current?.focus(), 0);
     }
   };
 
@@ -499,13 +381,9 @@ export function QuoteIntelligenceShell({
           />
           <WorkspaceHeader
             accountSlot={accountSlot}
-            hasInspector={hasInspector}
-            inspectorOpen={mobileInspectorOpen}
-            inspectorTriggerRef={mobileInspectorTriggerRef}
             isIosApp={isIosApp}
             mobileNavigationOpen={mobileNavigationOpen}
             mobileNavigationTriggerRef={mobileNavigationTriggerRef}
-            onOpenInspector={() => setMobileInspectorOpen(true)}
             onOpenMobileNavigation={() => setMobileNavigationOpen(true)}
             title={title}
             uploadSlot={uploadSlot}
@@ -534,23 +412,8 @@ export function QuoteIntelligenceShell({
               </div>
             </main>
 
-            {hasInspector ? (
-              <DesktopInspector title={inspectorTitle}>
-                {wideInspectorViewport ? inspector : null}
-              </DesktopInspector>
-            ) : null}
           </div>
         </div>
-
-        {hasInspector && !wideInspectorViewport ? (
-          <MobileInspector
-            open={mobileInspectorOpen}
-            onOpenChange={handleMobileInspectorOpenChange}
-            title={inspectorTitle}
-          >
-            {inspector}
-          </MobileInspector>
-        ) : null}
       </div>
     </TooltipProvider>
   );

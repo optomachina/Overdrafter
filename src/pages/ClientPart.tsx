@@ -5,12 +5,13 @@ import {
   Bell,
   ChevronRight,
   Copy,
+  Download,
   FolderInput,
   History,
   Loader2,
   MessageSquare,
   MoreHorizontal,
-  PlusSquare,
+  Share2,
   Star,
   MoveRight,
   Upload,
@@ -204,7 +205,6 @@ const ClientPart = () => {
     isRenamingPart,
     jobId,
     navigate,
-    newJobFilePicker,
     partDetail,
     partRenameValue,
     pinnedJobIds,
@@ -407,6 +407,24 @@ const ClientPart = () => {
     }
   };
 
+  const handleSharePart = async () => {
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({
+          title: displayPartTitle || "Part",
+          url: currentUrl,
+        });
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+      }
+    }
+
+    await handleCopyLink();
+  };
+
   const handleAddComment = () => {
     const body = commentDraft.trim();
 
@@ -455,7 +473,7 @@ const ClientPart = () => {
     ? { ...extractionDefaults, ...dbDefaults }
     : extractionDefaults;
 
-  const partInfoPanel =
+  const partInformation =
     partDetail?.job && presentation ? (
       <PartInfoPanel
         effectiveRequestDraft={effectiveRequestDraft}
@@ -651,17 +669,6 @@ const ClientPart = () => {
       />
       <QuoteIntelligenceShell
         title={displayPartTitle || "Part"}
-        uploadSlot={
-          <button
-            type="button"
-            aria-label="Upload"
-            onClick={newJobFilePicker.openFilePicker}
-            className="inline-flex h-11 w-11 items-center justify-center gap-2 rounded-[2px] border border-paper-hairline bg-paper-surface text-[12px] font-medium text-paper-ink hover:bg-paper-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper-red sm:h-auto sm:min-h-9 sm:w-auto sm:px-3"
-          >
-            <PlusSquare className="h-4 w-4" aria-hidden="true" />
-            <span className="hidden sm:inline">Upload</span>
-          </button>
-        }
         accountSlot={
           <WorkspaceAccountMenu
             user={user}
@@ -677,8 +684,6 @@ const ClientPart = () => {
             onDeleteArchivedParts={handleDeleteArchivedParts}
           />
         }
-        inspectorTitle="Part info"
-        inspector={partInfoPanel}
       >
         <div className="flex w-full flex-1 flex-col gap-6">
           {isPartDetailLoading ? (
@@ -730,11 +735,40 @@ const ClientPart = () => {
                     <Button
                       type="button"
                       variant="outline"
-                      className="rounded-full border-border bg-accent text-foreground hover:bg-accent/70"
+                      size="icon"
+                      aria-label="Download CAD file"
+                      title={cadFile ? `Download ${cadFile.original_name}` : "No CAD file available"}
+                      className="rounded-[2px] border-border bg-transparent text-foreground hover:bg-accent"
+                      onClick={() => {
+                        if (cadFile) {
+                          void handleDownloadFile(cadFile);
+                        }
+                      }}
+                      disabled={!cadFile}
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label="Upload part files"
+                      title="Upload part files"
+                      className="rounded-[2px] border-border bg-transparent text-foreground hover:bg-accent"
                       onClick={attachFilesPicker.openFilePicker}
                     >
-                      <Upload className="mr-2 h-4 w-4" />
-                      Attach files
+                      <Upload className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label="Share part"
+                      title="Share part"
+                      className="rounded-[2px] border-border bg-transparent text-foreground hover:bg-accent"
+                      onClick={() => void handleSharePart()}
+                    >
+                      <Share2 className="h-4 w-4" />
                     </Button>
                     <DropdownMenu open={isPartOptionsOpen} onOpenChange={setIsPartOptionsOpen}>
                       <DropdownMenuTrigger asChild>
@@ -742,8 +776,8 @@ const ClientPart = () => {
                           type="button"
                           variant="outline"
                           size="icon"
-                          aria-label="Issue detail actions"
-                          className="rounded-full border-border bg-transparent text-foreground hover:bg-accent"
+                          aria-label="More part actions"
+                          className="rounded-[2px] border-border bg-transparent text-foreground hover:bg-accent"
                         >
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
@@ -874,9 +908,7 @@ const ClientPart = () => {
                     onOpenDialog={drawingFile ? () => setShowDrawingPreview(true) : undefined}
                   />
                   <section aria-labelledby="part-information-heading" className="border-t border-border pt-4">
-                    <h2 id="part-information-heading" className="mb-3 text-sm font-medium text-foreground">
-                      Part information
-                    </h2>
+                    <h2 id="part-information-heading" className="sr-only">Part summary</h2>
                     <PartProductDataBar
                       part={partDetail.part}
                       summary={summary}
@@ -886,6 +918,8 @@ const ClientPart = () => {
                   </section>
                 </div>
               </ClientPartHeader>
+
+              {partInformation}
 
               <section
                 id="quote-information"
@@ -1034,17 +1068,6 @@ const ClientPart = () => {
         </div>
       </QuoteIntelligenceShell>
 
-      <input
-        ref={newJobFilePicker.inputRef}
-        type="file"
-        multiple
-        accept={newJobFilePicker.accept}
-        onChange={(event) => {
-          void newJobFilePicker.handleFileInputChange(event);
-        }}
-        className="hidden"
-        aria-label="Create new job from files"
-      />
       <input
         ref={attachFilesPicker.inputRef}
         type="file"

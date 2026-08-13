@@ -10,10 +10,6 @@ vi.mock("@/components/quotes/RfqLineItemMetadataFields", () => ({
   RfqLineItemMetadataFields: () => <div data-testid="rfq-metadata" />,
 }));
 
-vi.mock("@/components/quotes/RequestServiceIntentFields", () => ({
-  RequestServiceIntentFields: () => <div data-testid="service-intent-fields" />,
-}));
-
 function makeDraft(overrides: Partial<ClientPartRequestUpdateInput> = {}): ClientPartRequestUpdateInput {
   return {
     jobId: "job-1",
@@ -63,6 +59,23 @@ function makeDraft(overrides: Partial<ClientPartRequestUpdateInput> = {}): Clien
 const noop = () => {};
 
 describe("ClientPartRequestEditor — reset buttons", () => {
+  it("does not expose multi-service controls in the quote-only client editor", () => {
+    render(
+      <ClientPartRequestEditor
+        draft={makeDraft()}
+        quoteQuantityInput=""
+        onQuoteQuantityInputChange={noop}
+        onChange={noop}
+        onSave={noop}
+        onUploadRevision={noop}
+      />,
+    );
+
+    expect(screen.queryByText(/requested services/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Qty")).toBeInTheDocument();
+    expect(screen.getByLabelText("Quote quantities")).toBeInTheDocument();
+  });
+
   it("renders a reset button when onResetField is provided and draft differs from default", () => {
     const draft = makeDraft({ material: "modified material" });
     const fieldDefaults: FieldDefaults = {

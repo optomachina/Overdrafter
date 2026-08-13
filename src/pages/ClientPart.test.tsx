@@ -183,13 +183,11 @@ vi.mock("@/components/quote-intelligence/QuoteIntelligenceShell", () => ({
   QuoteIntelligenceShell: ({
     children,
     accountSlot,
-    inspector,
     title,
     uploadSlot,
   }: {
     children?: ReactNode;
     accountSlot?: ReactNode;
-    inspector?: ReactNode;
     title?: string;
     uploadSlot?: ReactNode;
   }) => {
@@ -199,7 +197,6 @@ vi.mock("@/components/quote-intelligence/QuoteIntelligenceShell", () => ({
       <div>{uploadSlot}</div>
       <div>{accountSlot}</div>
       <div>{children}</div>
-      <aside>{inspector}</aside>
     </div>;
   },
 }));
@@ -783,13 +780,13 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Issue detail actions" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "More part actions" })).toBeInTheDocument();
     });
 
     expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
     expect(screen.getByTestId("quote-selection-function-bar")).toBeInTheDocument();
     await screen.findByTestId("part-info-panel");
-    expect(screen.getByRole("heading", { name: "Part information" })).toBeInTheDocument();
+    expect(screen.getByTestId("part-info-panel")).toHaveTextContent("Part information");
     expect(screen.getByRole("region", { name: "Revision navigation" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Previous" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next" })).toBeInTheDocument();
@@ -805,22 +802,25 @@ describe("ClientPart", () => {
     expect(screen.queryByRole("tab", { name: "Quote" })).not.toBeInTheDocument();
     expect(screen.getByText("Quote decision panel")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review order" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Attach files" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download CAD file" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload part files" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Share part" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More part actions" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Files" })).not.toBeInTheDocument();
-    // PartInfoPanel is owned by the shell inspector at every viewport so the
-    // request form has one live instance and one set of field IDs.
+    // PartInfoPanel renders once in the primary workspace.
     expect(screen.queryByRole("tab", { name: "Request" })).not.toBeInTheDocument();
     expect(screen.getByTestId("part-viewer-row")).toBeInTheDocument();
     expect(screen.getByTestId("part-product-data-bar")).toBeInTheDocument();
-    // Right rail renders PartInfoPanel without any tab switch.
     expect(screen.getByTestId("part-info-panel")).toBeInTheDocument();
     expect(screen.queryByLabelText("Leave a comment")).not.toBeInTheDocument();
 
     const viewer = screen.getByTestId("part-viewer-row");
     const productData = screen.getByTestId("part-product-data-bar");
+    const partInformation = screen.getByTestId("part-info-panel");
     const quoteDecision = screen.getByTestId("quote-decision-panel");
     expect(viewer.compareDocumentPosition(productData) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(productData.compareDocumentPosition(quoteDecision) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(productData.compareDocumentPosition(partInformation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(partInformation.compareDocumentPosition(quoteDecision) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     await openActivitySection();
     await screen.findByLabelText("Leave a comment");
@@ -1940,10 +1940,10 @@ describe("ClientPart", () => {
     renderWithClient("/parts/job-1");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /issue detail actions/i })).not.toBeNull();
+      expect(screen.getByRole("button", { name: /more part actions/i })).not.toBeNull();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /issue detail actions/i }));
+    fireEvent.click(screen.getByRole("button", { name: /more part actions/i }));
     expect(await screen.findByRole("menuitem", { name: /archive part/i })).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: /^delete$/i })).toBeNull();
   });

@@ -82,36 +82,12 @@ describe("QuoteIntelligenceShell", () => {
     expect(screen.getByRole("navigation", { name: "Primary" })).toHaveClass("pt-0");
   });
 
-  it("provides a shrink-safe 336px inspector only when inspector content exists", () => {
-    const { container } = renderShell({
-      inspector: <div>Requirements</div>,
-      inspectorTitle: "Part info",
-    });
+  it("keeps authenticated routes on one primary workspace without an inspector rail", () => {
+    const { container } = renderShell();
 
-    const inspector = container.querySelector('[data-workspace-inspector="desktop"]');
-    const workspace = screen.getByRole("main");
-
-    expect(inspector).toHaveStyle({ width: "336px" });
-    expect(inspector).toHaveClass("shrink-0", "xl:flex");
-    expect(inspector).toHaveAccessibleName("Part info");
-    expect(workspace).toHaveClass("min-w-0", "flex-1");
-    expect(screen.getByRole("button", { name: "Open inspector" })).toHaveClass("xl:hidden");
-  });
-
-  it("opens the inspector full-screen on phones and at a fixed width above the phone breakpoint", () => {
-    renderShell({
-      inspector: <div>Requirements</div>,
-      inspectorTitle: "Part info",
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Open inspector" }));
-
-    expect(screen.getByRole("dialog")).toHaveClass(
-      "w-screen",
-      "max-w-none",
-      "sm:w-[336px]",
-      "sm:max-w-[336px]",
-    );
+    expect(container.querySelector('[data-workspace-inspector]')).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open inspector" })).not.toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveClass("min-w-0", "flex-1");
   });
 
   it("uses a phone navigation drawer instead of a persistent visible icon rail", () => {

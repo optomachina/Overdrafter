@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobRecord } from "@/features/quotes/types";
 import Index from "./Index";
 
-const guestLandingHeading = /^files in\s+parts out$/i;
+const guestLandingHeading = /^cad in\s+parts out$/i;
 const guestLandingBody =
   /upload CAD files and drawings to collect vendor quotes, compare price and lead time, and choose the best source for your budget and deadline/i;
 
@@ -171,7 +171,7 @@ describe("Index client home", () => {
     expect(screen.getByRole("button", { name: /get started free/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
     expect(screen.getByText(guestLandingBody)).toBeInTheDocument();
-    expect(screen.getByText(/launch scope · machined aluminum · STEP \+ PDF/i)).toBeInTheDocument();
+    expect(screen.queryByText(/launch scope · machined aluminum · STEP \+ PDF/i)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /multiple quotes\. one obvious tradeoff/i })).toBeInTheDocument();
     expect(await screen.findByTestId("anonymous-quote-chart")).toBeInTheDocument();
     expect(screen.getByText(/how it works/i)).toBeInTheDocument();
